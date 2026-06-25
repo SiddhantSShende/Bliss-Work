@@ -68,12 +68,9 @@
 		reverse_proxy auth-svc:8001
 	}
 
-	# Static SPA assets (built `apps/web` output mounted at /srv). Falls through
-	# to index.html for client-side routing. Swap for a CDN if preferred.
+	# Static SPA assets are served by nginx on the private network.
 	handle {
-		root * /srv
-		try_files {path} /index.html
-		file_server
+		reverse_proxy nginx:80
 	}
 
 	# Security headers. HSTS is safe because every route is HTTPS-only here.
