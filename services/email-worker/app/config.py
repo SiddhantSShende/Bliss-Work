@@ -1,6 +1,9 @@
 """Environment-driven configuration for email-worker."""
 from __future__ import annotations
 
+import ssl
+from urllib.parse import parse_qs, urlsplit, urlunsplit
+
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -100,6 +103,36 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("LOG_LEVEL", "log_level"),
     )
 
+    @property
+    def email_db_dsn(self) -> str:
+        return _strip_query(self.email_db_url)
+
+    @property
+    def email_db_ssl_context(self) -> ssl.SSLContext | None:
+        return _ssl_context_from_database_url(self.email_db_url)
+
 
 def load_settings() -> Settings:
     return Settings()
+
+
+def _strip_query(url: str) -> str:
+    parts = urlsplit(url)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, "", parts.fragment))
+
+
+def _ssl_context_from_database_url(url: str) -> ssl.SSLContext | None:
+    query = parse_qs(urlsplit(url).query)
+    sslmode = query.get("sslmode", [""])[0]
+    if not sslmode or sslmode == "disable":
+        return None
+
+    cafile = query.get("sslrootcert", [""])[0]
+    if cafile:
+        context = ssl.create_default_context(cafile=cafile)
+    else:
+        context = ssl.create_default_context()
+
+    context.check_hostname = sslmode == "verify-full"
+    context.verify_mode = ssl.CERT_REQUIRED
+    return context

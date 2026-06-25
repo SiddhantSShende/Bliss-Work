@@ -1,6 +1,9 @@
 """Environment-driven configuration (12-factor)."""
 from __future__ import annotations
 
+import ssl
+from urllib.parse import parse_qs, urlsplit, urlunsplit
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -65,12 +68,43 @@ class Settings(BaseSettings):
         """SQLAlchemy async requires the asyncpg driver."""
         url = self.auth_database_url
         if url.startswith("postgresql+asyncpg://"):
-            return url
+            return self._strip_query(url)
         if url.startswith("postgresql://"):
-            return "postgresql+asyncpg://" + url[len("postgresql://") :]
+            return "postgresql+asyncpg://" + self._strip_query(url[len("postgresql://") :])
         if url.startswith("postgres://"):
-            return "postgresql+asyncpg://" + url[len("postgres://") :]
-        return url
+            return "postgresql+asyncpg://" + self._strip_query(url[len("postgres://") :])
+        return self._strip_query(url)
+
+    @property
+    def sqlalchemy_connect_args(self) -> dict[str, object]:
+        """Build asyncpg connect args from libpq-style SSL query params."""
+        ssl_context = self._ssl_context_from_database_url(self.auth_database_url)
+        connect_args: dict[str, object] = {"server_settings": {"statement_timeout": "30000"}}
+        if ssl_context is not None:
+            connect_args["ssl"] = ssl_context
+        return connect_args
+
+    @staticmethod
+    def _strip_query(url: str) -> str:
+        parts = urlsplit(url)
+        return urlunsplit((parts.scheme, parts.netloc, parts.path, "", parts.fragment))
+
+    @staticmethod
+    def _ssl_context_from_database_url(url: str) -> ssl.SSLContext | None:
+        query = parse_qs(urlsplit(url).query)
+        sslmode = query.get("sslmode", [""])[0]
+        if not sslmode or sslmode == "disable":
+            return None
+
+        cafile = query.get("sslrootcert", [""])[0]
+        if cafile:
+            context = ssl.create_default_context(cafile=cafile)
+        else:
+            context = ssl.create_default_context()
+
+        context.check_hostname = sslmode == "verify-full"
+        context.verify_mode = ssl.CERT_REQUIRED
+        return context
 
 
 settings = Settings()

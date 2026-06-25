@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import ssl
+from urllib.parse import parse_qs, urlsplit, urlunsplit
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -50,7 +53,7 @@ class Settings(BaseSettings):
     @property
     def sqlalchemy_url(self) -> str:
         """Convert a plain postgresql:// URL to the asyncpg driver URL."""
-        url = self.task_database_url.split("?", 1)[0]
+        url = self._strip_query(self.task_database_url)
         if url.startswith("postgresql+asyncpg://"):
             return url
         if url.startswith("postgresql://"):
@@ -58,6 +61,36 @@ class Settings(BaseSettings):
         if url.startswith("postgres://"):
             return "postgresql+asyncpg://" + url[len("postgres://"):]
         return url
+
+    @property
+    def sqlalchemy_connect_args(self) -> dict[str, object]:
+        ssl_context = self._ssl_context_from_database_url(self.task_database_url)
+        connect_args: dict[str, object] = {"server_settings": {"statement_timeout": "30000"}}
+        if ssl_context is not None:
+            connect_args["ssl"] = ssl_context
+        return connect_args
+
+    @staticmethod
+    def _strip_query(url: str) -> str:
+        parts = urlsplit(url)
+        return urlunsplit((parts.scheme, parts.netloc, parts.path, "", parts.fragment))
+
+    @staticmethod
+    def _ssl_context_from_database_url(url: str) -> ssl.SSLContext | None:
+        query = parse_qs(urlsplit(url).query)
+        sslmode = query.get("sslmode", [""])[0]
+        if not sslmode or sslmode == "disable":
+            return None
+
+        cafile = query.get("sslrootcert", [""])[0]
+        if cafile:
+            context = ssl.create_default_context(cafile=cafile)
+        else:
+            context = ssl.create_default_context()
+
+        context.check_hostname = sslmode == "verify-full"
+        context.verify_mode = ssl.CERT_REQUIRED
+        return context
 
 
 settings = Settings()

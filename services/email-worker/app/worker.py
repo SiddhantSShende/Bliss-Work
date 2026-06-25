@@ -316,7 +316,10 @@ class EmailWorker:
         for attempt in range(30):
             try:
                 self._db = await asyncpg.create_pool(
-                    dsn=self._settings.email_db_url, min_size=1, max_size=4,
+                    dsn=self._settings.email_db_dsn,
+                    ssl=self._settings.email_db_ssl_context,
+                    min_size=1,
+                    max_size=4,
                 )
                 async with self._db.acquire() as conn:
                     await conn.execute("SELECT 1")

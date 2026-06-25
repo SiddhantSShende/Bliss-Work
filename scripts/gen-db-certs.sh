@@ -56,7 +56,10 @@ cd "${OUT_DIR}"
 echo "==> Generating CA (self-signed, ${CA_DAYS}d) in ${OUT_DIR}"
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:4096 -out ca.key
 openssl req -x509 -new -nodes -key ca.key -sha256 -days "${CA_DAYS}" \
-  -subj "/CN=Task-Board Dev DB CA/O=Task-Board" -out ca.crt
+  -subj "/CN=Task-Board Dev DB CA/O=Task-Board" -out ca.crt \
+  -addext "basicConstraints=critical,CA:TRUE" \
+  -addext "keyUsage=critical,keyCertSign,cRLSign" \
+  -addext "subjectKeyIdentifier=hash"
 
 echo "==> Generating Postgres server key + CSR (CN=${PG_HOST})"
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out server.key

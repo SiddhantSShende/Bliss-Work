@@ -24,11 +24,7 @@ def init_engine() -> AsyncEngine:
             pool_size=10,
             max_overflow=10,
             pool_recycle=1800,  # recycle pooled conns every 30 min (avoid stale)
-            connect_args={
-                # Server-side cap so a runaway query can't pin a connection forever;
-                # 30s covers startup migrations yet bounds the worst case.
-                "server_settings": {"statement_timeout": "30000"},
-            },
+            connect_args=settings.sqlalchemy_connect_args,
         )
         SessionLocal = async_sessionmaker(_engine, expire_on_commit=False, class_=AsyncSession)
     return _engine

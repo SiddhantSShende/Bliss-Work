@@ -279,7 +279,54 @@ publicly-trusted Redis) with the `redis://` fallback commented.
 
 ---
 
-## 7. WAF (OWASP Core Rule Set) at the edge
+## 7. Host hardening: SSH + firewall
+
+Apply the firewall first, then harden SSH. Keep one active session open while
+testing so you can recover if a rule is wrong.
+
+### Firewall baseline
+
+```bash
+sudo ufw allow 22/tcp
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+sudo ufw enable
+sudo ufw status verbose
+```
+
+### SSH daemon checklist
+
+Recommended `sshd_config` values for a key-based Ubuntu admin user:
+
+```text
+PermitRootLogin prohibit-password
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PubkeyAuthentication yes
+X11Forwarding no
+MaxAuthTries 3
+LoginGraceTime 20
+ClientAliveInterval 300
+ClientAliveCountMax 2
+AllowUsers ubuntu
+```
+
+Rollout order:
+
+1. Confirm you can log in as `ubuntu` with your SSH key in a second terminal.
+2. Place the config in `/etc/ssh/sshd_config.d/99-hardening.conf`.
+3. Run `sudo sshd -t` before restarting SSH.
+4. Restart with `sudo systemctl restart ssh`.
+5. Open a new SSH session and confirm it works before closing the old one.
+
+If you use a non-default SSH port or a different admin user, update both the
+firewall rule and `AllowUsers` before disabling password auth.
+
+---
+
+## 8. WAF (OWASP Core Rule Set) at the edge
 
 The prod Caddy edge enforces a **Coraza** (ModSecurity-compatible) WAF running
 the **OWASP Core Rule Set** — SQLi / XSS / RCE / LFI / protocol-anomaly detection
@@ -324,7 +371,7 @@ remains a portable, self-hosted fallback that needs no third party.
 
 ---
 
-## 8. Quick checks
+## 9. Quick checks
 
 ```bash
 # Validate the prod compose before deploying (use the example env to satisfy

@@ -20,12 +20,7 @@ engine: AsyncEngine = create_async_engine(
     pool_pre_ping=True,
     pool_recycle=1800,  # recycle pooled connections every 30 min so a DB restart
     # / maintenance window can't hand back a dead connection.
-    connect_args={
-        # Server-side cap so a runaway query can't pin a pooled connection
-        # indefinitely. 30s is generous for auth queries (sub-second) yet still
-        # bounds the worst case; comfortably covers startup CREATE TABLE/EXTENSION.
-        "server_settings": {"statement_timeout": "30000"},
-    },
+    connect_args=settings.sqlalchemy_connect_args,
 )
 
 SessionLocal: async_sessionmaker[AsyncSession] = async_sessionmaker(
