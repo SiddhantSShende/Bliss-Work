@@ -1,0 +1,361 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded in-flight runs for the same ref to save runner minutes.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.26"
+  NODE_VERSION: "20"
+  PYTHON_VERSION: "3.13"
+
+jobs:
+  # ───────────────────────────────────────────────────────────────────────────
+  # LINT — static analysis across all three language ecosystems.
+  # ───────────────────────────────────────────────────────────────────────────
+  lint-python:
+    name: Lint (Python · ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install ruff
+        run: pip install "ruff==0.8.6"
+      - name: ruff check
+        run: |
+          ruff check \
+            services/auth-svc \
+            services/task-svc \
+            services/email-worker
+      - name: ruff format --check
+        # Formatting drift is surfaced but does not fail the build (no repo
+        # style config committed yet); flip to blocking once a style is agreed.
+        continue-on-error: true
+        run: |
+          ruff format --check \
+            services/auth-svc \
+            services/task-svc \
+            services/email-worker
+
+  lint-go:
+    name: Lint (Go · golangci-lint)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [notification-svc, messaging-svc, ws-gateway]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: services/${{ matrix.service }}/go.sum
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.63.4
+          working-directory: services/${{ matrix.service }}
+          args: --timeout=5m
+
+  lint-js:
+    name: Lint (JS/TS · eslint + tsc)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Typecheck (tsc) — all workspaces
+        run: npm run typecheck --workspaces --if-present
+      - name: ESLint — all workspaces
+        # No eslint config is committed yet, so this is best-effort: it runs
+        # where a workspace defines a `lint` script and is non-blocking.
+        continue-on-error: true
+        run: npm run lint --workspaces --if-present
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # BUILD — compile the front-end bundles (web + desktop renderer).
+  # ───────────────────────────────────────────────────────────────────────────
+  build-frontend:
+    name: Build (web + desktop)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build -w @taskboard/web
+      - run: npm run build -w @taskboard/desktop
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # TEST — unit/integration tests per ecosystem.
+  # ───────────────────────────────────────────────────────────────────────────
+  test-python:
+    name: Test (Python · pytest)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [auth-svc, task-svc, email-worker]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Create venv and install deps (best-effort — heavy native wheels)
+        continue-on-error: true
+        working-directory: services/${{ matrix.service }}
+        run: |
+          python -m venv .venv
+          . .venv/bin/activate
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio
+      - name: pytest
+        # Run even if dependency install was partial; surfaced but non-blocking
+        # because several services need live Postgres/Kafka for full suites.
+        continue-on-error: true
+        working-directory: services/${{ matrix.service }}
+        run: |
+          . .venv/bin/activate
+          if find . -name 'test_*.py' -o -name '*_test.py' | grep -q . || [ -d tests ]; then
+            pytest -q
+          else
+            echo "No pytest tests found for ${{ matrix.service }} — skipping."
+          fi
+
+  test-go:
+    name: Test (Go · go test -race)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [notification-svc, messaging-svc, ws-gateway]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: services/${{ matrix.service }}/go.sum
+      - name: go build
+        working-directory: services/${{ matrix.service }}
+        run: go build ./...
+      - name: go test -race
+        working-directory: services/${{ matrix.service }}
+        run: go test -race -count=1 ./...
+
+  test-js:
+    name: Test (JS/TS · vitest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: vitest / npm test (all workspaces)
+        run: npm test --workspaces --if-present
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # SECURITY-SCAN — dependency + filesystem + image vulnerability scanning.
+  # Non-blocking where appropriate, but always surfaced in the job log / SARIF.
+  # ───────────────────────────────────────────────────────────────────────────
+  security-trivy-fs:
+    name: Security (Trivy · filesystem)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trivy filesystem scan (SARIF)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: sarif
+          output: trivy-fs.sarif
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+      - name: Upload Trivy SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-fs.sarif
+          category: trivy-fs
+      - name: Trivy filesystem scan (table, fail on CRITICAL)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+  security-trivy-image:
+    name: Security (Trivy · image)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [auth-svc, task-svc, email-worker, notification-svc, messaging-svc, ws-gateway]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build image for scanning
+        uses: docker/build-push-action@v6
+        with:
+          context: services/${{ matrix.service }}
+          load: true
+          tags: taskboard/${{ matrix.service }}:scan
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+      - name: Trivy image scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: image
+          image-ref: taskboard/${{ matrix.service }}:scan
+          format: table
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          # Surfaced but non-blocking — base-image CVEs shouldn't gate merges.
+          exit-code: "0"
+
+  security-go:
+    name: Security (Go · govulncheck)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [notification-svc, messaging-svc, ws-gateway]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: services/${{ matrix.service }}/go.sum
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - name: govulncheck
+        working-directory: services/${{ matrix.service }}
+        run: govulncheck ./...
+
+  security-python:
+    name: Security (Python · pip-audit)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [auth-svc, task-svc, email-worker]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install pip-audit
+        run: pip install "pip-audit==2.7.3"
+      - name: pip-audit
+        run: pip-audit -r services/${{ matrix.service }}/requirements.txt
+
+  security-npm:
+    name: Security (npm · audit)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: npm audit (high+)
+        run: npm audit --audit-level=high
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # HELM-LINT — chart linting, templating, and Kubernetes schema validation.
+  # ───────────────────────────────────────────────────────────────────────────
+  helm-lint:
+    name: Helm (lint · template · kubeconform)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.3
+      - name: Check chart presence
+        id: chart
+        run: |
+          if [ -f deploy/helm/taskboard/Chart.yaml ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::deploy/helm/taskboard chart not found — skipping helm lint/template/kubeconform."
+          fi
+      - name: helm lint
+        if: steps.chart.outputs.exists == 'true'
+        run: helm lint deploy/helm/taskboard
+      - name: helm template
+        if: steps.chart.outputs.exists == 'true'
+        run: helm template taskboard deploy/helm/taskboard > /tmp/rendered.yaml
+      - name: Install kubeconform
+        if: steps.chart.outputs.exists == 'true'
+        run: |
+          KUBECONFORM_VERSION=v0.6.7
+          curl -fsSL \
+            "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" \
+            | tar -xz kubeconform
+          sudo mv kubeconform /usr/local/bin/
+      - name: kubeconform (validate rendered manifests)
+        if: steps.chart.outputs.exists == 'true'
+        run: |
+          kubeconform -strict -summary -ignore-missing-schemas \
+            -kubernetes-version 1.30.0 /tmp/rendered.yaml
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # E2E — full stack via docker compose, seeded, then the demo flow.
+  # (Preserved from the original pipeline; gated behind cheaper checks.)
+  # ───────────────────────────────────────────────────────────────────────────
+  e2e:
+    name: E2E (compose · seed · demo)
+    runs-on: ubuntu-latest
+    needs: [lint-js, test-go]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: cp .env.example .env && npm run gen:keys
+      - run: docker compose up -d --build
+      - run: bash scripts/wait-for.sh
+      - run: npm run seed
+      - run: npm run demo
+      - if: always()
+        run: docker compose logs --no-color > compose-logs.txt
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compose-logs
+          path: compose-logs.txt

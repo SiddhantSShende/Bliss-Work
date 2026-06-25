@@ -1,0 +1,173 @@
+# Security alerting rules (Phase E / SecOps).
+#
+# These rules fire on the HTTP RED metrics every service already exposes at
+# /metrics. IMPORTANT — the two service families label things DIFFERENTLY, and
+# these rules are written to match what is ACTUALLY emitted (verified by
+# scraping a live instrumentator, not guessed):
+#
+#   Python services (auth-svc, task-svc) use prometheus-fastapi-instrumentator
+#   7.0.0 configured with `Instrumentator(should_group_status_codes=False)`
+#   (set in each service's main.py), so it emits:
+#       http_requests_total{handler, method, status}
+#     - `handler` is the route path, e.g. "/auth/login", "/auth/refresh".
+#     - `status` is the EXACT numeric code as a string: "401", "429", "500", …
+#       => We alert on exact 401 (credential stuffing) and 429 (rate limit) here,
+#       same as the Go services.
+#
+#   Go services (messaging-svc, notification-svc, ws-gateway) hand-roll the
+#   collector and emit:
+#       http_requests_total{method, path, status}
+#     - `path` is the chi route PATTERN (low cardinality), or the static mux
+#       path for ws-gateway.
+#     - `status` is the EXACT numeric code as a string, e.g. "401", "429", "500".
+#       => For these services we can and do alert on exact codes.
+#
+# The `job` label is added by Prometheus from scrape_configs (auth-svc,
+# task-svc, messaging-svc, notification-svc, ws-gateway), so every series here
+# also carries job="<service>". That is the label we group/aggregate by.
+
+groups:
+  # ───────────────────────────────────────────────────────────────────────────
+  - name: security.auth
+    rules:
+      # Credential stuffing / brute force against auth-svc. auth-svc is a Python
+      # service, so 401s are folded into the "4xx" class; we scope to the login
+      # and refresh handlers (where a 4xx almost always means a rejected
+      # credential or a replayed/expired refresh token) to keep the signal
+      # clean. A sustained burst of rejected auth attempts is the brute-force
+      # signature. Rate is over 5m; threshold is per-second.
+      - alert: AuthCredentialStuffingBurst
+        expr: |
+          sum by (job, handler) (
+            rate(http_requests_total{job="auth-svc", handler=~"/auth/(login|refresh)", status="401"}[5m])
+          ) > 1
+        for: 2m
+        labels:
+          severity: warning
+          category: security
+        annotations:
+          summary: "Burst of rejected auth attempts on {{ $labels.handler }}"
+          description: >-
+            auth-svc is rejecting >1 req/s of HTTP 401 on {{ $labels.handler }}
+            for 2m — bad credentials / replayed tokens, i.e. credential stuffing
+            or brute force. Investigate source IPs / accounts.
+
+      # Same signature, escalated: a very large burst is almost certainly an
+      # active attack, not a flaky client.
+      - alert: AuthCredentialStuffingHigh
+        expr: |
+          sum by (job, handler) (
+            rate(http_requests_total{job="auth-svc", handler=~"/auth/(login|refresh)", status="401"}[5m])
+          ) > 10
+        for: 1m
+        labels:
+          severity: critical
+          category: security
+        annotations:
+          summary: "High-volume auth rejection burst on {{ $labels.handler }}"
+          description: >-
+            auth-svc rejecting >10 req/s (4xx) on {{ $labels.handler }} for 1m —
+            likely an active credential-stuffing / brute-force attack.
+
+  # ───────────────────────────────────────────────────────────────────────────
+  - name: security.ratelimit
+    rules:
+      # Rate-limit rejections on the Go services, where the exact 429 code is
+      # available. A spike of 429s means a client is hammering us hard enough to
+      # trip the limiter — abuse, a runaway client, or a (D)DoS.
+      - alert: RateLimitRejectionsSpike
+        expr: |
+          sum by (job) (
+            rate(http_requests_total{job=~"messaging-svc|notification-svc|ws-gateway", status="429"}[5m])
+          ) > 1
+        for: 2m
+        labels:
+          severity: warning
+          category: security
+        annotations:
+          summary: "Sustained 429 rate-limit rejections on {{ $labels.job }}"
+          description: >-
+            {{ $labels.job }} is returning >1 req/s of HTTP 429 (rate limited)
+            for 2m. A client is exceeding rate limits — check for abuse, a
+            misbehaving integration, or a volumetric attack.
+
+      # auth-svc / task-svc slowapi limiter returns 429; with exact-code labels we
+      # can alert on it directly (a 429 spike = a client tripping the limiter).
+      - alert: PythonRateLimitRejectionsSpike
+        expr: |
+          sum by (job) (
+            rate(http_requests_total{job=~"auth-svc|task-svc", status="429"}[5m])
+          ) > 1
+        for: 2m
+        labels:
+          severity: warning
+          category: security
+        annotations:
+          summary: "Sustained 429 rate-limit rejections on {{ $labels.job }}"
+          description: >-
+            {{ $labels.job }} is returning >1 req/s of HTTP 429 (rate limited)
+            for 2m — a client is exceeding rate limits (abuse / runaway client /
+            volumetric attack).
+
+  # ───────────────────────────────────────────────────────────────────────────
+  - name: security.errors
+    rules:
+      # 5xx error-rate spike, PER SERVICE. Works for both families: Python emits
+      # status="5xx" (class), Go emits status=~"5.." (exact). We match both with
+      # a regex so one rule covers every job. Expressed as a RATIO of 5xx to all
+      # responses so a low-traffic blip doesn't fire while a real outage on a
+      # busy service does.
+      - alert: ServiceHigh5xxErrorRate
+        expr: |
+          (
+            sum by (job) (rate(http_requests_total{status=~"5xx|5.."}[5m]))
+            /
+            sum by (job) (rate(http_requests_total[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          category: reliability
+        annotations:
+          summary: "{{ $labels.job }} 5xx error rate above 5%"
+          description: >-
+            More than 5% of {{ $labels.job }} responses have been 5xx over the
+            last 5m. Possible outage, dependency failure, or — in a security
+            context — a payload triggering server errors (probe / exploit).
+
+      - alert: ServiceCritical5xxErrorRate
+        expr: |
+          (
+            sum by (job) (rate(http_requests_total{status=~"5xx|5.."}[5m]))
+            /
+            sum by (job) (rate(http_requests_total[5m]))
+          ) > 0.20
+        for: 2m
+        labels:
+          severity: critical
+          category: reliability
+        annotations:
+          summary: "{{ $labels.job }} 5xx error rate above 20%"
+          description: >-
+            Over 20% of {{ $labels.job }} responses are 5xx over the last 5m —
+            the service is effectively failing.
+
+  # ───────────────────────────────────────────────────────────────────────────
+  - name: security.availability
+    rules:
+      # Service-down: Prometheus' synthetic `up` metric is 0 when a scrape
+      # target is unreachable. Scoped to the core security-relevant services.
+      # A down auth-svc means no one can authenticate; a down messaging/task-svc
+      # is a core outage. `up` carries the `job` label from scrape_configs.
+      - alert: CoreServiceDown
+        expr: up{job=~"auth-svc|messaging-svc|task-svc"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          category: availability
+        annotations:
+          summary: "Core service {{ $labels.job }} is DOWN"
+          description: >-
+            Prometheus cannot scrape {{ $labels.job }} (up == 0) for 1m. The
+            service is unreachable or crashed. For auth-svc this means logins
+            are failing platform-wide.

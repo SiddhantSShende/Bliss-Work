@@ -1,0 +1,378 @@
+// Package api wires the HTTP routes for messaging-svc.
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"log/slog"
+	"net/http"
+	"regexp"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/cors"
+	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+
+	"github.com/task-board/messaging-svc/internal/auth"
+	mw "github.com/task-board/messaging-svc/internal/middleware"
+	"github.com/task-board/messaging-svc/internal/store"
+)
+
+// Server holds handler dependencies.
+type Server struct {
+	store    *store.Store
+	verifier *auth.Verifier
+	log      *slog.Logger
+	limiter  *mw.Limiter
+}
+
+// NewServer constructs an API server.
+func NewServer(st *store.Store, v *auth.Verifier, log *slog.Logger) *Server {
+	return &Server{
+		store:    st,
+		verifier: v,
+		log:      log,
+		limiter:  mw.NewLimiter(mw.DefaultLimits),
+	}
+}
+
+// Router builds the chi router with CORS, health, and the authed API group.
+func (s *Server) Router(webOrigin string) http.Handler {
+	r := chi.NewRouter()
+	r.Use(middleware.RealIP)
+	r.Use(mw.RequestID)
+	r.Use(mw.SecurityHeaders)
+	r.Use(s.recoverer)
+	// Phase 5: Prometheus instrumentation. Wraps every route so the chi route
+	// pattern is resolvable for the low-cardinality "path" label. Self-guards
+	// against the /metrics scrape endpoint, so /metrics is never instrumented.
+	r.Use(mw.Metrics)
+	// Cap request bodies (chat messages, member lists) at 1 MiB so an oversized
+	// payload can't be buffered into the heap. Generous for text + UUID lists.
+	r.Use(mw.MaxBytes(1 << 20))
+
+	localhostRe := regexp.MustCompile(`^(https?://(localhost|127\.0\.0\.1)(:\d+)?|file://.*|app://.*)$`)
+	r.Use(cors.Handler(cors.Options{
+		AllowedOrigins:   []string{webOrigin},
+		AllowOriginFunc:  func(r *http.Request, origin string) bool { return localhostRe.MatchString(origin) },
+		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"*"},
+		AllowCredentials: true, // browser sends the auth cookie cross-origin
+	}))
+
+	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+
+	// Phase 5: Prometheus scrape endpoint. Sibling of /healthz — outside the
+	// /api/v1 JWT+ratelimit group so Prometheus can scrape it unauthenticated.
+	// The Metrics middleware self-guards on this path, so the scrape endpoint is
+	// not itself instrumented.
+	r.Handle("/metrics", promhttp.Handler())
+
+	// Phase 5: readiness probe. Unlike /healthz (cheap liveness), /readyz checks
+	// our critical dependency — Postgres — so an orchestrator won't route traffic
+	// to a replica whose DB is unreachable. Sibling of /healthz, outside the
+	// /api/v1 JWT+ratelimit group. Short timeout so the probe can't hang.
+	r.Get("/readyz", s.readyz)
+
+	// Phase 5: internal-only service-to-service endpoint for delivery acks.
+	// Not under /api/v1 (no JWT middleware). Auth via X-Internal-Token in
+	// handler. Intentionally not CORS-allowed for browser callers.
+	r.Post("/internal/messages/delivered", s.markDelivered)
+	// task-svc resolves channel members here when fanning out a channel-
+	// allocated task. Same shared-secret auth as the delivery endpoint.
+	r.Get("/internal/channels/{id}/members", s.internalChannelMembers)
+
+	idempotency := mw.Idempotency(s.store.Pool(), s.log)
+
+	r.Route("/api/v1", func(r chi.Router) {
+		// Per-IP limiter runs first inside this group (healthz is excluded so
+		// liveness probes aren't rate-limited). It runs before JWT verification
+		// so floods get rejected cheap.
+		r.Use(s.limiter.PerIPMiddleware)
+		r.Use(s.verifier.Middleware)
+		// Per-user limiter runs after verifier so we have a userId to bucket by.
+		r.Use(s.limiter.PerUserMiddleware(func(req *http.Request) string {
+			if claims, ok := auth.FromContext(req.Context()); ok {
+				return claims.UserID
+			}
+			return ""
+		}))
+
+		r.Post("/conversations/messages", s.sendMessage)
+		r.Get("/conversations", s.listConversations)
+		r.Post("/conversations/{id}/reply", s.reply)
+		r.Post("/conversations/{id}/ignore", s.ignore)
+		r.Get("/conversations/{id}/messages", s.listMessages)
+		r.Post("/conversations/{id}/read", s.markRead)
+		r.Post("/users/{id}/block", s.block)
+
+		r.Post("/channels", s.createChannel)
+		r.Get("/channels", s.listChannels)
+		r.Get("/channels/open", s.listOpenChannels)
+		r.Get("/channels/{id}/messages", s.listChannelMessages)
+		r.Post("/channels/{id}/messages", s.sendChannelMessage)
+		r.Get("/channels/{id}/members", s.listChannelMembers)
+		r.Post("/channels/{id}/members", s.addChannelMembers)
+		r.Post("/channels/{id}/join", s.joinChannel)
+		r.Post("/channels/{id}/leave", s.leaveChannel)
+
+		// ── Phase 3: unified inbox + email-style threads ───────────────────
+		r.Get("/inbox", s.listInbox)
+		r.Get("/inbox/peers", s.listInboxPeers)
+		r.Get("/threads/{id}", s.getThread)
+		r.Get("/threads/{id}/messages", s.listThreadMessages)
+		r.Post("/threads/{id}/reply", s.replyToThread)
+
+		// Idempotent state-mutators (no natural client_msg_id).
+		r.Group(func(g chi.Router) {
+			g.Use(idempotency)
+			g.Post("/threads/{id}/ignore", s.ignoreThread)
+			g.Post("/threads/{id}/read", s.readThread)
+			g.Post("/messages/{id}/dismiss", s.dismissMessage)
+			g.Post("/inbox/items/{kind}/{refId}/ignore", s.ignoreInboxItem)
+		})
+	})
+
+	return r
+}
+
+// ── helpers ───────────────────────────────────────────────────────────────────
+
+func writeJSON(w http.ResponseWriter, code int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+// writeErr emits the canonical error envelope. Status is the HTTP code; the
+// ErrorCode is derived from the status by default.
+func writeErr(w http.ResponseWriter, code int, msg string) {
+	writeErrR(w, nil, code, msg)
+}
+
+// writeErrR is the request-aware variant — it picks up the X-Request-Id stamped
+// by the RequestID middleware so the body carries `requestId`.
+func writeErrR(w http.ResponseWriter, r *http.Request, code int, msg string) {
+	if r != nil {
+		writeAPIError(w, r, code, httpStatusToCode(code), msg, nil)
+		return
+	}
+	// Fallback when handler didn't pass r (rare). We can still recover the
+	// request-id from the response header — RequestID middleware set it as
+	// soon as the request entered the stack.
+	rid := w.Header().Get(mw.HeaderRequestID)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	_ = json.NewEncoder(w).Encode(apiErrorBody{
+		Error: apiErrorPayload{Code: httpStatusToCode(code), Message: msg, RequestID: rid},
+	})
+}
+
+func (s *Server) mapErr(w http.ResponseWriter, err error) {
+	s.mapErrR(w, nil, err)
+}
+
+func (s *Server) mapErrR(w http.ResponseWriter, r *http.Request, err error) {
+	status, code, msg := mapStoreError(err)
+	rid := mw.RequestIDFromContext(reqCtx(r))
+	if rid == "" {
+		// r was nil or context didn't carry one; fall back to the response
+		// header which the middleware already populated.
+		rid = w.Header().Get(mw.HeaderRequestID)
+	}
+	if status >= 500 {
+		s.log.Error("request failed", "err", err, "request_id", rid)
+	}
+	if r != nil {
+		writeAPIError(w, r, status, code, msg, nil)
+		return
+	}
+	// Fallback path; status/code/msg are still canonical, and we recovered rid.
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(apiErrorBody{Error: apiErrorPayload{Code: code, Message: msg, RequestID: rid}})
+}
+
+// reqCtx returns r.Context() or context.Background() to keep the logger happy.
+func reqCtx(r *http.Request) context.Context {
+	if r == nil {
+		return context.Background()
+	}
+	return r.Context()
+}
+
+// recoverer is a request-aware panic recoverer that emits the canonical error
+// envelope and logs with the request id. Replaces chi.middleware.Recoverer so
+// panics don't escape as bare 500s.
+func (s *Server) recoverer(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if rec := recover(); rec != nil {
+				s.log.Error("panic", "err", rec, "request_id", mw.RequestIDFromContext(r.Context()), "path", r.URL.Path)
+				writeAPIError(w, r, http.StatusInternalServerError, CodeInternalError, "internal error", nil)
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
+}
+
+// readyz is the readiness probe. It pings Postgres with a short timeout and
+// returns 200 "ready" when the pool is reachable, or the canonical 503 envelope
+// when it isn't — so orchestrators stop routing traffic to an unhealthy replica.
+func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	if err := s.store.Pool().Ping(ctx); err != nil {
+		s.log.Warn("readyz: database not ready", "err", err, "request_id", mw.RequestIDFromContext(r.Context()))
+		writeAPIError(w, r, http.StatusServiceUnavailable, CodeServiceUnavailable, "database not ready", nil)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("ready"))
+}
+
+func validUUID(s string) bool {
+	_, err := uuid.Parse(s)
+	return err == nil
+}
+
+// ── handlers ──────────────────────────────────────────────────────────────────
+
+type sendReq struct {
+	RecipientID string `json:"recipientId"`
+	Body        string `json:"body"`
+	ClientMsgID string `json:"clientMsgId"`
+}
+
+func (s *Server) sendMessage(w http.ResponseWriter, r *http.Request) {
+	claims, _ := auth.FromContext(r.Context())
+	var req sendReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if !validUUID(req.RecipientID) || req.Body == "" || !validUUID(req.ClientMsgID) {
+		writeErr(w, http.StatusBadRequest, "recipientId, body, clientMsgId required")
+		return
+	}
+	res, err := s.store.SendMessage(r.Context(), claims.OrgID, claims.UserID, req.RecipientID, req.Body, req.ClientMsgID)
+	if err != nil {
+		s.mapErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, res)
+}
+
+type replyReq struct {
+	Body        string `json:"body"`
+	ClientMsgID string `json:"clientMsgId"`
+}
+
+func (s *Server) reply(w http.ResponseWriter, r *http.Request) {
+	claims, _ := auth.FromContext(r.Context())
+	convID := chi.URLParam(r, "id")
+	if !validUUID(convID) {
+		writeErr(w, http.StatusBadRequest, "invalid conversation id")
+		return
+	}
+	var req replyReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if req.Body == "" || !validUUID(req.ClientMsgID) {
+		writeErr(w, http.StatusBadRequest, "body, clientMsgId required")
+		return
+	}
+	res, err := s.store.Reply(r.Context(), claims.OrgID, claims.UserID, convID, req.Body, req.ClientMsgID)
+	if err != nil {
+		s.mapErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, res)
+}
+
+func (s *Server) ignore(w http.ResponseWriter, r *http.Request) {
+	claims, _ := auth.FromContext(r.Context())
+	convID := chi.URLParam(r, "id")
+	if !validUUID(convID) {
+		writeErr(w, http.StatusBadRequest, "invalid conversation id")
+		return
+	}
+	if err := s.store.Ignore(r.Context(), claims.OrgID, claims.UserID, convID); err != nil {
+		s.mapErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) listConversations(w http.ResponseWriter, r *http.Request) {
+	claims, _ := auth.FromContext(r.Context())
+	convs, err := s.store.ListConversations(r.Context(), claims.OrgID, claims.UserID)
+	if err != nil {
+		s.mapErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, convs)
+}
+
+func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) {
+	claims, _ := auth.FromContext(r.Context())
+	convID := chi.URLParam(r, "id")
+	if !validUUID(convID) {
+		writeErr(w, http.StatusBadRequest, "invalid conversation id")
+		return
+	}
+	msgs, err := s.store.ListMessages(r.Context(), claims.OrgID, claims.UserID, convID)
+	if err != nil {
+		s.mapErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, msgs)
+}
+
+type readReq struct {
+	UpToSeq int64 `json:"upToSeq"`
+}
+
+func (s *Server) markRead(w http.ResponseWriter, r *http.Request) {
+	claims, _ := auth.FromContext(r.Context())
+	convID := chi.URLParam(r, "id")
+	if !validUUID(convID) {
+		writeErr(w, http.StatusBadRequest, "invalid conversation id")
+		return
+	}
+	var req readReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if req.UpToSeq < 0 {
+		writeErr(w, http.StatusBadRequest, "upToSeq must be >= 0")
+		return
+	}
+	if err := s.store.MarkRead(r.Context(), claims.OrgID, claims.UserID, convID, req.UpToSeq); err != nil {
+		s.mapErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) block(w http.ResponseWriter, r *http.Request) {
+	claims, _ := auth.FromContext(r.Context())
+	peerID := chi.URLParam(r, "id")
+	if !validUUID(peerID) {
+		writeErr(w, http.StatusBadRequest, "invalid user id")
+		return
+	}
+	if err := s.store.Block(r.Context(), claims.OrgID, claims.UserID, peerID); err != nil {
+		s.mapErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}

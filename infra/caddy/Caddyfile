@@ -1,0 +1,60 @@
+# Caddy reverse proxy for the Task-Board production stack.
+#
+# Terminates TLS and routes to the internal services by their compose service
+# name. {$DOMAIN} and {$ACME_EMAIL} are injected from .env.prod.
+#
+# DNS: point an A/AAAA record for ${DOMAIN} at this host so Caddy's automatic
+# ACME (Let's Encrypt) HTTP-01 challenge on :80 can validate and issue certs.
+# To use pre-provisioned / private-CA certs instead, replace the `email` global
+# option with per-site `tls /etc/caddy/cert.pem /etc/caddy/key.pem` directives
+# and mount the cert + key into the container.
+
+{
+	email {$ACME_EMAIL}
+	# For a staging/private CA, uncomment:
+	# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	# WebSocket upgrades (real-time fan-out) → ws-gateway.
+	@ws path /ws /ws/*
+	reverse_proxy @ws ws-gateway:8080
+
+	# REST APIs. Strip the public /api/<svc> prefix when proxying upstream.
+	handle_path /api/auth/* {
+		reverse_proxy auth-svc:8001
+	}
+	handle_path /api/tasks/* {
+		reverse_proxy task-svc:8002
+	}
+	handle_path /api/notifications/* {
+		reverse_proxy notification-svc:8003
+	}
+	handle_path /api/messaging/* {
+		reverse_proxy messaging-svc:8004
+	}
+
+	# JWKS must be reachable at a stable public path for any external verifier.
+	handle /.well-known/jwks.json {
+		reverse_proxy auth-svc:8001
+	}
+
+	# Static SPA assets (built `apps/web` output mounted at /srv). Falls through
+	# to index.html for client-side routing. Swap for a CDN if preferred.
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+
+	# Security headers. HSTS is safe because every route is HTTPS-only here.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+}

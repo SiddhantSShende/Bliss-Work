@@ -1,0 +1,68 @@
+# Alertmanager config for the local (dev) observability stack.
+#
+# Dev sink: every alert is routed to a single webhook receiver. We point it at
+# the otel-collector container's HTTP port as a reachable in-network URL so the
+# webhook POST does not error out in dev; the body is effectively a log sink.
+# (Swap this for a real endpoint in prod — see the commented blocks below.)
+#
+# This file is intentionally minimal. Production routing — severity-based
+# fan-out to Slack / PagerDuty / email — is documented in
+# docs/OBSERVABILITY-ALERTS.md and stubbed (commented) at the bottom.
+
+global:
+  resolve_timeout: 5m
+
+route:
+  # Group alerts by service and alertname so a burst collapses into one
+  # notification instead of one-per-firing-series.
+  group_by: ["alertname", "job"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: default
+
+  # In prod you would branch by severity here, e.g.:
+  # routes:
+  #   - matchers: [severity="critical"]
+  #     receiver: pagerduty
+  #     continue: true
+  #   - matchers: [category="security"]
+  #     receiver: slack-secops
+
+receivers:
+  # Dev default: a webhook sink. The URL is an in-network, always-reachable
+  # endpoint so Alertmanager's send succeeds in dev without external creds.
+  # Replace with your own service to actually act on alerts.
+  - name: default
+    webhook_configs:
+      - url: "http://otel-collector:4318/v1/alerts-dev-sink"
+        send_resolved: true
+
+  # ── Production receiver options (commented; uncomment + set secrets) ────────
+  # - name: slack-secops
+  #   slack_configs:
+  #     - api_url: "https://hooks.slack.com/services/XXX/YYY/ZZZ"  # use a file_sd / env secret in prod
+  #       channel: "#secops-alerts"
+  #       send_resolved: true
+  #       title: '{{ .CommonAnnotations.summary }}'
+  #       text: '{{ range .Alerts }}{{ .Annotations.description }}\n{{ end }}'
+  #
+  # - name: pagerduty
+  #   pagerduty_configs:
+  #     - routing_key: "<PAGERDUTY_ROUTING_KEY>"
+  #       severity: '{{ .CommonLabels.severity }}'
+  #
+  # - name: email
+  #   email_configs:
+  #     - to: "secops@example.com"
+  #       from: "alertmanager@example.com"
+  #       smarthost: "smtp.example.com:587"
+  #       auth_username: "alertmanager@example.com"
+  #       auth_password: "<SMTP_PASSWORD>"
+
+# Inhibition: silence a warning when its critical sibling is already firing for
+# the same service, so on-call isn't double-paged.
+inhibit_rules:
+  - source_matchers: [severity="critical"]
+    target_matchers: [severity="warning"]
+    equal: ["alertname", "job"]

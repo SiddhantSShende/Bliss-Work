@@ -1,0 +1,29 @@
+{{/*
+One PodDisruptionBudget per HTTP service. Keeps a minimum of pods running during
+VOLUNTARY disruptions (node drain, cluster upgrade, rollout) so a single drain
+can't take a whole service offline. email-worker is skipped: a single
+partition-bound consumer has no meaningful budget (raise its replicas first).
+
+NOTE: minAvailable as a percentage requires replicas >= 2 to ever permit an
+eviction (50% of 1 rounds up to 1, blocking drains). Every HTTP service here is
+provisioned with replicas/hpa.min >= 2.
+*/}}
+{{- if .Values.pdb.enabled }}
+{{- $root := . -}}
+{{- range $name, $svc := .Values.services }}
+{{- if and $svc.http $svc.port }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "taskboard.svcLabels" (dict "root" $root "svc" $name) | nindent 4 }}
+spec:
+  minAvailable: {{ $root.Values.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "taskboard.svcSelectorLabels" (dict "root" $root "svc" $name) | nindent 6 }}
+{{- end }}
+{{- end }}
+{{- end }}

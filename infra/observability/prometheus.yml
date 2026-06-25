@@ -1,0 +1,58 @@
+# Prometheus scrape config. Scrapes each service's /metrics directly (once the
+# Prometheus client is wired — Phase 5b) plus the OTEL Collector's forwarded
+# metrics. Service ports are the in-container ports (compose network DNS names).
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+# Security & reliability alert rules (Phase E). The rules/ directory is mounted
+# into the prometheus container alongside this file. Add more *.yml here and
+# they are picked up on reload.
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+# Send firing alerts to Alertmanager (observability profile). DNS name + port
+# are the in-network compose service; Prometheus pushes alerts to /api/v2/alerts.
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+scrape_configs:
+  - job_name: alertmanager
+    static_configs:
+      - targets: ["alertmanager:9093"]
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Metrics the OTEL Collector received over OTLP and re-exposes.
+  - job_name: otel-collector
+    static_configs:
+      - targets: ["otel-collector:8889"]
+
+  - job_name: auth-svc
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["auth-svc:8001"]
+
+  - job_name: task-svc
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["task-svc:8002"]
+
+  - job_name: notification-svc
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["notification-svc:8003"]
+
+  - job_name: messaging-svc
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["messaging-svc:8004"]
+
+  - job_name: ws-gateway
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["ws-gateway:8080"]

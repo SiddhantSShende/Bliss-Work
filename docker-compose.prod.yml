@@ -1,0 +1,401 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Task-Board — PRODUCTION compose (single-host / small scale).
+#
+# INTENDED USE: one production host (or a small VM), behind TLS, for a modest
+# user base or a staging/preview environment. It is the "one box" deployment.
+# For real horizontal scale, HA, rolling deploys and autoscaling, use the Helm
+# chart on Kubernetes instead — this file is the small-scale complement to it.
+#
+# DIFFERENCES from the dev docker-compose.yml (which this file does NOT replace):
+#   • All secrets come from the ENVIRONMENT / a secrets file (env_file: .env.prod)
+#     — there are NO hardcoded dev passwords or tokens here.
+#   • Per-service resource limits (deploy.resources.limits) cap blast radius.
+#   • restart: unless-stopped on every long-running service.
+#   • Internal service ports are NOT published to the host. Only the reverse
+#     proxy (Caddy) exposes 80/443. Browsers reach services through Caddy.
+#   • /readyz healthchecks gate dependency ordering and the proxy's upstreams.
+#   • Mailpit / observability dev conveniences are dropped.
+#
+# BRING UP:
+#   1. Provision keys/  (see docs/OPERATIONS.md — Ed25519 keypair, gitignored).
+#   2. Create .env.prod from .env.example with REAL secrets (never commit it).
+#   3. Point your DNS A/AAAA record at this host and set DOMAIN in .env.prod.
+#   4. docker compose -f docker-compose.prod.yml up -d --build
+#
+# `deploy.resources.limits` is honoured by `docker compose up` (Compose v2)
+# without Swarm; `deploy.replicas`/rollout keys are intentionally NOT used here
+# (that's the Helm chart's job).
+# ─────────────────────────────────────────────────────────────────────────────
+name: task-board-prod
+
+# Shared defaults for the application services. Each reads ALL config (incl.
+# secrets) from .env.prod — nothing sensitive is inlined in this file.
+x-svc-defaults: &svc-defaults
+  restart: unless-stopped
+  env_file:
+    # Copy .env.prod.example → .env.prod and fill in REAL secrets before `up`.
+    # required:false so tooling (e.g. `config -q`, CI lint) works before the
+    # operator has placed the secrets file on the host; `up` will fail loudly if
+    # the secrets are genuinely absent.
+    - path: .env.prod
+      required: false
+  networks: [taskboard]
+  # The Postgres CA bundle is mounted read-only into EVERY app service at
+  # /etc/ssl/db/ca.crt so the *_DATABASE_URL `sslmode=verify-full&sslrootcert=…`
+  # can validate the server's certificate chain. ws-gateway doesn't talk to
+  # Postgres, but the harmless extra mount keeps the anchor DRY. Services that
+  # declare their own `volumes:` (auth-svc) must re-list this mount because YAML
+  # `<<:` merge REPLACES list keys, it does not concatenate them.
+  volumes:
+    - ./infra/postgres/certs/ca.crt:/etc/ssl/db/ca.crt:ro
+  # No `ports:` — application services are internal-only and reached via Caddy.
+
+services:
+  # ── Reverse proxy / TLS termination ─────────────────────────────────────────
+  # Caddy is the ONLY service that publishes host ports. It terminates TLS
+  # (automatic certs via Let's Encrypt / ZeroSSL using the ACME HTTP-01
+  # challenge on :80) and reverse-proxies to the internal services by name.
+  #
+  # DNS: create an A/AAAA record for ${DOMAIN} → this host's public IP so ACME
+  # can validate. For a private CA or pre-provisioned certs, mount them and use
+  # `tls /etc/caddy/cert.pem /etc/caddy/key.pem` in the Caddyfile instead of the
+  # automatic-HTTPS email line.
+  #
+  # WAF: this prod edge runs a CUSTOM Caddy build (infra/caddy/Dockerfile —
+  # xcaddy + Coraza) so it can enforce the OWASP Core Rule Set via the
+  # Caddyfile.waf `coraza_waf` directive. To run WITHOUT the WAF (e.g. a managed
+  # WAF like Cloudflare/AWS WAF sits in front — see docs/OPERATIONS.md §8),
+  # comment out `build:` and the Caddyfile.waf/coraza mounts, and swap to
+  # `image: caddy:2.8-alpine` + the stock ./infra/caddy/Caddyfile.
+  caddy:
+    build: ./infra/caddy            # custom WAF-enabled Caddy (Coraza + OWASP CRS)
+    image: task-board/caddy-waf:${IMAGE_TAG:-2.8}
+    restart: unless-stopped
+    ports:
+      - "80:80"     # ACME HTTP-01 challenge + HTTP→HTTPS redirect
+      - "443:443"   # HTTPS
+      - "443:443/udp" # HTTP/3 (QUIC)
+    environment:
+      DOMAIN: ${DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      # WAF Caddyfile + OWASP-CRS/Coraza tuning, mounted read-only. To disable the
+      # WAF, mount ./infra/caddy/Caddyfile (stock) here and drop the coraza mount.
+      - ./infra/caddy/Caddyfile.waf:/etc/caddy/Caddyfile:ro
+      - ./infra/caddy/coraza:/etc/caddy/coraza:ro
+      - caddy_data:/data     # persisted certs + ACME account (DO NOT lose this)
+      - caddy_config:/config
+    depends_on:
+      auth-svc: { condition: service_healthy }
+      task-svc: { condition: service_healthy }
+      notification-svc: { condition: service_healthy }
+      messaging-svc: { condition: service_healthy }
+      ws-gateway: { condition: service_healthy }
+    deploy:
+      resources:
+        limits: { cpus: "0.50", memory: 128M }
+    networks: [taskboard]
+
+  # ── Infrastructure ──────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    # IN-TRANSIT TLS (PROD-ONLY): even though Postgres is internal to the compose
+    # network, prod encrypts client↔DB traffic so a compromised co-tenant /
+    # sidecar / packet capture on the bridge can't read credentials or row data.
+    #   • ssl=on with a server cert/key signed by our CA (see scripts/gen-db-certs.sh).
+    #   • ssl_ca_file enables optional client-cert auth later; today it pins the
+    #     chain the clients verify with sslmode=verify-full.
+    #   • TLSv1.2 floor — drop legacy protocols.
+    # The dev docker-compose.yml deliberately stays plaintext (sslmode=disable).
+    command:
+      - postgres
+      - -c
+      - ssl=on
+      - -c
+      - ssl_cert_file=/etc/postgres/certs/server.crt
+      - -c
+      - ssl_key_file=/etc/postgres/certs/server.key
+      - -c
+      - ssl_ca_file=/etc/postgres/certs/ca.crt
+      - -c
+      - ssl_min_protocol_version=TLSv1.2
+    environment:
+      # Superuser is used ONLY for init (creating per-service DBs + least-priv
+      # roles). Application services connect as their own per-service users —
+      # see infra/postgres/init/02-create-roles.sql and the *_DATABASE_URL vars.
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: postgres
+      # Per-service role passwords, consumed by 02-create-roles.sql via psql vars.
+      AUTH_DB_PASSWORD: ${AUTH_DB_PASSWORD}
+      TASK_DB_PASSWORD: ${TASK_DB_PASSWORD}
+      MESSAGING_DB_PASSWORD: ${MESSAGING_DB_PASSWORD}
+      NOTIFICATION_DB_PASSWORD: ${NOTIFICATION_DB_PASSWORD}
+      EMAIL_DB_PASSWORD: ${EMAIL_DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+      # TLS material: generate with scripts/gen-db-certs.sh (dev/staging) or mount
+      # a real CA-issued server cert/key + CA bundle (prod). server.key MUST be
+      # mode 0600 owned by root or the postgres user — the script sets this.
+      - ./infra/postgres/certs:/etc/postgres/certs:ro
+    # No host port mapping — internal-only on the taskboard network.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    deploy:
+      resources:
+        limits: { cpus: "2.00", memory: 1536M }
+    networks: [taskboard]
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    # AUTH: requirepass is ALWAYS on in prod (no anonymous access on the shared
+    # network). The matching password rides in REDIS_URL as
+    #   rediss://:${REDIS_PASSWORD}@redis:6379/0   (see .env.prod.example).
+    #
+    # TLS — read docs/OPERATIONS.md §7 before enabling. Redis can serve TLS via
+    # `--tls-port 6379 --port 0 --tls-cert-file … --tls-key-file … --tls-ca-cert-file …`
+    # (mount infra/redis/certs from scripts/gen-db-certs.sh REDIS=1). HONEST
+    # CAVEAT: ws-gateway connects with go-redis `ParseURL`, whose `rediss://`
+    # path validates the server cert against the SYSTEM root store and does NOT
+    # load a private CA from the URL. A SELF-SIGNED Redis CA therefore won't
+    # verify without a ws-gateway code change. The verifying prod path is a
+    # MANAGED Redis (ElastiCache / Upstash / Redis Cloud) whose cert chains to a
+    # public CA — then `rediss://` "just works". This bundled Redis is left on
+    # `requirepass` over the PRIVATE compose network (never exposed off-host);
+    # flip in the TLS flags below only with a publicly-trusted cert or after the
+    # ws-gateway custom-CA follow-up.
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - ${REDIS_PASSWORD}
+      # ── Opt-in TLS (managed-CA / post-code-follow-up only) ──
+      # - --tls-port
+      # - "6379"
+      # - --port
+      # - "0"
+      # - --tls-cert-file
+      # - /etc/redis/certs/server.crt
+      # - --tls-key-file
+      # - /etc/redis/certs/server.key
+      # - --tls-ca-cert-file
+      # - /etc/redis/certs/ca.crt
+    volumes:
+      - redisdata:/data
+      # - ./infra/redis/certs:/etc/redis/certs:ro   # uncomment with TLS above
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    deploy:
+      resources:
+        limits: { cpus: "0.50", memory: 512M }
+    networks: [taskboard]
+
+  # ── Kafka ─────────────────────────────────────────────────────────────────
+  # IN-TRANSIT ENCRYPTION (read docs/OPERATIONS.md §6 before changing):
+  #
+  #   The bundled single broker speaks PLAINTEXT — IDENTICAL to dev — and is NOT
+  #   the recommended production message bus (RF=1, no HA, no auth). For real
+  #   production durability AND wire encryption, run Kafka EXTERNALLY (managed
+  #   MSK / Confluent Cloud / Redpanda or Strimzi via the Helm chart) with a
+  #   SASL_SSL listener, and point the producers/consumers at it by setting
+  #   KAFKA_BROKERS + the KAFKA_SECURITY_* client vars in .env.prod (§6).
+  #
+  #   IMPORTANT HONEST CAVEAT: the in-tree clients (aiokafka in the Python
+  #   services, segmentio/kafka-go in ws-gateway) currently read ONLY
+  #   KAFKA_BROKERS — they do NOT yet wire security.protocol / SASL / TLS from
+  #   env. Enabling SASL_SSL end-to-end therefore needs a small CODE follow-up in
+  #   each client (out of scope for this transit-hardening config change). The
+  #   broker-side SASL_SSL listener recipe and the client env contract are both
+  #   documented in docs/OPERATIONS.md §6 so the wiring is ready when that lands.
+  #   Until then this single broker stays PLAINTEXT on the private compose
+  #   network and MUST NOT be exposed off-host.
+  kafka:
+    image: apache/kafka:3.9.0
+    restart: unless-stopped
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      # ── SASL_SSL listener recipe (for an EXTERNAL/multi-broker prod cluster) ──
+      # Mount infra/postgres/certs/ca.crt (or a dedicated Kafka CA) + a broker
+      # keystore/truststore, then replace the listener block above with, e.g.:
+      #   KAFKA_LISTENERS: SASL_SSL://:9092,CONTROLLER://:9093
+      #   KAFKA_ADVERTISED_LISTENERS: SASL_SSL://kafka:9092
+      #   KAFKA_INTER_BROKER_LISTENER_NAME: SASL_SSL
+      #   KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,SASL_SSL:SASL_SSL
+      #   KAFKA_SASL_ENABLED_MECHANISMS: SCRAM-SHA-512
+      #   KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: SCRAM-SHA-512
+      #   KAFKA_SSL_KEYSTORE_LOCATION / _PASSWORD, KAFKA_SSL_TRUSTSTORE_LOCATION / _PASSWORD
+      # See docs/OPERATIONS.md §6 for the full broker + client recipe.
+      #
+      # NOTE: single-broker KRaft. RF>1 (and the prod topic settings in
+      # infra/kafka/create-topics.sh) require a MULTI-broker cluster — run Kafka
+      # externally (managed MSK/Confluent/Redpanda) or via the Helm chart for HA.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    volumes:
+      - kafkadata:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+    deploy:
+      resources:
+        limits: { cpus: "2.00", memory: 1536M }
+    networks: [taskboard]
+
+  kafka-init:
+    image: apache/kafka:3.9.0
+    depends_on:
+      kafka: { condition: service_healthy }
+    environment:
+      KAFKA_BROKERS: kafka:9092
+      TOPIC_PARTITIONS: ${TOPIC_PARTITIONS:-12}
+      # On a multi-broker prod cluster set REPLICATION_FACTOR=3 (see the script).
+      REPLICATION_FACTOR: ${REPLICATION_FACTOR:-1}
+    entrypoint: ["bash", "/create-topics.sh"]
+    volumes:
+      - ./infra/kafka/create-topics.sh:/create-topics.sh:ro
+    restart: "no"
+    networks: [taskboard]
+
+  # ── Application services ─────────────────────────────────────────────────────
+  # Built from the SAME hardened Dockerfiles as dev. Pin a release tag via
+  # ${IMAGE_TAG} so a host can pull a known-good build instead of building.
+  auth-svc:
+    <<: *svc-defaults
+    build: ./services/auth-svc
+    image: task-board/auth-svc:${IMAGE_TAG:-latest}
+    volumes:
+      - ./keys:/keys:ro   # Ed25519 keypair — provisioned per-env, gitignored.
+      # Re-listed (not inherited) — see the x-svc-defaults note: `<<:` replaces
+      # the `volumes:` list rather than merging it.
+      - ./infra/postgres/certs/ca.crt:/etc/ssl/db/ca.crt:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8001/readyz').status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    deploy:
+      resources:
+        limits: { cpus: "1.00", memory: 512M }
+
+  email-worker:
+    <<: *svc-defaults
+    build: ./services/email-worker
+    image: task-board/email-worker:${IMAGE_TAG:-latest}
+    # Pure Kafka consumer — no HTTP port, no /readyz. Liveness is process-up.
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
+      auth-svc: { condition: service_healthy }
+    deploy:
+      resources:
+        limits: { cpus: "0.50", memory: 384M }
+
+  task-svc:
+    <<: *svc-defaults
+    build: ./services/task-svc
+    image: task-board/task-svc:${IMAGE_TAG:-latest}
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
+      auth-svc: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8002/readyz').status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    deploy:
+      resources:
+        limits: { cpus: "1.00", memory: 512M }
+
+  notification-svc:
+    <<: *svc-defaults
+    build: ./services/notification-svc
+    image: task-board/notification-svc:${IMAGE_TAG:-latest}
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
+      auth-svc: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8003/readyz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    deploy:
+      resources:
+        limits: { cpus: "1.00", memory: 384M }
+
+  messaging-svc:
+    <<: *svc-defaults
+    build: ./services/messaging-svc
+    image: task-board/messaging-svc:${IMAGE_TAG:-latest}
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
+      auth-svc: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8004/readyz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    deploy:
+      resources:
+        limits: { cpus: "1.00", memory: 384M }
+
+  ws-gateway:
+    <<: *svc-defaults
+    build: ./services/ws-gateway
+    image: task-board/ws-gateway:${IMAGE_TAG:-latest}
+    depends_on:
+      redis: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
+      auth-svc: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8080/readyz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    deploy:
+      resources:
+        limits: { cpus: "1.00", memory: 384M }
+
+  # The web SPA is built as static assets and served by Caddy (see the Caddyfile
+  # `file_server` block / a separate CDN). The Electron desktop client runs on
+  # end-user machines, not here.
+
+volumes:
+  pgdata:
+  redisdata:
+  kafkadata:
+  caddy_data:
+  caddy_config:
+
+networks:
+  taskboard:
+    driver: bridge

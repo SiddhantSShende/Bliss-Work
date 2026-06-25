@@ -1,0 +1,198 @@
+from __future__ import annotations
+
+from fastapi import APIRouter, Query
+from sqlalchemy import text
+
+from ..auth import Principal, PrincipalDep
+from ..crypto import cryptor
+from ..db import session, set_org_context
+from ..schemas import SentAssignee, SentTaskDTO, StickyTaskDTO, actions_for
+from .helpers import iso
+
+router = APIRouter()
+
+# Pagination bounds shared by every read endpoint so an unbounded result set
+# can't exhaust memory. We use a capped LIMIT/OFFSET (offset pagination) — the
+# response shape is unchanged (still a bare list); callers that pass nothing
+# get the first page at the historical-default ordering.
+_DEFAULT_LIMIT = 50
+_MAX_LIMIT = 100
+
+LimitQuery = Query(default=_DEFAULT_LIMIT, ge=1, le=_MAX_LIMIT)
+OffsetQuery = Query(default=0, ge=0)
+
+
+# ── Inbox / Sticky (caller as assignee) ─────────────────────────────────────────
+_ACTIVE = ("SENT", "ACKNOWLEDGED")
+
+
+async def _sticky_list(
+    principal: Principal,
+    statuses: tuple[str, ...] = _ACTIVE,
+    limit: int = _DEFAULT_LIMIT,
+    offset: int = 0,
+) -> list[StickyTaskDTO]:
+    placeholders = ", ".join(f":s{i}" for i in range(len(statuses)))
+    params = {
+        "org": principal.org_id,
+        "me": principal.user_id,
+        "limit": limit,
+        "offset": offset,
+    }
+    params.update({f"s{i}": s for i, s in enumerate(statuses)})
+    async with session() as db:
+        # RLS: scope this transaction to the caller's org before any read
+        # (the JOIN over task_assignees/tasks/user_projection and the per-row
+        # decrypt() that reads org_keys are all RLS-protected).
+        await set_org_context(db, principal.org_id)
+        rows = (
+            await db.execute(
+                text(
+                    "SELECT t.id, t.org_id, t.title_enc, t.description_enc, t.sender_id, "
+                    "       ta.status, ta.status_version, ta.assigned_at, ta.acknowledged_at, "
+                    "       COALESCE(up.username, '') AS sender_username "
+                    "FROM task_assignees ta "
+                    "JOIN tasks t ON t.id = ta.task_id "
+                    "LEFT JOIN user_projection up "
+                    "       ON up.user_id = t.sender_id AND up.org_id = t.org_id "
+                    f"WHERE ta.org_id = :org AND ta.assignee_id = :me AND ta.status IN ({placeholders}) "
+                    "ORDER BY ta.assigned_at DESC "
+                    "LIMIT :limit OFFSET :offset"
+                ),
+                params,
+            )
+        ).all()
+
+        # Decrypt per row under the row's org_id (transparent at-rest encryption).
+        out: list[StickyTaskDTO] = []
+        for r in rows:
+            org = str(r.org_id)
+            out.append(
+                StickyTaskDTO(
+                    taskId=str(r.id),
+                    orgId=org,
+                    title=await cryptor().decrypt(db, org, r.title_enc) or "",
+                    description=await cryptor().decrypt(db, org, r.description_enc) or "",
+                    senderId=str(r.sender_id),
+                    senderUsername=r.sender_username,
+                    myStatus=r.status,
+                    actions=actions_for(r.status),
+                    statusVersion=r.status_version,
+                    assignedAt=iso(r.assigned_at),
+                    acknowledgedAt=iso(r.acknowledged_at),
+                )
+            )
+    return out
+
+
+@router.get("/tasks/inbox", response_model=list[StickyTaskDTO])
+async def inbox(
+    principal: Principal = PrincipalDep,
+    limit: int = LimitQuery,
+    offset: int = OffsetQuery,
+) -> list[StickyTaskDTO]:
+    return await _sticky_list(principal, limit=limit, offset=offset)
+
+
+@router.get("/tasks/sticky", response_model=list[StickyTaskDTO])
+async def sticky(
+    principal: Principal = PrincipalDep,
+    limit: int = LimitQuery,
+    offset: int = OffsetQuery,
+) -> list[StickyTaskDTO]:
+    return await _sticky_list(principal, limit=limit, offset=offset)
+
+
+@router.get("/tasks/assigned", response_model=list[StickyTaskDTO])
+async def assigned(
+    principal: Principal = PrincipalDep,
+    limit: int = LimitQuery,
+    offset: int = OffsetQuery,
+) -> list[StickyTaskDTO]:
+    """All tasks assigned to me, any status (frontend buckets into the views)."""
+    return await _sticky_list(
+        principal,
+        ("SENT", "ACKNOWLEDGED", "IGNORED", "COMPLETED", "LEFT"),
+        limit=limit,
+        offset=offset,
+    )
+
+
+# ── Sent (caller as sender) ─────────────────────────────────────────────────────
+@router.get("/tasks/sent", response_model=list[SentTaskDTO])
+async def sent(
+    principal: Principal = PrincipalDep,
+    limit: int = LimitQuery,
+    offset: int = OffsetQuery,
+) -> list[SentTaskDTO]:
+    async with session() as db:
+        # RLS: scope this transaction to the caller's org before any read.
+        await set_org_context(db, principal.org_id)
+        # Paginate by task (the unit a caller sees), not by assignee row, so a
+        # single task's assignees never get split across pages. We page the
+        # distinct task ids, then hydrate each with all its assignee rows.
+        task_rows = (
+            await db.execute(
+                text(
+                    "SELECT t.id FROM tasks t "
+                    "WHERE t.org_id = :org AND t.sender_id = :me "
+                    "      AND EXISTS ("
+                    "          SELECT 1 FROM task_assignees ta "
+                    "          WHERE ta.task_id = t.id AND ta.sender_dismissed = false"
+                    "      ) "
+                    "ORDER BY t.created_at DESC "
+                    "LIMIT :limit OFFSET :offset"
+                ),
+                {
+                    "org": principal.org_id,
+                    "me": principal.user_id,
+                    "limit": limit,
+                    "offset": offset,
+                },
+            )
+        ).all()
+        task_ids = [str(r.id) for r in task_rows]
+        if not task_ids:
+            return []
+
+        rows = (
+            await db.execute(
+                text(
+                    "SELECT t.id, t.org_id, t.title_enc, t.description_enc, t.created_at, "
+                    "       ta.assignee_id, ta.status, "
+                    "       COALESCE(up.username, '') AS assignee_username "
+                    "FROM tasks t "
+                    "JOIN task_assignees ta ON ta.task_id = t.id "
+                    "LEFT JOIN user_projection up "
+                    "       ON up.user_id = ta.assignee_id AND up.org_id = ta.org_id "
+                    "WHERE t.org_id = :org AND t.sender_id = :me "
+                    "      AND ta.sender_dismissed = false "
+                    "      AND t.id = ANY(:tids) "
+                    "ORDER BY t.created_at DESC, ta.assigned_at ASC"
+                ),
+                {"org": principal.org_id, "me": principal.user_id, "tids": task_ids},
+            )
+        ).all()
+
+        by_task: dict[str, SentTaskDTO] = {}
+        order: list[str] = []
+        for r in rows:
+            tid = str(r.id)
+            if tid not in by_task:
+                org = str(r.org_id)
+                by_task[tid] = SentTaskDTO(
+                    taskId=tid,
+                    title=await cryptor().decrypt(db, org, r.title_enc) or "",
+                    description=await cryptor().decrypt(db, org, r.description_enc) or "",
+                    createdAt=iso(r.created_at),
+                    assignees=[],
+                )
+                order.append(tid)
+            by_task[tid].assignees.append(
+                SentAssignee(
+                    assigneeId=str(r.assignee_id),
+                    assigneeUsername=r.assignee_username,
+                    status=r.status,
+                )
+            )
+    return [by_task[t] for t in order]

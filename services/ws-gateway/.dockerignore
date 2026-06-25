@@ -1,0 +1,22 @@
+# Version control
+.git
+.gitignore
+
+# Go test files & vendored caches (not needed for `go build`)
+*_test.go
+testdata/
+vendor/
+
+# Local environment / secrets
+.env
+.env.*
+
+# Editor / OS cruft
+.idea/
+.vscode/
+.DS_Store
+
+# Docs & Docker meta
+*.md
+Dockerfile
+.dockerignore

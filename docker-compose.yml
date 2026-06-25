@@ -1,0 +1,286 @@
+name: task-board
+
+# Full local stack. Bring up with `make up` (or `docker compose up -d --build`).
+# The Electron desktop app runs on the HOST via `npm run desktop`, not in compose.
+
+x-svc-defaults: &svc-defaults
+  restart: unless-stopped
+  env_file: .env
+  networks: [taskboard]
+
+services:
+  # ── Infrastructure ──────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    # No host port mapping — services reach it over the internal network as
+    # `postgres:5432`. (Avoids clashing with a Postgres already on the host.)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [taskboard]
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [taskboard]
+
+  # Vault (dev mode) for the KMS-backed KEK provider. Opt-in: `--profile kms`.
+  # One-time setup after `docker compose --profile kms up -d vault`:
+  #   docker compose exec vault vault secrets enable transit
+  #   docker compose exec vault vault write -f transit/keys/taskboard-dek
+  # Then run a service with DATA_KEK_PROVIDER=kms DATA_KMS_BACKEND=vault-transit
+  # DATA_KMS_KEY_ID=taskboard-dek VAULT_ADDR=http://vault:8200 VAULT_TOKEN=dev-root.
+  vault:
+    image: hashicorp/vault:1.18
+    profiles: ["kms"]
+    cap_add: ["IPC_LOCK"]
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: dev-root
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+      VAULT_ADDR: http://127.0.0.1:8200
+      VAULT_TOKEN: dev-root
+    ports:
+      - "8201:8200" # host 8201 (8200 often taken); services use vault:8200 internally
+    healthcheck:
+      test: ["CMD", "vault", "status"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [taskboard]
+
+  kafka:
+    image: apache/kafka:3.9.0
+    restart: unless-stopped
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      # Bind all interfaces with ":port" (NOT 0.0.0.0) — the image's storage-format
+      # step rejects a literal 0.0.0.0 appearing in advertised.listeners.
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+    networks: [taskboard]
+
+  kafka-init:
+    image: apache/kafka:3.9.0
+    depends_on:
+      kafka: { condition: service_healthy }
+    environment:
+      KAFKA_BROKERS: kafka:9092
+      TOPIC_PARTITIONS: 12
+    entrypoint: ["bash", "/create-topics.sh"]
+    volumes:
+      - ./infra/kafka/create-topics.sh:/create-topics.sh:ro
+    restart: "no"
+    networks: [taskboard]
+
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports:
+      - "1025:1025" # SMTP
+      - "8025:8025" # web UI + API
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8025/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [taskboard]
+
+  # ── Application services ──────────────────────────────────────────────────────
+  auth-svc:
+    <<: *svc-defaults
+    build: ./services/auth-svc
+    ports: ["${AUTH_PORT}:8001"]
+    volumes:
+      - ./keys:/keys:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8001/readyz').status==200 else 1)\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  email-worker:
+    <<: *svc-defaults
+    build: ./services/email-worker
+    depends_on:
+      postgres: { condition: service_healthy } # owns emaildb (dedup state)
+      kafka-init: { condition: service_completed_successfully }
+      mailpit: { condition: service_healthy }
+      auth-svc: { condition: service_healthy } # resolves recipient e-mail via internal API
+
+  task-svc:
+    <<: *svc-defaults
+    build: ./services/task-svc
+    ports: ["${TASK_PORT}:8002"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
+      auth-svc: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8002/readyz').status==200 else 1)\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  notification-svc:
+    <<: *svc-defaults
+    build: ./services/notification-svc
+    ports: ["${NOTIFICATION_PORT}:8003"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
+      auth-svc: { condition: service_healthy } # warm JWKS cache after the signer is up
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8003/readyz || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  messaging-svc:
+    <<: *svc-defaults
+    build: ./services/messaging-svc
+    ports: ["${MESSAGING_PORT}:8004"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
+      auth-svc: { condition: service_healthy } # warm JWKS cache after the signer is up
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8004/readyz || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  ws-gateway:
+    <<: *svc-defaults
+    build: ./services/ws-gateway
+    ports: ["${WS_GATEWAY_PORT}:8080"]
+    depends_on:
+      redis: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
+      auth-svc: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8080/readyz || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # The web app and Electron desktop client run on the HOST (npm run web / npm run desktop).
+
+  # ── Observability stack (opt-in) ─────────────────────────────────────────────
+  # Bring up with: docker compose --profile observability up -d
+  # Vendor-neutral: services export OTLP to otel-collector:4317, which fans out to
+  # Tempo (traces), Prometheus (metrics, scraped at :8889), and Loki (logs).
+  # Grafana (http://localhost:3000, anonymous admin) visualises all three.
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.115.1
+    profiles: ["observability"]
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./infra/observability/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    networks: [taskboard]
+
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    profiles: ["observability"]
+    restart: unless-stopped
+    command: ["--config.file=/etc/prometheus/prometheus.yml"]
+    volumes:
+      - ./infra/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/observability/prometheus/rules:/etc/prometheus/rules:ro
+      - promdata:/prometheus
+    ports: ["9091:9090"] # host 9090 is commonly taken; Grafana reaches it in-network
+    networks: [taskboard]
+
+  # Alertmanager — routes Prometheus alerts to receivers. Dev config sends every
+  # alert to a webhook sink; prod options (Slack/PagerDuty/email) are documented
+  # in docs/OBSERVABILITY-ALERTS.md and stubbed in alertmanager.yml.
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    profiles: ["observability"]
+    restart: unless-stopped
+    command: ["--config.file=/etc/alertmanager/alertmanager.yml"]
+    volumes:
+      - ./infra/observability/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanagerdata:/alertmanager
+    ports: ["9093:9093"]
+    networks: [taskboard]
+
+  tempo:
+    image: grafana/tempo:2.6.1
+    profiles: ["observability"]
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    volumes:
+      - ./infra/observability/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempodata:/var/tempo
+    networks: [taskboard]
+
+  loki:
+    image: grafana/loki:3.3.2
+    profiles: ["observability"]
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    volumes:
+      - lokidata:/loki
+    networks: [taskboard]
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    profiles: ["observability"]
+    restart: unless-stopped
+    depends_on: [prometheus, loki, tempo]
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - ./infra/observability/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
+      - grafanadata:/var/lib/grafana
+    ports: ["3000:3000"]
+    networks: [taskboard]
+
+volumes:
+  pgdata:
+  promdata:
+  alertmanagerdata:
+  tempodata:
+  lokidata:
+  grafanadata:
+
+networks:
+  taskboard:
+    driver: bridge

@@ -1,0 +1,56 @@
+{{/*
+Single-host Ingress fanning paths out to the HTTP services. TLS is provisioned
+and renewed by cert-manager via the cluster-issuer annotation. email-worker has
+no listener and is intentionally not routed.
+*/}}
+{{- if .Values.ingress.enabled }}
+{{- $root := . -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "taskboard.fullname" . }}
+  labels:
+    {{- include "taskboard.labels" . | nindent 4 }}
+  annotations:
+    # cert-manager watches this Ingress and issues/renews the cert into the
+    # tls.secretName Secret using the named ClusterIssuer (e.g. Let's Encrypt).
+    cert-manager.io/cluster-issuer: {{ .Values.ingress.clusterIssuer | quote }}
+    # ── ws-gateway WebSocket upgrade ─────────────────────────────────────────
+    # WebSockets are long-lived; the default 60s proxy read/send timeout would
+    # drop idle connections. Raise it for the whole Ingress (nginx applies these
+    # per-Ingress). On a controller that supports per-path timeouts, scope the
+    # long timeout to the /ws path only. Envoy/Traefik use their own annotations.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: {{ .Values.ingress.websocketTimeoutSeconds | quote }}
+    nginx.ingress.kubernetes.io/proxy-send-timeout: {{ .Values.ingress.websocketTimeoutSeconds | quote }}
+    # Pin a client to one ws-gateway pod (complements the Service ClientIP
+    # affinity); ideally key the upstream hash on userId at L7 instead.
+    nginx.ingress.kubernetes.io/affinity: cookie
+    nginx.ingress.kubernetes.io/affinity-mode: persistent
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host | quote }}
+      secretName: {{ .Values.ingress.tls.secretName }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          {{- range $name, $path := .Values.ingress.paths }}
+          {{- $svc := index $root.Values.services $name }}
+          {{- if and $svc $svc.http $svc.port }}
+          - path: {{ $path }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $name }}
+                port:
+                  number: {{ $svc.port }}
+          {{- end }}
+          {{- end }}
+{{- end }}

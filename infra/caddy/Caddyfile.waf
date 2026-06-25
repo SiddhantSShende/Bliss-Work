@@ -1,0 +1,87 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Caddy reverse proxy + OWASP-CRS WAF for the Task-Board production edge.
+#
+# This is the HARDENED variant of infra/caddy/Caddyfile: identical routing, plus
+# an inline Coraza (ModSecurity-compatible) Web Application Firewall running the
+# OWASP Core Rule Set (CRS) at the edge — SQLi/XSS/RCE/LFI/protocol-anomaly
+# detection in front of every upstream.
+#
+# REQUIRES A CUSTOM CADDY BUILD. Stock `caddy:2.8-alpine` has NO WAF. Build the
+# image in infra/caddy/Dockerfile (xcaddy + github.com/corazawaf/coraza-caddy/v2)
+# and point the prod compose `caddy` service at it (build: ./infra/caddy). The
+# `coraza_waf` directive below only parses in that custom build.
+#
+# Managed-WAF alternative (recommended at scale): put Cloudflare / AWS WAF /
+# Azure Front Door in front of this edge and run their managed OWASP ruleset —
+# then you can fall back to the stock Caddyfile. See docs/OPERATIONS.md §8.
+#
+# {$DOMAIN} and {$ACME_EMAIL} are injected from .env.prod.
+# ─────────────────────────────────────────────────────────────────────────────
+
+{
+	email {$ACME_EMAIL}
+	# The Coraza directive is not a standard Caddy handler, so its ordering in the
+	# request-handling chain must be declared. Run the WAF BEFORE reverse_proxy /
+	# file_server so malicious requests are blocked before reaching an upstream.
+	order coraza_waf first
+	# For a staging/private CA, uncomment:
+	# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	# ── WAF: OWASP Core Rule Set ────────────────────────────────────────────────
+	# Loads the Coraza recommended config, the CRS setup, then all CRS rules.
+	# Files are mounted read-only at /etc/caddy/coraza (see the prod compose).
+	# Start in DETECTION (SecRuleEngine DetectionOnly, set in coraza.conf) to tune
+	# out false positives against real traffic, THEN switch to blocking (On).
+	coraza_waf {
+		load_owasp_crs
+		directives `
+			Include /etc/caddy/coraza/coraza.conf
+			Include /etc/caddy/coraza/crs-setup.conf
+			Include /etc/caddy/coraza/rules/*.conf
+		`
+	}
+
+	# WebSocket upgrades (real-time fan-out) → ws-gateway.
+	@ws path /ws /ws/*
+	reverse_proxy @ws ws-gateway:8080
+
+	# REST APIs. Strip the public /api/<svc> prefix when proxying upstream.
+	handle_path /api/auth/* {
+		reverse_proxy auth-svc:8001
+	}
+	handle_path /api/tasks/* {
+		reverse_proxy task-svc:8002
+	}
+	handle_path /api/notifications/* {
+		reverse_proxy notification-svc:8003
+	}
+	handle_path /api/messaging/* {
+		reverse_proxy messaging-svc:8004
+	}
+
+	# JWKS must be reachable at a stable public path for any external verifier.
+	handle /.well-known/jwks.json {
+		reverse_proxy auth-svc:8001
+	}
+
+	# Static SPA assets (built `apps/web` output mounted at /srv). Falls through
+	# to index.html for client-side routing. Swap for a CDN if preferred.
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+
+	# Security headers. HSTS is safe because every route is HTTPS-only here.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+}

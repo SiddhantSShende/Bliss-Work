@@ -1,0 +1,143 @@
+"""Invite lifecycle: create, list, revoke, verify, accept."""
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy import text
+
+from .. import service
+from ..db import engine
+from ..logging_config import log
+from ..schemas import (
+    AcceptInviteRequest,
+    CreateInviteRequest,
+    CreateInviteResponse,
+    InviteListItem,
+    InviteVerifyResponse,
+    SessionDTO,
+)
+from ..security.auth_dep import Principal, require_org_admin
+from .cookies import set_refresh_cookie
+from .invites_service import accept_invite_tx, create_invite_tx, iso_z
+
+router = APIRouter(prefix="/auth/invites", tags=["invites"])
+
+
+@router.post("", response_model=CreateInviteResponse, status_code=status.HTTP_201_CREATED)
+async def create_invite(
+    body: CreateInviteRequest,
+    principal: Principal = Depends(require_org_admin),
+) -> CreateInviteResponse:
+    async with engine.begin() as conn:
+        # Reads `orgs`, writes `invites` + `audit_log` (all RLS) for the admin's
+        # verified org; scope the tx before the helper runs any query.
+        await service.set_org_guc(conn, principal.org_id)
+        invite_id = await create_invite_tx(conn, body, principal)
+    log.info("invite_created", invite_id=invite_id, org_id=principal.org_id)
+    return CreateInviteResponse(id=invite_id)
+
+
+@router.get("", response_model=list[InviteListItem])
+async def list_invites(
+    principal: Principal = Depends(require_org_admin),
+) -> list[InviteListItem]:
+    async with engine.connect() as conn:
+        # Lists `invites` (RLS) for the admin's verified org. The JOIN to `roles`
+        # (no RLS) is unaffected.
+        await service.set_org_guc(conn, principal.org_id)
+        rows = (
+            await conn.execute(
+                text(
+                    """
+                    SELECT i.id, i.email, r.name AS role, i.status, i.expires_at, i.created_at
+                    FROM invites i
+                    JOIN roles r ON r.id = i.role_id
+                    WHERE i.org_id = :org AND i.status = 'pending'
+                    ORDER BY i.created_at DESC
+                    """
+                ),
+                {"org": principal.org_id},
+            )
+        ).all()
+    return [
+        InviteListItem(
+            id=str(r.id),
+            email=r.email,
+            role=r.role,
+            status=r.status,
+            expiresAt=iso_z(r.expires_at),
+            createdAt=iso_z(r.created_at),
+        )
+        for r in rows
+    ]
+
+
+@router.delete("/{invite_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_invite(
+    invite_id: str,
+    response: Response,
+    principal: Principal = Depends(require_org_admin),
+) -> Response:
+    async with engine.begin() as conn:
+        # Updates `invites` + writes `audit_log` (both RLS) for the admin's org.
+        await service.set_org_guc(conn, principal.org_id)
+        result = await conn.execute(
+            text(
+                """
+                UPDATE invites
+                SET status = 'revoked'
+                WHERE id = :id AND org_id = :org AND status = 'pending'
+                """
+            ),
+            {"id": invite_id, "org": principal.org_id},
+        )
+        if result.rowcount == 0:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "invite not found")
+        await service.write_audit(
+            conn,
+            org_id=principal.org_id,
+            actor_id=principal.user_id,
+            action="invite.revoked",
+            target=invite_id,
+        )
+    response.status_code = status.HTTP_204_NO_CONTENT
+    return response
+
+
+@router.get("/verify", response_model=InviteVerifyResponse)
+async def verify_invite(token: str = Query(...)) -> InviteVerifyResponse:
+    token_hash = service.sha256_bytes(token)
+    now = datetime.now(timezone.utc)
+    async with engine.connect() as conn:
+        # Pre-org-context: the invite (and its org name) is looked up by token
+        # hash before the org is known. invites + orgs are both RLS, so this
+        # unauthenticated lookup runs under bypass.
+        await service.set_bypass_rls(conn)
+        row = (
+            await conn.execute(
+                text(
+                    """
+                    SELECT i.email, i.status, i.expires_at, o.name AS org_name
+                    FROM invites i
+                    JOIN orgs o ON o.id = i.org_id
+                    WHERE i.token_hash = :hash
+                    """
+                ),
+                {"hash": token_hash},
+            )
+        ).first()
+    if row is None or row.status != "pending" or row.expires_at <= now:
+        return InviteVerifyResponse(valid=False)
+    return InviteVerifyResponse(email=row.email, orgName=row.org_name, valid=True)
+
+
+@router.post("/accept", response_model=SessionDTO)
+async def accept_invite(body: AcceptInviteRequest, response: Response) -> SessionDTO:
+    async with engine.begin() as conn:
+        session, raw_refresh, user_id = await accept_invite_tx(conn, body)
+        org_id = session.user.orgId
+
+    set_refresh_cookie(response, raw_refresh)
+    log.info("invite_accepted", user_id=user_id, org_id=org_id)
+    return session

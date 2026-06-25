@@ -1,0 +1,22 @@
+# Grafana Tempo — single-binary trace store (local filesystem backend; fine for
+# a single host / dev. For prod, point storage.trace.backend at S3/GCS/Azure).
+server:
+  http_listen_port: 3200
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+
+ingester:
+  max_block_duration: 5m
+
+storage:
+  trace:
+    backend: local
+    local:
+      path: /var/tempo/traces
+    wal:
+      path: /var/tempo/wal
