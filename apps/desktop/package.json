@@ -34,6 +34,13 @@
       }
     ],
     "asar": true,
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "SiddhantSShende",
+        "repo": "Bliss-Work"
+      }
+    ],
     "win": {
       "target": [
         {
@@ -43,7 +50,8 @@
           ]
         }
       ],
-      "icon": "build/icon.png"
+      "icon": "build/icon.png",
+      "artifactName": "BlissWork-windows-${arch}.${ext}"
     },
     "nsis": {
       "oneClick": false,
@@ -56,17 +64,49 @@
     },
     "mac": {
       "target": [
-        "dmg"
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
       ],
       "icon": "build/icon.png",
-      "category": "public.app-category.productivity"
+      "category": "public.app-category.productivity",
+      "identity": null,
+      "artifactName": "BlissWork-mac-${arch}.${ext}"
+    },
+    "dmg": {
+      "title": "BlissWork ${version}"
     },
     "linux": {
       "target": [
-        "AppImage"
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "icon": "build/icon.png",
-      "category": "Office"
+      "category": "Office",
+      "maintainer": "BlissWork <support@blisswork.app>",
+      "synopsis": "Always-on-top sticky task notes for teams",
+      "artifactName": "BlissWork-linux-${arch}.${ext}"
     }
   },
   "devDependencies": {

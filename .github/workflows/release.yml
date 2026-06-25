@@ -1,0 +1,74 @@
+name: Release Desktop
+
+# Builds the BlissWork desktop installers on each platform's native runner and
+# publishes them to GitHub Releases. The marketing site's "Get the App" buttons
+# link to these assets via stable, version-less filenames
+# (BlissWork-windows-x64.exe, BlissWork-mac-arm64.dmg, BlissWork-linux-x64.AppImage, …).
+#
+# Trigger a release by pushing a tag that matches the desktop app version, e.g.:
+#   git tag v0.1.0 && git push origin v0.1.0
+# (electron-builder creates/uploads to the GitHub Release tagged v<version>.)
+#
+# `workflow_dispatch` runs a build WITHOUT publishing — useful for a dry run; the
+# installers are still attached as downloadable workflow artifacts.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  NODE_VERSION: "20"
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install Linux packaging tools
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends fakeroot
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build desktop bundle
+        run: npm run build -w @taskboard/desktop
+
+      - name: Package & publish installers
+        working-directory: apps/desktop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # No Apple Developer ID in CI — build unsigned (mac.identity is also null in config).
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npx --no-install electron-builder --publish ${{ startsWith(github.ref, 'refs/tags/') && 'always' || 'never' }}
+
+      - name: Upload installers as workflow artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: blisswork-installers-${{ matrix.os }}
+          path: |
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.AppImage
+            apps/desktop/release/*.deb
+            apps/desktop/release/*.zip
+          if-no-files-found: ignore
+          retention-days: 14
