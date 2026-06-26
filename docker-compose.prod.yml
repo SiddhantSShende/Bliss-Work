@@ -109,6 +109,7 @@ services:
       ACME_EMAIL: ${ACME_EMAIL}
     volumes:
       - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - /home/ubuntu/BlissWork/Bliss-Website/dist:/srv/blisswork:ro  # BlissWork marketing site (static SPA)
       - caddy_data:/data     # persisted certs + ACME account (DO NOT lose this)
       - caddy_config:/config
     depends_on:
