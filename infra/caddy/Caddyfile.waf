@@ -1,28 +1,25 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Caddy reverse proxy + OWASP-CRS WAF for the Task-Board production edge.
 #
-# This is the HARDENED variant of infra/caddy/Caddyfile: identical routing, plus
-# an inline Coraza (ModSecurity-compatible) Web Application Firewall running the
-# OWASP Core Rule Set (CRS) at the edge — SQLi/XSS/RCE/LFI/protocol-anomaly
-# detection in front of every upstream.
+# HARDENED variant of infra/caddy/Caddyfile: IDENTICAL routing/headers/site list,
+# plus an inline Coraza (ModSecurity-compatible) WAF running the OWASP Core Rule
+# Set on the app site — SQLi/XSS/RCE/LFI/protocol-anomaly detection in front of
+# every upstream. Keep this in lock-step with Caddyfile when routing changes.
 #
-# REQUIRES A CUSTOM CADDY BUILD. Stock `caddy:2.8-alpine` has NO WAF. Build the
-# image in infra/caddy/Dockerfile (xcaddy + github.com/corazawaf/coraza-caddy/v2)
-# and point the prod compose `caddy` service at it (build: ./infra/caddy). The
-# `coraza_waf` directive below only parses in that custom build.
-#
-# Managed-WAF alternative (recommended at scale): put Cloudflare / AWS WAF /
-# Azure Front Door in front of this edge and run their managed OWASP ruleset —
-# then you can fall back to the stock Caddyfile. See docs/OPERATIONS.md §8.
+# REQUIRES the custom Caddy build in infra/caddy/Dockerfile (xcaddy +
+# corazawaf/coraza-caddy/v2); the `coraza_waf` directive only parses there.
+# Engine starts in DetectionOnly (coraza/coraza.conf) — tune false positives
+# against real traffic, THEN flip SecRuleEngine to On. Instant rollback = point
+# the compose `caddy` service back at the stock image + Caddyfile.
 #
 # {$DOMAIN} and {$ACME_EMAIL} are injected from .env.prod.
 # ─────────────────────────────────────────────────────────────────────────────
 
 {
 	email {$ACME_EMAIL}
-	# The Coraza directive is not a standard Caddy handler, so its ordering in the
-	# request-handling chain must be declared. Run the WAF BEFORE reverse_proxy /
-	# file_server so malicious requests are blocked before reaching an upstream.
+	# coraza_waf is not a standard handler, so declare its order: run the WAF
+	# BEFORE reverse_proxy / file_server so malicious requests are inspected
+	# before reaching an upstream.
 	order coraza_waf first
 	# For a staging/private CA, uncomment:
 	# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
@@ -32,22 +29,42 @@
 	encode zstd gzip
 
 	# ── WAF: OWASP Core Rule Set ────────────────────────────────────────────────
-	# Loads the Coraza recommended config, the CRS setup, then all CRS rules.
-	# Files are mounted read-only at /etc/caddy/coraza (see the prod compose).
-	# Start in DETECTION (SecRuleEngine DetectionOnly, set in coraza.conf) to tune
-	# out false positives against real traffic, THEN switch to blocking (On).
+	# load_owasp_crs pulls the CRS embedded in the coraza-caddy build; the mounted
+	# /etc/caddy/coraza files (coraza.conf engine toggle, crs-setup.conf tuning,
+	# rules/*.conf site tuning) layer on top. DetectionOnly until tuned.
 	coraza_waf {
 		load_owasp_crs
 		directives `
 			Include /etc/caddy/coraza/coraza.conf
-			Include /etc/caddy/coraza/crs-setup.conf
+			Include @crs-setup.conf.example
+			Include @owasp_crs/*.conf
 			Include /etc/caddy/coraza/rules/*.conf
 		`
 	}
 
-	# WebSocket upgrades (real-time fan-out) → ws-gateway.
+	# ── Block introspection/observability endpoints from the public internet ────
+	# /metrics (Prometheus), /docs, /redoc and /openapi.json (FastAPI) must never
+	# be reachable by anonymous clients in production. Matched on the ORIGINAL
+	# request path; handle blocks are terminal + source-ordered, so this comes
+	# first to win over the API/catch-all handlers below.
+	@introspection path */metrics */openapi.json */docs */docs/* */redoc */redoc/*
+	handle @introspection {
+		respond 404
+	}
+
+	# Service-to-service endpoints (X-Internal-Token guarded) are ONLY ever called
+	# over the private compose network — never reachable from the public internet.
+	@internal path */internal/*
+	handle @internal {
+		respond 404
+	}
+
+	# WebSocket upgrades (real-time fan-out) → ws-gateway. MUST be a `handle` block
+	# (not a bare `reverse_proxy @ws`) so the catch-all below doesn't shadow it.
 	@ws path /ws /ws/*
-	reverse_proxy @ws ws-gateway:8080
+	handle @ws {
+		reverse_proxy ws-gateway:8080
+	}
 
 	# REST APIs. Strip the public /api/<svc> prefix when proxying upstream.
 	handle_path /api/auth/* {
@@ -74,6 +91,30 @@
 	}
 
 	# Security headers. HSTS is safe because every route is HTTPS-only here.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+}
+
+# ── BlissWork marketing site (static React/Vite SPA) ────────────────────────────
+# Static SPA with no backend / injection surface, so no WAF here (avoids CRS
+# false-positives on a pure file server). Mirrors the Caddyfile site exactly.
+blisswork.rnrtechs.com {
+	encode zstd gzip
+	root * /srv/blisswork
+	try_files {path} /index.html
+	file_server
+
+	# Long-cache the fingerprinted asset bundle; never cache the HTML shell.
+	@assets path /assets/*
+	header @assets Cache-Control "public, max-age=31536000, immutable"
+	@html path / /index.html
+	header @html Cache-Control "no-cache"
+
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options "nosniff"

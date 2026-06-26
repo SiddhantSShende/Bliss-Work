@@ -114,7 +114,11 @@ services:
   # automatic-HTTPS email line.
   #
   caddy:
-    image: caddy:2.8-alpine@sha256:af32e97399febea808609119bb21544d0265c58a02836576e32a2d082c262c17
+    # Custom Caddy compiled with the Coraza WAF (OWASP CRS) — see infra/caddy/Dockerfile.
+    # ROLLBACK: revert to `image: caddy:2.8-alpine@sha256:af32e97399febea808609119bb21544d0265c58a02836576e32a2d082c262c17`
+    # + the plain Caddyfile mount below, and recreate.
+    build: ./infra/caddy
+    image: task-board/caddy-waf:2.11
     restart: unless-stopped
     ports:
       - "80:80"     # ACME HTTP-01 challenge + HTTP→HTTPS redirect
@@ -124,7 +128,8 @@ services:
       DOMAIN: ${DOMAIN}
       ACME_EMAIL: ${ACME_EMAIL}
     volumes:
-      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./infra/caddy/Caddyfile.waf:/etc/caddy/Caddyfile:ro  # WAF variant (Coraza, DetectionOnly)
+      - ./infra/caddy/coraza:/etc/caddy/coraza:ro            # WAF engine config + CRS tuning
       - /home/ubuntu/BlissWork/Bliss-Website/dist:/srv/blisswork:ro  # BlissWork marketing site (static SPA)
       - caddy_data:/data     # persisted certs + ACME account (DO NOT lose this)
       - caddy_config:/config
