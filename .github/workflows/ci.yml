@@ -133,6 +133,32 @@ jobs:
           . .venv/bin/activate
           pytest -m "not integration" --cov=app --cov-report=term-missing
 
+  test-integration:
+    name: Test (Python · integration / testcontainers)
+    runs-on: ubuntu-latest
+    # ubuntu-latest runners have Docker, so testcontainers spins a real Postgres.
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [auth-svc] # RLS isolation suite; extend as integration suites grow
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Create venv and install deps (runtime + dev/test)
+        working-directory: services/${{ matrix.service }}
+        run: |
+          python -m venv .venv
+          . .venv/bin/activate
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+      - name: pytest -m integration (real Postgres via testcontainers)
+        working-directory: services/${{ matrix.service }}
+        run: |
+          . .venv/bin/activate
+          pytest -m integration -p no:cacheprovider
+
   test-go:
     name: Test (Go · go test -race)
     runs-on: ubuntu-latest
