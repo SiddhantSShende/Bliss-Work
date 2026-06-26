@@ -14,12 +14,12 @@
 # files (coraza.conf / crs-setup.conf / rules/*.conf) layer site-specific tuning
 # and the DetectionOnly→On engine toggle on top.
 # ─────────────────────────────────────────────────────────────────────────────
-FROM caddy:2.8-builder-alpine AS build
+FROM caddy:2.8-builder-alpine@sha256:4ac56838081008c467ae701ebf425c53db62f91e5fa723151904b9ee75d09346 AS build
 # Pin the Coraza Caddy module. v2 targets Caddy v2.x and bundles the OWASP CRS.
 RUN xcaddy build \
     --with github.com/corazawaf/coraza-caddy/v2
 
-FROM caddy:2.8-alpine
+FROM caddy:2.8-alpine@sha256:af32e97399febea808609119bb21544d0265c58a02836576e32a2d082c262c17
 # Replace the stock binary with the WAF-enabled build.
 COPY --from=build /usr/bin/caddy /usr/bin/caddy
 # Sanity: the custom directive must be present in the build.
