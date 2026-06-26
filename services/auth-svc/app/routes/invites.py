@@ -18,6 +18,7 @@ from ..schemas import (
     SessionDTO,
 )
 from ..security.auth_dep import Principal, require_org_admin
+from ..security.origin import enforce_origin
 from .cookies import set_refresh_cookie
 from .invites_service import accept_invite_tx, create_invite_tx, iso_z
 
@@ -132,7 +133,7 @@ async def verify_invite(token: str = Query(...)) -> InviteVerifyResponse:
     return InviteVerifyResponse(email=row.email, orgName=row.org_name, valid=True)
 
 
-@router.post("/accept", response_model=SessionDTO)
+@router.post("/accept", response_model=SessionDTO, dependencies=[Depends(enforce_origin)])
 async def accept_invite(body: AcceptInviteRequest, response: Response) -> SessionDTO:
     async with engine.begin() as conn:
         session, raw_refresh, user_id = await accept_invite_tx(conn, body)

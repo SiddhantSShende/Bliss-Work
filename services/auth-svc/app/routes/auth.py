@@ -18,6 +18,7 @@ from ..schemas import (
     UserDTO,
 )
 from ..security.auth_dep import Principal, get_principal
+from ..security.origin import enforce_origin
 from ..security.passwords import (
     PASSWORD_POLICY_MESSAGE,
     dummy_verify,
@@ -30,7 +31,12 @@ from .cookies import REFRESH_COOKIE, clear_refresh_cookie, set_refresh_cookie
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/orgs", response_model=SessionDTO, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/orgs",
+    response_model=SessionDTO,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(enforce_origin)],
+)
 async def create_org(body: CreateOrgRequest, response: Response) -> SessionDTO:
     if not password_meets_policy(body.password):
         raise HTTPException(status_code=422, detail=PASSWORD_POLICY_MESSAGE)
@@ -113,7 +119,7 @@ async def create_org(body: CreateOrgRequest, response: Response) -> SessionDTO:
     return session
 
 
-@router.post("/login", response_model=SessionDTO)
+@router.post("/login", response_model=SessionDTO, dependencies=[Depends(enforce_origin)])
 async def login(body: LoginRequest, response: Response) -> SessionDTO:
     generic = HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid credentials")
     async with engine.begin() as conn:
@@ -149,7 +155,7 @@ async def login(body: LoginRequest, response: Response) -> SessionDTO:
     return session
 
 
-@router.post("/refresh", response_model=SessionDTO)
+@router.post("/refresh", response_model=SessionDTO, dependencies=[Depends(enforce_origin)])
 async def refresh(
     response: Response,
     body: RefreshRequest | None = None,
@@ -174,7 +180,11 @@ async def refresh(
     return session
 
 
-@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/logout",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(enforce_origin)],
+)
 async def logout(
     response: Response,
     refresh_token: str | None = Cookie(default=None, alias=REFRESH_COOKIE),
