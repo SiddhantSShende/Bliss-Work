@@ -117,27 +117,21 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - name: Create venv and install deps (best-effort — heavy native wheels)
-        continue-on-error: true
+      - name: Create venv and install deps (runtime + dev/test)
         working-directory: services/${{ matrix.service }}
         run: |
           python -m venv .venv
           . .venv/bin/activate
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest pytest-asyncio
-      - name: pytest
-        # Run even if dependency install was partial; surfaced but non-blocking
-        # because several services need live Postgres/Kafka for full suites.
-        continue-on-error: true
+          pip install -r requirements.txt -r requirements-dev.txt
+      - name: pytest (unit — BLOCKING; integration suites run via -m integration)
+        # Unit suites are self-contained (no live Postgres/Kafka) and now GATE
+        # the build. The `integration` marker selects the testcontainers suites,
+        # which run in their own job with Docker available.
         working-directory: services/${{ matrix.service }}
         run: |
           . .venv/bin/activate
-          if find . -name 'test_*.py' -o -name '*_test.py' | grep -q . || [ -d tests ]; then
-            pytest -q
-          else
-            echo "No pytest tests found for ${{ matrix.service }} — skipping."
-          fi
+          pytest -m "not integration" --cov=app --cov-report=term-missing
 
   test-go:
     name: Test (Go · go test -race)
@@ -242,7 +236,6 @@ jobs:
   security-go:
     name: Security (Go · govulncheck)
     runs-on: ubuntu-latest
-    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
@@ -262,7 +255,6 @@ jobs:
   security-python:
     name: Security (Python · pip-audit)
     runs-on: ubuntu-latest
-    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
@@ -280,7 +272,6 @@ jobs:
   security-npm:
     name: Security (npm · audit)
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -288,8 +279,10 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - run: npm ci
-      - name: npm audit (high+)
-        run: npm audit --audit-level=high
+      - name: npm audit (high+, production deps)
+        # Blocking, but scoped to production deps so noisy dev-only transitive
+        # advisories don't gate merges. Raise/relax as the tree dictates.
+        run: npm audit --audit-level=high --omit=dev
 
   # ───────────────────────────────────────────────────────────────────────────
   # HELM-LINT — chart linting, templating, and Kubernetes schema validation.
