@@ -18,9 +18,37 @@
 {$DOMAIN} {
 	encode zstd gzip
 
-	# WebSocket upgrades (real-time fan-out) → ws-gateway.
+	# ── Block introspection/observability endpoints from the public internet ────
+	# /metrics (Prometheus), /docs, /redoc and /openapi.json (FastAPI) must never
+	# be reachable by anonymous clients in production. Prometheus scrapes the
+	# services over the private compose network; the SPA never needs these paths.
+	# Matched on the ORIGINAL request path (before handle_path strips the
+	# /api/<svc> prefix), so a single rule covers every upstream. handle blocks are
+	# terminal + source-ordered, so this MUST come first to win over the API/catch
+	# -all handlers below.
+	@introspection path */metrics */openapi.json */docs */docs/* */redoc */redoc/*
+	handle @introspection {
+		respond 404
+	}
+
+	# Service-to-service endpoints (X-Internal-Token guarded) are ONLY ever called
+	# over the private compose network (e.g. http://messaging-svc:8004/internal/…).
+	# They must NEVER be reachable from the public internet, so drop any request
+	# whose path contains an /internal/ segment regardless of the /api/<svc> prefix.
+	@internal path */internal/*
+	handle @internal {
+		respond 404
+	}
+
+	# WebSocket upgrades (real-time fan-out) → ws-gateway. This MUST be a `handle`
+	# block (not a bare `reverse_proxy @ws`): a bare reverse_proxy directive sorts
+	# AFTER all handle blocks, so the catch-all `handle { … nginx }` below would
+	# shadow it and /ws would wrongly serve the SPA. As a handle block it keeps its
+	# source order and matches before the catch-all.
 	@ws path /ws /ws/*
-	reverse_proxy @ws ws-gateway:8080
+	handle @ws {
+		reverse_proxy ws-gateway:8080
+	}
 
 	# REST APIs. Strip the public /api/<svc> prefix when proxying upstream.
 	handle_path /api/auth/* {
