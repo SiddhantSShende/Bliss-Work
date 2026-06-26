@@ -1,0 +1,8 @@
+# Test/CI-only dependencies — NOT installed into the runtime image.
+# Install with: pip install -r requirements.txt -r requirements-dev.txt
+pytest==8.3.4
+pytest-asyncio==0.25.2
+pytest-cov==6.0.0
+# Integration suites spin real Postgres/Kafka via testcontainers (CI has Docker).
+testcontainers[postgres]==4.9.0
+httpx==0.28.1
