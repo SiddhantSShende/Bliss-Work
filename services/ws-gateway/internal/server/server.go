@@ -17,6 +17,7 @@ import (
 	"github.com/task-board/ws-gateway/internal/auth"
 	"github.com/task-board/ws-gateway/internal/delivery"
 	"github.com/task-board/ws-gateway/internal/hub"
+	"github.com/task-board/ws-gateway/internal/presence"
 	"github.com/task-board/ws-gateway/internal/signal"
 	"github.com/task-board/ws-gateway/internal/store"
 )
@@ -33,6 +34,7 @@ type Server struct {
 	store      *store.Store
 	dispatcher *delivery.Dispatcher
 	signal     *signal.Dispatcher
+	presence   *presence.Broadcaster
 	nodeID     string
 	log        *slog.Logger
 }
@@ -54,10 +56,11 @@ func New(
 	st *store.Store,
 	d *delivery.Dispatcher,
 	sig *signal.Dispatcher,
+	pres *presence.Broadcaster,
 	nodeID string,
 	log *slog.Logger,
 ) *Server {
-	return &Server{cfg: cfg, verifier: v, hub: h, store: st, dispatcher: d, signal: sig, nodeID: nodeID, log: log}
+	return &Server{cfg: cfg, verifier: v, hub: h, store: st, dispatcher: d, signal: sig, presence: pres, nodeID: nodeID, log: log}
 }
 
 // Handler returns the root HTTP mux. Order of wrappers (outermost first):

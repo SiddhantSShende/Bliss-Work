@@ -47,8 +47,14 @@ func (s *Server) serveConn(parent context.Context, ws *websocket.Conn, claims *a
 	if err := s.store.AddPresence(ctx, claims.UserID, s.nodeID, connID); err != nil {
 		s.log.Error("add presence failed", "err", err)
 	}
-	if err := s.store.AddOrgPresence(ctx, claims.OrgID, claims.UserID); err != nil {
+	becameOnline, err := s.store.AddOrgPresence(ctx, claims.OrgID, claims.UserID)
+	if err != nil {
 		s.log.Error("add org presence failed", "err", err)
+	}
+	// Broadcast presence.online ONLY on the absent→present transition (first
+	// socket/tab), so org-mates flip the avatar live without one event per tab.
+	if becameOnline && s.presence != nil {
+		s.presence.Online(ctx, claims.OrgID, claims.UserID)
 	}
 	s.log.Info("ws connected", "user", claims.UserID, "conn", connID, "org", claims.OrgID)
 
@@ -61,8 +67,14 @@ func (s *Server) serveConn(parent context.Context, ws *websocket.Conn, claims *a
 		if err := s.store.RemovePresence(cleanupCtx, claims.UserID, s.nodeID, connID); err != nil {
 			s.log.Error("remove presence failed", "err", err)
 		}
-		if err := s.store.RemoveOrgPresenceIfLast(cleanupCtx, claims.OrgID, claims.UserID); err != nil {
+		becameOffline, err := s.store.RemoveOrgPresenceIfLast(cleanupCtx, claims.OrgID, claims.UserID)
+		if err != nil {
 			s.log.Error("remove org presence failed", "err", err)
+		}
+		// Broadcast presence.offline ONLY on the present→absent transition (last
+		// socket closed across all nodes).
+		if becameOffline && s.presence != nil {
+			s.presence.Offline(cleanupCtx, claims.OrgID, claims.UserID)
 		}
 		s.log.Info("ws disconnected", "user", claims.UserID, "conn", connID)
 	}()
@@ -245,6 +257,22 @@ func (s *Server) onHello(ctx context.Context, conn *hub.Conn, sess *session, las
 		"userId": sess.claims.UserID,
 		"orgId":  sess.claims.OrgID,
 	})
+
+	// Authoritative presence snapshot so a (re)connecting client renders correct
+	// online/offline state immediately, rather than waiting for the next 20s poll
+	// or for the next transition event from a peer.
+	if s.presence != nil {
+		if ids, err := s.store.OnlineUserIDs(ctx, sess.claims.OrgID); err == nil {
+			if raw, err := s.presence.SnapshotRaw(sess.claims.OrgID, ids); err == nil {
+				select {
+				case conn.Send <- raw:
+				default:
+					conn.Close()
+					return
+				}
+			}
+		}
+	}
 
 	var seq int64
 	if lastSeenSeq != nil {

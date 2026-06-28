@@ -26,6 +26,9 @@ export const EventType = {
   TaskIgnored: "task.ignored",
   TaskLeft: "task.left",
   NotificationCreated: "notification.created",
+  PresenceOnline: "presence.online",
+  PresenceOffline: "presence.offline",
+  PresenceSnapshot: "presence.snapshot",
   UserCreated: "user.created",
   InviteCreated: "invite.created",
 } as const;
@@ -163,11 +166,13 @@ export const TaskCompleted = z.object({
 export const TaskIgnored = z.object({
   type: z.literal(EventType.TaskIgnored),
   ...taskBase,
+  assigneeUsername: z.string(),
 });
 
 export const TaskLeft = z.object({
   type: z.literal(EventType.TaskLeft),
   ...taskBase,
+  assigneeUsername: z.string(),
 });
 
 // ── Notification + Auth events ───────────────────────────────────────────────
@@ -176,9 +181,37 @@ export const NotificationCreated = z.object({
   ...envelope,
   notificationId: z.string().uuid(),
   recipientId: z.string().uuid(),
-  kind: z.enum(["TASK_ACKNOWLEDGED", "TASK_COMPLETED"]),
+  kind: z.enum(["TASK_ACKNOWLEDGED", "TASK_COMPLETED", "TASK_IGNORED", "TASK_LEFT"]),
   text: z.string(),
   taskId: z.string().uuid().optional(),
+});
+
+// ── Presence events (ephemeral; never persisted to the replay outbox) ─────────
+/**
+ * Presence transitions pushed by ws-gateway. PresenceOnline/Offline fire on the
+ * first-connect / last-disconnect edge for a user within an org; PresenceSnapshot
+ * is sent once on `hello` with the org's full online set so a (re)connecting
+ * client is authoritative immediately. These are EPHEMERAL — the gateway never
+ * writes them to the per-user Redis replay outbox, so they can never replay
+ * stale online/offline state after a reconnect.
+ */
+export const PresenceOnline = z.object({
+  type: z.literal(EventType.PresenceOnline),
+  ...envelope,
+  userId: z.string().uuid(),
+});
+
+export const PresenceOffline = z.object({
+  type: z.literal(EventType.PresenceOffline),
+  ...envelope,
+  userId: z.string().uuid(),
+});
+
+export const PresenceSnapshot = z.object({
+  type: z.literal(EventType.PresenceSnapshot),
+  ...envelope,
+  /** Every user currently online in the caller's org. */
+  online: z.array(z.string().uuid()),
 });
 
 export const UserCreated = z.object({
@@ -217,6 +250,9 @@ export const ServerEvent = z.discriminatedUnion("type", [
   TaskIgnored,
   TaskLeft,
   NotificationCreated,
+  PresenceOnline,
+  PresenceOffline,
+  PresenceSnapshot,
 ]);
 export type ServerEvent = z.infer<typeof ServerEvent>;
 
@@ -251,6 +287,9 @@ export type TaskCompleted = z.infer<typeof TaskCompleted>;
 export type TaskIgnored = z.infer<typeof TaskIgnored>;
 export type TaskLeft = z.infer<typeof TaskLeft>;
 export type NotificationCreated = z.infer<typeof NotificationCreated>;
+export type PresenceOnline = z.infer<typeof PresenceOnline>;
+export type PresenceOffline = z.infer<typeof PresenceOffline>;
+export type PresenceSnapshot = z.infer<typeof PresenceSnapshot>;
 export type UserCreated = z.infer<typeof UserCreated>;
 export type InviteCreated = z.infer<typeof InviteCreated>;
 

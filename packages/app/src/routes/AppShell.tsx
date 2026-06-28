@@ -24,6 +24,16 @@ export function AppShell() {
   });
   const unread = notifications.filter((n: NotificationDTO) => !n.read).length;
 
+  // Per-section alert counts for the left rail. Inbox shows the summed unread
+  // across counterparties; Tasks surfaces unread task notifications so a new
+  // ack/complete/ignore/left is visible without opening the bell.
+  const { data: inboxPeers = [] } = useQuery({
+    queryKey: qk.inboxPeers,
+    queryFn: () => api.inboxPeers(),
+  });
+  const inboxUnread = inboxPeers.reduce((sum, p) => sum + (p.unreadCount || 0), 0);
+  const railBadges: Record<string, number> = { inbox: inboxUnread, tasks: unread };
+
   // inbox/chats/tasks/channels drive the contextual list pane; utility pages
   // (search/invite/profile) render full-width with no list pane.
   const section = loc.pathname.startsWith("/app/inbox")
@@ -56,7 +66,7 @@ export function AppShell() {
       <TopNavbar unread={unread} onOpenNotifs={() => setNotifOpen(true)} />
 
       <div className="flex min-h-0 flex-1 gap-2 overflow-hidden p-2">
-        <Rail section={section} variant="side" className="hidden md:flex" />
+        <Rail section={section} variant="side" className="hidden md:flex" badges={railBadges} />
         {section && (
           <aside
             className={`glass min-h-0 w-full shrink-0 flex-col overflow-hidden rounded-2xl md:my-0 md:w-80 lg:w-96 ${
@@ -80,7 +90,7 @@ export function AppShell() {
       </div>
 
       {/* Phone-only bottom tab bar; the side rail above handles md+. */}
-      <Rail section={section} variant="bottom" className="mx-2 mb-2 md:hidden" />
+      <Rail section={section} variant="bottom" className="mx-2 mb-2 md:hidden" badges={railBadges} />
 
       <NotificationsPanel
         open={notifOpen}

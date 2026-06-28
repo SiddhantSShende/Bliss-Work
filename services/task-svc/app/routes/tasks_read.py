@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import text
 
 from ..auth import Principal, PrincipalDep
@@ -101,6 +101,54 @@ async def sticky(
     offset: int = OffsetQuery,
 ) -> list[StickyTaskDTO]:
     return await _sticky_list(principal, limit=limit, offset=offset)
+
+
+@router.get("/tasks/{task_id}/detail", response_model=StickyTaskDTO)
+async def task_detail(
+    task_id: str,
+    principal: Principal = PrincipalDep,
+) -> StickyTaskDTO:
+    """Single task assigned to me, at ANY status.
+
+    The list endpoints (/tasks/inbox, /tasks/sticky) only return the ACTIVE
+    statuses, so a terminal task (COMPLETED / IGNORED / LEFT) opened from the
+    unified inbox would 404 in the client cache. This endpoint resolves one task
+    by id for the caller-as-assignee regardless of status, so the inbox detail
+    view can always render it. RLS confines the lookup to the caller's org.
+    """
+    async with session() as db:
+        await set_org_context(db, principal.org_id)
+        row = (
+            await db.execute(
+                text(
+                    "SELECT t.id, t.org_id, t.title_enc, t.description_enc, t.sender_id, "
+                    "       ta.status, ta.status_version, ta.assigned_at, ta.acknowledged_at, "
+                    "       COALESCE(up.username, '') AS sender_username "
+                    "FROM task_assignees ta "
+                    "JOIN tasks t ON t.id = ta.task_id "
+                    "LEFT JOIN user_projection up "
+                    "       ON up.user_id = t.sender_id AND up.org_id = t.org_id "
+                    "WHERE ta.org_id = :org AND ta.assignee_id = :me AND ta.task_id = :tid"
+                ),
+                {"org": principal.org_id, "me": principal.user_id, "tid": task_id},
+            )
+        ).first()
+        if row is None:
+            raise HTTPException(status_code=404, detail="task not found")
+        org = str(row.org_id)
+        return StickyTaskDTO(
+            taskId=str(row.id),
+            orgId=org,
+            title=await cryptor().decrypt(db, org, row.title_enc) or "",
+            description=await cryptor().decrypt(db, org, row.description_enc) or "",
+            senderId=str(row.sender_id),
+            senderUsername=row.sender_username,
+            myStatus=row.status,
+            actions=actions_for(row.status),
+            statusVersion=row.status_version,
+            assignedAt=iso(row.assigned_at),
+            acknowledgedAt=iso(row.acknowledged_at),
+        )
 
 
 @router.get("/tasks/assigned", response_model=list[StickyTaskDTO])

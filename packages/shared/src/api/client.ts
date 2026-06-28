@@ -325,6 +325,12 @@ export class ApiClient {
   tasksSticky() {
     return this.req(this.cfg.taskBase, "/api/v1/tasks/sticky", {}, z.array(StickyTaskDTO));
   }
+  /** Single task assigned to me at ANY status — used by the inbox detail view so
+   *  a terminal (completed/ignored/left) task opened from the unified inbox
+   *  resolves from the server instead of 404-ing on a cache miss. */
+  taskDetail(taskId: string) {
+    return this.req(this.cfg.taskBase, `/api/v1/tasks/${taskId}/detail`, {}, StickyTaskDTO);
+  }
   tasksSent() {
     return this.req(this.cfg.taskBase, "/api/v1/tasks/sent", {}, z.array(SentTaskDTO));
   }

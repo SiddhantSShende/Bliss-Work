@@ -101,10 +101,11 @@ export function App({ config }: { config: PlatformConfig }) {
                 </Routes>
                 </RouteErrorBoundary>
               </SessionBootstrap>
-              {/* Browser-only floating sticky notes — rendered ONLY on the home
-                  screen (gated inside BrowserStickies via the route). Mounted
-                  inside <Router> so it can read the current location. Electron
-                  uses real desktop windows instead. */}
+              {/* Browser-only floating sticky notes — float across every
+                  authenticated /app/* route (gated inside BrowserStickies) so a
+                  newly-assigned task pops wherever the user is. Mounted inside
+                  <Router> so it can read the current location. Electron uses real
+                  desktop windows instead. */}
               <BrowserStickies />
             </Router>
             </FileTransferProvider>

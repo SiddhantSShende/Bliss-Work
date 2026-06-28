@@ -122,9 +122,10 @@ async def ignore(task_id: str, principal: Principal = PrincipalDep) -> Transitio
             raise HTTPException(status_code=409, detail=f"cannot ignore from {current.status}")
 
         sender_id = await task_sender(db, org_id, task_id) or me
+        assignee_username = await resolve_username(db, org_id, me) or principal.username
         evt = events.task_ignored(
             org_id=org_id, task_id=task_id, assignee_id=me, sender_id=sender_id,
-            status_version=updated.status_version,
+            status_version=updated.status_version, assignee_username=assignee_username,
         )
         await enqueue_outbox(db, events.TASK_TOPIC, task_id, evt)
         await db.commit()
@@ -161,9 +162,10 @@ async def leave(task_id: str, principal: Principal = PrincipalDep) -> Transition
             raise HTTPException(status_code=409, detail=f"cannot leave from {current.status}")
 
         sender_id = await task_sender(db, org_id, task_id) or me
+        assignee_username = await resolve_username(db, org_id, me) or principal.username
         evt = events.task_left(
             org_id=org_id, task_id=task_id, assignee_id=me, sender_id=sender_id,
-            status_version=updated.status_version,
+            status_version=updated.status_version, assignee_username=assignee_username,
         )
         await enqueue_outbox(db, events.TASK_TOPIC, task_id, evt)
         await db.commit()

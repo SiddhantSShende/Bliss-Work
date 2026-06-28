@@ -154,6 +154,12 @@ func (c *Consumer) handle(ctx context.Context, value []byte) error {
 	case events.TypeTaskCompleted:
 		kind = events.KindTaskCompleted
 		text = "Task completed by " + ev.AssigneeUsername
+	case events.TypeTaskIgnored:
+		kind = events.KindTaskIgnored
+		text = "Task ignored by " + ev.AssigneeUsername
+	case events.TypeTaskLeft:
+		kind = events.KindTaskLeft
+		text = "Task left by " + ev.AssigneeUsername
 	default:
 		return nil // ignore other event types
 	}

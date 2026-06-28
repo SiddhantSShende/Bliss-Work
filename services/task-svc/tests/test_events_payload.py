@@ -1,0 +1,38 @@
+"""Task event payload contract (pure-logic; no DB/Kafka).
+
+Regression guard: task.ignored and task.left MUST carry assigneeUsername so the
+allocator gets a durable, named notification ("Task ignored by alice" / "left by
+alice") — notification-svc and the WS toast both read this field. Acknowledged /
+completed already carried it; ignored/left were added so EVERY outcome notifies
+the allocator. Also pins the shared envelope (type/eventId/orgId/occurredAt).
+"""
+from __future__ import annotations
+
+from app import events
+
+_ENVELOPE = {"type", "eventId", "orgId", "occurredAt"}
+_TASK_FIELDS = {"taskId", "assigneeId", "senderId", "statusVersion"}
+
+
+def _common(evt: dict, expected_type: str) -> None:
+    assert _ENVELOPE <= set(evt)
+    assert _TASK_FIELDS <= set(evt)
+    assert evt["type"] == expected_type
+
+
+def test_task_ignored_includes_assignee_username() -> None:
+    evt = events.task_ignored(
+        org_id="org", task_id="t", assignee_id="a", sender_id="s",
+        status_version=2, assignee_username="alice",
+    )
+    _common(evt, "task.ignored")
+    assert evt["assigneeUsername"] == "alice"
+
+
+def test_task_left_includes_assignee_username() -> None:
+    evt = events.task_left(
+        org_id="org", task_id="t", assignee_id="a", sender_id="s",
+        status_version=3, assignee_username="bob",
+    )
+    _common(evt, "task.left")
+    assert evt["assigneeUsername"] == "bob"

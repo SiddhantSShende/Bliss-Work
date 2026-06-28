@@ -120,7 +120,9 @@ export function ThreadView({
         </div>
       ) : (
         groupMessages(messages).map(({ msg: m, day, grouped }) => {
-          const mine = m.senderId === meId;
+          // Guard on a truthy meId so a briefly-missing session id can't
+          // right-align the whole thread; received messages default to the left.
+          const mine = !!meId && m.senderId === meId;
           return (
             <div key={m.id}>
               {day && (

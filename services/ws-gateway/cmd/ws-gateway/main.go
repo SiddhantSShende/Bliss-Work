@@ -17,6 +17,7 @@ import (
 	"github.com/task-board/ws-gateway/internal/delivery"
 	"github.com/task-board/ws-gateway/internal/fanout"
 	"github.com/task-board/ws-gateway/internal/hub"
+	"github.com/task-board/ws-gateway/internal/presence"
 	"github.com/task-board/ws-gateway/internal/server"
 	rtcsignal "github.com/task-board/ws-gateway/internal/signal"
 	"github.com/task-board/ws-gateway/internal/store"
@@ -90,11 +91,16 @@ func main() {
 	signalDispatcher := rtcsignal.New(h, st, log)
 	go signalDispatcher.RunSubscriber(rootCtx)
 
+	// Live presence: broadcast online/offline transitions to org-mates over the
+	// shared Redis presence channel; each node fans out to its local sockets.
+	presenceBroadcaster := presence.New(h, st, log)
+	go presenceBroadcaster.RunSubscriber(rootCtx)
+
 	srv := server.New(server.Config{
 		WebOrigin:       cfg.WebOrigin,
 		MaxConnections:  cfg.MaxConnections,
 		MaxConnsPerUser: cfg.MaxConnsPerUser,
-	}, verifier, h, st, dispatcher, signalDispatcher, nodeID, log)
+	}, verifier, h, st, dispatcher, signalDispatcher, presenceBroadcaster, nodeID, log)
 
 	// Wrap the root handler with otelhttp so every request becomes a server span
 	// and incoming W3C tracecontext is extracted. The /ws route HIJACKS the

@@ -72,7 +72,8 @@ def task_completed(
 
 
 def task_ignored(
-    *, org_id: str, task_id: str, assignee_id: str, sender_id: str, status_version: int,
+    *, org_id: str, task_id: str, assignee_id: str, sender_id: str,
+    status_version: int, assignee_username: str,
 ) -> dict:
     return {
         **_envelope(org_id, "task.ignored"),
@@ -80,11 +81,13 @@ def task_ignored(
         "assigneeId": assignee_id,
         "senderId": sender_id,
         "statusVersion": status_version,
+        "assigneeUsername": assignee_username,
     }
 
 
 def task_left(
-    *, org_id: str, task_id: str, assignee_id: str, sender_id: str, status_version: int,
+    *, org_id: str, task_id: str, assignee_id: str, sender_id: str,
+    status_version: int, assignee_username: str,
 ) -> dict:
     return {
         **_envelope(org_id, "task.left"),
@@ -92,4 +95,5 @@ def task_left(
         "assigneeId": assignee_id,
         "senderId": sender_id,
         "statusVersion": status_version,
+        "assigneeUsername": assignee_username,
     }

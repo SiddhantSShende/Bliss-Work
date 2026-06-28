@@ -75,22 +75,29 @@ func (s *Store) RemovePresence(ctx context.Context, userID, nodeID, connID strin
 	return s.rdb.SRem(ctx, presenceKey(userID), nodeID+":"+connID).Err()
 }
 
-// AddOrgPresence marks userID as online within its org (idempotent).
-func (s *Store) AddOrgPresence(ctx context.Context, orgID, userID string) error {
-	return s.rdb.SAdd(ctx, orgPresenceKey(orgID), userID).Err()
+// AddOrgPresence marks userID as online within its org (idempotent). It returns
+// becameOnline=true only on the transition from absent→present (the user's FIRST
+// live connection across all nodes), so the caller can broadcast a single
+// presence.online event instead of one per socket/tab.
+func (s *Store) AddOrgPresence(ctx context.Context, orgID, userID string) (becameOnline bool, err error) {
+	n, err := s.rdb.SAdd(ctx, orgPresenceKey(orgID), userID).Result()
+	return n > 0, err
 }
 
 // RemoveOrgPresenceIfLast drops userID from the org's online set only when the
-// user has no remaining live connections (across all nodes).
-func (s *Store) RemoveOrgPresenceIfLast(ctx context.Context, orgID, userID string) error {
+// user has no remaining live connections (across all nodes). It returns
+// becameOffline=true only on the present→absent transition (the user's LAST
+// connection closed), so the caller can broadcast a single presence.offline.
+func (s *Store) RemoveOrgPresenceIfLast(ctx context.Context, orgID, userID string) (becameOffline bool, err error) {
 	n, err := s.rdb.SCard(ctx, presenceKey(userID)).Result()
 	if err != nil {
-		return err
+		return false, err
 	}
 	if n > 0 {
-		return nil
+		return false, nil
 	}
-	return s.rdb.SRem(ctx, orgPresenceKey(orgID), userID).Err()
+	removed, err := s.rdb.SRem(ctx, orgPresenceKey(orgID), userID).Result()
+	return removed > 0, err
 }
 
 // OnlineUserIDs returns the user IDs currently connected within an org.
@@ -148,6 +155,39 @@ func (s *Store) SubscribeRTC(ctx context.Context, onMessage func(userID string, 
 				continue
 			}
 			onMessage(m.Channel[len(prefix):], []byte(m.Payload))
+		}
+	}
+}
+
+// presenceChannel is the single Redis pub/sub channel carrying presence
+// online/offline transitions. Presence is EPHEMERAL — like RTC frames it is
+// never written to the per-user replay outbox (a reconnecting client gets a
+// fresh presence.snapshot on hello instead, so it can never replay stale
+// online/offline state).
+const presenceChannel = "presence:events"
+
+// PublishPresence ships a raw presence event to every gateway node. Best-effort
+// (at-most-once) — a missed transition is reconciled by the 20s presence poll
+// and the next snapshot.
+func (s *Store) PublishPresence(ctx context.Context, raw []byte) error {
+	return s.rdb.Publish(ctx, presenceChannel, raw).Err()
+}
+
+// SubscribePresence opens a Redis SUBSCRIBE on the presence channel and delivers
+// every raw payload into onMessage. Returns when ctx is done.
+func (s *Store) SubscribePresence(ctx context.Context, onMessage func(raw []byte)) {
+	sub := s.rdb.Subscribe(ctx, presenceChannel)
+	defer func() { _ = sub.Close() }()
+	ch := sub.Channel()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case m, ok := <-ch:
+			if !ok {
+				return
+			}
+			onMessage([]byte(m.Payload))
 		}
 	}
 }

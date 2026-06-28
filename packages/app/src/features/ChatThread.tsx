@@ -75,7 +75,10 @@ export function ChatThread({
           </div>
         ) : (
           groupMessages(messages).map(({ msg: m, day, grouped }) => {
-            const mine = m.senderId === meId;
+            // Guard on a truthy meId: if the session id is briefly missing,
+            // never treat a message as "mine" (which would right-align the whole
+            // thread). A received message must default to the left.
+            const mine = !!meId && m.senderId === meId;
             return (
               <div key={m.id}>
                 {day && (
