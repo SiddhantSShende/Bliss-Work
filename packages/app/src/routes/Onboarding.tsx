@@ -5,6 +5,7 @@ import { Button, Card, Input, Logo } from "@taskboard/ui";
 import { toast } from "sonner";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
+import { broadcastSession } from "../lib/authChannel";
 import { PasswordField } from "../features/PasswordField";
 import { checkPassword } from "../lib/password";
 
@@ -24,6 +25,7 @@ export function Onboarding() {
     try {
       const s = await api.createOrg(form);
       setSession({ user: s.user, accessToken: s.accessToken });
+      broadcastSession(s);
       nav("/app");
     } catch (err) {
       toast.error("Could not create organization", { description: String(err) });

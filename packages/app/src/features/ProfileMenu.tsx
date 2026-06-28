@@ -5,6 +5,7 @@ import { User, LogOut, Sun, Moon, Settings, ChevronDown } from "lucide-react";
 import { Avatar, useTheme } from "@taskboard/ui";
 import { useSession } from "../store/session";
 import { useRuntime } from "../lib/runtime";
+import { broadcastLogout } from "../lib/authChannel";
 
 /** Avatar-anchored account popover in the top navbar. */
 export function ProfileMenu() {
@@ -32,6 +33,7 @@ export function ProfileMenu() {
   const logout = async () => {
     await api.logout().catch(() => {});
     clear();
+    broadcastLogout(); // sign out sibling tabs too
     nav("/login");
   };
 

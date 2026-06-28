@@ -5,6 +5,7 @@ import { Button, Input } from "@taskboard/ui";
 import { toast } from "sonner";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
+import { broadcastSession } from "../lib/authChannel";
 import { AuthLayout, Field } from "./Onboarding";
 
 export function Login() {
@@ -21,6 +22,7 @@ export function Login() {
     try {
       const s = await api.login(form);
       setSession({ user: s.user, accessToken: s.accessToken });
+      broadcastSession(s); // adopt this session in sibling tabs sitting on /login
       nav("/app");
     } catch {
       toast.error("Invalid email or password");
