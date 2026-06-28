@@ -17,10 +17,25 @@
 
 {
 	email {$ACME_EMAIL}
-	# coraza_waf is not a standard handler, so declare its order: run the WAF
-	# BEFORE reverse_proxy / file_server so malicious requests are inspected
-	# before reaching an upstream.
-	order coraza_waf first
+	# Serve the edge over HTTP/1.1 ONLY. Browsers negotiate HTTP/2 by default, and
+	# `new WebSocket()` over an h2 connection uses RFC 8441 Extended CONNECT — which
+	# does NOT survive this edge (the Coraza response wrapper defeats the h2 WS
+	# stream), so the socket upgrades then dies ~140ms later in a reconnect loop.
+	# Over HTTP/1.1 the classic Upgrade handshake works perfectly (verified: 101 +
+	# live frames). Forcing h1 makes browsers use the working path. The cost is
+	# losing h2/h3 multiplexing for REST/SPA traffic — negligible at this app's
+	# scale and worth it for reliable real-time. (Revisit with proper RFC 8441
+	# support if h2 perf is ever needed.)
+	servers {
+		protocols h1
+	}
+	# NOTE: deliberately NO global `order coraza_waf first`. That hoists the WAF to
+	# the site's FIRST handler — ahead of the route below — so it wraps the
+	# response of EVERY request, INCLUDING the /ws upgrade, and eats the
+	# `101 Switching Protocols` line (the browser then sees an invalid handshake
+	# and the socket dies ~140ms after connecting). Instead the WAF runs INSIDE the
+	# route (explicit written order is honoured there), AFTER the terminal /ws
+	# proxy, so WebSockets never reach it.
 	# For a staging/private CA, uncomment:
 	# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
 }
@@ -28,65 +43,60 @@
 {$DOMAIN} {
 	encode zstd gzip
 
-	# ── WAF: OWASP Core Rule Set ────────────────────────────────────────────────
-	# load_owasp_crs pulls the CRS embedded in the coraza-caddy build; the mounted
-	# /etc/caddy/coraza files (coraza.conf engine toggle, crs-setup.conf tuning,
-	# rules/*.conf site tuning) layer on top. DetectionOnly until tuned.
-	coraza_waf {
-		load_owasp_crs
-		directives `
-			Include /etc/caddy/coraza/coraza.conf
-			Include @crs-setup.conf.example
-			Include @owasp_crs/*.conf
-			Include /etc/caddy/coraza/rules/*.conf
-		`
-	}
+	# One explicit `route` so WE control handler order (route does NOT auto-sort).
+	# This is the only reliable way to run the WAF on everything EXCEPT the
+	# WebSocket upgrade — see the global-options note above.
+	route {
+		# 1) WebSocket upgrades → ws-gateway. Terminal, and placed BEFORE coraza_waf
+		#    so /ws is handled and the route stops before the WAF can wrap (and
+		#    corrupt) the 101 Switching Protocols response.
+		@ws path /ws /ws/*
+		reverse_proxy @ws ws-gateway:8080
 
-	# ── Block introspection/observability endpoints from the public internet ────
-	# /metrics (Prometheus), /docs, /redoc and /openapi.json (FastAPI) must never
-	# be reachable by anonymous clients in production. Matched on the ORIGINAL
-	# request path; handle blocks are terminal + source-ordered, so this comes
-	# first to win over the API/catch-all handlers below.
-	@introspection path */metrics */openapi.json */docs */docs/* */redoc */redoc/*
-	handle @introspection {
-		respond 404
-	}
+		# 2) OWASP-CRS WAF for every remaining (non-WS) request. load_owasp_crs
+		#    pulls the CRS embedded in the coraza-caddy build; the mounted
+		#    /etc/caddy/coraza files layer engine toggle + tuning on top.
+		#    DetectionOnly until tuned.
+		coraza_waf {
+			load_owasp_crs
+			directives `
+				Include /etc/caddy/coraza/coraza.conf
+				Include @crs-setup.conf.example
+				Include @owasp_crs/*.conf
+				Include /etc/caddy/coraza/rules/*.conf
+			`
+		}
 
-	# Service-to-service endpoints (X-Internal-Token guarded) are ONLY ever called
-	# over the private compose network — never reachable from the public internet.
-	@internal path */internal/*
-	handle @internal {
-		respond 404
-	}
+		# 3) Block introspection/observability endpoints from the public internet
+		#    (/metrics, /docs, /redoc, /openapi.json). Before the API proxies so
+		#    e.g. /api/tasks/metrics is 404, not proxied.
+		@introspection path */metrics */openapi.json */docs */docs/* */redoc */redoc/*
+		respond @introspection 404
 
-	# WebSocket upgrades (real-time fan-out) → ws-gateway. MUST be a `handle` block
-	# (not a bare `reverse_proxy @ws`) so the catch-all below doesn't shadow it.
-	@ws path /ws /ws/*
-	handle @ws {
-		reverse_proxy ws-gateway:8080
-	}
+		# 4) Service-to-service endpoints are private-network only.
+		@internal path */internal/*
+		respond @internal 404
 
-	# REST APIs. Strip the public /api/<svc> prefix when proxying upstream.
-	handle_path /api/auth/* {
-		reverse_proxy auth-svc:8001
-	}
-	handle_path /api/tasks/* {
-		reverse_proxy task-svc:8002
-	}
-	handle_path /api/notifications/* {
-		reverse_proxy notification-svc:8003
-	}
-	handle_path /api/messaging/* {
-		reverse_proxy messaging-svc:8004
-	}
+		# 5) REST APIs. Strip the public /api/<svc> prefix when proxying upstream.
+		handle_path /api/auth/* {
+			reverse_proxy auth-svc:8001
+		}
+		handle_path /api/tasks/* {
+			reverse_proxy task-svc:8002
+		}
+		handle_path /api/notifications/* {
+			reverse_proxy notification-svc:8003
+		}
+		handle_path /api/messaging/* {
+			reverse_proxy messaging-svc:8004
+		}
 
-	# JWKS must be reachable at a stable public path for any external verifier.
-	handle /.well-known/jwks.json {
-		reverse_proxy auth-svc:8001
-	}
+		# 6) JWKS at a stable public path for any external verifier.
+		handle /.well-known/jwks.json {
+			reverse_proxy auth-svc:8001
+		}
 
-	# Static SPA assets are served by nginx on the private network.
-	handle {
+		# 7) Everything else → the SPA served by nginx on the private network.
 		reverse_proxy nginx:80
 	}
 
