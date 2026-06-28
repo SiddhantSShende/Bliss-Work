@@ -21,18 +21,17 @@ export function refreshSession(
         method: "POST",
         credentials: "include",
       });
-      if (!res.ok) {
-        // A definitive auth rejection (no/expired/rotated refresh cookie) means
-        // the session is dead — clear it so EVERY caller (bootstrap, the API
-        // 401-retry, the WS re-auth) lands the user on /login instead of looping
-        // 401s + WS reconnects forever. This is also what self-heals users still
-        // holding a pre-fix Path=/auth cookie: one clean re-login mints the new
-        // Path=/ cookie. A 5xx / network blip is transient, so DON'T clear then.
-        if (res.status === 401 || res.status === 403) {
-          useSession.getState().clear();
-        }
-        return null;
-      }
+      // Return null on failure WITHOUT clearing the in-memory session. A failed
+      // refresh is often transient — a rotating-refresh-token race between two
+      // requests, a reload firing mid-refresh, or a brief network blip — and the
+      // current access token is usually still valid. Nuking the session here
+      // turned every such blip into a full logout + WS teardown + reconnect
+      // storm. The authoritative logout decision lives at the call sites that
+      // know the context: the SessionBootstrap clears on a null result at page
+      // load (no token yet ⇒ go to /login), while mid-session callers (the API
+      // 401-retry, the WS re-auth) just let the one request fail and keep the
+      // session so the user isn't bounced out on a transient hiccup.
+      if (!res.ok) return null;
       // Validate the session payload at the trust boundary rather than trusting a
       // bare cast — a malformed/unexpected body fails the refresh cleanly (→ login)
       // instead of writing corrupt user/token state into the session store.
