@@ -145,6 +145,31 @@ services:
         limits: { cpus: "0.50", memory: 128M }
     networks: [taskboard]
 
+  # ── WebRTC TURN relay (self-hosted coturn) ──────────────────────────────────
+  # Relays call media for peers behind symmetric NAT. Uses HOST networking because
+  # it needs a contiguous UDP relay-port range (min/max-port) that docker's
+  # per-port publishing can't express. Credentials are short-lived HMAC (coturn
+  # REST API): ws-gateway mints them at /turn-credentials using the SAME
+  # TURN_SECRET, so coturn and the gateway never need to talk to each other. The
+  # denied-peer-ip ranges stop a client from relaying to RFC1918 internal hosts
+  # (TURN SSRF). Open on the host firewall: 3478/udp+tcp and 49160-49200/udp.
+  coturn:
+    image: coturn/coturn:4.6-alpine  # TODO: pin a @sha256 digest before prod (repo convention)
+    restart: unless-stopped
+    network_mode: host
+    command: >-
+      -n --log-file=stdout --no-cli --no-tlsv1 --no-tlsv1_1
+      --listening-port=3478 --min-port=49160 --max-port=49200
+      --realm=${DOMAIN} --use-auth-secret --static-auth-secret=${TURN_SECRET}
+      --fingerprint --no-multicast-peers
+      --denied-peer-ip=127.0.0.0-127.255.255.255
+      --denied-peer-ip=10.0.0.0-10.255.255.255
+      --denied-peer-ip=172.16.0.0-172.31.255.255
+      --denied-peer-ip=192.168.0.0-192.168.255.255
+    deploy:
+      resources:
+        limits: { cpus: "0.50", memory: 128M }
+
   # ── Infrastructure ──────────────────────────────────────────────────────────
   postgres:
     image: postgres:17-alpine@sha256:dc17045ccfd343b49600570ea734b9c4991cf1c3f3302e67df51e3b402dd55c4

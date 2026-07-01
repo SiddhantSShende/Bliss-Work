@@ -96,7 +96,17 @@
 			reverse_proxy auth-svc:8001
 		}
 
+		# TURN credentials (short-lived HMAC) for WebRTC calls → ws-gateway.
+		@turn path /turn-credentials
+		reverse_proxy @turn ws-gateway:8080
+
 		# 7) Everything else → the SPA served by nginx on the private network.
+		#    CSP is set HERE (terminal SPA branch of the route), NOT in the global
+		#    header block, so it lands only on the HTML shell: frame-ancestors MUST
+		#    be a real header (it's ignored in the <meta> tag) and JSON/API
+		#    responses keep their own stricter default-src 'none' policy. connect-src
+		#    allows wss: for the realtime gateway.
+		header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https: wss:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 		reverse_proxy nginx:80
 	}
 

@@ -152,6 +152,12 @@ type clientFrame struct {
 	Candidate            string `json:"candidate"`
 	Reason               string `json:"reason"`
 	ResumeFromChunkIndex *int64 `json:"resumeFromChunkIndex"`
+	// typing discriminants
+	ConversationID string `json:"conversationId"`
+	State          string `json:"state"`
+	// call discriminants
+	CallID string `json:"callId"`
+	Media  string `json:"media"`
 }
 
 // maxAckBatch caps a single message.ack frame size — a client that
@@ -200,6 +206,10 @@ func (s *Server) handleClientFrame(ctx context.Context, ws *websocket.Conn, conn
 		s.log.Debug("auth.renew accepted", "user", newClaims.UserID)
 	case "rtc.offer", "rtc.answer", "rtc.ice", "rtc.cancel":
 		s.handleSignalingFrame(ctx, conn, sess, &f)
+	case "typing":
+		s.handleTypingFrame(ctx, conn, sess, &f)
+	case "call.invite", "call.accept", "call.decline", "call.cancel", "call.end":
+		s.handleCallFrame(ctx, conn, sess, &f)
 	default:
 		// "subscribe" and any unknown frames are ignored (fan-out is implicit).
 	}
@@ -250,13 +260,81 @@ func (s *Server) handleSignalingFrame(ctx context.Context, conn *hub.Conn, sess 
 	}
 }
 
+// handleTypingFrame relays an ephemeral 1:1 typing hint to the peer. Unlike
+// rtc.*, it is best-effort: a hint to an offline / cross-org peer is silently
+// dropped (no peer.unreachable echo), and an over-budget connection is simply
+// ignored (typing is debounced, so it should never approach the rate cap).
+func (s *Server) handleTypingFrame(ctx context.Context, conn *hub.Conn, sess *session, f *clientFrame) {
+	if s.signal == nil {
+		return
+	}
+	if !sess.rtcRate.Allow(time.Now()) {
+		return
+	}
+	if f.ToUserID == "" || f.ToUserID == sess.claims.UserID {
+		return
+	}
+	if f.State != "start" && f.State != "stop" {
+		return
+	}
+	_ = s.signal.Forward(ctx, sess.claims.OrgID, sess.claims.UserID, f.ToUserID, signal.Frame{
+		Type:           "typing",
+		ConversationID: f.ConversationID,
+		State:          f.State,
+	})
+}
+
+// handleCallFrame relays a 1:1 call lifecycle frame (invite/accept/decline/
+// cancel/end) to the peer over the same signaling path as rtc.*. The media SDP
+// and ICE candidates ride the existing rtc.offer/answer/ice frames (offerId ==
+// callId). Only a call.invite to an offline / cross-org peer echoes back a
+// peer.unreachable (reusing the rtc frame with offerId == callId) so the caller
+// stops ringing; the rest are best-effort.
+func (s *Server) handleCallFrame(ctx context.Context, conn *hub.Conn, sess *session, f *clientFrame) {
+	if s.signal == nil {
+		return
+	}
+	if !sess.rtcRate.Allow(time.Now()) {
+		return
+	}
+	if f.ToUserID == "" || f.ToUserID == sess.claims.UserID || f.CallID == "" {
+		return
+	}
+	delivered := s.signal.Forward(ctx, sess.claims.OrgID, sess.claims.UserID, f.ToUserID, signal.Frame{
+		Type:   f.Type,
+		CallID: f.CallID,
+		Media:  f.Media,
+	})
+	if !delivered && f.Type == "call.invite" {
+		if raw, err := signal.UnreachableFrame(f.CallID, "offline"); err == nil {
+			select {
+			case conn.Send <- raw:
+			default:
+				conn.Close()
+			}
+		}
+	}
+}
+
 // onHello sends ready and replays the catch-up buffer.
+//
+// The hello burst (ready + presence snapshot + per-user replay) is a known,
+// in-order batch that can legitimately exceed the send buffer when a client
+// reconnects after accumulating a backlog. It is delivered with BACKPRESSURE
+// (deliverCtx blocks until writeLoop drains a slot) rather than the non-blocking
+// drop-and-close used for live fan-out. Without this, a backlog larger than
+// sendChanCap trips conn.Close() and tears the socket down ~immediately, and the
+// client reconnects into the same overflow forever — a connect→replay→overflow→
+// disconnect loop. A genuinely stuck client is still bounded: writeLoop's
+// writeTimeout fails the write, cancels ctx, and deliverCtx then returns false.
 func (s *Server) onHello(ctx context.Context, conn *hub.Conn, sess *session, lastSeenSeq *int64) {
-	s.enqueueJSON(conn, map[string]string{
+	if !s.deliverJSONCtx(ctx, conn, map[string]string{
 		"type":   "ready",
 		"userId": sess.claims.UserID,
 		"orgId":  sess.claims.OrgID,
-	})
+	}) {
+		return
+	}
 
 	// Authoritative presence snapshot so a (re)connecting client renders correct
 	// online/offline state immediately, rather than waiting for the next 20s poll
@@ -264,10 +342,7 @@ func (s *Server) onHello(ctx context.Context, conn *hub.Conn, sess *session, las
 	if s.presence != nil {
 		if ids, err := s.store.OnlineUserIDs(ctx, sess.claims.OrgID); err == nil {
 			if raw, err := s.presence.SnapshotRaw(sess.claims.OrgID, ids); err == nil {
-				select {
-				case conn.Send <- raw:
-				default:
-					conn.Close()
+				if !deliverCtx(ctx, conn, raw) {
 					return
 				}
 			}
@@ -284,13 +359,37 @@ func (s *Server) onHello(ctx context.Context, conn *hub.Conn, sess *session, las
 		return
 	}
 	for _, raw := range events {
-		select {
-		case conn.Send <- raw:
-		default:
-			conn.Close()
+		if !deliverCtx(ctx, conn, raw) {
 			return
 		}
 	}
+}
+
+// deliverCtx pushes one frame to the connection's outbound buffer with
+// backpressure: it blocks until writeLoop frees a slot, the connection closes,
+// or ctx is done. Returns false if the frame could not be delivered (caller
+// stops). Use this for the connect-time hello/replay burst; use enqueueJSON's
+// non-blocking drop-and-close for LIVE traffic where a slow consumer is shed.
+func deliverCtx(ctx context.Context, conn *hub.Conn, raw []byte) bool {
+	select {
+	case conn.Send <- raw:
+		return true
+	case <-conn.Done:
+		return false
+	case <-ctx.Done():
+		return false
+	}
+}
+
+// deliverJSONCtx marshals v and delivers it with backpressure (see deliverCtx).
+// A marshal error is treated as "nothing to send" (true) so it never fails the
+// whole hello.
+func (s *Server) deliverJSONCtx(ctx context.Context, conn *hub.Conn, v any) bool {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return true
+	}
+	return deliverCtx(ctx, conn, b)
 }
 
 // enqueueJSON marshals v and pushes it; on a full buffer it closes the conn.

@@ -17,6 +17,13 @@ const outboxTTL = 7 * 24 * time.Hour
 // hello with lastSeenSeq == 0.
 const maxReplayDefault = 200
 
+// maxReplayHard caps catch-up replay when a client presents a cursor
+// (lastSeenSeq > 0) but is far behind — e.g. it was offline while a busy org
+// generated thousands of events. It bounds gateway memory and the per-connect
+// stream so a stale cursor can't force an unbounded batch on every reconnect.
+// Older events beyond this are backfilled via the REST message/task endpoints.
+const maxReplayHard = 2000
+
 // Store wraps Redis for presence tracking and per-user replay outboxes.
 type Store struct {
 	rdb *redis.Client
@@ -192,9 +199,11 @@ func (s *Store) SubscribePresence(ctx context.Context, onMessage func(raw []byte
 	}
 }
 
-// Replay returns events for catch-up. When lastSeenSeq <= 0 it returns the most
-// recent maxReplayDefault entries (oldest-first). Otherwise it returns all
-// entries with score strictly greater than lastSeenSeq (oldest-first).
+// Replay returns events for catch-up, oldest-first. When lastSeenSeq <= 0 it
+// returns the most recent maxReplayDefault entries. Otherwise it returns entries
+// with score strictly greater than lastSeenSeq, capped at the most recent
+// maxReplayHard so a very old cursor can't force an unbounded batch onto every
+// reconnect (older history is reachable via the REST message/task endpoints).
 func (s *Store) Replay(ctx context.Context, userID string, lastSeenSeq int64) ([][]byte, error) {
 	key := outboxKey(userID)
 	var raws []string
@@ -204,10 +213,18 @@ func (s *Store) Replay(ctx context.Context, userID string, lastSeenSeq int64) ([
 		raws, err = s.rdb.ZRange(ctx, key, -maxReplayDefault, -1).Result()
 	} else {
 		min := fmt.Sprintf("(%d", lastSeenSeq) // exclusive lower bound
-		raws, err = s.rdb.ZRangeByScore(ctx, key, &redis.ZRangeBy{
-			Min: min,
-			Max: "+inf",
+		// Most recent maxReplayHard after the cursor (highest-first), then
+		// reversed below to oldest-first for in-order client replay.
+		raws, err = s.rdb.ZRevRangeByScore(ctx, key, &redis.ZRangeBy{
+			Min:   min,
+			Max:   "+inf",
+			Count: maxReplayHard,
 		}).Result()
+		if err == nil {
+			for i, j := 0, len(raws)-1; i < j; i, j = i+1, j-1 {
+				raws[i], raws[j] = raws[j], raws[i]
+			}
+		}
 	}
 	if err != nil {
 		return nil, err

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Tray, Menu, screen, utilityProcess, UtilityProcess } from "electron";
+import { app, BrowserWindow, ipcMain, Tray, Menu, screen, session, utilityProcess, UtilityProcess } from "electron";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { StickyTaskDTO } from "@taskboard/shared";
@@ -47,7 +47,17 @@ if (!app.requestSingleInstanceLock()) {
     focusMain();
     forwardDeepLink(argv.find((a) => a.startsWith("taskboard://")));
   });
-  app.whenReady().then(bootstrap);
+  app.whenReady().then(() => {
+    // WebRTC calls need camera/mic. Electron DENIES media by default; the app
+    // only ever loads our own origin, so granting "media" (and nothing else) is
+    // safe. NOTE: macOS packaged/notarized builds ALSO require
+    // NSCameraUsageDescription + NSMicrophoneUsageDescription (Info.plist) and the
+    // com.apple.security.device.{camera,audio-input} entitlements, or the OS
+    // blocks capture before this handler is ever consulted.
+    session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => cb(permission === "media"));
+    session.defaultSession.setPermissionCheckHandler((_wc, permission) => permission === "media");
+    bootstrap();
+  });
 }
 
 // Custom protocol for emailed invite deep-links.

@@ -82,7 +82,11 @@
       "icon": "build/icon.png",
       "category": "public.app-category.productivity",
       "identity": null,
-      "artifactName": "BlissWork-mac-${arch}.${ext}"
+      "artifactName": "BlissWork-mac-${arch}.${ext}",
+      "extendInfo": {
+        "NSCameraUsageDescription": "BlissWork uses your camera for video calls.",
+        "NSMicrophoneUsageDescription": "BlissWork uses your microphone for voice and video calls."
+      }
     },
     "dmg": {
       "title": "BlissWork ${version}"

@@ -208,6 +208,83 @@ func TestHandleClientFrame_AckTruncatedToMaxBatch(t *testing.T) {
 	}
 }
 
+// TestDeliverCtx_BacklogLargerThanBufferIsDeliveredWithoutClosing is the
+// regression guard for the connect→replay→overflow→disconnect loop. The hello
+// replay can exceed the send buffer (sendChanCap=256) for a backlogged client;
+// it MUST be delivered in full without closing the connection, as long as a
+// writeLoop-style consumer drains. The old non-blocking drop-and-close tripped
+// conn.Close() the instant the buffer filled, so this test fails on that code.
+func TestDeliverCtx_BacklogLargerThanBufferIsDeliveredWithoutClosing(t *testing.T) {
+	conn := hub.NewConn("u-1", "c1")
+
+	const total = 1000 // >> sendChanCap (256)
+	got := make(chan int, 1)
+	go func() { // drain like writeLoop, slowly enough that the producer races ahead
+		n := 0
+		for {
+			select {
+			case <-conn.Send:
+				n++
+				if n == total {
+					got <- n
+					return
+				}
+				time.Sleep(20 * time.Microsecond)
+			case <-conn.Done:
+				got <- n
+				return
+			}
+		}
+	}()
+
+	ctx := context.Background()
+	for i := 0; i < total; i++ {
+		if !deliverCtx(ctx, conn, []byte(`{"type":"x"}`)) {
+			t.Fatalf("deliverCtx returned false at frame %d (connection closed mid-replay)", i)
+		}
+	}
+
+	select {
+	case n := <-got:
+		if n != total {
+			t.Fatalf("consumer received %d frames, want %d (connection closed early)", n, total)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for replay to drain")
+	}
+
+	select {
+	case <-conn.Done:
+		t.Fatal("connection was closed during replay; backpressure must keep it open")
+	default:
+	}
+}
+
+// TestDeliverCtx_BailsWhenConsumerStuckAndCtxCancelled proves the stuck-client
+// safety: with nothing draining a full buffer, deliverCtx blocks only until ctx
+// is cancelled (in production writeLoop's writeTimeout cancels it), then returns
+// false rather than blocking forever.
+func TestDeliverCtx_BailsWhenConsumerStuckAndCtxCancelled(t *testing.T) {
+	conn := hub.NewConn("u-1", "c1")
+	for i := 0; i < cap(conn.Send); i++ { // fill to capacity so the next send blocks
+		conn.Send <- []byte("x")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() { time.Sleep(50 * time.Millisecond); cancel() }()
+
+	done := make(chan bool, 1)
+	go func() { done <- deliverCtx(ctx, conn, []byte("blocked")) }()
+
+	select {
+	case ok := <-done:
+		if ok {
+			t.Fatal("deliverCtx returned true, but the buffer was full and ctx was cancelled")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("deliverCtx did not return after ctx cancellation (blocked forever)")
+	}
+}
+
 // itoa is a tiny dependency-free int-to-string for stable, ordered ids.
 func itoa(n int) string {
 	if n == 0 {

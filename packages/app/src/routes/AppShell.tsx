@@ -4,6 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import type { NotificationDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { qk, WsEventBridge } from "../lib/queryBridge";
+import { CallProvider } from "../lib/useCall";
+import { CallUI } from "../features/CallUI";
 import { NotificationsPanel } from "../features/NotificationsPanel";
 import { TopNavbar } from "../features/TopNavbar";
 import { Rail } from "./Rail";
@@ -61,8 +63,10 @@ export function AppShell() {
     // Pin the shell to the viewport with position:fixed + inset:0 so it is
     // exactly the viewport regardless of the html/body/#root height chain or any
     // Tailwind class generation — page-scroll is structurally impossible.
+    <CallProvider>
     <div className="flex flex-col overflow-hidden brand-mesh" style={{ position: "fixed", inset: 0 }}>
       <WsEventBridge />
+      <CallUI />
       <TopNavbar unread={unread} onOpenNotifs={() => setNotifOpen(true)} />
 
       <div className="flex min-h-0 flex-1 gap-2 overflow-hidden p-2">
@@ -98,5 +102,6 @@ export function AppShell() {
         notifications={notifications}
       />
     </div>
+    </CallProvider>
   );
 }

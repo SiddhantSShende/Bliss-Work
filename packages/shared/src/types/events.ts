@@ -338,6 +338,25 @@ const MessageAckClient = z.object({
   messageIds: z.array(z.string().uuid()).min(1).max(64),
 });
 
+/** Typing indicator — ephemeral 1:1 hint routed like rtc.* (never persisted or
+ *  replayed). `start` on keystroke, `stop` on send/blur; the peer auto-expires it
+ *  after a few seconds if no `stop` arrives. */
+const TypingClient = z.object({
+  type: z.literal("typing"),
+  toUserId: z.string().uuid(),
+  conversationId: z.string().uuid(),
+  state: z.enum(["start", "stop"]),
+});
+
+// Call lifecycle — ephemeral 1:1 ring/accept/decline/cancel/end. The media SDP
+// and ICE candidates reuse the rtc.offer/answer/ice frames with offerId ===
+// callId; `media` is set on invite (audio = voice call, video = video call).
+const CallInviteClient = z.object({ type: z.literal("call.invite"), toUserId: z.string().uuid(), callId: z.string().uuid(), media: z.enum(["audio", "video"]) });
+const CallAcceptClient = z.object({ type: z.literal("call.accept"), toUserId: z.string().uuid(), callId: z.string().uuid() });
+const CallDeclineClient = z.object({ type: z.literal("call.decline"), toUserId: z.string().uuid(), callId: z.string().uuid() });
+const CallCancelClient = z.object({ type: z.literal("call.cancel"), toUserId: z.string().uuid(), callId: z.string().uuid() });
+const CallEndClient = z.object({ type: z.literal("call.end"), toUserId: z.string().uuid(), callId: z.string().uuid() });
+
 export const ClientFrame = z.discriminatedUnion("type", [
   z.object({ type: z.literal("hello"), lastSeenSeq: z.number().int().optional() }),
   z.object({ type: z.literal("ping") }),
@@ -348,6 +367,12 @@ export const ClientFrame = z.discriminatedUnion("type", [
   RtcIceClient,
   RtcCancelClient,
   MessageAckClient,
+  TypingClient,
+  CallInviteClient,
+  CallAcceptClient,
+  CallDeclineClient,
+  CallCancelClient,
+  CallEndClient,
 ]);
 export type ClientFrame = z.infer<typeof ClientFrame>;
 
@@ -378,6 +403,19 @@ const RtcCancelServer = z.object({
   offerId: z.string().uuid(),
   reason: z.enum(["sender_left", "receiver_declined", "ice_failed", "timeout"]).optional(),
 });
+// Typing indicator pushed to the peer (gateway stamps fromUserId).
+const TypingServer = z.object({
+  type: z.literal("typing"),
+  fromUserId: z.string().uuid(),
+  conversationId: z.string().uuid(),
+  state: z.enum(["start", "stop"]),
+});
+// Call lifecycle pushed to the peer (gateway stamps fromUserId).
+const CallInviteServer = z.object({ type: z.literal("call.invite"), fromUserId: z.string().uuid(), callId: z.string().uuid(), media: z.enum(["audio", "video"]) });
+const CallAcceptServer = z.object({ type: z.literal("call.accept"), fromUserId: z.string().uuid(), callId: z.string().uuid() });
+const CallDeclineServer = z.object({ type: z.literal("call.decline"), fromUserId: z.string().uuid(), callId: z.string().uuid() });
+const CallCancelServer = z.object({ type: z.literal("call.cancel"), fromUserId: z.string().uuid(), callId: z.string().uuid() });
+const CallEndServer = z.object({ type: z.literal("call.end"), fromUserId: z.string().uuid(), callId: z.string().uuid() });
 
 export const ControlFrame = z.discriminatedUnion("type", [
   z.object({ type: z.literal("pong") }),
@@ -389,6 +427,12 @@ export const ControlFrame = z.discriminatedUnion("type", [
   RtcAnswerServer,
   RtcIceServer,
   RtcCancelServer,
+  TypingServer,
+  CallInviteServer,
+  CallAcceptServer,
+  CallDeclineServer,
+  CallCancelServer,
+  CallEndServer,
   z.object({ type: z.literal("rtc.peer.unreachable"), offerId: z.string().uuid(), reason: z.string() }),
   z.object({ type: z.literal("rtc.rate_limited"), retryAfterMs: z.number().int().positive() }),
 ]);
@@ -403,6 +447,16 @@ export const RTC_CONTROL_TYPES = new Set<string>([
   "rtc.cancel",
   "rtc.peer.unreachable",
   "rtc.rate_limited",
+]);
+
+/** call.* lifecycle control frames so the WS client can route them to the call
+ *  layer (distinct from rtc.* media signaling, which the call layer also owns). */
+export const CALL_CONTROL_TYPES = new Set<string>([
+  "call.invite",
+  "call.accept",
+  "call.decline",
+  "call.cancel",
+  "call.end",
 ]);
 
 /**

@@ -192,7 +192,13 @@ export class WsClient {
     }
 
     const result = ServerEvent.safeParse(parsed);
-    if (!result.success) return;
+    if (!result.success) {
+      // Neither a control frame nor a valid ServerEvent. This should not happen
+      // in production — if it does, a producer/contract drift is silently eating
+      // a live update, so surface it loudly instead of dropping in silence.
+      console.warn("[ws] dropped unrecognized frame", parsed, result.error?.issues);
+      return;
+    }
     const e = result.data;
 
     // Dedup on eventId.

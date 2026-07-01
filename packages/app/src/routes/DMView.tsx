@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { X, MessageSquare, ChevronLeft } from "lucide-react";
+import { X, MessageSquare, ChevronLeft, Phone, Video } from "lucide-react";
 import { toast } from "sonner";
 import { Avatar, Button, EmptyState } from "@taskboard/ui";
 import type { ConversationDTO, MessageDTO } from "@taskboard/shared";
@@ -9,6 +9,8 @@ import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
 import { ChatThread } from "../features/ChatThread";
+import { useChatTyping } from "../lib/useChatTyping";
+import { useCall } from "../lib/useCall";
 
 export function DMView() {
   const { conversationId = "" } = useParams();
@@ -28,6 +30,9 @@ export function DMView() {
     queryFn: () => api.messages(conversationId),
     enabled: !!conversationId,
   });
+
+  const { peerTyping, onType, stop: stopTyping } = useChatTyping(conversationId, conv?.peerId);
+  const call = useCall();
 
   useEffect(() => {
     const maxSeq = messages.reduce((m, x) => Math.max(m, x.seq), 0);
@@ -90,14 +95,25 @@ export function DMView() {
             <div className={`text-xs ${isOnline ? "text-success" : "text-muted"}`}>{isOnline ? "Online" : "Offline"}</div>
           </div>
         </div>
-        <Button variant="ghost" size="sm" onClick={() => ignore.mutate()} title="Remove from both inboxes">
-          <X size={15} /> Ignore
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="sm" disabled={!isOnline} onClick={() => call.invite(conv.peerId, conv.peerUsername, "audio")} title={isOnline ? "Voice call" : `${conv.peerUsername} is offline`}>
+            <Phone size={15} />
+          </Button>
+          <Button variant="ghost" size="sm" disabled={!isOnline} onClick={() => call.invite(conv.peerId, conv.peerUsername, "video")} title={isOnline ? "Video call" : `${conv.peerUsername} is offline`}>
+            <Video size={15} />
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => ignore.mutate()} title="Remove from both inboxes">
+            <X size={15} /> Ignore
+          </Button>
+        </div>
       </header>
       <ChatThread
         messages={messages.map((m) => ({ id: m.id, senderId: m.senderId, body: m.body, at: m.createdAt, pending: m.id.startsWith("temp:") }))}
         meId={me.id}
-        onSend={(t) => reply.mutate(t)}
+        onSend={(t) => { reply.mutate(t); stopTyping(); }}
+        onType={onType}
+        peerTyping={peerTyping}
+        peerName={conv.peerUsername}
         placeholder={`Message ${conv.peerUsername}…`}
       />
     </div>
