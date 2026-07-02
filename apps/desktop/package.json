@@ -36,6 +36,7 @@
       }
     ],
     "asar": true,
+    "afterSign": "build/notarize.cjs",
     "publish": [
       {
         "provider": "github",
@@ -83,7 +84,11 @@
       ],
       "icon": "build/icon.png",
       "category": "public.app-category.productivity",
-      "identity": null,
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": false,
       "artifactName": "BlissWork-mac-${arch}.${ext}",
       "extendInfo": {
         "NSCameraUsageDescription": "BlissWork uses your camera for video calls.",
@@ -116,6 +121,7 @@
     }
   },
   "devDependencies": {
+    "@electron/notarize": "^2.5.0",
     "@tailwindcss/vite": "^4.0.0",
     "@tanstack/react-query": "^5.62.0",
     "@taskboard/app": "*",
