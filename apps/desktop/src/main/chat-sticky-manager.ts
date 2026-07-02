@@ -133,7 +133,7 @@ export class ChatStickyManager {
   /** Main window blurred: float chat notes back over the desktop at the lightest
    *  always-on-top level so they stay visible on the main screen. */
   raiseZOrder(): void {
-    for (const [, w] of this.widgets) if (!w.isDestroyed()) w.setAlwaysOnTop(true, "floating");
+    for (const [, w] of this.widgets) if (!w.isDestroyed()) w.setAlwaysOnTop(false);
   }
 
   /** Re-confine every live chat note to the primary display (display change). */
@@ -164,7 +164,8 @@ export class ChatStickyManager {
       resizable: true,
       movable: true,
       skipTaskbar: true,
-      alwaysOnTop: true,
+      alwaysOnTop: false,
+      type: "desktop",
       hasShadow: true,
       maximizable: false,
       fullscreenable: false,
@@ -177,9 +178,7 @@ export class ChatStickyManager {
         additionalArguments: [`--thread-id=${threadId}`],
       },
     });
-    // Lightest always-on-top level; stays on the current desktop only (no
-    // setVisibleOnAllWorkspaces). z-order is managed by lowerZOrder/raiseZOrder.
-    w.setAlwaysOnTop(true, "floating");
+    w.setAlwaysOnTop(false);
 
     const query = `?threadId=${encodeURIComponent(threadId)}`;
     if (DEV_URL) void w.loadURL(`${DEV_URL}/sticky-chat.html${query}`);

@@ -294,7 +294,7 @@ export class StickyManager {
   /** Main window blurred: float notes back over the desktop at the lightest
    *  always-on-top level so they remain visible on the main screen. */
   raiseZOrder(): void {
-    for (const [, w] of this.widgets) if (!w.isDestroyed()) w.setAlwaysOnTop(true, "floating");
+    for (const [, w] of this.widgets) if (!w.isDestroyed()) w.setAlwaysOnTop(false);
   }
 
   /** Re-confine every live note to the primary display. Called on display

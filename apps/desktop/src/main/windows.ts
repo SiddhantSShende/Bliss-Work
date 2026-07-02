@@ -66,7 +66,8 @@ export function createStickyWindow(taskId: string, index: number, collapsed = fa
     resizable: true,
     movable: true,
     skipTaskbar: true,
-    alwaysOnTop: true,
+    alwaysOnTop: false,
+    type: "desktop",
     hasShadow: true,
     maximizable: false,
     minimizable: false, // can't be minimised — it's already an unframed widget
@@ -81,12 +82,7 @@ export function createStickyWindow(taskId: string, index: number, collapsed = fa
     },
   });
 
-  // "floating" is the lightest always-on-top level — the note sits just above
-  // normal windows on the desktop without covering fullscreen apps/screensavers,
-  // and it stays on the CURRENT desktop only (no setVisibleOnAllWorkspaces, so it
-  // doesn't bleed onto other virtual desktops). z-order among notes + relative to
-  // the main app is managed by StickyManager (lowerZOrder/raiseZOrder).
-  win.setAlwaysOnTop(true, "floating");
+  win.setAlwaysOnTop(false);
 
   const query = `?taskId=${encodeURIComponent(taskId)}&i=${index}${collapsed ? "&collapsed=1" : ""}`;
   if (DEV_URL) void win.loadURL(`${DEV_URL}/sticky.html${query}`);
@@ -95,7 +91,6 @@ export function createStickyWindow(taskId: string, index: number, collapsed = fa
   // Surface on top the moment it's ready, without grabbing keyboard focus.
   win.on("ready-to-show", () => {
     win.showInactive();
-    win.moveTop();
   });
   return win;
 }
