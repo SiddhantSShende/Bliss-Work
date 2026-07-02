@@ -53,6 +53,14 @@
 		@ws path /ws /ws/*
 		reverse_proxy @ws ws-gateway:8080
 
+		# 1b) Desktop app installers → nginx static file server. Placed BEFORE
+		#     coraza_waf (and terminal) so the WAF never buffers/inspects a
+		#     100 MB+ binary installer — same rationale as the WAF-less marketing
+		#     site: a static installer has no injection surface. nginx serves
+		#     them from /srv/downloads (see infra/nginx/default.conf).
+		@downloads path /downloads /downloads/*
+		reverse_proxy @downloads nginx:80
+
 		# 2) OWASP-CRS WAF for every remaining (non-WS) request. load_owasp_crs
 		#    pulls the CRS embedded in the coraza-caddy build; the mounted
 		#    /etc/caddy/coraza files layer engine toggle + tuning on top.

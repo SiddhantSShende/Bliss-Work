@@ -50,6 +50,15 @@
 		reverse_proxy ws-gateway:8080
 	}
 
+	# Desktop app installers → nginx static file server (served from our own VPS,
+	# not GitHub). A `handle` block keeps its source order and matches before the
+	# catch-all SPA handler below, so /downloads/* serves the installer instead of
+	# the SPA shell. nginx serves them from /srv/downloads.
+	@downloads path /downloads /downloads/*
+	handle @downloads {
+		reverse_proxy nginx:80
+	}
+
 	# REST APIs. Strip the public /api/<svc> prefix when proxying upstream.
 	handle_path /api/auth/* {
 		reverse_proxy auth-svc:8001

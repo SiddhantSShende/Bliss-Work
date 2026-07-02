@@ -93,6 +93,10 @@ services:
     volumes:
       - web_dist:/usr/share/nginx/html:ro
       - ./infra/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      # Desktop app installers, served at communication.rnrtechs.com/downloads/*
+      # (nginx `location /downloads/`). Same files the marketing site serves, so
+      # there's a single installer set on the VPS. Read-only.
+      - /home/ubuntu/BlissWork/Bliss-Website/dist/downloads:/srv/downloads:ro
     healthcheck:
       test: ["CMD-SHELL", "test -f /usr/share/nginx/html/index.html"]
       interval: 10s

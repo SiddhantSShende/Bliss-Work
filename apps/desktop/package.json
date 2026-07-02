@@ -4,6 +4,7 @@
   "private": true,
   "description": "BlissWork — desktop app with always-on-top sticky task notes",
   "author": "BlissWork",
+  "homepage": "https://blisswork.rnrtechs.com",
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
@@ -17,8 +18,9 @@
   "build": {
     "appId": "com.blisswork.desktop",
     "productName": "BlissWork",
+    "executableName": "BlissWork",
     "copyright": "Copyright © 2026 BlissWork",
-    "electronVersion": "42.4.1",
+    "electronVersion": "42.5.2",
     "directories": {
       "buildResources": "build",
       "output": "release"
@@ -110,7 +112,7 @@
       "category": "Office",
       "maintainer": "BlissWork <support@blisswork.app>",
       "synopsis": "Always-on-top sticky task notes for teams",
-      "artifactName": "BlissWork-linux-${arch}.${ext}"
+      "artifactName": "BlissWork-linux-x64.${ext}"
     }
   },
   "devDependencies": {

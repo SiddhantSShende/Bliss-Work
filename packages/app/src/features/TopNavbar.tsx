@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Search, UserPlus, Bell } from "lucide-react";
 import { Button, IconButton, Wordmark } from "@taskboard/ui";
 import { ProfileMenu } from "./ProfileMenu";
+import { GetAppButton } from "./GetAppButton";
 
 /** Global top navbar: brand · search · invite · notifications · account. */
 export function TopNavbar({ unread, onOpenNotifs }: { unread: number; onOpenNotifs: () => void }) {
@@ -38,6 +39,8 @@ export function TopNavbar({ unread, onOpenNotifs }: { unread: number; onOpenNoti
       </form>
 
       <div className="flex shrink-0 items-center gap-1.5">
+        {/* Desktop-app download (web only; renders nothing in the Electron build). */}
+        <GetAppButton mode="compact" />
         <Button
           variant="subtle"
           size="sm"

@@ -140,7 +140,9 @@ export class StickyManager {
       if (existing && !existing.isDestroyed()) {
         if (existing.isMinimized()) existing.restore();
         if (getGeometry(taskId)?.collapsed) this.setCollapsed(taskId, false);
-        existing.focus();
+        // Deliberately do NOT focus()/raise the note: it stays pinned behind
+        // all apps on the desktop (the window is non-focusable anyway). Making
+        // it visible again just means restoring/expanding it in place.
       } else {
         this.reconcile();
       }
@@ -284,15 +286,16 @@ export class StickyManager {
     }
   }
 
-  /** Main window focused: drop notes to normal z-order so they don't cover the
-   *  app the user is now working in. Paired with raiseZOrder on blur. (Mirrors
-   *  ChatStickyManager so the whole sticky surface moves together.) */
+  /** Notes are pinned BEHIND every app at the desktop layer and never float on
+   *  top, so main-window focus/blur no longer needs to move them. These remain
+   *  as a hard guarantee that a note is never left always-on-top (re-assert
+   *  alwaysOnTop:false) regardless of any platform quirk. */
   lowerZOrder(): void {
     for (const [, w] of this.widgets) if (!w.isDestroyed()) w.setAlwaysOnTop(false);
   }
 
-  /** Main window blurred: float notes back over the desktop at the lightest
-   *  always-on-top level so they remain visible on the main screen. */
+  /** Kept for symmetry with lowerZOrder / ChatStickyManager: also just re-asserts
+   *  that the note stays behind (never promoted above app windows). */
   raiseZOrder(): void {
     for (const [, w] of this.widgets) if (!w.isDestroyed()) w.setAlwaysOnTop(false);
   }

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en" class="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Content-Security-Policy (defense-in-depth; message content is rendered as
+      text, never via dangerouslySetInnerHTML). script-src 'self' blocks injected
+      inline scripts. style-src allows 'unsafe-inline' because framer-motion /
+      sonner set inline style attributes. connect-src permits the API/WS origins:
+      https/wss in production and http/ws localhost in dev. object-src 'none'
+      closes plugin vectors.
+
+      NOTE: frame-ancestors is deliberately NOT here — browsers IGNORE it (and
+      report-uri / sandbox) in a <meta> tag, which only logs a console warning.
+      Clickjacking is closed by the real Content-Security-Policy: frame-ancestors
+      'none' HTTP header (plus X-Frame-Options: DENY) set at the Caddy edge — see
+      infra/caddy/Caddyfile{,.waf}.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https: wss: http://localhost:* ws://localhost:*; object-src 'none'; base-uri 'self'; form-action 'self'"
+    />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>BlissWork</title>
+    <script type="module" crossorigin src="/assets/index-CxKMEK1L.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-DXCzE-9L.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
