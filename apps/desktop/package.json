@@ -13,7 +13,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "package": "electron-vite build && electron-builder",
     "package:dir": "electron-vite build && electron-builder --dir",
-    "icon": "node build/render-icon.mjs"
+    "icon": "bash build/gen-appx-assets.sh"
   },
   "build": {
     "appId": "com.blisswork.desktop",
@@ -55,6 +55,15 @@
       ],
       "icon": "build/icon.png",
       "artifactName": "BlissWork-windows-${arch}.${ext}"
+    },
+    "appx": {
+      "publisherDisplayName": "AEIV Global Private Limited",
+      "backgroundColor": "#6D5BF0",
+      "languages": [
+        "en-us"
+      ],
+      "showNameOnTiles": true,
+      "applicationId": "BlissWork"
     },
     "nsis": {
       "oneClick": false,
