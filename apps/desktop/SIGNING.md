@@ -157,6 +157,30 @@ No signing is needed to install. `.AppImage` just needs the execute bit
 
 ---
 
+## 💸 Free path for MANAGED fleets (no CA purchase)
+If BlissWork's Windows users are on machines **your organization manages** (AD/Intune),
+you can get **clean, no-warning installs for free** with a self-signed cert:
+
+1. Generate a cert you control (keep the `.pfx` private):
+   ```bash
+   cd apps/desktop && bash build/gen-selfsigned-cert.sh "AStrongPassword"
+   ```
+2. Sign the installer **on the VPS/Linux** (no Windows box needed):
+   ```bash
+   build/sign-win-pfx.sh build/certs/blisswork-selfsigned.pfx "AStrongPassword" \
+     /home/ubuntu/BlissWork/Bliss-Website/dist/downloads/BlissWork-windows-x64.exe
+   # also sign the copy in public/downloads, then regenerate SHA256SUMS.txt
+   ```
+3. **Trust the cert on your fleet** — push `build/certs/blisswork-selfsigned.crt` to both
+   **Trusted Root Certification Authorities** and **Trusted Publishers** via Group Policy
+   (Computer Config → Windows Settings → Security Settings → Public Key Policies) or Intune.
+   On those machines Windows then shows "AEIV Global Private Limited" and installs with **no
+   warning**.
+
+> This ONLY clears the warning on machines that trust your cert. For the **general
+> public** (unmanaged PCs), a self-signed cert does not help — you need a real CA
+> certificate (Routes A/B/C above).
+
 ## Testing the pipeline without buying a cert (Windows)
 Prove signing works end-to-end with a **self-signed** cert (still warns on other
 machines — not for public release):
