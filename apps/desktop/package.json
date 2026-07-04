@@ -72,7 +72,8 @@
       "showNameOnTiles": true,
       "languages": [
         "en-US"
-      ]
+      ],
+      "publish": null
     },
     "mac": {
       "target": [

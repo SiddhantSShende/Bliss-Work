@@ -48,7 +48,7 @@ jobs:
 
       - name: Package Store bundle (appx target)
         working-directory: apps/desktop
-        run: npx --no-install electron-builder --win appx
+        run: npx --no-install electron-builder --win appx --publish=never
 
       - name: Rename .appx -> .msix (no .appx kept)
         shell: pwsh
