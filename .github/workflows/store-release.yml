@@ -1,0 +1,76 @@
+name: Store Release (MSIX)
+
+# Automated Microsoft Store submission for BlissWork. Triggered by pushing a version tag (v*),
+# matching the convention used by release.yml. Builds the .msix and submits it to the Store via
+# the Microsoft Store Developer CLI (msstore).
+#
+# IMPORTANT — Microsoft's documented limitations for msstore CI publishing:
+#   1. The app must ALREADY be published and live in the Microsoft Store. This workflow does
+#      UPDATES only — do the first submission manually via store-build.yml + Partner Center.
+#   2. Automated publishing is currently supported for FREE products only.
+#
+# Required repository secrets (Settings -> Secrets and variables -> Actions):
+#   AZURE_AD_TENANT_ID, AZURE_AD_APPLICATION_CLIENT_ID, AZURE_AD_APPLICATION_SECRET, SELLER_ID
+# The Entra app must be added in Partner Center (Account settings -> User management ->
+# Microsoft Entra applications) with the Manager role.
+#
+# To cut a release: bump `version` in apps/desktop/package.json (and root package.json), commit,
+# then `git tag v<version> && git push origin v<version>`.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: "20"
+  STORE_PRODUCT_ID: "9NKWPS2DN9V3"
+
+jobs:
+  publish:
+    name: Build & publish MSIX to Store
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build desktop bundle
+        run: npm run build -w @taskboard/desktop
+
+      - name: Package Store bundle (appx target)
+        working-directory: apps/desktop
+        run: npx --no-install electron-builder --win appx
+
+      - name: Rename .appx -> .msix (no .appx kept)
+        shell: pwsh
+        working-directory: apps/desktop
+        run: |
+          $appx = Get-ChildItem release/*.appx | Select-Object -First 1
+          if (-not $appx) { throw "No .appx was produced by electron-builder." }
+          Rename-Item -LiteralPath $appx.FullName -NewName ($appx.BaseName + '.msix')
+          Get-ChildItem release/*.appx -ErrorAction SilentlyContinue | Remove-Item -Force
+          $msix = Get-ChildItem release/*.msix | Select-Object -First 1
+          "MSIX_PATH=$($msix.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Configure Microsoft Store CLI
+        uses: microsoft/microsoft-store-apppublisher@v1.1
+
+      - name: Reconfigure store credentials
+        run: >
+          msstore reconfigure
+          --tenantId ${{ secrets.AZURE_AD_TENANT_ID }}
+          --sellerId ${{ secrets.SELLER_ID }}
+          --clientId ${{ secrets.AZURE_AD_APPLICATION_CLIENT_ID }}
+          --clientSecret ${{ secrets.AZURE_AD_APPLICATION_SECRET }}
+
+      - name: Publish MSIX to Store
+        run: msstore publish "${{ env.MSIX_PATH }}" -id ${{ env.STORE_PRODUCT_ID }}

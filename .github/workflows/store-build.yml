@@ -1,0 +1,65 @@
+name: Store Build (MSIX)
+
+# On-demand build of the BlissWork Microsoft Store package (.msix) for the FIRST, manual
+# submission to Partner Center. Run it from the Actions tab (Run workflow), then download the
+# .msix artifact and drag it into Partner Center -> BlissWork -> Packages.
+#
+# Why this exists: electron-builder has no native MSIX target, so we build its `appx` target
+# and immediately rename the output .appx -> .msix. `.appx` and `.msix` are the same container
+# format (MSIX is the modern rename of APPX); the package is unsigned (the Store signs it on
+# ingestion), so renaming is valid. NO .appx file is ever uploaded — the rename is a move and
+# any stray .appx is deleted before the artifact is uploaded.
+#
+# The first submission MUST be done manually (Microsoft's msstore CI publish only works once the
+# app is already live in the Store). After go-live, store-release.yml automates every update.
+
+on:
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: "20"
+
+jobs:
+  build:
+    name: Build MSIX
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build desktop bundle
+        run: npm run build -w @taskboard/desktop
+
+      # electron-builder's Store target is internally named `appx`; --win appx selects it even
+      # though package.json's win.target only lists nsis (that stays for GitHub Releases .exe).
+      - name: Package Store bundle (appx target)
+        working-directory: apps/desktop
+        run: npx --no-install electron-builder --win appx
+
+      - name: Rename .appx -> .msix (no .appx kept)
+        shell: pwsh
+        working-directory: apps/desktop
+        run: |
+          $appx = Get-ChildItem release/*.appx | Select-Object -First 1
+          if (-not $appx) { throw "No .appx was produced by electron-builder." }
+          Rename-Item -LiteralPath $appx.FullName -NewName ($appx.BaseName + '.msix')
+          # Guard: make sure nothing appx-shaped survives into the artifact.
+          Get-ChildItem release/*.appx -ErrorAction SilentlyContinue | Remove-Item -Force
+          $msix = Get-ChildItem release/*.msix | Select-Object -First 1
+          Write-Host "Produced $($msix.FullName)"
+
+      - name: Upload MSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: blisswork-msix
+          path: apps/desktop/release/*.msix
+          if-no-files-found: error
+          retention-days: 14

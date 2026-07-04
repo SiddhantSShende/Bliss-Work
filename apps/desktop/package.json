@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "package": "electron-vite build && electron-builder",
     "package:dir": "electron-vite build && electron-builder --dir",
+    "package:store": "electron-vite build && electron-builder --win appx --config.directories.output=C:/blisswork-build",
     "icon": "node build/render-icon.mjs"
   },
   "build": {
@@ -61,6 +62,17 @@
       "createStartMenuShortcut": true,
       "shortcutName": "BlissWork",
       "uninstallDisplayName": "BlissWork"
+    },
+    "appx": {
+      "identityName": "SiddhantSShende.BlissWork",
+      "publisher": "CN=8577DCDE-7A86-447A-B011-0283EB9A3FAC",
+      "publisherDisplayName": "SiddhantSShende",
+      "applicationId": "BlissWork",
+      "backgroundColor": "#4f46e5",
+      "showNameOnTiles": true,
+      "languages": [
+        "en-US"
+      ]
     },
     "mac": {
       "target": [
