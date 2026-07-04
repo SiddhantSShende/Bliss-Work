@@ -57,7 +57,7 @@
       "artifactName": "BlissWork-windows-${arch}.${ext}"
     },
     "appx": {
-      "publisherDisplayName": "AEIV Global Private Limited",
+      "publisherDisplayName": "SiddhantSShende",
       "backgroundColor": "#6D5BF0",
       "languages": [
         "en-us"
