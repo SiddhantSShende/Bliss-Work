@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "package": "electron-vite build && electron-builder",
     "package:dir": "electron-vite build && electron-builder --dir",
+    "package:store": "electron-vite build && electron-builder --win --config.win.target=appx --publish=never",
     "icon": "bash build/gen-appx-assets.sh"
   },
   "build": {
@@ -57,13 +58,16 @@
       "artifactName": "BlissWork-windows-${arch}.${ext}"
     },
     "appx": {
+      "identityName": "SiddhantSShende.BlissWork",
+      "publisher": "CN=8577DCDE-7A86-447A-B011-0283EB9A3FAC",
       "publisherDisplayName": "SiddhantSShende",
       "backgroundColor": "#6D5BF0",
       "languages": [
         "en-us"
       ],
       "showNameOnTiles": true,
-      "applicationId": "BlissWork"
+      "applicationId": "BlissWork",
+      "publish": null
     },
     "nsis": {
       "oneClick": false,

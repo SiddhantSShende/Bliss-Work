@@ -1,0 +1,70 @@
+name: Store Build (MSIX)
+
+# On-demand build of BlissWork's Microsoft Store package. Produces a downloadable
+# .msix artifact you can drag into Partner Center → Packages, or sideload locally
+# to test before Store certification.
+#
+# This workflow ONLY packages — it never attempts to publish anywhere, so it
+# cannot hit the "GitHub Personal Access Token is not set" failure that the
+# publish-oriented store-release.yml can (electron-builder's implicit
+# git-tag-publish detection tries to resolve a GitHub publisher even with
+# --publish=never in some CI conditions; see apps/desktop/package.json's
+# build.appx.publish: null, which removes the publish TARGET entirely for the
+# appx build, making that failure mode structurally impossible regardless of
+# the policy flag).
+#
+# electron-builder has no distinct "msix" target — .msix and .appx are the same
+# underlying package format, so this builds electron-builder's `appx` target and
+# renames the output to .msix. Partner Center's "MSIX or PWA app" product type
+# accepts either.
+#
+# Trigger: manually only (Actions → Store Build (MSIX) → Run workflow).
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: store-build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "20"
+
+jobs:
+  build-msix:
+    name: Build .msix (Microsoft Store)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build .appx package
+        working-directory: apps/desktop
+        run: npm run package:store
+
+      - name: Rename .appx to .msix
+        working-directory: apps/desktop/release
+        shell: bash
+        run: |
+          for f in *.appx; do
+            mv -v "$f" "${f%.appx}.msix"
+          done
+
+      - name: Upload .msix
+        uses: actions/upload-artifact@v4
+        with:
+          name: blisswork-store-msix
+          path: apps/desktop/release/*.msix
+          if-no-files-found: error
+          retention-days: 30
