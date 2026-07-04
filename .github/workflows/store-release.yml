@@ -86,9 +86,10 @@ jobs:
             --config.win.target=appx \
             --config.appx.identityName="$STORE_IDENTITY_NAME" \
             --config.appx.publisher="$STORE_PUBLISHER_ID" \
-            --publish never
+            --publish=never
 
       - name: Upload .appx
+        if: always()   # the .appx is built before any (spurious) publish step; capture it regardless
         uses: actions/upload-artifact@v4
         with:
           name: blisswork-store-appx
