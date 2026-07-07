@@ -15,13 +15,14 @@ const verb: Record<TaskAction, "acknowledge" | "complete" | "ignore" | "leave"> 
   ACKNOWLEDGE: "acknowledge", COMPLETE: "complete", IGNORE: "ignore", LEAVE: "leave",
 };
 const TITLES: Record<string, string> = {
-  mine: "My tasks", allocated: "Allocated to me", completed: "Completed", ignored: "Ignored",
+  mine: "My tasks", allocated: "Allocated to me", completed: "Completed", left: "Left", ignored: "Ignored",
 };
 // Bucket switcher shown only on phones (the TasksList side pane is hidden < md).
 const BUCKETS = [
   { view: "allocated", label: "Allocated" },
   { view: "mine", label: "My tasks" },
   { view: "completed", label: "Completed" },
+  { view: "left", label: "Left" },
   { view: "ignored", label: "Ignored" },
 ] as const;
 
@@ -72,10 +73,14 @@ function AssignedBucket({ view }: { view: string }) {
     refetchOnWindowFocus: true,
   });
 
+  // LEFT is its OWN terminal bucket — never folded into "Completed". Leaving a
+  // task is a distinct outcome from completing it, and the user must see it
+  // labelled "left" (to both parties), not "completed".
   const tasks = all.filter((t: StickyTaskDTO) =>
     view === "ignored" ? t.myStatus === "IGNORED"
-      : view === "completed" ? t.myStatus === "COMPLETED" || t.myStatus === "LEFT"
-        : t.myStatus === "SENT" || t.myStatus === "ACKNOWLEDGED",
+      : view === "left" ? t.myStatus === "LEFT"
+        : view === "completed" ? t.myStatus === "COMPLETED"
+          : t.myStatus === "SENT" || t.myStatus === "ACKNOWLEDGED",
   );
 
   const act = useMutation({
@@ -144,6 +149,8 @@ function AssignedBucket({ view }: { view: string }) {
     onSuccess: (_data, vars) => {
       if (vars.action === "COMPLETE") {
         toast.success("Task completed — the sender has been notified.");
+      } else if (vars.action === "LEAVE") {
+        toast.success("You left the task — the sender has been notified.");
       }
     },
     // Server reconciliation: refresh every mirror surface so the WS echo

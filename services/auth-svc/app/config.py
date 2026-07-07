@@ -1,9 +1,11 @@
 """Environment-driven configuration (12-factor)."""
 from __future__ import annotations
 
+import os
 import ssl
 from urllib.parse import parse_qs, urlsplit, urlunsplit
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -62,6 +64,44 @@ class Settings(BaseSettings):
 
     # Misc
     log_level: str = "info"
+
+    # Deployment environment. When "production"/"prod", _enforce_prod_safety below
+    # HARD-FAILS at startup on any leftover dev sentinel (crypto keys, dev DB
+    # password, non-TLS DB, insecure cookie, missing internal token, half-configured
+    # KMS) so a misconfigured prod deploy can never silently run on guessable
+    # secrets. The dev/test path (no TB_ENV) keeps the convenient defaults untouched.
+    tb_env: str = "development"
+
+    @model_validator(mode="after")
+    def _enforce_prod_safety(self) -> "Settings":
+        if self.tb_env.strip().lower() not in {"production", "prod"}:
+            return self
+        problems: list[str] = []
+        if self.data_master_passphrase == "dev-master-passphrase-change-me":
+            problems.append("DATA_MASTER_PASSPHRASE is still the dev default")
+        if self.data_master_salt == "dev-master-salt-change-me-16+bytes":
+            problems.append("DATA_MASTER_SALT is still the dev default")
+        if self.data_blind_index_key == "dev-blind-index-key-change-me-32+bytes":
+            problems.append("DATA_BLIND_INDEX_KEY is still the dev default")
+        if "taskboard_dev_pw" in self.auth_database_url:
+            problems.append("AUTH_DATABASE_URL still uses the dev password")
+        if "sslmode=verify-full" not in self.auth_database_url:
+            problems.append("AUTH_DATABASE_URL must use sslmode=verify-full in production")
+        if not self.cookie_secure:
+            problems.append("COOKIE_SECURE must be true behind TLS in production")
+        if not os.getenv("TB_INTERNAL_TOKEN"):
+            problems.append("TB_INTERNAL_TOKEN must be set in production")
+        if self.data_kek_provider == "kms":
+            if not self.data_kms_key_id:
+                problems.append("DATA_KMS_KEY_ID must be set when DATA_KEK_PROVIDER=kms")
+            if self.data_kms_backend == "vault-transit" and not (self.vault_addr and self.vault_token):
+                problems.append("VAULT_ADDR and VAULT_TOKEN are required for vault-transit KMS")
+        if problems:
+            raise ValueError(
+                "refusing to start in production with insecure configuration:\n  - "
+                + "\n  - ".join(problems)
+            )
+        return self
 
     @property
     def sqlalchemy_url(self) -> str:

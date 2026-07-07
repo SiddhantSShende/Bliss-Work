@@ -5,7 +5,9 @@ import { Button, Card, Input, Logo } from "@taskboard/ui";
 import { toast } from "sonner";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
+import { broadcastSession } from "../lib/authChannel";
 import { PasswordField } from "../features/PasswordField";
+import { GetAppButton } from "../features/GetAppButton";
 import { checkPassword } from "../lib/password";
 
 export function Onboarding() {
@@ -24,6 +26,7 @@ export function Onboarding() {
     try {
       const s = await api.createOrg(form);
       setSession({ user: s.user, accessToken: s.accessToken });
+      broadcastSession(s);
       nav("/app");
     } catch (err) {
       toast.error("Could not create organization", { description: String(err) });
@@ -154,6 +157,10 @@ export function AuthLayout({
             {subtitle && <p className="mt-1.5 text-sm text-muted">{subtitle}</p>}
           </div>
           {children}
+          {/* Desktop-app download (web only; hidden inside the Electron build). */}
+          <div className="mt-6">
+            <GetAppButton mode="inline" />
+          </div>
         </Card>
 
         <p className="relative z-10 mt-5 text-center text-xs text-muted lg:hidden">

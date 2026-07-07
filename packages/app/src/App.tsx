@@ -10,6 +10,7 @@ import { FileTransferProvider } from "./lib/fileTransfer";
 import { useSession } from "./store/session";
 import { refreshSession } from "./lib/refresh";
 import { installGlobalErrorHandlers } from "./lib/globalErrorHandlers";
+import { installAuthChannel } from "./lib/authChannel";
 import { MessageSquare, Hash, Users } from "lucide-react";
 import { EmptyState } from "@taskboard/ui";
 import { ErrorBoundary, RouteErrorBoundary } from "./features/ErrorBoundary";
@@ -29,9 +30,10 @@ import { InboxFeed } from "./routes/InboxFeed";
 import { InboxThread } from "./routes/InboxThread";
 import { InboxTask } from "./routes/InboxTask";
 
-// Install once at module load — installGlobalErrorHandlers guards against
-// double-install in StrictMode / Fast Refresh.
+// Install once at module load — both guard against double-install in StrictMode
+// / Fast Refresh. installAuthChannel mirrors session/login/logout across tabs.
 installGlobalErrorHandlers();
+installAuthChannel();
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -101,10 +103,11 @@ export function App({ config }: { config: PlatformConfig }) {
                 </Routes>
                 </RouteErrorBoundary>
               </SessionBootstrap>
-              {/* Browser-only floating sticky notes — rendered ONLY on the home
-                  screen (gated inside BrowserStickies via the route). Mounted
-                  inside <Router> so it can read the current location. Electron
-                  uses real desktop windows instead. */}
+              {/* Browser-only floating sticky notes — float across every
+                  authenticated /app/* route (gated inside BrowserStickies) so a
+                  newly-assigned task pops wherever the user is. Mounted inside
+                  <Router> so it can read the current location. Electron uses real
+                  desktop windows instead. */}
               <BrowserStickies />
             </Router>
             </FileTransferProvider>

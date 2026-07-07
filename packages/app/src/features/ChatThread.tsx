@@ -18,12 +18,20 @@ export function ChatThread({
   messages,
   meId,
   onSend,
+  onType,
+  peerTyping = false,
+  peerName,
   showSenderNames = false,
   placeholder = "Write a message…",
 }: {
   messages: ThreadMessage[];
   meId: string;
   onSend: (text: string) => void;
+  /** Called on every local keystroke (drives the typing indicator). */
+  onType?: () => void;
+  /** True while the peer is typing — renders the animated "…" bubble. */
+  peerTyping?: boolean;
+  peerName?: string;
   showSenderNames?: boolean;
   placeholder?: string;
 }) {
@@ -75,7 +83,10 @@ export function ChatThread({
           </div>
         ) : (
           groupMessages(messages).map(({ msg: m, day, grouped }) => {
-            const mine = m.senderId === meId;
+            // Guard on a truthy meId: if the session id is briefly missing,
+            // never treat a message as "mine" (which would right-align the whole
+            // thread). A received message must default to the left.
+            const mine = !!meId && m.senderId === meId;
             return (
               <div key={m.id}>
                 {day && (
@@ -116,6 +127,17 @@ export function ChatThread({
         )}
       </div>
 
+      {peerTyping && (
+        <div className="flex items-center gap-2 px-5 pb-1.5 text-xs text-muted">
+          <span className="inline-flex items-end gap-1">
+            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted/60 [animation-delay:-0.2s]" />
+            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted/60 [animation-delay:-0.1s]" />
+            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted/60" />
+          </span>
+          {peerName ? `${peerName} is typing…` : "Typing…"}
+        </div>
+      )}
+
       <form onSubmit={(e) => { e.preventDefault(); send(); }} className="flex items-end gap-2 border-t border-border/60 bg-surface/50 p-3 backdrop-blur">
         <textarea
           ref={taRef}
@@ -123,7 +145,7 @@ export function ChatThread({
           className="max-h-[140px] min-h-[44px] flex-1 resize-none rounded-2xl border border-border bg-surface px-4 py-2.5 text-sm leading-relaxed text-fg placeholder:text-muted/70 focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/25"
           placeholder={placeholder}
           value={text}
-          onChange={(e) => { setText(e.target.value); grow(); }}
+          onChange={(e) => { setText(e.target.value); grow(); onType?.(); }}
           onKeyDown={onKeyDown}
         />
         <Button type="submit" size="icon" disabled={!text.trim()} className="h-11 w-11 shrink-0 rounded-full" title="Send">

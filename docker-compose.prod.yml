@@ -40,6 +40,22 @@ x-svc-defaults: &svc-defaults
     - path: .env.prod
       required: false
   networks: [taskboard]
+  # ── Runtime hardening (mirrors the Helm securityContext) ────────────────────
+  # The app services are stateless, run as non-root uid 10001, and listen on high
+  # ports, so they need NO Linux capabilities and NO writable root filesystem.
+  #   • cap_drop ALL: drop the entire default capability set.
+  #   • read_only root + tmpfs /tmp: an exploit can't persist to disk; the only
+  #     writable path is an in-memory /tmp (mounted secrets stay read-only).
+  # NOTE: `no-new-privileges` is intentionally NOT set — on this host's Docker it
+  # makes execve fail with EPERM for BOTH the Python venv console-script and the
+  # Go static binaries (an overlayfs/no_new_privs interaction). It's redundant
+  # here anyway: non-root uid 10001 + cap_drop ALL leaves nothing to escalate to.
+  # PID limits are handled per-service via deploy.resources.limits.
+  cap_drop:
+    - ALL
+  read_only: true
+  tmpfs:
+    - /tmp
   # The Postgres CA bundle is mounted read-only into EVERY app service at
   # /etc/ssl/db/ca.crt so the *_DATABASE_URL `sslmode=verify-full&sslrootcert=…`
   # can validate the server's certificate chain. ws-gateway doesn't talk to
@@ -53,7 +69,7 @@ x-svc-defaults: &svc-defaults
 services:
   # ── Web build + static host ────────────────────────────────────────────────
   web-builder:
-    image: node:20-alpine
+    image: node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293
     restart: "no"
     working_dir: /workspace
     env_file:
@@ -69,7 +85,7 @@ services:
       sh -lc "npm ci && npm run build -w @taskboard/web && rm -rf /dist/* && cp -a apps/web/dist/. /dist/"
 
   nginx:
-    image: nginx:1.27-alpine
+    image: nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
     restart: unless-stopped
     depends_on:
       web-builder:
@@ -77,6 +93,10 @@ services:
     volumes:
       - web_dist:/usr/share/nginx/html:ro
       - ./infra/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      # Desktop app installers, served at communication.rnrtechs.com/downloads/*
+      # (nginx `location /downloads/`). Same files the marketing site serves, so
+      # there's a single installer set on the VPS. Read-only.
+      - /home/ubuntu/BlissWork/Bliss-Website/dist/downloads:/srv/downloads:ro
     healthcheck:
       test: ["CMD-SHELL", "test -f /usr/share/nginx/html/index.html"]
       interval: 10s
@@ -98,7 +118,11 @@ services:
   # automatic-HTTPS email line.
   #
   caddy:
-    image: caddy:2.8-alpine
+    # Custom Caddy compiled with the Coraza WAF (OWASP CRS) — see infra/caddy/Dockerfile.
+    # ROLLBACK: revert to `image: caddy:2.8-alpine@sha256:af32e97399febea808609119bb21544d0265c58a02836576e32a2d082c262c17`
+    # + the plain Caddyfile mount below, and recreate.
+    build: ./infra/caddy
+    image: task-board/caddy-waf:2.11
     restart: unless-stopped
     ports:
       - "80:80"     # ACME HTTP-01 challenge + HTTP→HTTPS redirect
@@ -108,7 +132,8 @@ services:
       DOMAIN: ${DOMAIN}
       ACME_EMAIL: ${ACME_EMAIL}
     volumes:
-      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./infra/caddy/Caddyfile.waf:/etc/caddy/Caddyfile:ro  # WAF variant (Coraza, DetectionOnly)
+      - ./infra/caddy/coraza:/etc/caddy/coraza:ro            # WAF engine config + CRS tuning
       - /home/ubuntu/BlissWork/Bliss-Website/dist:/srv/blisswork:ro  # BlissWork marketing site (static SPA)
       - caddy_data:/data     # persisted certs + ACME account (DO NOT lose this)
       - caddy_config:/config
@@ -124,9 +149,34 @@ services:
         limits: { cpus: "0.50", memory: 128M }
     networks: [taskboard]
 
+  # ── WebRTC TURN relay (self-hosted coturn) ──────────────────────────────────
+  # Relays call media for peers behind symmetric NAT. Uses HOST networking because
+  # it needs a contiguous UDP relay-port range (min/max-port) that docker's
+  # per-port publishing can't express. Credentials are short-lived HMAC (coturn
+  # REST API): ws-gateway mints them at /turn-credentials using the SAME
+  # TURN_SECRET, so coturn and the gateway never need to talk to each other. The
+  # denied-peer-ip ranges stop a client from relaying to RFC1918 internal hosts
+  # (TURN SSRF). Open on the host firewall: 3478/udp+tcp and 49160-49200/udp.
+  coturn:
+    image: coturn/coturn:4.6-alpine  # TODO: pin a @sha256 digest before prod (repo convention)
+    restart: unless-stopped
+    network_mode: host
+    command: >-
+      -n --log-file=stdout --no-cli --no-tlsv1 --no-tlsv1_1
+      --listening-port=3478 --min-port=49160 --max-port=49200
+      --realm=${DOMAIN} --use-auth-secret --static-auth-secret=${TURN_SECRET}
+      --fingerprint --no-multicast-peers
+      --denied-peer-ip=127.0.0.0-127.255.255.255
+      --denied-peer-ip=10.0.0.0-10.255.255.255
+      --denied-peer-ip=172.16.0.0-172.31.255.255
+      --denied-peer-ip=192.168.0.0-192.168.255.255
+    deploy:
+      resources:
+        limits: { cpus: "0.50", memory: 128M }
+
   # ── Infrastructure ──────────────────────────────────────────────────────────
   postgres:
-    image: postgres:17-alpine
+    image: postgres:17-alpine@sha256:dc17045ccfd343b49600570ea734b9c4991cf1c3f3302e67df51e3b402dd55c4
     restart: unless-stopped
     # IN-TRANSIT TLS (PROD-ONLY): even though Postgres is internal to the compose
     # network, prod encrypts client↔DB traffic so a compromised co-tenant /
@@ -180,7 +230,7 @@ services:
     networks: [taskboard]
 
   redis:
-    image: redis:7.4-alpine
+    image: redis:7.4-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
     restart: unless-stopped
     # AUTH: requirepass is ALWAYS on in prod (no anonymous access on the shared
     # network). The matching password rides in REDIS_URL as
@@ -250,7 +300,7 @@ services:
   #   Until then this single broker stays PLAINTEXT on the private compose
   #   network and MUST NOT be exposed off-host.
   kafka:
-    image: apache/kafka:3.9.0
+    image: apache/kafka:3.9.0@sha256:fbc7d7c428e3755cf36518d4976596002477e4c052d1f80b5b9eafd06d0fff2f
     restart: unless-stopped
     environment:
       KAFKA_NODE_ID: 1
@@ -294,7 +344,7 @@ services:
     networks: [taskboard]
 
   kafka-init:
-    image: apache/kafka:3.9.0
+    image: apache/kafka:3.9.0@sha256:fbc7d7c428e3755cf36518d4976596002477e4c052d1f80b5b9eafd06d0fff2f
     depends_on:
       kafka: { condition: service_healthy }
     environment:

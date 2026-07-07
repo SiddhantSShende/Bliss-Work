@@ -2,10 +2,15 @@ package server
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha1" // #nosec G505 -- coturn REST API mandates HMAC-SHA1 for TURN creds
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -17,6 +22,7 @@ import (
 	"github.com/task-board/ws-gateway/internal/auth"
 	"github.com/task-board/ws-gateway/internal/delivery"
 	"github.com/task-board/ws-gateway/internal/hub"
+	"github.com/task-board/ws-gateway/internal/presence"
 	"github.com/task-board/ws-gateway/internal/signal"
 	"github.com/task-board/ws-gateway/internal/store"
 )
@@ -33,6 +39,7 @@ type Server struct {
 	store      *store.Store
 	dispatcher *delivery.Dispatcher
 	signal     *signal.Dispatcher
+	presence   *presence.Broadcaster
 	nodeID     string
 	log        *slog.Logger
 }
@@ -54,10 +61,11 @@ func New(
 	st *store.Store,
 	d *delivery.Dispatcher,
 	sig *signal.Dispatcher,
+	pres *presence.Broadcaster,
 	nodeID string,
 	log *slog.Logger,
 ) *Server {
-	return &Server{cfg: cfg, verifier: v, hub: h, store: st, dispatcher: d, signal: sig, nodeID: nodeID, log: log}
+	return &Server{cfg: cfg, verifier: v, hub: h, store: st, dispatcher: d, signal: sig, presence: pres, nodeID: nodeID, log: log}
 }
 
 // Handler returns the root HTTP mux. Order of wrappers (outermost first):
@@ -96,6 +104,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/readyz", s.handleReadyz)
 	mux.HandleFunc("/ws", s.handleWS)
 	mux.HandleFunc("/presence", s.handlePresence)
+	mux.HandleFunc("/turn-credentials", s.handleTurnCredentials)
 	mux.Handle("/metrics", promhttp.Handler())
 	return requestID(securityHeaders(recoverer(s.log)(s.cors(metrics(mux)))))
 }
@@ -141,6 +150,67 @@ func (s *Server) handlePresence(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(ids)
+}
+
+// TURN REST config (coturn use-auth-secret). The static secret never leaves the
+// server; clients get a short-lived username/password derived from it. STUN/TURN
+// URLs are injected from the environment so the same binary runs anywhere.
+var (
+	turnSecret = os.Getenv("TURN_SECRET")
+	turnURLs   = splitList(os.Getenv("TURN_URLS"))
+	stunURLs   = splitList(os.Getenv("STUN_URLS"))
+)
+
+// turnTTL is how long a minted TURN credential stays valid (seconds). The client
+// re-fetches before placing a call, so a call never starts on a stale credential.
+const turnTTL = 3600
+
+func splitList(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// handleTurnCredentials returns the ICE servers for a WebRTC call. STUN entries
+// need no auth; TURN entries carry a short-lived HMAC-SHA1 credential (the coturn
+// long-term-credential REST API). A valid access token is required so only
+// authenticated users can mint TURN credentials. When TURN is unconfigured it
+// returns STUN-only (or an empty list) so calls degrade gracefully.
+func (s *Server) handleTurnCredentials(w http.ResponseWriter, r *http.Request) {
+	claims, err := s.verifier.Verify(r.Context(), extractToken(r))
+	if err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	type iceServer struct {
+		URLs       []string `json:"urls"`
+		Username   string   `json:"username,omitempty"`
+		Credential string   `json:"credential,omitempty"`
+	}
+	servers := make([]iceServer, 0, 2)
+	if len(stunURLs) > 0 {
+		servers = append(servers, iceServer{URLs: stunURLs})
+	}
+	if turnSecret != "" && len(turnURLs) > 0 {
+		// coturn REST: username = "<expiryUnix>:<userId>", credential =
+		// base64(HMAC-SHA1(secret, username)).
+		expiry := time.Now().Add(turnTTL * time.Second).Unix()
+		username := fmt.Sprintf("%d:%s", expiry, claims.UserID)
+		mac := hmac.New(sha1.New, []byte(turnSecret))
+		_, _ = mac.Write([]byte(username))
+		servers = append(servers, iceServer{
+			URLs:       turnURLs,
+			Username:   username,
+			Credential: base64.StdEncoding.EncodeToString(mac.Sum(nil)),
+		})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(map[string]any{"iceServers": servers, "ttl": turnTTL})
 }
 
 // cors applies credentialed CORS for the configured web origin and Electron.

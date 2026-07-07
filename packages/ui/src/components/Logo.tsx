@@ -1,7 +1,8 @@
 import { useId } from "react";
 import { cn } from "../lib/cn";
+import { ASSETS } from "../../../assets";
 
-/** BlissWork mark: rounded gradient tile with a chat bubble + three dots. */
+/** BlissWork mark: a "B" monogram with a chat bubble + three dots in the lower lobe. */
 export function Logo({ size = 32, className }: { size?: number; className?: string }) {
   const id = useId().replace(/:/g, "");
   return (
@@ -19,15 +20,17 @@ export function Logo({ size = 32, className }: { size?: number; className?: stri
           <stop offset="1" style={{ stopColor: "var(--color-brand-to)" }} />
         </linearGradient>
       </defs>
-      <rect x="3" y="3" width="42" height="42" rx="13" fill={`url(#bw-${id})`} />
-      {/* speech bubble */}
+      <rect x="9" y="6" width="10.5" height="36" rx="5.25" fill={`url(#bw-${id})`} />
       <path
-        d="M14.5 16.5h19a3.5 3.5 0 0 1 3.5 3.5v7a3.5 3.5 0 0 1-3.5 3.5H22l-6.2 4.6V31a3.5 3.5 0 0 1-1-2.5V20a3.5 3.5 0 0 1 3.5-3.5Z"
-        fill="white"
+        d="M9,6 L30,6 Q39.4,6 39.4,15.94 Q39.4,22.5 33.75,24 Q39.4,25.5 39.4,32.06 Q39.4,42 31.88,42 L9,42 Z"
+        fill={`url(#bw-${id})`}
       />
-      <circle cx="20" cy="23.5" r="1.9" style={{ fill: "var(--color-brand-from)" }} />
-      <circle cx="26" cy="23.5" r="1.9" style={{ fill: "var(--color-accent)" }} />
-      <circle cx="32" cy="23.5" r="1.9" style={{ fill: "var(--color-brand-to)" }} />
+      {/* speech bubble */}
+      <rect x="12.94" y="27.38" width="26.06" height="10.31" rx="2.53" fill="white" />
+      <path d="M15.94,37.69 L11.63,37.69 L9.38,42.19 Q9.09,42.84 9.84,42.38 Z" fill="white" />
+      <circle cx="20.53" cy="32.53" r="1.5" style={{ fill: "var(--color-brand-from)" }} />
+      <circle cx="25.97" cy="32.53" r="1.5" style={{ fill: "var(--color-accent)" }} />
+      <circle cx="31.41" cy="32.53" r="1.5" style={{ fill: "var(--color-brand-to)" }} />
     </svg>
   );
 }
@@ -41,5 +44,18 @@ export function Wordmark({ size = 28, className }: { size?: number; className?: 
         Bliss<span className="text-accent">Work</span>
       </span>
     </span>
+  );
+}
+
+/** BlissWork logo as an image. Use for static logo display without theme styling. */
+export function ImageLogo({ size = 32, className }: { size?: number; className?: string }) {
+  return (
+    <img
+      src={ASSETS.logo}
+      alt="BlissWork"
+      width={size}
+      height={size}
+      className={cn("shrink-0", className)}
+    />
   );
 }

@@ -11,8 +11,10 @@ const (
 
 // Event type discriminants.
 const (
-	TypeTaskAcknowledged   = "task.acknowledged"
-	TypeTaskCompleted      = "task.completed"
+	TypeTaskAcknowledged    = "task.acknowledged"
+	TypeTaskCompleted       = "task.completed"
+	TypeTaskIgnored         = "task.ignored"
+	TypeTaskLeft            = "task.left"
 	TypeNotificationCreated = "notification.created"
 )
 
@@ -20,6 +22,8 @@ const (
 const (
 	KindTaskAcknowledged = "TASK_ACKNOWLEDGED"
 	KindTaskCompleted    = "TASK_COMPLETED"
+	KindTaskIgnored      = "TASK_IGNORED"
+	KindTaskLeft         = "TASK_LEFT"
 )
 
 // TaskEvent is the shape consumed off task.events.v1. It is a superset that

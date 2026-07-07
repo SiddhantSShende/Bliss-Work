@@ -48,14 +48,23 @@ export function createMainWindow(startHidden = false): BrowserWindow {
 }
 
 export function createStickyWindow(taskId: string, index: number, collapsed = false): BrowserWindow {
-  // DESKTOP WIDGET — the note floats on the user's MAIN desktop screen (primary
-  // display) and layers above normal windows so an allocated task is visible
-  // without being buried. It is intentionally NOT pinned over every app/virtual
-  // desktop: we use the lightest always-on-top level ("floating", set below) and
-  // the main window's focus lowers it (StickyManager.lowerZOrder) so the app
-  // stays fully usable. `showInactive()` surfaces it WITHOUT stealing focus;
-  // `skipTaskbar` keeps it out of the taskbar — it's an ambient widget. The
-  // StickyManager confines its position to the primary display.
+  // DESKTOP-PINNED TASK NOTE — an allocated task is pinned to the user's MAIN
+  // desktop (home screen), BEHIND every application window. It must NEVER float
+  // over an open app or sit on top of other windows; it lives at the desktop
+  // layer like a wallpaper widget, visible only when the desktop is (Show
+  // Desktop / everything minimised). This is deliberate per product spec.
+  //
+  // How the "always behind" is achieved without a native module:
+  //   • type: "desktop"  → on X11/Linux maps to _NET_WM_WINDOW_TYPE_DESKTOP, so
+  //     the window manager keeps the window at the very bottom of the stack.
+  //   • focusable: false → the note can never take focus or be raised to the
+  //     front by a click, so opening/clicking any app leaves it behind. Task
+  //     actions are pure click targets (Acknowledge / Ignore / Complete /
+  //     Collapse) — no text input — so a non-focusable window stays fully usable.
+  //   • alwaysOnTop: false + skipTaskbar: true → never promoted above apps, and
+  //     kept out of the taskbar/alt-tab (it's an ambient desktop widget).
+  //   • showInactive() (below) surfaces it WITHOUT stealing focus.
+  // The StickyManager confines its position to the primary display.
   const win = new BrowserWindow({
     width: 320,
     height: 200,
@@ -66,7 +75,9 @@ export function createStickyWindow(taskId: string, index: number, collapsed = fa
     resizable: true,
     movable: true,
     skipTaskbar: true,
-    alwaysOnTop: true,
+    alwaysOnTop: false,
+    focusable: false, // never raises to the front — stays pinned behind all apps
+    type: "desktop",
     hasShadow: true,
     maximizable: false,
     minimizable: false, // can't be minimised — it's already an unframed widget
@@ -81,12 +92,10 @@ export function createStickyWindow(taskId: string, index: number, collapsed = fa
     },
   });
 
-  // "floating" is the lightest always-on-top level — the note sits just above
-  // normal windows on the desktop without covering fullscreen apps/screensavers,
-  // and it stays on the CURRENT desktop only (no setVisibleOnAllWorkspaces, so it
-  // doesn't bleed onto other virtual desktops). z-order among notes + relative to
-  // the main app is managed by StickyManager (lowerZOrder/raiseZOrder).
-  win.setAlwaysOnTop(true, "floating");
+  // Belt-and-suspenders: force the note to sit at the bottom of the window
+  // stack, never on top. moveTop has no inverse, so type:"desktop" +
+  // focusable:false above are what actually keep it behind on each platform.
+  win.setAlwaysOnTop(false);
 
   const query = `?taskId=${encodeURIComponent(taskId)}&i=${index}${collapsed ? "&collapsed=1" : ""}`;
   if (DEV_URL) void win.loadURL(`${DEV_URL}/sticky.html${query}`);
@@ -95,7 +104,6 @@ export function createStickyWindow(taskId: string, index: number, collapsed = fa
   // Surface on top the moment it's ready, without grabbing keyboard focus.
   win.on("ready-to-show", () => {
     win.showInactive();
-    win.moveTop();
   });
   return win;
 }

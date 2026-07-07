@@ -1,16 +1,27 @@
 name: Release Desktop
 
-# Builds the BlissWork desktop installers on each platform's native runner and
-# publishes them to GitHub Releases. The marketing site's "Get the App" buttons
-# link to these assets via stable, version-less filenames
-# (BlissWork-windows-x64.exe, BlissWork-mac-arm64.dmg, BlissWork-linux-x64.AppImage, …).
+# Builds the BlissWork desktop installers on each platform's native runner,
+# CODE-SIGNS them, publishes SHA-256 checksums, and deploys straight to our VPS
+# download host (NOT GitHub Releases — the marketing site + web app link to
+# https://blisswork.rnrtechs.com/downloads/<stable-name>).
 #
-# Trigger a release by pushing a tag that matches the desktop app version, e.g.:
-#   git tag v0.1.0 && git push origin v0.1.0
-# (electron-builder creates/uploads to the GitHub Release tagged v<version>.)
+# Trigger: push a version tag (git tag v0.1.1 && git push origin v0.1.1) or run
+# manually (workflow_dispatch). Every run uploads the installers as downloadable
+# workflow artifacts too, so a dry run without secrets still produces (unsigned)
+# builds you can inspect.
 #
-# `workflow_dispatch` runs a build WITHOUT publishing — useful for a dry run; the
-# installers are still attached as downloadable workflow artifacts.
+# ── Repository secrets ───────────────────────────────────────────────────────
+# Windows signing (SSL.com eSigner — cloud, cross-platform; see apps/desktop/SIGNING.md):
+#   ES_USERNAME  ES_PASSWORD  ES_CREDENTIAL_ID  ES_TOTP_SECRET
+# macOS signing + notarization (Apple Developer ID):
+#   MAC_CSC_LINK (base64 of the Developer ID Application .p12)   MAC_CSC_KEY_PASSWORD
+#   APPLE_ID     APPLE_APP_SPECIFIC_PASSWORD     APPLE_TEAM_ID
+# Deploy to the VPS (optional — skipped if unset):
+#   VPS_HOST  VPS_USER  VPS_PATH (e.g. /home/ubuntu/BlissWork/Bliss-Website/dist/downloads)
+#   VPS_SSH_KEY (a private key whose public half is in the VPS user's authorized_keys)
+#
+# Any signing/deploy stage whose secrets are absent is SKIPPED, so this workflow
+# is safe to run before you've bought a certificate.
 
 on:
   push:
@@ -18,16 +29,26 @@ on:
       - "v*"
   workflow_dispatch:
 
+concurrency:
+  group: release-desktop-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
-  contents: write
+  contents: read
 
 env:
   NODE_VERSION: "20"
 
 jobs:
+  # ───────────────────────────────────────────────────────────────────────────
+  # Build each OS on its native runner. macOS is signed + notarized in-place here
+  # (electron-builder signs the .app during packaging); Windows is signed in the
+  # `release` job below (CodeSignTool is cross-platform, so we sign on Linux).
+  # ───────────────────────────────────────────────────────────────────────────
   build:
     name: Build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
@@ -51,19 +72,26 @@ jobs:
       - name: Build desktop bundle
         run: npm run build -w @taskboard/desktop
 
-      - name: Package & publish installers
+      - name: Package installers (mac signed + notarized here)
         working-directory: apps/desktop
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # No Apple Developer ID in CI — build unsigned (mac.identity is also null in config).
-          CSC_IDENTITY_AUTO_DISCOVERY: "false"
-        run: npx --no-install electron-builder --publish ${{ startsWith(github.ref, 'refs/tags/') && 'always' || 'never' }}
+          # macOS Developer ID signing — scoped to the mac runner. When no cert
+          # secret is present, CSC_IDENTITY_AUTO_DISCOVERY=false builds unsigned
+          # instead of failing. The afterSign hook (build/notarize.cjs) notarizes
+          # only when the APPLE_* creds are also set.
+          CSC_LINK: ${{ runner.os == 'macOS' && secrets.MAC_CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ runner.os == 'macOS' && secrets.MAC_CSC_KEY_PASSWORD || '' }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ (runner.os == 'macOS' && secrets.MAC_CSC_LINK != '') && 'true' || 'false' }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npx --no-install electron-builder --publish never
 
-      - name: Upload installers as workflow artifacts
+      - name: Upload installers
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: blisswork-installers-${{ matrix.os }}
+          name: installers-${{ matrix.os }}
           path: |
             apps/desktop/release/*.exe
             apps/desktop/release/*.dmg
@@ -71,4 +99,76 @@ jobs:
             apps/desktop/release/*.deb
             apps/desktop/release/*.zip
           if-no-files-found: ignore
+          retention-days: 14
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Sign Windows (SSL.com eSigner — cross-platform, runs here on Linux), publish
+  # checksums, and deploy the signed set to the VPS. Signing/deploy steps skip
+  # cleanly when their secrets are absent.
+  # ───────────────────────────────────────────────────────────────────────────
+  release:
+    name: Sign Windows, checksum & deploy
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # Surfaced from secrets so `if:` gates can test presence without exposing values.
+      ES_USERNAME: ${{ secrets.ES_USERNAME }}
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+    steps:
+      - name: Collect installers
+        uses: actions/download-artifact@v4
+        with:
+          path: installers
+          pattern: installers-*
+          merge-multiple: true
+
+      # SSL.com eSigner signs the .exe via its cloud HSM (no cert on disk). Pin
+      # this third-party action to a commit SHA for supply-chain safety once you
+      # adopt it (replace @develop below).
+      - name: Sign Windows installer (SSL.com eSigner)
+        if: env.ES_USERNAME != ''
+        uses: sslcom/esigner-codesign@develop
+        with:
+          command: sign
+          username: ${{ secrets.ES_USERNAME }}
+          password: ${{ secrets.ES_PASSWORD }}
+          credential_id: ${{ secrets.ES_CREDENTIAL_ID }}
+          totp_secret: ${{ secrets.ES_TOTP_SECRET }}
+          file_path: ${{ github.workspace }}/installers/BlissWork-windows-x64.exe
+          override: "true"
+          malware_block: "false"
+          environment_name: PROD
+
+      - name: Generate SHA-256 checksums (over the SIGNED files)
+        working-directory: installers
+        run: |
+          rm -f SHA256SUMS.txt
+          sha256sum BlissWork-* > SHA256SUMS.txt
+          echo "----- SHA256SUMS.txt -----"
+          cat SHA256SUMS.txt
+
+      - name: Deploy to VPS
+        if: env.VPS_HOST != ''
+        env:
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PATH: ${{ secrets.VPS_PATH }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          # Push the signed installers + checksums to the VPS download folder.
+          rsync -avz --checksum -e "ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=yes" \
+            installers/ "$VPS_USER@$VPS_HOST:$VPS_PATH/"
+          echo "Deployed to $VPS_USER@$VPS_HOST:$VPS_PATH"
+
+      - name: Upload signed set as workflow artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: blisswork-installers-signed
+          path: installers/*
+          if-no-files-found: warn
           retention-days: 14

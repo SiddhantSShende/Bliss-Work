@@ -7,6 +7,7 @@ import {
   type StickyTaskDTO,
   type ConversationDTO,
   type MessageDTO,
+  type ChannelMessageDTO,
   actionsFor,
 } from "@taskboard/shared";
 import { useRuntime } from "./runtime";
@@ -123,9 +124,26 @@ export function WsEventBridge() {
           break;
         }
         case EventType.ChannelMessageCreated: {
-          // Skip own echo (optimistically rendered); refresh others + the list.
-          if (e.senderId !== me)
-            void qc.invalidateQueries({ queryKey: qk.channelMessages(e.channelId) });
+          // Skip own echo (optimistically rendered by the open channel). For
+          // everyone else, patch the message straight into the cache so it
+          // appears instantly (no refetch round-trip) — the event already
+          // carries every field ChannelMessageDTO needs.
+          if (e.senderId !== me) {
+            qc.setQueryData<ChannelMessageDTO[]>(qk.channelMessages(e.channelId), (prev) => {
+              const next = prev ? [...prev] : [];
+              if (!next.some((m) => m.id === e.messageId))
+                next.push({
+                  id: e.messageId,
+                  channelId: e.channelId,
+                  seq: e.seq,
+                  senderId: e.senderId,
+                  senderUsername: e.senderUsername,
+                  body: e.body,
+                  createdAt: e.occurredAt,
+                });
+              return next.sort((a, b) => a.seq - b.seq);
+            });
+          }
           void qc.invalidateQueries({ queryKey: qk.channels });
           break;
         }
@@ -177,16 +195,45 @@ export function WsEventBridge() {
         }
         case EventType.TaskIgnored:
         case EventType.TaskLeft: {
+          // Allocator gets a live toast + inbox refresh for EVERY outcome (the
+          // durable notification arrives separately via NotificationCreated).
+          if (e.senderId === me) {
+            const verb = e.type === EventType.TaskLeft ? "left" : "ignored";
+            toast(`Task ${verb} by ${e.assigneeUsername}`);
+            void qc.invalidateQueries({ queryKey: qk.unifiedInbox });
+            refreshInboxSidebars(qc);
+          }
           if (e.assigneeId === me) {
             clearTaskForMe(qc, e.taskId);
             void qc.invalidateQueries({ queryKey: qk.unifiedInbox });
             refreshInboxSidebars(qc);
           }
           void qc.invalidateQueries({ queryKey: qk.sent });
+          void qc.invalidateQueries({ queryKey: qk.notifications });
           break;
         }
         case EventType.NotificationCreated: {
           if (e.recipientId === me) void qc.invalidateQueries({ queryKey: qk.notifications });
+          break;
+        }
+        // ── Live presence ────────────────────────────────────────────────────
+        // Patch the `qk.presence` online-set directly so a teammate's avatar
+        // flips the instant they connect/disconnect, instead of waiting up to
+        // 20s for the next poll (which remains as a reconciliation fallback).
+        case EventType.PresenceSnapshot: {
+          qc.setQueryData<string[]>(qk.presence, e.online);
+          break;
+        }
+        case EventType.PresenceOnline: {
+          qc.setQueryData<string[]>(qk.presence, (prev) =>
+            prev?.includes(e.userId) ? prev : [...(prev ?? []), e.userId],
+          );
+          break;
+        }
+        case EventType.PresenceOffline: {
+          qc.setQueryData<string[]>(qk.presence, (prev) =>
+            (prev ?? []).filter((id) => id !== e.userId),
+          );
           break;
         }
       }

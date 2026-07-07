@@ -189,7 +189,7 @@ export type SentTaskDTO = z.infer<typeof SentTaskDTO>;
 // ── Notifications ────────────────────────────────────────────────────────────
 export const NotificationDTO = z.object({
   id: z.string().uuid(),
-  kind: z.enum(["TASK_ACKNOWLEDGED", "TASK_COMPLETED"]),
+  kind: z.enum(["TASK_ACKNOWLEDGED", "TASK_COMPLETED", "TASK_IGNORED", "TASK_LEFT"]),
   text: z.string(),
   taskId: z.string().uuid().nullable(),
   read: z.boolean(),

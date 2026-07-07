@@ -51,7 +51,7 @@ export function buildAppMenu(opts: { onShow: () => void; onQuit: () => void }): 
     {
       role: "help",
       submenu: [
-        { label: "BlissWork on the Web", click: () => void shell.openExternal("http://localhost:5173") },
+        { label: "BlissWork on the Web", click: () => void shell.openExternal("https://communication.rnrtechs.com") },
         { type: "separator" },
         { label: "About BlissWork", click: about },
       ],

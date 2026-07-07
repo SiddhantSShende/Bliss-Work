@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Tray, Menu, screen, utilityProcess, UtilityProcess } from "electron";
+import { app, BrowserWindow, ipcMain, Tray, Menu, screen, session, utilityProcess, UtilityProcess } from "electron";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { StickyTaskDTO } from "@taskboard/shared";
@@ -13,13 +13,33 @@ import { registerFileSink } from "./file-sink";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 
-// Service endpoints (override via env when not localhost).
+// Service endpoints for the ws-process (single WS + task REST client). A
+// PACKAGED build (app.isPackaged) targets the hosted BlissWork backend on
+// communication.rnrtechs.com so a downloaded installer works with no config;
+// dev (running from node_modules/electron) targets the local compose stack.
+// TB_* env overrides win for custom deployments. MUST stay in lock-step with
+// the renderer defaults in src/renderer/main.tsx.
+const PROD_ENDPOINTS = {
+  authBase: "https://communication.rnrtechs.com/api/auth",
+  taskBase: "https://communication.rnrtechs.com/api/tasks",
+  notificationBase: "https://communication.rnrtechs.com/api/notifications",
+  messagingBase: "https://communication.rnrtechs.com/api/messaging",
+  wsUrl: "wss://communication.rnrtechs.com/ws",
+};
+const DEV_ENDPOINTS = {
+  authBase: "http://localhost:8001",
+  taskBase: "http://localhost:8002",
+  notificationBase: "http://localhost:8003",
+  messagingBase: "http://localhost:8004",
+  wsUrl: "ws://localhost:8090/ws",
+};
+const DEFAULT_ENDPOINTS = app.isPackaged ? PROD_ENDPOINTS : DEV_ENDPOINTS;
 const ENDPOINTS = {
-  authBase: process.env.TB_AUTH_BASE ?? "http://localhost:8001",
-  taskBase: process.env.TB_TASK_BASE ?? "http://localhost:8002",
-  notificationBase: process.env.TB_NOTIFICATION_BASE ?? "http://localhost:8003",
-  messagingBase: process.env.TB_MESSAGING_BASE ?? "http://localhost:8004",
-  wsUrl: process.env.TB_WS_URL ?? "ws://localhost:8090/ws",
+  authBase: process.env.TB_AUTH_BASE ?? DEFAULT_ENDPOINTS.authBase,
+  taskBase: process.env.TB_TASK_BASE ?? DEFAULT_ENDPOINTS.taskBase,
+  notificationBase: process.env.TB_NOTIFICATION_BASE ?? DEFAULT_ENDPOINTS.notificationBase,
+  messagingBase: process.env.TB_MESSAGING_BASE ?? DEFAULT_ENDPOINTS.messagingBase,
+  wsUrl: process.env.TB_WS_URL ?? DEFAULT_ENDPOINTS.wsUrl,
 };
 
 let mainWindow: BrowserWindow | null = null;
@@ -47,7 +67,17 @@ if (!app.requestSingleInstanceLock()) {
     focusMain();
     forwardDeepLink(argv.find((a) => a.startsWith("taskboard://")));
   });
-  app.whenReady().then(bootstrap);
+  app.whenReady().then(() => {
+    // WebRTC calls need camera/mic. Electron DENIES media by default; the app
+    // only ever loads our own origin, so granting "media" (and nothing else) is
+    // safe. NOTE: macOS packaged/notarized builds ALSO require
+    // NSCameraUsageDescription + NSMicrophoneUsageDescription (Info.plist) and the
+    // com.apple.security.device.{camera,audio-input} entitlements, or the OS
+    // blocks capture before this handler is ever consulted.
+    session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => cb(permission === "media"));
+    session.defaultSession.setPermissionCheckHandler((_wc, permission) => permission === "media");
+    bootstrap();
+  });
 }
 
 // Custom protocol for emailed invite deep-links.
@@ -125,9 +155,10 @@ function wireMainWindow(win: BrowserWindow) {
     }
   });
 
-  // z-order: when the main window is focused, drop the notes to normal z-order
-  // so the user can work in the app without the desktop widgets covering it;
-  // when it blurs, float them back over the desktop (lightest always-on-top).
+  // Task notes are pinned to the desktop BEHIND every app and never float on
+  // top, so focus/blur no longer needs to raise or lower them. We still re-assert
+  // "never always-on-top" on both transitions as a hard guarantee against any
+  // platform quirk leaving a note promoted above app windows.
   win.on("focus", () => {
     sticky.lowerZOrder();
     chatSticky.lowerZOrder();

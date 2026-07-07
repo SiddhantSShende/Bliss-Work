@@ -17,6 +17,13 @@ const outboxTTL = 7 * 24 * time.Hour
 // hello with lastSeenSeq == 0.
 const maxReplayDefault = 200
 
+// maxReplayHard caps catch-up replay when a client presents a cursor
+// (lastSeenSeq > 0) but is far behind — e.g. it was offline while a busy org
+// generated thousands of events. It bounds gateway memory and the per-connect
+// stream so a stale cursor can't force an unbounded batch on every reconnect.
+// Older events beyond this are backfilled via the REST message/task endpoints.
+const maxReplayHard = 2000
+
 // Store wraps Redis for presence tracking and per-user replay outboxes.
 type Store struct {
 	rdb *redis.Client
@@ -75,22 +82,29 @@ func (s *Store) RemovePresence(ctx context.Context, userID, nodeID, connID strin
 	return s.rdb.SRem(ctx, presenceKey(userID), nodeID+":"+connID).Err()
 }
 
-// AddOrgPresence marks userID as online within its org (idempotent).
-func (s *Store) AddOrgPresence(ctx context.Context, orgID, userID string) error {
-	return s.rdb.SAdd(ctx, orgPresenceKey(orgID), userID).Err()
+// AddOrgPresence marks userID as online within its org (idempotent). It returns
+// becameOnline=true only on the transition from absent→present (the user's FIRST
+// live connection across all nodes), so the caller can broadcast a single
+// presence.online event instead of one per socket/tab.
+func (s *Store) AddOrgPresence(ctx context.Context, orgID, userID string) (becameOnline bool, err error) {
+	n, err := s.rdb.SAdd(ctx, orgPresenceKey(orgID), userID).Result()
+	return n > 0, err
 }
 
 // RemoveOrgPresenceIfLast drops userID from the org's online set only when the
-// user has no remaining live connections (across all nodes).
-func (s *Store) RemoveOrgPresenceIfLast(ctx context.Context, orgID, userID string) error {
+// user has no remaining live connections (across all nodes). It returns
+// becameOffline=true only on the present→absent transition (the user's LAST
+// connection closed), so the caller can broadcast a single presence.offline.
+func (s *Store) RemoveOrgPresenceIfLast(ctx context.Context, orgID, userID string) (becameOffline bool, err error) {
 	n, err := s.rdb.SCard(ctx, presenceKey(userID)).Result()
 	if err != nil {
-		return err
+		return false, err
 	}
 	if n > 0 {
-		return nil
+		return false, nil
 	}
-	return s.rdb.SRem(ctx, orgPresenceKey(orgID), userID).Err()
+	removed, err := s.rdb.SRem(ctx, orgPresenceKey(orgID), userID).Result()
+	return removed > 0, err
 }
 
 // OnlineUserIDs returns the user IDs currently connected within an org.
@@ -152,9 +166,44 @@ func (s *Store) SubscribeRTC(ctx context.Context, onMessage func(userID string, 
 	}
 }
 
-// Replay returns events for catch-up. When lastSeenSeq <= 0 it returns the most
-// recent maxReplayDefault entries (oldest-first). Otherwise it returns all
-// entries with score strictly greater than lastSeenSeq (oldest-first).
+// presenceChannel is the single Redis pub/sub channel carrying presence
+// online/offline transitions. Presence is EPHEMERAL — like RTC frames it is
+// never written to the per-user replay outbox (a reconnecting client gets a
+// fresh presence.snapshot on hello instead, so it can never replay stale
+// online/offline state).
+const presenceChannel = "presence:events"
+
+// PublishPresence ships a raw presence event to every gateway node. Best-effort
+// (at-most-once) — a missed transition is reconciled by the 20s presence poll
+// and the next snapshot.
+func (s *Store) PublishPresence(ctx context.Context, raw []byte) error {
+	return s.rdb.Publish(ctx, presenceChannel, raw).Err()
+}
+
+// SubscribePresence opens a Redis SUBSCRIBE on the presence channel and delivers
+// every raw payload into onMessage. Returns when ctx is done.
+func (s *Store) SubscribePresence(ctx context.Context, onMessage func(raw []byte)) {
+	sub := s.rdb.Subscribe(ctx, presenceChannel)
+	defer func() { _ = sub.Close() }()
+	ch := sub.Channel()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case m, ok := <-ch:
+			if !ok {
+				return
+			}
+			onMessage([]byte(m.Payload))
+		}
+	}
+}
+
+// Replay returns events for catch-up, oldest-first. When lastSeenSeq <= 0 it
+// returns the most recent maxReplayDefault entries. Otherwise it returns entries
+// with score strictly greater than lastSeenSeq, capped at the most recent
+// maxReplayHard so a very old cursor can't force an unbounded batch onto every
+// reconnect (older history is reachable via the REST message/task endpoints).
 func (s *Store) Replay(ctx context.Context, userID string, lastSeenSeq int64) ([][]byte, error) {
 	key := outboxKey(userID)
 	var raws []string
@@ -164,10 +213,18 @@ func (s *Store) Replay(ctx context.Context, userID string, lastSeenSeq int64) ([
 		raws, err = s.rdb.ZRange(ctx, key, -maxReplayDefault, -1).Result()
 	} else {
 		min := fmt.Sprintf("(%d", lastSeenSeq) // exclusive lower bound
-		raws, err = s.rdb.ZRangeByScore(ctx, key, &redis.ZRangeBy{
-			Min: min,
-			Max: "+inf",
+		// Most recent maxReplayHard after the cursor (highest-first), then
+		// reversed below to oldest-first for in-order client replay.
+		raws, err = s.rdb.ZRevRangeByScore(ctx, key, &redis.ZRangeBy{
+			Min:   min,
+			Max:   "+inf",
+			Count: maxReplayHard,
 		}).Result()
+		if err == nil {
+			for i, j := 0, len(raws)-1; i < j; i, j = i+1, j-1 {
+				raws[i], raws[j] = raws[j], raws[i]
+			}
+		}
 	}
 	if err != nil {
 		return nil, err

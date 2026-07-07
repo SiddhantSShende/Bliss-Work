@@ -4,6 +4,7 @@
   "private": true,
   "description": "BlissWork — desktop app with always-on-top sticky task notes",
   "author": "BlissWork",
+  "homepage": "https://blisswork.rnrtechs.com",
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
@@ -12,14 +13,15 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "package": "electron-vite build && electron-builder",
     "package:dir": "electron-vite build && electron-builder --dir",
-    "package:store": "electron-vite build && electron-builder --win appx --config.directories.output=C:/blisswork-build",
-    "icon": "node build/render-icon.mjs"
+    "package:store": "electron-vite build && electron-builder --win --config.win.target=appx --publish=never",
+    "icon": "bash build/gen-appx-assets.sh"
   },
   "build": {
     "appId": "com.blisswork.desktop",
     "productName": "BlissWork",
+    "executableName": "BlissWork",
     "copyright": "Copyright © 2026 BlissWork",
-    "electronVersion": "42.4.1",
+    "electronVersion": "42.5.2",
     "directories": {
       "buildResources": "build",
       "output": "release"
@@ -35,6 +37,7 @@
       }
     ],
     "asar": true,
+    "afterSign": "build/notarize.cjs",
     "publish": [
       {
         "provider": "github",
@@ -54,6 +57,18 @@
       "icon": "build/icon.png",
       "artifactName": "BlissWork-windows-${arch}.${ext}"
     },
+    "appx": {
+      "identityName": "SiddhantSShende.BlissWork",
+      "publisher": "CN=8577DCDE-7A86-447A-B011-0283EB9A3FAC",
+      "publisherDisplayName": "SiddhantSShende",
+      "backgroundColor": "#6D5BF0",
+      "languages": [
+        "en-us"
+      ],
+      "showNameOnTiles": true,
+      "applicationId": "BlissWork",
+      "publish": null
+    },
     "nsis": {
       "oneClick": false,
       "perMachine": false,
@@ -62,18 +77,6 @@
       "createStartMenuShortcut": true,
       "shortcutName": "BlissWork",
       "uninstallDisplayName": "BlissWork"
-    },
-    "appx": {
-      "identityName": "SiddhantSShende.BlissWork",
-      "publisher": "CN=8577DCDE-7A86-447A-B011-0283EB9A3FAC",
-      "publisherDisplayName": "SiddhantSShende",
-      "applicationId": "BlissWork",
-      "backgroundColor": "#4f46e5",
-      "showNameOnTiles": true,
-      "languages": [
-        "en-US"
-      ],
-      "publish": null
     },
     "mac": {
       "target": [
@@ -94,8 +97,16 @@
       ],
       "icon": "build/icon.png",
       "category": "public.app-category.productivity",
-      "identity": null,
-      "artifactName": "BlissWork-mac-${arch}.${ext}"
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": false,
+      "artifactName": "BlissWork-mac-${arch}.${ext}",
+      "extendInfo": {
+        "NSCameraUsageDescription": "BlissWork uses your camera for video calls.",
+        "NSMicrophoneUsageDescription": "BlissWork uses your microphone for voice and video calls."
+      }
     },
     "dmg": {
       "title": "BlissWork ${version}"
@@ -119,10 +130,11 @@
       "category": "Office",
       "maintainer": "BlissWork <support@blisswork.app>",
       "synopsis": "Always-on-top sticky task notes for teams",
-      "artifactName": "BlissWork-linux-${arch}.${ext}"
+      "artifactName": "BlissWork-linux-x64.${ext}"
     }
   },
   "devDependencies": {
+    "@electron/notarize": "^2.5.0",
     "@tailwindcss/vite": "^4.0.0",
     "@tanstack/react-query": "^5.62.0",
     "@taskboard/app": "*",

@@ -1,29 +1,41 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Caddy reverse proxy + OWASP-CRS WAF for the Task-Board production edge.
 #
-# This is the HARDENED variant of infra/caddy/Caddyfile: identical routing, plus
-# an inline Coraza (ModSecurity-compatible) Web Application Firewall running the
-# OWASP Core Rule Set (CRS) at the edge — SQLi/XSS/RCE/LFI/protocol-anomaly
-# detection in front of every upstream.
+# HARDENED variant of infra/caddy/Caddyfile: IDENTICAL routing/headers/site list,
+# plus an inline Coraza (ModSecurity-compatible) WAF running the OWASP Core Rule
+# Set on the app site — SQLi/XSS/RCE/LFI/protocol-anomaly detection in front of
+# every upstream. Keep this in lock-step with Caddyfile when routing changes.
 #
-# REQUIRES A CUSTOM CADDY BUILD. Stock `caddy:2.8-alpine` has NO WAF. Build the
-# image in infra/caddy/Dockerfile (xcaddy + github.com/corazawaf/coraza-caddy/v2)
-# and point the prod compose `caddy` service at it (build: ./infra/caddy). The
-# `coraza_waf` directive below only parses in that custom build.
-#
-# Managed-WAF alternative (recommended at scale): put Cloudflare / AWS WAF /
-# Azure Front Door in front of this edge and run their managed OWASP ruleset —
-# then you can fall back to the stock Caddyfile. See docs/OPERATIONS.md §8.
+# REQUIRES the custom Caddy build in infra/caddy/Dockerfile (xcaddy +
+# corazawaf/coraza-caddy/v2); the `coraza_waf` directive only parses there.
+# Engine starts in DetectionOnly (coraza/coraza.conf) — tune false positives
+# against real traffic, THEN flip SecRuleEngine to On. Instant rollback = point
+# the compose `caddy` service back at the stock image + Caddyfile.
 #
 # {$DOMAIN} and {$ACME_EMAIL} are injected from .env.prod.
 # ─────────────────────────────────────────────────────────────────────────────
 
 {
 	email {$ACME_EMAIL}
-	# The Coraza directive is not a standard Caddy handler, so its ordering in the
-	# request-handling chain must be declared. Run the WAF BEFORE reverse_proxy /
-	# file_server so malicious requests are blocked before reaching an upstream.
-	order coraza_waf first
+	# Serve the edge over HTTP/1.1 ONLY. Browsers negotiate HTTP/2 by default, and
+	# `new WebSocket()` over an h2 connection uses RFC 8441 Extended CONNECT — which
+	# does NOT survive this edge (the Coraza response wrapper defeats the h2 WS
+	# stream), so the socket upgrades then dies ~140ms later in a reconnect loop.
+	# Over HTTP/1.1 the classic Upgrade handshake works perfectly (verified: 101 +
+	# live frames). Forcing h1 makes browsers use the working path. The cost is
+	# losing h2/h3 multiplexing for REST/SPA traffic — negligible at this app's
+	# scale and worth it for reliable real-time. (Revisit with proper RFC 8441
+	# support if h2 perf is ever needed.)
+	servers {
+		protocols h1
+	}
+	# NOTE: deliberately NO global `order coraza_waf first`. That hoists the WAF to
+	# the site's FIRST handler — ahead of the route below — so it wraps the
+	# response of EVERY request, INCLUDING the /ws upgrade, and eats the
+	# `101 Switching Protocols` line (the browser then sees an invalid handshake
+	# and the socket dies ~140ms after connecting). Instead the WAF runs INSIDE the
+	# route (explicit written order is honoured there), AFTER the terminal /ws
+	# proxy, so WebSockets never reach it.
 	# For a staging/private CA, uncomment:
 	# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
 }
@@ -31,49 +43,106 @@
 {$DOMAIN} {
 	encode zstd gzip
 
-	# ── WAF: OWASP Core Rule Set ────────────────────────────────────────────────
-	# Loads the Coraza recommended config, the CRS setup, then all CRS rules.
-	# Files are mounted read-only at /etc/caddy/coraza (see the prod compose).
-	# Start in DETECTION (SecRuleEngine DetectionOnly, set in coraza.conf) to tune
-	# out false positives against real traffic, THEN switch to blocking (On).
-	coraza_waf {
-		load_owasp_crs
-		directives `
-			Include /etc/caddy/coraza/coraza.conf
-			Include /etc/caddy/coraza/crs-setup.conf
-			Include /etc/caddy/coraza/rules/*.conf
-		`
-	}
+	# One explicit `route` so WE control handler order (route does NOT auto-sort).
+	# This is the only reliable way to run the WAF on everything EXCEPT the
+	# WebSocket upgrade — see the global-options note above.
+	route {
+		# 1) WebSocket upgrades → ws-gateway. Terminal, and placed BEFORE coraza_waf
+		#    so /ws is handled and the route stops before the WAF can wrap (and
+		#    corrupt) the 101 Switching Protocols response.
+		@ws path /ws /ws/*
+		reverse_proxy @ws ws-gateway:8080
 
-	# WebSocket upgrades (real-time fan-out) → ws-gateway.
-	@ws path /ws /ws/*
-	reverse_proxy @ws ws-gateway:8080
+		# 1b) Desktop app installers → nginx static file server. Placed BEFORE
+		#     coraza_waf (and terminal) so the WAF never buffers/inspects a
+		#     100 MB+ binary installer — same rationale as the WAF-less marketing
+		#     site: a static installer has no injection surface. nginx serves
+		#     them from /srv/downloads (see infra/nginx/default.conf).
+		@downloads path /downloads /downloads/*
+		reverse_proxy @downloads nginx:80
 
-	# REST APIs. Strip the public /api/<svc> prefix when proxying upstream.
-	handle_path /api/auth/* {
-		reverse_proxy auth-svc:8001
-	}
-	handle_path /api/tasks/* {
-		reverse_proxy task-svc:8002
-	}
-	handle_path /api/notifications/* {
-		reverse_proxy notification-svc:8003
-	}
-	handle_path /api/messaging/* {
-		reverse_proxy messaging-svc:8004
-	}
+		# 2) OWASP-CRS WAF for every remaining (non-WS) request. load_owasp_crs
+		#    pulls the CRS embedded in the coraza-caddy build; the mounted
+		#    /etc/caddy/coraza files layer engine toggle + tuning on top.
+		#    DetectionOnly until tuned.
+		coraza_waf {
+			load_owasp_crs
+			directives `
+				Include /etc/caddy/coraza/coraza.conf
+				Include @crs-setup.conf.example
+				Include @owasp_crs/*.conf
+				Include /etc/caddy/coraza/rules/*.conf
+			`
+		}
 
-	# JWKS must be reachable at a stable public path for any external verifier.
-	handle /.well-known/jwks.json {
-		reverse_proxy auth-svc:8001
-	}
+		# 3) Block introspection/observability endpoints from the public internet
+		#    (/metrics, /docs, /redoc, /openapi.json). Before the API proxies so
+		#    e.g. /api/tasks/metrics is 404, not proxied.
+		@introspection path */metrics */openapi.json */docs */docs/* */redoc */redoc/*
+		respond @introspection 404
 
-	# Static SPA assets are served by nginx on the private network.
-	handle {
+		# 4) Service-to-service endpoints are private-network only.
+		@internal path */internal/*
+		respond @internal 404
+
+		# 5) REST APIs. Strip the public /api/<svc> prefix when proxying upstream.
+		handle_path /api/auth/* {
+			reverse_proxy auth-svc:8001
+		}
+		handle_path /api/tasks/* {
+			reverse_proxy task-svc:8002
+		}
+		handle_path /api/notifications/* {
+			reverse_proxy notification-svc:8003
+		}
+		handle_path /api/messaging/* {
+			reverse_proxy messaging-svc:8004
+		}
+
+		# 6) JWKS at a stable public path for any external verifier.
+		handle /.well-known/jwks.json {
+			reverse_proxy auth-svc:8001
+		}
+
+		# TURN credentials (short-lived HMAC) for WebRTC calls → ws-gateway.
+		@turn path /turn-credentials
+		reverse_proxy @turn ws-gateway:8080
+
+		# 7) Everything else → the SPA served by nginx on the private network.
+		#    CSP is set HERE (terminal SPA branch of the route), NOT in the global
+		#    header block, so it lands only on the HTML shell: frame-ancestors MUST
+		#    be a real header (it's ignored in the <meta> tag) and JSON/API
+		#    responses keep their own stricter default-src 'none' policy. connect-src
+		#    allows wss: for the realtime gateway.
+		header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https: wss:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 		reverse_proxy nginx:80
 	}
 
 	# Security headers. HSTS is safe because every route is HTTPS-only here.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+}
+
+# ── BlissWork marketing site (static React/Vite SPA) ────────────────────────────
+# Static SPA with no backend / injection surface, so no WAF here (avoids CRS
+# false-positives on a pure file server). Mirrors the Caddyfile site exactly.
+blisswork.rnrtechs.com {
+	encode zstd gzip
+	root * /srv/blisswork
+	try_files {path} /index.html
+	file_server
+
+	# Long-cache the fingerprinted asset bundle; never cache the HTML shell.
+	@assets path /assets/*
+	header @assets Cache-Control "public, max-age=31536000, immutable"
+	@html path / /index.html
+	header @html Cache-Control "no-cache"
+
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options "nosniff"

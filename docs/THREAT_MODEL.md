@@ -175,15 +175,15 @@ delivery client (`services/ws-gateway/internal/delivery/delivery.go`), consumed 
   token env is unset, *every* call is rejected — and uses
   `secrets.compare_digest` (constant-time) to avoid timing leaks
   (`internal.py`).
-- *Residual (real, codebase-specific):* the **Go** internal-token checks use
-  `r.Header.Get("X-Internal-Token") != internalToken`, which (a) is gated on
-  `internalToken != ""` — i.e. it **fails OPEN if the env var is empty** — and
-  (b) is a non-constant-time string compare
-  (`messaging-svc/internal/api/internal_delivery.go`). Follow-up: make the Go
-  services reject when the secret is unset (fail closed) and switch to
-  `hmac.Equal` / `subtle.ConstantTimeCompare`, matching the Python behavior. Both
-  Go and Python should also move off a static shared secret toward
-  short-lived/mTLS service identity.
+- *Resolved:* the **Go** internal-token check (`messaging-svc`
+  `internal/api/internal_delivery.go` → `internalAuthOK`) matches the Python
+  behavior — it **fails closed** when `TB_INTERNAL_TOKEN` is unset and uses
+  `subtle.ConstantTimeCompare`. ws-gateway only *sends* the header
+  (`internal/delivery/delivery.go`) and exposes no internal endpoint of its own
+  to guard.
+- *Residual (real):* both Go and Python still rely on a single static shared
+  secret. Move toward short-lived / mTLS service identity so a leaked token can't
+  be replayed and rotation becomes automatic.
 
 **Tampering / Information disclosure**
 

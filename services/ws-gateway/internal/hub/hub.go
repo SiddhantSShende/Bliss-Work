@@ -4,9 +4,12 @@ import (
 	"sync"
 )
 
-// sendChanCap is the per-connection outbound buffer size. A full buffer means
-// the client is too slow and its connection will be closed with 1011.
-const sendChanCap = 256
+// sendChanCap is the per-connection outbound buffer size. Sized to absorb a
+// burst of live events while the writer goroutine drains over the network. The
+// connect-time replay does NOT use this overflow path (it uses deliverCtx
+// backpressure and is independently bounded), so this only governs live fan-out;
+// a genuinely slow consumer that fills it is shed (see Fanout).
+const sendChanCap = 512
 
 // Conn represents a single locally-connected websocket from a user.
 type Conn struct {
@@ -119,9 +122,14 @@ func (h *Hub) HasUser(userID string) bool {
 	return len(h.users[userID]) > 0
 }
 
-// Fanout enqueues payload to every locally-connected socket of userID. If a
-// connection's buffer is full, it is closed (the writer goroutine reacts to
-// Done and tears down with code 1011).
+// Fanout enqueues payload to every locally-connected socket of userID. It is
+// called from the SHARED Kafka fan-out goroutine, so it MUST stay non-blocking:
+// blocking on one slow client here would head-of-line-block live delivery for
+// every other user. A client whose buffer is full is therefore shed immediately
+// (the writer reacts to Done and closes with 1011). No event is lost: every event
+// is written to the per-user replay outbox BEFORE Fanout (see fanout.handle), so
+// the shed client redelivers it on reconnect via the backpressure-bounded,
+// loop-free hello replay and dedups on eventId — at-least-once that lands once.
 func (h *Hub) Fanout(userID string, payload []byte) {
 	h.mu.RLock()
 	conns := h.users[userID]
@@ -135,7 +143,8 @@ func (h *Hub) Fanout(userID string, payload []byte) {
 		select {
 		case c.Send <- payload:
 		default:
-			// Slow consumer: drop and close.
+			// Buffer full → genuinely slow consumer. Shed it; reconnect + outbox
+			// replay recovers the gap.
 			c.Close()
 		}
 	}

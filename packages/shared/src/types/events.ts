@@ -26,6 +26,9 @@ export const EventType = {
   TaskIgnored: "task.ignored",
   TaskLeft: "task.left",
   NotificationCreated: "notification.created",
+  PresenceOnline: "presence.online",
+  PresenceOffline: "presence.offline",
+  PresenceSnapshot: "presence.snapshot",
   UserCreated: "user.created",
   InviteCreated: "invite.created",
 } as const;
@@ -163,11 +166,13 @@ export const TaskCompleted = z.object({
 export const TaskIgnored = z.object({
   type: z.literal(EventType.TaskIgnored),
   ...taskBase,
+  assigneeUsername: z.string(),
 });
 
 export const TaskLeft = z.object({
   type: z.literal(EventType.TaskLeft),
   ...taskBase,
+  assigneeUsername: z.string(),
 });
 
 // ── Notification + Auth events ───────────────────────────────────────────────
@@ -176,9 +181,37 @@ export const NotificationCreated = z.object({
   ...envelope,
   notificationId: z.string().uuid(),
   recipientId: z.string().uuid(),
-  kind: z.enum(["TASK_ACKNOWLEDGED", "TASK_COMPLETED"]),
+  kind: z.enum(["TASK_ACKNOWLEDGED", "TASK_COMPLETED", "TASK_IGNORED", "TASK_LEFT"]),
   text: z.string(),
   taskId: z.string().uuid().optional(),
+});
+
+// ── Presence events (ephemeral; never persisted to the replay outbox) ─────────
+/**
+ * Presence transitions pushed by ws-gateway. PresenceOnline/Offline fire on the
+ * first-connect / last-disconnect edge for a user within an org; PresenceSnapshot
+ * is sent once on `hello` with the org's full online set so a (re)connecting
+ * client is authoritative immediately. These are EPHEMERAL — the gateway never
+ * writes them to the per-user Redis replay outbox, so they can never replay
+ * stale online/offline state after a reconnect.
+ */
+export const PresenceOnline = z.object({
+  type: z.literal(EventType.PresenceOnline),
+  ...envelope,
+  userId: z.string().uuid(),
+});
+
+export const PresenceOffline = z.object({
+  type: z.literal(EventType.PresenceOffline),
+  ...envelope,
+  userId: z.string().uuid(),
+});
+
+export const PresenceSnapshot = z.object({
+  type: z.literal(EventType.PresenceSnapshot),
+  ...envelope,
+  /** Every user currently online in the caller's org. */
+  online: z.array(z.string().uuid()),
 });
 
 export const UserCreated = z.object({
@@ -217,6 +250,9 @@ export const ServerEvent = z.discriminatedUnion("type", [
   TaskIgnored,
   TaskLeft,
   NotificationCreated,
+  PresenceOnline,
+  PresenceOffline,
+  PresenceSnapshot,
 ]);
 export type ServerEvent = z.infer<typeof ServerEvent>;
 
@@ -251,6 +287,9 @@ export type TaskCompleted = z.infer<typeof TaskCompleted>;
 export type TaskIgnored = z.infer<typeof TaskIgnored>;
 export type TaskLeft = z.infer<typeof TaskLeft>;
 export type NotificationCreated = z.infer<typeof NotificationCreated>;
+export type PresenceOnline = z.infer<typeof PresenceOnline>;
+export type PresenceOffline = z.infer<typeof PresenceOffline>;
+export type PresenceSnapshot = z.infer<typeof PresenceSnapshot>;
 export type UserCreated = z.infer<typeof UserCreated>;
 export type InviteCreated = z.infer<typeof InviteCreated>;
 
@@ -299,6 +338,25 @@ const MessageAckClient = z.object({
   messageIds: z.array(z.string().uuid()).min(1).max(64),
 });
 
+/** Typing indicator — ephemeral 1:1 hint routed like rtc.* (never persisted or
+ *  replayed). `start` on keystroke, `stop` on send/blur; the peer auto-expires it
+ *  after a few seconds if no `stop` arrives. */
+const TypingClient = z.object({
+  type: z.literal("typing"),
+  toUserId: z.string().uuid(),
+  conversationId: z.string().uuid(),
+  state: z.enum(["start", "stop"]),
+});
+
+// Call lifecycle — ephemeral 1:1 ring/accept/decline/cancel/end. The media SDP
+// and ICE candidates reuse the rtc.offer/answer/ice frames with offerId ===
+// callId; `media` is set on invite (audio = voice call, video = video call).
+const CallInviteClient = z.object({ type: z.literal("call.invite"), toUserId: z.string().uuid(), callId: z.string().uuid(), media: z.enum(["audio", "video"]) });
+const CallAcceptClient = z.object({ type: z.literal("call.accept"), toUserId: z.string().uuid(), callId: z.string().uuid() });
+const CallDeclineClient = z.object({ type: z.literal("call.decline"), toUserId: z.string().uuid(), callId: z.string().uuid() });
+const CallCancelClient = z.object({ type: z.literal("call.cancel"), toUserId: z.string().uuid(), callId: z.string().uuid() });
+const CallEndClient = z.object({ type: z.literal("call.end"), toUserId: z.string().uuid(), callId: z.string().uuid() });
+
 export const ClientFrame = z.discriminatedUnion("type", [
   z.object({ type: z.literal("hello"), lastSeenSeq: z.number().int().optional() }),
   z.object({ type: z.literal("ping") }),
@@ -309,6 +367,12 @@ export const ClientFrame = z.discriminatedUnion("type", [
   RtcIceClient,
   RtcCancelClient,
   MessageAckClient,
+  TypingClient,
+  CallInviteClient,
+  CallAcceptClient,
+  CallDeclineClient,
+  CallCancelClient,
+  CallEndClient,
 ]);
 export type ClientFrame = z.infer<typeof ClientFrame>;
 
@@ -339,6 +403,19 @@ const RtcCancelServer = z.object({
   offerId: z.string().uuid(),
   reason: z.enum(["sender_left", "receiver_declined", "ice_failed", "timeout"]).optional(),
 });
+// Typing indicator pushed to the peer (gateway stamps fromUserId).
+const TypingServer = z.object({
+  type: z.literal("typing"),
+  fromUserId: z.string().uuid(),
+  conversationId: z.string().uuid(),
+  state: z.enum(["start", "stop"]),
+});
+// Call lifecycle pushed to the peer (gateway stamps fromUserId).
+const CallInviteServer = z.object({ type: z.literal("call.invite"), fromUserId: z.string().uuid(), callId: z.string().uuid(), media: z.enum(["audio", "video"]) });
+const CallAcceptServer = z.object({ type: z.literal("call.accept"), fromUserId: z.string().uuid(), callId: z.string().uuid() });
+const CallDeclineServer = z.object({ type: z.literal("call.decline"), fromUserId: z.string().uuid(), callId: z.string().uuid() });
+const CallCancelServer = z.object({ type: z.literal("call.cancel"), fromUserId: z.string().uuid(), callId: z.string().uuid() });
+const CallEndServer = z.object({ type: z.literal("call.end"), fromUserId: z.string().uuid(), callId: z.string().uuid() });
 
 export const ControlFrame = z.discriminatedUnion("type", [
   z.object({ type: z.literal("pong") }),
@@ -350,6 +427,12 @@ export const ControlFrame = z.discriminatedUnion("type", [
   RtcAnswerServer,
   RtcIceServer,
   RtcCancelServer,
+  TypingServer,
+  CallInviteServer,
+  CallAcceptServer,
+  CallDeclineServer,
+  CallCancelServer,
+  CallEndServer,
   z.object({ type: z.literal("rtc.peer.unreachable"), offerId: z.string().uuid(), reason: z.string() }),
   z.object({ type: z.literal("rtc.rate_limited"), retryAfterMs: z.number().int().positive() }),
 ]);
@@ -364,6 +447,16 @@ export const RTC_CONTROL_TYPES = new Set<string>([
   "rtc.cancel",
   "rtc.peer.unreachable",
   "rtc.rate_limited",
+]);
+
+/** call.* lifecycle control frames so the WS client can route them to the call
+ *  layer (distinct from rtc.* media signaling, which the call layer also owns). */
+export const CALL_CONTROL_TYPES = new Set<string>([
+  "call.invite",
+  "call.accept",
+  "call.decline",
+  "call.cancel",
+  "call.end",
 ]);
 
 /**

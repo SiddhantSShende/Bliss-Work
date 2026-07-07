@@ -121,11 +121,11 @@ export function BrowserStickies() {
   const location = useLocation();
   // Don't render in Electron — real OS sticky windows cover that surface.
   const isElectron = !!config.pinTask;
-  // Home screen only: the inbox is the app's landing/home. Sticky notes stay on
-  // the home screen and don't follow the user onto chats/channels/tasks/settings.
-  const onHome =
-    location.pathname === "/app" || location.pathname.startsWith("/app/inbox");
-  const enabled = authed && !isElectron && onHome;
+  // App-wide: a task assigned while the user is on a chat/channel/tasks/settings
+  // page must still pop as a sticky the instant it arrives — not only on the
+  // inbox/home screen. So float across every authenticated /app/* route.
+  const inApp = location.pathname.startsWith("/app");
+  const enabled = authed && !isElectron && inApp;
 
   const { data: tasks = [] } = useQuery({
     queryKey: qk.sticky,

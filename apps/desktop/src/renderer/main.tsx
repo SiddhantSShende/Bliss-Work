@@ -26,13 +26,37 @@ declare global {
 
 const bridge = window.taskboard;
 
-const config: PlatformConfig = {
-  kind: "electron",
+// Service endpoints. A PACKAGED desktop build talks to the hosted BlissWork
+// backend on communication.rnrtechs.com — the SAME origin the production web
+// app uses — so a downloaded installer works out of the box with no config. In
+// dev (`npm run desktop`, import.meta.env.DEV) we target the local compose
+// stack. Any VITE_* override wins, so a custom backend needs no code edit.
+// NOTE: the main process (ws-process) has its own mirror of these defaults in
+// src/main/index.ts (keyed off app.isPackaged) — keep the two in lock-step.
+const env = import.meta.env;
+const PROD_ENDPOINTS = {
+  authBase: "https://communication.rnrtechs.com/api/auth",
+  taskBase: "https://communication.rnrtechs.com/api/tasks",
+  notificationBase: "https://communication.rnrtechs.com/api/notifications",
+  messagingBase: "https://communication.rnrtechs.com/api/messaging",
+  wsUrl: "wss://communication.rnrtechs.com/ws",
+};
+const DEV_ENDPOINTS = {
   authBase: "http://localhost:8001",
   taskBase: "http://localhost:8002",
   notificationBase: "http://localhost:8003",
   messagingBase: "http://localhost:8004",
   wsUrl: "ws://localhost:8090/ws",
+};
+const ENDPOINTS = env.DEV ? DEV_ENDPOINTS : PROD_ENDPOINTS;
+
+const config: PlatformConfig = {
+  kind: "electron",
+  authBase: env.VITE_AUTH_BASE ?? ENDPOINTS.authBase,
+  taskBase: env.VITE_TASK_BASE ?? ENDPOINTS.taskBase,
+  notificationBase: env.VITE_NOTIFICATION_BASE ?? ENDPOINTS.notificationBase,
+  messagingBase: env.VITE_MESSAGING_BASE ?? ENDPOINTS.messagingBase,
+  wsUrl: env.VITE_WS_URL ?? ENDPOINTS.wsUrl,
   router: "hash",
   pinTask: (taskId) => bridge.pinTask(taskId),
   listPinned: () => bridge.listPinned(),

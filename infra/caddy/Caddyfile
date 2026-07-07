@@ -50,6 +50,15 @@
 		reverse_proxy ws-gateway:8080
 	}
 
+	# Desktop app installers → nginx static file server (served from our own VPS,
+	# not GitHub). A `handle` block keeps its source order and matches before the
+	# catch-all SPA handler below, so /downloads/* serves the installer instead of
+	# the SPA shell. nginx serves them from /srv/downloads.
+	@downloads path /downloads /downloads/*
+	handle @downloads {
+		reverse_proxy nginx:80
+	}
+
 	# REST APIs. Strip the public /api/<svc> prefix when proxying upstream.
 	handle_path /api/auth/* {
 		reverse_proxy auth-svc:8001
@@ -69,8 +78,18 @@
 		reverse_proxy auth-svc:8001
 	}
 
+	# TURN credentials for WebRTC calls → ws-gateway.
+	@turn path /turn-credentials
+	handle @turn {
+		reverse_proxy ws-gateway:8080
+	}
+
 	# Static SPA assets are served by nginx on the private network.
+	# CSP is set on the SPA shell ONLY (not the global header block) so JSON/API
+	# responses keep their own stricter policy. frame-ancestors must be a real
+	# header (ignored in the <meta> tag); connect-src allows wss: for the gateway.
 	handle {
+		header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https: wss: http://localhost:* ws://localhost:*; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 		reverse_proxy nginx:80
 	}
 

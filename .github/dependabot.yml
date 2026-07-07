@@ -1,0 +1,65 @@
+version: 2
+# Automated dependency-update PRs across every ecosystem in the monorepo.
+# Security updates are raised by Dependabot immediately regardless of schedule.
+updates:
+  # ── Python services ──────────────────────────────────────────────────────────
+  - package-ecosystem: pip
+    directory: /services/auth-svc
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+    groups:
+      python-deps: { patterns: ["*"] }
+  - package-ecosystem: pip
+    directory: /services/task-svc
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+    groups:
+      python-deps: { patterns: ["*"] }
+  - package-ecosystem: pip
+    directory: /services/email-worker
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+    groups:
+      python-deps: { patterns: ["*"] }
+
+  # ── Go services ──────────────────────────────────────────────────────────────
+  - package-ecosystem: gomod
+    directory: /services/notification-svc
+    schedule: { interval: weekly }
+    groups:
+      go-deps: { patterns: ["*"] }
+  - package-ecosystem: gomod
+    directory: /services/messaging-svc
+    schedule: { interval: weekly }
+    groups:
+      go-deps: { patterns: ["*"] }
+  - package-ecosystem: gomod
+    directory: /services/ws-gateway
+    schedule: { interval: weekly }
+    groups:
+      go-deps: { patterns: ["*"] }
+
+  # ── Frontend / workspace ─────────────────────────────────────────────────────
+  - package-ecosystem: npm
+    directory: /
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 10
+    groups:
+      npm-deps: { patterns: ["*"] }
+
+  # ── Container base images ────────────────────────────────────────────────────
+  - package-ecosystem: docker
+    directories:
+      - /services/auth-svc
+      - /services/task-svc
+      - /services/email-worker
+      - /services/notification-svc
+      - /services/messaging-svc
+      - /services/ws-gateway
+      - /infra/caddy
+    schedule: { interval: weekly }
+
+  # ── GitHub Actions ───────────────────────────────────────────────────────────
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }

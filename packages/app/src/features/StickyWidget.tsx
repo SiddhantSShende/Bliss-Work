@@ -85,7 +85,10 @@ export function StickyWidget({
                 <Minus size={16} />
               </button>
             )
-          ) : (
+          ) : task.actions.includes("IGNORE") ? (
+            // Header X = Ignore, shown ONLY when Ignore is actually a valid
+            // action (SENT). For acknowledged/terminal tasks there is no Ignore,
+            // so the X is hidden rather than firing a 409.
             <button
               className="app-no-drag rounded-lg p-1 text-muted hover:bg-surface-2 hover:text-danger"
               title="Dismiss (ignore)"
@@ -93,7 +96,7 @@ export function StickyWidget({
             >
               <X size={16} />
             </button>
-          )}
+          ) : null}
         </div>
       </div>
 
@@ -113,17 +116,20 @@ export function StickyWidget({
             {!compact && " Acknowledge"}
           </ActionBtn>
         )}
-        {/* On the floating note the X header is a collapse control, so Ignore
-            becomes a button here — giving the two icon buttons the user expects
-            (✓ / ✗). In-app cards keep Ignore as the header X. */}
-        {task.actions.includes("IGNORE") && !locked && compact && (
+        {/* Explicit Ignore button next to Acknowledge for every SENT card. On
+            the floating note the header X is a collapse control, so Ignore must
+            live here; on the in-app card the header X is also Ignore, but users
+            expect (and asked for) a clearly-labelled Ignore button beside
+            Acknowledge rather than only a corner ✗ — so render it in both. */}
+        {task.actions.includes("IGNORE") && !locked && (
           <ActionBtn
             tone="danger"
-            iconOnly
+            iconOnly={compact}
             label="Ignore"
             onClick={() => onAction("IGNORE")}
           >
-            <X size={17} />
+            <X size={compact ? 17 : 15} />
+            {!compact && " Ignore"}
           </ActionBtn>
         )}
         {task.actions.includes("COMPLETE") && (

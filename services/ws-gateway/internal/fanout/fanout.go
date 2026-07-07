@@ -86,6 +86,8 @@ func (c *Consumer) handle(ctx context.Context, raw []byte) {
 	}
 	recipients := ev.RecipientsOf()
 	if len(recipients) == 0 {
+		// Internal-only or unknown event type — never pushed to a socket.
+		c.log.Debug("fanout: no recipients", "type", ev.Type)
 		return
 	}
 
@@ -94,7 +96,12 @@ func (c *Consumer) handle(ctx context.Context, raw []byte) {
 		if err := c.store.AppendOutbox(ctx, uid, score, raw); err != nil {
 			c.log.Error("append outbox failed", "user", uid, "err", err)
 		}
+		// `live` records whether a socket for this recipient existed on this node
+		// at delivery time — the decisive signal when diagnosing "messages need a
+		// refresh" (live=false for an online user ⇒ socket churn, not a fan-out gap).
+		live := c.hub.HasUser(uid)
 		c.hub.Fanout(uid, raw)
+		c.log.Debug("fanout: delivered", "type", ev.Type, "user", uid, "live", live)
 	}
 }
 

@@ -200,6 +200,7 @@ func (s *Store) GetThread(ctx context.Context, orgID, callerID, threadID string)
 	// RLS: header read, decrypt, and unread count all run under app.org_id.
 	err := s.withOrg(ctx, orgID, func(tx pgx.Tx) error {
 		var peerID string
+		var lastAt time.Time
 		var subjectPlain *string
 		var subjectEnc []byte
 		serr := tx.QueryRow(ctx, `
@@ -216,8 +217,10 @@ func (s *Store) GetThread(ctx context.Context, orgID, callerID, threadID string)
 			WHERE t.id = $1 AND t.org_id = $3`,
 			threadID, callerID, orgID).
 			Scan(
+				// dest[5] is t.last_event_at (timestamptz) → scan into a time.Time,
+				// NOT a *string. dest[7] (&d.PeerID) already maps the peer_id column.
 				&d.ThreadID, &d.ConversationID, &d.RootMessageID, &subjectPlain, &subjectEnc,
-				&peerID, &d.LastMessageSeq, &d.PeerID, &d.PeerUsername, &d.MyLastReadSeq,
+				&lastAt, &d.LastMessageSeq, &peerID, &d.PeerUsername, &d.MyLastReadSeq,
 			)
 		if errors.Is(serr, pgx.ErrNoRows) {
 			return ErrForbidden
@@ -237,6 +240,9 @@ func (s *Store) GetThread(ctx context.Context, orgID, callerID, threadID string)
 			d.SubjectPreview = *subjectPlain
 		}
 		d.PeerID = peerID
+		// last_event_at was previously scanned into the wrong dest (a *string),
+		// 500-ing this endpoint and leaving LastEventAt empty. Populate it now.
+		d.LastEventAt = lastAt.UTC().Format("2006-01-02T15:04:05.000Z")
 		// Unread = messages from peer with seq > my last_read_seq.
 		return tx.QueryRow(ctx, `
 			SELECT count(*) FROM messages

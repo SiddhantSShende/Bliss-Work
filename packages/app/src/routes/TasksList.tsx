@@ -1,6 +1,6 @@
 import { NavLink } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Send, Inbox, CheckCircle2, Ban } from "lucide-react";
+import { Send, Inbox, CheckCircle2, Ban, LogOut } from "lucide-react";
 import type { StickyTaskDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
@@ -10,6 +10,7 @@ const CATS = [
   { view: "mine", label: "My tasks", icon: Send },
   { view: "allocated", label: "Allocated to me", icon: Inbox },
   { view: "completed", label: "Completed", icon: CheckCircle2 },
+  { view: "left", label: "Left", icon: LogOut },
   { view: "ignored", label: "Ignored", icon: Ban },
 ] as const;
 
@@ -22,7 +23,8 @@ export function TasksList() {
   const counts: Record<string, number> = {
     mine: sent.length,
     allocated: assigned.filter(active).length,
-    completed: assigned.filter((t) => t.myStatus === "COMPLETED" || t.myStatus === "LEFT").length,
+    completed: assigned.filter((t) => t.myStatus === "COMPLETED").length,
+    left: assigned.filter((t) => t.myStatus === "LEFT").length,
     ignored: assigned.filter((t) => t.myStatus === "IGNORED").length,
   };
 

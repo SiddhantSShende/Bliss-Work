@@ -4,7 +4,7 @@ from __future__ import annotations
 import ssl
 from urllib.parse import parse_qs, urlsplit, urlunsplit
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -102,6 +102,34 @@ class Settings(BaseSettings):
         default="info",
         validation_alias=AliasChoices("LOG_LEVEL", "log_level"),
     )
+
+    # Deployment environment — see auth-svc/app/config.py. When "production"/"prod",
+    # hard-fail at startup on leftover dev sentinels (dev internal token, non-TLS or
+    # dev-credentialed DB, unset SMTP password on a real host).
+    tb_env: str = Field(
+        default="development",
+        validation_alias=AliasChoices("TB_ENV", "tb_env"),
+    )
+
+    @model_validator(mode="after")
+    def _enforce_prod_safety(self) -> "Settings":
+        if self.tb_env.strip().lower() not in {"production", "prod"}:
+            return self
+        problems: list[str] = []
+        if not self.internal_token or self.internal_token == "dev-internal-token":
+            problems.append("TB_INTERNAL_TOKEN must be set to a real value in production")
+        if "sslmode=verify-full" not in self.email_db_url:
+            problems.append("EMAIL_DATABASE_URL must use sslmode=verify-full in production")
+        if "taskboard_dev_pw" in self.email_db_url or "postgres:postgres@" in self.email_db_url:
+            problems.append("EMAIL_DATABASE_URL still uses dev credentials")
+        if self.smtp_host and self.smtp_host != "mailpit" and self.smtp_password in ("", "CHANGE_ME_smtp"):
+            problems.append("SMTP_PASSWORD must be set when using a real SMTP host")
+        if problems:
+            raise ValueError(
+                "refusing to start in production with insecure configuration:\n  - "
+                + "\n  - ".join(problems)
+            )
+        return self
 
     @property
     def email_db_dsn(self) -> str:

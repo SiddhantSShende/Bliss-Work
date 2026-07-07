@@ -12,10 +12,13 @@ import { StickyWidget } from "../features/StickyWidget";
  * Main pane content for /app/inbox/task/:taskId.
  *
  * Looks the task up in the existing tasks/inbox query data first (cheap),
- * falls back to the sticky list as a secondary cache, then to a fresh
- * refetch of /api/v1/tasks/inbox. Uses the existing StickyWidget component
- * in non-compact mode for the actual rendering — Design Decision #3 keeps
- * task UX consistent across inbox / sticky.
+ * falls back to the sticky list as a secondary cache, and finally to a
+ * server fetch of /api/v1/tasks/:id/detail. The active-only list endpoints
+ * never carry terminal tasks (completed/ignored/left), so without the
+ * server fallback a terminal task opened from the unified inbox would wrongly
+ * render "Task not found". Uses the existing StickyWidget component in
+ * non-compact mode for the actual rendering — keeps task UX consistent across
+ * inbox / sticky.
  */
 export function InboxTask() {
   const { taskId } = useParams<{ taskId: string }>();
@@ -35,9 +38,19 @@ export function InboxTask() {
     enabled: !!config.listPinned,
     refetchOnWindowFocus: true,
   });
-  const task: StickyTaskDTO | undefined =
+  const cached: StickyTaskDTO | undefined =
     inboxTasks.find((t) => t.taskId === taskId) ??
     qc.getQueryData<StickyTaskDTO[]>(qk.sticky)?.find((t) => t.taskId === taskId);
+
+  // Server fallback for terminal tasks (completed/ignored/left) that aren't in
+  // the active-only list caches. Only runs on a cache miss.
+  const { data: fetched, isLoading: fetching } = useQuery({
+    queryKey: ["taskDetail", taskId],
+    queryFn: () => api.taskDetail(taskId!),
+    enabled: !!taskId && !cached,
+    retry: false,
+  });
+  const task: StickyTaskDTO | undefined = cached ?? fetched;
 
   const actMut = useMutation({
     mutationFn: (action: TaskAction) =>
@@ -50,12 +63,18 @@ export function InboxTask() {
   });
 
   if (!task) {
+    // Still resolving the server fallback — don't flash "not found".
+    if (fetching) {
+      return (
+        <div className="flex h-full items-center justify-center text-muted">Loading…</div>
+      );
+    }
     return (
       <div className="flex h-full items-center justify-center">
         <EmptyState
           icon={<ListTodo size={26} />}
           title="Task not found"
-          hint="It may have been completed, ignored, or removed."
+          hint="It may have been removed."
         />
       </div>
     );

@@ -3,7 +3,7 @@ from __future__ import annotations
 import ssl
 from urllib.parse import parse_qs, urlsplit, urlunsplit
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -49,6 +49,40 @@ class Settings(BaseSettings):
     # Vault Transit (when data_kms_backend="vault-transit").
     vault_addr: str = ""
     vault_token: str = ""
+
+    # Deployment environment — see auth-svc/app/config.py. When "production"/"prod",
+    # hard-fail at startup on any leftover dev sentinel so a misconfigured prod
+    # deploy can never silently run on guessable secrets.
+    tb_env: str = "development"
+
+    @model_validator(mode="after")
+    def _enforce_prod_safety(self) -> "Settings":
+        if self.tb_env.strip().lower() not in {"production", "prod"}:
+            return self
+        problems: list[str] = []
+        if self.data_master_passphrase == "dev-master-passphrase-change-me":
+            problems.append("DATA_MASTER_PASSPHRASE is still the dev default")
+        if self.data_master_salt == "dev-master-salt-change-me-16+bytes":
+            problems.append("DATA_MASTER_SALT is still the dev default")
+        if self.data_blind_index_key == "dev-blind-index-key-change-me-32+bytes":
+            problems.append("DATA_BLIND_INDEX_KEY is still the dev default")
+        if "taskboard_dev_pw" in self.task_database_url:
+            problems.append("TASK_DATABASE_URL still uses the dev password")
+        if "sslmode=verify-full" not in self.task_database_url:
+            problems.append("TASK_DATABASE_URL must use sslmode=verify-full in production")
+        if not self.internal_token:
+            problems.append("TB_INTERNAL_TOKEN must be set in production")
+        if self.data_kek_provider == "kms":
+            if not self.data_kms_key_id:
+                problems.append("DATA_KMS_KEY_ID must be set when DATA_KEK_PROVIDER=kms")
+            if self.data_kms_backend == "vault-transit" and not (self.vault_addr and self.vault_token):
+                problems.append("VAULT_ADDR and VAULT_TOKEN are required for vault-transit KMS")
+        if problems:
+            raise ValueError(
+                "refusing to start in production with insecure configuration:\n  - "
+                + "\n  - ".join(problems)
+            )
+        return self
 
     @property
     def sqlalchemy_url(self) -> str:

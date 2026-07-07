@@ -325,6 +325,12 @@ export class ApiClient {
   tasksSticky() {
     return this.req(this.cfg.taskBase, "/api/v1/tasks/sticky", {}, z.array(StickyTaskDTO));
   }
+  /** Single task assigned to me at ANY status — used by the inbox detail view so
+   *  a terminal (completed/ignored/left) task opened from the unified inbox
+   *  resolves from the server instead of 404-ing on a cache miss. */
+  taskDetail(taskId: string) {
+    return this.req(this.cfg.taskBase, `/api/v1/tasks/${taskId}/detail`, {}, StickyTaskDTO);
+  }
   tasksSent() {
     return this.req(this.cfg.taskBase, "/api/v1/tasks/sent", {}, z.array(SentTaskDTO));
   }
@@ -399,6 +405,27 @@ export class ApiClient {
   // ── presence (ws-gateway HTTP) ────────────────────────────────────────────────
   presence() {
     return this.req(this.cfg.presenceBase, "/presence", {}, z.array(z.string()));
+  }
+
+  // ── TURN/ICE credentials for WebRTC calls (ws-gateway HTTP) ───────────────────
+  // Short-lived HMAC creds minted per-request; the client fetches fresh ones
+  // right before placing/accepting a call so a credential is never stale.
+  turnCredentials() {
+    return this.req(
+      this.cfg.presenceBase,
+      "/turn-credentials",
+      {},
+      z.object({
+        iceServers: z.array(
+          z.object({
+            urls: z.array(z.string()),
+            username: z.string().optional(),
+            credential: z.string().optional(),
+          }),
+        ),
+        ttl: z.number().optional(),
+      }),
+    );
   }
 
   // ── notifications ───────────────────────────────────────────────────────────────

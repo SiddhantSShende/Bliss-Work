@@ -5,9 +5,11 @@ import { fileURLToPath } from "node:url";
 const here = fileURLToPath(new URL(".", import.meta.url));
 
 /**
- * Path to the app icon PNG in both dev and packaged builds. In dev the main
- * bundle lives at out/main, so the icon is two levels up under build/. When
- * packaged it's copied into the app's resources dir via electron-builder's
+ * Path to the app icon PNG in both dev and packaged builds.
+ * Master source: /assets/logo.png (centralized BlissWork branding)
+ * In dev the main bundle lives at out/main, so the icon is at build/icon.png
+ * (should be copied from /assets/logo.png during build setup).
+ * When packaged it's copied into the app's resources dir via electron-builder's
  * `extraResources`.
  */
 function iconPath(): string {

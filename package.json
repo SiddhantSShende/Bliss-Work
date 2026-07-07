@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Task-Board — enterprise collaboration platform (messaging + tasks + desktop sticky widgets)",
+  "homepage": "https://blisswork.rnrtechs.com",
   "engines": {
     "node": ">=20"
   },
@@ -24,11 +25,14 @@
     "seed": "tsx scripts/seed.ts",
     "demo": "tsx scripts/demo-e2e.ts",
     "test:authz": "tsx scripts/security-authz.ts",
-    "gen:keys": "tsx scripts/gen-keys.ts"
+    "gen:keys": "tsx scripts/gen-keys.ts",
+    "setup:branding": "bash scripts/setup-branding.sh"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^22.10.2",
+    "electron": "^43.0.0",
+    "electron-builder": "^26.15.3",
     "eslint": "^9.39.4",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.1.1",

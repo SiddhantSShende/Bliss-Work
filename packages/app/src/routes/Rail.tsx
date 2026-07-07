@@ -18,10 +18,14 @@ export function Rail({
   section,
   variant = "side",
   className = "",
+  badges = {},
 }: {
   section: string | null;
   variant?: "side" | "bottom";
   className?: string;
+  /** Per-section unread/alert counts keyed by item.key (e.g. inbox, tasks). A
+   *  value > 0 renders a red badge on top of that icon. */
+  badges?: Record<string, number>;
 }) {
   const nav = useNavigate();
   const bottom = variant === "bottom";
@@ -40,6 +44,7 @@ export function Rail({
           label={it.label}
           active={section === it.key}
           bottom={bottom}
+          badge={badges[it.key] ?? 0}
           onClick={() => nav(it.to)}
         />
       ))}
@@ -52,19 +57,21 @@ function RailBtn({
   label,
   active,
   bottom,
+  badge = 0,
   onClick,
 }: {
   icon: React.ReactNode;
   label: string;
   active: boolean;
   bottom: boolean;
+  badge?: number;
   onClick: () => void;
 }) {
   return (
     <button
       onClick={onClick}
-      title={label}
-      className={`flex flex-col items-center gap-1 rounded-xl text-[11px] font-medium transition-all active:scale-95 ${
+      title={badge > 0 ? `${label} (${badge} new)` : label}
+      className={`relative flex flex-col items-center gap-1 rounded-xl text-[11px] font-medium transition-all active:scale-95 ${
         bottom ? "flex-1 py-1.5" : "w-16 py-2.5"
       } ${
         active
@@ -72,7 +79,17 @@ function RailBtn({
           : "text-muted hover:bg-surface-2 hover:text-fg"
       }`}
     >
-      {icon}
+      <span className="relative">
+        {icon}
+        {badge > 0 && (
+          <span
+            aria-label={`${badge} unread`}
+            className="pointer-events-none absolute -right-2 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[9px] font-semibold leading-none text-white shadow-[0_0_0_2px_var(--color-surface)]"
+          >
+            {badge > 99 ? "99+" : badge}
+          </span>
+        )}
+      </span>
       {label}
     </button>
   );

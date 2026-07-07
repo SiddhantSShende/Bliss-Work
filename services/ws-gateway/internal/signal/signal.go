@@ -40,12 +40,20 @@ type Frame struct {
 	Candidate            string `json:"candidate,omitempty"`
 	Reason               string `json:"reason,omitempty"`
 	ResumeFromChunkIndex *int64 `json:"resumeFromChunkIndex,omitempty"`
+	// typing
+	ConversationID string `json:"conversationId,omitempty"`
+	State          string `json:"state,omitempty"`
+	// call lifecycle
+	CallID string `json:"callId,omitempty"`
+	Media  string `json:"media,omitempty"`
 }
 
-// IsSignaling tells whether `t` is one of the four rtc client frames.
+// IsSignaling tells whether `t` is a gateway-relayed signaling frame (the four
+// rtc.* frames plus the ephemeral typing hint — all routed the same way).
 func IsSignaling(t string) bool {
 	switch t {
-	case "rtc.offer", "rtc.answer", "rtc.ice", "rtc.cancel":
+	case "rtc.offer", "rtc.answer", "rtc.ice", "rtc.cancel", "typing",
+		"call.invite", "call.accept", "call.decline", "call.cancel", "call.end":
 		return true
 	}
 	return false
