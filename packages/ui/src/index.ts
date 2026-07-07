@@ -11,6 +11,6 @@ export {
   EmptyState,
   PageHeader,
 } from "./components/primitives";
-export { Logo, Wordmark } from "./components/Logo";
+export { Logo, Wordmark, ImageLogo } from "./components/Logo";
 export { ThemeProvider, useTheme } from "./theme/ThemeProvider";
 export { cn } from "./lib/cn";
