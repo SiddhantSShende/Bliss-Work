@@ -16,6 +16,8 @@ export type TopicName = (typeof Topics)[keyof typeof Topics];
 export const EventType = {
   MessageCreated: "message.created",
   ConversationIgnored: "conversation.ignored",
+  ConversationBlocked: "conversation.blocked",
+  ConversationUnblocked: "conversation.unblocked",
   MessageRead: "message.read",
   MessageDelivered: "message.delivered",
   MessageDismissed: "message.dismissed",
@@ -25,6 +27,7 @@ export const EventType = {
   TaskCompleted: "task.completed",
   TaskIgnored: "task.ignored",
   TaskLeft: "task.left",
+  TaskReviewed: "task.reviewed",
   NotificationCreated: "notification.created",
   PresenceOnline: "presence.online",
   PresenceOffline: "presence.offline",
@@ -78,6 +81,24 @@ export const ConversationIgnored = z.object({
   atSeq: z.number().int().nonnegative(),
   /** When the ignore was scoped to a specific thread (post-Inbox migration). */
   threadId: z.string().uuid().optional(),
+});
+
+export const ConversationBlocked = z.object({
+  type: z.literal(EventType.ConversationBlocked),
+  ...envelope,
+  conversationId: z.string().uuid(),
+  /** Who blocked. The other member renders "You have been blocked". */
+  blockedBy: z.string().uuid(),
+  /** Both members of the 1:1 — the gateway pushes to BOTH. */
+  members: z.array(z.string().uuid()).length(2),
+});
+
+export const ConversationUnblocked = z.object({
+  type: z.literal(EventType.ConversationUnblocked),
+  ...envelope,
+  conversationId: z.string().uuid(),
+  unblockedBy: z.string().uuid(),
+  members: z.array(z.string().uuid()).length(2),
 });
 
 export const MessageRead = z.object({
@@ -177,6 +198,16 @@ export const TaskLeft = z.object({
   assigneeUsername: z.string(),
 });
 
+/** Allocator wrote a review on a completed assignment. Signal-only — the review
+ *  TEXT (PII) is never on the event; recipients refetch the task. Fanned out to
+ *  [senderId, assigneeId] so the assignee sees it live + the sender's other
+ *  devices sync. */
+export const TaskReviewed = z.object({
+  type: z.literal(EventType.TaskReviewed),
+  ...taskBase,
+  reviewerUsername: z.string(),
+});
+
 // ── Notification + Auth events ───────────────────────────────────────────────
 export const NotificationCreated = z.object({
   type: z.literal(EventType.NotificationCreated),
@@ -264,6 +295,8 @@ export const EmailVerificationRequested = z.object({
 export const ServerEvent = z.discriminatedUnion("type", [
   MessageCreated,
   ConversationIgnored,
+  ConversationBlocked,
+  ConversationUnblocked,
   MessageRead,
   MessageDelivered,
   MessageDismissed,
@@ -273,6 +306,7 @@ export const ServerEvent = z.discriminatedUnion("type", [
   TaskCompleted,
   TaskIgnored,
   TaskLeft,
+  TaskReviewed,
   NotificationCreated,
   PresenceOnline,
   PresenceOffline,
@@ -284,6 +318,8 @@ export type ServerEvent = z.infer<typeof ServerEvent>;
 export const DomainEvent = z.discriminatedUnion("type", [
   MessageCreated,
   ConversationIgnored,
+  ConversationBlocked,
+  ConversationUnblocked,
   MessageRead,
   MessageDelivered,
   MessageDismissed,
@@ -293,6 +329,7 @@ export const DomainEvent = z.discriminatedUnion("type", [
   TaskCompleted,
   TaskIgnored,
   TaskLeft,
+  TaskReviewed,
   NotificationCreated,
   UserCreated,
   InviteCreated,
@@ -303,6 +340,8 @@ export type DomainEvent = z.infer<typeof DomainEvent>;
 
 export type MessageCreated = z.infer<typeof MessageCreated>;
 export type ConversationIgnored = z.infer<typeof ConversationIgnored>;
+export type ConversationBlocked = z.infer<typeof ConversationBlocked>;
+export type ConversationUnblocked = z.infer<typeof ConversationUnblocked>;
 export type MessageRead = z.infer<typeof MessageRead>;
 export type MessageDelivered = z.infer<typeof MessageDelivered>;
 export type MessageDismissed = z.infer<typeof MessageDismissed>;
@@ -312,6 +351,7 @@ export type TaskAcknowledged = z.infer<typeof TaskAcknowledged>;
 export type TaskCompleted = z.infer<typeof TaskCompleted>;
 export type TaskIgnored = z.infer<typeof TaskIgnored>;
 export type TaskLeft = z.infer<typeof TaskLeft>;
+export type TaskReviewed = z.infer<typeof TaskReviewed>;
 export type NotificationCreated = z.infer<typeof NotificationCreated>;
 export type PresenceOnline = z.infer<typeof PresenceOnline>;
 export type PresenceOffline = z.infer<typeof PresenceOffline>;
@@ -497,6 +537,11 @@ export function recipientsOf(e: DomainEvent): string[] {
       return [e.recipientId, e.senderId];
     case EventType.ConversationIgnored:
       return e.members;
+    case EventType.ConversationBlocked:
+    case EventType.ConversationUnblocked:
+      // Both members: the blocked peer flips their composer banner live, and
+      // the blocker's other devices stay in sync.
+      return e.members;
     case EventType.MessageRead:
       return [e.recipientId];
     case EventType.MessageDelivered:
@@ -515,6 +560,9 @@ export function recipientsOf(e: DomainEvent): string[] {
       return [e.senderId, e.assigneeId];
     case EventType.TaskIgnored:
     case EventType.TaskLeft:
+      return [e.senderId, e.assigneeId];
+    case EventType.TaskReviewed:
+      // Assignee sees the review land live; sender's other devices sync.
       return [e.senderId, e.assigneeId];
     case EventType.NotificationCreated:
       return [e.recipientId];
@@ -539,9 +587,12 @@ export const NO_DELIVERY_ACK_FOR = new Set<string>([
   EventType.MessageRead,
   EventType.MessageDismissed,
   EventType.ConversationIgnored,
+  EventType.ConversationBlocked,
+  EventType.ConversationUnblocked,
   EventType.TaskAcknowledged,
   EventType.TaskCompleted,
   EventType.TaskIgnored,
   EventType.TaskLeft,
+  EventType.TaskReviewed,
   EventType.NotificationCreated,
 ]);

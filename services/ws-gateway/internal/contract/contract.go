@@ -38,6 +38,10 @@ func (e *Event) RecipientsOf() []string {
 		return dedupe([]string{e.RecipientID, e.SenderID})
 	case "conversation.ignored":
 		return dedupe(e.Members)
+	case "conversation.blocked", "conversation.unblocked":
+		// Both members: the blocked peer flips their composer banner live and
+		// the blocker's other devices stay in sync.
+		return dedupe(e.Members)
 	case "channel.message.created":
 		return dedupe(e.Members)
 	case "message.read":
@@ -50,7 +54,7 @@ func (e *Event) RecipientsOf() []string {
 		return dedupe([]string{e.DismissedBy})
 	case "task.assigned":
 		return dedupe([]string{e.AssigneeID})
-	case "task.acknowledged", "task.completed", "task.ignored", "task.left":
+	case "task.acknowledged", "task.completed", "task.ignored", "task.left", "task.reviewed":
 		return dedupe([]string{e.SenderID, e.AssigneeID})
 	case "notification.created":
 		return dedupe([]string{e.RecipientID})
@@ -64,15 +68,18 @@ func (e *Event) RecipientsOf() []string {
 // gateway conn handler MUST NOT forward a message.ack derived from these
 // event types — otherwise the delivered → ack → delivered fan-in cycles.
 var NoDeliveryAckFor = map[string]struct{}{
-	"message.delivered":  {},
-	"message.read":       {},
-	"message.dismissed":  {},
-	"conversation.ignored": {},
-	"task.acknowledged":  {},
-	"task.completed":     {},
-	"task.ignored":       {},
-	"task.left":          {},
-	"notification.created": {},
+	"message.delivered":      {},
+	"message.read":           {},
+	"message.dismissed":      {},
+	"conversation.ignored":   {},
+	"conversation.blocked":   {},
+	"conversation.unblocked": {},
+	"task.acknowledged":      {},
+	"task.completed":         {},
+	"task.ignored":           {},
+	"task.left":              {},
+	"task.reviewed":          {},
+	"notification.created":   {},
 }
 
 func dedupe(in []string) []string {

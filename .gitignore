@@ -4,6 +4,7 @@ node_modules/
 
 # builds
 dist/
+dist.root-old/
 out/
 build/
 # ...but apps/desktop/build is electron-builder's buildResources (SOURCE: icon,

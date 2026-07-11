@@ -20,6 +20,8 @@ const (
 	TypeUserCreated           = "user.created"
 	TypeChannelMessageCreated = "channel.message.created"
 	TypeChannelMemberJoined   = "channel.member.joined"
+	TypeConversationBlocked   = "conversation.blocked"
+	TypeConversationUnblocked = "conversation.unblocked"
 )
 
 // MessageCreated is emitted when a new message is appended to a conversation.
@@ -58,6 +60,31 @@ type ConversationIgnored struct {
 	Members        []string `json:"members"`
 	AtSeq          int64    `json:"atSeq"`
 	ThreadID       *string  `json:"threadId,omitempty"`
+}
+
+// ConversationBlocked / ConversationUnblocked are emitted when a participant
+// blocks or unblocks the other party of a 1:1 conversation. Fanned out to BOTH
+// members so the blocked peer sees the "You have been blocked" banner live and
+// the blocker's other devices stay in sync. Blocking gates message sends in
+// EITHER direction until every member row is unblocked.
+type ConversationBlocked struct {
+	Type           string   `json:"type"`
+	EventID        string   `json:"eventId"`
+	OrgID          string   `json:"orgId"`
+	OccurredAt     string   `json:"occurredAt"`
+	ConversationID string   `json:"conversationId"`
+	BlockedBy      string   `json:"blockedBy"`
+	Members        []string `json:"members"`
+}
+
+type ConversationUnblocked struct {
+	Type           string   `json:"type"`
+	EventID        string   `json:"eventId"`
+	OrgID          string   `json:"orgId"`
+	OccurredAt     string   `json:"occurredAt"`
+	ConversationID string   `json:"conversationId"`
+	UnblockedBy    string   `json:"unblockedBy"`
+	Members        []string `json:"members"`
 }
 
 // MessageRead is emitted when a participant advances their read marker.

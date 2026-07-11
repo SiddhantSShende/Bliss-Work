@@ -8,13 +8,13 @@
 #
 # REQUIRES the custom Caddy build in infra/caddy/Dockerfile (xcaddy +
 # corazawaf/coraza-caddy/v2); the `coraza_waf` directive only parses there.
-# Engine starts in DetectionOnly (coraza/coraza.conf) — tune false positives
-# against real traffic, THEN flip SecRuleEngine to On. Instant rollback = point
-# the compose `caddy` service back at the stock image + Caddyfile.
+# Engine runs in BLOCKING mode (SecRuleEngine On in coraza/coraza.conf) — monitor
+# the CRS logs and add exclusions under coraza/rules/ for any false positives.
+# Instant rollback = point the compose `caddy` service back at the stock image +
+# Caddyfile, or set SecRuleEngine back to DetectionOnly.
 #
 # {$DOMAIN} and {$ACME_EMAIL} are injected from .env.prod.
 # ─────────────────────────────────────────────────────────────────────────────
-
 {
 	email {$ACME_EMAIL}
 	# Serve the edge over HTTP/1.1 ONLY. Browsers negotiate HTTP/2 by default, and
@@ -64,7 +64,7 @@
 		# 2) OWASP-CRS WAF for every remaining (non-WS) request. load_owasp_crs
 		#    pulls the CRS embedded in the coraza-caddy build; the mounted
 		#    /etc/caddy/coraza files layer engine toggle + tuning on top.
-		#    DetectionOnly until tuned.
+		#    Blocking (SecRuleEngine On).
 		coraza_waf {
 			load_owasp_crs
 			directives `
@@ -108,6 +108,12 @@
 		@turn path /turn-credentials
 		reverse_proxy @turn ws-gateway:8080
 
+		# Presence (online-user set) HTTP endpoint → ws-gateway. Polled by the SPA
+		# every 20s; without this it falls to the SPA catch-all below and returns
+		# HTML, breaking online-status. Terminal, JWT-authed in the handler.
+		@presence path /presence
+		reverse_proxy @presence ws-gateway:8080
+
 		# 7) Everything else → the SPA served by nginx on the private network.
 		#    CSP is set HERE (terminal SPA branch of the route), NOT in the global
 		#    header block, so it lands only on the HTML shell: frame-ancestors MUST
@@ -144,6 +150,7 @@ blisswork.rnrtechs.com {
 	header @html Cache-Control "no-cache"
 
 	header {
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "DENY"

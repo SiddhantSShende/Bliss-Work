@@ -97,3 +97,21 @@ def task_left(
         "statusVersion": status_version,
         "assigneeUsername": assignee_username,
     }
+
+
+def task_reviewed(
+    *, org_id: str, task_id: str, assignee_id: str, sender_id: str,
+    status_version: int, reviewer_username: str,
+) -> dict:
+    # Signal-only: the review TEXT is PII (encrypted at rest) and is NEVER put on
+    # the event. Recipients (the assignee + the sender's other devices) refetch
+    # the task to read the review. Fanned out to [senderId, assigneeId] by the
+    # gateway's recipientsOf().
+    return {
+        **_envelope(org_id, "task.reviewed"),
+        "taskId": task_id,
+        "assigneeId": assignee_id,
+        "senderId": sender_id,
+        "statusVersion": status_version,
+        "reviewerUsername": reviewer_username,
+    }

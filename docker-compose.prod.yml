@@ -158,7 +158,7 @@ services:
   # denied-peer-ip ranges stop a client from relaying to RFC1918 internal hosts
   # (TURN SSRF). Open on the host firewall: 3478/udp+tcp and 49160-49200/udp.
   coturn:
-    image: coturn/coturn:4.6-alpine  # TODO: pin a @sha256 digest before prod (repo convention)
+    image: coturn/coturn:4.6-alpine@sha256:e2bca2f79a4269d7240de5872ab60a9305013ad37296d2acf14f9510874346be
     restart: unless-stopped
     network_mode: host
     command: >-

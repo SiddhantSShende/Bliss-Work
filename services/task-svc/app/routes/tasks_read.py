@@ -50,6 +50,8 @@ async def _sticky_list(
                 text(
                     "SELECT t.id, t.org_id, t.title_enc, t.description_enc, t.sender_id, "
                     "       ta.status, ta.status_version, ta.assigned_at, ta.acknowledged_at, "
+                    "       ta.completed_at, ta.ignored_at, ta.left_at, ta.reviewed_at, "
+                    "       ta.review_enc, ta.review_rating, "
                     "       COALESCE(up.username, '') AS sender_username "
                     "FROM task_assignees ta "
                     "JOIN tasks t ON t.id = ta.task_id "
@@ -67,6 +69,11 @@ async def _sticky_list(
         out: list[StickyTaskDTO] = []
         for r in rows:
             org = str(r.org_id)
+            review = (
+                await cryptor().decrypt(db, org, r.review_enc)
+                if r.review_enc is not None
+                else None
+            )
             out.append(
                 StickyTaskDTO(
                     taskId=str(r.id),
@@ -80,6 +87,12 @@ async def _sticky_list(
                     statusVersion=r.status_version,
                     assignedAt=iso(r.assigned_at),
                     acknowledgedAt=iso(r.acknowledged_at),
+                    completedAt=iso(r.completed_at),
+                    ignoredAt=iso(r.ignored_at),
+                    leftAt=iso(r.left_at),
+                    reviewedAt=iso(r.reviewed_at),
+                    review=review,
+                    reviewRating=r.review_rating,
                 )
             )
     return out
@@ -123,6 +136,8 @@ async def task_detail(
                 text(
                     "SELECT t.id, t.org_id, t.title_enc, t.description_enc, t.sender_id, "
                     "       ta.status, ta.status_version, ta.assigned_at, ta.acknowledged_at, "
+                    "       ta.completed_at, ta.ignored_at, ta.left_at, ta.reviewed_at, "
+                    "       ta.review_enc, ta.review_rating, "
                     "       COALESCE(up.username, '') AS sender_username "
                     "FROM task_assignees ta "
                     "JOIN tasks t ON t.id = ta.task_id "
@@ -136,6 +151,11 @@ async def task_detail(
         if row is None:
             raise HTTPException(status_code=404, detail="task not found")
         org = str(row.org_id)
+        review = (
+            await cryptor().decrypt(db, org, row.review_enc)
+            if row.review_enc is not None
+            else None
+        )
         return StickyTaskDTO(
             taskId=str(row.id),
             orgId=org,
@@ -148,6 +168,12 @@ async def task_detail(
             statusVersion=row.status_version,
             assignedAt=iso(row.assigned_at),
             acknowledgedAt=iso(row.acknowledged_at),
+            completedAt=iso(row.completed_at),
+            ignoredAt=iso(row.ignored_at),
+            leftAt=iso(row.left_at),
+            reviewedAt=iso(row.reviewed_at),
+            review=review,
+            reviewRating=row.review_rating,
         )
 
 
@@ -208,6 +234,9 @@ async def sent(
                 text(
                     "SELECT t.id, t.org_id, t.title_enc, t.description_enc, t.created_at, "
                     "       ta.assignee_id, ta.status, "
+                    "       ta.assigned_at, ta.acknowledged_at, ta.completed_at, "
+                    "       ta.ignored_at, ta.left_at, ta.reviewed_at, "
+                    "       ta.review_enc, ta.review_rating, "
                     "       COALESCE(up.username, '') AS assignee_username "
                     "FROM tasks t "
                     "JOIN task_assignees ta ON ta.task_id = t.id "
@@ -226,8 +255,8 @@ async def sent(
         order: list[str] = []
         for r in rows:
             tid = str(r.id)
+            org = str(r.org_id)
             if tid not in by_task:
-                org = str(r.org_id)
                 by_task[tid] = SentTaskDTO(
                     taskId=tid,
                     title=await cryptor().decrypt(db, org, r.title_enc) or "",
@@ -236,11 +265,24 @@ async def sent(
                     assignees=[],
                 )
                 order.append(tid)
+            review = (
+                await cryptor().decrypt(db, org, r.review_enc)
+                if r.review_enc is not None
+                else None
+            )
             by_task[tid].assignees.append(
                 SentAssignee(
                     assigneeId=str(r.assignee_id),
                     assigneeUsername=r.assignee_username,
                     status=r.status,
+                    assignedAt=iso(r.assigned_at),
+                    acknowledgedAt=iso(r.acknowledged_at),
+                    completedAt=iso(r.completed_at),
+                    ignoredAt=iso(r.ignored_at),
+                    leftAt=iso(r.left_at),
+                    reviewedAt=iso(r.reviewed_at),
+                    review=review,
+                    reviewRating=r.review_rating,
                 )
             )
     return [by_task[t] for t in order]

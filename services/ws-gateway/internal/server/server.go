@@ -27,9 +27,11 @@ import (
 	"github.com/task-board/ws-gateway/internal/store"
 )
 
-// allowedOriginRe matches the web origin host as well as Electron app/file
-// origins (which present "null", "file://" or "app://" Origins).
-var allowedOriginRe = regexp.MustCompile(`(?i)^(https?://(localhost|127\.0\.0\.1)(:\d+)?|file://.*|app://.*|null)$`)
+// Electron desktop origins (file://, app://, and the "null" Origin Chromium
+// sends from a file:// document) are allowed in every environment; loopback
+// origins only in non-prod (gated in cors() on the web-origin scheme).
+var desktopOriginRe = regexp.MustCompile(`(?i)^(file://.*|app://.*|null)$`)
+var localhostOriginRe = regexp.MustCompile(`(?i)^https?://(localhost|127\.0\.0\.1)(:\d+)?$`)
 
 // Server wires HTTP + websocket handling.
 type Server struct {
@@ -219,7 +221,9 @@ func (s *Server) handleTurnCredentials(w http.ResponseWriter, r *http.Request) {
 func (s *Server) cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
-		if origin != "" && (origin == s.cfg.WebOrigin || allowedOriginRe.MatchString(origin)) {
+		allowLocalhost := !strings.HasPrefix(s.cfg.WebOrigin, "https://")
+		if origin != "" && (origin == s.cfg.WebOrigin || desktopOriginRe.MatchString(origin) ||
+			(allowLocalhost && localhostOriginRe.MatchString(origin))) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
 			w.Header().Set("Access-Control-Allow-Credentials", "true")

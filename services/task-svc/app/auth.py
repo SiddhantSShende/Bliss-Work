@@ -109,8 +109,10 @@ class _JwksCache:
         await self._refresh()
         if kid and kid in self._keys:
             return self._keys[kid]
-        # No kid in token / single-key set: fall back to the only key.
-        if len(self._keys) == 1:
+        # A token that NAMES an unknown kid is rejected (matches auth-svc
+        # auth_dep strictness) — only a token with NO kid falls back to the sole
+        # key, for legacy/kid-less tokens.
+        if kid is None and len(self._keys) == 1:
             return next(iter(self._keys.values()))
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="unknown signing key")
 
@@ -136,6 +138,7 @@ async def require_principal(authorization: str | None = Header(default=None)) ->
             key=key,
             algorithms=["EdDSA"],
             issuer=settings.jwt_issuer,
+            leeway=30,  # tolerate ≤30s cross-node clock drift (matches the Go verifiers)
             options={"require": ["sub", "exp", "iat"]},
         )
     except jwt.PyJWTError as exc:

@@ -13,8 +13,10 @@ import {
   InviteDTO,
   MessageDTO,
   NotificationDTO,
+  ReviewResponse,
   SentTaskDTO,
   StickyTaskDTO,
+  TaskExportRow,
   ThreadDTO,
   UserDTO,
   SessionDTO,
@@ -263,6 +265,20 @@ export class ApiClient {
       { method: "POST", body: JSON.stringify({ upToSeq }) },
     );
   }
+  /** Block a user in the 1:1 DM. Gates sends in BOTH directions until unblocked.
+   *  The peer sees "You have been blocked". Idempotent (204). */
+  blockUser(peerId: string) {
+    return this.req<void>(this.cfg.messagingBase, `/api/v1/users/${peerId}/block`, {
+      method: "POST",
+    });
+  }
+  /** Unblock a user — clears ONLY the caller's block. If the peer also blocked,
+   *  the conversation stays blocked until they unblock too. Idempotent (204). */
+  unblockUser(peerId: string) {
+    return this.req<void>(this.cfg.messagingBase, `/api/v1/users/${peerId}/block`, {
+      method: "DELETE",
+    });
+  }
 
   // ── inbox + threads (post-Phase 3) ───────────────────────────────────────
   /** Unified inbox feed: messages + tasks intermixed, newest first. When
@@ -387,6 +403,34 @@ export class ApiClient {
       `/api/v1/tasks/${taskId}/assignees/me/${action}`,
       { method: "POST", headers: { "idempotency-key": uuid() } },
       z.object({ status: z.string(), statusVersion: z.number() }),
+    );
+  }
+  /** Allocator writes/updates a review on a COMPLETED assignee. Sender-only;
+   *  editable (re-post overwrites). */
+  reviewTask(taskId: string, assigneeId: string, body: { text: string; rating?: number | null }) {
+    return this.req(
+      this.cfg.taskBase,
+      `/api/v1/tasks/${taskId}/assignees/${assigneeId}/review`,
+      { method: "POST", body: JSON.stringify(body) },
+      ReviewResponse,
+    );
+  }
+  /**
+   * Export the caller's task timeline as rows (one per (task, assignee)). scope
+   * selects tasks I allocated ("sent"), tasks allocated to me ("received"), or
+   * both ("all"). from/to are ISO-8601 UTC instants the CLIENT computes from the
+   * user's local-tz date range; omit both for "all time". The client builds the
+   * .xlsx from these rows (joining names+emails from the directory).
+   */
+  exportTasks(params: { scope: "sent" | "received" | "all"; from?: string; to?: string }) {
+    const qs = new URLSearchParams({ scope: params.scope });
+    if (params.from) qs.set("from", params.from);
+    if (params.to) qs.set("to", params.to);
+    return this.req(
+      this.cfg.taskBase,
+      `/api/v1/tasks/export?${qs.toString()}`,
+      {},
+      z.array(TaskExportRow),
     );
   }
 

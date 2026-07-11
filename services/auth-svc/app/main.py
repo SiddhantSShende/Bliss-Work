@@ -17,7 +17,7 @@ from .db import engine, run_migrations
 from .errors import register_exception_handlers
 from .events.poller import OutboxPoller
 from .logging_config import configure_logging, log
-from .middleware import RequestIDMiddleware, SecurityHeadersMiddleware
+from .middleware import BodySizeLimitMiddleware, RequestIDMiddleware, SecurityHeadersMiddleware
 from .rate_limit import SensitiveRateLimitMiddleware, limiter, rate_limit_handler
 from .routes import auth as auth_routes
 from .routes import email_verify as email_verify_routes
@@ -60,7 +60,17 @@ async def lifespan(app: FastAPI):
         log.info("auth_svc_stopped")
 
 
-app = FastAPI(title="auth-svc", lifespan=lifespan)
+_prod = settings.tb_env.strip().lower() in {"production", "prod"}
+# Defense-in-depth: no interactive docs / OpenAPI schema in prod. The edge already
+# 404s these, but disabling them here also covers the private network and dev-mode
+# leaks. Kept on outside production for developer convenience.
+app = FastAPI(
+    title="auth-svc",
+    lifespan=lifespan,
+    docs_url=None if _prod else "/docs",
+    redoc_url=None if _prod else "/redoc",
+    openapi_url=None if _prod else "/openapi.json",
+)
 
 # Canonical-shape exception handlers (HTTPException, validation, Exception).
 register_exception_handlers(app)
@@ -80,10 +90,21 @@ app.add_middleware(SlowAPIMiddleware)
 app.add_middleware(SensitiveRateLimitMiddleware)
 app.add_middleware(RequestIDMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(BodySizeLimitMiddleware)
+# CORS allowlist: the web origin (exact) + Electron desktop origins — file://,
+# app://, and the literal `null` Chromium sends from a file:// document — are
+# allowed in every environment. Loopback (localhost/127.0.0.1) origins are
+# allowed ONLY outside production, so a page on a victim's localhost can't make
+# credentialed calls to the prod API.
+_cors_origin_regex = (
+    r"^(app://.*|file://.*|null)$"
+    if _prod
+    else r"^(app://.*|file://.*|null|https?://(localhost|127\.0\.0\.1)(:\d+)?)$"
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.web_origin],
-    allow_origin_regex=r"^(https?://(localhost|127\.0\.0\.1)(:\d+)?|app://.*|file://.*)$",
+    allow_origin_regex=_cors_origin_regex,
     allow_methods=["*"],
     allow_headers=["*"],
     allow_credentials=True,  # auth-svc needs the refresh cookie

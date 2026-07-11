@@ -56,7 +56,7 @@ services:
       VAULT_ADDR: http://127.0.0.1:8200
       VAULT_TOKEN: dev-root
     ports:
-      - "8201:8200" # host 8201 (8200 often taken); services use vault:8200 internally
+      - "127.0.0.1:8201:8200" # host 8201 (8200 often taken); services use vault:8200 internally
     healthcheck:
       test: ["CMD", "vault", "status"]
       interval: 5s
@@ -107,8 +107,8 @@ services:
     image: axllent/mailpit:latest
     restart: unless-stopped
     ports:
-      - "1025:1025" # SMTP
-      - "8025:8025" # web UI + API
+      - "127.0.0.1:1025:1025" # SMTP
+      - "127.0.0.1:8025:8025" # web UI + API
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:8025/readyz"]
       interval: 5s
@@ -120,7 +120,7 @@ services:
   auth-svc:
     <<: *svc-defaults
     build: ./services/auth-svc
-    ports: ["${AUTH_PORT}:8001"]
+    ports: ["127.0.0.1:${AUTH_PORT}:8001"]
     volumes:
       - ./keys:/keys:ro
     depends_on:
@@ -144,7 +144,7 @@ services:
   task-svc:
     <<: *svc-defaults
     build: ./services/task-svc
-    ports: ["${TASK_PORT}:8002"]
+    ports: ["127.0.0.1:${TASK_PORT}:8002"]
     depends_on:
       postgres: { condition: service_healthy }
       kafka-init: { condition: service_completed_successfully }
@@ -158,7 +158,7 @@ services:
   notification-svc:
     <<: *svc-defaults
     build: ./services/notification-svc
-    ports: ["${NOTIFICATION_PORT}:8003"]
+    ports: ["127.0.0.1:${NOTIFICATION_PORT}:8003"]
     depends_on:
       postgres: { condition: service_healthy }
       kafka-init: { condition: service_completed_successfully }
@@ -172,7 +172,7 @@ services:
   messaging-svc:
     <<: *svc-defaults
     build: ./services/messaging-svc
-    ports: ["${MESSAGING_PORT}:8004"]
+    ports: ["127.0.0.1:${MESSAGING_PORT}:8004"]
     depends_on:
       postgres: { condition: service_healthy }
       kafka-init: { condition: service_completed_successfully }
@@ -186,7 +186,7 @@ services:
   ws-gateway:
     <<: *svc-defaults
     build: ./services/ws-gateway
-    ports: ["${WS_GATEWAY_PORT}:8080"]
+    ports: ["127.0.0.1:${WS_GATEWAY_PORT}:8080"]
     depends_on:
       redis: { condition: service_healthy }
       kafka-init: { condition: service_completed_successfully }
@@ -222,7 +222,7 @@ services:
       - ./infra/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./infra/observability/prometheus/rules:/etc/prometheus/rules:ro
       - promdata:/prometheus
-    ports: ["9091:9090"] # host 9090 is commonly taken; Grafana reaches it in-network
+    ports: ["127.0.0.1:9091:9090"] # host 9090 is commonly taken; Grafana reaches it in-network
     networks: [taskboard]
 
   # Alertmanager — routes Prometheus alerts to receivers. Dev config sends every
@@ -236,7 +236,7 @@ services:
     volumes:
       - ./infra/observability/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
       - alertmanagerdata:/alertmanager
-    ports: ["9093:9093"]
+    ports: ["127.0.0.1:9093:9093"]
     networks: [taskboard]
 
   tempo:
@@ -270,7 +270,7 @@ services:
     volumes:
       - ./infra/observability/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
       - grafanadata:/var/lib/grafana
-    ports: ["3000:3000"]
+    ports: ["127.0.0.1:3000:3000"]
     networks: [taskboard]
 
 volumes:

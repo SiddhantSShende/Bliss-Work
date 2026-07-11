@@ -109,6 +109,28 @@ export function WsEventBridge() {
           refreshInboxSidebars(qc);
           break;
         }
+        case EventType.ConversationBlocked:
+        case EventType.ConversationUnblocked: {
+          // Fanned out to BOTH members. Patch the block flags on the affected
+          // conversation so the composer banner flips instantly (blocker →
+          // blockedByMe, peer → blockedByPeer), then reconcile from the server.
+          const blocked = e.type === EventType.ConversationBlocked;
+          const actor =
+            e.type === EventType.ConversationBlocked ? e.blockedBy : e.unblockedBy;
+          if (me) {
+            qc.setQueryData<ConversationDTO[]>(qk.conversations, (prev) =>
+              (prev ?? []).map((c) =>
+                c.id !== e.conversationId
+                  ? c
+                  : actor === me
+                    ? { ...c, blockedByMe: blocked }
+                    : { ...c, blockedByPeer: blocked },
+              ),
+            );
+          }
+          void qc.invalidateQueries({ queryKey: qk.conversations });
+          break;
+        }
         case EventType.MessageRead: {
           void qc.invalidateQueries({ queryKey: qk.conversations });
           if (me) patchThreadOnRead(qc, e, me);
@@ -210,6 +232,17 @@ export function WsEventBridge() {
           }
           void qc.invalidateQueries({ queryKey: qk.sent });
           void qc.invalidateQueries({ queryKey: qk.notifications });
+          break;
+        }
+        case EventType.TaskReviewed: {
+          // Sender's other devices see the review they left; the assignee sees
+          // a review land on their completed task. Refetch the affected surfaces.
+          if (e.senderId === me) void qc.invalidateQueries({ queryKey: qk.sent });
+          if (e.assigneeId === me) {
+            void qc.invalidateQueries({ queryKey: qk.assigned });
+            void qc.invalidateQueries({ queryKey: qk.sticky });
+            toast(`${e.reviewerUsername} reviewed your task`);
+          }
           break;
         }
         case EventType.NotificationCreated: {

@@ -165,6 +165,10 @@ type SendResult struct {
 }
 
 // ConversationDTO mirrors the canonical ConversationDTO contract.
+//
+// BlockedByMe = the caller blocked the peer ("You blocked this user").
+// BlockedByPeer = the peer blocked the caller ("You have been blocked").
+// Sends are gated whenever EITHER is true.
 type ConversationDTO struct {
 	ID            string  `json:"id"`
 	PeerID        string  `json:"peerId"`
@@ -172,6 +176,8 @@ type ConversationDTO struct {
 	LastMessage   *string `json:"lastMessage"`
 	LastMessageAt *string `json:"lastMessageAt"`
 	Unread        int64   `json:"unread"`
+	BlockedByMe   bool    `json:"blockedByMe"`
+	BlockedByPeer bool    `json:"blockedByPeer"`
 }
 
 // MessageDTO mirrors the canonical MessageDTO contract. The threading

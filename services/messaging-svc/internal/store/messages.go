@@ -45,15 +45,18 @@ func (s *Store) SendMessage(ctx context.Context, orgID, senderID, recipientID, b
 		return nil, err
 	}
 
-	// Sender must not be blocked in this conversation.
-	var senderBlocked bool
+	// Block gates sends in BOTH directions: if EITHER member blocked the other,
+	// nobody in this 1:1 can send until every member row is unblocked. (A prior
+	// version only checked the sender's own row, which let the blocked peer keep
+	// messaging in.)
+	var convBlocked bool
 	err = tx.QueryRow(ctx,
-		`SELECT COALESCE(blocked, false) FROM conversation_members
-		 WHERE conversation_id = $1 AND user_id = $2`, convID, senderID).Scan(&senderBlocked)
+		`SELECT COALESCE(bool_or(blocked), false) FROM conversation_members
+		 WHERE conversation_id = $1`, convID).Scan(&convBlocked)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return nil, err
 	}
-	if senderBlocked {
+	if convBlocked {
 		return nil, ErrForbidden
 	}
 
@@ -123,14 +126,18 @@ func (s *Store) replyImpl(ctx context.Context, orgID, senderID, convID, parentMe
 		return nil, ErrForbidden
 	}
 
-	var senderBlocked bool
+	// Block gates sends in BOTH directions: if EITHER member blocked the other,
+	// nobody in this 1:1 can send until every member row is unblocked. (A prior
+	// version only checked the sender's own row, which let the blocked peer keep
+	// messaging in.)
+	var convBlocked bool
 	err = tx.QueryRow(ctx,
-		`SELECT COALESCE(blocked, false) FROM conversation_members
-		 WHERE conversation_id = $1 AND user_id = $2`, convID, senderID).Scan(&senderBlocked)
+		`SELECT COALESCE(bool_or(blocked), false) FROM conversation_members
+		 WHERE conversation_id = $1`, convID).Scan(&convBlocked)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return nil, err
 	}
-	if senderBlocked {
+	if convBlocked {
 		return nil, ErrForbidden
 	}
 

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -20,14 +21,17 @@ import (
 // HeaderRequestID is the case-insensitive request-id header all services emit.
 const HeaderRequestID = "X-Request-Id"
 
-// allow localhost (any port/scheme) and Electron app/file origins.
-var originRegex = regexp.MustCompile(`^(https?://localhost(:\d+)?|https?://127\.0\.0\.1(:\d+)?|app://.*|file://.*)$`)
+// Desktop origins (file://, app://, and the literal `null` Chromium sends from a
+// file:// document) are allowed everywhere; loopback origins only in non-prod
+// (gated in cors() on the web origin scheme).
+var desktopOriginRe = regexp.MustCompile(`^(app://.*|file://.*|null)$`)
+var localhostOriginRe = regexp.MustCompile(`^https?://(localhost|127\.0\.0\.1)(:\d+)?$`)
 
 // Server wires the REST API.
 type Server struct {
-	pool     *pgxpool.Pool
-	verifier *auth.Verifier
-	log      *slog.Logger
+	pool      *pgxpool.Pool
+	verifier  *auth.Verifier
+	log       *slog.Logger
 	webOrigin string
 }
 
@@ -69,7 +73,9 @@ func (s *Server) Router() http.Handler {
 func (s *Server) cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
-		if origin != "" && (origin == s.webOrigin || originRegex.MatchString(origin)) {
+		allowLocalhost := !strings.HasPrefix(s.webOrigin, "https://")
+		if origin != "" && (origin == s.webOrigin || desktopOriginRe.MatchString(origin) ||
+			(allowLocalhost && localhostOriginRe.MatchString(origin))) {
 			// Credentialed CORS: must echo the specific origin and cannot use
 			// the "*" wildcard for methods/headers — echo the requested headers.
 			w.Header().Set("Access-Control-Allow-Origin", origin)

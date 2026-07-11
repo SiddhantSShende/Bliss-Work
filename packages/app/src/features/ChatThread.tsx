@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Send, MessageSquare } from "lucide-react";
+import { Send, MessageSquare, Ban } from "lucide-react";
 import { Avatar, Button } from "@taskboard/ui";
 import { clock, groupMessages } from "../lib/chatFormat";
 
@@ -23,6 +23,8 @@ export function ChatThread({
   peerName,
   showSenderNames = false,
   placeholder = "Write a message…",
+  disabled = false,
+  notice,
 }: {
   messages: ThreadMessage[];
   meId: string;
@@ -34,6 +36,11 @@ export function ChatThread({
   peerName?: string;
   showSenderNames?: boolean;
   placeholder?: string;
+  /** When true, the composer is replaced by a `notice` banner (e.g. blocked). */
+  disabled?: boolean;
+  /** Message shown in place of the composer when `disabled` (e.g. "You blocked
+   *  this user"). */
+  notice?: string;
 }) {
   const [text, setText] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
@@ -138,20 +145,27 @@ export function ChatThread({
         </div>
       )}
 
-      <form onSubmit={(e) => { e.preventDefault(); send(); }} className="flex items-end gap-2 border-t border-border/60 bg-surface/50 p-3 backdrop-blur">
-        <textarea
-          ref={taRef}
-          rows={1}
-          className="max-h-[140px] min-h-[44px] flex-1 resize-none rounded-2xl border border-border bg-surface px-4 py-2.5 text-sm leading-relaxed text-fg placeholder:text-muted/70 focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/25"
-          placeholder={placeholder}
-          value={text}
-          onChange={(e) => { setText(e.target.value); grow(); onType?.(); }}
-          onKeyDown={onKeyDown}
-        />
-        <Button type="submit" size="icon" disabled={!text.trim()} className="h-11 w-11 shrink-0 rounded-full" title="Send">
-          <Send size={16} />
-        </Button>
-      </form>
+      {disabled ? (
+        <div className="flex items-center justify-center gap-2 border-t border-border/60 bg-surface-2/60 p-4 text-sm text-muted">
+          <Ban size={15} className="shrink-0 text-danger" />
+          <span>{notice ?? "You can't message this conversation."}</span>
+        </div>
+      ) : (
+        <form onSubmit={(e) => { e.preventDefault(); send(); }} className="flex items-end gap-2 border-t border-border/60 bg-surface/50 p-3 backdrop-blur">
+          <textarea
+            ref={taRef}
+            rows={1}
+            className="max-h-[140px] min-h-[44px] flex-1 resize-none rounded-2xl border border-border bg-surface px-4 py-2.5 text-sm leading-relaxed text-fg placeholder:text-muted/70 focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/25"
+            placeholder={placeholder}
+            value={text}
+            onChange={(e) => { setText(e.target.value); grow(); onType?.(); }}
+            onKeyDown={onKeyDown}
+          />
+          <Button type="submit" size="icon" disabled={!text.trim()} className="h-11 w-11 shrink-0 rounded-full" title="Send">
+            <Send size={16} />
+          </Button>
+        </form>
+      )}
     </div>
   );
 }

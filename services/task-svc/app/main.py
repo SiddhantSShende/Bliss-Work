@@ -19,7 +19,7 @@ from .crypto import init_cryptor
 from .db import dispose_engine, get_engine, init_engine, run_migrations
 from .errors import register_exception_handlers
 from .logging_setup import configure_logging, log
-from .middleware import RequestIDMiddleware, SecurityHeadersMiddleware
+from .middleware import BodySizeLimitMiddleware, RequestIDMiddleware, SecurityHeadersMiddleware
 from .outbox import poller
 from .rate_limit import limiter, rate_limit_handler
 from .routes import router
@@ -51,7 +51,15 @@ async def lifespan(app: FastAPI):
         log.info("task_svc_stopped")
 
 
-app = FastAPI(title="task-svc", lifespan=lifespan)
+_prod = settings.tb_env.strip().lower() in {"production", "prod"}
+# Defense-in-depth: no interactive docs / OpenAPI schema in prod (mirrors auth-svc).
+app = FastAPI(
+    title="task-svc",
+    lifespan=lifespan,
+    docs_url=None if _prod else "/docs",
+    redoc_url=None if _prod else "/redoc",
+    openapi_url=None if _prod else "/openapi.json",
+)
 
 # Canonical-shape exception handlers (HTTPException, validation, Exception).
 register_exception_handlers(app)
@@ -64,10 +72,19 @@ app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
 app.add_middleware(SlowAPIMiddleware)
 app.add_middleware(RequestIDMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(BodySizeLimitMiddleware)
+# CORS allowlist: web origin (exact) + Electron desktop origins (file://, app://,
+# and the literal `null` Chromium sends from a file:// document) in every env.
+# Loopback origins are allowed ONLY outside production. Mirrors auth-svc.
+_cors_origin_regex = (
+    r"^(app://.*|file://.*|null)$"
+    if _prod
+    else r"^(app://.*|file://.*|null|https?://(localhost|127\.0\.0\.1)(:\d+)?)$"
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.web_origin],
-    allow_origin_regex=r"^(https?://(localhost|127\.0\.0\.1)(:\d+)?|file://.*|app://.*)$",
+    allow_origin_regex=_cors_origin_regex,
     allow_methods=["*"],
     allow_headers=["*"],
     allow_credentials=True,  # browser sends the auth cookie cross-origin

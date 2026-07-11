@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { X, MessageSquare, ChevronLeft, Phone, Video } from "lucide-react";
+import { X, MessageSquare, ChevronLeft, Phone, Video, Ban } from "lucide-react";
 import { toast } from "sonner";
 import { Avatar, Button, EmptyState } from "@taskboard/ui";
 import type { ConversationDTO, MessageDTO } from "@taskboard/shared";
@@ -71,6 +71,21 @@ export function DMView() {
     },
   });
 
+  // Block / unblock toggles the caller's own block on the peer. The WS
+  // conversation.blocked/unblocked echo (queryBridge) reconciles both sides;
+  // we also invalidate here so the actor's UI flips without waiting on it.
+  const block = useMutation({
+    mutationFn: () => {
+      if (!conv) return Promise.resolve();
+      return conv.blockedByMe ? api.unblockUser(conv.peerId) : api.blockUser(conv.peerId);
+    },
+    onSuccess: (_data, _vars, _ctx) => {
+      void qc.invalidateQueries({ queryKey: qk.conversations });
+    },
+    onError: () =>
+      toast.error("Couldn't update block", { description: "Please try again." }),
+  });
+
   if (!conv)
     return (
       <div className="flex h-full items-center justify-center">
@@ -81,7 +96,16 @@ export function DMView() {
   // Calls require the peer to have a live socket (ws-gateway rejects an offline
   // callee with rtc.peer.unreachable). Rather than silently disable the buttons,
   // let the click through and surface a clear note when the peer is offline.
+  const isBlocked = conv.blockedByMe || conv.blockedByPeer;
   const startCall = (media: "audio" | "video") => {
+    if (isBlocked) {
+      toast("Can't start call", {
+        description: conv.blockedByMe
+          ? "Unblock this user to call them."
+          : "You can't call this user.",
+      });
+      return;
+    }
     if (!isOnline) {
       toast("Can't start call", {
         description: `${conv.peerUsername} must be online to receive a call.`,
@@ -115,6 +139,15 @@ export function DMView() {
           <Button variant="ghost" size="sm" onClick={() => startCall("video")} title="Video call">
             <Video size={15} />
           </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => block.mutate()}
+            disabled={block.isPending}
+            title={conv.blockedByMe ? "Unblock this user" : "Block this user"}
+          >
+            <Ban size={15} /> {conv.blockedByMe ? "Unblock" : "Block"}
+          </Button>
           <Button variant="ghost" size="sm" onClick={() => ignore.mutate()} title="Remove from both inboxes">
             <X size={15} /> Ignore
           </Button>
@@ -128,6 +161,14 @@ export function DMView() {
         peerTyping={peerTyping}
         peerName={conv.peerUsername}
         placeholder={`Message ${conv.peerUsername}…`}
+        disabled={isBlocked}
+        notice={
+          conv.blockedByMe
+            ? "You blocked this user. Unblock to send messages."
+            : conv.blockedByPeer
+              ? "You have been blocked."
+              : undefined
+        }
       />
     </div>
   );

@@ -24,5 +24,19 @@ CREATE INDEX IF NOT EXISTS idx_org_keys_current ON org_keys (org_id) WHERE retir
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS title_enc       bytea;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS description_enc bytea;
 
-ALTER TABLE tasks ALTER COLUMN title       DROP NOT NULL;
-ALTER TABLE tasks ALTER COLUMN description DROP NOT NULL;
+-- Drop NOT NULL on the plaintext columns — but only if they still exist. Once
+-- 005_drop_plaintext_task_cols.sql removes them, this migration still re-runs
+-- every boot (glob), so guard against the columns being gone (a bare
+-- `ALTER COLUMN title DROP NOT NULL` errors when the column is absent).
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_schema = current_schema()
+                 AND table_name = 'tasks' AND column_name = 'title') THEN
+        ALTER TABLE tasks ALTER COLUMN title DROP NOT NULL;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_schema = current_schema()
+                 AND table_name = 'tasks' AND column_name = 'description') THEN
+        ALTER TABLE tasks ALTER COLUMN description DROP NOT NULL;
+    END IF;
+END $$;

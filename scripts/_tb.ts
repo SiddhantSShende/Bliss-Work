@@ -9,7 +9,8 @@ export const BASE = {
   mailpit: process.env.TB_MAILPIT ?? "http://localhost:8025",
 };
 
-export const PASSWORD = "Passw0rd!";
+// Must satisfy the hardened auth policy (min 10 chars + letter + digit + special).
+export const PASSWORD = "Passw0rd!9";
 
 export interface Session {
   accessToken: string;

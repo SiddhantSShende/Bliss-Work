@@ -75,6 +75,10 @@ export const ConversationDTO = z.object({
   lastMessage: z.string().nullable(),
   lastMessageAt: z.string().nullable(),
   unread: z.number().int(),
+  /** The caller blocked the peer ("You blocked this user"). */
+  blockedByMe: z.boolean().default(false),
+  /** The peer blocked the caller ("You have been blocked"). */
+  blockedByPeer: z.boolean().default(false),
 });
 export type ConversationDTO = z.infer<typeof ConversationDTO>;
 
@@ -157,7 +161,11 @@ export type AssigneeStatus = z.infer<typeof AssigneeStatus>;
 export const TaskAction = z.enum(["ACKNOWLEDGE", "IGNORE", "COMPLETE", "LEAVE"]);
 export type TaskAction = z.infer<typeof TaskAction>;
 
-/** A task as seen by an assignee (inbox + sticky widget). */
+/** Star rating on a review — 1..5, or null when the allocator left only text. */
+const ReviewRating = z.number().int().min(1).max(5).nullable().optional();
+
+/** A task as seen by an assignee (inbox + sticky widget). Carries the full
+ *  per-assignment timeline + the review the assignee received. */
 export const StickyTaskDTO = z.object({
   taskId: z.string().uuid(),
   orgId: z.string().uuid(),
@@ -170,10 +178,17 @@ export const StickyTaskDTO = z.object({
   statusVersion: z.number().int(),
   assignedAt: z.string(),
   acknowledgedAt: z.string().nullable(),
+  completedAt: z.string().nullable().optional(),
+  ignoredAt: z.string().nullable().optional(),
+  leftAt: z.string().nullable().optional(),
+  reviewedAt: z.string().nullable().optional(),
+  review: z.string().nullable().optional(),
+  reviewRating: ReviewRating,
 });
 export type StickyTaskDTO = z.infer<typeof StickyTaskDTO>;
 
-/** A task as seen by its creator (sent tab) with per-assignee rollup. */
+/** A task as seen by its creator (sent tab) with per-assignee rollup. Each
+ *  assignee row carries its timeline milestones + the review the sender left. */
 export const SentTaskDTO = z.object({
   taskId: z.string().uuid(),
   title: z.string(),
@@ -184,10 +199,50 @@ export const SentTaskDTO = z.object({
       assigneeId: z.string().uuid(),
       assigneeUsername: z.string(),
       status: AssigneeStatus,
+      assignedAt: z.string().nullable().optional(),
+      acknowledgedAt: z.string().nullable().optional(),
+      completedAt: z.string().nullable().optional(),
+      ignoredAt: z.string().nullable().optional(),
+      leftAt: z.string().nullable().optional(),
+      reviewedAt: z.string().nullable().optional(),
+      review: z.string().nullable().optional(),
+      reviewRating: ReviewRating,
     }),
   ),
 });
 export type SentTaskDTO = z.infer<typeof SentTaskDTO>;
+
+/** Response from POST …/review — the persisted review. */
+export const ReviewResponse = z.object({
+  reviewedAt: z.string(),
+  review: z.string(),
+  reviewRating: ReviewRating,
+});
+export type ReviewResponse = z.infer<typeof ReviewResponse>;
+
+/** One row of the task export — a single (task, assignee) assignment with its
+ *  full timeline + review. Emails are joined client-side from the directory. */
+export const TaskExportRow = z.object({
+  taskId: z.string().uuid(),
+  title: z.string(),
+  description: z.string(),
+  allocatedById: z.string().uuid(),
+  allocatedByUsername: z.string(),
+  allocatedToId: z.string().uuid(),
+  allocatedToUsername: z.string(),
+  status: AssigneeStatus,
+  allocatedAt: z.string(),
+  acknowledgedAt: z.string().nullable().optional(),
+  ignoredAt: z.string().nullable().optional(),
+  completedAt: z.string().nullable().optional(),
+  leftAt: z.string().nullable().optional(),
+  /** Whole-turnaround seconds (completed − allocated); null unless completed. */
+  timeTakenSeconds: z.number().int().nullable().optional(),
+  reviewedAt: z.string().nullable().optional(),
+  review: z.string().nullable().optional(),
+  reviewRating: ReviewRating,
+});
+export type TaskExportRow = z.infer<typeof TaskExportRow>;
 
 // ── Notifications ────────────────────────────────────────────────────────────
 export const NotificationDTO = z.object({

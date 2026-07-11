@@ -116,6 +116,77 @@ func (s *Store) Block(ctx context.Context, orgID, callerID, peerID string) error
 	if err != nil {
 		return err
 	}
+
+	// Fan out to BOTH members so the peer's composer flips to "You have been
+	// blocked" live and the blocker's other devices sync. Same outbox→Kafka→
+	// gateway path as ConversationIgnored.
+	evt := events.ConversationBlocked{
+		Type:           events.TypeConversationBlocked,
+		EventID:        uuid.Must(uuid.NewV7()).String(),
+		OrgID:          orgID,
+		OccurredAt:     nowISO(),
+		ConversationID: convID,
+		BlockedBy:      callerID,
+		Members:        []string{low, high},
+	}
+	if err := insertOutbox(ctx, tx, events.TopicMessaging, convID, evt); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// Unblock clears blocked on the caller's member row of the conversation with
+// peerID and emits conversation.unblocked. Clears ONLY the caller's side — if
+// the peer also blocked, the conversation stays blocked until they unblock too.
+func (s *Store) Unblock(ctx context.Context, orgID, callerID, peerID string) error {
+	if callerID == peerID {
+		return ErrForbidden
+	}
+	low, high := orderedPair(callerID, peerID)
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	// RLS: scope this tx to the caller's org before any RLS table is touched.
+	if err := setOrgGUC(ctx, tx, orgID); err != nil {
+		return err
+	}
+
+	// Look up the conversation; if it never existed there's nothing to unblock.
+	var convID string
+	err = tx.QueryRow(ctx,
+		`SELECT id FROM conversations WHERE org_id = $1 AND user_low = $2 AND user_high = $3`,
+		orgID, low, high).Scan(&convID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// No conversation → no block to clear. Idempotent success.
+		return tx.Commit(ctx)
+	}
+	if err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx,
+		`UPDATE conversation_members SET blocked = false
+		 WHERE conversation_id = $1 AND user_id = $2`,
+		convID, callerID); err != nil {
+		return err
+	}
+
+	evt := events.ConversationUnblocked{
+		Type:           events.TypeConversationUnblocked,
+		EventID:        uuid.Must(uuid.NewV7()).String(),
+		OrgID:          orgID,
+		OccurredAt:     nowISO(),
+		ConversationID: convID,
+		UnblockedBy:    callerID,
+		Members:        []string{low, high},
+	}
+	if err := insertOutbox(ctx, tx, events.TopicMessaging, convID, evt); err != nil {
+		return err
+	}
 	return tx.Commit(ctx)
 }
 
@@ -143,10 +214,15 @@ func (s *Store) ListConversations(ctx context.Context, orgID, callerID string) (
 			        WHERE m2.conversation_id = c.id
 			          AND m2.sender_id <> $2
 			          AND m2.seq > cm.last_read_seq
-			    ), 0) AS unread
+			    ), 0) AS unread,
+			    COALESCE(cm.blocked, false) AS blocked_by_me,
+			    COALESCE(pm.blocked, false) AS blocked_by_peer
 			FROM conversations c
 			JOIN conversation_members cm
 			    ON cm.conversation_id = c.id AND cm.user_id = $2
+			LEFT JOIN conversation_members pm
+			    ON pm.conversation_id = c.id
+			   AND pm.user_id = (CASE WHEN c.user_low = $2 THEN c.user_high ELSE c.user_low END)
 			LEFT JOIN LATERAL (
 			    SELECT body, body_enc FROM messages m
 			    WHERE m.conversation_id = c.id
@@ -173,7 +249,8 @@ func (s *Store) ListConversations(ctx context.Context, orgID, callerID string) (
 		for rows.Next() {
 			var rc rawConv
 			if err := rows.Scan(&rc.d.ID, &rc.d.PeerID, &rc.d.PeerUsername,
-				&rc.lastMsg, &rc.lastEnc, &rc.lastAt, &rc.d.Unread); err != nil {
+				&rc.lastMsg, &rc.lastEnc, &rc.lastAt, &rc.d.Unread,
+				&rc.d.BlockedByMe, &rc.d.BlockedByPeer); err != nil {
 				rows.Close()
 				return err
 			}

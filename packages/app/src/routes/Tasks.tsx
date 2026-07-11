@@ -3,13 +3,30 @@ import { useParams, NavLink } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
-import { Plus, ListTodo } from "lucide-react";
+import { Plus, ListTodo, Download, Star, MessageSquarePlus } from "lucide-react";
 import { Badge, Button, GlassCard, EmptyState } from "@taskboard/ui";
 import type { SentTaskDTO, StickyTaskDTO, TaskAction } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { CreateTaskDialog } from "../features/CreateTaskDialog";
+import { ExportTasksDialog } from "../features/ExportTasksDialog";
+import { CreateReviewDialog } from "../features/CreateReviewDialog";
 import { StickyWidget } from "../features/StickyWidget";
+
+type SentAssignee = SentTaskDTO["assignees"][number];
+
+/** Format an ISO instant to the viewer's local date + time (or "" when absent). */
+function fmtTs(iso?: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 const verb: Record<TaskAction, "acknowledge" | "complete" | "ignore" | "leave"> = {
   ACKNOWLEDGE: "acknowledge", COMPLETE: "complete", IGNORE: "ignore", LEAVE: "leave",
@@ -29,13 +46,20 @@ const BUCKETS = [
 export function Tasks() {
   const { view = "allocated" } = useParams();
   const [createOpen, setCreateOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
 
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center justify-between border-b border-border/60 px-4 py-3 sm:px-5">
         <h1 className="text-base font-semibold tracking-tight text-fg">{TITLES[view] ?? "Tasks"}</h1>
-        <Button size="sm" onClick={() => setCreateOpen(true)}><Plus size={15} /> New task</Button>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={() => setExportOpen(true)} title="Export tasks to Excel">
+            <Download size={15} /> Export
+          </Button>
+          <Button size="sm" onClick={() => setCreateOpen(true)}><Plus size={15} /> New task</Button>
+        </div>
       </header>
+      <ExportTasksDialog open={exportOpen} onClose={() => setExportOpen(false)} />
       <div className="flex gap-2 overflow-x-auto border-b border-border/60 px-3 py-2 md:hidden">
         {BUCKETS.map((b) => (
           <NavLink
@@ -211,31 +235,101 @@ function AssignedBucket({ view }: { view: string }) {
   );
 }
 
+type BadgeTone = "success" | "accent" | "danger" | "neutral";
+const statusTone = (s: string): BadgeTone =>
+  s === "COMPLETED" ? "success" : s === "ACKNOWLEDGED" ? "accent" : s === "IGNORED" || s === "LEFT" ? "danger" : "neutral";
+
 function MyTasks() {
   const { api } = useRuntime();
   const { data: tasks = [] } = useQuery({ queryKey: qk.sent, queryFn: () => api.tasksSent() });
+  const [reviewTarget, setReviewTarget] = useState<{ taskId: string; assignee: SentAssignee } | null>(null);
+
   if (tasks.length === 0)
     return <EmptyState icon={<ListTodo size={24} />} title="You haven't sent any tasks" hint="Create one with “New task”." />;
 
-  const tone = (s: string) =>
-    s === "COMPLETED" ? "success" : s === "ACKNOWLEDGED" ? "accent" : s === "IGNORED" || s === "LEFT" ? "danger" : "neutral";
+  return (
+    <>
+      <div className="grid gap-3">
+        {tasks.map((t: SentTaskDTO) => (
+          <GlassCard key={t.taskId} className="p-4">
+            <div className="font-semibold text-fg">{t.title}</div>
+            {t.description && <p className="mt-1 text-sm text-muted">{t.description}</p>}
+            <div className="mt-3 flex flex-col divide-y divide-border/50">
+              {t.assignees.map((a) => (
+                <AssigneeTimeline
+                  key={a.assigneeId}
+                  assignee={a}
+                  onReview={() => setReviewTarget({ taskId: t.taskId, assignee: a })}
+                />
+              ))}
+            </div>
+          </GlassCard>
+        ))}
+      </div>
+      {reviewTarget && (
+        <CreateReviewDialog
+          open={!!reviewTarget}
+          onClose={() => setReviewTarget(null)}
+          taskId={reviewTarget.taskId}
+          assigneeId={reviewTarget.assignee.assigneeId}
+          assigneeName={reviewTarget.assignee.assigneeUsername}
+          existingText={reviewTarget.assignee.review}
+          existingRating={reviewTarget.assignee.reviewRating}
+        />
+      )}
+    </>
+  );
+}
+
+/** One assignee's status + full timeline + the review the allocator left. */
+function AssigneeTimeline({ assignee: a, onReview }: { assignee: SentAssignee; onReview: () => void }) {
+  const milestones = [
+    { label: "Allocated", at: a.assignedAt },
+    { label: "Acknowledged", at: a.acknowledgedAt },
+    { label: "Ignored", at: a.ignoredAt },
+    { label: "Completed", at: a.completedAt },
+    { label: "Left", at: a.leftAt },
+    { label: "Reviewed", at: a.reviewedAt },
+  ].filter((m) => m.at);
 
   return (
-    <div className="grid gap-3">
-      {tasks.map((t: SentTaskDTO) => (
-        <GlassCard key={t.taskId} className="p-4">
-          <div className="font-semibold text-fg">{t.title}</div>
-          {t.description && <p className="mt-1 text-sm text-muted">{t.description}</p>}
-          <div className="mt-3 flex flex-wrap gap-2">
-            {t.assignees.map((a) => (
-              <span key={a.assigneeId} className="inline-flex items-center gap-1.5 text-sm text-fg">
-                {a.assigneeUsername}
-                <Badge tone={tone(a.status) as "success" | "accent" | "danger" | "neutral"}>{a.status.toLowerCase()}</Badge>
-              </span>
-            ))}
-          </div>
-        </GlassCard>
-      ))}
+    <div className="py-3 first:pt-0 last:pb-0">
+      <div className="flex items-center justify-between gap-2">
+        <span className="inline-flex items-center gap-2 text-sm font-medium text-fg">
+          {a.assigneeUsername}
+          <Badge tone={statusTone(a.status)}>{a.status.toLowerCase()}</Badge>
+        </span>
+        {a.status === "COMPLETED" && (
+          <Button variant="ghost" size="sm" onClick={onReview}>
+            <MessageSquarePlus size={14} /> {a.review ? "Edit review" : "Write review"}
+          </Button>
+        )}
+      </div>
+      {milestones.length > 0 && (
+        <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted">
+          {milestones.map((m) => (
+            <span key={m.label}>
+              <span className="text-fg/70">{m.label}</span> {fmtTs(m.at)}
+            </span>
+          ))}
+        </div>
+      )}
+      {a.review && (
+        <div className="mt-2 rounded-lg bg-surface-2/60 p-2.5 text-sm">
+          {a.reviewRating != null && (
+            <div className="mb-1 flex items-center gap-0.5">
+              {[1, 2, 3, 4, 5].map((n) => (
+                <Star
+                  key={n}
+                  size={14}
+                  className={n <= a.reviewRating! ? "fill-amber-400 text-amber-400" : "text-muted/40"}
+                />
+              ))}
+            </div>
+          )}
+          <p className="whitespace-pre-wrap text-muted">{a.review}</p>
+        </div>
+      )}
     </div>
   );
 }

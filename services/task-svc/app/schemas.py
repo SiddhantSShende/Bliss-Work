@@ -63,12 +63,31 @@ class StickyTaskDTO(BaseModel):
     statusVersion: int
     assignedAt: str
     acknowledgedAt: str | None = None
+    # Full per-assignment timeline + the review the assignee received (all
+    # nullable — a milestone is only set once that transition happens).
+    completedAt: str | None = None
+    ignoredAt: str | None = None
+    leftAt: str | None = None
+    reviewedAt: str | None = None
+    review: str | None = None
+    reviewRating: int | None = None
 
 
 class SentAssignee(BaseModel):
     assigneeId: str
     assigneeUsername: str
     status: AssigneeStatus
+    # Timeline milestones for this assignment (nullable until they occur) +
+    # the review the sender left (decrypted). Powers the sender-side timeline
+    # and "Write review" UI without a second round-trip.
+    assignedAt: str | None = None
+    acknowledgedAt: str | None = None
+    completedAt: str | None = None
+    ignoredAt: str | None = None
+    leftAt: str | None = None
+    reviewedAt: str | None = None
+    review: str | None = None
+    reviewRating: int | None = None
 
 
 class SentTaskDTO(BaseModel):
@@ -82,6 +101,40 @@ class SentTaskDTO(BaseModel):
 class TransitionResponse(BaseModel):
     status: AssigneeStatus
     statusVersion: int
+
+
+# ── Reviews (allocator → completed assignee) ──────────────────────────────────
+class ReviewRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=4_000)
+    rating: int | None = Field(default=None, ge=1, le=5)
+
+
+class ReviewResponse(BaseModel):
+    reviewedAt: str
+    review: str
+    reviewRating: int | None = None
+
+
+# ── Export (one row per (task, assignee)) ─────────────────────────────────────
+class TaskExportRow(BaseModel):
+    taskId: str
+    title: str
+    description: str
+    allocatedById: str
+    allocatedByUsername: str
+    allocatedToId: str
+    allocatedToUsername: str
+    status: AssigneeStatus
+    allocatedAt: str
+    acknowledgedAt: str | None = None
+    ignoredAt: str | None = None
+    completedAt: str | None = None
+    leftAt: str | None = None
+    # Whole-turnaround seconds (completed_at − assigned_at); None unless completed.
+    timeTakenSeconds: int | None = None
+    reviewedAt: str | None = None
+    review: str | None = None
+    reviewRating: int | None = None
 
 
 def actions_for(status: str) -> list[TaskActionT]:

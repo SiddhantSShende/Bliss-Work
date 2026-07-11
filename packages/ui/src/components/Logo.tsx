@@ -1,6 +1,5 @@
 import { useId } from "react";
 import { cn } from "../lib/cn";
-import { ASSETS } from "../../../../assets";
 
 /** BlissWork mark: a "B" monogram with a chat bubble + three dots in the lower lobe. */
 export function Logo({ size = 32, className }: { size?: number; className?: string }) {
@@ -44,18 +43,5 @@ export function Wordmark({ size = 28, className }: { size?: number; className?: 
         Bliss<span className="text-accent">Work</span>
       </span>
     </span>
-  );
-}
-
-/** BlissWork logo as an image. Use for static logo display without theme styling. */
-export function ImageLogo({ size = 32, className }: { size?: number; className?: string }) {
-  return (
-    <img
-      src={ASSETS.logo}
-      alt="BlissWork"
-      width={size}
-      height={size}
-      className={cn("shrink-0", className)}
-    />
   );
 }

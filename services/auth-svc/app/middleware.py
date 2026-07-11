@@ -20,6 +20,36 @@ from starlette.responses import Response
 
 HEADER_REQUEST_ID = "X-Request-Id"
 
+# Max request body (bytes). Mirrors the Go services' `mw.MaxBytes(1<<20)`. JSON
+# auth payloads are tiny, so this bounds a memory/CPU DoS from an oversized body.
+# Clients always send Content-Length for a JSON body, so the header check is the
+# effective control; chunked bodies with no length are additionally bounded by
+# the reverse-proxy body limit in prod.
+MAX_BODY_BYTES = 1 << 20  # 1 MiB
+
+
+class BodySizeLimitMiddleware(BaseHTTPMiddleware):
+    """Reject requests whose declared Content-Length exceeds the cap with 413."""
+
+    def __init__(self, app, max_bytes: int = MAX_BODY_BYTES) -> None:
+        super().__init__(app)
+        self.max_bytes = max_bytes
+
+    async def dispatch(
+        self,
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        cl = request.headers.get("content-length")
+        if cl is not None:
+            try:
+                if int(cl) > self.max_bytes:
+                    return Response("request entity too large", status_code=413)
+            except ValueError:
+                return Response("invalid content-length", status_code=400)
+        return await call_next(request)
+
+
 # OWASP-recommended response headers. Identical to the set Go services emit.
 SECURITY_HEADERS = {
     "Strict-Transport-Security": "max-age=31536000; includeSubDomains",

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -53,10 +54,19 @@ func (s *Server) Router(webOrigin string) http.Handler {
 	// payload can't be buffered into the heap. Generous for text + UUID lists.
 	r.Use(mw.MaxBytes(1 << 20))
 
-	localhostRe := regexp.MustCompile(`^(https?://(localhost|127\.0\.0\.1)(:\d+)?|file://.*|app://.*)$`)
+	// Desktop origins (file://, app://, and the literal `null` Chromium sends from
+	// a file:// document) are allowed in every environment. Loopback origins only
+	// when NOT serving a prod (https) web origin. AllowOriginFunc MUST carry the
+	// web origin itself — go-chi/cors ignores AllowedOrigins whenever
+	// AllowOriginFunc is set (the prior code's AllowedOrigins was dead config).
+	desktopRe := regexp.MustCompile(`^(file://.*|app://.*|null)$`)
+	localhostRe := regexp.MustCompile(`^https?://(localhost|127\.0\.0\.1)(:\d+)?$`)
+	allowLocalhost := !strings.HasPrefix(webOrigin, "https://")
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{webOrigin},
-		AllowOriginFunc:  func(r *http.Request, origin string) bool { return localhostRe.MatchString(origin) },
+		AllowOriginFunc: func(_ *http.Request, origin string) bool {
+			return origin == webOrigin || desktopRe.MatchString(origin) ||
+				(allowLocalhost && localhostRe.MatchString(origin))
+		},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"*"},
 		AllowCredentials: true, // browser sends the auth cookie cross-origin
@@ -110,6 +120,7 @@ func (s *Server) Router(webOrigin string) http.Handler {
 		r.Get("/conversations/{id}/messages", s.listMessages)
 		r.Post("/conversations/{id}/read", s.markRead)
 		r.Post("/users/{id}/block", s.block)
+		r.Delete("/users/{id}/block", s.unblock)
 
 		r.Post("/channels", s.createChannel)
 		r.Get("/channels", s.listChannels)
@@ -372,6 +383,20 @@ func (s *Server) block(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.store.Block(r.Context(), claims.OrgID, claims.UserID, peerID); err != nil {
+		s.mapErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) unblock(w http.ResponseWriter, r *http.Request) {
+	claims, _ := auth.FromContext(r.Context())
+	peerID := chi.URLParam(r, "id")
+	if !validUUID(peerID) {
+		writeErr(w, http.StatusBadRequest, "invalid user id")
+		return
+	}
+	if err := s.store.Unblock(r.Context(), claims.OrgID, claims.UserID, peerID); err != nil {
 		s.mapErr(w, err)
 		return
 	}
