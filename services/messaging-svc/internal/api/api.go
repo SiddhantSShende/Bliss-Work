@@ -135,6 +135,7 @@ func (s *Server) Router(webOrigin string) http.Handler {
 			g.Post("/threads/{id}/read", s.readThread)
 			g.Post("/messages/{id}/dismiss", s.dismissMessage)
 			g.Post("/inbox/items/{kind}/{refId}/ignore", s.ignoreInboxItem)
+			g.Post("/inbox/items/{kind}/{refId}/read", s.markInboxItemRead)
 		})
 	})
 

@@ -32,7 +32,7 @@ export function InviteAccept() {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!pwOk) return toast.error("Password must be at least 8 characters with a special character");
+    if (!pwOk) return toast.error("Password must be at least 10 characters with a letter, a number, and a special character");
     setBusy(true);
     try {
       const s = await api.acceptInvite({ token, ...form });

@@ -252,3 +252,101 @@ def render_new_task_email(
         "link": link,
     }
     return _NEW_TASK_TEXT.render(**ctx), _NEW_TASK_HTML.render(**ctx)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Account-security emails: password reset + email verification. Same visual
+# language as the invite email (centered card, brand button). The security
+# copy ("didn't request this?" / expiry) is deliberate.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _action_email(
+    *, title: str, lead: str, button: str, url: str, note: str
+) -> tuple[str, str]:
+    """Shared centered-card action email used by the reset + verify flows."""
+    html = _env.from_string(
+        """\
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{ title }}</title>
+  </head>
+  <body style="margin:0;padding:0;background:#f4f5f7;font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f5f7;padding:32px 0;">
+      <tr><td align="center">
+        <table role="presentation" width="560" cellpadding="0" cellspacing="0"
+               style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.08);">
+          <tr><td style="padding:32px 40px 8px 40px;">
+            <h1 style="margin:0 0 16px 0;font-size:22px;line-height:1.3;">{{ title }}</h1>
+            <p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#444;">{{ lead }}</p>
+          </td></tr>
+          <tr><td align="center" style="padding:8px 40px 24px 40px;">
+            <a href="{{ url }}"
+               style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;
+                      font-size:16px;font-weight:bold;padding:14px 32px;border-radius:8px;">
+              {{ button }}
+            </a>
+          </td></tr>
+          <tr><td style="padding:0 40px 32px 40px;">
+            <p style="margin:0 0 8px 0;font-size:13px;line-height:1.6;color:#666;">
+              Or paste this link into your browser:
+            </p>
+            <p style="margin:0 0 20px 0;font-size:13px;line-height:1.6;word-break:break-all;">
+              <a href="{{ url }}" style="color:#4f46e5;">{{ url }}</a>
+            </p>
+            <p style="margin:0;font-size:13px;line-height:1.6;color:#999;">{{ note }}</p>
+          </td></tr>
+        </table>
+      </td></tr>
+    </table>
+  </body>
+</html>
+"""
+    )
+    text = _env.from_string(
+        """\
+{{ title }}
+
+{{ lead }}
+
+{{ button }}:
+{{ url }}
+
+{{ note }}
+"""
+    )
+    ctx = {"title": title, "lead": lead, "button": button, "url": url, "note": note}
+    return text.render(**ctx), html.render(**ctx)
+
+
+def render_password_reset_email(*, reset_url: str, expires_at: str) -> tuple[str, str]:
+    """Return (text_body, html_body) for the password-reset email."""
+    note = (
+        f"This link expires on {expires_at}. If you didn't request a password "
+        "reset, you can safely ignore this email — your password won't change."
+    )
+    return _action_email(
+        title="Reset your BlissWork password",
+        lead="We received a request to reset your BlissWork password. Click the button below to choose a new one.",
+        button="Reset password",
+        url=reset_url,
+        note=note,
+    )
+
+
+def render_email_verification_email(*, verify_url: str, expires_at: str) -> tuple[str, str]:
+    """Return (text_body, html_body) for the email-verification email."""
+    note = (
+        f"This link expires on {expires_at}. If you didn't create a BlissWork "
+        "account, you can safely ignore this email."
+    )
+    return _action_email(
+        title="Verify your BlissWork email",
+        lead="Confirm this is your email address to finish securing your BlissWork account.",
+        button="Verify email",
+        url=verify_url,
+        note=note,
+    )

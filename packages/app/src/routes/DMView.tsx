@@ -78,6 +78,19 @@ export function DMView() {
       </div>
     );
 
+  // Calls require the peer to have a live socket (ws-gateway rejects an offline
+  // callee with rtc.peer.unreachable). Rather than silently disable the buttons,
+  // let the click through and surface a clear note when the peer is offline.
+  const startCall = (media: "audio" | "video") => {
+    if (!isOnline) {
+      toast("Can't start call", {
+        description: `${conv.peerUsername} must be online to receive a call.`,
+      });
+      return;
+    }
+    call.invite(conv.peerId, conv.peerUsername, media);
+  };
+
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center justify-between border-b border-border/70 bg-surface/60 px-5 py-3 backdrop-blur">
@@ -96,10 +109,10 @@ export function DMView() {
           </div>
         </div>
         <div className="flex items-center gap-1">
-          <Button variant="ghost" size="sm" disabled={!isOnline} onClick={() => call.invite(conv.peerId, conv.peerUsername, "audio")} title={isOnline ? "Voice call" : `${conv.peerUsername} is offline`}>
+          <Button variant="ghost" size="sm" onClick={() => startCall("audio")} title="Voice call">
             <Phone size={15} />
           </Button>
-          <Button variant="ghost" size="sm" disabled={!isOnline} onClick={() => call.invite(conv.peerId, conv.peerUsername, "video")} title={isOnline ? "Video call" : `${conv.peerUsername} is offline`}>
+          <Button variant="ghost" size="sm" onClick={() => startCall("video")} title="Video call">
             <Video size={15} />
           </Button>
           <Button variant="ghost" size="sm" onClick={() => ignore.mutate()} title="Remove from both inboxes">

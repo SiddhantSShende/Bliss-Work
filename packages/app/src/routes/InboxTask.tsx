@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -61,6 +62,26 @@ export function InboxTask() {
       void qc.invalidateQueries({ queryKey: qk.unifiedInbox });
     },
   });
+
+  // Mark the task "seen" the moment its detail view opens. Task inbox rows are
+  // seeded unread_count=1 with no other clearing path, so this is what finally
+  // drops the unified-inbox badge, the People-sidebar pill, and the left-rail
+  // count. Fires once per taskId; the sidebar/feed refetch reconciles the badges.
+  const markedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!taskId || markedRef.current === taskId) return;
+    markedRef.current = taskId;
+    void api
+      .readInboxItem("TASK", taskId)
+      .then(() => {
+        void qc.invalidateQueries({ queryKey: qk.inboxPeers });
+        void qc.invalidateQueries({ queryKey: qk.unifiedInbox });
+      })
+      .catch(() => {
+        markedRef.current = null; // allow a retry on the next open
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [taskId]);
 
   if (!task) {
     // Still resolving the server fallback — don't flash "not found".

@@ -18,6 +18,9 @@ import { BrowserStickies } from "./features/BrowserStickies";
 import { Onboarding } from "./routes/Onboarding";
 import { Login } from "./routes/Login";
 import { InviteAccept } from "./routes/InviteAccept";
+import { ForgotPassword } from "./routes/ForgotPassword";
+import { ResetPassword } from "./routes/ResetPassword";
+import { VerifyEmail } from "./routes/VerifyEmail";
 import { AppShell } from "./routes/AppShell";
 import { DMView } from "./routes/DMView";
 import { ChannelView } from "./routes/ChannelView";
@@ -73,6 +76,9 @@ export function App({ config }: { config: PlatformConfig }) {
                   <Route path="/onboarding" element={<Onboarding />} />
                   <Route path="/login" element={<Login />} />
                   <Route path="/invite" element={<InviteAccept />} />
+                  <Route path="/forgot-password" element={<ForgotPassword />} />
+                  <Route path="/reset-password" element={<ResetPassword />} />
+                  <Route path="/verify-email" element={<VerifyEmail />} />
                   <Route
                     path="/app"
                     element={

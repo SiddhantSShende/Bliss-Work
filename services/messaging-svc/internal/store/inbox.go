@@ -304,6 +304,35 @@ func (s *Store) MarkInboxItemHidden(
 	})
 }
 
+// MarkInboxItemRead zeros unread_count for a single (owner, kind, ref) row.
+// Called by POST /inbox/items/{kind}/{refId}/read when the user opens a TASK row
+// in the unified inbox. TASK rows have no seq-based read model (that's THREADs),
+// so "seen" is a straight unread reset. This is the path that finally clears the
+// task-inbox badge, which otherwise stays at its seeded unread_count=1 forever.
+// Idempotent: re-marking an already-read row still matches (WHERE ignores the
+// count) and returns nil.
+//
+// RLS: request path — carries the caller's org via withOrg; the org_isolation
+// WITH CHECK + USING means a cross-org refId matches 0 rows → ErrForbidden.
+func (s *Store) MarkInboxItemRead(
+	ctx context.Context, orgID, ownerUserID, itemKind, refID string,
+) error {
+	return s.withOrg(ctx, orgID, func(tx pgx.Tx) error {
+		ct, err := tx.Exec(ctx, `
+			UPDATE inbox_items
+			SET unread_count = 0, updated_at = now()
+			WHERE owner_user_id = $1 AND item_kind = $2 AND ref_id = $3`,
+			ownerUserID, itemKind, refID)
+		if err != nil {
+			return err
+		}
+		if ct.RowsAffected() == 0 {
+			return ErrForbidden
+		}
+		return nil
+	})
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Cursor encoding — base64(JSON {ts, refId}). Opaque to clients; tuple keyed
 // pagination requires both fields because uuidv7 collisions inside a single

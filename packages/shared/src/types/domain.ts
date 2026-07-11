@@ -12,6 +12,9 @@ export const UserDTO = z.object({
   displayName: z.string(),
   email: z.string().email(),
   roles: z.array(Role),
+  /** Whether the user has confirmed their email. Optional for forward-compat
+   *  with pre-verification responses; UI treats only `=== false` as unverified. */
+  emailVerified: z.boolean().optional(),
 });
 export type UserDTO = z.infer<typeof UserDTO>;
 

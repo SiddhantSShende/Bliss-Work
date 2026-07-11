@@ -59,6 +59,7 @@ func (s *Server) Router() http.Handler {
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(s.verifier.Middleware)
 		r.Get("/notifications", s.handleList)
+		r.Post("/notifications/read-all", s.handleReadAll)
 		r.Post("/notifications/{id}/read", s.handleRead)
 	})
 
@@ -221,6 +222,30 @@ func (s *Server) handleRead(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "notification not found")
 			return
 		}
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleReadAll serves POST /api/v1/notifications/read-all. Marks every unread
+// notification the caller owns as read in a single set-based statement (no
+// per-id round-trip), so the bell can auto-clear when the panel is opened.
+// Idempotent — a second call touches 0 rows and still returns 204.
+func (s *Server) handleReadAll(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.FromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	if _, err := s.pool.Exec(r.Context(),
+		`UPDATE notifications
+		    SET read_at = now()
+		  WHERE recipient_id = $1 AND org_id = $2 AND read_at IS NULL`,
+		claims.UserID, claims.OrgID); err != nil {
+		s.log.Error("mark all read failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
 	}
 
 	w.WriteHeader(http.StatusNoContent)

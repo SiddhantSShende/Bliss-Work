@@ -45,6 +45,19 @@ class UpdateProfileRequest(BaseModel):
     displayName: str = Field(min_length=1, max_length=80)
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(min_length=1, max_length=512)
+    password: str = Field(min_length=8, max_length=256)
+
+
+class VerifyEmailRequest(BaseModel):
+    token: str = Field(min_length=1, max_length=512)
+
+
 # ── Responses ─────────────────────────────────────────────────────────────────
 class UserDTO(BaseModel):
     id: str
@@ -53,6 +66,17 @@ class UserDTO(BaseModel):
     displayName: str
     email: str
     roles: list[Role]
+    emailVerified: bool = True
+
+
+class MessageResponse(BaseModel):
+    """Deliberately generic — used by non-enumerable flows (forgot-password,
+    resend-verification) so the response never reveals whether an account exists."""
+    message: str
+
+
+class TokenVerifyResponse(BaseModel):
+    valid: bool
 
 
 class SessionDTO(BaseModel):

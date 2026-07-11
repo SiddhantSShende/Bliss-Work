@@ -31,6 +31,8 @@ export const EventType = {
   PresenceSnapshot: "presence.snapshot",
   UserCreated: "user.created",
   InviteCreated: "invite.created",
+  PasswordResetRequested: "password.reset.requested",
+  EmailVerificationRequested: "email.verification.requested",
 } as const;
 export type EventTypeName = (typeof EventType)[keyof typeof EventType];
 
@@ -234,6 +236,28 @@ export const InviteCreated = z.object({
   expiresAt: z.string().datetime(),
 });
 
+/** Internal event consumed by email-worker: emails a single-use password-reset
+ *  link. Never pushed to a client socket. */
+export const PasswordResetRequested = z.object({
+  type: z.literal(EventType.PasswordResetRequested),
+  ...envelope,
+  userId: z.string().uuid(),
+  email: z.string().email(),
+  resetUrl: z.string(),
+  expiresAt: z.string().datetime(),
+});
+
+/** Internal event consumed by email-worker: emails a single-use email-
+ *  verification link. Never pushed to a client socket. */
+export const EmailVerificationRequested = z.object({
+  type: z.literal(EventType.EmailVerificationRequested),
+  ...envelope,
+  userId: z.string().uuid(),
+  email: z.string().email(),
+  verifyUrl: z.string(),
+  expiresAt: z.string().datetime(),
+});
+
 // ── Discriminated unions ─────────────────────────────────────────────────────
 
 /** Everything the WS gateway can push to a client. */
@@ -272,6 +296,8 @@ export const DomainEvent = z.discriminatedUnion("type", [
   NotificationCreated,
   UserCreated,
   InviteCreated,
+  PasswordResetRequested,
+  EmailVerificationRequested,
 ]);
 export type DomainEvent = z.infer<typeof DomainEvent>;
 
@@ -292,6 +318,8 @@ export type PresenceOffline = z.infer<typeof PresenceOffline>;
 export type PresenceSnapshot = z.infer<typeof PresenceSnapshot>;
 export type UserCreated = z.infer<typeof UserCreated>;
 export type InviteCreated = z.infer<typeof InviteCreated>;
+export type PasswordResetRequested = z.infer<typeof PasswordResetRequested>;
+export type EmailVerificationRequested = z.infer<typeof EmailVerificationRequested>;
 
 // ── Client → server WS control frames ────────────────────────────────────────
 /**
@@ -492,6 +520,8 @@ export function recipientsOf(e: DomainEvent): string[] {
       return [e.recipientId];
     case EventType.UserCreated:
     case EventType.InviteCreated:
+    case EventType.PasswordResetRequested:
+    case EventType.EmailVerificationRequested:
       return []; // internal-only, never pushed to a socket
     default:
       return [];

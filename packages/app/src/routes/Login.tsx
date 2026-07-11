@@ -78,6 +78,11 @@ export function Login() {
             </button>
           </div>
         </Field>
+        <div className="-mt-1 text-right">
+          <Link to="/forgot-password" className="text-sm font-medium text-accent hover:underline">
+            Forgot password?
+          </Link>
+        </div>
         <Button type="submit" loading={busy} size="lg" className="mt-1 w-full">
           {busy ? "Signing in…" : "Sign in"}
         </Button>

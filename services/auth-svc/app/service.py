@@ -102,7 +102,8 @@ async def user_dto(conn: AsyncConnection, user_id: str) -> UserDTO | None:
     row = (
         await conn.execute(
             text(
-                "SELECT id, org_id, username, display_name_enc, email_enc FROM users WHERE id = :id"
+                "SELECT id, org_id, username, display_name_enc, email_enc, email_verified "
+                "FROM users WHERE id = :id"
             ),
             {"id": user_id},
         )
@@ -124,6 +125,7 @@ async def user_dto(conn: AsyncConnection, user_id: str) -> UserDTO | None:
         displayName=display_name or "",
         email=email or "",
         roles=roles,  # type: ignore[arg-type]
+        emailVerified=bool(row.email_verified),
     )
 
 
@@ -258,6 +260,25 @@ async def revoke_family_by_token(conn: AsyncConnection, raw_token: str) -> None:
             text("UPDATE refresh_tokens SET revoked = true WHERE family_id = :fam"),
             {"fam": str(row.family_id)},
         )
+
+
+async def revoke_all_user_tokens(conn: AsyncConnection, user_id: str) -> None:
+    """Revoke EVERY refresh-token family for a user (all sessions/devices). Called
+    after a password reset so a compromised-credential session can't survive the
+    reset. refresh_tokens has no RLS, so this runs fine under bypass."""
+    await conn.execute(
+        text("UPDATE refresh_tokens SET revoked = true WHERE user_id = :uid"),
+        {"uid": user_id},
+    )
+
+
+async def update_password(conn: AsyncConnection, user_id: str, new_hash: str) -> None:
+    """Set a user's Argon2 password hash. `users` is RLS — the caller must have
+    scoped the tx (org GUC or bypass) before calling."""
+    await conn.execute(
+        text("UPDATE users SET password_hash = :ph WHERE id = :id"),
+        {"ph": new_hash, "id": user_id},
+    )
 
 
 # ── Tamper-evident audit log (hash chain) ─────────────────────────────────────

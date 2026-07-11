@@ -1,6 +1,6 @@
 import { useId } from "react";
 import { cn } from "../lib/cn";
-import { ASSETS } from "../../../assets";
+import { ASSETS } from "../../../../assets";
 
 /** BlissWork mark: a "B" monogram with a chat bubble + three dots in the lower lobe. */
 export function Logo({ size = 32, className }: { size?: number; className?: string }) {

@@ -1,8 +1,11 @@
 import { useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { MailWarning } from "lucide-react";
+import { toast } from "sonner";
 import type { NotificationDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
+import { useSession } from "../store/session";
 import { qk, WsEventBridge } from "../lib/queryBridge";
 import { CallProvider } from "../lib/useCall";
 import { CallUI } from "../features/CallUI";
@@ -67,6 +70,7 @@ export function AppShell() {
     <div className="flex flex-col overflow-hidden brand-mesh" style={{ position: "fixed", inset: 0 }}>
       <WsEventBridge />
       <CallUI />
+      <VerifyEmailBanner />
       <TopNavbar unread={unread} onOpenNotifs={() => setNotifOpen(true)} />
 
       <div className="flex min-h-0 flex-1 gap-2 overflow-hidden p-2">
@@ -103,5 +107,48 @@ export function AppShell() {
       />
     </div>
     </CallProvider>
+  );
+}
+
+/**
+ * Thin banner prompting an unverified user to confirm their email. Only shows
+ * when the session user's emailVerified is explicitly false (undefined — an
+ * older response — is treated as verified so the banner never false-fires).
+ * Dismissible for the session; "Resend" re-issues the link.
+ */
+function VerifyEmailBanner() {
+  const user = useSession((s) => s.user);
+  const { api } = useRuntime();
+  const [dismissed, setDismissed] = useState(false);
+  const [sent, setSent] = useState(false);
+
+  if (!user || user.emailVerified !== false || dismissed) return null;
+
+  const resend = async () => {
+    setSent(true);
+    await api.resendVerification().catch(() => {});
+    toast.success("Verification email sent — check your inbox.");
+  };
+
+  return (
+    <div className="flex items-center justify-center gap-3 border-b border-warning/30 bg-warning/15 px-4 py-2 text-center text-[13px] text-fg">
+      <MailWarning size={15} className="shrink-0 text-warning" aria-hidden />
+      <span>Verify your email address to fully secure your account.</span>
+      <button
+        onClick={resend}
+        disabled={sent}
+        className="font-semibold text-accent hover:underline disabled:opacity-60"
+      >
+        {sent ? "Sent ✓" : "Resend email"}
+      </button>
+      <button
+        onClick={() => setDismissed(true)}
+        className="ml-1 text-muted hover:text-fg"
+        aria-label="Dismiss"
+        title="Dismiss"
+      >
+        ✕
+      </button>
+    </div>
   );
 }

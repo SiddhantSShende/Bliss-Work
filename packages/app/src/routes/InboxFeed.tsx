@@ -90,6 +90,24 @@ export function InboxFeed() {
         markedRef.current.delete(thread.refId);
       });
     });
+
+    // Same for TASK rows: they have no seq model, so hit the inbox mark-read
+    // endpoint (unread_count reset). The optimistic patch above already cleared
+    // the pills; this persists it so the next inboxPeers refetch doesn't
+    // resurrect the count.
+    const tasks = allItems.filter(
+      (it) =>
+        it.itemKind === "TASK" &&
+        it.peerUserId === peerId &&
+        it.unreadCount > 0 &&
+        !markedRef.current.has(it.refId),
+    );
+    tasks.forEach((task) => {
+      markedRef.current.add(task.refId);
+      void api.readInboxItem("TASK", task.refId).catch(() => {
+        markedRef.current.delete(task.refId);
+      });
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [peerId, allItems.length]);
 

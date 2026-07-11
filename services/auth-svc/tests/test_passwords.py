@@ -3,7 +3,7 @@
 Guards the invariants that let us raise Argon2 cost in prod safely:
   * hash/verify round-trips; wrong password and malformed hash -> False
   * dummy_verify() never raises (constant-time enumeration defence)
-  * password policy (>=8 chars + 1 special)
+  * password policy (>=10 chars + letter + digit + special, not blocklisted)
   * a hash made with LOW params still verifies under the current (higher-cost)
     hasher — argon2 reads params from the stored hash, so raising cost never
     locks out existing users.
@@ -42,15 +42,27 @@ def test_dummy_verify_never_raises():
 @pytest.mark.parametrize(
     "candidate,ok",
     [
-        ("short!", False),       # too short
-        ("aaaaaaaa", False),     # long enough, no special char
-        ("aaaaaaa!", True),      # 8 chars + special
-        ("Str0ng#Pass", True),
+        ("short!1", False),       # too short (<10)
+        ("aaaaaaa!1", False),     # 9 chars — one short even with the class mix
+        ("aaaaaaaaaa", False),    # 10 letters, no digit, no special
+        ("abcdefghij1", False),   # 11 chars, letter+digit, NO special
+        ("abcdefghij!", False),   # 11 chars, letter+special, NO digit
+        ("1234567890!", False),   # digit+special, NO letter
+        ("Abcd12345!", True),     # 10 chars, letter+digit+special
+        ("Str0ng#Pass1", True),   # comfortably compliant
+        ("password1!", False),    # meets the class rule but is blocklisted
+        ("BlissWork1!", False),   # blocklisted app-name variant
         ("", False),
     ],
 )
 def test_password_policy(candidate, ok):
     assert pw.password_meets_policy(candidate) is ok
+
+
+def test_policy_blocklist_is_case_insensitive():
+    # Blocklist matches on lowercase, so any casing of a listed password fails.
+    assert pw.password_meets_policy("PASSWORD1!") is False
+    assert pw.password_meets_policy("Password1!") is False
 
 
 def test_low_param_hash_still_verifies():

@@ -19,6 +19,9 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from .config import settings
+from .logging_config import log
+
 
 def _user_or_ip(request: Request) -> str:
     """Bucket key: authed user if we have one, else source IP. Falls back to
@@ -40,6 +43,13 @@ limiter = Limiter(
     # logic — which is also why the Go services apply per-route budgets.
     default_limits=["120/minute"],
     headers_enabled=True,  # adds X-RateLimit-{Limit,Remaining,Reset}
+    # Redis storage makes the limit honest across pods; falls back to REDIS_URL
+    # (so just setting that one var makes BOTH this limiter and the sensitive
+    # middleware distributed), then to in-process "memory://" (per-pod).
+    # swallow_errors keeps the service up (fails OPEN on a Redis blip) rather
+    # than 500-ing every request when the store is unreachable.
+    storage_uri=settings.slowapi_storage_uri or settings.redis_url or "memory://",
+    swallow_errors=True,
 )
 
 
@@ -72,6 +82,14 @@ _SENSITIVE_LIMITS: dict[tuple[str, str], tuple[int, int]] = {
     ("POST", "/auth/login"): (10, 60),
     ("POST", "/auth/orgs"): (5, 60),
     ("POST", "/auth/refresh"): (30, 60),
+    # Email-secret flows: tight per-IP budgets so an attacker can't spray reset
+    # links / grind reset tokens / spam verification resends. Per-account abuse
+    # is separately bounded by single-use short-TTL tokens + prior-token
+    # invalidation (see routes/account_service.py).
+    ("POST", "/auth/password/forgot"): (3, 60),
+    ("POST", "/auth/password/reset"): (5, 60),
+    ("POST", "/auth/email/resend"): (3, 60),
+    ("POST", "/auth/email/verify"): (10, 60),
 }
 
 _MAX_BUCKETS = 100_000  # bound memory under an IP-rotating flood
@@ -79,11 +97,30 @@ _MAX_WINDOW = 60
 
 
 class SensitiveRateLimitMiddleware(BaseHTTPMiddleware):
-    """Per-IP fixed-window limiter for the most abuse-prone auth endpoints."""
+    """Per-IP fixed-window limiter for the most abuse-prone auth endpoints.
+
+    Redis-backed when REDIS_URL/SLOWAPI_STORAGE_URI is set (honest across pods);
+    otherwise an in-process dict (per-pod). On any Redis error we fall back to
+    the in-process path so a Redis blip degrades to per-pod limiting rather than
+    failing fully open."""
 
     def __init__(self, app) -> None:
         super().__init__(app)
         self._buckets: dict[tuple[str, str, str], tuple[int, float]] = {}
+        self._redis = None
+        uri = settings.redis_url or settings.slowapi_storage_uri
+        if uri.startswith(("redis://", "rediss://")):
+            try:
+                import redis.asyncio as aioredis
+
+                # Short timeouts: a slow/unreachable Redis must not pin the auth
+                # hot path — we time out and fall back to the in-process limiter.
+                self._redis = aioredis.from_url(
+                    uri, socket_timeout=0.25, socket_connect_timeout=0.25
+                )
+            except Exception as exc:  # noqa: BLE001 - fall back to in-process
+                log.warning("ratelimit_redis_init_failed", error=str(exc))
+                self._redis = None
 
     async def dispatch(self, request: Request, call_next):
         rule = _SENSITIVE_LIMITS.get((request.method, request.url.path))
@@ -91,18 +128,9 @@ class SensitiveRateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         limit, window = rule
         ip = get_remote_address(request)
-        now = time.monotonic()
-        key = (request.method, request.url.path, ip)
-        count, start = self._buckets.get(key, (0, now))
-        if now - start >= window:  # window elapsed: reset
-            count, start = 0, now
-        count += 1
-        self._buckets[key] = (count, start)
-        if len(self._buckets) > _MAX_BUCKETS:
-            self._purge_expired(now)
-        if count > limit:
+        allowed, retry_after = await self._check(request.method, request.url.path, ip, limit, window)
+        if not allowed:
             rid = request.headers.get("x-request-id") or ""
-            retry_after = max(1, int(window - (now - start)))
             response = JSONResponse(
                 status_code=429,
                 content={
@@ -113,6 +141,41 @@ class SensitiveRateLimitMiddleware(BaseHTTPMiddleware):
             response.headers["X-Request-Id"] = rid
             return response
         return await call_next(request)
+
+    async def _check(self, method: str, path: str, ip: str, limit: int, window: int) -> tuple[bool, int]:
+        """Return (allowed, retry_after_seconds)."""
+        if self._redis is not None:
+            try:
+                key = f"authrl:{method}:{path}:{ip}"
+                count = await self._redis.incr(key)
+                if count == 1:
+                    await self._redis.expire(key, window)
+                    ttl = window
+                else:
+                    ttl = await self._redis.ttl(key)
+                    if ttl < 0:  # missing TTL (shouldn't happen) — re-arm it
+                        await self._redis.expire(key, window)
+                        ttl = window
+                if count > limit:
+                    return False, max(1, int(ttl))
+                return True, 0
+            except Exception as exc:  # noqa: BLE001 - degrade to in-process
+                log.warning("ratelimit_redis_error", error=str(exc))
+        return self._check_inprocess(method, path, ip, limit, window)
+
+    def _check_inprocess(self, method: str, path: str, ip: str, limit: int, window: int) -> tuple[bool, int]:
+        now = time.monotonic()
+        key = (method, path, ip)
+        count, start = self._buckets.get(key, (0, now))
+        if now - start >= window:  # window elapsed: reset
+            count, start = 0, now
+        count += 1
+        self._buckets[key] = (count, start)
+        if len(self._buckets) > _MAX_BUCKETS:
+            self._purge_expired(now)
+        if count > limit:
+            return False, max(1, int(window - (now - start)))
+        return True, 0
 
     def _purge_expired(self, now: float) -> None:
         stale = [k for k, (_, start) in self._buckets.items() if now - start >= _MAX_WINDOW]

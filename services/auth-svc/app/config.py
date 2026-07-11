@@ -30,6 +30,31 @@ class Settings(BaseSettings):
     # Public URLs
     web_origin: str = "http://localhost:5173"
     invite_base_url: str = "http://localhost:5173/invite"
+    # Base URLs for the emailed password-reset and email-verification links.
+    # These MUST point at the WEB app (browser), not the desktop app — the
+    # emailed link opens in a browser. `?token=<raw>` is appended.
+    reset_password_url: str = "http://localhost:5173/reset-password"
+    verify_email_url: str = "http://localhost:5173/verify-email"
+
+    # Single-use email-token TTLs. Reset is short (an emailed secret that grants
+    # a password change); verification is longer (lower-risk, higher-latency).
+    reset_token_ttl_minutes: int = 30
+    email_verify_ttl_hours: int = 48
+
+    # Login hardening. After `login_max_failed_attempts` bad passwords an account
+    # is locked for `lockout_minutes` (throttles password-spraying that rotates
+    # IPs, which per-IP rate limits don't catch). require_email_verification, when
+    # true, blocks login until the email is confirmed (default off so a brand-new
+    # org admin and pre-existing prod users are never locked out on rollout).
+    login_max_failed_attempts: int = 8
+    lockout_minutes: int = 15
+    require_email_verification: bool = False
+
+    # Redis for distributed rate limiting (honest across pods). Empty = in-process
+    # fallback (per-pod, fails open). slowapi_storage_uri overrides redis_url for
+    # the slowapi limiter specifically; usually set both to the same redis:// URL.
+    redis_url: str = ""
+    slowapi_storage_uri: str = ""
 
     # Refresh-cookie security. `secure` MUST be True in production so the cookie
     # is only sent over TLS; driven by env (COOKIE_SECURE) so a prod deploy flips

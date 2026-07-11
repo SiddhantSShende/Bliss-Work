@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { CheckCheck, Bell } from "lucide-react";
 import { EmptyState } from "@taskboard/ui";
@@ -17,6 +18,18 @@ export function NotificationsPanel({
 }) {
   const { api } = useRuntime();
   const qc = useQueryClient();
+
+  // Auto-mark everything read when the panel opens — "seeing" the inbox counts
+  // as reading it, so the bell badge (AppShell counts !read) clears on open.
+  // The per-item "Mark read" button stays for parity. Best-effort + idempotent.
+  useEffect(() => {
+    if (!open || !notifications.some((n) => !n.read)) return;
+    void api.readAllNotifications().catch(() => {});
+    qc.setQueryData<NotificationDTO[]>(qk.notifications, (prev) =>
+      (prev ?? []).map((n) => (n.read ? n : { ...n, read: true })),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const markRead = async (id: string) => {
     await api.markNotificationRead(id).catch(() => {});

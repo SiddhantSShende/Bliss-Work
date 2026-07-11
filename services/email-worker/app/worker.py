@@ -1,10 +1,11 @@
-"""email-worker: consume auth.events, send invite emails via SMTP.
+"""email-worker: consume auth.events, send transactional emails via SMTP.
 
 Kafka consumer (no web server, no port) backed by email-worker's OWN database
-(emaildb) for durable, exactly-once-ish dedup. Filters type == "invite.created"
-and emails the invitee. Dedup is the same DB-backed ``email_consumed`` table the
-relay consumer uses — a 'sent' row keyed by (eventId, inviteId) survives
-restarts, so a redelivered event after a crash is NOT re-sent.
+(emaildb) for durable, exactly-once-ish dedup. Handles invite.created,
+password.reset.requested and email.verification.requested and emails the user.
+Dedup is the same DB-backed ``email_consumed`` table the relay consumer uses — a
+'sent' row keyed by (eventId, recipientKey) survives restarts, so a redelivered
+event after a crash is NOT re-sent.
 
 Offsets are committed manually (enable_auto_commit=False) only AFTER a
 successful send + dedup-row write, so the offset can never advance past an
@@ -25,10 +26,19 @@ from opentelemetry.trace import SpanKind
 from .config import Settings, load_settings
 from .logging_setup import configure_logging, get_logger
 from .mailer import Mailer, is_valid_email
-from .templates import render_invite_email
+from .templates import (
+    render_email_verification_email,
+    render_invite_email,
+    render_password_reset_email,
+)
 from .tracing import extract_context, inject_headers, setup_tracing
 
 INVITE_CREATED = "invite.created"
+PASSWORD_RESET_REQUESTED = "password.reset.requested"
+EMAIL_VERIFICATION_REQUESTED = "email.verification.requested"
+_HANDLED_TYPES = frozenset(
+    {INVITE_CREATED, PASSWORD_RESET_REQUESTED, EMAIL_VERIFICATION_REQUESTED}
+)
 
 _tracer = trace.get_tracer(__name__)
 
@@ -158,12 +168,13 @@ class EmailWorker:
         if not isinstance(event, dict):
             return True
 
-        if event.get("type") != INVITE_CREATED:
+        event_type = event.get("type")
+        if event_type not in _HANDLED_TYPES:
             return True
 
         event_id = event.get("eventId")
         if not event_id:
-            self._log.warning("missing_event_id_skipped", type=event.get("type"))
+            self._log.warning("missing_event_id_skipped", type=event_type)
             return True
 
         # Durable dedup: a 'sent' row keyed by this event already means done.
@@ -172,7 +183,12 @@ class EmailWorker:
             return True
 
         try:
-            await self._send_invite(event)
+            if event_type == INVITE_CREATED:
+                await self._send_invite(event)
+            elif event_type == PASSWORD_RESET_REQUESTED:
+                await self._send_password_reset(event)
+            else:  # EMAIL_VERIFICATION_REQUESTED
+                await self._send_email_verification(event)
         except Exception as exc:  # noqa: BLE001 - poison-message handling below
             return await self._on_failure(str(event_id), event, str(exc))
 
@@ -237,6 +253,76 @@ class EmailWorker:
             org_name=org_name,
         )
 
+    async def _send_password_reset(self, event: dict) -> None:
+        """Send the password-reset email and write the durable dedup row.
+        Raises on a transient SMTP failure (must NOT commit the offset)."""
+        email = event.get("email")
+        reset_url = event.get("resetUrl", "")
+        expires_at = event.get("expiresAt", "")
+        event_id = event.get("eventId")
+        user_id = event.get("userId")
+
+        if not email or not reset_url:
+            self._log.warning(
+                "incomplete_reset_skipped",
+                event_id=event_id,
+                has_email=bool(email),
+                has_url=bool(reset_url),
+            )
+            await self._mark_sent(str(event_id), user_id)
+            return
+        if not is_valid_email(str(email)):
+            self._log.warning("reset_invalid_email_skipped", event_id=event_id, to=email)
+            await self._mark_sent(str(event_id), user_id)
+            return
+
+        text_body, html_body = render_password_reset_email(
+            reset_url=reset_url, expires_at=expires_at
+        )
+        await self._mailer.send(
+            to=email,
+            subject="Reset your BlissWork password",
+            text_body=text_body,
+            html_body=html_body,
+        )
+        await self._mark_sent(str(event_id), user_id)
+        self._log.info("password_reset_email_sent", event_id=event_id, to=email)
+
+    async def _send_email_verification(self, event: dict) -> None:
+        """Send the email-verification email and write the durable dedup row.
+        Raises on a transient SMTP failure (must NOT commit the offset)."""
+        email = event.get("email")
+        verify_url = event.get("verifyUrl", "")
+        expires_at = event.get("expiresAt", "")
+        event_id = event.get("eventId")
+        user_id = event.get("userId")
+
+        if not email or not verify_url:
+            self._log.warning(
+                "incomplete_verification_skipped",
+                event_id=event_id,
+                has_email=bool(email),
+                has_url=bool(verify_url),
+            )
+            await self._mark_sent(str(event_id), user_id)
+            return
+        if not is_valid_email(str(email)):
+            self._log.warning("verification_invalid_email_skipped", event_id=event_id, to=email)
+            await self._mark_sent(str(event_id), user_id)
+            return
+
+        text_body, html_body = render_email_verification_email(
+            verify_url=verify_url, expires_at=expires_at
+        )
+        await self._mailer.send(
+            to=email,
+            subject="Verify your BlissWork email",
+            text_body=text_body,
+            html_body=html_body,
+        )
+        await self._mark_sent(str(event_id), user_id)
+        self._log.info("verification_email_sent", event_id=event_id, to=email)
+
     async def _on_failure(self, event_id: str, event: dict, error: str) -> bool:
         """Count consecutive failures; route poison messages to the DLQ.
 
@@ -292,13 +378,13 @@ class EmailWorker:
             )
             return row is not None
 
-    async def _mark_sent(self, event_id: str, invite_id) -> None:
+    async def _mark_sent(self, event_id: str, recipient_key=None) -> None:
         assert self._db is not None
-        # email_consumed.recipient_id is uuid NOT NULL; invites have no separate
-        # recipient uuid, so key the row on inviteId (a uuid), falling back to
-        # eventId (also a uuid) for the rare event missing one. _already_sent
-        # queries by event_id alone, so either choice dedups correctly.
-        recipient_id = invite_id or event_id
+        # email_consumed.recipient_id is uuid NOT NULL. These events carry no
+        # dedicated recipient uuid, so key the row on a per-event uuid — inviteId
+        # for invites, userId for reset/verify — falling back to eventId (also a
+        # uuid). _already_sent queries by event_id alone, so any choice dedups.
+        recipient_id = recipient_key or event_id
         async with self._db.acquire() as conn:
             await conn.execute(
                 """

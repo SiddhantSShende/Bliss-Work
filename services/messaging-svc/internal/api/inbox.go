@@ -1,6 +1,7 @@
 package api
 
 import (
+	"math"
 	"net/http"
 	"strconv"
 
@@ -77,6 +78,40 @@ func (s *Server) ignoreInboxItem(w http.ResponseWriter, r *http.Request) {
 		// the canonical IGNORE transition. The projector will overwrite our
 		// hidden_for_owner when task.ignored arrives anyway.
 		if err := s.store.MarkInboxItemHidden(r.Context(), claims.OrgID, claims.UserID, "TASK", refID); err != nil {
+			s.mapErr(w, err)
+			return
+		}
+	default:
+		writeErr(w, http.StatusBadRequest, "kind must be THREAD or TASK")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// markInboxItemRead serves POST /api/v1/inbox/items/{kind}/{refId}/read.
+//
+// Marks a unified-inbox row "seen" when the user opens it. THREAD rows have a
+// seq-based read model, so we delegate to MarkReadThread (advances last_read_seq,
+// stamps receipts, emits MessageRead) with an unbounded upToSeq meaning "read
+// everything I can see". TASK rows have no seq — "seen" is a straight
+// unread_count reset via MarkInboxItemRead. This is the path that finally clears
+// the task-inbox badge, which was seeded unread_count=1 with no way to clear it.
+func (s *Server) markInboxItemRead(w http.ResponseWriter, r *http.Request) {
+	claims, _ := auth.FromContext(r.Context())
+	kind := chi.URLParam(r, "kind")
+	refID := chi.URLParam(r, "refId")
+	if !validUUID(refID) {
+		writeErr(w, http.StatusBadRequest, "invalid refId")
+		return
+	}
+	switch kind {
+	case "THREAD":
+		if err := s.store.MarkReadThread(r.Context(), claims.OrgID, claims.UserID, refID, math.MaxInt64); err != nil {
+			s.mapErr(w, err)
+			return
+		}
+	case "TASK":
+		if err := s.store.MarkInboxItemRead(r.Context(), claims.OrgID, claims.UserID, "TASK", refID); err != nil {
 			s.mapErr(w, err)
 			return
 		}

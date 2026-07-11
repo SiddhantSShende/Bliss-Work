@@ -174,6 +174,42 @@ export class ApiClient {
     return this.req<void>(this.cfg.authBase, "/auth/logout", { method: "POST" });
   }
 
+  // ── password reset + email verification ─────────────────────────────────────
+  /** Request a reset link. Always resolves the same way (generic 202) whether or
+   *  not the email matched — the UI must not reveal account existence. */
+  requestPasswordReset(body: { email: string }) {
+    return this.req<void>(this.cfg.authBase, "/auth/password/forgot", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+  /** Cheap validity probe for the reset landing page (does not consume the token). */
+  verifyResetToken(token: string) {
+    return this.req(
+      this.cfg.authBase,
+      `/auth/password/reset/verify?token=${encodeURIComponent(token)}`,
+      {},
+      z.object({ valid: z.boolean() }),
+    );
+  }
+  resetPassword(body: { token: string; password: string }) {
+    return this.req<void>(this.cfg.authBase, "/auth/password/reset", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+  /** Confirm an email address from the emailed verification link (public). */
+  verifyEmail(token: string) {
+    return this.req<void>(this.cfg.authBase, "/auth/email/verify", {
+      method: "POST",
+      body: JSON.stringify({ token }),
+    });
+  }
+  /** Re-send the verification link for the authenticated caller's own email. */
+  resendVerification() {
+    return this.req<void>(this.cfg.authBase, "/auth/email/resend", { method: "POST" });
+  }
+
   // ── messaging ─────────────────────────────────────────────────────────────────
   conversations() {
     return this.req(this.cfg.messagingBase, "/api/v1/conversations", {}, z.array(ConversationDTO));
@@ -297,6 +333,17 @@ export class ApiClient {
       method: "POST",
       body: JSON.stringify({ upToSeq }),
     });
+  }
+  /** Mark a unified-inbox row "seen" when it's opened. TASK rows have no seq
+   *  model, so this is the only path that clears their unread badge (THREAD is
+   *  routed server-side to the seq-based read). Idempotent + best-effort. */
+  readInboxItem(kind: "TASK" | "THREAD", refId: string) {
+    // Naturally idempotent (unread → 0); mirrors readThread which sends no key.
+    return this.req<void>(
+      this.cfg.messagingBase,
+      `/api/v1/inbox/items/${kind}/${refId}/read`,
+      { method: "POST" },
+    );
   }
 
   // ── tasks ──────────────────────────────────────────────────────────────────────
@@ -434,6 +481,13 @@ export class ApiClient {
   }
   markNotificationRead(id: string) {
     return this.req<void>(this.cfg.notificationBase, `/api/v1/notifications/${id}/read`, {
+      method: "POST",
+    });
+  }
+  /** Mark every unread notification read in one call — used to auto-clear the
+   *  bell when the notifications panel is opened. Idempotent + best-effort. */
+  readAllNotifications() {
+    return this.req<void>(this.cfg.notificationBase, "/api/v1/notifications/read-all", {
       method: "POST",
     });
   }

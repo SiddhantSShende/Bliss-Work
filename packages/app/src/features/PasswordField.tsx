@@ -29,7 +29,7 @@ export function PasswordField({
           placeholder="••••••••"
           className="pr-10"
           required
-          minLength={8}
+          minLength={10}
           aria-invalid={value.length > 0 && !check.ok}
         />
         <button
@@ -60,7 +60,9 @@ export function PasswordField({
 
           {showRequirements && (
             <ul className="flex flex-col gap-0.5 text-[12px]">
-              <Req ok={check.minLen}>At least 8 characters</Req>
+              <Req ok={check.minLen}>At least 10 characters</Req>
+              <Req ok={check.letter}>One letter</Req>
+              <Req ok={check.digit}>One number</Req>
               <Req ok={check.special}>One special character (!@#$…)</Req>
             </ul>
           )}

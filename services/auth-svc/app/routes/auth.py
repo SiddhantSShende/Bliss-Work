@@ -1,10 +1,14 @@
 """Auth + session + directory endpoints."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncConnection
 
 from .. import service
+from ..config import settings
 from ..crypto import cryptor
 from ..db import engine
 from ..events.outbox import TOPIC_AUTH, build_event, enqueue_event
@@ -26,9 +30,32 @@ from ..security.passwords import (
     password_meets_policy,
     verify_password,
 )
+from .account_service import create_email_verification_tx
 from .cookies import REFRESH_COOKIE, clear_refresh_cookie, set_refresh_cookie
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+async def _register_failed_login(conn: AsyncConnection, row) -> int:
+    """Bump a user's failed-login counter; lock the account once it reaches
+    `login_max_failed_attempts`. Returns the lockout duration in seconds if it
+    just locked, else 0. The caller must let the transaction COMMIT (raise the
+    auth error AFTER the `engine.begin()` block) so the increment persists."""
+    new_count = int(row.failed_login_count) + 1
+    if new_count >= settings.login_max_failed_attempts:
+        await conn.execute(
+            text(
+                "UPDATE users SET failed_login_count = 0, "
+                "locked_until = now() + make_interval(mins => :m) WHERE id = :id"
+            ),
+            {"m": settings.lockout_minutes, "id": str(row.id)},
+        )
+        return settings.lockout_minutes * 60
+    await conn.execute(
+        text("UPDATE users SET failed_login_count = :c WHERE id = :id"),
+        {"c": new_count, "id": str(row.id)},
+    )
+    return 0
 
 
 @router.post(
@@ -73,8 +100,8 @@ async def create_org(body: CreateOrgRequest, response: Response) -> SessionDTO:
         await conn.execute(
             text(
                 """
-                INSERT INTO users (id, org_id, email_enc, email_bidx, username, password_hash, display_name_enc)
-                VALUES (:id, :org, :email_enc, :email_bidx, :username, :ph, :dn_enc)
+                INSERT INTO users (id, org_id, email_enc, email_bidx, username, password_hash, display_name_enc, email_verified)
+                VALUES (:id, :org, :email_enc, :email_bidx, :username, :ph, :dn_enc, false)
                 """
             ),
             {
@@ -112,6 +139,12 @@ async def create_org(body: CreateOrgRequest, response: Response) -> SessionDTO:
             conn, org_id=org_id, actor_id=user_id, action="org.created", target=org_id
         )
 
+        # Send the email-verification link. The admin still gets a session below
+        # (never locked out on signup — an in-app banner prompts verification);
+        # this runs in the same org-scoped tx so the token + outbox row are
+        # atomic with the user insert.
+        await create_email_verification_tx(conn, user_id, org_id, str(body.email))
+
         session, raw_refresh = await service.build_session(conn, user_id)
 
     set_refresh_cookie(response, raw_refresh)
@@ -122,6 +155,14 @@ async def create_org(body: CreateOrgRequest, response: Response) -> SessionDTO:
 @router.post("/login", response_model=SessionDTO, dependencies=[Depends(enforce_origin)])
 async def login(body: LoginRequest, response: Response) -> SessionDTO:
     generic = HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid credentials")
+    now = datetime.now(timezone.utc)
+    # Outcome is carried OUT of the transaction: a failed-login increment must be
+    # committed, so we raise the auth error only after `engine.begin()` exits
+    # normally (raising inside would roll the counter back).
+    session: SessionDTO | None = None
+    raw_refresh: str | None = None
+    failed = False
+    locked_secs = 0  # >0 => the account just crossed the lockout threshold
     async with engine.begin() as conn:
         # Pre-org-context: the org is unknown until we resolve the user by the
         # cross-org email blind index, so this trusted lookup runs under bypass.
@@ -131,7 +172,8 @@ async def login(body: LoginRequest, response: Response) -> SessionDTO:
             await conn.execute(
                 text(
                     """
-                    SELECT u.id, u.password_hash, u.status
+                    SELECT u.id, u.password_hash, u.status,
+                           u.failed_login_count, u.locked_until, u.email_verified
                     FROM users u
                     WHERE u.email_bidx = :bidx
                     ORDER BY (u.status = 'active') DESC, u.created_at ASC
@@ -143,13 +185,51 @@ async def login(body: LoginRequest, response: Response) -> SessionDTO:
         ).first()
 
         if row is None:
-            dummy_verify()
+            dummy_verify()  # equalize timing on unknown email; nothing to write
             raise generic
+
+        if row.locked_until is not None and row.locked_until > now:
+            # Account-level lockout is in effect. No write here, so raising
+            # inline is safe. 429 is inherently account-targeted; accepted.
+            retry = max(1, int((row.locked_until - now).total_seconds()))
+            raise HTTPException(
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                "account temporarily locked due to failed logins; try again later",
+                headers={"Retry-After": str(retry)},
+            )
+
         if row.status != "active" or not verify_password(row.password_hash, body.password):
-            raise generic
+            locked_secs = await _register_failed_login(conn, row)
+            failed = True  # commit the increment, then raise below
+        elif settings.require_email_verification and not row.email_verified:
+            # Correct password but unverified and the gate is enabled. Not a
+            # failed attempt (don't count it); block with a clear message.
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "please verify your email address before signing in",
+            )
+        else:
+            if row.failed_login_count or row.locked_until is not None:
+                await conn.execute(
+                    text(
+                        "UPDATE users SET failed_login_count = 0, locked_until = NULL "
+                        "WHERE id = :id"
+                    ),
+                    {"id": str(row.id)},
+                )
+            session, raw_refresh = await service.build_session(conn, str(row.id))
+    # Transaction committed. Any persisted failed-login increment is durable now.
 
-        session, raw_refresh = await service.build_session(conn, str(row.id))
+    if failed:
+        if locked_secs > 0:
+            raise HTTPException(
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                "account temporarily locked due to failed logins; try again later",
+                headers={"Retry-After": str(locked_secs)},
+            )
+        raise generic
 
+    assert session is not None and raw_refresh is not None
     set_refresh_cookie(response, raw_refresh)
     log.info("login_ok", user_id=session.user.id)
     return session
