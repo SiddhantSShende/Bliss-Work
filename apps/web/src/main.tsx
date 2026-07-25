@@ -18,6 +18,21 @@ if (typeof caches !== "undefined")
     .then((ks) => ks.forEach((k) => caches.delete(k)))
     .catch(() => {});
 
+// Self-heal stale lazy chunks after a deploy. If the browser had the app open
+// (or a cached index.html) referencing an OLD hashed chunk that a new deploy
+// removed, a dynamic import() 404s — e.g. the lazily-loaded xlsx export. Vite
+// raises `vite:preloadError`; reload ONCE to fetch the fresh index.html + chunk
+// hashes. A short sessionStorage guard prevents a reload loop when the chunk is
+// genuinely unreachable (offline) rather than merely rotated.
+window.addEventListener("vite:preloadError", (event) => {
+  const now = Date.now();
+  const last = Number(sessionStorage.getItem("tb:chunk-reload") ?? 0);
+  if (now - last < 10_000) return; // just reloaded — don't loop
+  sessionStorage.setItem("tb:chunk-reload", String(now));
+  event.preventDefault(); // suppress the unhandled error; we're recovering
+  window.location.reload();
+});
+
 const env = import.meta.env;
 
 // In a PRODUCTION build the service URLs MUST be supplied at build time — the
