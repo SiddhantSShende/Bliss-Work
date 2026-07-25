@@ -7,7 +7,12 @@ import { z } from "zod";
 import {
   ChannelDTO,
   ChannelMessageDTO,
+  ConnectStartDTO,
   ConversationDTO,
+  ForwardActivityDTO,
+  ForwardEdgeDTO,
+  IntegrationConnectionDTO,
+  ProviderActivityDTO,
   InboxPageDTO,
   InboxPeerDTO,
   InviteDTO,
@@ -31,6 +36,7 @@ export interface ApiConfig {
   authBase: string; // e.g. http://localhost:8001
   taskBase: string; // e.g. http://localhost:8002
   messagingBase: string; // e.g. http://localhost:8004
+  integrationsBase: string; // external integrations svc, e.g. http://localhost:8005
   notificationBase: string; // notifications are served by task/notification svc
   presenceBase: string; // ws-gateway HTTP, e.g. http://localhost:8090
   getToken: () => string | null | Promise<string | null>;
@@ -343,6 +349,91 @@ export class ApiClient {
       method: "POST",
       headers: { "idempotency-key": uuid() },
     });
+  }
+  /** Forward a message to another Bliss-Work user. The recipient receives it as a
+   *  normal message; the ORIGINAL author is notified live (message.forwarded) and
+   *  can see it in the forwarding-activity tree. Idempotent on clientMsgId. */
+  forwardMessage(messageId: string, recipientId: string, clientMsgId?: string) {
+    return this.req(
+      this.cfg.messagingBase,
+      `/api/v1/messages/${messageId}/forward`,
+      { method: "POST", body: JSON.stringify({ recipientId, clientMsgId: clientMsgId ?? uuid() }) },
+      z.object({
+        conversationId: z.string(),
+        threadId: z.string(),
+        messageId: z.string(),
+        seq: z.number(),
+      }),
+    );
+  }
+  /** Forward a message OUT to a contact on a connected external platform (Slack
+   *  channel, WhatsApp number, …). Records the forward + notifies the original
+   *  author, same as an in-app forward, with the platform tagged. */
+  forwardMessageExternal(messageId: string, connectionId: string, target: string, clientMsgId?: string) {
+    return this.req(
+      this.cfg.messagingBase,
+      `/api/v1/messages/${messageId}/forward-external`,
+      { method: "POST", body: JSON.stringify({ connectionId, target, clientMsgId: clientMsgId ?? uuid() }) },
+      z.object({ status: z.string(), externalId: z.string().optional(), platform: z.string() }),
+    );
+  }
+  /** The downstream forward tree of a message the caller authored — every hop,
+   *  ordered by depth. Empty when the message was never forwarded. */
+  messageForwards(messageId: string) {
+    return this.req(
+      this.cfg.messagingBase,
+      `/api/v1/messages/${messageId}/forwards`,
+      {},
+      z.array(ForwardEdgeDTO),
+    );
+  }
+  /** The caller's originals that have been forwarded, newest first — the
+   *  "who forwarded my messages" feed for the Integrations section. */
+  myForwardActivity() {
+    return this.req(
+      this.cfg.messagingBase,
+      "/api/v1/forwards/activity",
+      {},
+      z.array(ForwardActivityDTO),
+    );
+  }
+
+  // ── External Integrations (integrations-svc) ─────────────────────────────
+  /** Connected external accounts for the caller/org. Never returns tokens. */
+  integrations() {
+    return this.req(
+      this.cfg.integrationsBase,
+      "/api/v1/integrations",
+      {},
+      z.array(IntegrationConnectionDTO),
+    );
+  }
+  /** Start connecting a provider. Token-paste providers (Slack/WhatsApp) accept
+   *  their credentials in `credentials` and return the created connection; OAuth
+   *  providers (Gmail/Outlook/Teams) ignore it and return an authorizeUrl to
+   *  redirect to. */
+  connectIntegration(provider: string, credentials: Record<string, unknown> = {}) {
+    return this.req(
+      this.cfg.integrationsBase,
+      `/api/v1/integrations/${provider}/connect/start`,
+      { method: "POST", body: JSON.stringify(credentials) },
+      ConnectStartDTO,
+    );
+  }
+  /** Disconnect + revoke a connection (purges its stored tokens). Idempotent. */
+  disconnectIntegration(id: string) {
+    return this.req<void>(this.cfg.integrationsBase, `/api/v1/integrations/${id}`, {
+      method: "DELETE",
+    });
+  }
+  /** Unified hub activity timeline (inbound + outbound), newest first. */
+  integrationActivity() {
+    return this.req(
+      this.cfg.integrationsBase,
+      "/api/v1/integrations/activity",
+      {},
+      z.array(ProviderActivityDTO),
+    );
   }
   readThread(threadId: string, upToSeq: number) {
     return this.req<void>(this.cfg.messagingBase, `/api/v1/threads/${threadId}/read`, {

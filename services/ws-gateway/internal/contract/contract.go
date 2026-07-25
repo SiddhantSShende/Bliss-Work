@@ -6,6 +6,7 @@ var FanoutTopics = []string{
 	"messaging.events.v1",
 	"task.events.v1",
 	"notification.events.v1",
+	"integration.events.v1",
 }
 
 // Event is the partially-parsed envelope used for routing. Only the fields the
@@ -25,6 +26,11 @@ type Event struct {
 	ThreadID        string   `json:"threadId"`
 	ParentMessageID string   `json:"parentMessageId"`
 	DismissedBy     string   `json:"dismissedBy"`
+
+	// Forward tracking
+	ForwardedBy  string `json:"forwardedBy"`
+	ForwardedTo  string `json:"forwardedTo"`
+	RootAuthorID string `json:"rootAuthorId"`
 
 	// Task
 	AssigneeID string `json:"assigneeId"`
@@ -52,11 +58,19 @@ func (e *Event) RecipientsOf() []string {
 	case "message.dismissed":
 		// Multi-device sync for the sender who dismissed.
 		return dedupe([]string{e.DismissedBy})
+	case "message.forwarded":
+		// C receives the forward (internal only), B's other devices sync, and —
+		// the whole point — the ORIGINAL author learns B→C. ForwardedTo is empty
+		// for outbound-to-external forwards; dedupe drops the empty entry.
+		return dedupe([]string{e.ForwardedTo, e.ForwardedBy, e.RootAuthorID})
 	case "task.assigned":
 		return dedupe([]string{e.AssigneeID})
 	case "task.acknowledged", "task.completed", "task.ignored", "task.left", "task.reviewed":
 		return dedupe([]string{e.SenderID, e.AssigneeID})
 	case "notification.created":
+		return dedupe([]string{e.RecipientID})
+	case "integration.activity.created":
+		// Live hub push to the account owner/connector.
 		return dedupe([]string{e.RecipientID})
 	default:
 		// user.created / invite.created and anything unknown are internal-only.
@@ -71,6 +85,7 @@ var NoDeliveryAckFor = map[string]struct{}{
 	"message.delivered":      {},
 	"message.read":           {},
 	"message.dismissed":      {},
+	"message.forwarded":      {},
 	"conversation.ignored":   {},
 	"conversation.blocked":   {},
 	"conversation.unblocked": {},

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { X, MessageSquare, ChevronLeft, Phone, Video, Ban } from "lucide-react";
@@ -9,6 +9,7 @@ import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
 import { ChatThread } from "../features/ChatThread";
+import { ForwardDialog } from "../features/ForwardDialog";
 import { useChatTyping } from "../lib/useChatTyping";
 import { useCall } from "../lib/useCall";
 
@@ -33,6 +34,11 @@ export function DMView() {
 
   const { peerTyping, onType, stop: stopTyping } = useChatTyping(conversationId, conv?.peerId);
   const call = useCall();
+
+  // The message currently being forwarded (null = dialog closed). Forwarding is an
+  // enterprise-plan feature (server-enforced); gate the UI action to match.
+  const [forwardMsg, setForwardMsg] = useState<{ id: string; body: string } | null>(null);
+  const isEnterprise = me.plan === "enterprise";
 
   useEffect(() => {
     const maxSeq = messages.reduce((m, x) => Math.max(m, x.seq), 0);
@@ -169,6 +175,20 @@ export function DMView() {
               ? "You have been blocked."
               : undefined
         }
+        onForward={
+          isEnterprise
+            ? (id) => {
+                const msg = messages.find((m) => m.id === id);
+                setForwardMsg({ id, body: msg?.body ?? "" });
+              }
+            : undefined
+        }
+      />
+      <ForwardDialog
+        open={!!forwardMsg}
+        onClose={() => setForwardMsg(null)}
+        sourceMessageId={forwardMsg?.id ?? null}
+        preview={forwardMsg?.body}
       />
     </div>
   );

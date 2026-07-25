@@ -102,8 +102,9 @@ async def user_dto(conn: AsyncConnection, user_id: str) -> UserDTO | None:
     row = (
         await conn.execute(
             text(
-                "SELECT id, org_id, username, display_name_enc, email_enc, email_verified "
-                "FROM users WHERE id = :id"
+                "SELECT u.id, u.org_id, u.username, u.display_name_enc, u.email_enc, "
+                "       u.email_verified, o.plan "
+                "FROM users u JOIN orgs o ON o.id = u.org_id WHERE u.id = :id"
             ),
             {"id": user_id},
         )
@@ -126,6 +127,7 @@ async def user_dto(conn: AsyncConnection, user_id: str) -> UserDTO | None:
         email=email or "",
         roles=roles,  # type: ignore[arg-type]
         emailVerified=bool(row.email_verified),
+        plan=row.plan or "free",
     )
 
 
@@ -176,7 +178,7 @@ async def build_session(
     if dto is None:
         raise RuntimeError("user not found while building session")
     token, ttl = mint_access_token(
-        user_id=dto.id, org_id=dto.orgId, roles=list(dto.roles), username=dto.username
+        user_id=dto.id, org_id=dto.orgId, roles=list(dto.roles), username=dto.username, plan=dto.plan
     )
     family_id = new_uuid()
     raw_refresh = await issue_refresh_token(conn, user_id=user_id, family_id=family_id)
@@ -242,7 +244,7 @@ async def rotate_refresh_token(
     if dto is None:
         raise ValueError("user not found")
     token, ttl = mint_access_token(
-        user_id=dto.id, org_id=dto.orgId, roles=list(dto.roles), username=dto.username
+        user_id=dto.id, org_id=dto.orgId, roles=list(dto.roles), username=dto.username, plan=dto.plan
     )
     return SessionDTO(accessToken=token, user=dto, expiresIn=ttl), new_raw
 

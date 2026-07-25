@@ -53,6 +53,11 @@ export function AppShell() {
             ? "chats"
             : null;
 
+  // Integrations is a full-width utility page (no list pane), so it stays out of
+  // `section` above (which drives the pane + mobile logic). It IS a rail item,
+  // though, so derive a highlight-only key for the Rail so its icon activates.
+  const railSection = loc.pathname.startsWith("/app/integrations") ? "integrations" : section;
+
   // On phones we only have room for ONE pane. A path with a third segment
   // (/app/chats/:id, /app/tasks/:view) is a "detail" → show the main content;
   // a bare section index (/app/chats, /app/members) → show the list pane.
@@ -74,7 +79,7 @@ export function AppShell() {
       <TopNavbar unread={unread} onOpenNotifs={() => setNotifOpen(true)} />
 
       <div className="flex min-h-0 flex-1 gap-2 overflow-hidden p-2">
-        <Rail section={section} variant="side" className="hidden md:flex" badges={railBadges} />
+        <Rail section={railSection} variant="side" className="hidden md:flex" badges={railBadges} />
         {section && (
           <aside
             className={`glass min-h-0 w-full shrink-0 flex-col overflow-hidden rounded-2xl md:my-0 md:w-80 lg:w-96 ${
@@ -98,7 +103,7 @@ export function AppShell() {
       </div>
 
       {/* Phone-only bottom tab bar; the side rail above handles md+. */}
-      <Rail section={section} variant="bottom" className="mx-2 mb-2 md:hidden" badges={railBadges} />
+      <Rail section={railSection} variant="bottom" className="mx-2 mb-2 md:hidden" badges={railBadges} />
 
       <NotificationsPanel
         open={notifOpen}

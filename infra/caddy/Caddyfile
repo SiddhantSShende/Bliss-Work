@@ -71,6 +71,14 @@
 	handle_path /api/messaging/* {
 		reverse_proxy messaging-svc:8004
 	}
+	handle_path /api/integrations/* {
+		reverse_proxy integrations-svc:8005
+	}
+	# Public inbound webhooks + OAuth callbacks for external integrations. NOT under
+	# /internal/ (which is 404'd), and provider-signature authenticated upstream.
+	handle /ext/* {
+		reverse_proxy integrations-svc:8005
+	}
 
 	# JWKS must be reachable at a stable public path for any external verifier.
 	handle /.well-known/jwks.json {

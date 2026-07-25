@@ -26,6 +26,7 @@ const validUser: UserDTO = {
   displayName: "Alice",
   email: "alice@acme.com",
   roles: ["member"],
+  plan: "free",
 };
 
 const validSession: SessionDTO = {

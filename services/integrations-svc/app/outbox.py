@@ -1,0 +1,143 @@
+from __future__ import annotations
+
+import asyncio
+import json
+
+from aiokafka import AIOKafkaProducer
+from opentelemetry import trace
+from opentelemetry.trace import SpanKind
+from sqlalchemy import text
+
+from .config import settings
+from .db import session, set_bypass_rls
+from .logging_setup import log
+from .tracing import inject_headers
+
+_tracer = trace.get_tracer(__name__)
+
+_POLL_INTERVAL = 0.5  # seconds
+_BACKOFF_CAP = 30.0  # seconds — max wait between retries after a publish failure
+
+
+class OutboxPoller:
+    """In-process transactional-outbox publisher.
+
+    Loops every ~500ms, selects unpublished rows, produces each payload to its
+    topic with its key, then marks the row published. This is the ONLY path
+    that emits events to Kafka.
+    """
+
+    def __init__(self) -> None:
+        self._producer: AIOKafkaProducer | None = None
+        self._task: asyncio.Task | None = None
+        self._stop = asyncio.Event()
+
+    async def start(self) -> None:
+        self._producer = AIOKafkaProducer(
+            bootstrap_servers=settings.kafka_brokers,
+            enable_idempotence=True,
+            acks="all",
+            value_serializer=lambda v: json.dumps(v).encode("utf-8"),
+            key_serializer=lambda k: k.encode("utf-8") if k is not None else None,
+        )
+        await self._producer.start()
+        self._stop.clear()
+        self._task = asyncio.create_task(self._run(), name="outbox-poller")
+        log.info("outbox_poller_started")
+
+    async def stop(self) -> None:
+        self._stop.set()
+        if self._task is not None:
+            try:
+                await asyncio.wait_for(self._task, timeout=5.0)
+            except asyncio.TimeoutError:
+                self._task.cancel()
+        if self._producer is not None:
+            await self._producer.stop()
+        log.info("outbox_poller_stopped")
+
+    async def _run(self) -> None:
+        # Backoff grows on consecutive Kafka publish failures (capped) so a
+        # broker outage doesn't hammer it every 0.5s; resets on any success.
+        backoff = _POLL_INTERVAL
+        while not self._stop.is_set():
+            try:
+                published = await self._drain_once()
+                backoff = _POLL_INTERVAL
+                if published == 0:
+                    await asyncio.wait_for(self._stop.wait(), timeout=_POLL_INTERVAL)
+            except asyncio.TimeoutError:
+                continue
+            except Exception:  # noqa: BLE001 — keep the poller alive
+                log.exception("outbox_poll_error", backoff=backoff)
+                try:
+                    await asyncio.wait_for(self._stop.wait(), timeout=backoff)
+                except asyncio.TimeoutError:
+                    pass
+                backoff = min(backoff * 2, _BACKOFF_CAP)
+
+    async def _drain_once(self) -> int:
+        assert self._producer is not None
+        async with session() as db:
+            # Cross-org background worker. The outbox table itself carries no
+            # org_id (not RLS-protected), but we bypass RLS for this trusted
+            # transaction so the poller drains every org's events and stays
+            # correct if it ever has to touch an org-scoped table. Set FIRST.
+            await set_bypass_rls(db)
+            rows = (
+                await db.execute(
+                    text(
+                        "SELECT id, topic, kafka_key, payload FROM outbox "
+                        "WHERE published_at IS NULL ORDER BY created_at LIMIT 100"
+                    )
+                )
+            ).all()
+
+            if not rows:
+                return 0
+
+            published_ids: list[str] = []
+            send_failed = False
+            for row in rows:
+                payload = row.payload
+                if isinstance(payload, str):
+                    payload = json.loads(payload)
+                try:
+                    # PRODUCER span: inject the current trace context as W3C
+                    # traceparent Kafka headers so the consumer continues the
+                    # trace. No-op (global no-op tracer) when tracing is off.
+                    with _tracer.start_as_current_span(
+                        f"{row.topic} send", kind=SpanKind.PRODUCER
+                    ):
+                        await self._producer.send_and_wait(
+                            row.topic,
+                            value=payload,
+                            key=row.kafka_key,
+                            headers=inject_headers(),
+                        )
+                except Exception:  # noqa: BLE001 — publish failure must not lose the row
+                    # Do NOT mark this row published — leave published_at NULL so
+                    # it's retried on the next drain. Stop draining the rest of
+                    # the batch in order to preserve per-key ordering.
+                    log.exception("outbox_publish_failed", outbox_id=str(row.id))
+                    send_failed = True
+                    break
+                # Only record as published AFTER a successful send_and_wait.
+                published_ids.append(str(row.id))
+
+            if published_ids:
+                await db.execute(
+                    text("UPDATE outbox SET published_at = now() WHERE id = ANY(:ids)"),
+                    {"ids": published_ids},
+                )
+                await db.commit()
+                log.info("outbox_published", count=len(published_ids))
+
+            if send_failed:
+                # Surface to _run so it applies exponential backoff before the
+                # next attempt; the already-published rows above are durable.
+                raise RuntimeError("outbox publish failed; backing off")
+            return len(published_ids)
+
+
+poller = OutboxPoller()

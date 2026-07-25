@@ -8,6 +8,7 @@ import {
   type ConversationDTO,
   type MessageDTO,
   type ChannelMessageDTO,
+  type UserDTO,
   actionsFor,
 } from "@taskboard/shared";
 import { useRuntime } from "./runtime";
@@ -49,6 +50,16 @@ export const qk = {
   inboxPeerFeed: (peerId: string) => ["inboxPeerFeed", peerId] as const,
   thread: (id: string) => ["thread", id] as const,
   threadMessages: (id: string) => ["threadMessages", id] as const,
+  /** Forward-tracking: the downstream forward tree of one original message. The
+   *  bare ["forwardActivity"] prefix is the "my originals that got forwarded" list. */
+  forwardActivity: (rootMessageId: string) => ["forwardActivity", rootMessageId] as const,
+  /** "Who forwarded my messages" feed. Kept under the ["forwardActivity"] prefix
+   *  so the message.forwarded handler's prefix-invalidation refreshes it too. */
+  forwardActivityFeed: ["forwardActivity", "feed"] as const,
+  /** Connected external accounts (integrations-svc). */
+  integrations: ["integrations"] as const,
+  /** Unified hub activity timeline (inbound + outbound external messages). */
+  integrationActivity: ["integrationActivity"] as const,
   inboxPins: ["inboxPins"] as const,
   /** Task ids pinned to the desktop (Electron-only; empty on web). */
   taskPins: ["taskPins"] as const,
@@ -143,6 +154,28 @@ export function WsEventBridge() {
         case EventType.MessageDismissed: {
           patchOnDismissed(qc, e);
           refreshInboxSidebars(qc);
+          break;
+        }
+        case EventType.MessageForwarded: {
+          // The message the recipient actually receives rides its own
+          // MessageCreated (handled above). This event exists ONLY to tell the
+          // ORIGINAL author their message was forwarded — so react solely when
+          // I am the root author and someone else did the forwarding.
+          if (e.rootAuthorId === me && e.forwardedBy !== me) {
+            const dir = qc.getQueryData<UserDTO[]>(qk.directory) ?? [];
+            const nameOf = (id?: string) =>
+              dir.find((u) => u.id === id)?.displayName ?? "someone";
+            const to = e.forwardedTo
+              ? nameOf(e.forwardedTo)
+              : e.forwardedToExternal ?? "someone";
+            const via = e.platform === "blisswork" ? "" : ` via ${e.platform}`;
+            toast(`Your message was forwarded to ${to}`, {
+              description: `${nameOf(e.forwardedBy)} forwarded "${e.bodyPreview}"${via}`,
+            });
+            // Refresh this original's tree + the "my forwarding activity" list.
+            void qc.invalidateQueries({ queryKey: qk.forwardActivity(e.rootMessageId) });
+            void qc.invalidateQueries({ queryKey: ["forwardActivity"] });
+          }
           break;
         }
         case EventType.ChannelMessageCreated: {
@@ -247,6 +280,15 @@ export function WsEventBridge() {
         }
         case EventType.NotificationCreated: {
           if (e.recipientId === me) void qc.invalidateQueries({ queryKey: qk.notifications });
+          break;
+        }
+        case EventType.IntegrationActivityCreated: {
+          // New inbound/outbound activity on a connected account → refresh the hub
+          // feed live, and toast inbound messages (signal-only; body is refetched).
+          if (e.recipientId === me) {
+            void qc.invalidateQueries({ queryKey: qk.integrationActivity });
+            if (e.direction === "inbound") toast(`New ${e.provider} message`);
+          }
           break;
         }
         // ── Live presence ────────────────────────────────────────────────────

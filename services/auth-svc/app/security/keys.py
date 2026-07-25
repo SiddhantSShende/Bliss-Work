@@ -95,7 +95,7 @@ def jwks() -> dict[str, Any]:
 
 
 def mint_access_token(
-    *, user_id: str, org_id: str, roles: list[str], username: str
+    *, user_id: str, org_id: str, roles: list[str], username: str, plan: str = "free"
 ) -> tuple[str, int]:
     """Return (signed JWT, expires_in_seconds)."""
     now = int(time.time())
@@ -105,6 +105,8 @@ def mint_access_token(
         "org_id": org_id,
         "roles": roles,
         "username": username,
+        # Org plan entitlement — services gate enterprise-only features on this.
+        "plan": plan,
         "jti": str(uuid.uuid4()),
         "iss": settings.jwt_issuer,
         "iat": now,

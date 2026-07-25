@@ -67,6 +67,9 @@ class UserDTO(BaseModel):
     email: str
     roles: list[Role]
     emailVerified: bool = True
+    # Org subscription plan (entitlements). 'enterprise' unlocks External
+    # Integrations + message forward-tracking. Defaults 'free' for older rows.
+    plan: str = "free"
 
 
 class MessageResponse(BaseModel):

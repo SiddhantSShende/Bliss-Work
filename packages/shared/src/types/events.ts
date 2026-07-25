@@ -8,6 +8,7 @@ export const Topics = {
   Messaging: "messaging.events.v1", // key = conversationId
   Task: "task.events.v1", // key = taskId
   Notification: "notification.events.v1", // key = recipientId
+  Integration: "integration.events.v1", // key = recipientId (external-integration hub activity)
   Auth: "auth.events", // key = userId
 } as const;
 export type TopicName = (typeof Topics)[keyof typeof Topics];
@@ -21,6 +22,7 @@ export const EventType = {
   MessageRead: "message.read",
   MessageDelivered: "message.delivered",
   MessageDismissed: "message.dismissed",
+  MessageForwarded: "message.forwarded",
   ChannelMessageCreated: "channel.message.created",
   TaskAssigned: "task.assigned",
   TaskAcknowledged: "task.acknowledged",
@@ -29,6 +31,7 @@ export const EventType = {
   TaskLeft: "task.left",
   TaskReviewed: "task.reviewed",
   NotificationCreated: "notification.created",
+  IntegrationActivityCreated: "integration.activity.created",
   PresenceOnline: "presence.online",
   PresenceOffline: "presence.offline",
   PresenceSnapshot: "presence.snapshot",
@@ -144,6 +147,48 @@ export const MessageDismissed = z.object({
   dismissedBy: z.string().uuid(),
 });
 
+/**
+ * MessageForwarded records one hop in Bliss-Work's internal-relay forward
+ * tracking. When B forwards A's message to C, the message C actually receives
+ * rides its OWN co-emitted MessageCreated (which owns the delivery/read acks and
+ * the chat/inbox UX). This event is the separate PROVENANCE signal whose whole
+ * purpose is to reach the ORIGINAL author A — so A learns "B forwarded my
+ * message to C at <time> via <platform>". Routed to [forwardedTo, forwardedBy,
+ * rootAuthorId]; `rootAuthorId` is embedded so the gateway routes to A with no
+ * DB lookup (same trick as ConversationIgnored.members).
+ *
+ * Outbound-to-external forward (platform != 'blisswork'): there is no Bliss-Work
+ * clone, so `forwardedMessageId`/`threadId`/`seq` are absent and `forwardedTo`
+ * is replaced by `forwardedToExternal` (the external handle). Native re-forwards
+ * downstream of an external platform are invisible to us and never appear here.
+ */
+export const MessageForwarded = z.object({
+  type: z.literal(EventType.MessageForwarded),
+  ...envelope,
+  conversationId: z.string().uuid(),
+  /** A's original message — the root of the whole forward tree. */
+  rootMessageId: z.string().uuid(),
+  /** A — embedded so the gateway can route to the original author lookup-free. */
+  rootAuthorId: z.string().uuid(),
+  /** The upstream message that was forwarded (= rootMessageId on hop 1). */
+  parentMessageId: z.string().uuid(),
+  /** B — who performed the forward. */
+  forwardedBy: z.string().uuid(),
+  /** C — the Bliss-Work recipient (internal forward). Absent when external. */
+  forwardedTo: z.string().uuid().optional(),
+  /** External handle (phone/email/channel) when platform != 'blisswork'. */
+  forwardedToExternal: z.string().optional(),
+  platform: z.string(),
+  /** Hop number (1 = the author's message forwarded once). */
+  depth: z.number().int().positive(),
+  /** Truncated body so A's toast can show what was forwarded. */
+  bodyPreview: z.string(),
+  /** The cloned message delivered to C (internal forward only). */
+  forwardedMessageId: z.string().uuid().optional(),
+  threadId: z.string().uuid().optional(),
+  seq: z.number().int().nonnegative().optional(),
+});
+
 export const ChannelMessageCreated = z.object({
   type: z.literal(EventType.ChannelMessageCreated),
   ...envelope,
@@ -217,6 +262,23 @@ export const NotificationCreated = z.object({
   kind: z.enum(["TASK_ACKNOWLEDGED", "TASK_COMPLETED", "TASK_IGNORED", "TASK_LEFT"]),
   text: z.string(),
   taskId: z.string().uuid().optional(),
+});
+
+/**
+ * IntegrationActivityCreated is the live-hub signal: new inbound/outbound activity
+ * (a Slack/WhatsApp message, etc.) landed on a connected account. Signal-only —
+ * the PII (peer/body) is never on the event; the client refetches the hub feed.
+ * Routed to [recipientId] = the user who owns/connected the account.
+ */
+export const IntegrationActivityCreated = z.object({
+  type: z.literal(EventType.IntegrationActivityCreated),
+  ...envelope,
+  recipientId: z.string().uuid(),
+  activityId: z.string().uuid(),
+  connectionId: z.string().uuid(),
+  provider: z.string(),
+  kind: z.string(), // 'message' | 'call' | 'email'
+  direction: z.string(), // 'inbound' | 'outbound'
 });
 
 // ── Presence events (ephemeral; never persisted to the replay outbox) ─────────
@@ -300,6 +362,7 @@ export const ServerEvent = z.discriminatedUnion("type", [
   MessageRead,
   MessageDelivered,
   MessageDismissed,
+  MessageForwarded,
   ChannelMessageCreated,
   TaskAssigned,
   TaskAcknowledged,
@@ -308,6 +371,7 @@ export const ServerEvent = z.discriminatedUnion("type", [
   TaskLeft,
   TaskReviewed,
   NotificationCreated,
+  IntegrationActivityCreated,
   PresenceOnline,
   PresenceOffline,
   PresenceSnapshot,
@@ -323,6 +387,7 @@ export const DomainEvent = z.discriminatedUnion("type", [
   MessageRead,
   MessageDelivered,
   MessageDismissed,
+  MessageForwarded,
   ChannelMessageCreated,
   TaskAssigned,
   TaskAcknowledged,
@@ -331,6 +396,7 @@ export const DomainEvent = z.discriminatedUnion("type", [
   TaskLeft,
   TaskReviewed,
   NotificationCreated,
+  IntegrationActivityCreated,
   UserCreated,
   InviteCreated,
   PasswordResetRequested,
@@ -345,6 +411,7 @@ export type ConversationUnblocked = z.infer<typeof ConversationUnblocked>;
 export type MessageRead = z.infer<typeof MessageRead>;
 export type MessageDelivered = z.infer<typeof MessageDelivered>;
 export type MessageDismissed = z.infer<typeof MessageDismissed>;
+export type MessageForwarded = z.infer<typeof MessageForwarded>;
 export type ChannelMessageCreated = z.infer<typeof ChannelMessageCreated>;
 export type TaskAssigned = z.infer<typeof TaskAssigned>;
 export type TaskAcknowledged = z.infer<typeof TaskAcknowledged>;
@@ -353,6 +420,7 @@ export type TaskIgnored = z.infer<typeof TaskIgnored>;
 export type TaskLeft = z.infer<typeof TaskLeft>;
 export type TaskReviewed = z.infer<typeof TaskReviewed>;
 export type NotificationCreated = z.infer<typeof NotificationCreated>;
+export type IntegrationActivityCreated = z.infer<typeof IntegrationActivityCreated>;
 export type PresenceOnline = z.infer<typeof PresenceOnline>;
 export type PresenceOffline = z.infer<typeof PresenceOffline>;
 export type PresenceSnapshot = z.infer<typeof PresenceSnapshot>;
@@ -550,6 +618,13 @@ export function recipientsOf(e: DomainEvent): string[] {
     case EventType.MessageDismissed:
       // Multi-device sync for the sender who dismissed; never to the peer.
       return [e.dismissedBy];
+    case EventType.MessageForwarded:
+      // C receives the forward (internal only), B's other devices sync, and —
+      // the whole point — the ORIGINAL author learns B→C. forwardedTo is absent
+      // for outbound-to-external forwards, so drop falsy entries.
+      return [e.forwardedTo, e.forwardedBy, e.rootAuthorId].filter(
+        (x): x is string => !!x,
+      );
     case EventType.ChannelMessageCreated:
       return e.members;
     case EventType.TaskAssigned:
@@ -565,6 +640,8 @@ export function recipientsOf(e: DomainEvent): string[] {
       // Assignee sees the review land live; sender's other devices sync.
       return [e.senderId, e.assigneeId];
     case EventType.NotificationCreated:
+      return [e.recipientId];
+    case EventType.IntegrationActivityCreated:
       return [e.recipientId];
     case EventType.UserCreated:
     case EventType.InviteCreated:
@@ -586,6 +663,9 @@ export const NO_DELIVERY_ACK_FOR = new Set<string>([
   EventType.MessageDelivered,
   EventType.MessageRead,
   EventType.MessageDismissed,
+  // Provenance-only — the real message to C rides its own message.created, which
+  // owns delivery/read acks. Acking the forward event would double-count.
+  EventType.MessageForwarded,
   EventType.ConversationIgnored,
   EventType.ConversationBlocked,
   EventType.ConversationUnblocked,

@@ -47,6 +47,8 @@ export interface PlatformConfig {
   taskBase: string;
   notificationBase: string;
   messagingBase: string;
+  /** External Integrations service (OAuth/webhooks/provider connections). */
+  integrationsBase: string;
   wsUrl: string;
   /** "browser" for web, "hash" for the Electron file:// renderer. */
   router: "browser" | "hash";

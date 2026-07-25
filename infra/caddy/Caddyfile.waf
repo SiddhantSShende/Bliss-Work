@@ -98,6 +98,17 @@
 		handle_path /api/messaging/* {
 			reverse_proxy messaging-svc:8004
 		}
+		handle_path /api/integrations/* {
+			reverse_proxy integrations-svc:8005
+		}
+		# Public inbound webhooks + OAuth callbacks for external integrations. NOT
+		# under /internal/ (404'd) and provider-signature authenticated upstream.
+		# NOTE: signed/base64 provider payloads can trip OWASP CRS — if you see 403s
+		# on /ext/*, add a scoped ctl:ruleRemoveById exclusion in
+		# infra/caddy/coraza/rules/*.conf keyed on REQUEST_URI "^/ext/".
+		handle /ext/* {
+			reverse_proxy integrations-svc:8005
+		}
 
 		# 6) JWKS at a stable public path for any external verifier.
 		handle /.well-known/jwks.json {

@@ -446,6 +446,23 @@ services:
       resources:
         limits: { cpus: "1.00", memory: 384M }
 
+  integrations-svc:
+    <<: *svc-defaults
+    build: ./services/integrations-svc
+    image: task-board/integrations-svc:${IMAGE_TAG:-latest}
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
+      auth-svc: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8005/readyz').status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    deploy:
+      resources:
+        limits: { cpus: "1.00", memory: 384M }
+
   ws-gateway:
     <<: *svc-defaults
     build: ./services/ws-gateway

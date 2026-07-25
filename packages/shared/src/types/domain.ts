@@ -15,6 +15,9 @@ export const UserDTO = z.object({
   /** Whether the user has confirmed their email. Optional for forward-compat
    *  with pre-verification responses; UI treats only `=== false` as unverified. */
   emailVerified: z.boolean().optional(),
+  /** Org subscription plan (entitlements). 'enterprise' unlocks External
+   *  Integrations + forward-tracking. Defaults 'free' for older responses. */
+  plan: z.string().default("free"),
 });
 export type UserDTO = z.infer<typeof UserDTO>;
 
@@ -63,6 +66,84 @@ export const MessageDTO = z.object({
   dismissedBySender: z.boolean().optional(),
 });
 export type MessageDTO = z.infer<typeof MessageDTO>;
+
+/**
+ * One hop of a forward chain, returned by GET /messages/{id}/forwards. The
+ * ORIGINAL author renders these as the downstream forward tree: who forwarded
+ * their message, to whom, on which platform, and when. `parentMessageId` + `depth`
+ * reconstruct the tree. `forwardedTo` is set for internal (Bliss-Work) recipients;
+ * `forwardedToExternal` for outbound-to-external forwards.
+ */
+export const ForwardEdgeDTO = z.object({
+  id: z.string().uuid(),
+  rootMessageId: z.string().uuid(),
+  rootAuthorId: z.string().uuid(),
+  parentMessageId: z.string().uuid(),
+  forwardedMessageId: z.string().uuid().nullable().optional(),
+  forwardedBy: z.string().uuid(),
+  forwardedTo: z.string().uuid().nullable().optional(),
+  forwardedToExternal: z.string().nullable().optional(),
+  platform: z.string(),
+  depth: z.number().int().positive(),
+  createdAt: z.string(),
+});
+export type ForwardEdgeDTO = z.infer<typeof ForwardEdgeDTO>;
+
+/** One of the caller's original messages that has been forwarded — the row shown
+ *  in the "who forwarded my messages" feed. Expand a row to fetch its full tree
+ *  (ForwardEdgeDTO[]) via GET /messages/{rootMessageId}/forwards. */
+export const ForwardActivityDTO = z.object({
+  rootMessageId: z.string().uuid(),
+  preview: z.string(),
+  forwardCount: z.number().int().nonnegative(),
+  lastForwardedAt: z.string(),
+});
+export type ForwardActivityDTO = z.infer<typeof ForwardActivityDTO>;
+
+// ── External Integrations ────────────────────────────────────────────────────
+export const IntegrationProvider = z.enum(["slack", "whatsapp", "gmail", "outlook", "teams"]);
+export type IntegrationProvider = z.infer<typeof IntegrationProvider>;
+
+export const IntegrationStatus = z.enum(["pending", "connected", "error", "revoked"]);
+export type IntegrationStatus = z.infer<typeof IntegrationStatus>;
+
+/** A connected external account. NEVER carries tokens — those stay encrypted
+ *  server-side and are never serialized to the client. */
+export const IntegrationConnectionDTO = z.object({
+  id: z.string().uuid(),
+  provider: z.string(),
+  status: IntegrationStatus,
+  /** 'user' = per-user account (Gmail); 'org' = workspace-wide (Slack bot). */
+  scopeKind: z.enum(["user", "org"]),
+  displayLabel: z.string(),
+  scopes: z.array(z.string()),
+  lastError: z.string().nullable().optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type IntegrationConnectionDTO = z.infer<typeof IntegrationConnectionDTO>;
+
+/** Result of starting a connect flow. OAuth providers return an authorizeUrl to
+ *  redirect the user to; token-paste providers return the created connection. */
+export const ConnectStartDTO = z.object({
+  authorizeUrl: z.string().nullable().optional(),
+  connection: IntegrationConnectionDTO.nullable().optional(),
+});
+export type ConnectStartDTO = z.infer<typeof ConnectStartDTO>;
+
+/** One row of the unified hub activity timeline (inbound + outbound messages
+ *  across connected accounts). peer/body are decrypted server-side for display. */
+export const ProviderActivityDTO = z.object({
+  id: z.string().uuid(),
+  provider: z.string(),
+  direction: z.enum(["inbound", "outbound"]),
+  kind: z.string(),
+  peer: z.string(),
+  body: z.string(),
+  status: z.string().nullable().optional(),
+  occurredAt: z.string(),
+});
+export type ProviderActivityDTO = z.infer<typeof ProviderActivityDTO>;
 
 /**
  * @deprecated In the Inbox model use InboxItemDTO + ThreadDTO. ConversationDTO

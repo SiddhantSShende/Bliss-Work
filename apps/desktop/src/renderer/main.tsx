@@ -39,6 +39,7 @@ const PROD_ENDPOINTS = {
   taskBase: "https://communication.rnrtechs.com/api/tasks",
   notificationBase: "https://communication.rnrtechs.com/api/notifications",
   messagingBase: "https://communication.rnrtechs.com/api/messaging",
+  integrationsBase: "https://communication.rnrtechs.com/api/integrations",
   wsUrl: "wss://communication.rnrtechs.com/ws",
 };
 const DEV_ENDPOINTS = {
@@ -46,6 +47,7 @@ const DEV_ENDPOINTS = {
   taskBase: "http://localhost:8002",
   notificationBase: "http://localhost:8003",
   messagingBase: "http://localhost:8004",
+  integrationsBase: "http://localhost:8005",
   wsUrl: "ws://localhost:8090/ws",
 };
 const ENDPOINTS = env.DEV ? DEV_ENDPOINTS : PROD_ENDPOINTS;
@@ -56,6 +58,7 @@ const config: PlatformConfig = {
   taskBase: env.VITE_TASK_BASE ?? ENDPOINTS.taskBase,
   notificationBase: env.VITE_NOTIFICATION_BASE ?? ENDPOINTS.notificationBase,
   messagingBase: env.VITE_MESSAGING_BASE ?? ENDPOINTS.messagingBase,
+  integrationsBase: env.VITE_INTEGRATIONS_BASE ?? ENDPOINTS.integrationsBase,
   wsUrl: env.VITE_WS_URL ?? ENDPOINTS.wsUrl,
   router: "hash",
   pinTask: (taskId) => bridge.pinTask(taskId),

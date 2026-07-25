@@ -23,6 +23,9 @@ type Claims struct {
 	OrgID    string
 	Username string
 	Roles    []string
+	// Plan is the org's subscription plan (entitlements). 'enterprise' unlocks
+	// message forward-tracking. Absent/legacy tokens default to 'free'.
+	Plan string
 }
 
 // Verifier holds a refreshing JWKS cache and validates tokens against it.
@@ -64,6 +67,12 @@ func (v *Verifier) parse(ctx context.Context, raw string) (*Claims, error) {
 	}
 	if un, ok := tok.Get("username"); ok {
 		c.Username, _ = un.(string)
+	}
+	c.Plan = "free"
+	if p, ok := tok.Get("plan"); ok {
+		if s, ok := p.(string); ok && s != "" {
+			c.Plan = s
+		}
 	}
 	if rs, ok := tok.Get("roles"); ok {
 		if arr, ok := rs.([]interface{}); ok {

@@ -29,6 +29,7 @@ const REQUIRED_ENV = [
   "VITE_TASK_BASE",
   "VITE_NOTIFICATION_BASE",
   "VITE_MESSAGING_BASE",
+  "VITE_INTEGRATIONS_BASE",
   "VITE_WS_URL",
 ] as const;
 if (env.PROD) {
@@ -47,6 +48,7 @@ const config: PlatformConfig = {
   taskBase: env.VITE_TASK_BASE ?? "http://localhost:8002",
   notificationBase: env.VITE_NOTIFICATION_BASE ?? "http://localhost:8003",
   messagingBase: env.VITE_MESSAGING_BASE ?? "http://localhost:8004",
+  integrationsBase: env.VITE_INTEGRATIONS_BASE ?? "http://localhost:8005",
   wsUrl: env.VITE_WS_URL ?? "ws://localhost:8090/ws",
   router: "browser",
 };

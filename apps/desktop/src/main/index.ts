@@ -10,6 +10,7 @@ import { flushSync as flushStickyState, initStickyState } from "./sticky-state";
 import { trayIcon } from "./assets";
 import { buildAppMenu } from "./menu";
 import { registerFileSink } from "./file-sink";
+import { initAutoUpdate } from "./updater";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 
@@ -24,6 +25,7 @@ const PROD_ENDPOINTS = {
   taskBase: "https://communication.rnrtechs.com/api/tasks",
   notificationBase: "https://communication.rnrtechs.com/api/notifications",
   messagingBase: "https://communication.rnrtechs.com/api/messaging",
+  integrationsBase: "https://communication.rnrtechs.com/api/integrations",
   wsUrl: "wss://communication.rnrtechs.com/ws",
 };
 const DEV_ENDPOINTS = {
@@ -31,6 +33,7 @@ const DEV_ENDPOINTS = {
   taskBase: "http://localhost:8002",
   notificationBase: "http://localhost:8003",
   messagingBase: "http://localhost:8004",
+  integrationsBase: "http://localhost:8005",
   wsUrl: "ws://localhost:8090/ws",
 };
 const DEFAULT_ENDPOINTS = app.isPackaged ? PROD_ENDPOINTS : DEV_ENDPOINTS;
@@ -39,6 +42,7 @@ const ENDPOINTS = {
   taskBase: process.env.TB_TASK_BASE ?? DEFAULT_ENDPOINTS.taskBase,
   notificationBase: process.env.TB_NOTIFICATION_BASE ?? DEFAULT_ENDPOINTS.notificationBase,
   messagingBase: process.env.TB_MESSAGING_BASE ?? DEFAULT_ENDPOINTS.messagingBase,
+  integrationsBase: process.env.TB_INTEGRATIONS_BASE ?? DEFAULT_ENDPOINTS.integrationsBase,
   wsUrl: process.env.TB_WS_URL ?? DEFAULT_ENDPOINTS.wsUrl,
 };
 
@@ -77,6 +81,8 @@ if (!app.requestSingleInstanceLock()) {
     session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => cb(permission === "media"));
     session.defaultSession.setPermissionCheckHandler((_wc, permission) => permission === "media");
     bootstrap();
+    // Check for a newer release + auto-update (packaged non-Store builds only).
+    initAutoUpdate();
   });
 }
 

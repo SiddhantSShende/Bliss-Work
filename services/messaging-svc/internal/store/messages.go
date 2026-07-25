@@ -69,7 +69,7 @@ func (s *Store) SendMessage(ctx context.Context, orgID, senderID, recipientID, b
 	}
 
 	// Top-level send → new thread, this message is the root.
-	return s.appendMessage(ctx, tx, orgID, convID, senderID, recipientID, body, clientMsgID, "", "")
+	return s.appendMessage(ctx, tx, orgID, convID, senderID, recipientID, body, clientMsgID, "", "", appendOpts{})
 }
 
 // Reply appends a message to an existing conversation; the caller must be a member.
@@ -154,7 +154,7 @@ func (s *Store) replyImpl(ctx context.Context, orgID, senderID, convID, parentMe
 		return nil, err
 	}
 
-	return s.appendMessage(ctx, tx, orgID, convID, senderID, recipientID, body, clientMsgID, parentMessageID, "")
+	return s.appendMessage(ctx, tx, orgID, convID, senderID, recipientID, body, clientMsgID, parentMessageID, "", appendOpts{})
 }
 
 // appendMessage allocates a seq, inserts the message (idempotent), creates or
@@ -172,6 +172,7 @@ func (s *Store) appendMessage(
 	tx pgx.Tx,
 	orgID, convID, senderID, recipientID, body, clientMsgID string,
 	parentMessageID, threadIDHint string,
+	opts appendOpts,
 ) (*SendResult, error) {
 	// Idempotency: include thread_id in the lookup so a per-thread clientMsgId
 	// dedupe matches the new wider UNIQUE constraint. The pre-check is cheaper
@@ -247,10 +248,12 @@ func (s *Store) appendMessage(
 	_, err = tx.Exec(ctx,
 		`INSERT INTO messages
 		   (id, org_id, conversation_id, seq, sender_id, body, body_enc, client_msg_id,
-		    thread_id, parent_message_id, is_thread_root, server_acked_at)
-		 VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8, $9, $10, now())`,
+		    thread_id, parent_message_id, is_thread_root, server_acked_at,
+		    is_forward, forwarded_from_message_id)
+		 VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8, $9, $10, now(), $11, $12)`,
 		msgID, orgID, convID, seq, senderID, bodyEnc, clientMsgID,
-		threadID, parentArg, isThreadRoot)
+		threadID, parentArg, isThreadRoot,
+		opts.isForwardMsg(), opts.forwardedFromArg())
 	if err != nil {
 		return nil, err
 	}
@@ -296,6 +299,48 @@ func (s *Store) appendMessage(
 	}
 	if err := insertOutbox(ctx, tx, events.TopicMessaging, convID, evt); err != nil {
 		return nil, err
+	}
+
+	// Forward provenance — recorded in the SAME tx as the clone, so A can never
+	// observe a forwarded message without its edge, and the ORIGINAL author is
+	// notified live. The clone above already emitted MessageCreated (which owns
+	// the recipient's chat/inbox/badges); this is the separate provenance signal.
+	if f := opts.forward; f != nil {
+		fwdPath := append(append([]string{}, f.path...), msgID) // root..this clone
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO message_forwards
+			   (id, org_id, root_message_id, root_author_id, parent_message_id,
+			    forwarded_message_id, forwarded_by, forwarded_to, forwarded_to_external,
+			    platform, depth, path)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, $9, $10, $11::uuid[])`,
+			uuid.Must(uuid.NewV7()).String(), orgID, f.rootMessageID, f.rootAuthorID,
+			f.parentMessageID, msgID, f.forwardedBy, recipientID, f.platform, f.depth,
+			fwdPath); err != nil {
+			return nil, err
+		}
+
+		fThreadID := threadID
+		fwdEvt := events.MessageForwarded{
+			Type:               events.TypeMessageForwarded,
+			EventID:            uuid.Must(uuid.NewV7()).String(),
+			OrgID:              orgID,
+			OccurredAt:         nowISO(),
+			ConversationID:     convID,
+			RootMessageID:      f.rootMessageID,
+			RootAuthorID:       f.rootAuthorID,
+			ParentMessageID:    f.parentMessageID,
+			ForwardedBy:        f.forwardedBy,
+			ForwardedTo:        recipientID,
+			Platform:           f.platform,
+			Depth:              f.depth,
+			BodyPreview:        preview,
+			ForwardedMessageID: msgID,
+			ThreadID:           &fThreadID,
+			Seq:                seq,
+		}
+		if err := insertOutbox(ctx, tx, events.TopicMessaging, convID, fwdEvt); err != nil {
+			return nil, err
+		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {

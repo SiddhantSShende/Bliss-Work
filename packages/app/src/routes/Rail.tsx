@@ -1,5 +1,6 @@
 import { useNavigate } from "react-router-dom";
-import { Inbox, MessageSquare, ListTodo, Hash, Users } from "lucide-react";
+import { Inbox, MessageSquare, ListTodo, Hash, Users, Plug } from "lucide-react";
+import { useSession } from "../store/session";
 
 const ITEMS = [
   { key: "inbox", label: "Inbox", icon: Inbox, to: "/app/inbox" },
@@ -7,6 +8,9 @@ const ITEMS = [
   { key: "tasks", label: "Tasks", icon: ListTodo, to: "/app/tasks/allocated" },
   { key: "channels", label: "Channels", icon: Hash, to: "/app/channels" },
   { key: "members", label: "Members", icon: Users, to: "/app/members" },
+  // Enterprise-only: External Integrations + forward-tracking. Hidden for other
+  // plans (the server also enforces the gate — this is just UX).
+  { key: "integrations", label: "Integrations", icon: Plug, to: "/app/integrations", requiresEnterprise: true },
 ] as const;
 
 /**
@@ -29,6 +33,8 @@ export function Rail({
 }) {
   const nav = useNavigate();
   const bottom = variant === "bottom";
+  const isEnterprise = useSession((s) => s.user?.plan === "enterprise");
+  const items = ITEMS.filter((it) => !("requiresEnterprise" in it && it.requiresEnterprise) || isEnterprise);
   return (
     <nav
       className={`glass rounded-2xl ${
@@ -37,7 +43,7 @@ export function Rail({
           : "flex w-[84px] shrink-0 flex-col items-center gap-2 py-4"
       } ${className}`}
     >
-      {ITEMS.map((it) => (
+      {items.map((it) => (
         <RailBtn
           key={it.key}
           icon={<it.icon size={20} />}

@@ -183,6 +183,20 @@ services:
       timeout: 5s
       retries: 20
 
+  integrations-svc:
+    <<: *svc-defaults
+    build: ./services/integrations-svc
+    ports: ["127.0.0.1:${INTEGRATIONS_PORT}:8005"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
+      auth-svc: { condition: service_healthy } # warm JWKS cache after the signer is up
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8005/readyz').status==200 else 1)\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
   ws-gateway:
     <<: *svc-defaults
     build: ./services/ws-gateway

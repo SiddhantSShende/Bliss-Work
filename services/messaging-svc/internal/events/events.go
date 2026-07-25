@@ -17,6 +17,7 @@ const (
 	TypeMessageRead           = "message.read"
 	TypeMessageDelivered      = "message.delivered"
 	TypeMessageDismissed      = "message.dismissed"
+	TypeMessageForwarded      = "message.forwarded"
 	TypeUserCreated           = "user.created"
 	TypeChannelMessageCreated = "channel.message.created"
 	TypeChannelMemberJoined   = "channel.member.joined"
@@ -126,6 +127,34 @@ type MessageDismissed struct {
 	ThreadID       *string `json:"threadId,omitempty"`
 	MessageID      string  `json:"messageId"`
 	DismissedBy    string  `json:"dismissedBy"`
+}
+
+// MessageForwarded records one hop of internal-relay forward tracking. When B
+// forwards A's message to C, the message C actually receives rides its own
+// co-emitted MessageCreated (which owns delivery/read acks and the chat/inbox
+// UX). This event is the separate PROVENANCE signal whose purpose is to reach
+// the ORIGINAL author A. RootAuthorID is embedded so the gateway routes to A
+// without a DB lookup. Outbound-to-external forward (Platform != "blisswork"):
+// there is no clone, so ForwardedMessageID/ThreadID/Seq are empty and
+// ForwardedToExternal carries the external handle instead of ForwardedTo.
+type MessageForwarded struct {
+	Type                string  `json:"type"`
+	EventID             string  `json:"eventId"`
+	OrgID               string  `json:"orgId"`
+	OccurredAt          string  `json:"occurredAt"`
+	ConversationID      string  `json:"conversationId"`
+	RootMessageID       string  `json:"rootMessageId"`
+	RootAuthorID        string  `json:"rootAuthorId"`
+	ParentMessageID     string  `json:"parentMessageId"`
+	ForwardedBy         string  `json:"forwardedBy"`
+	ForwardedTo         string  `json:"forwardedTo,omitempty"`
+	ForwardedToExternal string  `json:"forwardedToExternal,omitempty"`
+	Platform            string  `json:"platform"`
+	Depth               int     `json:"depth"`
+	BodyPreview         string  `json:"bodyPreview"`
+	ForwardedMessageID  string  `json:"forwardedMessageId,omitempty"`
+	ThreadID            *string `json:"threadId,omitempty"`
+	Seq                 int64   `json:"seq,omitempty"`
 }
 
 // ChannelMessageCreated is emitted when a new message is appended to a group channel.

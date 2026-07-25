@@ -18,7 +18,7 @@ OUT_DIR="${BACKUP_DIR:-backups}"
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
 mkdir -p "$OUT_DIR"
 
-for db in authdb taskdb messagingdb notificationdb emaildb; do
+for db in authdb taskdb messagingdb notificationdb emaildb integrationsdb; do
   out="$OUT_DIR/${db}-${TS}.sql.enc"
   echo "backing up $db -> $out"
   docker compose exec -T postgres pg_dump -U "$PG_USER" -d "$db" \

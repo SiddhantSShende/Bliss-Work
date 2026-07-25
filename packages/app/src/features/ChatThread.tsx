@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Send, MessageSquare, Ban } from "lucide-react";
+import { Send, MessageSquare, Ban, Forward } from "lucide-react";
 import { Avatar, Button } from "@taskboard/ui";
 import { clock, groupMessages } from "../lib/chatFormat";
 
@@ -25,10 +25,13 @@ export function ChatThread({
   placeholder = "Write a message…",
   disabled = false,
   notice,
+  onForward,
 }: {
   messages: ThreadMessage[];
   meId: string;
   onSend: (text: string) => void;
+  /** When provided, each non-pending bubble shows a hover "Forward" action. */
+  onForward?: (messageId: string) => void;
   /** Called on every local keystroke (drives the typing indicator). */
   onType?: () => void;
   /** True while the peer is typing — renders the animated "…" bubble. */
@@ -114,14 +117,26 @@ export function ChatThread({
                     {!mine && showSenderNames && !grouped && (
                       <div className="mb-0.5 ml-1 text-xs font-medium text-muted">{m.senderName}</div>
                     )}
-                    <div
-                      className={`whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2 text-sm shadow-[0_2px_10px_-4px_rgba(40,30,90,0.25)] ${
-                        mine
-                          ? "rounded-br-md bg-gradient-to-br from-brand-from to-brand-to text-accent-fg"
-                          : "rounded-bl-md bg-surface text-fg ring-1 ring-border/60"
-                      } ${m.pending ? "opacity-60" : ""}`}
-                    >
-                      {m.body}
+                    <div className={`group flex items-center gap-1 ${mine ? "flex-row-reverse" : "flex-row"}`}>
+                      <div
+                        className={`whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2 text-sm shadow-[0_2px_10px_-4px_rgba(40,30,90,0.25)] ${
+                          mine
+                            ? "rounded-br-md bg-gradient-to-br from-brand-from to-brand-to text-accent-fg"
+                            : "rounded-bl-md bg-surface text-fg ring-1 ring-border/60"
+                        } ${m.pending ? "opacity-60" : ""}`}
+                      >
+                        {m.body}
+                      </div>
+                      {onForward && !m.pending && (
+                        <button
+                          onClick={() => onForward(m.id)}
+                          title="Forward"
+                          aria-label="Forward message"
+                          className="shrink-0 rounded-full p-1 text-muted opacity-0 transition-opacity hover:bg-surface-2 hover:text-fg focus-visible:opacity-100 group-hover:opacity-100"
+                        >
+                          <Forward size={13} />
+                        </button>
+                      )}
                     </div>
                     <span className="mt-0.5 px-1 text-[10px] text-muted/70">
                       {m.pending ? "Sending…" : clock(m.at)}

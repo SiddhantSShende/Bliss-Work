@@ -29,6 +29,7 @@ import { Search } from "./routes/Search";
 import { InvitePage } from "./routes/InvitePage";
 import { Profile } from "./routes/Profile";
 import { Settings } from "./routes/Settings";
+import { Integrations } from "./routes/Integrations";
 import { InboxFeed } from "./routes/InboxFeed";
 import { InboxThread } from "./routes/InboxThread";
 import { InboxTask } from "./routes/InboxTask";
@@ -104,6 +105,7 @@ export function App({ config }: { config: PlatformConfig }) {
                     <Route path="invite" element={<InvitePage />} />
                     <Route path="profile" element={<Profile />} />
                     <Route path="settings" element={<Settings />} />
+                    <Route path="integrations" element={<Integrations />} />
                   </Route>
                   <Route path="*" element={<Navigate to="/app" replace />} />
                 </Routes>

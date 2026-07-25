@@ -21,12 +21,14 @@ TASK_PW="${TASK_DB_PASSWORD:-task_dev_pw}"
 MESSAGING_PW="${MESSAGING_DB_PASSWORD:-messaging_dev_pw}"
 NOTIFICATION_PW="${NOTIFICATION_DB_PASSWORD:-notification_dev_pw}"
 EMAIL_PW="${EMAIL_DB_PASSWORD:-email_dev_pw}"
+INTEGRATIONS_PW="${INTEGRATIONS_DB_PASSWORD:-integrations_dev_pw}"
 
 # Create login roles + revoke the implicit PUBLIC CONNECT so only the owner role
 # can reach each database. `:'var'` safely single-quotes the password value.
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres \
   -v auth_pw="$AUTH_PW" -v task_pw="$TASK_PW" -v messaging_pw="$MESSAGING_PW" \
-  -v notification_pw="$NOTIFICATION_PW" -v email_pw="$EMAIL_PW" <<'EOSQL'
+  -v notification_pw="$NOTIFICATION_PW" -v email_pw="$EMAIL_PW" \
+  -v integrations_pw="$INTEGRATIONS_PW" <<'EOSQL'
 DROP ROLE IF EXISTS auth_user;
 CREATE ROLE auth_user LOGIN PASSWORD :'auth_pw';
 REVOKE ALL ON DATABASE authdb FROM PUBLIC;
@@ -51,11 +53,17 @@ DROP ROLE IF EXISTS email_user;
 CREATE ROLE email_user LOGIN PASSWORD :'email_pw';
 REVOKE ALL ON DATABASE emaildb FROM PUBLIC;
 GRANT CONNECT ON DATABASE emaildb TO email_user;
+
+DROP ROLE IF EXISTS integrations_user;
+CREATE ROLE integrations_user LOGIN PASSWORD :'integrations_pw';
+REVOKE ALL ON DATABASE integrationsdb FROM PUBLIC;
+GRANT CONNECT ON DATABASE integrationsdb TO integrations_user;
 EOSQL
 
 # Each role OWNS its own database's public schema (migrations create tables there).
 for pair in "authdb auth_user" "taskdb task_user" "messagingdb messaging_user" \
-            "notificationdb notification_user" "emaildb email_user"; do
+            "notificationdb notification_user" "emaildb email_user" \
+            "integrationsdb integrations_user"; do
   # shellcheck disable=SC2086
   set -- $pair
   psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" -d "$1" \

@@ -49,6 +49,7 @@ DECLARE
         'threads',
         'thread_members',
         'inbox_items',
+        'message_forwards',
         'org_keys',
         'user_projection'
     ];

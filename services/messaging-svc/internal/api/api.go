@@ -122,6 +122,19 @@ func (s *Server) Router(webOrigin string) http.Handler {
 		r.Post("/users/{id}/block", s.block)
 		r.Delete("/users/{id}/block", s.unblock)
 
+		// Forward tracking is an ENTERPRISE-plan feature. Gate all three endpoints
+		// server-side on the `plan` claim (the UI mirrors this, but the server is
+		// the source of truth). Clone-to-another-user is idempotent via
+		// appendMessage's natural clientMsgId, so it stays out of the idempotency
+		// group.
+		r.Group(func(g chi.Router) {
+			g.Use(s.requireEnterprise)
+			g.Post("/messages/{id}/forward", s.forwardMessage)
+			g.Post("/messages/{id}/forward-external", s.forwardExternal)
+			g.Get("/messages/{id}/forwards", s.listForwards)
+			g.Get("/forwards/activity", s.listForwardActivity)
+		})
+
 		r.Post("/channels", s.createChannel)
 		r.Get("/channels", s.listChannels)
 		r.Get("/channels/open", s.listOpenChannels)
@@ -154,6 +167,20 @@ func (s *Server) Router(webOrigin string) http.Handler {
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
+
+// requireEnterprise gates a route group to callers on the enterprise plan. The
+// verifier middleware has already run, so Claims are in context; a missing/other
+// plan is a 403 (canonical error envelope).
+func (s *Server) requireEnterprise(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		claims, ok := auth.FromContext(r.Context())
+		if !ok || claims.Plan != "enterprise" {
+			writeErrR(w, r, http.StatusForbidden, "message forwarding requires the enterprise plan")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
@@ -307,6 +334,65 @@ func (s *Server) reply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, res)
+}
+
+type forwardReq struct {
+	RecipientID string `json:"recipientId"`
+	ClientMsgID string `json:"clientMsgId"`
+}
+
+// forwardMessage forwards the message {id} to another Bliss-Work user, recording
+// provenance so the original author learns about it. Idempotent on clientMsgId.
+func (s *Server) forwardMessage(w http.ResponseWriter, r *http.Request) {
+	claims, _ := auth.FromContext(r.Context())
+	msgID := chi.URLParam(r, "id")
+	if !validUUID(msgID) {
+		writeErr(w, http.StatusBadRequest, "invalid message id")
+		return
+	}
+	var req forwardReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if !validUUID(req.RecipientID) || !validUUID(req.ClientMsgID) {
+		writeErr(w, http.StatusBadRequest, "recipientId, clientMsgId required")
+		return
+	}
+	res, err := s.store.ForwardMessage(r.Context(), claims.OrgID, claims.UserID, msgID, req.RecipientID, req.ClientMsgID)
+	if err != nil {
+		s.mapErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, res)
+}
+
+// listForwards returns the downstream forward tree of message {id}. Only the
+// original author may read it (the store enforces this).
+func (s *Server) listForwards(w http.ResponseWriter, r *http.Request) {
+	claims, _ := auth.FromContext(r.Context())
+	msgID := chi.URLParam(r, "id")
+	if !validUUID(msgID) {
+		writeErr(w, http.StatusBadRequest, "invalid message id")
+		return
+	}
+	edges, err := s.store.ListForwards(r.Context(), claims.OrgID, claims.UserID, msgID)
+	if err != nil {
+		s.mapErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, edges)
+}
+
+// listForwardActivity returns the caller's originals that have been forwarded.
+func (s *Server) listForwardActivity(w http.ResponseWriter, r *http.Request) {
+	claims, _ := auth.FromContext(r.Context())
+	items, err := s.store.ListMyForwardActivity(r.Context(), claims.OrgID, claims.UserID)
+	if err != nil {
+		s.mapErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
 }
 
 func (s *Server) ignore(w http.ResponseWriter, r *http.Request) {

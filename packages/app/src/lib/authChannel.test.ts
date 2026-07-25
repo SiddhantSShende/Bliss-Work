@@ -22,6 +22,7 @@ const user: UserDTO = {
   displayName: "Alice",
   email: "alice@acme.com",
   roles: ["member"],
+  plan: "free",
 };
 const session: SessionDTO = { accessToken: "sib-token", user, expiresIn: 900 };
 

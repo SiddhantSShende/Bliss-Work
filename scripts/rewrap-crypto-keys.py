@@ -56,7 +56,7 @@ NEW_SALT = os.environ["NEW_MASTER_SALT"]
 NEW_BIK = os.environ["NEW_BLIND_INDEX_KEY"]
 
 # DBs holding org_keys. Extend if a new service adds column encryption.
-DBS = os.environ.get("REWRAP_DBS", "authdb,taskdb,messagingdb").split(",")
+DBS = os.environ.get("REWRAP_DBS", "authdb,taskdb,messagingdb,integrationsdb").split(",")
 
 
 def kek(passphrase: str, salt: str) -> bytes:
