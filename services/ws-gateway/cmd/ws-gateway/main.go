@@ -68,6 +68,17 @@ func main() {
 	}
 	pc()
 
+	// Clear stale presence left by the previous (now-dead) gateway instance so
+	// users don't show "online" without a live socket. Safe: this restart dropped
+	// every socket, and reconnecting clients rebuild presence within seconds.
+	purgeCtx, pgc := context.WithTimeout(rootCtx, 5*time.Second)
+	if n, err := st.PurgePresence(purgeCtx); err != nil {
+		log.Warn("presence purge failed at startup", "err", err)
+	} else if n > 0 {
+		log.Info("purged stale presence at startup", "keys", n)
+	}
+	pgc()
+
 	verifier, err := auth.NewVerifier(rootCtx, cfg.JWKSURL, cfg.JWTIssuer)
 	if err != nil {
 		log.Error("jwks verifier init failed", "err", err)

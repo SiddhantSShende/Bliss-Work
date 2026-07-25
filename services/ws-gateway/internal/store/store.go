@@ -112,6 +112,40 @@ func (s *Store) OnlineUserIDs(ctx context.Context, orgID string) ([]string, erro
 	return s.rdb.SMembers(ctx, orgPresenceKey(orgID)).Result()
 }
 
+// PurgePresence deletes every presence:* key. Called ONCE at startup.
+//
+// Presence entries are keyed nodeId:connId and are removed on graceful socket
+// close — but a crash / SIGKILL / container replacement removes nothing, so a
+// restarted gateway leaves the previous node's entries orphaned in Redis, and
+// those users show "online" forever (this is exactly the stale-presence bug).
+//
+// A gateway restart drops EVERY socket, so at startup any presence in Redis is
+// necessarily from a now-dead node; deleting it all is safe and reconnecting
+// clients rebuild it within seconds (they re-add on `hello`, and the 20s client
+// poll reconciles). NOTE: assumes a SINGLE gateway node (this deployment). With
+// multiple live nodes this would wipe their presence too — replace with a
+// node-registry-scoped purge before scaling the gateway horizontally.
+func (s *Store) PurgePresence(ctx context.Context) (int, error) {
+	var cursor uint64
+	total := 0
+	for {
+		keys, next, err := s.rdb.Scan(ctx, cursor, "presence:*", 256).Result()
+		if err != nil {
+			return total, err
+		}
+		if len(keys) > 0 {
+			if err := s.rdb.Del(ctx, keys...).Err(); err != nil {
+				return total, err
+			}
+			total += len(keys)
+		}
+		cursor = next
+		if cursor == 0 {
+			return total, nil
+		}
+	}
+}
+
 // IsOnlineInOrg reports whether userID is currently present in orgID's online
 // set. Used to confine RTC signaling to same-org peers: a destination that is
 // not in the sender's org online set (cross-org, or offline) is treated as
