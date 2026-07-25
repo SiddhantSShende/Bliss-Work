@@ -35,10 +35,9 @@ export function DMView() {
   const { peerTyping, onType, stop: stopTyping } = useChatTyping(conversationId, conv?.peerId);
   const call = useCall();
 
-  // The message currently being forwarded (null = dialog closed). Forwarding is an
-  // enterprise-plan feature (server-enforced); gate the UI action to match.
+  // The message currently being forwarded (null = dialog closed). Forwarding is
+  // available to every org member (each org supplies its own provider credentials).
   const [forwardMsg, setForwardMsg] = useState<{ id: string; body: string } | null>(null);
-  const isEnterprise = me.plan === "enterprise";
 
   useEffect(() => {
     const maxSeq = messages.reduce((m, x) => Math.max(m, x.seq), 0);
@@ -175,14 +174,10 @@ export function DMView() {
               ? "You have been blocked."
               : undefined
         }
-        onForward={
-          isEnterprise
-            ? (id) => {
-                const msg = messages.find((m) => m.id === id);
-                setForwardMsg({ id, body: msg?.body ?? "" });
-              }
-            : undefined
-        }
+        onForward={(id) => {
+          const msg = messages.find((m) => m.id === id);
+          setForwardMsg({ id, body: msg?.body ?? "" });
+        }}
       />
       <ForwardDialog
         open={!!forwardMsg}

@@ -122,18 +122,15 @@ func (s *Server) Router(webOrigin string) http.Handler {
 		r.Post("/users/{id}/block", s.block)
 		r.Delete("/users/{id}/block", s.unblock)
 
-		// Forward tracking is an ENTERPRISE-plan feature. Gate all three endpoints
-		// server-side on the `plan` claim (the UI mirrors this, but the server is
-		// the source of truth). Clone-to-another-user is idempotent via
-		// appendMessage's natural clientMsgId, so it stays out of the idempotency
-		// group.
-		r.Group(func(g chi.Router) {
-			g.Use(s.requireEnterprise)
-			g.Post("/messages/{id}/forward", s.forwardMessage)
-			g.Post("/messages/{id}/forward-external", s.forwardExternal)
-			g.Get("/messages/{id}/forwards", s.listForwards)
-			g.Get("/forwards/activity", s.listForwardActivity)
-		})
+		// Forward tracking is available to every org — each org brings its own
+		// third-party credentials, so it is NOT a Bliss-Work paid tier. Any
+		// authenticated org member may forward. Clone-to-another-user is idempotent
+		// via appendMessage's natural clientMsgId, so it stays out of the
+		// idempotency group.
+		r.Post("/messages/{id}/forward", s.forwardMessage)
+		r.Post("/messages/{id}/forward-external", s.forwardExternal)
+		r.Get("/messages/{id}/forwards", s.listForwards)
+		r.Get("/forwards/activity", s.listForwardActivity)
 
 		r.Post("/channels", s.createChannel)
 		r.Get("/channels", s.listChannels)
@@ -167,20 +164,6 @@ func (s *Server) Router(webOrigin string) http.Handler {
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
-
-// requireEnterprise gates a route group to callers on the enterprise plan. The
-// verifier middleware has already run, so Claims are in context; a missing/other
-// plan is a 403 (canonical error envelope).
-func (s *Server) requireEnterprise(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		claims, ok := auth.FromContext(r.Context())
-		if !ok || claims.Plan != "enterprise" {
-			writeErrR(w, r, http.StatusForbidden, "message forwarding requires the enterprise plan")
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")

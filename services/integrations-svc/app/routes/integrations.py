@@ -19,7 +19,7 @@ import uuid6
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from sqlalchemy import text
 
-from ..auth import EnterpriseDep, Principal
+from ..auth import PrincipalDep, Principal
 from ..crypto import cryptor
 from ..db import session, set_org_context
 from ..providers import get_provider, oauth, slack, whatsapp
@@ -47,7 +47,7 @@ def _row_to_out(r) -> ConnectionOut:
 
 
 @router.get("/integrations", response_model=list[ConnectionOut])
-async def list_integrations(principal: Principal = EnterpriseDep) -> list[ConnectionOut]:
+async def list_integrations(principal: Principal = PrincipalDep) -> list[ConnectionOut]:
     async with session() as db:
         await set_org_context(db, principal.org_id)
         res = await db.execute(
@@ -67,7 +67,7 @@ async def list_integrations(principal: Principal = EnterpriseDep) -> list[Connec
 
 
 @router.get("/integrations/activity", response_model=list[ProviderActivityOut])
-async def hub_activity(principal: Principal = EnterpriseDep) -> list[ProviderActivityOut]:
+async def hub_activity(principal: Principal = PrincipalDep) -> list[ProviderActivityOut]:
     """Unified hub timeline — inbound + outbound activity across the caller's (and
     org-wide) connected accounts, newest first. Peer/body are decrypted for display."""
     async with session() as db:
@@ -107,7 +107,7 @@ async def hub_activity(principal: Principal = EnterpriseDep) -> list[ProviderAct
 
 @router.post("/integrations/{provider}/connect/start", response_model=ConnectStartOut)
 async def connect_start(
-    provider: str, request: Request, principal: Principal = EnterpriseDep
+    provider: str, request: Request, principal: Principal = PrincipalDep
 ) -> ConnectStartOut:
     spec = get_provider(provider)
     if spec is None:
@@ -264,7 +264,7 @@ async def connect_start(
 
 
 @router.delete("/integrations/{conn_id}")
-async def disconnect(conn_id: str, principal: Principal = EnterpriseDep) -> Response:
+async def disconnect(conn_id: str, principal: Principal = PrincipalDep) -> Response:
     async with session() as db:
         await set_org_context(db, principal.org_id)
         res = await db.execute(

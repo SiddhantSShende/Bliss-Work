@@ -1,6 +1,5 @@
 import { useNavigate } from "react-router-dom";
 import { Inbox, MessageSquare, ListTodo, Hash, Users, Plug, Building2 } from "lucide-react";
-import { useSession } from "../store/session";
 
 const ITEMS = [
   { key: "inbox", label: "Inbox", icon: Inbox, to: "/app/inbox" },
@@ -9,9 +8,9 @@ const ITEMS = [
   { key: "channels", label: "Channels", icon: Hash, to: "/app/channels" },
   { key: "members", label: "Members", icon: Users, to: "/app/members" },
   { key: "org", label: "Org", icon: Building2, to: "/app/org" },
-  // Enterprise-only: External Integrations + forward-tracking. Hidden for other
-  // plans (the server also enforces the gate — this is just UX).
-  { key: "integrations", label: "Integrations", icon: Plug, to: "/app/integrations", requiresEnterprise: true },
+  // External Integrations + forward-tracking. Available to every org (each org
+  // supplies its own third-party credentials) — not a Bliss-Work paid tier.
+  { key: "integrations", label: "Integrations", icon: Plug, to: "/app/integrations" },
 ] as const;
 
 /**
@@ -34,8 +33,7 @@ export function Rail({
 }) {
   const nav = useNavigate();
   const bottom = variant === "bottom";
-  const isEnterprise = useSession((s) => s.user?.plan === "enterprise");
-  const items = ITEMS.filter((it) => !("requiresEnterprise" in it && it.requiresEnterprise) || isEnterprise);
+  const items = ITEMS;
   return (
     <nav
       className={`glass rounded-2xl ${

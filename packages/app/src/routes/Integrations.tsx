@@ -36,7 +36,6 @@ import type {
   UserDTO,
 } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
-import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
 import { Modal } from "../features/Modal";
 
@@ -105,9 +104,6 @@ const PROVIDERS: ProviderMeta[] = [
 ];
 
 export function Integrations() {
-  // Server-enforced too (integrations-svc + messaging-svc 403 non-enterprise) —
-  // this guards direct navigation to /app/integrations on a non-enterprise plan.
-  const isEnterprise = useSession((s) => s.user?.plan === "enterprise");
   const qc = useQueryClient();
 
   // OAuth return trip: the callback redirects to /app/integrations?connected=…
@@ -127,8 +123,6 @@ export function Integrations() {
     if (connected || error) window.history.replaceState({}, "", window.location.pathname);
   }, [qc]);
 
-  if (!isEnterprise) return <EnterpriseUpsell />;
-
   return (
     <div className="flex h-full flex-col">
       <PageHeader
@@ -140,27 +134,6 @@ export function Integrations() {
           <ConnectedAccounts />
           <HubActivity />
           <ForwardingActivity />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function EnterpriseUpsell() {
-  return (
-    <div className="flex h-full flex-col">
-      <PageHeader title="External Integrations" subtitle="Available on the Enterprise plan." />
-      <div className="flex min-h-0 flex-1 items-center justify-center p-6">
-        <div className="glass max-w-md rounded-2xl p-8 text-center">
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-accent-soft text-accent">
-            <Plug size={26} />
-          </div>
-          <h2 className="text-lg font-semibold text-fg">An Enterprise feature</h2>
-          <p className="mt-2 text-sm text-muted">
-            Connect WhatsApp, Slack, Gmail and more, and track where your messages get forwarded —
-            all from one place. Upgrade your workspace to the Enterprise plan to enable it.
-          </p>
-          <p className="mt-4 text-xs text-muted">Contact your workspace admin to upgrade.</p>
         </div>
       </div>
     </div>

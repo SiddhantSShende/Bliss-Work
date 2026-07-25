@@ -165,16 +165,3 @@ async def require_principal(authorization: str | None = Header(default=None)) ->
 
 
 PrincipalDep = Depends(require_principal)
-
-
-async def require_enterprise(principal: Principal = PrincipalDep) -> Principal:
-    """Gate a route to the enterprise plan. 403 for any other plan."""
-    if principal.plan != "enterprise":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="External Integrations requires the enterprise plan",
-        )
-    return principal
-
-
-EnterpriseDep = Depends(require_enterprise)
