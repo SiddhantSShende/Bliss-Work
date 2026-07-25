@@ -31,22 +31,35 @@ CREATE INDEX IF NOT EXISTS idx_users_identity ON users (identity_id);
 -- login would currently pick (active-then-oldest) — so the consolidated credential
 -- is exactly the one that already works; the other per-org passwords were already
 -- unreachable via login (LIMIT 1), so nobody loses access.
-INSERT INTO identities
-    (id, email_bidx, password_hash, email_verified, failed_login_count, locked_until, last_user_id)
-SELECT gen_random_uuid(), p.email_bidx, p.password_hash, p.email_verified,
-       COALESCE(p.failed_login_count, 0), p.locked_until, p.id
-FROM (
-    SELECT DISTINCT ON (email_bidx)
-           email_bidx, id, password_hash, email_verified, failed_login_count, locked_until
-    FROM users
-    WHERE email_bidx IS NOT NULL
-    ORDER BY email_bidx, (status = 'active') DESC, created_at ASC
-) p
-ON CONFLICT (email_bidx) DO NOTHING;
+--
+-- CRITICAL: migrations run as the least-priv service role (auth_user) with NO org
+-- context, and `users` is FORCE-RLS. Without bypass the backfill's SELECT/UPDATE
+-- see ZERO rows (fail-closed) and silently do nothing. This cross-org backfill is
+-- exactly the trusted case bypass_rls exists for, so wrap it. is_local=true keeps
+-- the bypass scoped to this migration's transaction.
+DO $bf$
+BEGIN
+    PERFORM set_config('app.bypass_rls', 'on', true);
 
--- Link every (still-unlinked) membership to its identity.
-UPDATE users u
-   SET identity_id = i.id
-  FROM identities i
- WHERE u.email_bidx = i.email_bidx
-   AND u.identity_id IS NULL;
+    INSERT INTO identities
+        (id, email_bidx, password_hash, email_verified, failed_login_count, locked_until, last_user_id)
+    SELECT gen_random_uuid(), p.email_bidx, p.password_hash, p.email_verified,
+           COALESCE(p.failed_login_count, 0), p.locked_until, p.id
+    FROM (
+        SELECT DISTINCT ON (email_bidx)
+               email_bidx, id, password_hash, email_verified, failed_login_count, locked_until
+        FROM users
+        WHERE email_bidx IS NOT NULL
+        ORDER BY email_bidx, (status = 'active') DESC, created_at ASC
+    ) p
+    ON CONFLICT (email_bidx) DO NOTHING;
+
+    UPDATE users u
+       SET identity_id = i.id
+      FROM identities i
+     WHERE u.email_bidx = i.email_bidx
+       AND u.identity_id IS NULL;
+
+    PERFORM set_config('app.bypass_rls', 'off', true);
+END
+$bf$;
