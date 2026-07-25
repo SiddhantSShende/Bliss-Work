@@ -4,6 +4,7 @@ import { Search, UserPlus, Bell } from "lucide-react";
 import { Button, IconButton, Wordmark } from "@taskboard/ui";
 import { ProfileMenu } from "./ProfileMenu";
 import { GetAppButton } from "./GetAppButton";
+import { OrgSwitcher } from "./OrgSwitcher";
 
 /** Global top navbar: brand · search · invite · notifications · account. */
 export function TopNavbar({ unread, onOpenNotifs }: { unread: number; onOpenNotifs: () => void }) {
@@ -25,6 +26,8 @@ export function TopNavbar({ unread, onOpenNotifs }: { unread: number; onOpenNoti
       >
         <Wordmark size={26} />
       </button>
+
+      <OrgSwitcher />
 
       <form onSubmit={submit} className="flex flex-1 justify-center px-2">
         <div className="relative w-full max-w-md">

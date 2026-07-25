@@ -18,7 +18,12 @@ from ..crypto import cryptor
 from ..events.outbox import TOPIC_AUTH, build_event, enqueue_event
 from ..schemas import AcceptInviteRequest, CreateInviteRequest, SessionDTO
 from ..security.auth_dep import Principal
-from ..security.passwords import PASSWORD_POLICY_MESSAGE, hash_password, password_meets_policy
+from ..security.passwords import (
+    PASSWORD_POLICY_MESSAGE,
+    hash_password,
+    password_meets_policy,
+    verify_password,
+)
 
 INVITE_TTL = timedelta(hours=72)
 
@@ -134,20 +139,49 @@ async def accept_invite_tx(
     email_enc = await c.encrypt(conn, org_id, str(invite.email))
     email_bidx = c.blind_index(str(invite.email))
     dn_enc = await c.encrypt(conn, org_id, body.displayName)
+    # Cross-org identity: if this email already has an identity, attach this
+    # membership to it (reuse the shared credential) after authenticating with the
+    # existing password; otherwise create a fresh identity. Invited users are
+    # email-verified (the invite proves control of the address).
+    existing_ident = (
+        await conn.execute(
+            text("SELECT id, password_hash FROM identities WHERE email_bidx = :b"),
+            {"b": email_bidx},
+        )
+    ).first()
+    if existing_ident is not None:
+        if not verify_password(existing_ident.password_hash, body.password):
+            raise HTTPException(
+                status.HTTP_401_UNAUTHORIZED,
+                "that email already has an account — use your existing password to join",
+            )
+        identity_id = str(existing_ident.id)
+        ph = existing_ident.password_hash
+    else:
+        identity_id = service.new_uuid()
+        ph = hash_password(body.password)
+        await conn.execute(
+            text(
+                "INSERT INTO identities (id, email_bidx, password_hash, email_verified) "
+                "VALUES (:id, :b, :ph, true)"
+            ),
+            {"id": identity_id, "b": email_bidx, "ph": ph},
+        )
     await conn.execute(
         text(
             """
-            INSERT INTO users (id, org_id, email_enc, email_bidx, username, password_hash, display_name_enc)
-            VALUES (:id, :org, :email_enc, :email_bidx, :username, :ph, :dn_enc)
+            INSERT INTO users (id, org_id, identity_id, email_enc, email_bidx, username, password_hash, display_name_enc, email_verified)
+            VALUES (:id, :org, :iid, :email_enc, :email_bidx, :username, :ph, :dn_enc, true)
             """
         ),
         {
             "id": user_id,
             "org": org_id,
+            "iid": identity_id,
             "email_enc": email_enc,
             "email_bidx": email_bidx,
             "username": body.username,
-            "ph": hash_password(body.password),
+            "ph": ph,
             "dn_enc": dn_enc,
         },
     )

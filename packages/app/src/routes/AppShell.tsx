@@ -53,10 +53,15 @@ export function AppShell() {
             ? "chats"
             : null;
 
-  // Integrations is a full-width utility page (no list pane), so it stays out of
-  // `section` above (which drives the pane + mobile logic). It IS a rail item,
-  // though, so derive a highlight-only key for the Rail so its icon activates.
-  const railSection = loc.pathname.startsWith("/app/integrations") ? "integrations" : section;
+  // Integrations + Org are full-width utility pages (no list pane), so they stay
+  // out of `section` above (which drives the pane + mobile logic). They ARE rail
+  // items, though, so derive a highlight-only key for the Rail so their icon
+  // activates.
+  const railSection = loc.pathname.startsWith("/app/integrations")
+    ? "integrations"
+    : loc.pathname.startsWith("/app/org")
+      ? "org"
+      : section;
 
   // On phones we only have room for ONE pane. A path with a third segment
   // (/app/chats/:id, /app/tasks/:view) is a "detail" → show the main content;

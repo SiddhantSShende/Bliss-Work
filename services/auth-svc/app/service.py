@@ -103,7 +103,7 @@ async def user_dto(conn: AsyncConnection, user_id: str) -> UserDTO | None:
         await conn.execute(
             text(
                 "SELECT u.id, u.org_id, u.username, u.display_name_enc, u.email_enc, "
-                "       u.email_verified, o.plan "
+                "       u.email_verified, o.plan, o.name AS org_name "
                 "FROM users u JOIN orgs o ON o.id = u.org_id WHERE u.id = :id"
             ),
             {"id": user_id},
@@ -122,6 +122,7 @@ async def user_dto(conn: AsyncConnection, user_id: str) -> UserDTO | None:
     return UserDTO(
         id=str(row.id),
         orgId=org_id,
+        orgName=row.org_name or "",
         username=row.username,
         displayName=display_name or "",
         email=email or "",
@@ -281,6 +282,164 @@ async def update_password(conn: AsyncConnection, user_id: str, new_hash: str) ->
         text("UPDATE users SET password_hash = :ph WHERE id = :id"),
         {"ph": new_hash, "id": user_id},
     )
+
+
+# ── Cross-org identity (multi-org membership) ─────────────────────────────────
+# `identities` is the source of truth for the shared credential (password,
+# email-verified, lockout). `users` keeps synced copies for backward-compat.
+# All of these run under bypass (identity resolution spans orgs).
+
+
+async def identity_by_bidx(conn: AsyncConnection, email_bidx: bytes):
+    return (
+        await conn.execute(
+            text(
+                "SELECT id, password_hash, email_verified, failed_login_count, "
+                "       locked_until, last_user_id FROM identities WHERE email_bidx = :b"
+            ),
+            {"b": email_bidx},
+        )
+    ).first()
+
+
+async def identity_id_for_user(conn: AsyncConnection, user_id: str) -> str | None:
+    row = (
+        await conn.execute(
+            text("SELECT identity_id FROM users WHERE id = :id"), {"id": user_id}
+        )
+    ).first()
+    return str(row.identity_id) if row and row.identity_id else None
+
+
+async def default_membership(conn: AsyncConnection, identity) -> str | None:
+    """The membership (users.id) to open by default: last-used if still a valid
+    active membership, else active-then-oldest. Powers 'open last org'."""
+    if identity.last_user_id:
+        row = (
+            await conn.execute(
+                text(
+                    "SELECT id FROM users WHERE id = :id AND identity_id = :iid "
+                    "AND status = 'active'"
+                ),
+                {"id": str(identity.last_user_id), "iid": str(identity.id)},
+            )
+        ).first()
+        if row:
+            return str(row.id)
+    row = (
+        await conn.execute(
+            text(
+                "SELECT id FROM users WHERE identity_id = :iid "
+                "ORDER BY (status = 'active') DESC, created_at ASC LIMIT 1"
+            ),
+            {"iid": str(identity.id)},
+        )
+    ).first()
+    return str(row.id) if row else None
+
+
+async def membership_in_org(conn: AsyncConnection, identity_id: str, org_id: str) -> str | None:
+    row = (
+        await conn.execute(
+            text(
+                "SELECT id FROM users WHERE identity_id = :iid AND org_id = :o "
+                "AND status = 'active' LIMIT 1"
+            ),
+            {"iid": identity_id, "o": org_id},
+        )
+    ).first()
+    return str(row.id) if row else None
+
+
+async def memberships_for_identity(conn: AsyncConnection, identity_id: str) -> list[dict]:
+    rows = (
+        await conn.execute(
+            text(
+                "SELECT u.id AS user_id, u.org_id, o.name AS org_name FROM users u "
+                "JOIN orgs o ON o.id = u.org_id "
+                "WHERE u.identity_id = :iid AND u.status = 'active' ORDER BY o.name"
+            ),
+            {"iid": identity_id},
+        )
+    ).all()
+    out: list[dict] = []
+    for r in rows:
+        roles = await roles_for_user(conn, str(r.user_id))
+        out.append(
+            {"userId": str(r.user_id), "orgId": str(r.org_id), "orgName": r.org_name, "roles": roles}
+        )
+    return out
+
+
+async def touch_last_user(conn: AsyncConnection, identity_id: str, user_id: str) -> None:
+    await conn.execute(
+        text("UPDATE identities SET last_user_id = :u WHERE id = :iid"),
+        {"u": user_id, "iid": identity_id},
+    )
+
+
+async def reset_identity_lockout(conn: AsyncConnection, identity_id: str) -> None:
+    await conn.execute(
+        text(
+            "UPDATE identities SET failed_login_count = 0, locked_until = NULL WHERE id = :iid"
+        ),
+        {"iid": identity_id},
+    )
+
+
+async def set_identity_password(conn: AsyncConnection, identity_id: str, new_hash: str) -> None:
+    """Update the shared credential + keep per-membership copies in sync."""
+    await conn.execute(
+        text("UPDATE identities SET password_hash = :h WHERE id = :iid"),
+        {"h": new_hash, "iid": identity_id},
+    )
+    await conn.execute(
+        text("UPDATE users SET password_hash = :h WHERE identity_id = :iid"),
+        {"h": new_hash, "iid": identity_id},
+    )
+
+
+async def set_identity_verified(conn: AsyncConnection, identity_id: str) -> None:
+    await conn.execute(
+        text("UPDATE identities SET email_verified = true WHERE id = :iid"), {"iid": identity_id}
+    )
+    await conn.execute(
+        text("UPDATE users SET email_verified = true WHERE identity_id = :iid"), {"iid": identity_id}
+    )
+
+
+async def revoke_all_identity_tokens(conn: AsyncConnection, identity_id: str) -> None:
+    """Revoke every session for every membership of an identity (used on reset)."""
+    await conn.execute(
+        text(
+            "UPDATE refresh_tokens SET revoked = true "
+            "WHERE user_id IN (SELECT id FROM users WHERE identity_id = :iid)"
+        ),
+        {"iid": identity_id},
+    )
+
+
+async def find_or_create_identity(
+    conn: AsyncConnection, email_bidx: bytes, password_hash: str, email_verified: bool
+) -> str:
+    """Return the identity id for an email, creating it (with the given credential)
+    if it doesn't exist yet. New memberships link to the returned id."""
+    existing = (
+        await conn.execute(
+            text("SELECT id FROM identities WHERE email_bidx = :b"), {"b": email_bidx}
+        )
+    ).first()
+    if existing:
+        return str(existing.id)
+    iid = new_uuid()
+    await conn.execute(
+        text(
+            "INSERT INTO identities (id, email_bidx, password_hash, email_verified) "
+            "VALUES (:id, :b, :ph, :ev)"
+        ),
+        {"id": iid, "b": email_bidx, "ph": password_hash, "ev": email_verified},
+    )
+    return iid
 
 
 # ── Tamper-evident audit log (hash chain) ─────────────────────────────────────

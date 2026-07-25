@@ -18,6 +18,7 @@ import {
   InviteDTO,
   MessageDTO,
   NotificationDTO,
+  OrgMembershipDTO,
   ReviewResponse,
   SentTaskDTO,
   StickyTaskDTO,
@@ -180,6 +181,20 @@ export class ApiClient {
   }
   logout() {
     return this.req<void>(this.cfg.authBase, "/auth/logout", { method: "POST" });
+  }
+  /** Organizations the signed-in identity belongs to (for the switcher). */
+  myOrgs() {
+    return this.req(this.cfg.authBase, "/auth/orgs/mine", {}, z.array(OrgMembershipDTO));
+  }
+  /** Switch the active organization — returns a fresh session (new access token +
+   *  org-scoped user) for the caller's membership in `orgId`. */
+  switchOrg(orgId: string) {
+    return this.req(
+      this.cfg.authBase,
+      `/auth/orgs/${orgId}/switch`,
+      { method: "POST" },
+      SessionDTO,
+    );
   }
 
   // ── password reset + email verification ─────────────────────────────────────

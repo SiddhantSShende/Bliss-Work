@@ -58,6 +58,8 @@ export const qk = {
   forwardActivityFeed: ["forwardActivity", "feed"] as const,
   /** Connected external accounts (integrations-svc). */
   integrations: ["integrations"] as const,
+  /** Organizations the signed-in identity belongs to (org switcher). */
+  myOrgs: ["myOrgs"] as const,
   /** Unified hub activity timeline (inbound + outbound external messages). */
   integrationActivity: ["integrationActivity"] as const,
   inboxPins: ["inboxPins"] as const,
@@ -73,6 +75,9 @@ export const qk = {
 export function WsEventBridge() {
   const qc = useQueryClient();
   const { ws, config } = useRuntime();
+  // Re-run the connect/subscribe effect when the active org changes (org switch)
+  // so the socket reconnects under the new token and re-subscribes for that org.
+  const orgId = useSession((s) => s.user?.orgId);
 
   useEffect(() => {
     // Electron relays events from the utilityProcess; web opens its own socket.
@@ -321,7 +326,7 @@ export function WsEventBridge() {
       if (!source) ws.close();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [orgId]);
 
   return null;
 }

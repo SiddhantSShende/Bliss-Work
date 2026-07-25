@@ -62,6 +62,7 @@ class VerifyEmailRequest(BaseModel):
 class UserDTO(BaseModel):
     id: str
     orgId: str
+    orgName: str = ""
     username: str
     displayName: str
     email: str
@@ -70,6 +71,15 @@ class UserDTO(BaseModel):
     # Org subscription plan (entitlements). 'enterprise' unlocks External
     # Integrations + message forward-tracking. Defaults 'free' for older rows.
     plan: str = "free"
+
+
+class OrgMembershipDTO(BaseModel):
+    """One organization a user's identity belongs to (for the org switcher)."""
+
+    orgId: str
+    orgName: str
+    roles: list[Role]
+    active: bool = False
 
 
 class MessageResponse(BaseModel):

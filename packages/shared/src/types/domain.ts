@@ -8,6 +8,8 @@ export type Role = z.infer<typeof Role>;
 export const UserDTO = z.object({
   id: z.string().uuid(),
   orgId: z.string().uuid(),
+  /** Display name of the active org (for the workspace switcher label). */
+  orgName: z.string().default(""),
   username: z.string(),
   displayName: z.string(),
   email: z.string().email(),
@@ -20,6 +22,16 @@ export const UserDTO = z.object({
   plan: z.string().default("free"),
 });
 export type UserDTO = z.infer<typeof UserDTO>;
+
+/** One organization the signed-in identity belongs to — for the org switcher.
+ *  A single email/password can span multiple orgs; `active` marks the current one. */
+export const OrgMembershipDTO = z.object({
+  orgId: z.string().uuid(),
+  orgName: z.string(),
+  roles: z.array(Role),
+  active: z.boolean().default(false),
+});
+export type OrgMembershipDTO = z.infer<typeof OrgMembershipDTO>;
 
 export const SessionDTO = z.object({
   accessToken: z.string(),

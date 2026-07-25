@@ -16,6 +16,7 @@ from ..logging_config import log
 from ..schemas import (
     CreateOrgRequest,
     LoginRequest,
+    OrgMembershipDTO,
     RefreshRequest,
     SessionDTO,
     UpdateProfileRequest,
@@ -36,24 +37,25 @@ from .cookies import REFRESH_COOKIE, clear_refresh_cookie, set_refresh_cookie
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-async def _register_failed_login(conn: AsyncConnection, row) -> int:
-    """Bump a user's failed-login counter; lock the account once it reaches
-    `login_max_failed_attempts`. Returns the lockout duration in seconds if it
-    just locked, else 0. The caller must let the transaction COMMIT (raise the
-    auth error AFTER the `engine.begin()` block) so the increment persists."""
-    new_count = int(row.failed_login_count) + 1
+async def _register_failed_login(conn: AsyncConnection, ident) -> int:
+    """Bump an IDENTITY's failed-login counter; lock the identity once it reaches
+    `login_max_failed_attempts`. Returns the lockout duration in seconds if it just
+    locked, else 0. The caller must let the transaction COMMIT (raise the auth error
+    AFTER the `engine.begin()` block) so the increment persists. Lockout lives on the
+    identity so a shared credential is throttled uniformly across all its orgs."""
+    new_count = int(ident.failed_login_count) + 1
     if new_count >= settings.login_max_failed_attempts:
         await conn.execute(
             text(
-                "UPDATE users SET failed_login_count = 0, "
+                "UPDATE identities SET failed_login_count = 0, "
                 "locked_until = now() + make_interval(mins => :m) WHERE id = :id"
             ),
-            {"m": settings.lockout_minutes, "id": str(row.id)},
+            {"m": settings.lockout_minutes, "id": str(ident.id)},
         )
         return settings.lockout_minutes * 60
     await conn.execute(
-        text("UPDATE users SET failed_login_count = :c WHERE id = :id"),
-        {"c": new_count, "id": str(row.id)},
+        text("UPDATE identities SET failed_login_count = :c WHERE id = :id"),
+        {"c": new_count, "id": str(ident.id)},
     )
     return 0
 
@@ -97,21 +99,53 @@ async def create_org(body: CreateOrgRequest, response: Response) -> SessionDTO:
         email_enc = await c.encrypt(conn, org_id, str(body.email))
         email_bidx = c.blind_index(str(body.email))
         dn_enc = await c.encrypt(conn, org_id, body.displayName)
+        # Cross-org identity: if this email already has an identity (an existing
+        # user creating another org), reuse the shared credential — but only after
+        # authenticating with its password. Otherwise create a fresh identity.
+        existing_ident = (
+            await conn.execute(
+                text(
+                    "SELECT id, password_hash, email_verified FROM identities WHERE email_bidx = :b"
+                ),
+                {"b": email_bidx},
+            )
+        ).first()
+        if existing_ident is not None:
+            if not verify_password(existing_ident.password_hash, body.password):
+                raise HTTPException(status.HTTP_409_CONFLICT, "that email is already registered")
+            identity_id = str(existing_ident.id)
+            ph = existing_ident.password_hash
+            member_verified = bool(existing_ident.email_verified)
+            new_identity = False
+        else:
+            identity_id = service.new_uuid()
+            ph = hash_password(body.password)
+            await conn.execute(
+                text(
+                    "INSERT INTO identities (id, email_bidx, password_hash, email_verified) "
+                    "VALUES (:id, :b, :ph, false)"
+                ),
+                {"id": identity_id, "b": email_bidx, "ph": ph},
+            )
+            member_verified = False
+            new_identity = True
         await conn.execute(
             text(
                 """
-                INSERT INTO users (id, org_id, email_enc, email_bidx, username, password_hash, display_name_enc, email_verified)
-                VALUES (:id, :org, :email_enc, :email_bidx, :username, :ph, :dn_enc, false)
+                INSERT INTO users (id, org_id, identity_id, email_enc, email_bidx, username, password_hash, display_name_enc, email_verified)
+                VALUES (:id, :org, :iid, :email_enc, :email_bidx, :username, :ph, :dn_enc, :ev)
                 """
             ),
             {
                 "id": user_id,
                 "org": org_id,
+                "iid": identity_id,
                 "email_enc": email_enc,
                 "email_bidx": email_bidx,
                 "username": str(body.email).split("@", 1)[0],
-                "ph": hash_password(body.password),
+                "ph": ph,
                 "dn_enc": dn_enc,
+                "ev": member_verified,
             },
         )
         admin_role = await service.role_id(conn, "org_admin")
@@ -139,11 +173,13 @@ async def create_org(body: CreateOrgRequest, response: Response) -> SessionDTO:
             conn, org_id=org_id, actor_id=user_id, action="org.created", target=org_id
         )
 
-        # Send the email-verification link. The admin still gets a session below
-        # (never locked out on signup — an in-app banner prompts verification);
-        # this runs in the same org-scoped tx so the token + outbox row are
-        # atomic with the user insert.
-        await create_email_verification_tx(conn, user_id, org_id, str(body.email))
+        # Send the email-verification link only for a BRAND-NEW identity (an
+        # existing verified identity creating another org doesn't re-verify). The
+        # admin still gets a session below (never locked out on signup — an in-app
+        # banner prompts verification); this runs in the same org-scoped tx so the
+        # token + outbox row are atomic with the user insert.
+        if new_identity:
+            await create_email_verification_tx(conn, user_id, org_id, str(body.email))
 
         session, raw_refresh = await service.build_session(conn, user_id)
 
@@ -164,44 +200,30 @@ async def login(body: LoginRequest, response: Response) -> SessionDTO:
     failed = False
     locked_secs = 0  # >0 => the account just crossed the lockout threshold
     async with engine.begin() as conn:
-        # Pre-org-context: the org is unknown until we resolve the user by the
-        # cross-org email blind index, so this trusted lookup runs under bypass.
+        # Pre-org-context: resolve the IDENTITY by the cross-org email blind index
+        # (the shared credential), so this trusted lookup runs under bypass.
         # build_session below decrypts via org_keys (also RLS) in the same tx.
         await service.set_bypass_rls(conn)
-        row = (
-            await conn.execute(
-                text(
-                    """
-                    SELECT u.id, u.password_hash, u.status,
-                           u.failed_login_count, u.locked_until, u.email_verified
-                    FROM users u
-                    WHERE u.email_bidx = :bidx
-                    ORDER BY (u.status = 'active') DESC, u.created_at ASC
-                    LIMIT 1
-                    """
-                ),
-                {"bidx": cryptor().blind_index(str(body.email))},
-            )
-        ).first()
+        ident = await service.identity_by_bidx(conn, cryptor().blind_index(str(body.email)))
 
-        if row is None:
+        if ident is None:
             dummy_verify()  # equalize timing on unknown email; nothing to write
             raise generic
 
-        if row.locked_until is not None and row.locked_until > now:
-            # Account-level lockout is in effect. No write here, so raising
+        if ident.locked_until is not None and ident.locked_until > now:
+            # Identity-level lockout is in effect. No write here, so raising
             # inline is safe. 429 is inherently account-targeted; accepted.
-            retry = max(1, int((row.locked_until - now).total_seconds()))
+            retry = max(1, int((ident.locked_until - now).total_seconds()))
             raise HTTPException(
                 status.HTTP_429_TOO_MANY_REQUESTS,
                 "account temporarily locked due to failed logins; try again later",
                 headers={"Retry-After": str(retry)},
             )
 
-        if row.status != "active" or not verify_password(row.password_hash, body.password):
-            locked_secs = await _register_failed_login(conn, row)
+        if not verify_password(ident.password_hash, body.password):
+            locked_secs = await _register_failed_login(conn, ident)
             failed = True  # commit the increment, then raise below
-        elif settings.require_email_verification and not row.email_verified:
+        elif settings.require_email_verification and not ident.email_verified:
             # Correct password but unverified and the gate is enabled. Not a
             # failed attempt (don't count it); block with a clear message.
             raise HTTPException(
@@ -209,15 +231,16 @@ async def login(body: LoginRequest, response: Response) -> SessionDTO:
                 "please verify your email address before signing in",
             )
         else:
-            if row.failed_login_count or row.locked_until is not None:
-                await conn.execute(
-                    text(
-                        "UPDATE users SET failed_login_count = 0, locked_until = NULL "
-                        "WHERE id = :id"
-                    ),
-                    {"id": str(row.id)},
-                )
-            session, raw_refresh = await service.build_session(conn, str(row.id))
+            # Pick the org to open: last-used if still valid, else active-then-oldest.
+            membership_id = await service.default_membership(conn, ident)
+            if membership_id is None:
+                # Identity with no active membership — treat as invalid credentials.
+                failed = True
+            else:
+                if ident.failed_login_count or ident.locked_until is not None:
+                    await service.reset_identity_lockout(conn, str(ident.id))
+                await service.touch_last_user(conn, str(ident.id), membership_id)
+                session, raw_refresh = await service.build_session(conn, membership_id)
     # Transaction committed. Any persisted failed-login increment is durable now.
 
     if failed:
@@ -275,6 +298,58 @@ async def logout(
     clear_refresh_cookie(response)
     response.status_code = status.HTTP_204_NO_CONTENT
     return response
+
+
+@router.get("/orgs/mine", response_model=list[OrgMembershipDTO])
+async def my_orgs(principal: Principal = Depends(get_principal)) -> list[OrgMembershipDTO]:
+    """Every organization the caller's identity belongs to (for the switcher)."""
+    async with engine.connect() as conn:
+        await service.set_bypass_rls(conn)  # cross-org membership list
+        iid = await service.identity_id_for_user(conn, principal.user_id)
+        memberships = await service.memberships_for_identity(conn, iid) if iid else []
+    if not memberships:
+        # Legacy fallback (a token minted before the identity link): expose just
+        # the caller's current org so the switcher still renders.
+        return [
+            OrgMembershipDTO(
+                orgId=principal.org_id, orgName="", roles=principal.roles, active=True  # type: ignore[arg-type]
+            )
+        ]
+    return [
+        OrgMembershipDTO(
+            orgId=m["orgId"],
+            orgName=m["orgName"],
+            roles=m["roles"],
+            active=(m["orgId"] == principal.org_id),
+        )
+        for m in memberships
+    ]
+
+
+@router.post(
+    "/orgs/{org_id}/switch",
+    response_model=SessionDTO,
+    dependencies=[Depends(enforce_origin)],
+)
+async def switch_org(
+    org_id: str, response: Response, principal: Principal = Depends(get_principal)
+) -> SessionDTO:
+    """Switch the active organization: re-mint a session for the caller's membership
+    in `org_id` (only orgs their identity belongs to). Rotates the refresh cookie to
+    the target membership's family."""
+    async with engine.begin() as conn:
+        await service.set_bypass_rls(conn)  # cross-org: resolve identity + target membership
+        iid = await service.identity_id_for_user(conn, principal.user_id)
+        if iid is None:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "cannot switch organizations")
+        target_user = await service.membership_in_org(conn, iid, org_id)
+        if target_user is None:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "not a member of that organization")
+        await service.touch_last_user(conn, iid, target_user)
+        session, raw_refresh = await service.build_session(conn, target_user)
+    set_refresh_cookie(response, raw_refresh)
+    log.info("org_switched", user_id=session.user.id, org_id=org_id)
+    return session
 
 
 @router.get("/me", response_model=UserDTO)

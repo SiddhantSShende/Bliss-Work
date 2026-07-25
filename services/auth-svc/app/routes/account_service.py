@@ -121,22 +121,28 @@ async def create_password_reset_tx(conn: AsyncConnection, email: str) -> None:
     the same generic message so an attacker can't probe which emails exist.
     Pre-org-context lookup runs under bypass, mirroring `login`."""
     await service.set_bypass_rls(conn)
-    row = (
+    # Resolve the shared identity by the global email blind index, then pick any
+    # active membership to carry the reset token (user_tokens needs user_id+org_id).
+    # The reset applies to the identity's credential, so which membership is moot.
+    ident = (
         await conn.execute(
-            text(
-                """
-                SELECT u.id, u.org_id, u.status
-                FROM users u
-                WHERE u.email_bidx = :bidx
-                ORDER BY (u.status = 'active') DESC, u.created_at ASC
-                LIMIT 1
-                """
-            ),
+            text("SELECT id FROM identities WHERE email_bidx = :bidx"),
             {"bidx": cryptor().blind_index(email)},
         )
     ).first()
-    if row is None or row.status != "active":
+    if ident is None:
         return  # generic: no signal whether the email matched an account
+    row = (
+        await conn.execute(
+            text(
+                "SELECT id, org_id FROM users WHERE identity_id = :iid AND status = 'active' "
+                "ORDER BY created_at ASC LIMIT 1"
+            ),
+            {"iid": str(ident.id)},
+        )
+    ).first()
+    if row is None:
+        return
 
     user_id, org_id = str(row.id), str(row.org_id)
     raw, expires_at = await _mint_token(
@@ -173,8 +179,15 @@ async def reset_password_tx(conn: AsyncConnection, token: str, new_password: str
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, PASSWORD_POLICY_MESSAGE)
     await service.set_bypass_rls(conn)
     user_id, org_id = await _consume_token(conn, PURPOSE_RESET, token)
-    await service.update_password(conn, user_id, hash_password(new_password))
-    await service.revoke_all_user_tokens(conn, user_id)
+    new_hash = hash_password(new_password)
+    # Reset the SHARED credential (all memberships) + kill every session across orgs.
+    iid = await service.identity_id_for_user(conn, user_id)
+    if iid is not None:
+        await service.set_identity_password(conn, iid, new_hash)
+        await service.revoke_all_identity_tokens(conn, iid)
+    else:
+        await service.update_password(conn, user_id, new_hash)  # legacy fallback
+        await service.revoke_all_user_tokens(conn, user_id)
     await service.write_audit(
         conn,
         org_id=org_id,
@@ -214,10 +227,14 @@ async def verify_email_tx(conn: AsyncConnection, token: str) -> None:
     """Consume a verification token and flip users.email_verified = true."""
     await service.set_bypass_rls(conn)
     user_id, org_id = await _consume_token(conn, PURPOSE_VERIFY, token)
-    await conn.execute(
-        text("UPDATE users SET email_verified = true WHERE id = :id"),
-        {"id": user_id},
-    )
+    iid = await service.identity_id_for_user(conn, user_id)
+    if iid is not None:
+        await service.set_identity_verified(conn, iid)  # verifies the shared identity
+    else:
+        await conn.execute(
+            text("UPDATE users SET email_verified = true WHERE id = :id"),
+            {"id": user_id},
+        )
     await service.write_audit(
         conn,
         org_id=org_id,

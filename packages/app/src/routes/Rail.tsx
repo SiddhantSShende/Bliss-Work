@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { Inbox, MessageSquare, ListTodo, Hash, Users, Plug } from "lucide-react";
+import { Inbox, MessageSquare, ListTodo, Hash, Users, Plug, Building2 } from "lucide-react";
 import { useSession } from "../store/session";
 
 const ITEMS = [
@@ -8,6 +8,7 @@ const ITEMS = [
   { key: "tasks", label: "Tasks", icon: ListTodo, to: "/app/tasks/allocated" },
   { key: "channels", label: "Channels", icon: Hash, to: "/app/channels" },
   { key: "members", label: "Members", icon: Users, to: "/app/members" },
+  { key: "org", label: "Org", icon: Building2, to: "/app/org" },
   // Enterprise-only: External Integrations + forward-tracking. Hidden for other
   // plans (the server also enforces the gate — this is just UX).
   { key: "integrations", label: "Integrations", icon: Plug, to: "/app/integrations", requiresEnterprise: true },

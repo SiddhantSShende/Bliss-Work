@@ -23,6 +23,7 @@ const user: UserDTO = {
   email: "alice@acme.com",
   roles: ["member"],
   plan: "free",
+  orgName: "Test Org",
 };
 const session: SessionDTO = { accessToken: "sib-token", user, expiresIn: 900 };
 
