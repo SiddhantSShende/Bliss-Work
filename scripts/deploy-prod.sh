@@ -62,14 +62,32 @@ die()  { printf '\033[1;31m✗ %s\033[0m\n' "$*" >&2; exit 1; }
 # job rather than fail it.
 if docker info >/dev/null 2>&1; then
     DOCKER="docker"
+    USE_SUDO=0
 elif sudo -n docker info >/dev/null 2>&1; then
     DOCKER="sudo docker"
+    USE_SUDO=1
 else
     printf '\033[1;31m✗ cannot reach the Docker daemon (with or without passwordless sudo)\033[0m\n' >&2
     exit 1
 fi
 
-compose() { $DOCKER compose -f "$COMPOSE_FILE" "$@"; }
+# IMAGE_TAG must reach compose, and `sudo` SANITIZES THE ENVIRONMENT — an
+# exported IMAGE_TAG silently does not survive `sudo docker compose`, so compose
+# falls back to the IMAGE_TAG in `.env` (which is `latest`).
+#
+# That is not a cosmetic bug. It breaks ROLLBACK: the rollback path exports the
+# previous tag and calls `compose up -d`, compose sees no change from what is
+# already running, and reports success having reverted nothing. A deploy that
+# genuinely broke production would stay broken while the script announced a
+# successful rollback. Forward it explicitly, read at call time so the value is
+# whatever the caller most recently set.
+compose() {
+    if (( USE_SUDO )); then
+        sudo env IMAGE_TAG="${IMAGE_TAG:-latest}" docker compose -f "$COMPOSE_FILE" "$@"
+    else
+        docker compose -f "$COMPOSE_FILE" "$@"
+    fi
+}
 
 # ── Serialize ───────────────────────────────────────────────────────────────
 # Two overlapping deploys would interleave `git merge` with `docker build` and
