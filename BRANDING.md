@@ -115,25 +115,48 @@ Used in:
 
 ## Updating the Logo
 
-> **The source of truth is `apps/desktop/build/icon.svg` — vector and square.
-> Every raster asset is DERIVED from it. Never copy a PNG over `icon.png`.**
+> **The source of truth is `assets/logo.png` — the real BlissWork mark.
+> Every desktop raster is DERIVED from it. Never copy a PNG over `icon.png`
+> directly: it must be square, transparent, and ≥256px, and the generator
+> handles all three.**
 >
-> This used to read "`cp assets/logo.png apps/desktop/build/icon.png`", which
-> silently broke packaging: `assets/logo.png` was **257×237** — not square, and
-> under 256px on one axis — while electron-builder needs a square icon of at
-> least 256×256 to generate the Windows `.ico` and macOS `.icns`. Following that
-> step replaced a good 1024×1024 icon with an unusable one, and the packaged app
-> fell back to the stock Electron icon.
+> Two things went wrong here historically, and both are fixed:
+>
+> 1. This page used to say "`cp assets/logo.png apps/desktop/build/icon.png`".
+>    That silently broke packaging — `assets/logo.png` is **257×237**, not
+>    square, while electron-builder needs a square ≥256×256 icon to generate
+>    the `.ico`/`.icns`. Following the step replaced a usable icon with an
+>    unusable one and the app fell back to the stock Electron mark.
+>
+> 2. The fix for (1) made `build/icon.svg` the source — but that file is a
+>    hand-drawn 48×48 *approximation*: square-cornered "B", oversized
+>    rectangular bubble. So the app shipped a rough copy of its own logo rather
+>    than the logo. `build/gen-icons-from-brand.py` now derives every desktop
+>    raster from `assets/logo.png` itself.
 
 ### To change the logo
 
-1. Edit `apps/desktop/build/icon.svg` (or replace it with new square vector art).
-2. Regenerate everything downstream from the repo root:
+1. Replace `assets/logo.png` with the new mark. A transparent background is
+   ideal; if it ships on white, the generator flood-fills the background from
+   the border (which leaves an enclosed bubble intact) and feathers the
+   antialiased edge so the icon doesn't halo on a dark taskbar.
+2. Regenerate the desktop rasters:
    ```bash
-   npm run setup:branding
+   python3 apps/desktop/build/gen-icons-from-brand.py   # needs Pillow
+   bash apps/desktop/build/gen-desktop-icons.sh         # .icns (macOS)
    ```
-   That renders `build/icon.png`, all seven Store tiles, `build/icon.ico`,
-   `build/icon.icns`, both favicons, and the square `assets/logo.png`.
+   That writes `build/icon.png` (1024²), `build/icon.ico` (16→256) and all
+   seven Store tiles.
+
+> **Resolution ceiling:** `assets/logo.png` is 257×237, which is at or above
+> native for everything Windows needs (`.ico` tops out at 256) and for the Store
+> tiles, but the 1024×1024 macOS slot is upscaled. If a vector or larger master
+> ever exists, point `SOURCE` in the generator at it — nothing else changes.
+
+`packages/ui/src/components/Logo.tsx` still draws the older approximated
+geometry. It is what both the web app and the desktop app render in-page, so
+they match each other; aligning it to the brand mark is a separate change that
+affects both.
 3. Commit the regenerated assets (they're committed so CI needs no renderer):
    ```bash
    git add apps/desktop/build apps/web/public/favicon.svg \
