@@ -12,7 +12,6 @@ provider_activity so it shows up in the unified hub.
 """
 from __future__ import annotations
 
-import json
 import secrets
 
 import uuid6
@@ -20,11 +19,11 @@ from fastapi import APIRouter, Header, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import text
 
+from .. import outbound
 from ..config import settings
 from ..crypto import cryptor
 from ..db import session, set_org_context
 from ..events import emit_activity_created
-from ..providers import slack, whatsapp
 
 router = APIRouter()
 
@@ -32,8 +31,13 @@ router = APIRouter()
 class SendReq(BaseModel):
     orgId: str
     connectionId: str
-    target: str  # channel id / handle on the external platform
+    target: str  # channel id / handle / email address on the external platform
     text: str
+    #: Mail providers only (gmail, outlook). Optional so messaging-svc's Go
+    #: struct needs no change — chat providers ignore it, and mail falls back to
+    #: outbound.DEFAULT_SUBJECT rather than sending an empty subject (which is
+    #: far more likely to be filtered as spam).
+    subject: str | None = None
 
 
 class SendResp(BaseModel):
@@ -80,35 +84,26 @@ async def internal_send(
         if not token:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="connection has no token")
 
-        if row.provider == "slack":
-            res = await slack.post_message(token, body.target, body.text)
-            external_id = res.get("ts")
-        elif row.provider == "whatsapp":
-            # WhatsApp send needs the business number (phone_number_id) from the
-            # encrypted connection metadata alongside the access token.
-            meta_raw = await cryptor().decrypt(
-                db, body.orgId, bytes(row.metadata_enc) if row.metadata_enc else None
+        # Provider dispatch lives in outbound.py so this path and any future
+        # caller (an in-app reply to a mention) can never drift apart.
+        try:
+            result = await outbound.send_via_connection(
+                db, body.orgId, row, target=body.target, text=body.text, subject=body.subject
             )
-            try:
-                pnid = json.loads(meta_raw or "{}").get("phoneNumberId", "")
-            except (ValueError, TypeError):
-                pnid = ""
-            if not pnid:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="connection missing phone_number_id",
-                )
-            try:
-                res = await whatsapp.send_text(token, pnid, body.target, body.text)
-            except whatsapp.WhatsAppError as exc:
-                raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
-            msgs = res.get("messages") or []
-            external_id = msgs[0].get("id") if msgs else None
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"outbound send not supported for {row.provider} yet",
+        except outbound.OutboundUnsupported as exc:
+            # Nothing about this will work on a retry — the connection is
+            # misconfigured or the provider has no outbound path.
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        except outbound.OutboundError as exc:
+            # 502 signals "try again" to messaging-svc; 400 would make it give
+            # up on a message that a token refresh would have delivered.
+            code = (
+                status.HTTP_502_BAD_GATEWAY
+                if exc.retryable
+                else status.HTTP_400_BAD_REQUEST
             )
+            raise HTTPException(status_code=code, detail=str(exc)) from exc
+        external_id = result.external_id
 
         owner = str(row.owner_user_id) if row.owner_user_id else None
         activity_id = str(uuid6.uuid7())
@@ -121,7 +116,7 @@ async def internal_send(
                     (id, org_id, owner_user_id, connection_id, provider, direction,
                      kind, peer_enc, body_enc, status, occurred_at)
                 VALUES
-                    (:id, :o, :owner, :c, :p, 'outbound', 'message', :peer, :b, 'sent', now())
+                    (:id, :o, :owner, :c, :p, 'outbound', :kind, :peer, :b, 'sent', now())
                 """
             ),
             {
@@ -132,12 +127,16 @@ async def internal_send(
                 "p": row.provider,
                 "peer": peer_enc,
                 "b": body_enc,
+                # 'email' for gmail/outlook, 'message' for chat platforms — the
+                # hub and the mentions feed both branch on this.
+                "kind": result.kind,
             },
         )
         recipient = str(row.created_by) if row.created_by else owner
         await emit_activity_created(
             db, org_id=body.orgId, recipient_id=recipient, activity_id=activity_id,
-            connection_id=body.connectionId, provider=row.provider, kind="message", direction="outbound",
+            connection_id=body.connectionId, provider=row.provider, kind=result.kind,
+            direction="outbound",
         )
         await db.commit()
 

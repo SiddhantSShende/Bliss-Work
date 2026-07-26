@@ -21,6 +21,7 @@ from .logging_setup import configure_logging, log
 from .middleware import BodySizeLimitMiddleware, RequestIDMiddleware, SecurityHeadersMiddleware
 from .outbox import poller
 from .rate_limit import limiter, rate_limit_handler
+from .push_worker import worker as push_worker
 from .refresh_worker import worker as refresh_worker
 from .routes import router
 from .routes.internal import router as internal_router
@@ -44,10 +45,14 @@ async def lifespan(app: FastAPI):
     await poller.start()
     # Refresh OAuth access tokens (Gmail/Microsoft) before they expire.
     await refresh_worker.start()
+    # Renew Gmail/Graph push subscriptions (they expire silently) and reconcile
+    # anything push dropped — both vendors deliver best-effort.
+    await push_worker.start()
     log.info("integrations_svc_started", port=settings.port)
     try:
         yield
     finally:
+        await push_worker.stop()
         await refresh_worker.stop()
         await poller.stop()
         await dispose_engine()
