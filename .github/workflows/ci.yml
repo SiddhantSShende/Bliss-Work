@@ -317,9 +317,17 @@ jobs:
           cache: npm
       - run: npm ci
       - name: npm audit (high+, production deps)
-        # Blocking, but scoped to production deps so noisy dev-only transitive
-        # advisories don't gate merges. Raise/relax as the tree dictates.
-        run: npm audit --audit-level=high --omit=dev
+        # Blocking, scoped to production deps, WITH a justified allowlist.
+        #
+        # Plain `npm audit --audit-level=high --omit=dev` is all-or-nothing:
+        # either it blocks merges on advisories that have no fix and cannot be
+        # exploited here, or someone makes it non-blocking and it stops
+        # protecting anything. The gate fails on everything except a small set
+        # of advisories, each recorded in scripts/audit-gate.mjs with a reason,
+        # evidence that this app doesn't reach the vulnerable path, and a review
+        # date. A NEW advisory always fails — the allowlist keys on the advisory
+        # id, not the package.
+        run: node scripts/audit-gate.mjs
 
   # ───────────────────────────────────────────────────────────────────────────
   # HELM-LINT — chart linting, templating, and Kubernetes schema validation.
