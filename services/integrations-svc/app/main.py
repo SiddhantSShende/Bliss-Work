@@ -25,6 +25,7 @@ from .refresh_worker import worker as refresh_worker
 from .routes import router
 from .routes.internal import router as internal_router
 from .routes.oauth import router as oauth_router
+from .routes.push import router as push_router
 from .routes.webhooks import router as webhooks_router
 from .tracing import setup_tracing
 
@@ -121,3 +122,8 @@ app.include_router(internal_router, prefix="/internal")
 app.include_router(webhooks_router, prefix="/ext")
 # Public OAuth authorization-code callbacks (state/PKCE authenticated).
 app.include_router(oauth_router, prefix="/ext")
+# Public push receivers: Gmail via Pub/Sub (Google-signed OIDC JWT, audience
+# pinned to our endpoint) and Graph change notifications (constant-time
+# clientState). Mounted BEFORE nothing in particular — their paths don't
+# collide with the webhook routes' /{provider}/webhook shape.
+app.include_router(push_router, prefix="/ext")
