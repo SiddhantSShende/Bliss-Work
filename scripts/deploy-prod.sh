@@ -56,7 +56,20 @@ log()  { printf '\n\033[1;36m▶ %s\033[0m\n' "$*"; }
 warn() { printf '\033[1;33m! %s\033[0m\n' "$*" >&2; }
 die()  { printf '\033[1;31m✗ %s\033[0m\n' "$*" >&2; exit 1; }
 
-compose() { docker compose -f "$COMPOSE_FILE" "$@"; }
+# Docker may or may not be reachable without sudo depending on whether the
+# deploy user is in the `docker` group. Detect once rather than assuming: this
+# script runs unattended over SSH, where a sudo password prompt would hang the
+# job rather than fail it.
+if docker info >/dev/null 2>&1; then
+    DOCKER="docker"
+elif sudo -n docker info >/dev/null 2>&1; then
+    DOCKER="sudo docker"
+else
+    printf '\033[1;31m✗ cannot reach the Docker daemon (with or without passwordless sudo)\033[0m\n' >&2
+    exit 1
+fi
+
+compose() { $DOCKER compose -f "$COMPOSE_FILE" "$@"; }
 
 # ── Serialize ───────────────────────────────────────────────────────────────
 # Two overlapping deploys would interleave `git merge` with `docker build` and
@@ -111,7 +124,7 @@ wait_healthy() {
                 pending+=("$svc(missing)")
                 continue
             fi
-            status="$(docker inspect \
+            status="$($DOCKER inspect \
                 --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' \
                 "$cid" 2>/dev/null || echo unknown)"
             [[ "$status" == "healthy" ]] || pending+=("$svc($status)")
@@ -162,7 +175,7 @@ rollback() {
 
     git reset --hard "$prev_sha"
 
-    if [[ -n "$prev_tag" ]] && docker image inspect "task-board/auth-svc:$prev_tag" >/dev/null 2>&1; then
+    if [[ -n "$prev_tag" ]] && $DOCKER image inspect "task-board/auth-svc:$prev_tag" >/dev/null 2>&1; then
         # The previous image set is still in the local store, so this is a
         # container restart, not a rebuild.
         export IMAGE_TAG="$prev_tag"
@@ -183,7 +196,7 @@ rollback() {
 prune_old_images() {
     local svc tag
     for svc in "${SHA_TAGGED_SERVICES[@]}"; do
-        docker images "task-board/$svc" --format '{{.Tag}}|{{.CreatedAt}}' 2>/dev/null \
+        $DOCKER images "task-board/$svc" --format '{{.Tag}}|{{.CreatedAt}}' 2>/dev/null \
             | grep -v '^latest|' \
             | grep -v '^<none>|' \
             | sort -t'|' -k2 -r \
@@ -191,7 +204,7 @@ prune_old_images() {
             | cut -d'|' -f1 \
             | while read -r tag; do
                 [[ -n "$tag" && "$tag" != "$IMAGE_TAG" ]] || continue
-                docker rmi "task-board/$svc:$tag" >/dev/null 2>&1 || true
+                $DOCKER rmi "task-board/$svc:$tag" >/dev/null 2>&1 || true
               done
     done
 }
@@ -229,7 +242,7 @@ compose build "${BUILT_SERVICES[@]}"
 # Keep `:latest` pointing at the live set so a bare `docker compose up -d` (with
 # no IMAGE_TAG exported) still starts what is actually deployed.
 for svc in "${SHA_TAGGED_SERVICES[@]}"; do
-    docker tag "task-board/$svc:$IMAGE_TAG" "task-board/$svc:latest"
+    $DOCKER tag "task-board/$svc:$IMAGE_TAG" "task-board/$svc:latest"
 done
 
 log "Rolling services (each service runs its migrations at boot)"
