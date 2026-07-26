@@ -83,27 +83,29 @@ export function ChannelView() {
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center justify-between border-b border-border/70 bg-surface/60 px-5 py-3 backdrop-blur">
-        <div className="flex items-center gap-2">
+        {/* min-w-0 + truncate: a long channel name must not push the member
+            count and Leave action off the right edge on a narrow window. */}
+        <div className="flex min-w-0 items-center gap-2">
           <button
             onClick={() => nav("/app/channels")}
             title="Back to channels"
-            className="-ml-1 rounded-lg p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg md:hidden"
+            className="-ml-1 shrink-0 rounded-lg p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg md:hidden"
           >
             <ChevronLeft size={20} />
           </button>
           {channel.isLocked ? (
-            <Lock size={16} className="text-accent" />
+            <Lock size={16} className="shrink-0 text-accent" />
           ) : (
-            <Hash size={18} className="text-accent" />
+            <Hash size={18} className="shrink-0 text-accent" />
           )}
-          <span className="font-semibold text-fg">{channel.name}</span>
+          <span className="truncate font-semibold text-fg">{channel.name}</span>
           {channel.isLocked && (
-            <span className="rounded-full bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-muted">
+            <span className="shrink-0 rounded-full bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-muted">
               locked
             </span>
           )}
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex shrink-0 items-center gap-3">
           <span className="flex items-center gap-1.5 text-sm text-muted">
             <Users size={15} /> {channel.memberCount}
           </span>

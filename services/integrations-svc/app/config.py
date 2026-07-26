@@ -39,6 +39,12 @@ class Settings(BaseSettings):
     # Used to build OAuth redirect URIs + webhook callback URLs. Empty in dev.
     public_base_url: str = ""
 
+    # task-svc base for the mention→task hop. Private-network only. NOTE this
+    # carries no shared secret: we forward the CALLER's own JWT, so task-svc
+    # applies its normal authorization and the task is authored by the human who
+    # clicked Claim rather than by a trusted service impersonating them.
+    task_internal_base: str = "http://task-svc:8002"
+
     # ── App-level OAuth client credentials (OUR developer apps) ─────────────────
     # Per-user tokens obtained through these flows are stored encrypted per-row.
     # All optional: a provider whose creds are unset is simply not connectable.

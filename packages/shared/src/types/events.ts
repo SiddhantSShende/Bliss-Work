@@ -32,6 +32,7 @@ export const EventType = {
   TaskReviewed: "task.reviewed",
   NotificationCreated: "notification.created",
   IntegrationActivityCreated: "integration.activity.created",
+  IntegrationMentionCreated: "integration.mention.created",
   PresenceOnline: "presence.online",
   PresenceOffline: "presence.offline",
   PresenceSnapshot: "presence.snapshot",
@@ -281,6 +282,24 @@ export const IntegrationActivityCreated = z.object({
   direction: z.string(), // 'inbound' | 'outbound'
 });
 
+/**
+ * IntegrationMentionCreated fires when an inbound message on a connected account
+ * @-mentions a Bliss-Work user. Signal-only, like its activity sibling — the
+ * mention text and peer never ride the event; the client refetches the mentions
+ * feed. This is the ONLY integration event the client notifies on, which is what
+ * keeps the hub to "someone tagged me" instead of every message on the account.
+ * Routed to [recipientId] = the MENTIONED user (not the connection owner).
+ */
+export const IntegrationMentionCreated = z.object({
+  type: z.literal(EventType.IntegrationMentionCreated),
+  ...envelope,
+  recipientId: z.string().uuid(),
+  activityId: z.string().uuid(),
+  connectionId: z.string().uuid(),
+  provider: z.string(),
+  kind: z.string(), // 'message' | 'email'
+});
+
 // ── Presence events (ephemeral; never persisted to the replay outbox) ─────────
 /**
  * Presence transitions pushed by ws-gateway. PresenceOnline/Offline fire on the
@@ -372,6 +391,7 @@ export const ServerEvent = z.discriminatedUnion("type", [
   TaskReviewed,
   NotificationCreated,
   IntegrationActivityCreated,
+  IntegrationMentionCreated,
   PresenceOnline,
   PresenceOffline,
   PresenceSnapshot,
@@ -397,6 +417,7 @@ export const DomainEvent = z.discriminatedUnion("type", [
   TaskReviewed,
   NotificationCreated,
   IntegrationActivityCreated,
+  IntegrationMentionCreated,
   UserCreated,
   InviteCreated,
   PasswordResetRequested,
@@ -421,6 +442,7 @@ export type TaskLeft = z.infer<typeof TaskLeft>;
 export type TaskReviewed = z.infer<typeof TaskReviewed>;
 export type NotificationCreated = z.infer<typeof NotificationCreated>;
 export type IntegrationActivityCreated = z.infer<typeof IntegrationActivityCreated>;
+export type IntegrationMentionCreated = z.infer<typeof IntegrationMentionCreated>;
 export type PresenceOnline = z.infer<typeof PresenceOnline>;
 export type PresenceOffline = z.infer<typeof PresenceOffline>;
 export type PresenceSnapshot = z.infer<typeof PresenceSnapshot>;
@@ -643,6 +665,10 @@ export function recipientsOf(e: DomainEvent): string[] {
       return [e.recipientId];
     case EventType.IntegrationActivityCreated:
       return [e.recipientId];
+    case EventType.IntegrationMentionCreated:
+      // The mentioned user only — the connection owner already got the
+      // activity event, and a mention is personal to whoever was tagged.
+      return [e.recipientId];
     case EventType.UserCreated:
     case EventType.InviteCreated:
     case EventType.PasswordResetRequested:
@@ -675,4 +701,8 @@ export const NO_DELIVERY_ACK_FOR = new Set<string>([
   EventType.TaskLeft,
   EventType.TaskReviewed,
   EventType.NotificationCreated,
+  // Integration events carry no messaging `messageId`, so a delivery ack
+  // derived from one has nothing to ack and would 400 downstream.
+  EventType.IntegrationActivityCreated,
+  EventType.IntegrationMentionCreated,
 ]);

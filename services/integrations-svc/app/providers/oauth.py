@@ -17,11 +17,25 @@ import hashlib
 import secrets
 import urllib.parse
 from dataclasses import dataclass, field
+from typing import Protocol
 
 import httpx
 
 from ..config import settings
 from ..resilience import CircuitBreaker, retry_async
+
+
+class AppCredentialsLike(Protocol):
+    """The shape `config_for` needs from a credential set.
+
+    A structural type rather than an import of `app_credentials.AppCredentials`:
+    that module imports `crypto`, which imports the DB layer, and this file is
+    deliberately I/O-free so it can be unit-tested with a plain stub.
+    """
+
+    client_id: str
+    client_secret: str
+    tenant: str | None
 
 _TIMEOUT = 10.0
 _oauth_breaker = CircuitBreaker(fail_max=5, reset_timeout=30.0, name="oauth")
@@ -46,6 +60,12 @@ class OAuthConfig:
     # Where to read the account identity from the userinfo/Graph response.
     identity_field: str = "email"
     identity_name_field: str = "email"
+    # Which response fields become MENTION handles for this account, as
+    # (handle_kind, field) pairs. These are what an inbound message must name
+    # for it to count as tagging the connecting user, so they have to match what
+    # the provider actually puts in its payloads: mail providers address people
+    # by e-mail, but Teams mentions carry the AAD OBJECT ID, not the address.
+    identity_handle_fields: tuple[tuple[str, str], ...] = (("email", "email"),)
 
 
 # ── PKCE ──────────────────────────────────────────────────────────────────────
@@ -61,12 +81,22 @@ def new_pkce() -> tuple[str, str]:
 
 
 # ── Per-provider config ───────────────────────────────────────────────────────
-def config_for(provider: str) -> OAuthConfig | None:
-    """Return the OAuth config for a provider, or None when its client credentials
-    aren't configured on this server (the provider then reports 'not configured')."""
+def config_for(provider: str, creds: AppCredentialsLike | None) -> OAuthConfig | None:
+    """Build the OAuth config for a provider from an org's own app credentials.
+
+    `creds` comes from `app_credentials.load(db, org_id, vendor)` — the org's own
+    OAuth app, or the server-env fallback, or None. Passing None returns None,
+    which callers surface as "not configured yet" rather than emitting an
+    authorize URL with an empty client_id (which fails at the provider with an
+    error the user cannot act on).
+
+    This function stays PURE — no settings lookup, no I/O — so the credential
+    source is always visible at the call site.
+    """
+    if creds is None or not creds.client_id or not creds.client_secret:
+        return None
+
     if provider == "gmail":
-        if not (settings.google_client_id and settings.google_client_secret):
-            return None
         return OAuthConfig(
             name="gmail",
             authorize_endpoint="https://accounts.google.com/o/oauth2/v2/auth",
@@ -78,16 +108,19 @@ def config_for(provider: str) -> OAuthConfig | None:
                 "https://www.googleapis.com/auth/gmail.send",
                 "https://www.googleapis.com/auth/gmail.readonly",
             ],
-            client_id=settings.google_client_id,
-            client_secret=settings.google_client_secret,
+            client_id=creds.client_id,
+            client_secret=creds.client_secret,
             extra_authorize={"access_type": "offline", "prompt": "consent"},
             identity_field="email",
             identity_name_field="email",
+            identity_handle_fields=(("email", "email"),),
         )
     if provider in ("outlook", "teams"):
-        if not (settings.ms_client_id and settings.ms_client_secret):
-            return None
-        tenant = settings.ms_tenant or "common"
+        # 'common' (multi-tenant) unless the org registered a single-tenant app
+        # and supplied its tenant id. Getting this wrong is a very common Entra
+        # setup failure: a single-tenant app authorized via /common returns
+        # AADSTS50194 rather than anything self-explanatory.
+        tenant = creds.tenant or "common"
         graph_scopes = {"outlook": ["Mail.Read", "Mail.Send"], "teams": ["Chat.ReadWrite"]}[provider]
         return OAuthConfig(
             name=provider,
@@ -95,10 +128,17 @@ def config_for(provider: str) -> OAuthConfig | None:
             token_endpoint=f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token",
             userinfo_endpoint="https://graph.microsoft.com/v1.0/me",
             scopes=["openid", "email", "offline_access", "User.Read", *graph_scopes],
-            client_id=settings.ms_client_id,
-            client_secret=settings.ms_client_secret,
+            client_id=creds.client_id,
+            client_secret=creds.client_secret,
             identity_field="mail",
             identity_name_field="userPrincipalName",
+            # Teams mentions reference the AAD object id; Outlook mail addresses
+            # the mailbox. Register both so either style of tag resolves.
+            identity_handle_fields=(
+                ("account", "id"),
+                ("email", "mail"),
+                ("email", "userPrincipalName"),
+            ),
         )
     return None
 
@@ -183,8 +223,22 @@ async def refresh_access_token(cfg: OAuthConfig, refresh_token: str) -> dict:
     return await retry_async(_attempt, attempts=3, breaker=_oauth_breaker)
 
 
-async def fetch_identity(cfg: OAuthConfig, access_token: str) -> tuple[str, str]:
-    """Resolve (external_account_id, display_label) from the userinfo/Graph endpoint."""
+@dataclass(frozen=True)
+class Identity:
+    """Who a connected account belongs to.
+
+    `account_id`/`label` identify the CONNECTION; `handles` are the identifiers
+    an inbound message can use to tag this person, which is what mention
+    detection matches against.
+    """
+
+    account_id: str
+    label: str
+    handles: tuple[tuple[str, str], ...] = ()  # (handle_kind, value)
+
+
+async def fetch_identity(cfg: OAuthConfig, access_token: str) -> Identity:
+    """Resolve the connected account's identity from the userinfo/Graph endpoint."""
 
     async def _attempt() -> dict:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
@@ -197,4 +251,16 @@ async def fetch_identity(cfg: OAuthConfig, access_token: str) -> tuple[str, str]
     info = await retry_async(_attempt, attempts=3, breaker=_oauth_breaker)
     account_id = info.get(cfg.identity_field) or info.get(cfg.identity_name_field) or ""
     label = info.get(cfg.identity_name_field) or account_id or cfg.name
-    return str(account_id), str(label)
+
+    # Order-preserving dedupe: Graph often returns the same string in `mail` and
+    # `userPrincipalName`, and storing it twice would just be two rows fighting
+    # over one unique index.
+    handles: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for kind, field_name in cfg.identity_handle_fields:
+        value = str(info.get(field_name) or "").strip()
+        if value and value.lower() not in seen:
+            seen.add(value.lower())
+            handles.append((kind, value))
+
+    return Identity(account_id=str(account_id), label=str(label), handles=tuple(handles))

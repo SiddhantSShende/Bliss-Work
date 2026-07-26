@@ -130,10 +130,40 @@ export const IntegrationConnectionDTO = z.object({
   displayLabel: z.string(),
   scopes: z.array(z.string()),
   lastError: z.string().nullable().optional(),
+  /** Per-connection webhook URL to paste into the provider's dashboard. Only
+   *  set for providers that call us (Slack, WhatsApp). Not a secret on its own —
+   *  the provider's HMAC signature still authenticates every delivery. */
+  webhookUrl: z.string().nullable().optional(),
+  /** WhatsApp only: the `hub.verify_token` to paste into Meta alongside the URL.
+   *  Generated server-side; the admin can't re-derive it, so it's readable. */
+  webhookVerifyToken: z.string().nullable().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
 export type IntegrationConnectionDTO = z.infer<typeof IntegrationConnectionDTO>;
+
+/** One OAuth vendor's app setup for this workspace.
+ *
+ *  Integrations are user-driven: each org registers its OWN Google Cloud / Entra
+ *  app rather than authorizing a central Bliss-Work one. The client secret is
+ *  write-only — it is never returned by the API, at any point. */
+export const AppCredentialDTO = z.object({
+  vendor: z.enum(["google", "microsoft"]),
+  configured: z.boolean(),
+  /** 'org' = this workspace's own app; 'server' = the deployment-wide fallback. */
+  source: z.enum(["org", "server"]).nullable().optional(),
+  /** Not secret — it travels in the authorize URL the browser follows. */
+  clientId: z.string().default(""),
+  tenant: z.string().nullable().optional(),
+  pubsubTopic: z.string().nullable().optional(),
+  updatedAt: z.string().nullable().optional(),
+  /** Which providers these credentials unlock (microsoft → outlook + teams). */
+  providers: z.array(z.string()).default([]),
+  /** The exact URIs to register in the vendor's console. Mismatch here is the
+   *  most common OAuth setup failure, so the server hands over literal strings. */
+  redirectUris: z.array(z.string()).default([]),
+});
+export type AppCredentialDTO = z.infer<typeof AppCredentialDTO>;
 
 /** Result of starting a connect flow. OAuth providers return an authorizeUrl to
  *  redirect the user to; token-paste providers return the created connection. */
@@ -156,6 +186,51 @@ export const ProviderActivityDTO = z.object({
   occurredAt: z.string(),
 });
 export type ProviderActivityDTO = z.infer<typeof ProviderActivityDTO>;
+
+/** Lifecycle of a mention: untouched → turned into a task, or dismissed. */
+export const MentionState = z.enum(["pending", "claimed", "ignored"]);
+export type MentionState = z.infer<typeof MentionState>;
+
+/** One @-mention of the caller on a connected external account. peer/body are
+ *  decrypted server-side for display; the raw provider payload never leaves the
+ *  service. `taskId` is set once the mention has been claimed. */
+export const MentionDTO = z.object({
+  id: z.string().uuid(),
+  provider: z.string(),
+  kind: z.string(),
+  /** Who tagged you — a handle/address, not a Bliss-Work user. */
+  peer: z.string(),
+  body: z.string(),
+  threadRef: z.string().nullable().optional(),
+  /** Deep link back to the message on the provider, when it gives us one. */
+  permalink: z.string().nullable().optional(),
+  state: MentionState,
+  taskId: z.string().uuid().nullable().optional(),
+  occurredAt: z.string(),
+});
+export type MentionDTO = z.infer<typeof MentionDTO>;
+
+/** Keyset page of mentions, newest first. `nextCursor` is opaque — pass it back
+ *  verbatim; null means this was the last page. */
+export const MentionPageDTO = z.object({
+  items: z.array(MentionDTO),
+  nextCursor: z.string().nullable(),
+});
+export type MentionPageDTO = z.infer<typeof MentionPageDTO>;
+
+/** A handle the caller owns on an external platform — what mention detection
+ *  matches an incoming message against. 'oauth' handles are derived from a
+ *  connected account (self-proving); 'declared' ones are typed in by the user. */
+export const ProviderIdentityDTO = z.object({
+  id: z.string().uuid(),
+  provider: z.string(),
+  handleKind: z.enum(["account", "email", "phone", "alias"]),
+  handle: z.string(),
+  source: z.enum(["oauth", "declared"]),
+  verified: z.boolean(),
+  createdAt: z.string(),
+});
+export type ProviderIdentityDTO = z.infer<typeof ProviderIdentityDTO>;
 
 /**
  * @deprecated In the Inbox model use InboxItemDTO + ThreadDTO. ConversationDTO

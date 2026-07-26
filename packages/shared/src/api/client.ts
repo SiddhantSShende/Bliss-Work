@@ -7,12 +7,16 @@ import { z } from "zod";
 import {
   ChannelDTO,
   ChannelMessageDTO,
+  AppCredentialDTO,
   ConnectStartDTO,
   ConversationDTO,
   ForwardActivityDTO,
   ForwardEdgeDTO,
   IntegrationConnectionDTO,
+  MentionPageDTO,
+  MentionState,
   ProviderActivityDTO,
+  ProviderIdentityDTO,
   InboxPageDTO,
   InboxPeerDTO,
   InviteDTO,
@@ -427,11 +431,19 @@ export class ApiClient {
    *  their credentials in `credentials` and return the created connection; OAuth
    *  providers (Gmail/Outlook/Teams) ignore it and return an authorizeUrl to
    *  redirect to. */
-  connectIntegration(provider: string, credentials: Record<string, unknown> = {}) {
+  connectIntegration(
+    provider: string,
+    credentials: Record<string, unknown> = {},
+    returnTo?: "web" | "desktop",
+  ) {
+    // `returnTo` is a MODE, not a URL — the server maps it to one of two
+    // known destinations so this can never become an open redirect. "desktop"
+    // returns through the taskboard:// deep link because the consent screen
+    // runs in the system browser there.
     return this.req(
       this.cfg.integrationsBase,
       `/api/v1/integrations/${provider}/connect/start`,
-      { method: "POST", body: JSON.stringify(credentials) },
+      { method: "POST", body: JSON.stringify({ ...credentials, returnTo }) },
       ConnectStartDTO,
     );
   }
@@ -441,13 +453,117 @@ export class ApiClient {
       method: "DELETE",
     });
   }
-  /** Unified hub activity timeline (inbound + outbound), newest first. */
+  /** Unified hub activity timeline (inbound + outbound), newest first.
+   *  Audit/debug surface — the Hub UI renders `mentions()` instead. */
   integrationActivity() {
     return this.req(
       this.cfg.integrationsBase,
       "/api/v1/integrations/activity",
       {},
       z.array(ProviderActivityDTO),
+    );
+  }
+
+  /** My @-mentions across connected accounts, newest first. Keyset-paginated —
+   *  pass the previous page's `nextCursor` back verbatim. */
+  mentions(state: MentionState = "pending", cursor?: string, limit = 25) {
+    const q = new URLSearchParams({ state, limit: String(limit) });
+    if (cursor) q.set("cursor", cursor);
+    return this.req(
+      this.cfg.integrationsBase,
+      `/api/v1/integrations/mentions?${q.toString()}`,
+      {},
+      MentionPageDTO,
+    );
+  }
+
+  /** Turn a mention into a task assigned to me. Idempotent: a retry returns the
+   *  SAME taskId (the server derives a deterministic key from the mention), so
+   *  a double-click or a reconnect can never produce two tasks. 409 when the
+   *  mention was already dismissed. */
+  claimMention(activityId: string) {
+    return this.req(
+      this.cfg.integrationsBase,
+      `/api/v1/integrations/mentions/${activityId}/claim`,
+      { method: "POST", body: "{}" },
+      z.object({ taskId: z.string().uuid(), state: MentionState }),
+    );
+  }
+
+  /** Dismiss a mention permanently. Idempotent; 409 if already claimed. */
+  ignoreMention(activityId: string) {
+    return this.req(
+      this.cfg.integrationsBase,
+      `/api/v1/integrations/mentions/${activityId}/ignore`,
+      { method: "POST", body: "{}" },
+      z.object({ state: MentionState }),
+    );
+  }
+
+  /** My handles on each platform — what mention matching resolves against. */
+  providerIdentities() {
+    return this.req(
+      this.cfg.integrationsBase,
+      "/api/v1/integrations/identities",
+      {},
+      z.array(ProviderIdentityDTO),
+    );
+  }
+
+  /** Declare a handle. 409 when a teammate already owns it. */
+  addProviderIdentity(provider: string, handle: string) {
+    return this.req(
+      this.cfg.integrationsBase,
+      "/api/v1/integrations/identities",
+      { method: "POST", body: JSON.stringify({ provider, handle }) },
+      ProviderIdentityDTO,
+    );
+  }
+
+  removeProviderIdentity(id: string) {
+    return this.req<void>(
+      this.cfg.integrationsBase,
+      `/api/v1/integrations/identities/${id}`,
+      { method: "DELETE" },
+    );
+  }
+
+  /** This workspace's own OAuth apps, one entry per vendor. Includes the exact
+   *  redirect URIs to register; never includes a client secret. */
+  appCredentials() {
+    return this.req(
+      this.cfg.integrationsBase,
+      "/api/v1/integrations/app-credentials",
+      {},
+      z.array(AppCredentialDTO),
+    );
+  }
+
+  /** Save or rotate this workspace's OAuth app for a vendor.
+   *  `tenant` is Microsoft-only; `pubsubTopic` is Google-only — the server
+   *  rejects the wrong one rather than storing a value it will never read. */
+  saveAppCredentials(
+    vendor: "google" | "microsoft",
+    creds: {
+      clientId: string;
+      clientSecret: string;
+      tenant?: string;
+      pubsubTopic?: string;
+    },
+  ) {
+    return this.req(
+      this.cfg.integrationsBase,
+      `/api/v1/integrations/app-credentials/${vendor}`,
+      { method: "PUT", body: JSON.stringify(creds) },
+      AppCredentialDTO,
+    );
+  }
+
+  removeAppCredentials(vendor: "google" | "microsoft") {
+    return this.req<void>(
+      this.cfg.integrationsBase,
+      `/api/v1/integrations/app-credentials/${vendor}`,
+      { method: "DELETE" },
     );
   }
   readThread(threadId: string, upToSeq: number) {

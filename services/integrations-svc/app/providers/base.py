@@ -35,6 +35,11 @@ class ProviderSpec:
     primary_field: str | None = None
     fields: tuple[ProviderField, ...] = field(default_factory=tuple)
     default_scopes: tuple[str, ...] = field(default_factory=tuple)
+    # True when the provider delivers events by calling US. Those connections get
+    # a per-connection webhook URL to paste into the provider's dashboard, so the
+    # connection (and its signing secret) is resolvable from the path before any
+    # payload is trusted. OAuth providers use push subscriptions instead.
+    receives_webhooks: bool = False
 
 
 # Registry keyed by provider id. The `provider` CHECK in 0001_init.sql must stay
@@ -50,6 +55,7 @@ PROVIDERS: dict[str, ProviderSpec] = {
             ProviderField("signingSecret", "Signing secret"),
         ),
         default_scopes=("chat:write", "channels:read", "users:read", "im:history"),
+        receives_webhooks=True,
     ),
     "whatsapp": ProviderSpec(
         name="whatsapp",
@@ -61,6 +67,7 @@ PROVIDERS: dict[str, ProviderSpec] = {
             ProviderField("phoneNumberId", "Phone number ID", secret=False),
             ProviderField("appSecret", "App secret"),
         ),
+        receives_webhooks=True,
     ),
     "gmail": ProviderSpec(
         name="gmail",

@@ -60,8 +60,17 @@ export const qk = {
   integrations: ["integrations"] as const,
   /** Organizations the signed-in identity belongs to (org switcher). */
   myOrgs: ["myOrgs"] as const,
-  /** Unified hub activity timeline (inbound + outbound external messages). */
+  /** Unified hub activity timeline (inbound + outbound external messages).
+   *  Audit surface — the Hub renders `mentions` instead. */
   integrationActivity: ["integrationActivity"] as const,
+  /** "Someone tagged me" feed, per state tab. The bare ["mentions"] prefix
+   *  invalidates every tab at once, which is what a claim/ignore needs (a row
+   *  moves BETWEEN tabs, so refreshing only the source tab leaves the
+   *  destination stale). */
+  mentions: (state: string) => ["mentions", state] as const,
+  /** My declared/derived handles on external platforms. */
+  providerIdentities: ["providerIdentities"] as const,
+  appCredentials: ["appCredentials"] as const,
   inboxPins: ["inboxPins"] as const,
   /** Task ids pinned to the desktop (Electron-only; empty on web). */
   taskPins: ["taskPins"] as const,
@@ -288,11 +297,21 @@ export function WsEventBridge() {
           break;
         }
         case EventType.IntegrationActivityCreated: {
-          // New inbound/outbound activity on a connected account → refresh the hub
-          // feed live, and toast inbound messages (signal-only; body is refetched).
+          // Every message on a connected account lands here. Refresh the audit
+          // timeline but do NOT notify — a connected mailbox or Slack workspace
+          // produces constant traffic, and toasting all of it is the firehose
+          // the mentions feed exists to replace. Notification is the mention
+          // event's job, below.
           if (e.recipientId === me) {
             void qc.invalidateQueries({ queryKey: qk.integrationActivity });
-            if (e.direction === "inbound") toast(`New ${e.provider} message`);
+          }
+          break;
+        }
+        case EventType.IntegrationMentionCreated: {
+          // Someone actually tagged me — this one is worth interrupting for.
+          if (e.recipientId === me) {
+            void qc.invalidateQueries({ queryKey: ["mentions"] });
+            toast(`You were mentioned on ${e.provider}`);
           }
           break;
         }

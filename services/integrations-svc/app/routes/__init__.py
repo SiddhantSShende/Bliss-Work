@@ -1,8 +1,14 @@
 from fastapi import APIRouter
 
-from . import integrations
+from . import app_creds, integrations, mentions
 
-# Versioned aggregate router. New feature routers (webhooks, activity hub) are
-# included here as the provider layer lands.
+# Versioned aggregate router. Public routers (webhooks, oauth) are NOT here —
+# main.py mounts those under /ext with no JWT.
 router = APIRouter(prefix="/api/v1")
+# app_creds FIRST: its paths are /integrations/app-credentials{,/{vendor}}, and
+# integrations.py declares DELETE /integrations/{conn_id}, which would otherwise
+# swallow DELETE /integrations/app-credentials as a connection id. FastAPI
+# matches in registration order.
+router.include_router(app_creds.router)
 router.include_router(integrations.router)
+router.include_router(mentions.router)

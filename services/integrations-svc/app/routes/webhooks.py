@@ -14,35 +14,80 @@ nothing is persisted.
 from __future__ import annotations
 
 import json
+import secrets
 
-import uuid6
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from sqlalchemy import text
 
 from ..config import settings
 from ..crypto import cryptor
 from ..db import session, set_bypass_rls
-from ..events import emit_activity_created
+from ..ingest import claim_event, ingest_one
 from ..providers import slack, whatsapp
 
 router = APIRouter()
 
 
 # ── shared helpers ────────────────────────────────────────────────────────────
+#: The columns every ingest path needs. external_account_id_bidx comes along so
+#: ingest_one can answer "was the connection's OWN account the thing that got
+#: tagged?" without a re-query.
+_CONN_COLS = "id, org_id, owner_user_id, created_by, external_account_id_bidx"
+
+
 async def _conn_by_account(db, provider: str, external_id: str | None):
+    """Resolve a connection from an identifier inside the PAYLOAD.
+
+    Only usable once the payload is parsed, which is a problem for handshakes:
+    Slack's `url_verification` carries no team_id at all, and WhatsApp's GET
+    challenge has no body. `_conn_by_token` exists for those.
+    """
     if not external_id:
         return None
     bidx = cryptor().blind_index(external_id)
     return (
         await db.execute(
             text(
-                """
-                SELECT id, org_id, owner_user_id, created_by FROM integration_connections
+                f"""
+                SELECT {_CONN_COLS}
+                  FROM integration_connections
                  WHERE provider = :p AND external_account_id_bidx = :b AND status = 'connected'
                  LIMIT 1
-                """
+                """  # noqa: S608 — _CONN_COLS is a module constant, not user input
             ),
             {"p": provider, "b": bidx},
+        )
+    ).one_or_none()
+
+
+async def _conn_by_token(db, provider: str, webhook_token: str | None):
+    """Resolve a connection from the URL PATH, before parsing anything.
+
+    This is what makes per-org credentials possible. Each connection gets its
+    own webhook URL (/ext/{provider}/webhook/{token}), so we can find the
+    connection — and therefore its per-connection signing secret — before the
+    body is trusted. Without it, the very first request in a Slack setup (the
+    `url_verification` handshake, which has no team_id) can only be answered
+    from a SERVER-level secret shared by every tenant.
+
+    The token is NOT an authenticator. The provider's HMAC signature still
+    authenticates every request, exactly as before; the token only says which
+    connection a delivery belongs to. It is compared by an indexed equality
+    lookup, so a wrong token is a miss, not a partial match.
+    """
+    if not webhook_token:
+        return None
+    return (
+        await db.execute(
+            text(
+                f"""
+                SELECT {_CONN_COLS}
+                  FROM integration_connections
+                 WHERE provider = :p AND webhook_token = :t AND status = 'connected'
+                 LIMIT 1
+                """  # noqa: S608 — _CONN_COLS is a module constant, not user input
+            ),
+            {"p": provider, "t": webhook_token},
         )
     ).one_or_none()
 
@@ -64,79 +109,49 @@ async def _conn_secret(db, conn, key: str) -> str:
         return ""
 
 
-async def _claim_event(db, provider: str, event_id: str) -> bool:
-    """Idempotency claim: True the first time this external event id is seen."""
-    res = await db.execute(
-        text(
-            """
-            INSERT INTO webhook_events (id, provider, external_event_id, signature_verified, received_at)
-            VALUES (:id, :p, :e, true, now())
-            ON CONFLICT (provider, external_event_id) WHERE external_event_id IS NOT NULL
-            DO NOTHING
-            """
-        ),
-        {"id": str(uuid6.uuid7()), "p": provider, "e": event_id},
-    )
-    return res.rowcount > 0
-
-
-async def _record_inbound(db, conn, provider: str, *, external_id, peer, body, status_label) -> None:
-    org = str(conn.org_id)
-    owner = str(conn.owner_user_id) if conn.owner_user_id else None
-    body_enc = await cryptor().encrypt(db, org, body or "")
-    peer_enc = await cryptor().encrypt(db, org, peer or "")
-    ext_bidx = cryptor().blind_index(str(external_id)) if external_id else None
-    activity_id = str(uuid6.uuid7())
-    res = await db.execute(
-        text(
-            """
-            INSERT INTO provider_activity
-                (id, org_id, owner_user_id, connection_id, provider, direction,
-                 kind, external_id_bidx, peer_enc, body_enc, status, occurred_at)
-            VALUES
-                (:id, :o, :owner, :c, :p, 'inbound', 'message', :xb, :peer, :b, :st, now())
-            ON CONFLICT (connection_id, external_id_bidx) WHERE external_id_bidx IS NOT NULL
-            DO NOTHING
-            """
-        ),
-        {
-            "id": activity_id,
-            "o": org,
-            "owner": owner,
-            "c": conn.id,
-            "p": provider,
-            "xb": ext_bidx,
-            "peer": peer_enc,
-            "b": body_enc,
-            "st": status_label,
-        },
-    )
-    # Only emit the live signal when a NEW row was actually inserted (not a dedupe).
-    if res.rowcount > 0:
-        recipient = str(conn.created_by) if conn.created_by else owner
-        await emit_activity_created(
-            db, org_id=org, recipient_id=recipient, activity_id=activity_id,
-            connection_id=str(conn.id), provider=provider, kind="message", direction="inbound",
-        )
-
-
 # ── WhatsApp GET verification handshake ───────────────────────────────────────
+# Two shapes of the same route. The token-suffixed one is what new connections
+# register (it identifies the connection from the path); the bare one is kept
+# so webhooks configured before per-connection URLs existed keep working.
 @router.get("/{provider}/webhook")
-async def verify_webhook(provider: str, request: Request) -> Response:
+@router.get("/{provider}/webhook/{webhook_token}")
+async def verify_webhook(
+    provider: str, request: Request, webhook_token: str | None = None
+) -> Response:
     if provider != "whatsapp":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="unknown provider")
     q = request.query_params
     mode = q.get("hub.mode")
     token = q.get("hub.verify_token")
     challenge = q.get("hub.challenge", "")
-    if mode == "subscribe" and settings.whatsapp_verify_token and token == settings.whatsapp_verify_token:
+    if mode != "subscribe" or not token:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="verification failed")
+
+    # Per-connection verify token, resolved from the path. This GET carries no
+    # body at all, so without the path token the only way to answer it is a
+    # server-wide shared secret.
+    if webhook_token:
+        async with session() as db:
+            await set_bypass_rls(db)
+            conn = await _conn_by_token(db, "whatsapp", webhook_token)
+            expected = await _conn_secret(db, conn, "verifyToken") if conn is not None else ""
+        if expected and secrets.compare_digest(token, expected):
+            return Response(content=challenge, media_type="text/plain")
+
+    # Fallback: the deployment-wide token, for pre-existing setups.
+    if settings.whatsapp_verify_token and secrets.compare_digest(
+        token, settings.whatsapp_verify_token
+    ):
         return Response(content=challenge, media_type="text/plain")
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="verification failed")
 
 
 # ── POST inbound events ───────────────────────────────────────────────────────
 @router.post("/{provider}/webhook")
-async def provider_webhook(provider: str, request: Request) -> Response:
+@router.post("/{provider}/webhook/{webhook_token}")
+async def provider_webhook(
+    provider: str, request: Request, webhook_token: str | None = None
+) -> Response:
     raw = await request.body()
     try:
         payload = json.loads(raw) if raw else {}
@@ -144,22 +159,35 @@ async def provider_webhook(provider: str, request: Request) -> Response:
         payload = {}
 
     if provider == "slack":
-        return await _handle_slack(request, raw, payload)
+        return await _handle_slack(request, raw, payload, webhook_token)
     if provider == "whatsapp":
-        return await _handle_whatsapp(request, raw, payload)
+        return await _handle_whatsapp(request, raw, payload, webhook_token)
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="unknown provider")
 
 
-async def _handle_slack(request: Request, raw: bytes, payload: dict) -> Response:
+async def _handle_slack(
+    request: Request, raw: bytes, payload: dict, webhook_token: str | None = None
+) -> Response:
     ts = request.headers.get("X-Slack-Request-Timestamp", "")
     sig = request.headers.get("X-Slack-Signature", "")
     team_id = payload.get("team_id")
     async with session() as db:
         await set_bypass_rls(db)
-        signing_secret = settings.slack_signing_secret
-        conn = await _conn_by_account(db, "slack", team_id)
-        if not signing_secret and conn is not None:
+        # Path token FIRST. `url_verification` — the very first request Slack
+        # sends when you save the URL — carries no team_id, so resolving by
+        # account cannot work for it. This ordering is what lets an org verify
+        # its own Slack app with no server-level secret.
+        conn = await _conn_by_token(db, "slack", webhook_token)
+        if conn is None:
+            conn = await _conn_by_account(db, "slack", team_id)
+
+        signing_secret = ""
+        if conn is not None:
             signing_secret = await _conn_secret(db, conn, "signingSecret")
+        # Deployment-wide secret only as a fallback, for webhooks registered
+        # before per-connection URLs existed.
+        if not signing_secret:
+            signing_secret = settings.slack_signing_secret
         if not signing_secret or not slack.verify_signature(signing_secret, ts, raw, sig):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="bad signature")
 
@@ -169,10 +197,13 @@ async def _handle_slack(request: Request, raw: bytes, payload: dict) -> Response
                 media_type="application/json",
             )
         event_id = payload.get("event_id")
-        if conn is not None and event_id and await _claim_event(db, "slack", str(event_id)):
+        if conn is not None and event_id and await claim_event(db, "slack", str(event_id)):
             ev = payload.get("event", {}) or {}
-            await _record_inbound(
+            # `raw=ev` — mention markup (<@U0123>) only exists in the untouched
+            # event; the `body` we store has no way back to it.
+            await ingest_one(
                 db, conn, "slack",
+                raw=ev,
                 external_id=ev.get("ts") or event_id,
                 peer=ev.get("user", "") or ev.get("channel", ""),
                 body=ev.get("text", ""),
@@ -182,22 +213,34 @@ async def _handle_slack(request: Request, raw: bytes, payload: dict) -> Response
     return Response(status_code=status.HTTP_200_OK)
 
 
-async def _handle_whatsapp(request: Request, raw: bytes, payload: dict) -> Response:
+async def _handle_whatsapp(
+    request: Request, raw: bytes, payload: dict, webhook_token: str | None = None
+) -> Response:
     sig = request.headers.get("X-Hub-Signature-256", "")
     pnid = whatsapp.phone_number_id_of(payload)
     async with session() as db:
         await set_bypass_rls(db)
-        conn = await _conn_by_account(db, "whatsapp", pnid)
-        app_secret = settings.whatsapp_app_secret
-        if not app_secret and conn is not None:
+        # Path token first, same reasoning as Slack — see _conn_by_token.
+        conn = await _conn_by_token(db, "whatsapp", webhook_token)
+        if conn is None:
+            conn = await _conn_by_account(db, "whatsapp", pnid)
+
+        app_secret = ""
+        if conn is not None:
             app_secret = await _conn_secret(db, conn, "appSecret")
+        if not app_secret:
+            app_secret = settings.whatsapp_app_secret
         if not app_secret or not whatsapp.verify_signature(app_secret, raw, sig):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="bad signature")
 
         if conn is not None:
+            # WhatsApp has no mention markup, so a connection only produces
+            # mentions when it opts in by naming the person its number belongs
+            # to (see mentions._whatsapp_scan).
+            owner_handle = await _conn_secret(db, conn, "mentionOwnerUserId")
             for m in whatsapp.parse_inbound(payload):
                 ext_id = m.get("external_id")
-                if not ext_id or not await _claim_event(db, "whatsapp", str(ext_id)):
+                if not ext_id or not await claim_event(db, "whatsapp", str(ext_id)):
                     continue
                 # Surface Meta's forward signal (the only forward Meta exposes).
                 st = "received"
@@ -205,12 +248,14 @@ async def _handle_whatsapp(request: Request, raw: bytes, payload: dict) -> Respo
                     st = "received-frequently-forwarded"
                 elif m.get("forwarded"):
                     st = "received-forwarded"
-                await _record_inbound(
+                await ingest_one(
                     db, conn, "whatsapp",
+                    raw=m,
                     external_id=ext_id,
                     peer=m.get("from", ""),
                     body=m.get("text", ""),
                     status_label=st,
+                    owner_handle=owner_handle or None,
                 )
         await db.commit()
     return Response(status_code=status.HTTP_200_OK)

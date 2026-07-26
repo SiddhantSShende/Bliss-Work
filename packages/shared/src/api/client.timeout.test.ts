@@ -125,7 +125,11 @@ describe("ApiClient request timeout", () => {
     const client = makeClient(50, okFetch as unknown as typeof fetch);
     const result = await client.me();
 
-    expect(result).toEqual(user);
+    // Subset match, not toEqual: UserDTO applies zod `.default()`s (orgName,
+    // plan), so a parsed user legitimately carries keys the stub body omits.
+    // This assertion is about the response surviving the round trip, not about
+    // pinning the DTO's field list — that belongs in the domain schema tests.
+    expect(result).toMatchObject(user);
     // Advancing past the (now-cleared) timeout must not blow anything up.
     await vi.advanceTimersByTimeAsync(100);
     expect(okFetch).toHaveBeenCalledTimes(1);

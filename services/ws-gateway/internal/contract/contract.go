@@ -72,6 +72,10 @@ func (e *Event) RecipientsOf() []string {
 	case "integration.activity.created":
 		// Live hub push to the account owner/connector.
 		return dedupe([]string{e.RecipientID})
+	case "integration.mention.created":
+		// The mentioned user only — the connection owner already got the
+		// activity event, and a mention is personal to whoever was tagged.
+		return dedupe([]string{e.RecipientID})
 	default:
 		// user.created / invite.created and anything unknown are internal-only.
 		return nil
@@ -95,6 +99,10 @@ var NoDeliveryAckFor = map[string]struct{}{
 	"task.left":              {},
 	"task.reviewed":          {},
 	"notification.created":   {},
+	// Integration events carry no messaging messageId, so a delivery ack
+	// derived from one has nothing to ack and would 400 downstream.
+	"integration.activity.created": {},
+	"integration.mention.created":  {},
 }
 
 func dedupe(in []string) []string {

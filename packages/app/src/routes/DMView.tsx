@@ -123,21 +123,23 @@ export function DMView() {
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center justify-between border-b border-border/70 bg-surface/60 px-5 py-3 backdrop-blur">
-        <div className="flex items-center gap-3">
+        {/* min-w-0 + truncate: without them a long username pushes the call and
+            block buttons off the right edge on a narrow window. */}
+        <div className="flex min-w-0 items-center gap-3">
           <button
             onClick={() => nav("/app/chats")}
             title="Back to chats"
-            className="-ml-1 rounded-lg p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg md:hidden"
+            className="-ml-1 shrink-0 rounded-lg p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg md:hidden"
           >
             <ChevronLeft size={20} />
           </button>
           <Avatar name={conv.peerUsername} online={isOnline} />
-          <div className="leading-tight">
-            <div className="font-semibold text-fg">{conv.peerUsername}</div>
+          <div className="min-w-0 leading-tight">
+            <div className="truncate font-semibold text-fg">{conv.peerUsername}</div>
             <div className={`text-xs ${isOnline ? "text-success" : "text-muted"}`}>{isOnline ? "Online" : "Offline"}</div>
           </div>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex shrink-0 items-center gap-1">
           <Button variant="ghost" size="sm" onClick={() => startCall("audio")} title="Voice call">
             <Phone size={15} />
           </Button>
