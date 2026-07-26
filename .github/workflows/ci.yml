@@ -82,11 +82,17 @@ jobs:
       - run: npm ci
       - name: Typecheck (tsc) — all workspaces
         run: npm run typecheck --workspaces --if-present
-      - name: ESLint — all workspaces
-        # No eslint config is committed yet, so this is best-effort: it runs
-        # where a workspace defines a `lint` script and is non-blocking.
-        continue-on-error: true
-        run: npm run lint --workspaces --if-present
+      - name: ESLint
+        # `npm run lint --workspaces` was a NO-OP: --workspaces excludes the
+        # root, and no workspace defines a `lint` script — so this step checked
+        # nothing for as long as it existed, while looking green.
+        #
+        # eslint.config.mjs at the root already covers every workspace (flat
+        # config, own ignores), so run it directly. Blocking, because its
+        # headline rule is react/no-danger — the guard that keeps
+        # dangerouslySetInnerHTML out of the codebase. A non-blocking XSS guard
+        # is not a guard.
+        run: npm run lint
 
   # ───────────────────────────────────────────────────────────────────────────
   # BUILD — compile the front-end bundles (web + desktop renderer).

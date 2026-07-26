@@ -1,8 +1,9 @@
 # Deploying BlissWork
 
-How code gets from a commit to production and to users' desktops. For a
-feature-specific rollout (schema changes, new env vars) see the per-feature docs
-such as `DEPLOY-INTEGRATIONS.md`; this page is the generic pipeline.
+How code gets from a commit to production and to users' desktops.
+
+For connecting external platforms see [`INTEGRATIONS-SETUP.md`](INTEGRATIONS-SETUP.md);
+for backups, key rotation and the WAF see [`OPERATIONS.md`](OPERATIONS.md).
 
 ## The pipeline
 

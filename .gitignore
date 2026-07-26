@@ -69,3 +69,7 @@ infra/redis/certs/*.srl
 
 # Encrypted DB backups (scripts/backup-db.sh)
 backups/
+
+# headless-browser verification output (regenerable; never commit)
+.shot/
+.ui-verify/

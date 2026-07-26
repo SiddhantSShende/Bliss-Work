@@ -14,8 +14,11 @@ import { Modal } from "./Modal";
  * Forward a message — either to another Bliss-Work user (in-app relay) or OUT to a
  * contact on a connected external platform (Slack channel, WhatsApp number, …).
  * Either way the ORIGINAL author is notified and the forward is recorded in the
- * forwarding-activity tree, with the platform tagged. Enterprise-plan only
- * (server-enforced); the caller only renders this when the plan allows.
+ * forwarding-activity tree, with the platform tagged.
+ *
+ * Available to EVERY org member. The plan gate this used to describe was removed
+ * in 465a195: each org now supplies its own provider credentials, so there is
+ * nothing central to meter.
  */
 export function ForwardDialog({
   open,

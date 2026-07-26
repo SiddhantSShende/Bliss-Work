@@ -1,9 +1,19 @@
-# Task-Board
+# Task-Board (BlissWork)
 
-Enterprise collaboration platform: 1:1 **messaging** (reply / ignore) + **tasks**
-(assign → acknowledge → complete) with realtime WebSocket updates and an
-**always-on-top desktop sticky widget** that floats assigned tasks over every
-other app when the window is minimized.
+Team collaboration platform, shipped as a web app and an Electron desktop app
+from one shared React codebase:
+
+- **Messaging** — 1:1 DMs (reply / ignore / block), **channels**, a unified
+  people-centric inbox, typing indicators and live presence.
+- **Tasks** — assign → acknowledge → complete, with a timeline, allocator
+  review, and **.xlsx export**. Desktop pins assigned tasks to the desktop as
+  sticky notes that sit behind every app until you show the desktop.
+- **Calls & file transfer** — WebRTC audio/video plus peer-to-peer file
+  transfer (streamed to disk on desktop, coturn for NAT traversal).
+- **External integrations** — connect Slack, WhatsApp, Gmail, Outlook and Teams
+  with **your own** OAuth apps. The Hub surfaces only messages that *tagged you*,
+  each with Claim (→ a task assigned to you) and Ignore.
+- **Multi-org** — one login across several workspaces, with a top-bar switcher.
 
 ## Architecture
 
@@ -17,8 +27,9 @@ browser web app and an Electron desktop app from one shared codebase.
 | `email-worker` | Python | — | consumes `invite.created` → Mailpit/SES |
 | `task-svc` | Python/FastAPI | 8002 | tasks + per-assignee state machine, `/tasks/sticky` |
 | `notification-svc` | Go | 8003 | persistent notification inbox |
-| `messaging-svc` | Go | 8004 | conversations, messages, ignore/reply visibility |
-| `ws-gateway` | Go | 8080 → host **8090** | WebSocket fan-out (consume-all-and-filter) |
+| `messaging-svc` | Go | 8004 | conversations, channels, messages, ignore/block, forward-tracking |
+| `integrations-svc` | Python/FastAPI | 8005 | external platform connections, OAuth, webhooks, Hub mentions |
+| `ws-gateway` | Go | 8080 → host **8090** | WebSocket fan-out (consume-all-and-filter), WebRTC signaling, presence |
 
 Clients connect to the WebSocket at `ws://localhost:8090/ws` (the gateway listens on
 8080 inside the network; the host port is remapped to 8090 to avoid a common clash).
@@ -61,15 +72,28 @@ Mailpit UI (captured invite emails): http://localhost:8025
 - **Task:** create a task (title + description) → assignees see Acknowledge / Ignore.
   **Acknowledge** notifies the sender and unlocks Complete / Leave; **Complete** notifies the
   sender. **Ignore** removes it from both views.
-- **Desktop sticky widget:** minimize/close the Electron window with active tasks and each one
-  floats as a frameless always-on-top widget over all apps, with inline actions and an X to dismiss.
+- **Desktop sticky widget:** assigned tasks pin to the desktop as frameless widgets that sit
+  *behind* every application window — visible when the desktop is — with inline actions.
+- **Hub mentions:** a message that tags you on a connected platform appears with **Claim** and
+  **Ignore**. Claim creates a task assigned to you; from there the normal task flow applies.
+  Only tagged messages surface — `@here`/`@channel` and bulk mail are deliberately excluded.
+
+## Docs
+
+| Doc | What it covers |
+|---|---|
+| [`docs/DEPLOY.md`](docs/DEPLOY.md) | The CI/CD pipeline, required secrets, manual deploy + rollback |
+| [`docs/INTEGRATIONS-SETUP.md`](docs/INTEGRATIONS-SETUP.md) | Connecting Slack / WhatsApp / Gmail / Outlook / Teams with your own apps |
+| [`docs/OPERATIONS.md`](docs/OPERATIONS.md) | Backups, key rotation, WAF rollout |
+| [`apps/desktop/STORE.md`](apps/desktop/STORE.md) | Microsoft Store submission |
 
 ## Layout
 
 ```
 packages/{shared,ui,app}          apps/{web,desktop}
-services/{auth-svc,email-worker,task-svc,notification-svc,messaging-svc,ws-gateway}
-infra/{postgres,kafka}            scripts/   (seed.ts, demo-e2e.ts, gen-keys.ts, wait-for.sh)
+services/{auth-svc,email-worker,task-svc,notification-svc,messaging-svc,integrations-svc,ws-gateway}
+infra/{postgres,kafka,nginx,caddy}
+scripts/   (seed.ts, demo-e2e.ts, gen-keys.ts, wait-for.sh, deploy-prod.sh, responsive-check.ts)
 ```
 
 Every source file is kept under 250 lines.

@@ -101,16 +101,16 @@ CREATE INDEX IF NOT EXISTS idx_provider_activity_owner
     ON provider_activity (org_id, owner_user_id, occurred_at DESC);
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- webhook_events ─ raw inbound audit + dedup. Written by the PUBLIC webhook
--- receiver BEFORE org context is known, so it carries NO org_id and gets NO RLS
--- (like outbox). payload is retained encrypted for debugging/audit.
+-- webhook_events ─ inbound dedup + audit. Written by the PUBLIC webhook receiver
+-- BEFORE org context is known, so it carries NO org_id and gets NO RLS (like
+-- outbox). It records THAT an event arrived and whether its signature verified,
+-- never the payload — see 0007 for why the payload column was dropped.
 -- ─────────────────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS webhook_events (
     id                 uuid PRIMARY KEY,
     provider           text NOT NULL,
     external_event_id  text,
     signature_verified bool NOT NULL DEFAULT false,
-    payload_enc        bytea,
     received_at        timestamptz NOT NULL DEFAULT now(),
     processed_at       timestamptz
 );

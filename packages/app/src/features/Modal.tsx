@@ -25,12 +25,23 @@ function useDialogBehavior(open: boolean, onClose: () => void) {
     restoreTo.current = document.activeElement as HTMLElement | null;
 
     // Move focus into the dialog so a keyboard user isn't left behind it.
+    //
+    // Visibility is decided by computed style rather than `offsetParent !== null`.
+    // offsetParent is null for ANY position:fixed element, so that idiom would
+    // silently drop a fixed-position control out of the focus trap — and it is
+    // unimplemented in jsdom, which made this whole path untestable.
+    const isVisible = (el: HTMLElement) => {
+      if (el.hidden || el.getAttribute("aria-hidden") === "true") return false;
+      const style = getComputedStyle(el);
+      return style.display !== "none" && style.visibility !== "hidden";
+    };
+
     const focusables = () =>
       Array.from(
         panelRef.current?.querySelectorAll<HTMLElement>(
           'a[href],button:not([disabled]),textarea:not([disabled]),input:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])',
         ) ?? [],
-      ).filter((el) => el.offsetParent !== null);
+      ).filter(isVisible);
     (focusables()[0] ?? panelRef.current)?.focus();
 
     const onKeyDown = (e: KeyboardEvent) => {
