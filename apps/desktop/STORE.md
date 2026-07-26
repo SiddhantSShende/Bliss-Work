@@ -33,21 +33,48 @@ one for that reason.
    (or a close variant if taken).
 3. Open the new app → **App identity**. Partner Center shows two values you
    need for everything below:
-   - **Package/Identity/Name** → this is `STORE_IDENTITY_NAME` (looks like
-     `AEIVGlobalPrivateLimited.BlissWork`)
-   - **Package/Identity/Publisher** → this is `STORE_PUBLISHER_ID` (looks
-     like `CN=XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX`)
+   - **Package/Identity/Name** → `STORE_IDENTITY_NAME`
+   - **Package/Identity/Publisher** → `STORE_PUBLISHER_ID`
+     (of the form `CN=XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX`)
 
-These are **public identifiers**, not secrets, but they're specific to your
-Partner Center account and only exist after this step — that's why they
-aren't hardcoded in `package.json` and are instead passed in at build time.
+**This step is already done for the current account.** The reserved values are
+committed in `package.json` → `build.appx`:
+
+```json
+"identityName":         "SiddhantSShende.BlissWork",
+"publisher":            "CN=8577DCDE-7A86-447A-B011-0283EB9A3FAC",
+"publisherDisplayName": "SiddhantSShende"
+```
+
+so `npm run package:store` works with no environment setup. These are **public
+identifiers, not secrets** — they appear in the shipped package manifest — so
+committing them is fine and having them in the repo is what makes a local Store
+build reproducible.
+
+The `STORE_IDENTITY_NAME` / `STORE_PUBLISHER_ID` env vars used by
+`build/build-appx.sh` and `.github/workflows/store-release.yml` are an
+**override**, for building under a different Partner Center account. They are
+not required for the account above.
+
+> If you re-reserve the app under a different publisher, change **both** places:
+> the `build.appx` block in `package.json` *and* whichever env vars/CI secrets
+> you use. A package whose identity does not exactly match the Partner Center
+> reservation is rejected at submission, not at build time.
 
 ## 2. Build the .appx
 
 ### Locally (Windows or macOS only — see note below)
+
+Using the committed identity — nothing to configure:
 ```bash
 cd apps/desktop
-export STORE_IDENTITY_NAME="AEIVGlobalPrivateLimited.BlissWork"   # from step 1
+npm run package:store
+```
+
+Or, to build under a **different** Partner Center account:
+```bash
+cd apps/desktop
+export STORE_IDENTITY_NAME="OtherPublisher.BlissWork"                # from step 1
 export STORE_PUBLISHER_ID="CN=XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX"  # from step 1
 bash build/build-appx.sh
 ```
@@ -100,6 +127,20 @@ before submitting:
 - Placeholder-looking branding — already fixed here (the icon used to be
   electron-vite's default sample icon; `build/icon.svg` is now the real
   BlissWork mark).
+- **Deep links must be declared in the package manifest.** A Store app cannot
+  register a URI scheme at runtime the way a desktop installer can, so
+  `app.setAsDefaultProtocolClient("taskboard")` alone is not enough — Windows
+  only routes `taskboard://` to a Store app if the package declares it. The
+  `protocols` key in `package.json` generates that declaration
+  (`<uap:Extension Category="windows.protocol">`) for AppX, and the equivalent
+  for macOS (`CFBundleURLTypes`) and Linux (`MimeType=x-scheme-handler/…`).
+  Verify it survived packaging before submitting:
+  ```bash
+  # unzip the .appx and grep the manifest
+  unzip -p release/BlissWork-*.appx AppxManifest.xml | grep -A3 windows.protocol
+  ```
+  Without it, emailed invite links and the OAuth return silently do nothing for
+  every Store user.
 
 ## 6. After approval
 - The Store handles updates: bump `version` in `package.json`, rebuild

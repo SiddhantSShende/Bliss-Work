@@ -10,6 +10,8 @@ import {
   saveGeometry,
   touch,
 } from "./sticky-state";
+import { appIcon } from "./assets";
+import { hardenWindow } from "./harden";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 const DEV_URL = process.env.ELECTRON_RENDERER_URL;
@@ -179,6 +181,11 @@ export class ChatStickyManager {
       },
     });
     w.setAlwaysOnTop(false);
+
+    // This window renders message bodies — arbitrary text from other people.
+    // A link in a message must open in the browser, never navigate this window
+    // or spawn an unrestricted child one.
+    hardenWindow(w, "sticky-chat");
 
     const query = `?threadId=${encodeURIComponent(threadId)}`;
     if (DEV_URL) void w.loadURL(`${DEV_URL}/sticky-chat.html${query}`);

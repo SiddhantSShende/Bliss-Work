@@ -10,10 +10,13 @@
  * when the backend gains a `user_settings` table they should move there so
  * they sync across devices.
  */
-import { useState } from "react";
-import { Sun, Moon, Bell, BellOff, Info } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Sun, Moon, Bell, BellOff, Info, RefreshCw } from "lucide-react";
+import { toast } from "sonner";
 import { Button, PageHeader } from "@taskboard/ui";
 import { useTheme } from "@taskboard/ui";
+import { BUILD_SHA } from "../lib/buildInfo";
+import { useRuntime } from "../lib/runtime";
 
 const NOTIF_KEY = "tb.notifications.desktop";
 
@@ -74,15 +77,80 @@ export function Settings() {
             }
           />
 
-          <SettingRow
-            icon={<Info size={18} />}
-            title="About"
-            description="Task-Board"
-            action={null}
-          />
+          <AboutRow />
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * About — which build is this, and is it current?
+ *
+ * Both halves earned their place. On desktop, an installed app can sit weeks
+ * behind the web app with nothing on screen to say so; that is precisely how
+ * "the desktop app is missing features" happens, and neither the user nor
+ * support could previously tell which build was running. On web, the deployed
+ * commit distinguishes "the fix isn't live" from "my browser cached the old
+ * bundle" — which look identical otherwise.
+ */
+function AboutRow() {
+  const { config } = useRuntime();
+  const [version, setVersion] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+
+  useEffect(() => {
+    if (!config.appVersion) return;
+    let alive = true;
+    config
+      .appVersion()
+      .then((v) => alive && setVersion(v))
+      // A missing version is cosmetic — never let it break the page.
+      .catch(() => alive && setVersion(null));
+    return () => {
+      alive = false;
+    };
+  }, [config]);
+
+  const check = async () => {
+    if (!config.checkForUpdates) return;
+    setChecking(true);
+    try {
+      const r = await config.checkForUpdates();
+      if (r.status === "downloading" || r.status === "available") {
+        toast.success(`Update to ${r.version} is downloading`, {
+          description: "You'll be asked to restart when it's ready.",
+        });
+      } else if (r.status === "up-to-date") {
+        toast.success("You're up to date", { description: `Version ${r.version}` });
+      } else {
+        // 'unsupported' (dev run / Store build) and 'error' both carry a
+        // specific message — show it rather than a generic failure.
+        toast(r.message ?? "Couldn't check for updates");
+      }
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const description = version
+    ? `BlissWork ${version} · desktop`
+    : `BlissWork · build ${BUILD_SHA}`;
+
+  return (
+    <SettingRow
+      icon={<Info size={18} />}
+      title="About"
+      description={description}
+      action={
+        config.checkForUpdates ? (
+          <Button variant="subtle" size="sm" onClick={check} disabled={checking}>
+            <RefreshCw size={14} className={checking ? "animate-spin" : undefined} />
+            {checking ? "Checking…" : "Check for updates"}
+          </Button>
+        ) : null
+      }
+    />
   );
 }
 

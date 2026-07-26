@@ -11,6 +11,7 @@
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run --passWithNoTests",
     "package": "electron-vite build && electron-builder",
     "package:dir": "electron-vite build && electron-builder --dir",
     "package:store": "electron-vite build && electron-builder --win --config.win.target=appx --publish=never",
@@ -38,11 +39,19 @@
     ],
     "asar": true,
     "afterSign": "build/notarize.cjs",
+    "protocols": [
+      {
+        "name": "BlissWork",
+        "schemes": [
+          "taskboard"
+        ]
+      }
+    ],
     "publish": [
       {
-        "provider": "github",
-        "owner": "SiddhantSShende",
-        "repo": "Bliss-Work"
+        "provider": "generic",
+        "url": "https://communication.rnrtechs.com/downloads",
+        "channel": "latest"
       }
     ],
     "win": {
@@ -54,7 +63,7 @@
           ]
         }
       ],
-      "icon": "build/icon.png",
+      "icon": "build/icon.ico",
       "artifactName": "BlissWork-windows-${arch}.${ext}"
     },
     "appx": {
@@ -95,7 +104,7 @@
           ]
         }
       ],
-      "icon": "build/icon.png",
+      "icon": "build/icon.icns",
       "category": "public.app-category.productivity",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
@@ -129,6 +138,7 @@
       "icon": "build/icon.png",
       "category": "Office",
       "maintainer": "BlissWork <support@blisswork.app>",
+      "syncDesktopName": true,
       "synopsis": "Always-on-top sticky task notes for teams",
       "artifactName": "BlissWork-linux-x64.${ext}"
     }
@@ -144,7 +154,7 @@
     "@types/react-dom": "^19.0.2",
     "@types/ws": "^8.5.13",
     "@vitejs/plugin-react-swc": "^3.7.2",
-    "electron": "^42.4.1",
+    "electron": "42.5.2",
     "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
     "react": "^19.0.0",
@@ -152,10 +162,10 @@
     "tailwindcss": "^4.0.0",
     "typescript": "^5.7.2",
     "vite": "^6.0.0",
+    "vitest": "4.1.9",
     "ws": "^8.18.0"
   },
   "dependencies": {
-    "electron-updater": "^6.8.9",
-    "vitest": "4.1.9"
+    "electron-updater": "^6.8.9"
   }
 }

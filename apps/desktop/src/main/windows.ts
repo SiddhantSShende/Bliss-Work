@@ -1,7 +1,8 @@
-import { BrowserWindow, shell } from "electron";
+import { BrowserWindow } from "electron";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { appIcon } from "./assets";
+import { hardenWindow } from "./harden";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 const DEV_URL = process.env.ELECTRON_RENDERER_URL;
@@ -36,10 +37,7 @@ export function createMainWindow(startHidden = false): BrowserWindow {
   win.on("ready-to-show", () => {
     if (!startHidden) win.show();
   });
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url);
-    return { action: "deny" };
-  });
+  hardenWindow(win, "main");
 
   if (DEV_URL) void win.loadURL(DEV_URL);
   else void win.loadFile(join(rendererDir, "index.html"));
@@ -83,6 +81,10 @@ export function createStickyWindow(taskId: string, index: number, collapsed = fa
     minimizable: false, // can't be minimised — it's already an unframed widget
     fullscreenable: false,
     show: false,
+    // Frameless + skipTaskbar means this icon is rarely seen, but it is what
+    // alt-tab, the window switcher and any OS-level window list fall back to —
+    // without it those show the stock Electron mark.
+    icon: appIcon(),
     webPreferences: {
       preload: preloadSticky,
       contextIsolation: true,
@@ -96,6 +98,8 @@ export function createStickyWindow(taskId: string, index: number, collapsed = fa
   // stack, never on top. moveTop has no inverse, so type:"desktop" +
   // focusable:false above are what actually keep it behind on each platform.
   win.setAlwaysOnTop(false);
+
+  hardenWindow(win, "sticky");
 
   const query = `?taskId=${encodeURIComponent(taskId)}&i=${index}${collapsed ? "&collapsed=1" : ""}`;
   if (DEV_URL) void win.loadURL(`${DEV_URL}/sticky.html${query}`);

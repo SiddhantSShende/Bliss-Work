@@ -2,6 +2,7 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { App, useSession, refreshSession, type PlatformConfig, type ServerEvent, type RtcTransport, type FileSink } from "@taskboard/app";
 import type { PinResult } from "@taskboard/shared";
+import { resolveEndpoints } from "../shared/endpoints";
 import "@taskboard/ui/styles.css";
 import "./index.css";
 
@@ -14,6 +15,14 @@ declare global {
       onWsEvent: (cb: (e: ServerEvent) => void) => () => void;
       onTokenRequest: (cb: () => void) => () => void;
       onInviteDeepLink: (cb: (token: string) => void) => () => void;
+      openExternal: (url: string) => void;
+      onOAuthReturn: (cb: (r: { connected?: string; error?: string }) => void) => () => void;
+      appVersion: () => Promise<string>;
+      checkForUpdates: () => Promise<{
+        status: "checking" | "available" | "up-to-date" | "downloading" | "unsupported" | "error";
+        version?: string;
+        message?: string;
+      }>;
       rtc: RtcTransport;
       fileSink: FileSink;
       hash: {
@@ -26,44 +35,33 @@ declare global {
 
 const bridge = window.taskboard;
 
-// Service endpoints. A PACKAGED desktop build talks to the hosted BlissWork
-// backend on communication.rnrtechs.com — the SAME origin the production web
-// app uses — so a downloaded installer works out of the box with no config. In
-// dev (`npm run desktop`, import.meta.env.DEV) we target the local compose
-// stack. Any VITE_* override wins, so a custom backend needs no code edit.
-// NOTE: the main process (ws-process) has its own mirror of these defaults in
-// src/main/index.ts (keyed off app.isPackaged) — keep the two in lock-step.
+// Service endpoints come from src/shared/endpoints.ts, which the MAIN process
+// imports too — so the renderer and the ws-process socket can never disagree
+// about which backend this build talks to. Any VITE_* override wins, so a
+// custom deployment needs no code edit.
 const env = import.meta.env;
-const PROD_ENDPOINTS = {
-  authBase: "https://communication.rnrtechs.com/api/auth",
-  taskBase: "https://communication.rnrtechs.com/api/tasks",
-  notificationBase: "https://communication.rnrtechs.com/api/notifications",
-  messagingBase: "https://communication.rnrtechs.com/api/messaging",
-  integrationsBase: "https://communication.rnrtechs.com/api/integrations",
-  wsUrl: "wss://communication.rnrtechs.com/ws",
-};
-const DEV_ENDPOINTS = {
-  authBase: "http://localhost:8001",
-  taskBase: "http://localhost:8002",
-  notificationBase: "http://localhost:8003",
-  messagingBase: "http://localhost:8004",
-  integrationsBase: "http://localhost:8005",
-  wsUrl: "ws://localhost:8090/ws",
-};
-const ENDPOINTS = env.DEV ? DEV_ENDPOINTS : PROD_ENDPOINTS;
+const ENDPOINTS = resolveEndpoints(!env.DEV, {
+  authBase: env.VITE_AUTH_BASE,
+  taskBase: env.VITE_TASK_BASE,
+  notificationBase: env.VITE_NOTIFICATION_BASE,
+  messagingBase: env.VITE_MESSAGING_BASE,
+  integrationsBase: env.VITE_INTEGRATIONS_BASE,
+  wsUrl: env.VITE_WS_URL,
+});
 
 const config: PlatformConfig = {
   kind: "electron",
-  authBase: env.VITE_AUTH_BASE ?? ENDPOINTS.authBase,
-  taskBase: env.VITE_TASK_BASE ?? ENDPOINTS.taskBase,
-  notificationBase: env.VITE_NOTIFICATION_BASE ?? ENDPOINTS.notificationBase,
-  messagingBase: env.VITE_MESSAGING_BASE ?? ENDPOINTS.messagingBase,
-  integrationsBase: env.VITE_INTEGRATIONS_BASE ?? ENDPOINTS.integrationsBase,
-  wsUrl: env.VITE_WS_URL ?? ENDPOINTS.wsUrl,
+  ...ENDPOINTS,
   router: "hash",
   pinTask: (taskId) => bridge.pinTask(taskId),
   listPinned: () => bridge.listPinned(),
   persistToken: (t) => bridge.setToken(t),
+  // OAuth has to run in the system browser (Google blocks embedded webviews)
+  // and return through the taskboard://oauth deep link.
+  openExternal: (url) => bridge.openExternal(url),
+  onOAuthReturn: (cb) => bridge.onOAuthReturn(cb),
+  appVersion: () => bridge.appVersion(),
+  checkForUpdates: () => bridge.checkForUpdates(),
   eventSource: {
     connect: () => bridge.setToken(useSession.getState().accessToken),
     subscribe: (cb) => bridge.onWsEvent(cb),

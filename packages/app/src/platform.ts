@@ -73,6 +73,30 @@ export interface PlatformConfig {
   listPinned?: () => Promise<string[]>;
   /** Forward the current access token to the host (Electron → utilityProcess). */
   persistToken?: (token: string | null) => void;
+  /** Present only in Electron: the installed app's version (e.g. "0.1.42").
+   *  Shown in Settings → About. A desktop build can sit far behind the web app
+   *  with nothing on screen to say so — which is how "the desktop app is
+   *  missing features" happens — so the running version has to be visible. */
+  appVersion?: () => Promise<string>;
+  /** Present only in Electron: check the update feed on demand. The automatic
+   *  launch check stays silent when it finds nothing, which is right for a
+   *  background task and useless for a user asking "am I up to date?". */
+  checkForUpdates?: () => Promise<{
+    status: "checking" | "available" | "up-to-date" | "downloading" | "unsupported" | "error";
+    version?: string;
+    message?: string;
+  }>;
+  /** Present only in Electron: open a URL in the user's DEFAULT browser.
+   *  Google refuses OAuth inside an embedded webview (`disallowed_useragent`),
+   *  so the authorize URL must leave the app entirely. Absent on web, where a
+   *  same-tab redirect works and is what users expect. */
+  openExternal?: (url: string) => void;
+  /** Present only in Electron: the OAuth flow returning through the
+   *  `taskboard://oauth` deep link. Mirrors the ?connected=/?error= query the
+   *  web build reads off its own URL. Returns an unsubscribe fn. */
+  onOAuthReturn?: (
+    cb: (r: { connected?: string; error?: string }) => void,
+  ) => () => void;
 }
 
 /** Retained for the index re-export; Electron sticky widgets are owned by main. */

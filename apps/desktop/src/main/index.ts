@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Tray, Menu, screen, session, utilityProcess, UtilityProcess } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, screen, session, Tray, utilityProcess, UtilityProcess } from "electron";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { StickyTaskDTO } from "@taskboard/shared";
@@ -10,7 +10,10 @@ import { flushSync as flushStickyState, initStickyState } from "./sticky-state";
 import { trayIcon } from "./assets";
 import { buildAppMenu } from "./menu";
 import { registerFileSink } from "./file-sink";
-import { initAutoUpdate } from "./updater";
+import { checkForUpdatesNow, initAutoUpdate } from "./updater";
+import { resolveEndpoints } from "../shared/endpoints";
+import { findDeepLink, parseDeepLink } from "../shared/deeplink";
+import { openExternalSafely } from "./harden";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 
@@ -20,31 +23,17 @@ const here = fileURLToPath(new URL(".", import.meta.url));
 // dev (running from node_modules/electron) targets the local compose stack.
 // TB_* env overrides win for custom deployments. MUST stay in lock-step with
 // the renderer defaults in src/renderer/main.tsx.
-const PROD_ENDPOINTS = {
-  authBase: "https://communication.rnrtechs.com/api/auth",
-  taskBase: "https://communication.rnrtechs.com/api/tasks",
-  notificationBase: "https://communication.rnrtechs.com/api/notifications",
-  messagingBase: "https://communication.rnrtechs.com/api/messaging",
-  integrationsBase: "https://communication.rnrtechs.com/api/integrations",
-  wsUrl: "wss://communication.rnrtechs.com/ws",
-};
-const DEV_ENDPOINTS = {
-  authBase: "http://localhost:8001",
-  taskBase: "http://localhost:8002",
-  notificationBase: "http://localhost:8003",
-  messagingBase: "http://localhost:8004",
-  integrationsBase: "http://localhost:8005",
-  wsUrl: "ws://localhost:8090/ws",
-};
-const DEFAULT_ENDPOINTS = app.isPackaged ? PROD_ENDPOINTS : DEV_ENDPOINTS;
-const ENDPOINTS = {
-  authBase: process.env.TB_AUTH_BASE ?? DEFAULT_ENDPOINTS.authBase,
-  taskBase: process.env.TB_TASK_BASE ?? DEFAULT_ENDPOINTS.taskBase,
-  notificationBase: process.env.TB_NOTIFICATION_BASE ?? DEFAULT_ENDPOINTS.notificationBase,
-  messagingBase: process.env.TB_MESSAGING_BASE ?? DEFAULT_ENDPOINTS.messagingBase,
-  integrationsBase: process.env.TB_INTEGRATIONS_BASE ?? DEFAULT_ENDPOINTS.integrationsBase,
-  wsUrl: process.env.TB_WS_URL ?? DEFAULT_ENDPOINTS.wsUrl,
-};
+// Endpoint defaults live in src/shared/endpoints.ts — shared verbatim with the
+// renderer so the two processes can never disagree about which backend this
+// build talks to. TB_* env overrides win for custom deployments.
+const ENDPOINTS = resolveEndpoints(app.isPackaged, {
+  authBase: process.env.TB_AUTH_BASE,
+  taskBase: process.env.TB_TASK_BASE,
+  notificationBase: process.env.TB_NOTIFICATION_BASE,
+  messagingBase: process.env.TB_MESSAGING_BASE,
+  integrationsBase: process.env.TB_INTEGRATIONS_BASE,
+  wsUrl: process.env.TB_WS_URL,
+});
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -69,7 +58,7 @@ if (!app.requestSingleInstanceLock()) {
 } else {
   app.on("second-instance", (_e, argv) => {
     focusMain();
-    forwardDeepLink(argv.find((a) => a.startsWith("taskboard://")));
+    forwardDeepLink(findDeepLink(argv));
   });
   app.whenReady().then(() => {
     // WebRTC calls need camera/mic. Electron DENIES media by default; the app
@@ -86,7 +75,15 @@ if (!app.requestSingleInstanceLock()) {
   });
 }
 
-// Custom protocol for emailed invite deep-links.
+// Windows: bind this process to the installed app's identity. Without it the
+// shell treats us as a generic Electron host — the taskbar button shows the
+// stock Electron icon instead of ours, taskbar pinning targets the wrong thing,
+// and toast notifications are attributed to "Electron". Must match the
+// `appId` in package.json's electron-builder config, because that is what the
+// NSIS/AppX installer stamps on the Start-menu shortcut. No-op off Windows.
+app.setAppUserModelId("com.blisswork.desktop");
+
+// Custom protocol for emailed invite + OAuth-return deep-links.
 if (process.defaultApp) app.setAsDefaultProtocolClient("taskboard", process.execPath, [process.argv[1] ?? ""]);
 else app.setAsDefaultProtocolClient("taskboard");
 
@@ -126,6 +123,18 @@ function bootstrap() {
   );
   mainWindow = createMainWindow(startedAtLogin);
   wireMainWindow(mainWindow);
+
+  // COLD START: on Windows/Linux a deep link that LAUNCHES the app arrives in
+  // argv, not through `second-instance` (which only fires when an instance is
+  // already running) and not through `open-url` (macOS only). Without this,
+  // clicking an invite or an OAuth-return link while the app is closed opens a
+  // blank app and silently drops the token. Wait for the renderer to be ready,
+  // or the IPC lands before anything is listening.
+  const launchLink = findDeepLink(process.argv);
+  if (launchLink) {
+    mainWindow.webContents.once("did-finish-load", () => forwardDeepLink(launchLink));
+  }
+
   startWsProcess();
   createTray();
   registerFileSink();
@@ -186,13 +195,27 @@ function focusMain() {
   mainWindow.focus();
 }
 
+/**
+ * Route one taskboard:// deep link to the renderer.
+ *
+ *   taskboard://oauth?connected=gmail   → an OAuth flow finished in the system
+ *                                         browser (Google refuses embedded
+ *                                         webviews, so it can't run in-app)
+ *   taskboard://invite?token=…          → an emailed invite
+ *
+ * Parsing lives in shared/deeplink.ts so it can be unit-tested; this function
+ * only maps the result onto an IPC channel.
+ */
 function forwardDeepLink(url?: string) {
-  if (!url) return;
-  try {
-    const token = new URL(url).searchParams.get("token");
-    if (token) mainWindow?.webContents.send("deeplink:invite", token);
-  } catch {
-    /* ignore */
+  const link = parseDeepLink(url);
+  if (!link) return;
+  if (link.kind === "oauth") {
+    mainWindow?.webContents.send("deeplink:oauth", {
+      connected: link.connected,
+      error: link.error,
+    });
+  } else {
+    mainWindow?.webContents.send("deeplink:invite", link.token);
   }
 }
 
@@ -309,6 +332,22 @@ function isChatStickyBootstrap(v: unknown): v is ChatStickyBootstrap {
 }
 
 // ── IPC from the main renderer ────────────────────────────────────────────────
+// Open a URL in the user's DEFAULT browser — used for OAuth, which Google
+// refuses to run inside an embedded webview (`disallowed_useragent`).
+//
+// The allowlist lives in shared/external-url.ts and is shared with the
+// window-open / navigation guards in harden.ts, so every path from renderer
+// content to the OS enforces one rule rather than three similar ones.
+ipcMain.on("shell:open-external", (_e, raw: unknown) => {
+  openExternalSafely(raw, "ipc");
+});
+
+// Which build is this? Shown in Settings → About so a stale desktop app is
+// visible rather than silently missing features the web app already has.
+ipcMain.handle("app:version", () => app.getVersion());
+
+ipcMain.handle("app:check-updates", () => checkForUpdatesNow());
+
 ipcMain.on("auth:token", (_e, token: string | null) => {
   wsProc?.postMessage({ type: "token", token });
 });

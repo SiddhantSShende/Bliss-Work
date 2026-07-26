@@ -39,6 +39,18 @@ const api = {
     return () => ipcRenderer.removeListener("deeplink:invite", handler);
   },
 
+  /** Open an https URL in the system browser. Used for OAuth: Google rejects
+   *  embedded webviews, so the consent screen has to leave the app. Main
+   *  re-validates the scheme — never trust the renderer with a shell call. */
+  openExternal: (url: string) => ipcRenderer.send("shell:open-external", url),
+
+  /** Emitted when an OAuth flow returns via taskboard://oauth?connected=… */
+  onOAuthReturn: (cb: (r: { connected?: string; error?: string }) => void) => {
+    const handler = (_: unknown, r: { connected?: string; error?: string }) => cb(r);
+    ipcRenderer.on("deeplink:oauth", handler);
+    return () => ipcRenderer.removeListener("deeplink:oauth", handler);
+  },
+
   /** Phase 10 WebRTC signaling, bridged to the ws-process socket: outbound
    *  frames go to main → ws-process; inbound rtc.* frames arrive on "rtc:frame". */
   rtc: {
@@ -61,6 +73,22 @@ const api = {
       ipcRenderer.invoke("filesink:finish", { id: transferId, expectedSha256 }),
     abort: (transferId: string) => ipcRenderer.send("filesink:abort", { id: transferId }),
   },
+
+  /** Which build am I running?
+   *
+   *  Surfaced in Settings → About. This matters more than it looks: a desktop
+   *  app can sit months behind the web app with nothing on screen to say so —
+   *  which is exactly how "the desktop app is missing features" happens — and
+   *  a support conversation has no way to establish which build a user is on. */
+  appVersion: (): Promise<string> => ipcRenderer.invoke("app:version"),
+
+  /** Ask the updater to check now, rather than waiting for the next launch.
+   *  Resolves with what happened so the UI can say something specific. */
+  checkForUpdates: (): Promise<{
+    status: "checking" | "available" | "up-to-date" | "downloading" | "unsupported" | "error";
+    version?: string;
+    message?: string;
+  }> => ipcRenderer.invoke("app:check-updates"),
 
   /** Phase 10 sender-side streaming sha256 — the renderer feeds file slices and
    *  main hashes them incrementally so a huge file isn't loaded into memory. */

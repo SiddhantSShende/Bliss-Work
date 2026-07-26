@@ -115,33 +115,52 @@ Used in:
 
 ## Updating the Logo
 
-### If You Have a New Logo PNG
+> **The source of truth is `apps/desktop/build/icon.svg` — vector and square.
+> Every raster asset is DERIVED from it. Never copy a PNG over `icon.png`.**
+>
+> This used to read "`cp assets/logo.png apps/desktop/build/icon.png`", which
+> silently broke packaging: `assets/logo.png` was **257×237** — not square, and
+> under 256px on one axis — while electron-builder needs a square icon of at
+> least 256×256 to generate the Windows `.ico` and macOS `.icns`. Following that
+> step replaced a good 1024×1024 icon with an unusable one, and the packaged app
+> fell back to the stock Electron icon.
 
-1. Save it as `assets/logo.png` (replace the existing file)
-2. For desktop app icon usage:
+### To change the logo
+
+1. Edit `apps/desktop/build/icon.svg` (or replace it with new square vector art).
+2. Regenerate everything downstream from the repo root:
    ```bash
-   cp assets/logo.png apps/desktop/build/icon.png
+   npm run setup:branding
    ```
-3. If you have the SVG source, also update `apps/desktop/build/icon.svg`
-4. Regenerate Windows Store tiles (if packaging for Store):
+   That renders `build/icon.png`, all seven Store tiles, `build/icon.ico`,
+   `build/icon.icns`, both favicons, and the square `assets/logo.png`.
+3. Commit the regenerated assets (they're committed so CI needs no renderer):
    ```bash
-   cd apps/desktop
-   npm run icon
+   git add apps/desktop/build apps/web/public/favicon.svg \
+           apps/desktop/src/renderer/public/favicon.svg assets/logo.png
    ```
 
-### If You Need to Change the SVG Logo
+Tooling: `librsvg2-bin` is required; `icoutils` and `icnsutils` are optional —
+without them the `.ico`/`.icns` step is skipped and electron-builder falls back
+to converting `icon.png`.
 
-1. Edit `apps/desktop/build/icon.svg`
-2. Update `apps/web/public/favicon.svg` to match
-3. Regenerate all assets:
-   ```bash
-   cd apps/desktop
-   npm run icon
-   ```
-4. Copy the main icon to assets:
-   ```bash
-   cp apps/desktop/build/icon.png assets/logo.png
-   ```
+### Why a hand-built .ico
+
+electron-builder can convert `icon.png` itself, but that gives no control over
+the small end of the ladder. This mark has thin details — the chat bubble's tail
+and the three dots — that turn to mush when a 1024px raster is downscaled to
+16px. `gen-desktop-icons.sh` renders 16/24/32/48/64/128/256 straight from the
+vector so they stay legible in the taskbar, Explorer and the Start menu.
+
+### Windows taskbar identity
+
+`app.setAppUserModelId("com.blisswork.desktop")` (in `src/main/index.ts`) binds
+the running process to the installed app's identity. Without it Windows treats
+the process as a generic Electron host: the taskbar shows the stock Electron
+icon regardless of how good `icon.ico` is, pinning targets the wrong thing, and
+notifications are attributed to "Electron". The string must match `build.appId`
+in `apps/desktop/package.json`, because that is what the installer stamps on the
+Start-menu shortcut.
 
 ## Brand Colors Usage
 
