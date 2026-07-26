@@ -37,6 +37,7 @@ jobs:
           - notification-svc
           - messaging-svc
           - ws-gateway
+          - integrations-svc
     steps:
       - uses: actions/checkout@v4
 

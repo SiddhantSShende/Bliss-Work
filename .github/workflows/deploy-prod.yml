@@ -1,0 +1,84 @@
+name: Deploy Production
+
+# Auto-deploys the web app + backend to the production VPS after CI passes on
+# `main`. Merge to main → CI runs → this fires → the site is live.
+#
+# All the logic lives in `scripts/deploy-prod.sh`, in the repo, so a deploy is
+# reviewable in a PR and reproducible by hand when GitHub is down. This workflow
+# only carries the SSH key and calls it.
+#
+# `workflow_run` rather than a job inside ci.yml: this keeps the deploy out of
+# the PR checks entirely (workflow_run never fires for pull_request events) and
+# means a red CI run leaves the deploy job skipped, not failed.
+#
+# ── Repository secrets ───────────────────────────────────────────────────────
+#   VPS_HOST     production host (also the download host; see release.yml)
+#   VPS_USER     ssh user, e.g. ubuntu
+#   VPS_SSH_KEY  private key whose public half is in that user's authorized_keys
+#   VPS_REPO_DIR optional; defaults to /home/ubuntu/BlissWork/Bliss-Work
+#
+# With VPS_HOST unset the job exits cleanly without deploying, matching the
+# convention in release.yml — the pipeline is safe to merge before the secrets
+# exist. See docs/DEPLOY.md.
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+# Never cancel a deploy in flight: a half-applied rollout is worse than a queued
+# one. Later runs wait rather than interrupting.
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to production
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Manual dispatch always runs; the CI-triggered path only on a green run.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_REPO_DIR: ${{ secrets.VPS_REPO_DIR || '/home/ubuntu/BlissWork/Bliss-Work' }}
+    steps:
+      - name: Report what triggered this
+        run: |
+          echo "event:  ${{ github.event_name }}"
+          echo "commit: ${{ github.event.workflow_run.head_sha || github.sha }}"
+          if [ -z "$VPS_HOST" ]; then
+            echo "::warning::VPS_HOST is not set — skipping deploy. See docs/DEPLOY.md."
+          fi
+
+      - name: Configure SSH
+        if: env.VPS_HOST != ''
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          # Pin the host key so StrictHostKeyChecking=yes below is meaningful.
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Deploy
+        if: env.VPS_HOST != ''
+        run: |
+          # -T: no pty, so the script's output streams into the job log verbatim.
+          # The remote script does its own locking, guarding and rollback.
+          ssh -T -i ~/.ssh/id_deploy -o StrictHostKeyChecking=yes \
+            "$VPS_USER@$VPS_HOST" \
+            "bash '$VPS_REPO_DIR/scripts/deploy-prod.sh'"
+
+      - name: Scrub the key
+        if: always()
+        run: rm -f ~/.ssh/id_deploy

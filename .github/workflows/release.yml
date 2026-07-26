@@ -3,12 +3,34 @@ name: Release Desktop
 # Builds the BlissWork desktop installers on each platform's native runner,
 # CODE-SIGNS them, publishes SHA-256 checksums, and deploys straight to our VPS
 # download host (NOT GitHub Releases — the marketing site + web app link to
-# https://blisswork.rnrtechs.com/downloads/<stable-name>).
+# https://communication.rnrtechs.com/downloads/<stable-name>).
 #
-# Trigger: push a version tag (git tag v0.1.1 && git push origin v0.1.1) or run
-# manually (workflow_dispatch). Every run uploads the installers as downloadable
-# workflow artifacts too, so a dry run without secrets still produces (unsigned)
-# builds you can inspect.
+# ── Auto-update ──────────────────────────────────────────────────────────────
+# That same directory IS the electron-updater feed. `apps/desktop/package.json`
+# declares `publish: { provider: generic, url: .../downloads }`, which
+# electron-builder bakes into app-update.yml inside the package, and
+# apps/desktop/src/main/updater.ts checks it on every launch.
+#
+# It must be a generic feed rather than GitHub Releases because this repo is
+# PRIVATE — a GitHub feed would need a token embedded in the installer, where
+# anyone can extract it.
+#
+# Two things are therefore load-bearing and easy to break silently:
+#   1. The `latest*.yml` manifests MUST be uploaded alongside the installers.
+#      Without them the feed 404s and auto-update never fires — no error, no
+#      dialog, users simply stay on an old version forever. The `Verify update
+#      manifests` step below fails the build rather than let that happen.
+#   2. The Windows sha512 in latest.yml MUST be recomputed AFTER signing (see
+#      `Regenerate the Windows update manifest`), because signing rewrites the
+#      .exe and electron-updater verifies that hash before installing.
+#
+# ── Triggers ─────────────────────────────────────────────────────────────────
+#   - CI passing on `main`  → auto-publishes version 0.1.<run_number>
+#   - a `v*` tag            → publishes that exact version
+#   - manual dispatch       → 0.1.<run_number>
+#
+# Every run also uploads the installers as workflow artifacts, so a dry run
+# without secrets still produces (unsigned) builds you can inspect.
 #
 # ── Repository secrets ───────────────────────────────────────────────────────
 # Windows signing (SSL.com eSigner — cloud, cross-platform; see apps/desktop/SIGNING.md):
@@ -21,17 +43,24 @@ name: Release Desktop
 #   VPS_SSH_KEY (a private key whose public half is in the VPS user's authorized_keys)
 #
 # Any signing/deploy stage whose secrets are absent is SKIPPED, so this workflow
-# is safe to run before you've bought a certificate.
+# is safe to run before you've bought a certificate. See docs/DEPLOY.md.
 
 on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
   push:
     tags:
       - "v*"
   workflow_dispatch:
 
+# Serialize: releases publish into a single shared directory on the VPS, so two
+# concurrent rsyncs could interleave a manifest with another version's binary.
+# Never cancel in flight for the same reason.
 concurrency:
-  group: release-desktop-${{ github.ref }}
-  cancel-in-progress: true
+  group: release-desktop
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -41,12 +70,44 @@ env:
 
 jobs:
   # ───────────────────────────────────────────────────────────────────────────
+  # Decide the version once, so all three platform builds agree on it. They must:
+  # electron-updater compares the version in latest.yml against the running app,
+  # and a mac build numbered differently from the Windows one would advertise a
+  # different release under the same feed.
+  # ───────────────────────────────────────────────────────────────────────────
+  version:
+    name: Resolve version
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success'
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      sha: ${{ steps.v.outputs.sha }}
+    steps:
+      - id: v
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            # Tag push: v1.2.3 → 1.2.3
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            # github.run_number is monotonic across the repo, so successive main
+            # pushes always produce a strictly increasing semver. That is what
+            # makes electron-updater see an update at all.
+            VERSION="0.1.${{ github.run_number }}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "sha=${{ github.event.workflow_run.head_sha || github.sha }}" >> "$GITHUB_OUTPUT"
+          echo "Releasing $VERSION"
+
+  # ───────────────────────────────────────────────────────────────────────────
   # Build each OS on its native runner. macOS is signed + notarized in-place here
   # (electron-builder signs the .app during packaging); Windows is signed in the
   # `release` job below (CodeSignTool is cross-platform, so we sign on Linux).
   # ───────────────────────────────────────────────────────────────────────────
   build:
     name: Build (${{ matrix.os }})
+    needs: version
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
     strategy:
@@ -56,6 +117,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Under `workflow_run` the default ref is the branch tip, which races a
+          # follow-up push — we would ship a commit CI never checked. Pin to the
+          # exact commit that passed.
+          ref: ${{ needs.version.outputs.sha }}
 
       - uses: actions/setup-node@v4
         with:
@@ -68,6 +134,11 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      # Build-time only — deliberately NOT committed back. A version-bump commit
+      # would retrigger CI, which would retrigger this workflow, forever.
+      - name: Stamp version ${{ needs.version.outputs.version }}
+        run: node scripts/set-desktop-version.mjs "${{ needs.version.outputs.version }}"
 
       - name: Build desktop bundle
         run: npm run build -w @taskboard/desktop
@@ -85,30 +156,58 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        # `--publish never` is required, not merely cautious: the `generic`
+        # provider is download-only, so electron-builder has nowhere to upload.
+        # It still WRITES the latest*.yml manifests into release/, which is what
+        # the next step checks and what the deploy step ships.
         run: npx --no-install electron-builder --publish never
+
+      # Fail loudly here rather than shipping a feed users can never read.
+      - name: Verify update manifests exist
+        shell: bash
+        working-directory: apps/desktop/release
+        run: |
+          case "${{ runner.os }}" in
+            Windows) EXPECT=latest.yml ;;
+            macOS)   EXPECT=latest-mac.yml ;;
+            Linux)   EXPECT=latest-linux.yml ;;
+          esac
+          if [ ! -f "$EXPECT" ]; then
+            echo "::error::$EXPECT was not generated. Auto-update depends on it."
+            echo "Check that apps/desktop/package.json still has a \`publish\` block —"
+            echo "electron-builder only emits update manifests when one is configured."
+            ls -la
+            exit 1
+          fi
+          echo "--- $EXPECT ---"; cat "$EXPECT"
 
       - name: Upload installers
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: installers-${{ matrix.os }}
+          # latest*.yml and *.blockmap are part of the release, not incidental
+          # build output: the manifests ARE the update feed, and the blockmaps
+          # let electron-updater download only the changed bytes.
           path: |
             apps/desktop/release/*.exe
             apps/desktop/release/*.dmg
             apps/desktop/release/*.AppImage
             apps/desktop/release/*.deb
             apps/desktop/release/*.zip
+            apps/desktop/release/*.blockmap
+            apps/desktop/release/latest*.yml
           if-no-files-found: ignore
           retention-days: 14
 
   # ───────────────────────────────────────────────────────────────────────────
-  # Sign Windows (SSL.com eSigner — cross-platform, runs here on Linux), publish
-  # checksums, and deploy the signed set to the VPS. Signing/deploy steps skip
-  # cleanly when their secrets are absent.
+  # Sign Windows (SSL.com eSigner — cross-platform, runs here on Linux), repair
+  # the Windows update manifest, publish checksums, and deploy the signed set to
+  # the VPS. Signing/deploy steps skip cleanly when their secrets are absent.
   # ───────────────────────────────────────────────────────────────────────────
   release:
     name: Sign Windows, checksum & deploy
-    needs: build
+    needs: [version, build]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -116,6 +215,10 @@ jobs:
       ES_USERNAME: ${{ secrets.ES_USERNAME }}
       VPS_HOST: ${{ secrets.VPS_HOST }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.sha }}
+
       - name: Collect installers
         uses: actions/download-artifact@v4
         with:
@@ -140,6 +243,40 @@ jobs:
           malware_block: "false"
           environment_name: PROD
 
+      # Signing rewrote the .exe, so the sha512 electron-builder recorded on the
+      # Windows runner now describes a file that no longer exists. electron-updater
+      # verifies that hash post-download and would refuse to install every single
+      # release. Recompute it against the signed binary.
+      #
+      # Unconditional: harmless when signing was skipped (it just recomputes the
+      # same hash), and running it always means the signed and unsigned paths
+      # can't diverge. latest-mac.yml / latest-linux.yml are untouched — those
+      # binaries are never re-signed after packaging.
+      - name: Regenerate the Windows update manifest
+        run: |
+          node scripts/regen-update-manifest.mjs \
+            installers latest.yml BlissWork-windows-x64.exe
+
+      # A real installer is tens of megabytes. Anything tiny is a placeholder, a
+      # truncated upload, or an error page saved under the wrong name — and the
+      # download page happily served 128-byte "placeholder" .dmg files for weeks
+      # because nothing ever checked. Fail the release instead of publishing one.
+      - name: Verify installers are real
+        working-directory: installers
+        run: |
+          MIN_BYTES=$((5 * 1024 * 1024))
+          bad=0
+          for f in BlissWork-*; do
+            size=$(stat -c%s "$f")
+            if [ "$size" -lt "$MIN_BYTES" ]; then
+              echo "::error file=$f::$f is only $size bytes — not a real installer"
+              bad=1
+            else
+              printf '  ok  %-36s %s bytes\n' "$f" "$size"
+            fi
+          done
+          [ "$bad" -eq 0 ] || exit 1
+
       - name: Generate SHA-256 checksums (over the SIGNED files)
         working-directory: installers
         run: |
@@ -159,10 +296,20 @@ jobs:
           printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_deploy
           chmod 600 ~/.ssh/id_deploy
           ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
-          # Push the signed installers + checksums to the VPS download folder.
-          rsync -avz --checksum -e "ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=yes" \
+          SSH_CMD="ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=yes"
+          # Installers first, manifests LAST. An app that polls mid-rsync then
+          # reads the OLD manifest, which points at files that still exist —
+          # rather than a new manifest pointing at a half-uploaded binary, which
+          # would fail its hash check.
+          rsync -avz --checksum -e "$SSH_CMD" --exclude='latest*.yml' \
             installers/ "$VPS_USER@$VPS_HOST:$VPS_PATH/"
-          echo "Deployed to $VPS_USER@$VPS_HOST:$VPS_PATH"
+          rsync -avz --checksum -e "$SSH_CMD" --include='latest*.yml' --exclude='*' \
+            installers/ "$VPS_USER@$VPS_HOST:$VPS_PATH/"
+          echo "Deployed ${{ needs.version.outputs.version }} to $VPS_USER@$VPS_HOST:$VPS_PATH"
+
+      - name: Scrub the key
+        if: always()
+        run: rm -f ~/.ssh/id_deploy
 
       - name: Upload signed set as workflow artifact
         if: always()

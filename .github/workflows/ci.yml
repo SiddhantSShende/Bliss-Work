@@ -37,7 +37,8 @@ jobs:
           ruff check \
             services/auth-svc \
             services/task-svc \
-            services/email-worker
+            services/email-worker \
+            services/integrations-svc
       - name: ruff format --check
         # Formatting drift is surfaced but does not fail the build (no repo
         # style config committed yet); flip to blocking once a style is agreed.
@@ -46,7 +47,8 @@ jobs:
           ruff format --check \
             services/auth-svc \
             services/task-svc \
-            services/email-worker
+            services/email-worker \
+            services/integrations-svc
 
   lint-go:
     name: Lint (Go · golangci-lint)
@@ -111,7 +113,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [auth-svc, task-svc, email-worker]
+        service: [auth-svc, task-svc, email-worker, integrations-svc]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -140,7 +142,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [auth-svc] # RLS isolation suite; extend as integration suites grow
+        # auth-svc: RLS isolation. integrations-svc: mentions API + claim→task
+        # idempotency against a real Postgres. Extend as integration suites grow.
+        service: [auth-svc, integrations-svc]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -235,7 +239,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [auth-svc, task-svc, email-worker, notification-svc, messaging-svc, ws-gateway]
+        service:
+          [auth-svc, task-svc, email-worker, notification-svc, messaging-svc, ws-gateway, integrations-svc]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Docker Buildx
@@ -284,7 +289,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [auth-svc, task-svc, email-worker]
+        service: [auth-svc, task-svc, email-worker, integrations-svc]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
