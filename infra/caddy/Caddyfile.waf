@@ -70,10 +70,28 @@
 			directives `
 				Include /etc/caddy/coraza/coraza.conf
 				Include @crs-setup.conf.example
+				Include /etc/caddy/coraza/crs-setup.conf
 				Include @owasp_crs/*.conf
 				Include /etc/caddy/coraza/rules/*.conf
 			`
 		}
+		# ORDER IS LOAD-BEARING, in both directions:
+		#
+		#   * Our crs-setup.conf must come AFTER @crs-setup.conf.example. It is a
+		#     delta, not a replacement — the example supplies every CRS default,
+		#     ours overrides the handful of knobs we care about. Later phase:1
+		#     setvar wins.
+		#   * It must come BEFORE @owasp_crs/*.conf, because those rules READ the
+		#     variables it sets (REQUEST-901-INITIALIZATION only fills in a default
+		#     when a var is still unset, and REQUEST-911 then enforces it).
+		#
+		# This Include was missing entirely until 2026-07-27, so tx.allowed_methods
+		# fell back to the CRS default `GET HEAD POST OPTIONS` and rule 911100
+		# ("Method is not allowed by policy") 403'd EVERY DELETE, PUT and PATCH at
+		# the edge — the request never reached the service. It presented as an
+		# application permission bug: unblocking a user, revoking an invite,
+		# PATCHing your profile and deleting an integration all failed with 403
+		# while the corresponding POSTs worked.
 
 		# 3) Block introspection/observability endpoints from the public internet
 		#    (/metrics, /docs, /redoc, /openapi.json). Before the API proxies so

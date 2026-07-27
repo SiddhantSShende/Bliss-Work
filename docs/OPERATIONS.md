@@ -341,10 +341,19 @@ github.com/corazawaf/coraza-caddy/v2`. That module also **embeds the OWASP CRS**
 `infra/caddy/Caddyfile.waf`; the tuning files are mounted from
 `infra/caddy/coraza/`:
 
-- `coraza.conf` — engine config. **Ships in `DetectionOnly`** so you can watch
-  for false positives against real traffic before blocking.
+- `coraza.conf` — engine config. **Currently `SecRuleEngine On` (blocking).** It
+  originally shipped `DetectionOnly` so false positives could be watched against
+  real traffic first; that is no longer the case, so a CRS false positive now
+  returns 403 to real users. Check `SecRuleEngine` in the file itself rather than
+  trusting this paragraph.
 - `crs-setup.conf` — CRS knobs (anomaly threshold, paranoia level 1, allowed
-  methods/content-types for a JSON API + SPA).
+  methods/content-types for a JSON API + SPA). **This file must stay in the
+  `Include` list in `Caddyfile.waf`, after `@crs-setup.conf.example` and before
+  `@owasp_crs/*.conf`.** It was silently absent until 2026-07-27, which left
+  `tx.allowed_methods` at the CRS default of `GET HEAD POST OPTIONS` — every
+  DELETE, PUT and PATCH was 403'd at the edge by rule 911100 and never reached a
+  service. That reads like an application permissions bug, not a WAF one; if a
+  write endpoint 403s, check `docker compose logs caddy | grep 911100` first.
 - `rules/99-tuning.conf` — site-specific exceptions (e.g. skip the WAF for the
   static JWKS document and WebSocket upgrades). Local rule IDs use the
   1,000,000+ range so a CRS upgrade never clobbers them.
