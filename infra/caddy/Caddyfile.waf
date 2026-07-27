@@ -168,9 +168,23 @@
 # false-positives on a pure file server). Mirrors the Caddyfile site exactly.
 blisswork.rnrtechs.com {
 	encode zstd gzip
-	root * /srv/blisswork
-	try_files {path} /index.html
-	file_server
+
+	# Desktop app installers → nginx static file server (/srv/downloads). They no
+	# longer live under /srv/blisswork (the site's dist/, which a rebuild empties),
+	# so this host must route /downloads/* explicitly. `handle` keeps source order,
+	# matching before the SPA catch-all so a missing installer 404s rather than
+	# returning the index.html shell under an *.exe filename.
+	@downloads path /downloads /downloads/*
+	handle @downloads {
+		reverse_proxy nginx:80
+	}
+
+	# Everything else is the SPA.
+	handle {
+		root * /srv/blisswork
+		try_files {path} /index.html
+		file_server
+	}
 
 	# Long-cache the fingerprinted asset bundle; never cache the HTML shell.
 	@assets path /assets/*

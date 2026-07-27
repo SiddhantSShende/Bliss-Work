@@ -125,9 +125,28 @@
 # routes (/userflow, /architecture, /about) resolve on hard refresh / deep links.
 blisswork.rnrtechs.com {
 	encode zstd gzip
-	root * /srv/blisswork
-	try_files {path} /index.html
-	file_server
+
+	# Desktop app installers → nginx static file server, exactly as the
+	# communication.rnrtechs.com block above. The installers used to live inside
+	# /srv/blisswork (= the site's dist/) and were served incidentally by
+	# file_server; they now live in their own directory that a website rebuild
+	# can't wipe, so this host has to route /downloads/* explicitly.
+	#
+	# A `handle` block keeps its source order and matches before the catch-all
+	# below, so a MISSING installer 404s here instead of falling through to the
+	# SPA shell — which would hand the user an HTML page named *.exe.
+	@downloads path /downloads /downloads/*
+	handle @downloads {
+		reverse_proxy nginx:80
+	}
+
+	# Everything else is the SPA. Wrapped in `handle` (rather than left as bare
+	# directives) so it is unambiguously ordered after @downloads.
+	handle {
+		root * /srv/blisswork
+		try_files {path} /index.html
+		file_server
+	}
 
 	# Long-cache the fingerprinted asset bundle; never cache the HTML shell.
 	@assets path /assets/*
