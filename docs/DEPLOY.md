@@ -105,8 +105,15 @@ deploy failed.
 ## Desktop app
 
 `.github/workflows/release.yml` builds on all three native runners, signs, and
-rsyncs to `/home/ubuntu/BlissWork/Bliss-Website/dist/downloads` on the VPS, which
-nginx serves at `/downloads/`.
+rsyncs to `/home/ubuntu/BlissWork/downloads` on the VPS, which nginx serves at
+`/downloads/` for both `communication.rnrtechs.com` and `blisswork.rnrtechs.com`.
+
+That directory is owned by the release pipeline and nothing else. It deliberately
+sits **outside** any build output: it used to be `Bliss-Website/dist/downloads`,
+and because `dist/` is Vite output that `npm run build` empties, every rebuild of
+the marketing site wiped the entire installer set and update feed. If you ever
+repoint it, keep that property — and update the `VPS_PATH` secret, the nginx
+bind-mount in `docker-compose.prod.yml`, and nothing else.
 
 **Versioning is automatic.** Every green build of `main` publishes
 `0.1.<github.run_number>`. `run_number` only ever increases, so each release
@@ -187,7 +194,7 @@ Then in **Settings → Secrets and variables → Actions**, add:
 | `VPS_HOST` | the server's IP or hostname |
 | `VPS_USER` | `ubuntu` |
 | `VPS_SSH_KEY` | the full private key, `-----BEGIN` through `-----END` inclusive |
-| `VPS_PATH` | `/home/ubuntu/BlissWork/Bliss-Website/dist/downloads` |
+| `VPS_PATH` | `/home/ubuntu/BlissWork/downloads` |
 
 Verify before relying on it:
 

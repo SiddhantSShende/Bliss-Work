@@ -104,6 +104,18 @@ OV warns until reputation builds).
    SSL.com's HSM. (Verify the CodeSignTool flags against SSL.com's current docs —
    linked in that file.)
 
+> ### ⚠️ Before the first signed release: pin the action
+> `.github/workflows/release.yml` uses `sslcom/esigner-codesign@develop` — a
+> **mutable** ref. Whoever can push to that branch can change code that runs in a
+> job where our eSigner credentials are in scope. Replace `@develop` with a full
+> 40-character commit SHA at the same time you add the `ES_*` secrets. The step is
+> harmless today only because it is gated on `ES_USERNAME` being set, so setting
+> that secret is exactly what makes the risk live.
+>
+> Also note `release.yml` re-signs the `.exe` *after* packaging and then reruns
+> `scripts/regen-update-manifest.mjs` — signing rewrites the binary, so the sha512
+> in `latest.yml` must be recomputed or electron-updater rejects every update.
+
 ### Verify (any route)
 ```powershell
 signtool verify /pa /v .\BlissWork-windows-x64.exe    # → "Successfully verified"
@@ -168,9 +180,15 @@ you can get **clean, no-warning installs for free** with a self-signed cert:
 2. Sign the installer **on the VPS/Linux** (no Windows box needed):
    ```bash
    build/sign-win-pfx.sh build/certs/blisswork-selfsigned.pfx "AStrongPassword" \
-     /home/ubuntu/BlissWork/Bliss-Website/dist/downloads/BlissWork-windows-x64.exe
-   # also sign the copy in public/downloads, then regenerate SHA256SUMS.txt
+     /home/ubuntu/BlissWork/downloads/BlissWork-windows-x64.exe
+   # Signing rewrites the .exe, so afterwards regenerate BOTH digests or every
+   # install breaks its integrity check:
+   #   cd /home/ubuntu/BlissWork/downloads && sha256sum BlissWork-* > SHA256SUMS.txt
+   #   node scripts/regen-update-manifest.mjs . latest.yml BlissWork-windows-x64.exe
    ```
+   There is only one installer directory on the VPS — the old `public/downloads`
+   and `dist/downloads` mirrors are gone. Note this whole path is a manual
+   override: the next release run overwrites the file with an unsigned build.
 3. **Trust the cert on your fleet** — push `build/certs/blisswork-selfsigned.crt` to both
    **Trusted Root Certification Authorities** and **Trusted Publishers** via Group Policy
    (Computer Config → Windows Settings → Security Settings → Public Key Policies) or Intune.

@@ -25,7 +25,8 @@ If the hash matches the one in `SHA256SUMS.txt`, the file is authentic.
    (Smart App Control fully clears only once the app is signed — see `SIGNING.md`.)
 
 ## macOS 11+
-> The macOS `.dmg` is not built yet (must be built on a Mac). Once available:
+> The `.dmg` is built on a macOS CI runner by `release.yml` — real, but unsigned
+> and un-notarized until certificates are in place, so expect Gatekeeper to object.
 1. Open the `.dmg`, drag **BlissWork** to **Applications**.
 2. First launch: **Control-click** (right-click) the app in Applications → **Open**
    → **Open** in the dialog. (Double-clicking is blocked for unsigned apps.)

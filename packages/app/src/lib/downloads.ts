@@ -8,8 +8,17 @@
  * infra/nginx/default.conf), so a click downloads straight from
  * communication.rnrtechs.com with no redirect to GitHub.
  *
+ * The names are version-less on purpose: .github/workflows/release.yml overwrites
+ * them in place on every green build of `main` (rsync → /home/ubuntu/BlissWork/
+ * downloads on the VPS), so this file never changes when the desktop app ships.
+ *
  * To repoint downloads elsewhere (e.g. the marketing site's host or a CDN) set
  * VITE_DOWNLOADS_BASE at build time — nothing else needs to change.
+ *
+ * ⚠️ KEEP IN SYNC with Bliss-Website/src/config/downloads.ts — the marketing site
+ * has a near-identical copy of this config (separate repos, so it can't be
+ * shared). Any filename or path change must be made in both, or one of the two
+ * "Get the App" buttons starts 404ing.
  */
 
 // `import.meta.env` is Vite's build-time env (statically replaced). packages/app

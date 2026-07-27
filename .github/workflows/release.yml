@@ -39,8 +39,13 @@ name: Release Desktop
 #   MAC_CSC_LINK (base64 of the Developer ID Application .p12)   MAC_CSC_KEY_PASSWORD
 #   APPLE_ID     APPLE_APP_SPECIFIC_PASSWORD     APPLE_TEAM_ID
 # Deploy to the VPS (optional — skipped if unset):
-#   VPS_HOST  VPS_USER  VPS_PATH (e.g. /home/ubuntu/BlissWork/Bliss-Website/dist/downloads)
+#   VPS_HOST  VPS_USER  VPS_PATH (/home/ubuntu/BlissWork/downloads)
 #   VPS_SSH_KEY (a private key whose public half is in the VPS user's authorized_keys)
+#
+# VPS_PATH must stay OUTSIDE any build output directory. It used to point into
+# Bliss-Website/dist/downloads — but `dist/` is Vite build output and
+# `npm run build` empties it, so every website rebuild silently deleted the whole
+# installer set and update feed until the next release run.
 #
 # Any signing/deploy stage whose secrets are absent is SKIPPED, so this workflow
 # is safe to run before you've bought a certificate. See docs/DEPLOY.md.
@@ -226,9 +231,14 @@ jobs:
           pattern: installers-*
           merge-multiple: true
 
-      # SSL.com eSigner signs the .exe via its cloud HSM (no cert on disk). Pin
-      # this third-party action to a commit SHA for supply-chain safety once you
-      # adopt it (replace @develop below).
+      # SSL.com eSigner signs the .exe via its cloud HSM (no cert on disk).
+      #
+      # SECURITY TODO (blocking, before the first signed release): `@develop` is a
+      # MUTABLE ref — whoever controls that branch controls a step that runs with
+      # our signing credentials in scope. Replace it with a full commit SHA
+      # (`sslcom/esigner-codesign@<40-char-sha>`) when signing is adopted. Inert
+      # today only because the step is gated on ES_USERNAME being set.
+      # Tracked in apps/desktop/SIGNING.md.
       - name: Sign Windows installer (SSL.com eSigner)
         if: env.ES_USERNAME != ''
         uses: sslcom/esigner-codesign@develop
@@ -306,6 +316,57 @@ jobs:
           rsync -avz --checksum -e "$SSH_CMD" --include='latest*.yml' --exclude='*' \
             installers/ "$VPS_USER@$VPS_HOST:$VPS_PATH/"
           echo "Deployed ${{ needs.version.outputs.version }} to $VPS_USER@$VPS_HOST:$VPS_PATH"
+
+      # Everything above this point verifies CI's OWN artifacts. Nothing verified
+      # that the live host actually serves them — which is how a 128-byte
+      # placeholder .dmg sat on the download page for weeks. Check the real URLs
+      # the website and the updater use, over the public internet, after upload.
+      - name: Verify the live download host
+        if: env.VPS_HOST != ''
+        run: |
+          set -euo pipefail
+          BASE=https://communication.rnrtechs.com/downloads
+          VERSION="${{ needs.version.outputs.version }}"
+          fail=0
+
+          # The updater feed must exist AND advertise the version we just shipped.
+          # A stale-but-present latest.yml is the failure mode that looks fine.
+          echo "--- $BASE/latest.yml ---"
+          if ! curl -fsS "$BASE/latest.yml" | tee /tmp/latest.yml; then
+            echo "::error::latest.yml is not reachable — auto-update is dead"
+            fail=1
+          elif ! grep -q "version: $VERSION" /tmp/latest.yml; then
+            echo "::error::latest.yml does not advertise $VERSION"
+            fail=1
+          fi
+
+          for m in latest-mac.yml latest-linux.yml; do
+            curl -fsS "$BASE/$m" >/dev/null \
+              || { echo "::error::$m is not reachable"; fail=1; }
+          done
+
+          # The site's "Verify checksums" link (DownloadProvider.tsx) points here.
+          curl -fsS "$BASE/SHA256SUMS.txt" >/dev/null \
+            || { echo "::error::SHA256SUMS.txt is not reachable"; fail=1; }
+
+          # Content-Length over HTTP, so this catches a truncated upload or a
+          # placeholder that never got overwritten — not just a local stat().
+          MIN_BYTES=$((5 * 1024 * 1024))
+          for f in BlissWork-windows-x64.exe \
+                   BlissWork-mac-arm64.dmg BlissWork-mac-x64.dmg \
+                   BlissWork-linux-x64.AppImage BlissWork-linux-x64.deb; do
+            len=$(curl -fsSI "$BASE/$f" \
+                  | awk 'tolower($1)=="content-length:"{print $2+0}' | tail -1)
+            if [ "${len:-0}" -lt "$MIN_BYTES" ]; then
+              echo "::error::$f serves ${len:-0} bytes — not a real installer"
+              fail=1
+            else
+              printf '  ok  %-34s %s bytes\n' "$f" "$len"
+            fi
+          done
+
+          [ "$fail" -eq 0 ] || exit 1
+          echo "Live host is serving $VERSION."
 
       - name: Scrub the key
         if: always()
