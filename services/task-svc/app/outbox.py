@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 
 from aiokafka import AIOKafkaProducer
@@ -33,17 +34,39 @@ class OutboxPoller:
         self._stop = asyncio.Event()
 
     async def start(self) -> None:
-        self._producer = AIOKafkaProducer(
+        # Deliberately does NOT connect to Kafka. compose `depends_on` ordering
+        # only applies to `docker compose up` — on a host reboot the daemon
+        # restarts containers by restart-policy alone and ignores it, so this
+        # service races the broker's boot. Connecting here made that race fatal
+        # ("Application startup failed. Exiting.") and crash-looped the
+        # container until Kafka came up. The connect now happens on first drain,
+        # under the backoff _run already applies.
+        self._stop.clear()
+        self._task = asyncio.create_task(self._run(), name="outbox-poller")
+        log.info("outbox_poller_started")
+
+    async def _ensure_producer(self) -> AIOKafkaProducer:
+        """Connect on first use. Failures propagate to _run's backoff."""
+        if self._producer is not None:
+            return self._producer
+        producer = AIOKafkaProducer(
             bootstrap_servers=settings.kafka_brokers,
             enable_idempotence=True,
             acks="all",
             value_serializer=lambda v: json.dumps(v).encode("utf-8"),
             key_serializer=lambda k: k.encode("utf-8") if k is not None else None,
         )
-        await self._producer.start()
-        self._stop.clear()
-        self._task = asyncio.create_task(self._run(), name="outbox-poller")
-        log.info("outbox_poller_started")
+        try:
+            await producer.start()
+        except Exception:
+            # A producer whose start() failed is not reusable — discard it so
+            # the next attempt builds a fresh one.
+            with contextlib.suppress(Exception):
+                await producer.stop()
+            raise
+        self._producer = producer
+        log.info("outbox_producer_connected")
+        return producer
 
     async def stop(self) -> None:
         self._stop.set()
@@ -77,7 +100,7 @@ class OutboxPoller:
                 backoff = min(backoff * 2, _BACKOFF_CAP)
 
     async def _drain_once(self) -> int:
-        assert self._producer is not None
+        producer = await self._ensure_producer()
         async with session() as db:
             # Cross-org background worker. The outbox table itself carries no
             # org_id (not RLS-protected), but we bypass RLS for this trusted
@@ -109,7 +132,7 @@ class OutboxPoller:
                     with _tracer.start_as_current_span(
                         f"{row.topic} send", kind=SpanKind.PRODUCER
                     ):
-                        await self._producer.send_and_wait(
+                        await producer.send_and_wait(
                             row.topic,
                             value=payload,
                             key=row.kafka_key,

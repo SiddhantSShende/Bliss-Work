@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 
 from aiokafka import AIOKafkaConsumer
@@ -25,6 +26,10 @@ MESSAGING_TOPIC = "messaging.events.v1"
 
 # Defensive bound on consumed string fields before they hit user_projection.
 _MAX_STR = 255
+
+# Kafka reconnect backoff: doubles from _RECONNECT_BASE up to _RECONNECT_MAX.
+_RECONNECT_BASE = 1.0
+_RECONNECT_MAX = 30.0
 
 
 def _clean_str(value, max_len: int = _MAX_STR) -> str:
@@ -64,7 +69,29 @@ class TaskSvcConsumer:
         self._stop = asyncio.Event()
 
     async def start(self) -> None:
-        self._consumer = AIOKafkaConsumer(
+        # Deliberately does NOT connect to Kafka — same host-reboot race as
+        # OutboxPoller.start (compose depends_on doesn't apply when the daemon
+        # restarts containers by restart-policy). _run connects with backoff and
+        # reconnects for the life of the process.
+        self._stop.clear()
+        self._task = asyncio.create_task(self._run(), name="task-svc-consumer")
+        log.info("consumer_started", topics=[AUTH_TOPIC, MESSAGING_TOPIC])
+
+    async def stop(self) -> None:
+        self._stop.set()
+        # Stopping the consumer ends the in-flight `async for`, so _run falls
+        # out of its loop instead of blocking until the next message.
+        if self._consumer is not None:
+            await self._stop_quietly(self._consumer)
+        if self._task is not None:
+            try:
+                await asyncio.wait_for(self._task, timeout=5.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                self._task.cancel()
+        log.info("consumer_stopped")
+
+    def _build_consumer(self) -> AIOKafkaConsumer:
+        return AIOKafkaConsumer(
             AUTH_TOPIC,
             MESSAGING_TOPIC,
             bootstrap_servers=settings.kafka_brokers,
@@ -76,26 +103,58 @@ class TaskSvcConsumer:
             auto_offset_reset="earliest",
             value_deserializer=lambda v: json.loads(v.decode("utf-8")),
         )
-        await self._consumer.start()
-        self._stop.clear()
-        self._task = asyncio.create_task(self._run(), name="task-svc-consumer")
-        log.info("consumer_started", topics=[AUTH_TOPIC, MESSAGING_TOPIC])
 
-    async def stop(self) -> None:
-        self._stop.set()
-        if self._consumer is not None:
-            await self._consumer.stop()
-        if self._task is not None:
-            try:
-                await asyncio.wait_for(self._task, timeout=5.0)
-            except (asyncio.TimeoutError, asyncio.CancelledError):
-                self._task.cancel()
-        log.info("consumer_stopped")
+    @staticmethod
+    async def _stop_quietly(consumer: AIOKafkaConsumer) -> None:
+        with contextlib.suppress(Exception):
+            await consumer.stop()
+
+    async def _sleep_or_stop(self, delay: float) -> None:
+        with contextlib.suppress(asyncio.TimeoutError):
+            await asyncio.wait_for(self._stop.wait(), timeout=delay)
 
     async def _run(self) -> None:
-        assert self._consumer is not None
+        # Connect/consume/reconnect for the life of the process. Previously the
+        # connect lived in start() and the loop ran exactly once, so a broker
+        # blip both crash-looped the container at boot and silently killed this
+        # task mid-run — events stopped projecting with the service still
+        # reporting healthy.
+        attempt = 0
+        while not self._stop.is_set():
+            consumer = self._build_consumer()
+            try:
+                await consumer.start()
+            except Exception as exc:  # noqa: BLE001 — broker not up yet; retry
+                attempt += 1
+                delay = min(
+                    _RECONNECT_BASE * (2 ** (attempt - 1)), _RECONNECT_MAX
+                )
+                log.warning(
+                    "kafka_connect_retry",
+                    attempt=attempt,
+                    next_delay_s=delay,
+                    error=str(exc),
+                )
+                await self._stop_quietly(consumer)
+                await self._sleep_or_stop(delay)
+                continue
+
+            attempt = 0
+            self._consumer = consumer
+            log.info("consumer_connected", topics=[AUTH_TOPIC, MESSAGING_TOPIC])
+            try:
+                await self._consume_loop(consumer)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001 — reconnect, don't die
+                log.warning("consume_loop_error_reconnecting", error=str(exc))
+            finally:
+                self._consumer = None
+                await self._stop_quietly(consumer)
+
+    async def _consume_loop(self, consumer: AIOKafkaConsumer) -> None:
         try:
-            async for msg in self._consumer:
+            async for msg in consumer:
                 if self._stop.is_set():
                     break
                 try:
@@ -117,7 +176,7 @@ class TaskSvcConsumer:
                     )
                     continue
                 # Handler (and its DB commit) succeeded — advance the offset.
-                await self._consumer.commit()
+                await consumer.commit()
         except asyncio.CancelledError:
             pass
 
