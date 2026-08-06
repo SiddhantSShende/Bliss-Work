@@ -18,6 +18,8 @@ _tracer = trace.get_tracer(__name__)
 
 _POLL_INTERVAL = 0.5  # seconds
 _BACKOFF_CAP = 30.0  # seconds — max wait between retries after a publish failure
+# After the first failure, only re-log every Nth consecutive one.
+_FAILURE_LOG_EVERY = 10
 
 
 class OutboxPoller:
@@ -83,16 +85,34 @@ class OutboxPoller:
         # Backoff grows on consecutive Kafka publish failures (capped) so a
         # broker outage doesn't hammer it every 0.5s; resets on any success.
         backoff = _POLL_INTERVAL
+        consecutive_failures = 0
         while not self._stop.is_set():
             try:
                 published = await self._drain_once()
+                if consecutive_failures:
+                    log.info("outbox_poll_recovered", after_failures=consecutive_failures)
+                    consecutive_failures = 0
                 backoff = _POLL_INTERVAL
                 if published == 0:
                     await asyncio.wait_for(self._stop.wait(), timeout=_POLL_INTERVAL)
             except asyncio.TimeoutError:
                 continue
-            except Exception:  # noqa: BLE001 — keep the poller alive
-                log.exception("outbox_poll_error", backoff=backoff)
+            except Exception as exc:  # noqa: BLE001 — keep the poller alive
+                consecutive_failures += 1
+                # Full traceback ONCE, then suppress to a one-line warning every
+                # _FAILURE_LOG_EVERY-th repeat. A broker outage otherwise emits a
+                # multi-line traceback per backoff tick — the same error storm
+                # the backoff itself exists to prevent, and the thing a real
+                # incident would have to be spotted in.
+                if consecutive_failures == 1:
+                    log.exception("outbox_poll_error", backoff=backoff, consecutive_failures=1)
+                elif consecutive_failures % _FAILURE_LOG_EVERY == 0:
+                    log.warning(
+                        "outbox_poll_error",
+                        error=str(exc),
+                        backoff=backoff,
+                        consecutive_failures=consecutive_failures,
+                    )
                 try:
                     await asyncio.wait_for(self._stop.wait(), timeout=backoff)
                 except asyncio.TimeoutError:
