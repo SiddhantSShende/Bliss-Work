@@ -110,6 +110,33 @@ jobs:
       - run: npm run build -w @taskboard/web
       - run: npm run build -w @taskboard/desktop
 
+      # The desktop app and the web app render the SAME packages/app, so they
+      # should never differ in feature set — but they silently did for weeks
+      # (the 0.1.0 installer had no Integrations, Mentions, Workspace apps or
+      # Export Tasks while the web app had all four, and its updater could never
+      # fetch a fix). Compare the built bundles, since that is what users run.
+      - name: Check web/desktop bundle parity
+        run: node scripts/check-bundle-parity.mjs
+
+      # A `github` provider on this PRIVATE repo is unreadable by
+      # electron-updater and fails silently at runtime — that is exactly how
+      # 0.1.0 became permanently un-updatable. Catch it in the static config
+      # here; release.yml re-checks the value actually baked into the artifact.
+      - name: Check the desktop update feed is the generic VPS feed
+        run: |
+          node -e '
+            const pkg = require("./apps/desktop/package.json");
+            const pub = pkg.build?.publish?.[0] ?? {};
+            const wantUrl = "https://communication.rnrtechs.com/downloads";
+            if (pub.provider !== "generic" || pub.url !== wantUrl) {
+              console.error(
+                `apps/desktop/package.json build.publish must be ` +
+                `{provider:"generic", url:"${wantUrl}"}, got ` + JSON.stringify(pub));
+              process.exit(1);
+            }
+            console.log("✓ desktop publish config is the generic VPS feed");
+          '
+
   # ───────────────────────────────────────────────────────────────────────────
   # TEST — unit/integration tests per ecosystem.
   # ───────────────────────────────────────────────────────────────────────────
