@@ -4,8 +4,64 @@ import tailwindcss from "@tailwindcss/vite";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 
+import { resolveEndpoints } from "./src/shared/endpoints";
+
 const here = fileURLToPath(new URL(".", import.meta.url));
 const r = (p: string) => resolve(here, p);
+
+/**
+ * Derive the renderer's CSP connect-src/img-src from the SAME endpoint
+ * resolution the app itself uses, and substitute it into index.html.
+ *
+ * The CSP used to hardcode the hosted origin while src/shared/endpoints.ts
+ * documented that "a custom deployment needs no code edit" via VITE_* overrides.
+ * Both could not be true: repointing a build produced one whose every request
+ * was blocked by CSP, with no build-time warning and a runtime failure that
+ * looks like a network outage. Generating the directive from the resolved
+ * endpoints makes the override actually work and keeps the allowlist tight.
+ */
+function cspPlugin(isProd: boolean, env: Record<string, string | undefined>) {
+  return {
+    name: "taskboard-csp",
+    transformIndexHtml: {
+      order: "pre" as const,
+      handler(html: string) {
+        const e = resolveEndpoints(isProd, {
+          authBase: env.VITE_AUTH_BASE,
+          taskBase: env.VITE_TASK_BASE,
+          notificationBase: env.VITE_NOTIFICATION_BASE,
+          messagingBase: env.VITE_MESSAGING_BASE,
+          integrationsBase: env.VITE_INTEGRATIONS_BASE,
+          wsUrl: env.VITE_WS_URL,
+        });
+        const origins = new Set<string>();
+        for (const url of Object.values(e)) {
+          try {
+            origins.add(new URL(url).origin);
+          } catch {
+            /* a malformed override simply contributes nothing to the allowlist */
+          }
+        }
+        // Dev also loads from the Vite server and may hot-reload over ws://.
+        if (!isProd) {
+          origins.add("http://localhost:*");
+          origins.add("ws://localhost:*");
+        }
+        const connect = [...origins].sort().join(" ");
+        // Images come from the API origins only (avatars, attachments) — the ws
+        // origin is irrelevant here but harmless, and keeping one list keeps the
+        // two directives from drifting apart.
+        const img = [...origins].filter((o) => o.startsWith("http")).sort().join(" ");
+        // replaceAll, not replace: the explanatory comment above the meta tag
+        // names both placeholders, so a first-match-only replace would patch the
+        // comment and leave the actual directive untouched.
+        return html
+          .replaceAll("%CSP_CONNECT_SRC%", connect)
+          .replaceAll("%CSP_IMG_SRC%", img);
+      },
+    },
+  };
+}
 
 export default defineConfig({
   main: {
@@ -54,8 +110,20 @@ export default defineConfig({
     // The main process loads the renderer via ELECTRON_RENDERER_URL, so this
     // port move needs no source changes.
     server: { port: 5174, strictPort: true },
-    plugins: [react(), tailwindcss()],
+    plugins: [
+      react(),
+      tailwindcss(),
+      cspPlugin(process.env.NODE_ENV === "production", process.env),
+    ],
     build: {
+      // electron-vite defaults `minify` to false — unlike plain `vite build`,
+      // which minifies in production. The renderer had been shipping unminified
+      // (1.1 MB / 30k readable lines vs the web app's 768 KB), which cost cold
+      // start and put fully commented source — including the notes describing
+      // the security model — inside app.asar, where `asar: true` is not a
+      // protection. Main/preload stay unminified on purpose: that's
+      // electron-vite's default and it keeps crash traces legible.
+      minify: "esbuild",
       rollupOptions: {
         input: {
           index: r("src/renderer/index.html"),

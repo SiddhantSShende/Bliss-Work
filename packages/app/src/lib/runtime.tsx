@@ -32,7 +32,7 @@ export function RuntimeProvider({
     // Single-flight (shared with the bootstrap) so a WS re-auth can't race the
     // page-load refresh and trip the rotating-token reuse detection.
     const refresh = async (): Promise<string> => {
-      const session = await refreshSession(config.authBase, config.persistToken);
+      const session = await refreshSession(config.authBase, config.persistToken, config.getRefreshToken);
       if (!session) throw new Error("refresh failed");
       return session.accessToken;
     };
@@ -52,7 +52,7 @@ export function RuntimeProvider({
       // Auto-recover from an expired access token: refresh (single-flight,
       // shared with bootstrap + WS) and let req() retry. null ⇒ refresh failed.
       refreshToken: () =>
-        refreshSession(config.authBase, config.persistToken).then(
+        refreshSession(config.authBase, config.persistToken, config.getRefreshToken).then(
           (s) => s?.accessToken ?? null,
         ),
     });
@@ -70,7 +70,13 @@ export function RuntimeProvider({
       sendFrame: (f) => ws.sendFrame(f),
       onControl: (cb) => ws.onControl(cb),
     };
-    const rtcAvailable = config.rtc ? true : !config.eventSource;
+    // Gate on what the question actually is — "do I have a transport?" — rather
+    // than inferring the platform from `eventSource`, which is about the WS
+    // living in the main process and has nothing to do with WebRTC. The old
+    // `config.rtc ? true : !config.eventSource` was right only by coincidence:
+    // any host that supplied eventSource without rtc would silently lose the
+    // file-transfer UI with no error anywhere.
+    const rtcAvailable = Boolean(config.rtc) || config.kind === "web";
 
     return { config, api, ws, rtc, rtcAvailable };
      

@@ -41,6 +41,19 @@ export interface FileSink {
   abort: (transferId: string) => void;
 }
 
+/** Host side of the desktop pinned-chat windows (Electron main process). */
+export interface ChatStickyHost {
+  pin: (boot: {
+    threadId: string;
+    conversationId: string;
+    myUserId: string;
+    peerUserId: string;
+    peerUsername: string;
+  }) => void;
+  unpin: (threadId: string) => void;
+  list: () => Promise<string[]>;
+}
+
 export interface PlatformConfig {
   kind: "web" | "electron";
   authBase: string;
@@ -73,6 +86,22 @@ export interface PlatformConfig {
   listPinned?: () => Promise<string[]>;
   /** Forward the current access token to the host (Electron → utilityProcess). */
   persistToken?: (token: string | null) => void;
+  /** Present only in Electron: pin a DM thread to the desktop as a standalone
+   *  always-available chat window. Absent on web, where PinButton renders null.
+   *  Lives here rather than on `window` so the renderer and the desktop preload
+   *  are typechecked against ONE definition. */
+  chatSticky?: ChatStickyHost;
+  /** Present only in Electron: the refresh token, read from the host's cookie
+   *  jar / OS-encrypted store.
+   *
+   *  The packaged renderer loads from file://, so requests to the API origin are
+   *  cross-site and Chromium will not attach the SameSite=lax refresh cookie —
+   *  the token has to travel in the /auth/refresh body instead. Web leaves this
+   *  undefined and keeps using the cookie, which is strictly safer. */
+  getRefreshToken?: () => Promise<string | null>;
+  /** Present only in Electron: mirror the refresh token to the host's encrypted
+   *  store, or clear it (null) on logout so the session can't be resurrected. */
+  persistRefreshToken?: (token: string | null) => void;
   /** Present only in Electron: the installed app's version (e.g. "0.1.42").
    *  Shown in Settings → About. A desktop build can sit far behind the web app
    *  with nothing on screen to say so — which is how "the desktop app is

@@ -9,7 +9,7 @@ import { broadcastLogout } from "../lib/authChannel";
 
 /** Avatar-anchored account popover in the top navbar. */
 export function ProfileMenu() {
-  const { api } = useRuntime();
+  const { api, config } = useRuntime();
   const user = useSession((s) => s.user)!;
   const clear = useSession((s) => s.clear);
   const { theme, toggle } = useTheme();
@@ -33,6 +33,10 @@ export function ProfileMenu() {
   const logout = async () => {
     await api.logout().catch(() => {});
     clear();
+    // Electron mirrors the refresh token to an encrypted file so the session
+    // survives a restart; without this, signing out would leave that mirror on
+    // disk and the next launch would silently restore the session.
+    config.persistRefreshToken?.(null);
     broadcastLogout(); // sign out sibling tabs too
     nav("/login");
   };

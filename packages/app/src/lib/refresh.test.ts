@@ -192,3 +192,59 @@ describe("SessionDTO.safeParse boundary (the validation refresh.ts relies on)", 
     expect(SessionDTO.safeParse({ accessToken: "x" }).success).toBe(false);
   });
 });
+
+/**
+ * Desktop (file://) refresh path.
+ *
+ * A packaged Electron build loads the renderer from file://, so every request to
+ * the API origin is cross-site and Chromium refuses to attach the SameSite=lax
+ * refresh cookie — the server then 401s with "missing refresh token". The host
+ * reads the token out of its cookie jar / encrypted store and the renderer puts
+ * it in the request body, which /auth/refresh accepts as an alternative source.
+ *
+ * Web must be completely unaffected: no body, no content-type, cookie only.
+ */
+describe("refresh token source (web cookie vs Electron body)", () => {
+  it("web: sends no body and relies on credentials:include", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(fakeResponse(true, validSession));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await refreshSession(AUTH);
+
+    const init = fetchMock.mock.calls[0]![1] as RequestInit;
+    expect(init.credentials).toBe("include");
+    expect(init.body).toBeUndefined();
+    expect(init.headers).toBeUndefined();
+  });
+
+  it("electron: sends the host-provided token in the body, keeping credentials", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(fakeResponse(true, validSession));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await refreshSession(AUTH, undefined, () => Promise.resolve("refresh-xyz"));
+
+    const init = fetchMock.mock.calls[0]![1] as RequestInit;
+    expect(init.credentials).toBe("include"); // harmless on desktop, load-bearing on web
+    expect(JSON.parse(init.body as string)).toEqual({ token: "refresh-xyz" });
+    expect(init.headers).toEqual({ "content-type": "application/json" });
+  });
+
+  it("electron with no stored token: degrades to the web-shaped request", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(fakeResponse(true, validSession));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await refreshSession(AUTH, undefined, () => Promise.resolve(null));
+
+    expect((fetchMock.mock.calls[0]![1] as RequestInit).body).toBeUndefined();
+  });
+
+  it("a throwing host bridge does not break refresh (IPC can fail mid-teardown)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(fakeResponse(true, validSession));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await refreshSession(AUTH, undefined, () => Promise.reject(new Error("ipc gone")));
+
+    expect(res).toEqual(validSession);
+    expect((fetchMock.mock.calls[0]![1] as RequestInit).body).toBeUndefined();
+  });
+});
