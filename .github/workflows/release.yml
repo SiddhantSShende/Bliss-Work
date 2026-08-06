@@ -409,6 +409,14 @@ jobs:
           [ "$fail" -eq 0 ] || exit 1
           echo "Live host is serving $VERSION."
 
+      # Everything above checks communication.rnrtechs.com. The marketing site is
+      # a SECOND download surface on a different host, with its own copy of the
+      # filename list — so it can serve different (or missing) files while the
+      # web app looks perfectly healthy. Check both hosts agree, byte for byte.
+      - name: Verify the website and the web app offer the same installers
+        if: env.VPS_HOST != ''
+        run: node scripts/check-download-links.mjs --live
+
       - name: Scrub the key
         if: always()
         run: rm -f ~/.ssh/id_deploy

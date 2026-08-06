@@ -122,6 +122,14 @@ jobs:
       # electron-updater and fails silently at runtime — that is exactly how
       # 0.1.0 became permanently un-updatable. Catch it in the static config
       # here; release.yml re-checks the value actually baked into the artifact.
+      # The website and the web app each keep their own hand-maintained copy of
+      # the installer filenames, in separate repos, synced by nothing but a
+      # comment. Pin the web app's copy to build.<os>.artifactName — the only
+      # thing that decides what actually lands on the download host — so it can
+      # neither 404 nor drift from the website's copy.
+      - name: Check download links match what the desktop build produces
+        run: node scripts/check-download-links.mjs
+
       - name: Check the desktop update feed is the generic VPS feed
         run: |
           node -e '
