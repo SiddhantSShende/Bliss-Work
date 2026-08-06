@@ -42,13 +42,54 @@ break every scheduled run:
 The passphrase is read from `/home/ubuntu/bliss-backup-key.txt` (0600) at run
 time and never written into the unit file, which is world-readable.
 
+## Off-host copy
+
+The unit runs `scripts/backup-offsite.sh` immediately after a successful local
+backup, rsyncing the verified dumps to a second machine over SSH. The files are
+ciphertext before they leave, so the target stores the data without being
+trusted with it.
+
+**To finish setting it up** — one line plus one key:
+
+1. Install this host's dedicated public key on the target, ideally restricted:
+
+   ```
+   # in the target's ~/.ssh/authorized_keys
+   restrict,command="rsync --server -logDtpre.iLsfxCIvu . /srv/blisswork/" ssh-ed25519 AAAA... blisswork-backup@vps-5ac6bf98
+   ```
+
+   The public key is `/root/.ssh/blisswork-backup.pub` on this host. The private
+   half is root-only and was generated here — it is not the GitHub key.
+
+2. Set the destination in `/etc/blisswork-backup.env` (0600, not in git — it
+   names a private host):
+
+   ```
+   BACKUP_REMOTE=backup@your-host.example.com:/srv/blisswork
+   ```
+
+3. `sudo systemctl start blisswork-backup.service` and check the journal.
+
+Until `BACKUP_REMOTE` is set **the unit fails on purpose**, every day. The local
+dumps still get written and verified first — only the shipping stage fails. That
+is deliberate: an off-host backup that quietly isn't happening is the exact
+failure this was added to prevent, and a red unit is a reminder where silence
+isn't. Set `OFFSITE_REQUIRED=0` to accept local-only without the red mark.
+
+`rsync` runs **without `--delete`**. The remote is not a mirror: if this host is
+compromised or its disk wipes, a mirroring rsync would faithfully propagate that
+and destroy the last surviving copy. The remote grows instead — ~800KB/day, a few
+hundred MB a year — and should be pruned there, on its own schedule.
+
+After shipping, the script re-stats every dump from the last 24h on the far end
+and compares sizes. rsync exiting 0 is not proof the bytes landed.
+
 ### Known gaps
 
 - **No alerting.** A failed run marks the unit failed and logs to the journal,
   but nothing pages anyone. `OnFailure=` pointing at a notifier is the fix.
-- **Not off-host.** Dumps live on the same disk as the database they protect, so
-  they cover a bad migration or a dropped table but not loss of the host. Real
-  off-site storage needs a destination and credentials.
 - **The passphrase is on the same host as the dumps.** Lose the disk and you lose
   both the backups and the only key that opens them. It belongs in a password
-  manager too — without it the dumps are unrecoverable, by design.
+  manager too — without it the dumps are unrecoverable, by design. Copying it to
+  the *backup target* would defeat the encryption, so put it somewhere else
+  entirely.
