@@ -1,0 +1,14 @@
+[Unit]
+Description=Daily BlissWork database backup
+
+[Timer]
+OnCalendar=*-*-* 02:30:00 UTC
+# Spread the load a little; nothing else contends at 02:30 but this costs nothing.
+RandomizedDelaySec=300
+# If the host was off (or rebooted) at 02:30, run as soon as it comes back
+# rather than silently skipping the day.
+Persistent=true
+Unit=blisswork-backup.service
+
+[Install]
+WantedBy=timers.target
