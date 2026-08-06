@@ -40,6 +40,25 @@ const ALLOW = [
     reviewBy: "2026-10-01",
   },
   {
+    id: "GHSA-rgw5-rvv9-x895",
+    package: "brace-expansion",
+    why:
+      "Follow-up advisory to GHSA-mh99-v99m-4gvg above (it bypasses that CVE's " +
+      "mitigation) — same package, same path, same blockers. Two vulnerable copies " +
+      "resolve: 1.1.16 under archiver-utils → glob@7 → minimatch@3, which has NO " +
+      "fixed 1.x (the range is <=1.1.17, and 1.1.17 is the last 1.x), and 5.0.8 at " +
+      "the root. Forcing the fixed ^5.0.9 everywhere breaks minimatch@3, which " +
+      "`require()`s brace-expansion as a callable — verified: the v5 export is a " +
+      "plain object, not a function.",
+    notAffected:
+      "Same evidence as GHSA-mh99-v99m-4gvg, re-verified against a fresh build: " +
+      "grep of apps/web/dist/assets/*.js finds no brace-expansion / archiver-utils " +
+      "in any chunk. exceljs is imported only by packages/app/src/lib/xlsxExport.ts " +
+      "(browser-only, resolves to the prebuilt browser bundle, which excludes the " +
+      "Node zip path); no server-side or script code imports exceljs.",
+    reviewBy: "2026-10-01",
+  },
+  {
     id: "GHSA-qwww-vcr4-c8h2",
     package: "react-router",
     why:
