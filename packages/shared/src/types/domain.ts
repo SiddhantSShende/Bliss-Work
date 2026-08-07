@@ -184,6 +184,28 @@ export const ConnectStartDTO = z.object({
 });
 export type ConnectStartDTO = z.infer<typeof ConnectStartDTO>;
 
+/** Result of asking the server to send a WhatsApp confirmation code.
+ *
+ *  Meta refuses free-form messages to a number that hasn't messaged the business
+ *  in the last 24h, so delivery can legitimately fail in a way the admin can
+ *  work around — hence two outcomes rather than success/error. */
+export const VerifyStartDTO = z.object({
+  /** 'sent' → ask the admin for the code. 'reply_required' → we couldn't open
+   *  the conversation; they send `replyKeyword` to `businessNumber` instead and
+   *  the inbound webhook confirms it. */
+  delivery: z.enum(["sent", "reply_required"]),
+  /** Only present for 'reply_required' — it embeds the code, so it is never
+   *  returned when the code could be delivered to the phone instead. */
+  replyKeyword: z.string().nullable().optional(),
+  businessNumber: z.string().default(""),
+  /** Why the direct send didn't work, for display. Never a token or secret. */
+  reason: z.string().nullable().optional(),
+});
+export type VerifyStartDTO = z.infer<typeof VerifyStartDTO>;
+
+export const VerifyConfirmDTO = z.object({ status: IntegrationStatus });
+export type VerifyConfirmDTO = z.infer<typeof VerifyConfirmDTO>;
+
 /** One row of the unified hub activity timeline (inbound + outbound messages
  *  across connected accounts). peer/body are decrypted server-side for display. */
 export const ProviderActivityDTO = z.object({

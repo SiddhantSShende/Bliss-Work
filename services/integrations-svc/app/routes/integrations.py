@@ -19,13 +19,21 @@ import uuid6
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from sqlalchemy import text
 
-from .. import app_credentials
+from .. import app_credentials, verification
 from ..auth import PrincipalDep, Principal
 from ..config import settings
 from ..crypto import cryptor
 from ..db import session, set_org_context
 from ..providers import get_provider, oauth, slack, whatsapp
-from ..schemas import ConnectionOut, ConnectStartOut, ProviderActivityOut
+from ..schemas import (
+    ConnectionOut,
+    ConnectStartOut,
+    ProviderActivityOut,
+    VerifyConfirmIn,
+    VerifyConfirmOut,
+    VerifyStartIn,
+    VerifyStartOut,
+)
 
 router = APIRouter()
 
@@ -293,6 +301,16 @@ async def connect_start(
         # The business number (phone_number_id) is the connection's external account.
         external_account_id = pnid
 
+    # WhatsApp lands as 'pending', not 'connected'. get_phone_number() above only
+    # proves the token can READ the number's metadata — it says nothing about
+    # whether the number can SEND, or whether the inbound webhook is wired. Both
+    # are proven by the code round trip in POST /{id}/verify/start, and until it
+    # passes the connection must not be picked up for outbound forwards.
+    #
+    # A re-connect drops back to 'pending' too: new credentials are unproven
+    # credentials, and re-pasting a token is exactly when they might be wrong.
+    initial_status = "pending" if provider == "whatsapp" else "connected"
+
     conn_id = str(uuid6.uuid7())
     async with session() as db:
         await set_org_context(db, principal.org_id)  # FIRST — RLS + org_keys
@@ -332,7 +350,7 @@ async def connect_start(
                      display_label, access_token_enc, metadata_enc,
                      external_account_id_enc, external_account_id_bidx, scopes, webhook_token)
                 VALUES
-                    (:id, :org, :owner, :creator, :scope_kind, :provider, 'connected',
+                    (:id, :org, :owner, :creator, :scope_kind, :provider, :status,
                      :label, :access_enc, :meta_enc, :ext_enc, :ext_bidx, :scopes, :wh)
                 ON CONFLICT (org_id, provider, external_account_id_bidx)
                     WHERE external_account_id_bidx IS NOT NULL
@@ -340,7 +358,7 @@ async def connect_start(
                     access_token_enc = EXCLUDED.access_token_enc,
                     metadata_enc     = EXCLUDED.metadata_enc,
                     display_label    = EXCLUDED.display_label,
-                    status           = 'connected',
+                    status           = EXCLUDED.status,
                     last_error       = NULL,
                     -- Keep the EXISTING token on re-connect. Rotating it would
                     -- silently break the webhook URL already registered in the
@@ -359,6 +377,7 @@ async def connect_start(
                 "creator": principal.user_id,
                 "scope_kind": scope_kind,
                 "provider": provider,
+                "status": initial_status,
                 "label": display_label,
                 "access_enc": access_enc,
                 "meta_enc": meta_enc,
@@ -371,6 +390,169 @@ async def connect_start(
         row = res.one()
         await db.commit()
         return ConnectStartOut(connection=_row_to_out(row, creds.get("verifyToken")))
+
+
+# ── connection verification (WhatsApp) ────────────────────────────────────────
+async def _load_verifiable(db, conn_id: str, uid: str):
+    """The connection a verify call targets, or a 404. Scoped to the caller the
+    same way disconnect is — RLS already pins the org."""
+    row = (
+        await db.execute(
+            text(
+                """
+                SELECT id, provider, status, display_label, access_token_enc, metadata_enc
+                  FROM integration_connections
+                 WHERE id = :id
+                   AND status <> 'revoked'
+                   AND (owner_user_id = :uid OR owner_user_id IS NULL)
+                """
+            ),
+            {"id": conn_id, "uid": uid},
+        )
+    ).one_or_none()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="connection not found")
+    if row.provider != "whatsapp":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="this connection doesn't need number confirmation",
+        )
+    return row
+
+
+@router.post("/integrations/{conn_id}/verify/start", response_model=VerifyStartOut)
+async def verify_start(
+    conn_id: str, body: VerifyStartIn, principal: Principal = PrincipalDep
+) -> VerifyStartOut:
+    """Send a confirmation code to the admin's own WhatsApp number.
+
+    Also the "resend" endpoint — minting replaces the outstanding code, and the
+    cooldown in verification.mint is what stops it being used to spam a phone.
+
+    Delivery is attempted in the only order Meta allows:
+
+      1. A plain text message. This works when the admin's number already has an
+         open 24h session with the business number — the common case while
+         testing, since people message their own test number first.
+      2. If that is refused for a closed session AND the org named an approved
+         template, send the template with the code as its one variable. We can't
+         do this unconditionally: a template must be approved by Meta, and we
+         have no way to create one on the org's behalf.
+      3. Otherwise give up on outbound and hand back the keyword for the admin
+         to send TO us. That path is not a consolation prize — it proves the
+         inbound webhook works, which the outbound path never does.
+    """
+    to = body.to.strip()
+    if not to:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="a number is required")
+
+    async with session() as db:
+        await set_org_context(db, principal.org_id)  # FIRST — RLS + org_keys
+        row = await _load_verifiable(db, conn_id, principal.user_id)
+
+        token = await cryptor().decrypt(
+            db, principal.org_id, bytes(row.access_token_enc) if row.access_token_enc else None
+        )
+        meta_plain = await cryptor().decrypt(
+            db, principal.org_id, bytes(row.metadata_enc) if row.metadata_enc else None
+        )
+        try:
+            pnid = str(json.loads(meta_plain or "{}").get("phoneNumberId") or "")
+        except (ValueError, TypeError):
+            pnid = ""
+        if not token or not pnid:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="this connection is missing its credentials — reconnect it",
+            )
+
+        try:
+            v = await verification.mint(db, principal.org_id, conn_id, to)
+        except verification.ResendTooSoon as exc:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc)
+            ) from exc
+
+        delivered = False
+        reason: str | None = None
+        message = (
+            f"Your BlissWork confirmation code is {v.code}. "
+            "It expires in 10 minutes."
+        )
+        try:
+            await whatsapp.send_text(token, pnid, to, message)
+            delivered = True
+        except whatsapp.WhatsAppError as exc:
+            if not whatsapp.is_reengagement_error(exc):
+                # A bad token or a malformed number is the admin's to fix, and
+                # the fallback would just hide it behind "message us instead".
+                # Drop the code we just minted: keeping it would put the admin
+                # behind the resend cooldown for a send that never happened, so
+                # fixing the typo and pressing the button again would 429.
+                await db.rollback()
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"WhatsApp rejected the message: {exc}",
+                ) from exc
+            reason = "That number hasn't messaged your business number recently."
+            if body.template:
+                try:
+                    await whatsapp.send_template(
+                        token, pnid, to, body.template, [v.code],
+                        lang=body.templateLang or "en_US",
+                    )
+                    delivered = True
+                    reason = None
+                except whatsapp.WhatsAppError as texc:
+                    reason = f"The template send failed: {texc}"
+        except Exception as exc:  # network/timeout — not the user's fault
+            await db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="couldn't reach WhatsApp to send the code",
+            ) from exc
+
+        await db.commit()
+        return VerifyStartOut(
+            delivery="sent" if delivered else "reply_required",
+            # The keyword embeds the code. Return it ONLY when we couldn't get
+            # the code to the phone ourselves — otherwise a stolen session would
+            # be handed the very secret the round trip exists to test.
+            replyKeyword=None if delivered else v.reply_keyword,
+            businessNumber=row.display_label or "",
+            reason=reason,
+        )
+
+
+@router.post("/integrations/{conn_id}/verify/confirm", response_model=VerifyConfirmOut)
+async def verify_confirm(
+    conn_id: str, body: VerifyConfirmIn, principal: Principal = PrincipalDep
+) -> VerifyConfirmOut:
+    """Check the code the admin typed in and promote the connection."""
+    code = body.code.strip()
+    async with session() as db:
+        await set_org_context(db, principal.org_id)
+        row = await _load_verifiable(db, conn_id, principal.user_id)
+        if row.status == "connected":
+            return VerifyConfirmOut(status="connected")  # already done (webhook won the race)
+
+        try:
+            ok = await verification.consume(db, conn_id, code)
+        except verification.TooManyAttempts as exc:
+            await db.commit()  # the attempt count must survive the rejection
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc)
+            ) from exc
+        if not ok:
+            await db.commit()  # ditto — a failed guess still counts
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="that code isn't right, or it has expired",
+            )
+
+        await verification.confirm_connection(db, conn_id)
+        await db.commit()
+    return VerifyConfirmOut(status="connected")
 
 
 @router.delete("/integrations/{conn_id}")

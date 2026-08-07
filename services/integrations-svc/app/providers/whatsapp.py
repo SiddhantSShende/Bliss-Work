@@ -93,6 +93,83 @@ async def send_text(access_token: str, phone_number_id: str, to: str, text: str)
     return await retry_async(_attempt, attempts=3, breaker=_wa_breaker)
 
 
+async def send_template(
+    access_token: str,
+    phone_number_id: str,
+    to: str,
+    template: str,
+    params: list[str],
+    lang: str = "en_US",
+) -> dict:
+    """Send an approved template message. `params` fill the body's {{1}}, {{2}}…
+
+    Needed because the Cloud API refuses free-form text to anyone who hasn't
+    messaged the business number in the last 24 hours (see is_reengagement_error).
+    A template is the ONLY way to open that conversation, and it has to be
+    approved by Meta first — which is why the template name comes from the org,
+    not from us.
+    """
+
+    async def _attempt() -> dict:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            r = await client.post(
+                f"{_GRAPH}/{phone_number_id}/messages",
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "messaging_product": "whatsapp",
+                    "recipient_type": "individual",
+                    "to": to,
+                    "type": "template",
+                    "template": {
+                        "name": template,
+                        "language": {"code": lang},
+                        "components": (
+                            [
+                                {
+                                    "type": "body",
+                                    "parameters": [
+                                        {"type": "text", "text": p} for p in params
+                                    ],
+                                }
+                            ]
+                            if params
+                            else []
+                        ),
+                    },
+                },
+            )
+            if r.status_code in (200, 201):
+                return r.json()
+            try:
+                err = r.json().get("error", {}).get("message", r.text)
+            except Exception:  # noqa: BLE001
+                err = r.text
+            raise WhatsAppError(f"{r.status_code}: {err}")
+
+    return await retry_async(_attempt, attempts=3, breaker=_wa_breaker)
+
+
+#: Meta's codes for "this number hasn't talked to you recently, use a template":
+#: 131047 is the documented re-engagement error; 470 is the legacy one still
+#: returned by some numbers. Matched alongside the prose because Meta puts the
+#: code in the message body for some failure shapes and not others.
+_REENGAGEMENT_MARKERS = ("131047", "470", "re-engagement", "24 hour", "24-hour")
+
+
+def is_reengagement_error(exc: Exception) -> bool:
+    """True when a send failed only because the 24h session window is closed.
+
+    Kept here rather than string-matching at the call site: the fallback
+    decision (try a template / ask the admin to message us first) is only
+    correct for THIS failure, and must not swallow a bad token or a bad number.
+    """
+    msg = str(exc).lower()
+    return any(m in msg for m in _REENGAGEMENT_MARKERS)
+
+
 def phone_number_id_of(payload: dict) -> str | None:
     """The business number (phone_number_id) a webhook was delivered to — used to
     resolve which connection it belongs to."""

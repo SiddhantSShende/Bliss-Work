@@ -19,6 +19,7 @@ import secrets
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from sqlalchemy import text
 
+from .. import verification
 from ..config import settings
 from ..crypto import cryptor
 from ..db import session, set_bypass_rls
@@ -32,7 +33,7 @@ router = APIRouter()
 #: The columns every ingest path needs. external_account_id_bidx comes along so
 #: ingest_one can answer "was the connection's OWN account the thing that got
 #: tagged?" without a re-query.
-_CONN_COLS = "id, org_id, owner_user_id, created_by, external_account_id_bidx"
+_CONN_COLS = "id, org_id, owner_user_id, created_by, external_account_id_bidx, status"
 
 
 async def _conn_by_account(db, provider: str, external_id: str | None):
@@ -51,7 +52,7 @@ async def _conn_by_account(db, provider: str, external_id: str | None):
                 f"""
                 SELECT {_CONN_COLS}
                   FROM integration_connections
-                 WHERE provider = :p AND external_account_id_bidx = :b AND status = 'connected'
+                 WHERE provider = :p AND external_account_id_bidx = :b AND status IN ('connected','pending')
                  LIMIT 1
                 """  # noqa: S608 — _CONN_COLS is a module constant, not user input
             ),
@@ -74,6 +75,12 @@ async def _conn_by_token(db, provider: str, webhook_token: str | None):
     authenticates every request, exactly as before; the token only says which
     connection a delivery belongs to. It is compared by an indexed equality
     lookup, so a wrong token is a miss, not a partial match.
+
+    'pending' connections resolve too, and must: a WhatsApp connection is
+    pending precisely while the admin is pasting this URL into Meta, so
+    excluding them would make the verification handshake — and the CONFIRM reply
+    that ends the pending state — impossible to answer. Callers gate on
+    `conn.status` for what they do with the payload; see _handle_whatsapp.
     """
     if not webhook_token:
         return None
@@ -83,7 +90,7 @@ async def _conn_by_token(db, provider: str, webhook_token: str | None):
                 f"""
                 SELECT {_CONN_COLS}
                   FROM integration_connections
-                 WHERE provider = :p AND webhook_token = :t AND status = 'connected'
+                 WHERE provider = :p AND webhook_token = :t AND status IN ('connected','pending')
                  LIMIT 1
                 """  # noqa: S608 — _CONN_COLS is a module constant, not user input
             ),
@@ -238,10 +245,35 @@ async def _handle_whatsapp(
             # mentions when it opts in by naming the person its number belongs
             # to (see mentions._whatsapp_scan).
             owner_handle = await _conn_secret(db, conn, "mentionOwnerUserId")
+            pending = conn.status == "pending"
             for m in whatsapp.parse_inbound(payload):
                 ext_id = m.get("external_id")
                 if not ext_id or not await claim_event(db, "whatsapp", str(ext_id)):
                     continue
+
+                if pending:
+                    # The connection isn't proven yet, so this arrival is setup
+                    # traffic, not conversation. The one thing it can be is the
+                    # "CONFIRM 482193" the admin was asked to send when we
+                    # couldn't message them first — and that arriving here is
+                    # itself the proof that inbound delivery works, which is
+                    # more than the outbound path ever establishes.
+                    #
+                    # Inside the claim_event guard on purpose: a Meta redelivery
+                    # of the same message must not burn a second attempt.
+                    code = verification.extract_reply_code(m.get("text", ""))
+                    if code:
+                        try:
+                            if await verification.consume(db, str(conn.id), code):
+                                await verification.confirm_connection(db, str(conn.id))
+                                pending = False
+                        except verification.TooManyAttempts:
+                            pass  # stay pending; the admin re-sends from the UI
+                    # Never ingest while unproven — not the setup keyword (it's
+                    # an artifact of setup, not a message anyone wants in their
+                    # hub) and not anything else that raced in ahead of it.
+                    continue
+
                 # Surface Meta's forward signal (the only forward Meta exposes).
                 st = "received"
                 if m.get("frequently_forwarded"):
