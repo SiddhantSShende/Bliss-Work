@@ -8,6 +8,7 @@ import {
   AttachmentDTO,
   AttachmentLinkDTO,
   type AttachmentScope,
+  AvailabilityDTO,
   ChannelDTO,
   ChannelMessageDTO,
   AppCredentialDTO,
@@ -838,6 +839,29 @@ export class ApiClient {
       `/api/v1/tasks/export?${qs.toString()}`,
       {},
       z.array(TaskExportRow),
+    );
+  }
+
+  /** Inputs for the "Available" bucket: per-user OPEN task counts + the set of
+   *  users an org admin hid from the roster. Counts only — the member list comes
+   *  from `directory()` and is joined client-side. */
+  taskAvailability() {
+    return this.req(this.cfg.taskBase, "/api/v1/tasks/availability", {}, AvailabilityDTO);
+  }
+  /** Admin-only: hide a user from the Available roster, org-wide. Idempotent;
+   *  403 for a plain member. */
+  hideAvailableUser(userId: string) {
+    return this.req<void>(this.cfg.taskBase, "/api/v1/tasks/availability/hidden", {
+      method: "POST",
+      body: JSON.stringify({ userId }),
+    });
+  }
+  /** Admin-only: restore a hidden user to the roster. Idempotent. */
+  unhideAvailableUser(userId: string) {
+    return this.req<void>(
+      this.cfg.taskBase,
+      `/api/v1/tasks/availability/hidden/${userId}`,
+      { method: "DELETE" },
     );
   }
 

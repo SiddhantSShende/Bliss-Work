@@ -1,14 +1,16 @@
 import { NavLink } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Send, Inbox, CheckCircle2, Ban, LogOut } from "lucide-react";
+import { Send, Inbox, CheckCircle2, Ban, LogOut, UserCheck } from "lucide-react";
 import type { StickyTaskDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
+import { useAvailability } from "../lib/useAvailability";
 import { ListHeader, rowClass } from "../features/ListPane";
 
 const CATS = [
   { view: "mine", label: "My tasks", icon: Send },
   { view: "allocated", label: "Allocated to me", icon: Inbox },
+  { view: "available", label: "Available", icon: UserCheck },
   { view: "completed", label: "Completed", icon: CheckCircle2 },
   { view: "left", label: "Left", icon: LogOut },
   { view: "ignored", label: "Ignored", icon: Ban },
@@ -18,11 +20,15 @@ export function TasksList() {
   const { api } = useRuntime();
   const { data: assigned = [] } = useQuery({ queryKey: qk.assigned, queryFn: () => api.taskAssigned() });
   const { data: sent = [] } = useQuery({ queryKey: qk.sent, queryFn: () => api.tasksSent() });
+  // Same hook the pane uses, so the badge and the grid can never disagree —
+  // TanStack dedupes the underlying queries, so this costs no extra network.
+  const { roster } = useAvailability();
 
   const active = (t: StickyTaskDTO) => t.myStatus === "SENT" || t.myStatus === "ACKNOWLEDGED";
   const counts: Record<string, number> = {
     mine: sent.length,
     allocated: assigned.filter(active).length,
+    available: roster.length,
     completed: assigned.filter((t) => t.myStatus === "COMPLETED").length,
     left: assigned.filter((t) => t.myStatus === "LEFT").length,
     ignored: assigned.filter((t) => t.myStatus === "IGNORED").length,

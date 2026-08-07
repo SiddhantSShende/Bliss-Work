@@ -423,6 +423,31 @@ export const TaskExportRow = z.object({
 });
 export type TaskExportRow = z.infer<typeof TaskExportRow>;
 
+// ── Availability roster ──────────────────────────────────────────────────────
+/** One user's OPEN task counts. Users with no open work at all are absent from
+ *  the response entirely, so the client treats a miss as 0/0. */
+export const AvailabilityCount = z.object({
+  userId: z.string().uuid(),
+  /** >0 ⇒ not available. Only ACKNOWLEDGED counts as work in progress. */
+  acknowledged: z.number().int().nonnegative(),
+  /** SENT (not yet acknowledged) — a hint on the card, never a blocker. */
+  pending: z.number().int().nonnegative(),
+});
+export type AvailabilityCount = z.infer<typeof AvailabilityCount>;
+
+/** Inputs for the Available bucket. task-svc returns only what it owns; the
+ *  member list comes from `directory()` and is joined client-side (task-svc's
+ *  user_projection is a partial `user.created`-only mirror). */
+export const AvailabilityDTO = z.object({
+  counts: z.array(AvailabilityCount),
+  /** Users an org admin removed from the roster. An organizational filter, not
+   *  an access control — these ids are already public via the directory. */
+  hiddenUserIds: z.array(z.string().uuid()),
+  /** Caller holds org_admin → render the hide / unhide affordances. */
+  canManage: z.boolean(),
+});
+export type AvailabilityDTO = z.infer<typeof AvailabilityDTO>;
+
 // ── Notifications ────────────────────────────────────────────────────────────
 export const NotificationDTO = z.object({
   id: z.string().uuid(),

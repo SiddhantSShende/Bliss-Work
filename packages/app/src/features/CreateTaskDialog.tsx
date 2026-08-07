@@ -100,6 +100,9 @@ export function CreateTaskDialog({
       );
       qc.invalidateQueries({ queryKey: qk.sent });
       qc.invalidateQueries({ queryKey: qk.unifiedInbox });
+      // New SENT rows change the "n pending, unacked" hints in the Available
+      // bucket (allocating doesn't make anyone unavailable, but it does queue).
+      qc.invalidateQueries({ queryKey: qk.availability });
       setTitle("");
       setDescription("");
       setSelectedPeople(new Set());

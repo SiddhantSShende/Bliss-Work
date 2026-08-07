@@ -32,6 +32,9 @@ export const qk = {
   sent: ["tasks", "sent"] as const,
   sticky: ["tasks", "sticky"] as const,
   assigned: ["tasks", "assigned"] as const,
+  /** Inputs for the "Available" bucket (open-task counts + admin-hidden set).
+   *  POLLED, not pushed — see the note in useAvailability. */
+  availability: ["tasks", "availability"] as const,
   directory: ["directory"] as const,
   invites: ["invites"] as const,
   presence: ["presence"] as const,
@@ -226,6 +229,13 @@ export function WsEventBridge() {
             refreshInboxSidebars(qc);
             toast(`New task: ${e.title}`, { description: `from ${e.senderUsername}` });
           }
+          // Availability roster: task.* events reach only the sender + assignee
+          // (ws-gateway contract.RecipientsOf), so this invalidation is instant
+          // feedback for THOSE TWO only. Every other member of the org converges
+          // via the 30s poll in useAvailability — that poll is the actual
+          // correctness mechanism. Left unguarded so it stays right if routing
+          // ever widens.
+          void qc.invalidateQueries({ queryKey: qk.availability });
           break;
         }
         case EventType.TaskAcknowledged: {
@@ -243,6 +253,10 @@ export function WsEventBridge() {
           }
           void qc.invalidateQueries({ queryKey: qk.sent });
           void qc.invalidateQueries({ queryKey: qk.notifications });
+          // A status change moves this assignee into or out of the Available
+          // roster (see the note on TaskAssigned — push reaches only the two
+          // parties; everyone else converges on the poll).
+          void qc.invalidateQueries({ queryKey: qk.availability });
           break;
         }
         case EventType.TaskCompleted: {
@@ -261,6 +275,10 @@ export function WsEventBridge() {
           }
           void qc.invalidateQueries({ queryKey: qk.sent });
           void qc.invalidateQueries({ queryKey: qk.notifications });
+          // A status change moves this assignee into or out of the Available
+          // roster (see the note on TaskAssigned — push reaches only the two
+          // parties; everyone else converges on the poll).
+          void qc.invalidateQueries({ queryKey: qk.availability });
           break;
         }
         case EventType.TaskIgnored:
@@ -280,6 +298,10 @@ export function WsEventBridge() {
           }
           void qc.invalidateQueries({ queryKey: qk.sent });
           void qc.invalidateQueries({ queryKey: qk.notifications });
+          // A status change moves this assignee into or out of the Available
+          // roster (see the note on TaskAssigned — push reaches only the two
+          // parties; everyone else converges on the poll).
+          void qc.invalidateQueries({ queryKey: qk.availability });
           break;
         }
         case EventType.TaskReviewed: {

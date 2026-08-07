@@ -5,9 +5,10 @@ import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
 import { Plus, ListTodo, Download, Star, MessageSquarePlus } from "lucide-react";
 import { Badge, Button, GlassCard, EmptyState } from "@taskboard/ui";
-import type { SentTaskDTO, StickyTaskDTO, TaskAction } from "@taskboard/shared";
+import type { SentTaskDTO, StickyTaskDTO, TaskAction, UserDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
+import { AvailablePeople } from "../features/AvailablePeople";
 import { CreateTaskDialog } from "../features/CreateTaskDialog";
 import { ExportTasksDialog } from "../features/ExportTasksDialog";
 import { CreateReviewDialog } from "../features/CreateReviewDialog";
@@ -32,11 +33,14 @@ const verb: Record<TaskAction, "acknowledge" | "complete" | "ignore" | "leave"> 
   ACKNOWLEDGE: "acknowledge", COMPLETE: "complete", IGNORE: "ignore", LEAVE: "leave",
 };
 const TITLES: Record<string, string> = {
-  mine: "My tasks", allocated: "Allocated to me", completed: "Completed", left: "Left", ignored: "Ignored",
+  mine: "My tasks", allocated: "Allocated to me", available: "Available",
+  completed: "Completed", left: "Left", ignored: "Ignored",
 };
 // Bucket switcher shown only on phones (the TasksList side pane is hidden < md).
+// Keep this order in lockstep with CATS in TasksList.
 const BUCKETS = [
   { view: "allocated", label: "Allocated" },
+  { view: "available", label: "Available" },
   { view: "mine", label: "My tasks" },
   { view: "completed", label: "Completed" },
   { view: "left", label: "Left" },
@@ -47,16 +51,29 @@ export function Tasks() {
   const { view = "allocated" } = useParams();
   const [createOpen, setCreateOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [preselect, setPreselect] = useState<UserDTO[]>([]);
+
+  // CreateTaskDialog seeds its assignee set from `preselect` in an effect keyed
+  // on `open` alone, so the preselect must be committed in the SAME render pass
+  // that opens it — calling both setters synchronously here guarantees that
+  // under React 18 automatic batching.
+  const openCreate = (users: UserDTO[] = []) => {
+    setPreselect(users);
+    setCreateOpen(true);
+  };
 
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center justify-between border-b border-border/60 px-4 py-3 sm:px-5">
         <h1 className="text-base font-semibold tracking-tight text-fg">{TITLES[view] ?? "Tasks"}</h1>
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={() => setExportOpen(true)} title="Export tasks to Excel">
-            <Download size={15} /> Export
-          </Button>
-          <Button size="sm" onClick={() => setCreateOpen(true)}><Plus size={15} /> New task</Button>
+          {/* Export emits task rows — nothing to export from a people roster. */}
+          {view !== "available" && (
+            <Button variant="ghost" size="sm" onClick={() => setExportOpen(true)} title="Export tasks to Excel">
+              <Download size={15} /> Export
+            </Button>
+          )}
+          <Button size="sm" onClick={() => openCreate()}><Plus size={15} /> New task</Button>
         </div>
       </header>
       <ExportTasksDialog open={exportOpen} onClose={() => setExportOpen(false)} />
@@ -76,9 +93,11 @@ export function Tasks() {
         ))}
       </div>
       <div className="min-h-0 flex-1 overflow-auto p-4 sm:p-5">
-        {view === "mine" ? <MyTasks /> : <AssignedBucket view={view} />}
+        {view === "mine" ? <MyTasks />
+          : view === "available" ? <AvailablePeople onAssign={(u) => openCreate([u])} />
+            : <AssignedBucket view={view} />}
       </div>
-      <CreateTaskDialog open={createOpen} onClose={() => setCreateOpen(false)} />
+      <CreateTaskDialog open={createOpen} onClose={() => setCreateOpen(false)} preselect={preselect} />
     </div>
   );
 }
@@ -189,6 +208,9 @@ function AssignedBucket({ view }: { view: string }) {
       void qc.invalidateQueries({ queryKey: qk.inboxPeers });
       void qc.invalidateQueries({ queryKey: ["inboxPeerFeed"] });
       void qc.invalidateQueries({ queryKey: qk.notifications });
+      // My own transition moves me into/out of the Available roster — refresh it
+      // here rather than waiting for the WS echo.
+      void qc.invalidateQueries({ queryKey: qk.availability });
     },
   });
 
