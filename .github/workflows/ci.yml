@@ -434,6 +434,17 @@ jobs:
           cache: npm
       - run: npm ci
       - run: cp .env.example .env && npm run gen:keys
+      # auth-svc runs as uid 10001 and mounts ./keys read-only, but gen:keys
+      # writes the private key 0600 owned by whoever ran it (uid 1001 on a
+      # runner). The container therefore could not read its OWN signing key,
+      # died in lifespan startup with PermissionError, never went healthy, and
+      # took the whole compose stack — and this job — down with it.
+      #
+      # Chowning to the container user is what production already does (its
+      # keypair is 0600 owned by 10001); loosening the mode instead would put a
+      # world-readable private key in every developer's checkout.
+      - name: Give the dev keypair to the container user (uid 10001)
+        run: sudo chown -R 10001:10001 keys
       - run: docker compose up -d --build
       - run: bash scripts/wait-for.sh
       - run: npm run seed
