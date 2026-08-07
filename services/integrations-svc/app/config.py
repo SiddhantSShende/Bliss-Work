@@ -67,35 +67,6 @@ class Settings(BaseSettings):
     whatsapp_verify_token: str = ""
     whatsapp_app_secret: str = ""
 
-    # ── WhatsApp Embedded Signup (Meta Tech Provider) ──────────────────────────
-    # The one-click path: the customer signs in to their own WhatsApp Business
-    # account in a Meta-hosted popup and we receive access directly — no
-    # developer app, no tokens, no IDs for them to copy.
-    #
-    # These are OURS, deployment-wide, and cannot be supplied per-org: Embedded
-    # Signup runs against a single Meta app that Meta has approved as a Tech
-    # Provider (business verification + Advanced Access to
-    # whatsapp_business_management and whatsapp_business_messaging). See
-    # docs/META-TECH-PROVIDER.md for how to obtain them.
-    #
-    # Unset ⇒ the feature reports itself unavailable and the manual (Advanced)
-    # connect flow carries on unaffected — same convention as the other
-    # providers above, where absent credentials simply mean "not connectable".
-    meta_app_id: str = ""
-    meta_config_id: str = ""
-    #: Defaults to whatsapp_app_secret so the webhook verifier and the code
-    #: exchange can't drift apart — under Embedded Signup every org's webhooks
-    #: arrive at our one app and are signed with this one secret.
-    meta_app_secret: str = ""
-
-    @property
-    def meta_secret(self) -> str:
-        return self.meta_app_secret or self.whatsapp_app_secret
-
-    @property
-    def embedded_signup_available(self) -> bool:
-        return bool(self.meta_app_id and self.meta_config_id and self.meta_secret)
-
     # ── At-rest column encryption (envelope: per-org DEK wrapped by a KEK) ──────
     # IDENTICAL field names + dev defaults to task-svc/auth-svc so the shared
     # Cryptor + key-rotation tooling work uniformly across services.

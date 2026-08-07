@@ -12,7 +12,6 @@ Cryptor before they ever touch the database; tokens are never returned to a clie
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import secrets
 
@@ -27,13 +26,7 @@ from ..config import settings
 from ..crypto import cryptor
 from ..db import session, set_org_context
 from ..providers import get_provider, oauth, slack, whatsapp
-from ..schemas import (
-    ConnectionOut,
-    ConnectStartOut,
-    EmbeddedConfigOut,
-    EmbeddedExchangeIn,
-    ProviderActivityOut,
-)
+from ..schemas import ConnectionOut, ConnectStartOut, ProviderActivityOut
 
 router = APIRouter()
 
@@ -180,9 +173,10 @@ async def hub_activity(principal: Principal = PrincipalDep) -> list[ProviderActi
 
 #: Raised as a clean 409 when another workspace already owns this WhatsApp
 #: number. Meta guarantees a phone_number_id belongs to exactly one Business
-#: Account, so this is a genuine collision, not a race worth retrying — and
-#: under one app-level webhook, letting it through would misroute their
-#: messages into this workspace (see migration 0010).
+#: Account, so this is a genuine collision, not a race worth retrying — and a
+#: delivery that arrives on the legacy bare webhook path is resolved by that
+#: number alone, so a duplicate would misroute one workspace's messages into
+#: the other's (see migration 0010).
 _TAKEN_DETAIL = (
     "that WhatsApp business number is already connected to another BlissWork "
     "workspace — disconnect it there first"
@@ -213,14 +207,8 @@ async def _upsert_connection(
 ):
     """Create or refresh a connection, encrypting everything on the way in.
 
-    Shared by every way a connection can come into existence — pasted
-    credentials and WhatsApp Embedded Signup — so the encryption, the conflict
+    The single write path for every provider, so the encryption, the conflict
     target and the re-connect semantics can't drift between them.
-
-    `webhook_token` is None for connections that need no per-connection webhook
-    URL: under Embedded Signup, Meta delivers to our one app-level webhook and
-    there is nothing for the customer to paste, so `_webhook_url` must show
-    nothing rather than invite them to "fix" a working setup.
     """
     access_enc = await cryptor().encrypt(db, org_id, access_token)
     meta_enc = await cryptor().encrypt(db, org_id, json.dumps(metadata))
@@ -254,9 +242,9 @@ async def _upsert_connection(
                 metadata_enc     = EXCLUDED.metadata_enc,
                 display_label    = EXCLUDED.display_label,
                 -- A re-connect must not UN-confirm a live connection. What the
-                -- webhook handshake (or Embedded Signup's subscribed_apps call)
-                -- proved is "Meta delivers to us for this account", and that
-                -- stays true across new credentials. Meta only re-sends the
+                -- webhook handshake proved is "Meta delivers to us for this
+                -- account", and that stays true across new credentials, since
+                -- webhook_token is preserved below. Meta only re-sends the
                 -- handshake when the admin clicks Verify and save again — so
                 -- dropping back to 'pending' here would strand a working
                 -- connection with no way in the app to get it back.
@@ -291,132 +279,6 @@ async def _upsert_connection(
         },
     )
     return res.one()
-
-
-# ── WhatsApp Embedded Signup ──────────────────────────────────────────────────
-@router.get("/integrations/whatsapp/embedded", response_model=EmbeddedConfigOut)
-async def whatsapp_embedded_config(principal: Principal = PrincipalDep) -> EmbeddedConfigOut:
-    """What the browser needs to open Meta's signup popup.
-
-    `appId` and `configId` are not secrets — they travel in the popup URL that
-    the customer's own browser follows. The app SECRET never leaves the server.
-
-    `available: false` when this deployment hasn't been configured as a Meta
-    Tech Provider yet, so the UI can say so plainly instead of opening a popup
-    that dies on Meta's side with an error nobody can act on.
-    """
-    return EmbeddedConfigOut(
-        available=settings.embedded_signup_available,
-        appId=settings.meta_app_id,
-        configId=settings.meta_config_id,
-        graphVersion=whatsapp.GRAPH_VERSION,
-    )
-
-
-@router.post("/integrations/whatsapp/embedded/exchange", response_model=ConnectStartOut)
-async def whatsapp_embedded_exchange(
-    body: EmbeddedExchangeIn, principal: Principal = PrincipalDep
-) -> ConnectStartOut:
-    """Turn the popup's code into a working, connected WhatsApp Business account.
-
-    The customer supplied nothing but a click: no developer app, no token, no
-    app secret, no IDs. Everything below happens against Meta with OUR Tech
-    Provider app.
-    """
-    if not settings.embedded_signup_available:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "One-click WhatsApp Business signup isn't enabled on this deployment yet. "
-                "Use the advanced connect option in the meantime."
-            ),
-        )
-    spec = get_provider("whatsapp")
-    assert spec is not None  # registry constant
-
-    try:
-        token = await whatsapp.exchange_embedded_code(
-            settings.meta_app_id, settings.meta_secret, body.code
-        )
-        # Re-assert the business checks server-side. The popup told us which
-        # account was picked; that is a client-supplied claim, and this is the
-        # same gate the manual path goes through.
-        biz = await whatsapp.check_business_account(token, body.wabaId, body.phoneNumberId)
-        # Wire THEIR account to OUR webhook. This is the step that replaces the
-        # admin pasting a URL, and its success is why the connection below is
-        # born 'connected' rather than 'pending'.
-        await whatsapp.subscribe_app(token, body.wabaId)
-        # A number that was never registered accepts no sends, so skipping this
-        # would produce a connection that passes every check and then fails on
-        # the first forward.
-        await whatsapp.register_number(token, body.phoneNumberId, _registration_pin(body.wabaId))
-    except whatsapp.NotABusinessAccount as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
-    except whatsapp.WhatsAppPermissionError as exc:
-        # Ours to fix, not the customer's — our Tech Provider app is missing an
-        # advanced-access permission. Say so rather than blaming their account.
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"BlissWork's WhatsApp app isn't permitted to complete this: {exc}",
-        )
-    except whatsapp.WhatsAppError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=f"WhatsApp signup failed: {exc}"
-        )
-    except Exception as exc:  # network/timeout
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="couldn't reach WhatsApp to finish signing up",
-        ) from exc
-
-    async with session() as db:
-        await set_org_context(db, principal.org_id)  # FIRST — RLS + org_keys
-        try:
-            row = await _upsert_connection(
-                db,
-                org_id=principal.org_id,
-                user_id=principal.user_id,
-                provider="whatsapp",
-                status="connected",
-                # A WABA belongs to the workspace, not to whoever clicked.
-                scope_kind="org",
-                owner=None,
-                display_label=(
-                    biz.display_phone_number or biz.verified_name or biz.business_name or spec.label
-                ),
-                access_token=token,
-            # phoneNumberId is REQUIRED here: outbound._send_whatsapp reads it
-            # back out of this blob to address every send. No appSecret and no
-            # verifyToken — under Embedded Signup those are app-level and live
-            # in settings, which is what lets the customer skip them entirely.
-                metadata={
-                    "wabaId": body.wabaId,
-                    "phoneNumberId": body.phoneNumberId,
-                    "embedded": True,
-                },
-                external_account_id=body.phoneNumberId,
-                scopes=list(spec.default_scopes),
-                # None: Meta delivers to our one app-level webhook, so there is
-                # no per-connection URL for anyone to paste.
-                webhook_token=None,
-            )
-        except IntegrityError as exc:
-            await db.rollback()
-            raise _translate_account_taken(exc) from exc
-        await db.commit()
-        return ConnectStartOut(connection=_row_to_out(row))
-
-
-def _registration_pin(waba_id: str) -> str:
-    """The 6-digit two-step PIN we set when registering a number.
-
-    Derived from the WABA id under the service's own secret rather than random,
-    so re-registering the same number produces the same PIN — a stored random
-    one would be another secret to protect, and a hardcoded one would be the
-    same PIN across every customer on the deployment.
-    """
-    digest = hashlib.sha256(f"{settings.meta_secret}:{waba_id}".encode("utf-8")).digest()
-    return f"{int.from_bytes(digest[:4], 'big') % 1_000_000:06d}"
 
 
 @router.post("/integrations/{provider}/connect/start", response_model=ConnectStartOut)

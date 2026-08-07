@@ -184,20 +184,6 @@ export const ConnectStartDTO = z.object({
 });
 export type ConnectStartDTO = z.infer<typeof ConnectStartDTO>;
 
-/** What the browser needs to open Meta's WhatsApp Business signup popup.
- *
- *  `appId` / `configId` are NOT secrets — they travel in the popup URL the
- *  user's own browser follows. `available` is false until this deployment is
- *  configured as a Meta Tech Provider, which is what lets the UI say so plainly
- *  rather than opening a popup that dies on Meta's side. */
-export const EmbeddedSignupDTO = z.object({
-  available: z.boolean(),
-  appId: z.string().default(""),
-  configId: z.string().default(""),
-  graphVersion: z.string().default(""),
-});
-export type EmbeddedSignupDTO = z.infer<typeof EmbeddedSignupDTO>;
-
 /** One row of the unified hub activity timeline (inbound + outbound messages
  *  across connected accounts). peer/body are decrypted server-side for display. */
 export const ProviderActivityDTO = z.object({

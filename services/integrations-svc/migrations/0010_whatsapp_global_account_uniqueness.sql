@@ -1,17 +1,18 @@
 -- 0010_whatsapp_global_account_uniqueness.sql — one phone number, one connection.
 -- Idempotent; replayed on every boot by db.py::run_migrations.
 --
--- SECURITY, not tidiness. WhatsApp Embedded Signup subscribes every customer's
--- Business Account to a SINGLE app-level webhook, so inbound deliveries no
--- longer arrive on a per-connection URL that identifies the org. The receiver
--- resolves them purely by the phone_number_id in the payload
--- (routes/webhooks.py::_conn_by_account), which does `LIMIT 1` with no ordering.
+-- SECURITY, not tidiness. Every WhatsApp connection gets its own webhook URL,
+-- and routes/webhooks.py::_handle_whatsapp resolves a delivery by that path
+-- token first — which is unambiguous. But it FALLS BACK to _conn_by_account,
+-- which looks the connection up by the phone_number_id in the payload alone,
+-- with `LIMIT 1` and no ordering. That fallback exists for the bare
+-- /ext/whatsapp/webhook path kept working for pre-existing setups, and for the
+-- deployment-wide whatsapp_app_secret.
 --
 -- uq_integration_conn_account is unique per (org_id, provider,
 -- external_account_id_bidx) — i.e. it happily allows two DIFFERENT orgs to hold
--- the same phone_number_id. Under a per-connection webhook URL that was
--- harmless. Under one global URL it is a cross-tenant misroute: whichever row
--- the planner returned first would receive another workspace's messages.
+-- the same phone_number_id. Down that fallback path, whichever row the planner
+-- returned first would receive the other workspace's messages.
 --
 -- Meta guarantees a phone_number_id belongs to exactly one WhatsApp Business
 -- Account, so global uniqueness is a true statement about the world, not a

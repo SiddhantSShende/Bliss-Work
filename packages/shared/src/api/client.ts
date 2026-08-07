@@ -12,7 +12,6 @@ import {
   ChannelMessageDTO,
   AppCredentialDTO,
   ConnectStartDTO,
-  EmbeddedSignupDTO,
   ConversationDTO,
   ForwardActivityDTO,
   ForwardEdgeDTO,
@@ -630,28 +629,6 @@ export class ApiClient {
       this.cfg.integrationsBase,
       `/api/v1/integrations/${provider}/connect/start`,
       { method: "POST", body: JSON.stringify({ ...credentials, returnTo }) },
-      ConnectStartDTO,
-    );
-  }
-  /** What the browser needs to open Meta's WhatsApp Business signup popup.
-   *  `available: false` means this deployment isn't a Meta Tech Provider yet. */
-  whatsappEmbeddedConfig() {
-    return this.req(
-      this.cfg.integrationsBase,
-      "/api/v1/integrations/whatsapp/embedded",
-      {},
-      EmbeddedSignupDTO,
-    );
-  }
-  /** Finish WhatsApp Embedded Signup: hand the popup's code to the server,
-   *  which exchanges it, re-checks the business account against Meta, subscribes
-   *  us to its webhooks and stores the connection. The customer supplied nothing
-   *  but a click — no developer app, no tokens, no IDs. */
-  connectWhatsAppEmbedded(body: { code: string; wabaId: string; phoneNumberId: string }) {
-    return this.req(
-      this.cfg.integrationsBase,
-      "/api/v1/integrations/whatsapp/embedded/exchange",
-      { method: "POST", body: JSON.stringify(body) },
       ConnectStartDTO,
     );
   }

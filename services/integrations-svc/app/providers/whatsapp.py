@@ -31,11 +31,9 @@ import httpx
 from ..logging_setup import log
 from ..resilience import CircuitBreaker, retry_async
 
-#: Pinned Graph version. Exported because the browser's Embedded Signup popup
-#: must init the Facebook SDK against the SAME version the server exchanges
-#: against — a mismatch fails at the code exchange, not in the popup.
-GRAPH_VERSION = "v21.0"
-_GRAPH = f"https://graph.facebook.com/{GRAPH_VERSION}"
+#: Pinned Graph version — bumping it is a deliberate act, not a drift.
+_GRAPH_VERSION = "v21.0"
+_GRAPH = f"https://graph.facebook.com/{_GRAPH_VERSION}"
 _TIMEOUT = 10.0
 _wa_breaker = CircuitBreaker(fail_max=5, reset_timeout=30.0, name="whatsapp")
 
@@ -210,106 +208,6 @@ async def check_business_account(
         verified_name=str(match.get("verified_name") or ""),
         business_name=str(account.get("name") or ""),
     )
-
-
-# ── Embedded Signup (Meta Tech Provider) ──────────────────────────────────────
-# The one-click path. The customer never sees a developer console: they sign in
-# to their own WhatsApp Business account in a Meta-hosted popup, and Meta hands
-# US a code. These three calls turn that code into a working connection.
-
-
-async def _graph_post(access_token: str, path: str, params: dict | None = None) -> dict:
-    async def _attempt() -> dict:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            r = await client.post(
-                f"{_GRAPH}/{path}",
-                params=params or {},
-                headers={"Authorization": f"Bearer {access_token}"},
-            )
-            if r.status_code in (200, 201):
-                return r.json()
-            code, err = None, r.text
-            try:
-                body = r.json().get("error", {})
-                code, err = body.get("code"), body.get("message", r.text)
-            except Exception:  # noqa: BLE001
-                pass
-            if code in _PERMISSION_CODES or "permission" in str(err).lower():
-                raise WhatsAppPermissionError(str(err))
-            raise WhatsAppError(f"{r.status_code}: {err}")
-
-    return await retry_async(_attempt, attempts=3, breaker=_wa_breaker)
-
-
-async def exchange_embedded_code(app_id: str, app_secret: str, code: str) -> str:
-    """Turn the Embedded Signup popup's code into the customer's business token.
-
-    Meta's token endpoint takes its parameters as a QUERY STRING, not a POST
-    form, which is why this doesn't go through the OAuth helper the Google and
-    Microsoft providers share. The token that comes back is a system-user token
-    scoped to the customer's WABA and does not expire, so there is no refresh
-    grant to wire up either.
-    """
-    if not code:
-        raise WhatsAppError("no authorization code was returned")
-
-    async def _attempt() -> str:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            r = await client.get(
-                f"{_GRAPH}/oauth/access_token",
-                params={"client_id": app_id, "client_secret": app_secret, "code": code},
-            )
-            if r.status_code == 200:
-                token = str((r.json() or {}).get("access_token") or "")
-                if not token:
-                    raise WhatsAppError("Meta returned no access token")
-                return token
-            try:
-                err = r.json().get("error", {}).get("message", r.text)
-            except Exception:  # noqa: BLE001
-                err = r.text
-            raise WhatsAppError(f"{r.status_code}: {err}")
-
-    return await retry_async(_attempt, attempts=3, breaker=_wa_breaker)
-
-
-async def subscribe_app(access_token: str, waba_id: str) -> None:
-    """Subscribe OUR app to this Business Account's webhooks.
-
-    This is the Embedded Signup equivalent of the admin pasting a webhook URL,
-    and it is what lets that step disappear: from here on Meta delivers this
-    customer's messages to our single app-level webhook. Its success is the
-    proof the manual flow gets from the hub.challenge handshake, which is why an
-    Embedded Signup connection is created `connected` rather than `pending`.
-    """
-    res = await _graph_post(access_token, f"{waba_id}/subscribed_apps")
-    if not res.get("success", True):
-        raise WhatsAppError("Meta refused to subscribe BlissWork to that account's webhooks")
-
-
-#: Meta's code for "this number is already registered", which is a success for
-#: our purposes — re-registering an in-use number is not an error to surface.
-_ALREADY_REGISTERED = ("already registered", "131070", "133005")
-
-
-async def register_number(access_token: str, phone_number_id: str, pin: str) -> None:
-    """Enable Cloud API messaging on the number. Idempotent in practice.
-
-    A number that exists but was never registered accepts no sends, so skipping
-    this would produce a connection that passes every check and then fails on
-    the first forward.
-    """
-    try:
-        await _graph_post(
-            access_token,
-            f"{phone_number_id}/register",
-            {"messaging_product": "whatsapp", "pin": pin},
-        )
-    except WhatsAppError as exc:
-        msg = str(exc).lower()
-        if any(m in msg for m in _ALREADY_REGISTERED):
-            return
-        raise
 
 
 async def send_text(access_token: str, phone_number_id: str, to: str, text: str) -> dict:

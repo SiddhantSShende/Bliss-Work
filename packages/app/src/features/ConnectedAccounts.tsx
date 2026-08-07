@@ -13,6 +13,9 @@
  * saves it in their dashboard. Nothing here asks for anyone's phone number: the
  * whole confirmation is business-side, so this page just has to say clearly
  * what is still outstanding and update itself when it lands.
+ *
+ * Every provider therefore renders the SAME control — one Connect button. A
+ * provider whose card looked different was a symptom, not a feature.
  */
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -252,24 +255,16 @@ export function ConnectedAccounts() {
                     </div>
                   ))}
               </div>
-              {p.id === "whatsapp" ? (
-                <WhatsAppConnect
-                  disabled={isError}
-                  connected={connected}
-                  onAdvanced={() => setDialogProvider(p)}
-                />
-              ) : (
-                <Button
-                  variant="subtle"
-                  size="sm"
-                  disabled={isError || startOAuth.isPending}
-                  onClick={() =>
-                    p.kind === "token" ? setDialogProvider(p) : startOAuth.mutate(p.id)
-                  }
-                >
-                  {connected ? "Add another" : "Connect"}
-                </Button>
-              )}
+              <Button
+                variant="subtle"
+                size="sm"
+                disabled={isError || startOAuth.isPending}
+                onClick={() =>
+                  p.kind === "token" ? setDialogProvider(p) : startOAuth.mutate(p.id)
+                }
+              >
+                {connected ? "Add another" : "Connect"}
+              </Button>
             </div>
           );
         })}
@@ -283,146 +278,6 @@ export function ConnectedAccounts() {
         }}
       />
     </section>
-  );
-}
-
-/**
- * The WhatsApp connect control: one click for everyone, four fields for nobody.
- *
- * The primary path is Meta's Embedded Signup — the customer signs in to their
- * own WhatsApp Business account in a Meta-hosted popup and we receive access
- * directly. No developer app, no tokens, no IDs, no webhook to paste.
- *
- * That only works once BlissWork is an approved Meta Tech Provider, which is a
- * review process on OUR side, not the customer's. Until it lands the server
- * reports `available: false` and the manual flow is the only one that works —
- * which is exactly why it survives here as "Advanced" rather than being
- * deleted. It is also the escape hatch for an account Embedded Signup can't
- * handle.
- */
-function WhatsAppConnect({
-  disabled,
-  connected,
-  onAdvanced,
-}: {
-  disabled: boolean;
-  connected: boolean;
-  onAdvanced: () => void;
-}) {
-  const { api, config } = useRuntime();
-  const qc = useQueryClient();
-  const [busy, setBusy] = useState(false);
-
-  const { data: embedded } = useQuery({
-    queryKey: qk.whatsappEmbedded,
-    queryFn: () => api.whatsappEmbeddedConfig(),
-    retry: 1,
-    // Deployment-level config; it changes when someone edits .env, not per user.
-    staleTime: 5 * 60_000,
-  });
-
-  const exchange = useMutation({
-    mutationFn: (v: { code: string; wabaId: string; phoneNumberId: string }) =>
-      api.connectWhatsAppEmbedded(v),
-    onSuccess: () => {
-      toast.success("WhatsApp Business connected");
-      void qc.invalidateQueries({ queryKey: qk.integrations });
-    },
-    onError: (err) =>
-      toast.error("Couldn't finish connecting", {
-        description: messageOf(err, "Please try again."),
-      }),
-    onSettled: () => setBusy(false),
-  });
-
-  const open = () => {
-    if (!embedded?.available) return;
-    // Desktop: Meta's signup runs its own popup and iframes facebook.com, which
-    // an Electron window is the wrong place for (and Meta blocks embedded
-    // webviews for login anyway). Send them to the browser — the connection is
-    // created server-side and org-scoped, so it simply appears here on the next
-    // refetch. No deep link needed, unlike the Google flow.
-    if (config.openExternal) {
-      config.openExternal(`${window.location.origin}/app/integrations`);
-      toast("Continue in your browser", {
-        description: "We opened BlissWork there — come back when WhatsApp is connected.",
-      });
-      return;
-    }
-
-    const url =
-      `/whatsapp-connect.html?appId=${encodeURIComponent(embedded.appId)}` +
-      `&configId=${encodeURIComponent(embedded.configId)}` +
-      `&v=${encodeURIComponent(embedded.graphVersion)}`;
-    const popup = window.open(url, "blisswork-whatsapp", "width=680,height=760");
-    if (!popup) {
-      toast("Allow popups to continue", {
-        description: "Your browser blocked the WhatsApp signup window.",
-      });
-      return;
-    }
-    setBusy(true);
-
-    const onMessage = (e: MessageEvent) => {
-      // Same-origin only: the popup is our own page, and the code it carries is
-      // an authorization code. Anything from elsewhere is not ours to trust.
-      if (e.origin !== window.location.origin) return;
-      if (e.data?.source !== "blisswork-whatsapp") return;
-      window.removeEventListener("message", onMessage);
-      clearInterval(closedTimer);
-      if (!e.data.code) {
-        setBusy(false);
-        return;
-      }
-      exchange.mutate({
-        code: e.data.code,
-        wabaId: e.data.wabaId ?? "",
-        phoneNumberId: e.data.phoneNumberId ?? "",
-      });
-    };
-    window.addEventListener("message", onMessage);
-
-    // A user who closes the popup mid-flow sends no message at all; without
-    // this the button would stay spinning until the page reloaded.
-    const closedTimer = setInterval(() => {
-      if (popup.closed) {
-        clearInterval(closedTimer);
-        window.removeEventListener("message", onMessage);
-        setBusy(false);
-      }
-    }, 500);
-  };
-
-  const unavailable = embedded && !embedded.available;
-  return (
-    <div className="flex shrink-0 flex-col items-end gap-1">
-      <Button
-        size="sm"
-        variant="subtle"
-        disabled={disabled || busy || exchange.isPending || !embedded?.available}
-        title={
-          unavailable
-            ? "One-click signup isn't enabled on this deployment yet — use Advanced below."
-            : undefined
-        }
-        onClick={open}
-      >
-        {busy || exchange.isPending ? (
-          <Loader2 size={14} className="animate-spin" />
-        ) : connected ? (
-          "Add another"
-        ) : (
-          "Connect WhatsApp Business"
-        )}
-      </Button>
-      <button
-        className="text-[11px] text-muted hover:text-fg hover:underline"
-        disabled={disabled}
-        onClick={onAdvanced}
-      >
-        {unavailable ? "Connect manually" : "Advanced: connect manually"}
-      </button>
-    </div>
   );
 }
 
