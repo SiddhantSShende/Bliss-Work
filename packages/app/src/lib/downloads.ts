@@ -8,9 +8,17 @@
  * infra/nginx/default.conf), so a click downloads straight from
  * communication.rnrtechs.com with no redirect to GitHub.
  *
- * The names are version-less on purpose: .github/workflows/release.yml overwrites
- * them in place on every green build of `main` (rsync → /home/ubuntu/BlissWork/
- * downloads on the VPS), so this file never changes when the desktop app ships.
+ * The names are version-less on purpose: the release overwrites them in place,
+ * so this file never changes when the desktop app ships. That is also why
+ * /downloads is served `Cache-Control: no-cache` (infra/nginx/default.conf) —
+ * the URL is stable while the bytes behind it change, so the browser must
+ * revalidate or it will hand back a previous release's installer.
+ *
+ * Publishing is `docker compose --profile desktop up desktop-builder`, which
+ * builds Linux + Windows here and writes straight into the served directory.
+ * (It used to be .github/workflows/release.yml; that rsynced from a hosted
+ * runner and is retired.) macOS still has to be built on a Mac and published
+ * with scripts/publish-desktop.sh.
  *
  * To repoint downloads elsewhere (e.g. the marketing site's host or a CDN) set
  * VITE_DOWNLOADS_BASE at build time — nothing else needs to change.
