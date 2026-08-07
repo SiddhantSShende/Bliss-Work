@@ -9,7 +9,7 @@ structlog==24.4.0
 uuid6==2024.7.10
 pydantic==2.10.4
 pydantic-settings==2.7.1
-cryptography==48.0.1
+cryptography==50.0.0
 argon2-cffi==23.1.0
 slowapi==0.1.9
 prometheus-fastapi-instrumentator==8.0.2
