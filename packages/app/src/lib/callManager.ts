@@ -34,6 +34,19 @@ export class CallSession {
   private readonly pendingIce: RTCIceCandidateInit[] = [];
   private remoteSet = false;
   private closed = false;
+  private answered = false;
+  /**
+   * Serializes the signaling steps.
+   *
+   * Every handler below is async and awaits getUserMedia (which can block for
+   * seconds on the permission prompt) and the SDP calls. Without a queue, two
+   * frames arriving during those awaits interleave: both apply a remote offer,
+   * the first completes setLocalDescription and returns the connection to
+   * `stable`, and the second then calls createAnswer from `stable` — which is
+   * the InvalidStateError seen in production ("cannot create an answer in a
+   * state other than have-remote-offer or have-local-pranswer").
+   */
+  private ops: Promise<unknown> = Promise.resolve();
 
   constructor(private readonly o: CallSessionOpts) {
     this.pc = new RTCPeerConnection(o.iceConfig);
@@ -64,12 +77,21 @@ export class CallSession {
     for (const track of this.local.getTracks()) this.pc.addTrack(track, this.local);
   }
 
-  /** Caller: acquire media + send the offer (called after call.accept). */
-  async startCaller(): Promise<void> {
-    await this.acquire();
-    const offer = await this.pc.createOffer();
-    await this.pc.setLocalDescription(offer);
-    this.o.sendFrame({ type: "rtc.offer", toUserId: this.o.peerId, offerId: this.o.callId, sdp: offer.sdp ?? "" });
+  /** Caller: acquire media + send the offer (called after call.accept).
+   *
+   *  Queued like every other signaling step so the offer is fully applied before
+   *  an answer can be. Otherwise an answer arriving while getUserMedia is still
+   *  blocked on the permission prompt would find signalingState `stable` and be
+   *  dropped, and the call would never connect. */
+  startCaller(): Promise<void> {
+    return this.enqueue(async () => {
+      await this.acquire();
+      if (this.closed) return;
+      const offer = await this.pc.createOffer();
+      if (this.closed) return;
+      await this.pc.setLocalDescription(offer);
+      this.o.sendFrame({ type: "rtc.offer", toUserId: this.o.peerId, offerId: this.o.callId, sdp: offer.sdp ?? "" });
+    });
   }
 
   /** Callee: acquire media up-front (on accept) so it's ready when the offer lands. */
@@ -77,18 +99,49 @@ export class CallSession {
     await this.acquire();
   }
 
-  async onOffer(sdp: string): Promise<void> {
+  /** Run a signaling step after all earlier ones finish, and never on a closed
+   *  session. One step throwing must not wedge the queue for the rest. */
+  private enqueue(fn: () => Promise<void>): Promise<void> {
+    const next = this.ops.then(() => (this.closed ? undefined : fn()));
+    this.ops = next.catch(() => undefined);
+    return next;
+  }
+
+  onOffer(sdp: string): Promise<void> {
+    return this.enqueue(() => this.applyOffer(sdp));
+  }
+
+  private async applyOffer(sdp: string): Promise<void> {
+    // Roles are fixed and this session never renegotiates, so a second offer is
+    // a retransmit. Answering it again is exactly what threw before.
+    if (this.answered) return;
     await this.acquire();
+    if (this.closed) return;
     await this.pc.setRemoteDescription({ type: "offer", sdp });
+    if (this.closed) return;
     this.remoteSet = true;
     await this.flushIce();
+    if (this.closed) return;
+    // Re-check rather than assume: close() or a failed state transition during
+    // the awaits above would make createAnswer throw.
+    if (this.pc.signalingState !== "have-remote-offer") return;
     const answer = await this.pc.createAnswer();
+    if (this.closed) return;
     await this.pc.setLocalDescription(answer);
+    this.answered = true;
     this.o.sendFrame({ type: "rtc.answer", toUserId: this.o.peerId, offerId: this.o.callId, sdp: answer.sdp ?? "" });
   }
 
-  async onAnswer(sdp: string): Promise<void> {
+  onAnswer(sdp: string): Promise<void> {
+    return this.enqueue(() => this.applyAnswer(sdp));
+  }
+
+  private async applyAnswer(sdp: string): Promise<void> {
+    // Same shape of bug on the caller's side: setRemoteDescription({answer}) is
+    // only legal from have-local-offer, so a duplicate answer frame threw too.
+    if (this.pc.signalingState !== "have-local-offer") return;
     await this.pc.setRemoteDescription({ type: "answer", sdp });
+    if (this.closed) return;
     this.remoteSet = true;
     await this.flushIce();
   }
