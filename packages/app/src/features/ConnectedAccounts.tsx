@@ -11,7 +11,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Copy, Loader2, Mail, MessageCircle, Plug, Slack, Users } from "lucide-react";
 import { toast } from "sonner";
 import { Button, Input } from "@taskboard/ui";
-import type { IntegrationConnectionDTO } from "@taskboard/shared";
+import { ApiError, type IntegrationConnectionDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { Modal } from "./Modal";
@@ -125,10 +125,32 @@ export function ConnectedAccounts() {
         void qc.invalidateQueries({ queryKey: qk.integrations });
       }
     },
-    onError: () =>
-      toast("Not available yet", {
-        description: "This provider isn't configured on the server yet.",
-      }),
+    onError: (err) => {
+      // 409 means this workspace hasn't registered its own Google/Microsoft
+      // OAuth app yet — the ONE failure the user can fix themselves, and the
+      // server already says exactly what's missing. Showing a generic "not
+      // available yet" threw that away and read like a missing feature they had
+      // to wait for, so people saw only the raw 409 in the console.
+      if (err instanceof ApiError && err.status === 409) {
+        toast("Set up needed", {
+          description: err.message,
+          action: {
+            label: "Set up",
+            onClick: () =>
+              document
+                .getElementById("workspace-apps")
+                ?.scrollIntoView({ behavior: "smooth", block: "start" }),
+          },
+        });
+        return;
+      }
+      toast("Couldn't start connecting", {
+        description:
+          err instanceof ApiError && err.message
+            ? err.message
+            : "Something went wrong. Please try again.",
+      });
+    },
   });
 
   return (

@@ -78,7 +78,9 @@ export function WorkspaceApps() {
   });
 
   return (
-    <section>
+    // id is the scroll target for the "Set up" action on ConnectedAccounts'
+    // 409 toast — connecting an OAuth provider fails until this is filled in.
+    <section id="workspace-apps" className="scroll-mt-4">
       <h2 className="mb-1 flex items-center gap-2 text-sm font-semibold text-fg">
         <KeyRound size={16} className="text-accent" /> Workspace apps
       </h2>
