@@ -44,6 +44,25 @@ with a number Meta has verified. A personal WhatsApp account cannot be connected
 not as a policy we apply on top, but because the Cloud API this integration is
 built on has no concept of one.
 
+### The normal way — one click
+
+**Connected accounts → WhatsApp → Connect WhatsApp Business.** Sign in to the Meta
+Business account that owns your number, pick the number, done. You do **not**
+need a Meta developer app, an access token, an app secret, any IDs, or a webhook
+URL — BlissWork receives the access from Meta directly and subscribes itself to
+your webhooks.
+
+If the button is disabled, this BlissWork deployment hasn't finished Meta's Tech
+Provider approval yet (see `docs/META-TECH-PROVIDER.md`). Use the advanced path
+below until it has.
+
+---
+
+### Advanced — connect manually
+
+For deployments without one-click signup, or an account it can't handle. This is
+the developer-app route, and it is the only reason any of the following exists.
+
 1. Create an app at [developers.facebook.com](https://developers.facebook.com/apps)
    and add the **WhatsApp** product.
 2. **WhatsApp → API Setup** → copy the **WhatsApp Business Account ID** and, just
@@ -51,7 +70,8 @@ built on has no concept of one.
 3. Create a **System User token** with **both** `whatsapp_business_messaging`
    (to send) and `whatsapp_business_management` (so we can check the account).
 4. **App Settings → Basic** → copy the **App Secret**.
-5. In BlissWork: **Connected accounts → WhatsApp → Connect**, paste all four.
+5. In BlissWork: **Connected accounts → WhatsApp → Advanced: connect manually**,
+   paste all four.
 6. The connection shows a **webhook URL** and a **verify token** — we generate the
    verify token because a hand-picked one is reliably weak.
 7. In Meta: **WhatsApp → Configuration → Webhook → Edit**, paste both, subscribe

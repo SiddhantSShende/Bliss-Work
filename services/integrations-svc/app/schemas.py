@@ -36,6 +36,30 @@ class ConnectStartOut(BaseModel):
     connection: ConnectionOut | None = None
 
 
+class EmbeddedConfigOut(BaseModel):
+    """What the browser needs to open Meta's WhatsApp signup popup.
+
+    `appId` and `configId` are NOT secrets — they travel in the popup URL the
+    customer's own browser follows. The app secret never leaves the server.
+    """
+
+    #: False when this deployment isn't set up as a Meta Tech Provider yet, so
+    #: the UI can say so instead of opening a popup that dies on Meta's side.
+    available: bool
+    appId: str = ""
+    configId: str = ""
+    graphVersion: str = ""
+
+
+class EmbeddedExchangeIn(BaseModel):
+    """The result of the signup popup. Every field is a CLIENT CLAIM — the
+    server re-checks the account against Meta before trusting any of it."""
+
+    code: str
+    wabaId: str
+    phoneNumberId: str
+
+
 class ProviderActivityOut(BaseModel):
     """One row of the unified hub activity timeline (inbound + outbound)."""
 

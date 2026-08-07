@@ -19,6 +19,8 @@ const api = {
   integrations: vi.fn(),
   connectIntegration: vi.fn(),
   disconnectIntegration: vi.fn(),
+  whatsappEmbeddedConfig: vi.fn(),
+  connectWhatsAppEmbedded: vi.fn(),
 };
 
 vi.mock("../lib/runtime", () => ({
@@ -53,16 +55,22 @@ function renderIt() {
   );
 }
 
-/** Open the WhatsApp connect dialog. PROVIDERS order: slack, whatsapp, … */
+/** Open the MANUAL (advanced) WhatsApp credentials dialog. */
 async function openWhatsApp(user: ReturnType<typeof userEvent.setup>) {
-  const buttons = await screen.findAllByRole("button", { name: /^Connect$/ });
-  await user.click(buttons[1]!);
+  await user.click(await screen.findByRole("button", { name: /connect manually/i }));
   return screen.getByRole("dialog");
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
   api.integrations.mockResolvedValue([]);
+  // Default: this deployment is not a Meta Tech Provider yet.
+  api.whatsappEmbeddedConfig.mockResolvedValue({
+    available: false,
+    appId: "",
+    configId: "",
+    graphVersion: "v21.0",
+  });
 });
 
 describe("setup guides", () => {
@@ -187,5 +195,86 @@ describe("a connection waiting on Meta", () => {
     renderIt();
     expect(await screen.findByText(pendingConn.webhookUrl!)).toBeInTheDocument();
     expect(screen.getByText("vtok")).toBeInTheDocument();
+  });
+});
+
+
+describe("one-click WhatsApp Business signup", () => {
+  it("stays disabled, with the manual path still reachable, until we're a Tech Provider", async () => {
+    renderIt();
+    // Embedded Signup needs Meta to approve BlissWork, not the customer. Until
+    // then the button must say so rather than open a popup that dies at Meta —
+    // and the manual flow has to remain usable, or WhatsApp is unconnectable.
+    const primary = await screen.findByRole("button", { name: /Connect WhatsApp Business/i });
+    await waitFor(() => expect(primary).toBeDisabled());
+    expect(screen.getByRole("button", { name: /connect manually/i })).toBeEnabled();
+  });
+
+  it("opens Meta's popup and exchanges the code it posts back", async () => {
+    const user = userEvent.setup();
+    api.whatsappEmbeddedConfig.mockResolvedValue({
+      available: true,
+      appId: "APP-1",
+      configId: "CFG-1",
+      graphVersion: "v21.0",
+    });
+    api.connectWhatsAppEmbedded.mockResolvedValue({ connection: { ...pendingConn, status: "connected" } });
+    const popup = { closed: false } as Window;
+    const open = vi.spyOn(window, "open").mockReturnValue(popup);
+    renderIt();
+
+    const primary = await screen.findByRole("button", { name: /Connect WhatsApp Business/i });
+    await waitFor(() => expect(primary).toBeEnabled());
+    await user.click(primary);
+
+    // The SDK is quarantined on its own page so the app's CSP never has to
+    // admit connect.facebook.net.
+    expect(open).toHaveBeenCalledWith(
+      expect.stringContaining("/whatsapp-connect.html?appId=APP-1&configId=CFG-1"),
+      expect.anything(),
+      expect.anything(),
+    );
+
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        origin: window.location.origin,
+        data: { source: "blisswork-whatsapp", code: "c1", wabaId: "W1", phoneNumberId: "P1" },
+      }),
+    );
+    await waitFor(() =>
+      expect(api.connectWhatsAppEmbedded).toHaveBeenCalledWith({
+        code: "c1",
+        wabaId: "W1",
+        phoneNumberId: "P1",
+      }),
+    );
+    open.mockRestore();
+  });
+
+  it("ignores a signup message from any other origin", async () => {
+    const user = userEvent.setup();
+    api.whatsappEmbeddedConfig.mockResolvedValue({
+      available: true,
+      appId: "APP-1",
+      configId: "CFG-1",
+      graphVersion: "v21.0",
+    });
+    const open = vi.spyOn(window, "open").mockReturnValue({ closed: false } as Window);
+    renderIt();
+    const primary = await screen.findByRole("button", { name: /Connect WhatsApp Business/i });
+    await waitFor(() => expect(primary).toBeEnabled());
+    await user.click(primary);
+
+    // The message carries an authorization code. Anything not from our own
+    // popup page is not ours to trust.
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        origin: "https://evil.example",
+        data: { source: "blisswork-whatsapp", code: "stolen", wabaId: "W", phoneNumberId: "P" },
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 20));
+    expect(api.connectWhatsAppEmbedded).not.toHaveBeenCalled();
+    open.mockRestore();
   });
 });

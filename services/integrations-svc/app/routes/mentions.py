@@ -320,8 +320,14 @@ async def post_identity(body: IdentityIn, principal: Principal = PrincipalDep) -
                 status_code=status.HTTP_409_CONFLICT,
                 detail="that handle is already mapped to another teammate",
             ) from None
-        await db.commit()
+        # Read BEFORE committing. `set_org_context` binds app.org_id with
+        # is_local => true, so the commit ends the transaction and resets it —
+        # a query after this point runs with no org context at all, RLS returns
+        # zero rows, and the defensive 500 below fires on a handle that was
+        # saved perfectly well. The new row is already visible inside this
+        # transaction, so there is nothing to wait for.
         rows = await list_identities(db, org_id=principal.org_id, user_id=principal.user_id)
+        await db.commit()
 
     match = next(
         (r for r in rows if r["provider"] == body.provider and r["handle"] == handle), None

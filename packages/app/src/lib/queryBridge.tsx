@@ -71,6 +71,8 @@ export const qk = {
   /** My declared/derived handles on external platforms. */
   providerIdentities: ["providerIdentities"] as const,
   appCredentials: ["appCredentials"] as const,
+  /** Deployment-level WhatsApp Embedded Signup config (Meta app id + config id). */
+  whatsappEmbedded: ["whatsappEmbedded"] as const,
   inboxPins: ["inboxPins"] as const,
   /** Task ids pinned to the desktop (Electron-only; empty on web). */
   taskPins: ["taskPins"] as const,

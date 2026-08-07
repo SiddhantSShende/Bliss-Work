@@ -101,7 +101,7 @@ async def _status(conn_id: str) -> str:
     from app.db import get_engine
 
     async with get_engine().begin() as c:
-        await c.execute(text("SELECT set_config('app.bypass_rls', 'on', false)"))
+        await c.execute(text("SELECT set_config('app.bypass_rls', 'on', true)"))
         return (
             await c.execute(
                 text("SELECT status FROM integration_connections WHERE id = :i"), {"i": conn_id}
@@ -115,7 +115,7 @@ async def _webhook_bits(c, conn_id: str) -> tuple[str, str]:
     from app.db import get_engine
 
     async with get_engine().begin() as db:
-        await db.execute(text("SELECT set_config('app.bypass_rls', 'on', false)"))
+        await db.execute(text("SELECT set_config('app.bypass_rls', 'on', true)"))
         wh = (
             await db.execute(
                 text("SELECT webhook_token FROM integration_connections WHERE id = :i"),

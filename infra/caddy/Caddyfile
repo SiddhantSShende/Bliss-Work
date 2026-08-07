@@ -104,6 +104,21 @@
 		reverse_proxy ws-gateway:8080
 	}
 
+	# WhatsApp Embedded Signup popup — the ONE page allowed to load Meta's SDK.
+	#
+	# It is a standalone page precisely so this exception can be scoped to a
+	# single path: admitting connect.facebook.net into the SPA's own policy would
+	# give a third-party script full DOM access on the authenticated origin, on
+	# every screen, for one button. This page carries no session and talks to no
+	# API of ours — it collects a signup code and postMessages it to its opener.
+	#
+	# frame-src is required: Meta renders the signup flow in an iframe.
+	@wa-signup path /whatsapp-connect.html
+	handle @wa-signup {
+		header Content-Security-Policy "default-src 'none'; script-src 'unsafe-inline' https://connect.facebook.net; style-src 'unsafe-inline'; img-src 'self' data: https://*.facebook.com; connect-src https://graph.facebook.com https://*.facebook.com; frame-src https://www.facebook.com https://web.facebook.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+		reverse_proxy nginx:80
+	}
+
 	# Static SPA assets are served by nginx on the private network.
 	# CSP is set on the SPA shell ONLY (not the global header block) so JSON/API
 	# responses keep their own stricter policy. frame-ancestors must be a real

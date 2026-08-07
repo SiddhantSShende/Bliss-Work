@@ -99,7 +99,7 @@ async def test_put_is_idempotent_and_rotates_in_place(db_app):
     from app.db import get_engine
 
     async with get_engine().begin() as conn:
-        await conn.execute(text("SELECT set_config('app.bypass_rls', 'on', false)"))
+        await conn.execute(text("SELECT set_config('app.bypass_rls', 'on', true)"))
         n = (
             await conn.execute(
                 text(
@@ -248,7 +248,7 @@ async def test_the_oauth_state_is_pinned_to_the_credential_row(db_app):
     from app.db import get_engine
 
     async with get_engine().begin() as conn:
-        await conn.execute(text("SELECT set_config('app.bypass_rls', 'on', false)"))
+        await conn.execute(text("SELECT set_config('app.bypass_rls', 'on', true)"))
         row = (
             await conn.execute(
                 text(
@@ -275,7 +275,7 @@ async def _make_connection(org_id: str, provider: str, token: str, account: str)
 
     conn_id = str(uuid6.uuid7())
     async with get_engine().begin() as conn:
-        await conn.execute(text("SELECT set_config('app.bypass_rls', 'on', false)"))
+        await conn.execute(text("SELECT set_config('app.bypass_rls', 'on', true)"))
         await conn.execute(
             text(
                 """
@@ -305,7 +305,7 @@ async def test_webhook_token_resolves_exactly_one_connection(db_app):
     await _make_connection(OTHER_ORG, "slack", "token-org-b", "T-BBB")
 
     async with get_engine().begin() as db:
-        await db.execute(text("SELECT set_config('app.bypass_rls', 'on', false)"))
+        await db.execute(text("SELECT set_config('app.bypass_rls', 'on', true)"))
 
         a = await _conn_by_token(db, "slack", "token-org-a")
         b = await _conn_by_token(db, "slack", "token-org-b")

@@ -213,7 +213,7 @@ Navigate to **Integrations** (`/app/integrations`) to link accounts:
 | Provider | Method | Credentials Required |
 |---|---|---|
 | **Slack** | Token / Webhook | Bot Token (`xoxb-…`), Signing Secret |
-| **WhatsApp** | Cloud API Token (**Business accounts only**) | System-user Token, WhatsApp Business Account ID, Phone Number ID, App Secret |
+| **WhatsApp** | One-click signup (**Business accounts only**) | None — sign in to your WhatsApp Business account. *(Advanced/manual: System-user Token, Business Account ID, Phone Number ID, App Secret)* |
 | **Gmail** | OAuth 2.0 | Google Account Sign-In |
 | **Outlook** | OAuth 2.0 | Microsoft Account Sign-In |
 | **Microsoft Teams** | OAuth 2.0 | Microsoft Account Sign-In |
@@ -221,8 +221,8 @@ Navigate to **Integrations** (`/app/integrations`) to link accounts:
 ### Setting Up Webhooks & Finishing a WhatsApp Connection
 
 1. **Webhook URL:** After connecting a provider (e.g. Slack or WhatsApp), expand **Show Webhook Setup** on the connection card and copy the generated Webhook URL and Verification Token into the provider's developer dashboard.
-2. **WhatsApp — Business accounts only.** WhatsApp connects a *business* number, never a personal WhatsApp account. Your system-user token needs both `whatsapp_business_messaging` and `whatsapp_business_management`, and BlissWork checks with Meta that the Business Account is approved and the number is verified and belongs to it before saving anything.
-3. **Finishing the connection.** A new WhatsApp connection shows as **Waiting for Meta**. Paste its Webhook URL and Verify Token into **WhatsApp → Configuration → Webhook → Edit** and subscribe to `messages`. Meta calls BlissWork the moment you save, and the connection turns **Connected** on its own — there is no code to enter and no phone number to provide.
+2. **WhatsApp — Business accounts only, and normally one click.** Choose **Connect WhatsApp Business**, sign in to the Meta Business account that owns your number, and pick the number. No developer app, no tokens, no IDs, no webhook to paste. WhatsApp connects a *business* number, never a personal WhatsApp account.
+3. **Connecting manually (advanced).** Only needed if one-click signup isn't available on your deployment. Your system-user token then needs both `whatsapp_business_messaging` and `whatsapp_business_management`, and BlissWork checks with Meta that the Business Account is approved and the number is verified and belongs to it before saving anything. The connection shows as **Waiting for Meta** until you paste its Webhook URL and Verify Token into **WhatsApp → Configuration → Webhook → Edit** and subscribe to `messages`; it turns **Connected** by itself the moment Meta calls.
 
 ### Hub Mentions & Claiming Mentions as Tasks
 
