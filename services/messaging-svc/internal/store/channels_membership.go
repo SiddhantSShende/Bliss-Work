@@ -150,7 +150,7 @@ func emitChannelMemberJoined(ctx context.Context, tx pgx.Tx, orgID, channelID, u
 		UserID:     userID,
 		Username:   name,
 	}
-	return insertOutbox(ctx, tx, events.TopicMessaging, channelID, evt)
+	return insertOutbox(ctx, tx, channelID, evt)
 }
 
 // InternalChannelMembership is the service-to-service variant of

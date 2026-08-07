@@ -194,10 +194,10 @@ func (s *Store) ForwardMessage(ctx context.Context, orgID, forwarderID, sourceMe
 		return nil, ErrForbidden
 	}
 
-	if err := s.upsertMember(ctx, tx, convID, orgID, forwarderID, true); err != nil {
+	if err := s.upsertMember(ctx, tx, convID, orgID, forwarderID); err != nil {
 		return nil, err
 	}
-	if err := s.upsertMember(ctx, tx, convID, orgID, recipientID, true); err != nil {
+	if err := s.upsertMember(ctx, tx, convID, orgID, recipientID); err != nil {
 		return nil, err
 	}
 
@@ -339,7 +339,7 @@ func (s *Store) ForwardExternalRecord(ctx context.Context, orgID, forwarderID, s
 		Depth:               fc.Depth,
 		BodyPreview:         truncatePreview(fc.Body),
 	}
-	if err := insertOutbox(ctx, tx, events.TopicMessaging, fc.ConversationID, evt); err != nil {
+	if err := insertOutbox(ctx, tx, fc.ConversationID, evt); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

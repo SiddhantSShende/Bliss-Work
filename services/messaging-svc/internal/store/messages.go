@@ -62,10 +62,10 @@ func (s *Store) SendMessage(ctx context.Context, orgID, senderID, recipientID, b
 	}
 
 	// Upsert BOTH members, revive visibility on send.
-	if err := s.upsertMember(ctx, tx, convID, orgID, senderID, true); err != nil {
+	if err := s.upsertMember(ctx, tx, convID, orgID, senderID); err != nil {
 		return nil, err
 	}
-	if err := s.upsertMember(ctx, tx, convID, orgID, recipientID, true); err != nil {
+	if err := s.upsertMember(ctx, tx, convID, orgID, recipientID); err != nil {
 		return nil, err
 	}
 
@@ -148,10 +148,10 @@ func (s *Store) replyImpl(ctx context.Context, orgID, senderID, convID, parentMe
 	}
 
 	// Revive visibility for both members on a reply.
-	if err := s.upsertMember(ctx, tx, convID, orgID, low, true); err != nil {
+	if err := s.upsertMember(ctx, tx, convID, orgID, low); err != nil {
 		return nil, err
 	}
-	if err := s.upsertMember(ctx, tx, convID, orgID, high, true); err != nil {
+	if err := s.upsertMember(ctx, tx, convID, orgID, high); err != nil {
 		return nil, err
 	}
 
@@ -299,7 +299,7 @@ func (s *Store) appendMessage(
 		IsThreadRoot:    &rootForEvent,
 		Kind:            opts.kind, // empty for ordinary text
 	}
-	if err := insertOutbox(ctx, tx, events.TopicMessaging, convID, evt); err != nil {
+	if err := insertOutbox(ctx, tx, convID, evt); err != nil {
 		return nil, err
 	}
 
@@ -340,7 +340,7 @@ func (s *Store) appendMessage(
 			ThreadID:           &fThreadID,
 			Seq:                seq,
 		}
-		if err := insertOutbox(ctx, tx, events.TopicMessaging, convID, fwdEvt); err != nil {
+		if err := insertOutbox(ctx, tx, convID, fwdEvt); err != nil {
 			return nil, err
 		}
 	}

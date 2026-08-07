@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -43,7 +42,6 @@ func New(pool *pgxpool.Pool, verifier *auth.Verifier, webOrigin string, log *slo
 // Router builds the chi router with all routes.
 func (s *Server) Router() http.Handler {
 	r := chi.NewRouter()
-	r.Use(middleware.RealIP)
 	r.Use(s.requestID)
 	r.Use(s.securityHeaders)
 	r.Use(s.recoverer)

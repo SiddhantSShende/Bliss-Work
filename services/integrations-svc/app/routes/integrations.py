@@ -432,7 +432,6 @@ async def connect_start(
     # forwards (internal_send filters on status = 'connected').
     initial_status = "pending" if provider == "whatsapp" else "connected"
 
-    conn_id = str(uuid6.uuid7())
     async with session() as db:
         await set_org_context(db, principal.org_id)  # FIRST — RLS + org_keys
 

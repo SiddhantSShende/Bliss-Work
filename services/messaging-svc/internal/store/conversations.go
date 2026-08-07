@@ -12,13 +12,15 @@ import (
 )
 
 // upsertMember inserts or revives a conversation member row, restoring visibility.
-func (s *Store) upsertMember(ctx context.Context, tx pgx.Tx, convID, orgID, userID string, visible bool) error {
+func (s *Store) upsertMember(ctx context.Context, tx pgx.Tx, convID, orgID, userID string) error {
 	_, err := tx.Exec(ctx,
+		// visible is unconditionally true: every caller is adding or reviving a
+		// member, and hiding goes through Ignore/hidden_at_seq instead.
 		`INSERT INTO conversation_members (conversation_id, org_id, user_id, visible)
-		 VALUES ($1, $2, $3, $4)
+		 VALUES ($1, $2, $3, true)
 		 ON CONFLICT (conversation_id, user_id)
-		 DO UPDATE SET visible = $4, hidden_at_seq = NULL`,
-		convID, orgID, userID, visible)
+		 DO UPDATE SET visible = true, hidden_at_seq = NULL`,
+		convID, orgID, userID)
 	return err
 }
 
@@ -70,7 +72,7 @@ func (s *Store) Ignore(ctx context.Context, orgID, callerID, convID string) erro
 		Members:        []string{low, high},
 		AtSeq:          seq,
 	}
-	if err := insertOutbox(ctx, tx, events.TopicMessaging, convID, evt); err != nil {
+	if err := insertOutbox(ctx, tx, convID, evt); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -129,7 +131,7 @@ func (s *Store) Block(ctx context.Context, orgID, callerID, peerID string) error
 		BlockedBy:      callerID,
 		Members:        []string{low, high},
 	}
-	if err := insertOutbox(ctx, tx, events.TopicMessaging, convID, evt); err != nil {
+	if err := insertOutbox(ctx, tx, convID, evt); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -184,7 +186,7 @@ func (s *Store) Unblock(ctx context.Context, orgID, callerID, peerID string) err
 		UnblockedBy:    callerID,
 		Members:        []string{low, high},
 	}
-	if err := insertOutbox(ctx, tx, events.TopicMessaging, convID, evt); err != nil {
+	if err := insertOutbox(ctx, tx, convID, evt); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

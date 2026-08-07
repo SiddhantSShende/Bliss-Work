@@ -15,6 +15,7 @@ package middleware
 import (
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -132,9 +133,30 @@ func (l *Limiter) sweep(now time.Time) {
 	}
 }
 
-// clientIP extracts the remote address sans port. RealIP middleware must run
-// before this, so r.RemoteAddr already reflects X-Forwarded-For.
+// clientIP identifies the caller for rate-limiting purposes.
+//
+// It reads the LAST entry of X-Forwarded-For, not the first. That distinction is
+// the whole point: XFF is a list a client can pre-populate, and each proxy
+// APPENDS the peer it actually saw. So the leftmost entry is whatever the client
+// claimed, and only the rightmost was observed by our own edge.
+//
+// chi's middleware.RealIP used to do this job and took the leftmost value, which
+// made this limiter trivially bypassable — send a different X-Forwarded-For on
+// every request and every request lands in a fresh bucket, defeating a control
+// whose entire job is stopping anonymous floods before JWT verification. That is
+// the vulnerability behind RealIP's deprecation (GHSA-3fxj-6jh8-hvhx).
+//
+// TRUST MODEL: exactly one proxy hop (our Caddy edge) sits in front of this
+// service, and nothing else can reach it — it is not published outside the
+// compose network. If a second trusted proxy is ever added, this must skip that
+// many entries from the right instead of one.
 func clientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		parts := strings.Split(xff, ",")
+		if ip := strings.TrimSpace(parts[len(parts)-1]); ip != "" {
+			return ip
+		}
+	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr

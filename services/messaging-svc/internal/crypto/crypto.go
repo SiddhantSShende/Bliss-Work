@@ -29,6 +29,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"strings"
 	"sync"
@@ -174,7 +175,12 @@ func NewKMSKEKProvider(backend, keyID, vaultAddr, vaultToken string, version int
 
 func (p *KMSKEKProvider) transit(op string, payload map[string]string) (map[string]any, error) {
 	body, _ := json.Marshal(payload)
-	req, err := http.NewRequest(http.MethodPost, p.addr+"/v1/transit/"+op+"/"+p.keyID, bytes.NewReader(body))
+	// The KEKProvider interface carries no context, so the cancellation bound
+	// is p.client's 5s timeout. Saying that explicitly beats http.NewRequest,
+	// which leaves a reader unsure whether the omission was deliberate.
+	req, err := http.NewRequestWithContext(
+		context.Background(), http.MethodPost, p.addr+"/v1/transit/"+op+"/"+p.keyID, bytes.NewReader(body),
+	)
 	if err != nil {
 		return nil, cryptoErrf("vault request build failed")
 	}
@@ -288,6 +294,14 @@ func (c *Cryptor) Encrypt(ctx context.Context, q Querier, orgID, plaintext strin
 	}
 	ct := gcm.Seal(nil, nonce, []byte(plaintext), []byte(orgID))
 
+	// The header stores the key version in two bytes. A larger version would
+	// wrap silently and stamp the WRONG version into the ciphertext, so every
+	// later decrypt would reach for a key that never encrypted it. Refuse
+	// instead — this is unreachable today (versions are small integers from
+	// config) and cheap to keep unreachable.
+	if version < 0 || version > math.MaxUint16 {
+		return nil, cryptoErrf("key version %d does not fit the ciphertext header", version)
+	}
 	out := make([]byte, 0, headerLen+nonceLen+len(ct))
 	out = append(out, fmtV1)
 	out = binary.BigEndian.AppendUint16(out, uint16(version))

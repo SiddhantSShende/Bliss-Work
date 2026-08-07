@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -69,7 +68,6 @@ func NewServer(
 // Router builds the chi router with CORS, health, and the authed API group.
 func (s *Server) Router(webOrigin string) http.Handler {
 	r := chi.NewRouter()
-	r.Use(middleware.RealIP)
 	r.Use(mw.RequestID)
 	r.Use(mw.SecurityHeaders)
 	r.Use(s.recoverer)
@@ -258,7 +256,7 @@ func writeErr(w http.ResponseWriter, code int, msg string) {
 // by the RequestID middleware so the body carries `requestId`.
 func writeErrR(w http.ResponseWriter, r *http.Request, code int, msg string) {
 	if r != nil {
-		writeAPIError(w, r, code, httpStatusToCode(code), msg, nil)
+		writeAPIError(w, r, code, httpStatusToCode(code), msg)
 		return
 	}
 	// Fallback when handler didn't pass r (rare). We can still recover the
@@ -288,7 +286,7 @@ func (s *Server) mapErrR(w http.ResponseWriter, r *http.Request, err error) {
 		s.log.Error("request failed", "err", err, "request_id", rid)
 	}
 	if r != nil {
-		writeAPIError(w, r, status, code, msg, nil)
+		writeAPIError(w, r, status, code, msg)
 		return
 	}
 	// Fallback path; status/code/msg are still canonical, and we recovered rid.
@@ -313,7 +311,7 @@ func (s *Server) recoverer(next http.Handler) http.Handler {
 		defer func() {
 			if rec := recover(); rec != nil {
 				s.log.Error("panic", "err", rec, "request_id", mw.RequestIDFromContext(r.Context()), "path", r.URL.Path)
-				writeAPIError(w, r, http.StatusInternalServerError, CodeInternalError, "internal error", nil)
+				writeAPIError(w, r, http.StatusInternalServerError, CodeInternalError, "internal error")
 			}
 		}()
 		next.ServeHTTP(w, r)
@@ -328,7 +326,7 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	if err := s.store.Pool().Ping(ctx); err != nil {
 		s.log.Warn("readyz: database not ready", "err", err, "request_id", mw.RequestIDFromContext(r.Context()))
-		writeAPIError(w, r, http.StatusServiceUnavailable, CodeServiceUnavailable, "database not ready", nil)
+		writeAPIError(w, r, http.StatusServiceUnavailable, CodeServiceUnavailable, "database not ready")
 		return
 	}
 	w.WriteHeader(http.StatusOK)

@@ -262,7 +262,9 @@ func backoffFor(attempt int) time.Duration {
 	if d > backoffMax || d <= 0 {     // <=0 guards an unlikely shift overflow
 		d = backoffMax
 	}
-	return time.Duration(rand.Int63n(int64(d) + 1))
+	// Retry jitter spreads reconnect storms; it guards nothing and predicting
+	// it buys an attacker nothing, so math/rand is the right tool here.
+	return time.Duration(rand.Int63n(int64(d) + 1)) //nolint:gosec // G404: jitter, not a secret
 }
 
 // sleepCtx sleeps for d unless ctx is cancelled first; it reports whether the

@@ -125,7 +125,7 @@ func TestMetricsMiddleware_CountsAndTimes(t *testing.T) {
 
 			afterSamples := durationSampleCount(t, http.MethodGet, tc.path)
 			if tc.wantTimed {
-				if afterSamples != beforeSamples+1 && !(beforeSamples == -1 && afterSamples == 1) {
+				if afterSamples != beforeSamples+1 && (beforeSamples != -1 || afterSamples != 1) {
 					t.Fatalf("histogram sample delta wrong: before=%d after=%d", beforeSamples, afterSamples)
 				}
 			} else {

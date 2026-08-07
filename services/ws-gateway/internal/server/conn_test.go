@@ -110,7 +110,7 @@ func TestHandleClientFrame_Routing(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			s := newTestServer(st, nil)
 			conn := hub.NewConn("u-sender", "c1")
-			s.handleClientFrame(context.Background(), nil, conn, testSession(), []byte(tc.frame))
+			s.handleClientFrame(context.Background(), conn, testSession(), []byte(tc.frame))
 
 			got := drainSendTypes(t, conn)
 			if len(got) != len(tc.wantTypes) {
@@ -173,7 +173,7 @@ func TestHandleClientFrame_AckTruncatedToMaxBatch(t *testing.T) {
 		t.Fatalf("marshal frame: %v", err)
 	}
 
-	s.handleClientFrame(ctx, nil, conn, testSession(), raw)
+	s.handleClientFrame(ctx, conn, testSession(), raw)
 
 	// Wait for the batch to flush (Run uses a 500ms window; allow margin).
 	select {

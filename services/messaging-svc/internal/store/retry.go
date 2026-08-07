@@ -31,7 +31,9 @@ func RetryOnSerializationFailure(ctx context.Context, maxAttempts int, fn func(c
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		if attempt > 0 {
 			// 25-75ms jittered backoff, growing slightly with each retry.
-			delay := time.Duration(25+rand.Intn(50)+attempt*25) * time.Millisecond
+			// Jitter only decorrelates two transactions retrying in lockstep;
+			// it protects nothing, so math/rand is the right tool.
+			delay := time.Duration(25+rand.Intn(50)+attempt*25) * time.Millisecond //nolint:gosec // G404: backoff jitter, not a secret
 			select {
 			case <-ctx.Done():
 				return ctx.Err()

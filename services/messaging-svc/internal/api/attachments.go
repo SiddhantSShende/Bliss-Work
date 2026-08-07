@@ -75,7 +75,7 @@ func (s *Server) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 		}
 		if used >= s.mediaCfg.OrgDailyBytes {
 			writeAPIError(w, r, http.StatusRequestEntityTooLarge, CodePayloadTooLarge,
-				"daily upload limit reached for this workspace", nil)
+				"daily upload limit reached for this workspace")
 			return
 		}
 	}
@@ -189,7 +189,7 @@ func (s *Server) mediaBodyError(w http.ResponseWriter, r *http.Request, err erro
 	var maxErr *http.MaxBytesError
 	if errors.Is(err, blob.ErrTooLarge) || errors.As(err, &maxErr) {
 		writeAPIError(w, r, http.StatusRequestEntityTooLarge, CodePayloadTooLarge,
-			"file exceeds the maximum upload size", nil)
+			"file exceeds the maximum upload size")
 		return
 	}
 	if errors.Is(err, blob.ErrBadKey) {
@@ -301,12 +301,12 @@ func (s *Server) downloadMedia(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// Deliberately uniform: distinguishing expired from forged from
 		// malformed is free information for someone probing the format.
-		writeAPIError(w, r, http.StatusForbidden, CodeForbidden, "invalid or expired link", nil)
+		writeAPIError(w, r, http.StatusForbidden, CodeForbidden, "invalid or expired link")
 		return
 	}
 	id := chi.URLParam(r, "id")
 	if id != grant.AttachmentID {
-		writeAPIError(w, r, http.StatusForbidden, CodeForbidden, "invalid or expired link", nil)
+		writeAPIError(w, r, http.StatusForbidden, CodeForbidden, "invalid or expired link")
 		return
 	}
 
@@ -320,7 +320,7 @@ func (s *Server) downloadMedia(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.log.Error("media blob missing", "attachment_id", id, "sha256", att.SHA256,
 			"request_id", mw.RequestIDFromContext(r.Context()))
-		writeAPIError(w, r, http.StatusNotFound, CodeNotFound, "file not found", nil)
+		writeAPIError(w, r, http.StatusNotFound, CodeNotFound, "file not found")
 		return
 	}
 	defer f.Close()

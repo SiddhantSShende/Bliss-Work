@@ -6,6 +6,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/task-board/messaging-svc/internal/events"
 )
 
 // NOTE on RLS for this file:
@@ -18,14 +20,14 @@ import (
 //     app.org_id (writes) or bypass set; outbox itself is un-policied anyway.
 
 // insertOutbox writes a fully-formed event into the outbox within the given tx.
-func insertOutbox(ctx context.Context, tx pgx.Tx, topic, key string, payload any) error {
+func insertOutbox(ctx context.Context, tx pgx.Tx, key string, payload any) error {
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
 	_, err = tx.Exec(ctx,
 		`INSERT INTO outbox (id, topic, kafka_key, payload) VALUES ($1, $2, $3, $4)`,
-		uuid.Must(uuid.NewV7()).String(), topic, key, raw)
+		uuid.Must(uuid.NewV7()).String(), events.TopicMessaging, key, raw)
 	return err
 }
 

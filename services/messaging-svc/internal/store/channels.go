@@ -175,7 +175,7 @@ func (s *Store) SendChannelMessage(ctx context.Context, orgID, channelID, sender
 		Body:           body,
 		Members:        members,
 	}
-	if err := insertOutbox(ctx, tx, events.TopicMessaging, channelID, evt); err != nil {
+	if err := insertOutbox(ctx, tx, channelID, evt); err != nil {
 		return nil, err
 	}
 

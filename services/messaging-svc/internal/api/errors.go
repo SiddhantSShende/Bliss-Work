@@ -49,7 +49,7 @@ type apiErrorPayload struct {
 }
 
 // writeAPIError emits the canonical error envelope.
-func writeAPIError(w http.ResponseWriter, r *http.Request, status int, code ErrorCode, message string, details map[string]any) {
+func writeAPIError(w http.ResponseWriter, r *http.Request, status int, code ErrorCode, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(apiErrorBody{
@@ -57,7 +57,6 @@ func writeAPIError(w http.ResponseWriter, r *http.Request, status int, code Erro
 			Code:      code,
 			Message:   message,
 			RequestID: mw.RequestIDFromContext(r.Context()),
-			Details:   details,
 		},
 	})
 }

@@ -15,9 +15,9 @@ import (
 // The metric is process-global and registered once in init(), so tests must use
 // disjoint label values (distinct paths/statuses) to stay independent rather
 // than resetting shared state.
-func counterFor(t *testing.T, method, path, status string) float64 {
+func counterFor(t *testing.T, path, status string) float64 {
 	t.Helper()
-	m, err := httpRequestsTotal.GetMetricWithLabelValues(method, path, status)
+	m, err := httpRequestsTotal.GetMetricWithLabelValues(http.MethodGet, path, status)
 	if err != nil {
 		t.Fatalf("GetMetricWithLabelValues: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestMetrics_RecordsCountAndRoutePattern(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	before := counterFor(t, http.MethodGet, pattern, "200")
+	before := counterFor(t, pattern, "200")
 
 	// Concrete URL carries a UUID; the recorded label must collapse to the pattern.
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/conv/123e4567-e89b-12d3-a456-426614174000/messages", nil)
@@ -73,13 +73,13 @@ func TestMetrics_RecordsCountAndRoutePattern(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rr.Code)
 	}
-	after := counterFor(t, http.MethodGet, pattern, "200")
+	after := counterFor(t, pattern, "200")
 	if after-before != 1 {
 		t.Errorf("http_requests_total{path=pattern} delta = %v, want 1", after-before)
 	}
 
 	// The raw-URL label must NOT exist — only the pattern is recorded.
-	raw := counterFor(t, http.MethodGet, "/api/v1/conv/123e4567-e89b-12d3-a456-426614174000/messages", "200")
+	raw := counterFor(t, "/api/v1/conv/123e4567-e89b-12d3-a456-426614174000/messages", "200")
 	if raw != 0 {
 		t.Errorf("raw URL was used as a label (cardinality leak): got %v", raw)
 	}
@@ -98,18 +98,18 @@ func TestMetrics_CapturesNonDefaultStatus(t *testing.T) {
 		w.WriteHeader(http.StatusTeapot)
 	})
 
-	before := counterFor(t, http.MethodGet, pattern, "418")
+	before := counterFor(t, pattern, "418")
 
 	req := httptest.NewRequest(http.MethodGet, pattern, nil)
 	rr := httptest.NewRecorder()
 	r.ServeHTTP(rr, req)
 
-	after := counterFor(t, http.MethodGet, pattern, "418")
+	after := counterFor(t, pattern, "418")
 	if after-before != 1 {
 		t.Errorf("counter delta for status 418 = %v, want 1", after-before)
 	}
 	// And it must NOT have been booked as a 200.
-	if got := counterFor(t, http.MethodGet, pattern, "200"); got != 0 {
+	if got := counterFor(t, pattern, "200"); got != 0 {
 		t.Errorf("request booked as 200 instead of 418: got %v", got)
 	}
 }
@@ -122,15 +122,15 @@ func TestMetrics_BareWriteCountsAs200(t *testing.T) {
 		_, _ = w.Write([]byte("ok"))
 	})
 
-	before := counterFor(t, http.MethodGet, pattern, "200")
+	before := counterFor(t, pattern, "200")
 	req := httptest.NewRequest(http.MethodGet, pattern, nil)
 	r.ServeHTTP(httptest.NewRecorder(), req)
-	after := counterFor(t, http.MethodGet, pattern, "200")
+	after := counterFor(t, pattern, "200")
 
 	if after-before != 1 {
 		t.Errorf("bare-Write request not booked as 200: delta = %v", after-before)
 	}
-	if got := counterFor(t, http.MethodGet, pattern, "0"); got != 0 {
+	if got := counterFor(t, pattern, "0"); got != 0 {
 		t.Errorf("request booked with status 0: got %v", got)
 	}
 }
@@ -146,8 +146,8 @@ func TestMetrics_SelfExcludesMetricsEndpoint(t *testing.T) {
 	}))
 
 	// Baselines for the two label sets the endpoint could plausibly land in.
-	beforeMetricsPath := counterFor(t, http.MethodGet, "/metrics", "200")
-	beforeOther := counterFor(t, http.MethodGet, "other", "200")
+	beforeMetricsPath := counterFor(t, "/metrics", "200")
+	beforeOther := counterFor(t, "other", "200")
 
 	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
 	rr := httptest.NewRecorder()
@@ -159,10 +159,10 @@ func TestMetrics_SelfExcludesMetricsEndpoint(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rr.Code)
 	}
-	if d := counterFor(t, http.MethodGet, "/metrics", "200") - beforeMetricsPath; d != 0 {
+	if d := counterFor(t, "/metrics", "200") - beforeMetricsPath; d != 0 {
 		t.Errorf("/metrics request was instrumented under /metrics label: delta = %v", d)
 	}
-	if d := counterFor(t, http.MethodGet, "other", "200") - beforeOther; d != 0 {
+	if d := counterFor(t, "other", "200") - beforeOther; d != 0 {
 		t.Errorf("/metrics request was instrumented under other label: delta = %v", d)
 	}
 }
@@ -174,7 +174,7 @@ func TestMetrics_UnmatchedRouteUsesOtherLabel(t *testing.T) {
 	r.Use(Metrics)
 	r.Get("/known", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 
-	before := counterFor(t, http.MethodGet, "other", "404")
+	before := counterFor(t, "other", "404")
 
 	req := httptest.NewRequest(http.MethodGet, "/this/does/not/exist", nil)
 	rr := httptest.NewRecorder()
@@ -183,7 +183,7 @@ func TestMetrics_UnmatchedRouteUsesOtherLabel(t *testing.T) {
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", rr.Code)
 	}
-	if d := counterFor(t, http.MethodGet, "other", "404") - before; d != 1 {
+	if d := counterFor(t, "other", "404") - before; d != 1 {
 		t.Errorf("unmatched route delta on 'other' label = %v, want 1", d)
 	}
 }

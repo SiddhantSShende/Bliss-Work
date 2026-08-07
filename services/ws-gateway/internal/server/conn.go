@@ -136,7 +136,7 @@ func (s *Server) readLoop(ctx context.Context, ws *websocket.Conn, conn *hub.Con
 		if typ != websocket.MessageText {
 			continue
 		}
-		s.handleClientFrame(ctx, ws, conn, sess, data)
+		s.handleClientFrame(ctx, conn, sess, data)
 	}
 }
 
@@ -164,7 +164,7 @@ type clientFrame struct {
 // over-batches is throttled at the source.
 const maxAckBatch = 64
 
-func (s *Server) handleClientFrame(ctx context.Context, ws *websocket.Conn, conn *hub.Conn, sess *session, data []byte) {
+func (s *Server) handleClientFrame(ctx context.Context, conn *hub.Conn, sess *session, data []byte) {
 	var f clientFrame
 	if err := json.Unmarshal(data, &f); err != nil {
 		return
@@ -207,7 +207,7 @@ func (s *Server) handleClientFrame(ctx context.Context, ws *websocket.Conn, conn
 	case "rtc.offer", "rtc.answer", "rtc.ice", "rtc.cancel":
 		s.handleSignalingFrame(ctx, conn, sess, &f)
 	case "typing":
-		s.handleTypingFrame(ctx, conn, sess, &f)
+		s.handleTypingFrame(ctx, sess, &f)
 	case "call.invite", "call.accept", "call.decline", "call.cancel", "call.end":
 		s.handleCallFrame(ctx, conn, sess, &f)
 	default:
@@ -264,7 +264,7 @@ func (s *Server) handleSignalingFrame(ctx context.Context, conn *hub.Conn, sess 
 // rtc.*, it is best-effort: a hint to an offline / cross-org peer is silently
 // dropped (no peer.unreachable echo), and an over-budget connection is simply
 // ignored (typing is debounced, so it should never approach the rate cap).
-func (s *Server) handleTypingFrame(ctx context.Context, conn *hub.Conn, sess *session, f *clientFrame) {
+func (s *Server) handleTypingFrame(ctx context.Context, sess *session, f *clientFrame) {
 	if s.signal == nil {
 		return
 	}

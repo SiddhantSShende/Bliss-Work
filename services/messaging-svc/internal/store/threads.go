@@ -188,7 +188,7 @@ func (s *Store) IgnoreThread(ctx context.Context, orgID, callerID, threadID stri
 		AtSeq:          lastSeq,
 		ThreadID:       &threadID,
 	}
-	if err = insertOutbox(ctx, tx, events.TopicMessaging, convID, evt); err != nil {
+	if err = insertOutbox(ctx, tx, convID, evt); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -392,7 +392,7 @@ func (s *Store) DismissMessage(ctx context.Context, orgID, callerID, messageID s
 		MessageID:      messageID,
 		DismissedBy:    callerID,
 	}
-	if err = insertOutbox(ctx, tx, events.TopicMessaging, convID, evt); err != nil {
+	if err = insertOutbox(ctx, tx, convID, evt); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

@@ -81,7 +81,7 @@ func (s *Store) MarkDelivered(ctx context.Context, recipientID string, messageID
 			RecipientID:    recipientID,
 			DeliveredAt:    nowISO(),
 		}
-		if err := insertOutbox(ctx, tx, events.TopicMessaging, convID, evt); err != nil {
+		if err := insertOutbox(ctx, tx, convID, evt); err != nil {
 			return err
 		}
 	}
@@ -185,7 +185,7 @@ func (s *Store) MarkRead(ctx context.Context, orgID, callerID, convID string, up
 		UpToSeq:        upToSeq,
 		RecipientID:    peer,
 	}
-	if err := insertOutbox(ctx, tx, events.TopicMessaging, convID, evt); err != nil {
+	if err := insertOutbox(ctx, tx, convID, evt); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -264,7 +264,7 @@ func (s *Store) MarkReadThread(ctx context.Context, orgID, callerID, threadID st
 		RecipientID:    peer,
 		ThreadID:       &threadID,
 	}
-	if err := insertOutbox(ctx, tx, events.TopicMessaging, convID, evt); err != nil {
+	if err := insertOutbox(ctx, tx, convID, evt); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

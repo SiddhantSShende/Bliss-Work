@@ -43,7 +43,10 @@ func New(redisURL string) (*Store, error) {
 	}
 	if opt.TLSConfig != nil { // set by ParseURL only for rediss://
 		if caPath := os.Getenv("REDIS_CA_CERT"); caPath != "" {
-			pem, readErr := os.ReadFile(caPath)
+			// caPath is REDIS_CA_CERT, set by whoever deploys this process.
+			// It is not reachable from any request, so there is no untrusted
+			// input to traverse with.
+			pem, readErr := os.ReadFile(caPath) //nolint:gosec // G703: operator-supplied path
 			if readErr != nil {
 				return nil, fmt.Errorf("read REDIS_CA_CERT: %w", readErr)
 			}
