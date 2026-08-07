@@ -52,8 +52,19 @@ export interface ChatMediaOptions {
   p2pFallback?: (file: File) => void;
 }
 
-/** Accepted by the picker. Broad on purpose — the server decides what's safe. */
-const ACCEPT = "image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip";
+// NO `accept` filter on the picker, deliberately.
+//
+// An `accept` list does not warn or explain — it GREYS THE FILE OUT, so a user
+// trying to send a .rar, .apk, .psd, .sql or anything without an extension
+// simply cannot select it and has no idea why. This is a chat app: "send me
+// that file" means any file.
+//
+// It buys nothing in return. `accept` is a client-side hint a user can bypass
+// with drag-and-drop anyway, and the real safety decision is made server-side
+// at DOWNLOAD time — internal/media.ServeAs forces anything script-capable to
+// application/octet-stream + Content-Disposition: attachment, so a hostile
+// upload downloads instead of executing. Restricting the picker only stops
+// legitimate files.
 
 export function useChatMedia(opts: ChatMediaOptions) {
   const { scope, scopeId, meId, send, p2pFallback } = opts;
@@ -340,7 +351,6 @@ export function useChatMedia(opts: ChatMediaOptions) {
     ref: fileInput,
     type: "file" as const,
     multiple: true,
-    accept: ACCEPT,
     hidden: true,
     onChange: onPickFile,
   };

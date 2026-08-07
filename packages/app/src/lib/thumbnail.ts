@@ -58,15 +58,33 @@ export interface ThumbnailResult {
 export async function makeThumbnail(file: Blob & { name?: string }): Promise<ThumbnailResult> {
   const none: ThumbnailResult = { thumb: null, dimensions: {} };
   try {
-    if (file.type.startsWith("image/")) return await imageThumbnail(file);
-    if (file.type.startsWith("video/")) return await videoThumbnail(file);
+    // Bounded, because the CALLER AWAITS THIS BEFORE UPLOADING. A promise that
+    // never settles here doesn't just skip the poster — it stops the send dead,
+    // with no request, no error and no toast: the user picks a file and nothing
+    // whatsoever happens. `createImageBitmap` and `canvas.toBlob` are both
+    // capable of that on a malformed or enormous source (toBlob simply never
+    // invokes its callback), so neither is allowed to run unbounded.
+    if (file.type.startsWith("image/")) {
+      return await withTimeout(imageThumbnail(file), THUMBNAIL_TIMEOUT_MS);
+    }
+    if (file.type.startsWith("video/")) {
+      return await withTimeout(videoThumbnail(file), THUMBNAIL_TIMEOUT_MS);
+    }
     return none;
   } catch {
     // Unsupported codec, tainted canvas, OffscreenCanvas unavailable, out of
-    // memory on a huge source — all of it degrades to "no poster".
+    // memory on a huge source, or the timeout above — all of it degrades to
+    // "no poster", and the upload proceeds regardless.
     return none;
   }
 }
+
+/**
+ * Ceiling on poster generation. Generous enough for a large photo on a slow
+ * machine, short enough that a stuck decoder is a brief pause rather than a
+ * send that never happens.
+ */
+const THUMBNAIL_TIMEOUT_MS = 10_000;
 
 async function imageThumbnail(file: Blob): Promise<ThumbnailResult> {
   if (typeof createImageBitmap !== "function") return { thumb: null, dimensions: {} };
