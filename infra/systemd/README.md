@@ -42,6 +42,52 @@ break every scheduled run:
 The passphrase is read from `/home/ubuntu/bliss-backup-key.txt` (0600) at run
 time and never written into the unit file, which is world-readable.
 
+## blisswork-gc-attachments.{service,timer}
+
+Daily reap of chat attachments that were uploaded but never sent, via
+`scripts/gc-attachments.sh`, at 04:00 UTC with a ≤5min jitter.
+
+**Why the job has to exist at all:** a message references its attachments by ids
+embedded in the message body, and bodies are encrypted at rest
+(`messages.body_enc`). The server cannot read a message to learn what it points
+at, so it can never decide "is this blob still reachable?" by inspection.
+Uploads are therefore expiring-by-default (`expires_at = now() +
+MEDIA_UPLOAD_TTL`) and made permanent only when the client commits them after
+the message is accepted. Someone who attaches a 90 MB video and closes the tab
+leaves a row that lapses — and, without this, a blob nothing will ever reference.
+
+**Why 04:00 and not 02:30:** deliberately after the backup. This job DELETES
+data, so the most recent dump should predate it. If the reaper ever removed
+something it shouldn't, there is a backup from before it ran rather than one
+taken afterwards that faithfully records the loss.
+
+```sh
+sudo cp infra/systemd/blisswork-gc-attachments.* /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now blisswork-gc-attachments.timer
+
+GC_DRY_RUN=1 bash scripts/gc-attachments.sh   # report only, delete nothing
+sudo journalctl -u blisswork-gc-attachments.service
+```
+
+Installed 2026-08-07, with the media-sharing feature.
+
+Beyond the two host traps above (snap Docker dependency, explicit `PATH`), one
+more specific to running a container command from a unit:
+
+- The snap Docker CLI **re-parents itself into its own transient scope**
+  (`snap.docker.docker-<uuid>.scope`), so anything `docker compose exec` writes
+  is attributed to that scope, not to the calling unit. `journalctl -u
+  blisswork-gc-attachments.service` showed only "Started" and "Finished" — none
+  of the reaper's own log lines, which is exactly what you want when a nightly
+  run misbehaves. The script now captures the output and echoes it from bash, so
+  the writer is back in the service's cgroup.
+
+| Env | Default | Meaning |
+|---|---|---|
+| `GC_DRY_RUN` | unset | Any value: report what would be reclaimed, delete nothing. |
+| `GC_BATCH_SIZE` | `500` | Rows per pass; the job loops until a short batch. |
+
 ## Off-host copy
 
 The unit runs `scripts/backup-offsite.sh` immediately after a successful local

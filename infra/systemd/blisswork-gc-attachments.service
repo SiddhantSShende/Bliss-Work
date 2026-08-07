@@ -1,0 +1,23 @@
+[Unit]
+Description=BlissWork chat-attachment garbage collection (uploads never sent)
+Documentation=file:///home/ubuntu/BlissWork/Bliss-Work/infra/systemd/README.md
+# The reaper runs inside the messaging-svc container, so the daemon must be up.
+# Docker here is the SNAP — there is no docker.service on this host, and naming
+# it that way makes the unit unstartable ("Unit docker.service not found").
+After=snap.docker.dockerd.service
+Requires=snap.docker.dockerd.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/BlissWork/Bliss-Work
+# systemd's default PATH excludes /snap/bin, so `docker` would not be found.
+Environment=PATH=/snap/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# No secrets here: the binary runs inside messaging-svc and inherits that
+# service's own environment (DB URL, MEDIA_ROOT, at-rest crypto settings), so
+# there is no second copy of that configuration to drift out of sync.
+ExecStart=/home/ubuntu/BlissWork/Bliss-Work/scripts/gc-attachments.sh
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,17 @@
+[Unit]
+Description=Daily BlissWork chat-attachment garbage collection
+
+[Timer]
+# 04:00, deliberately AFTER the 02:30 backup has finished. The ordering is the
+# point: this job DELETES data, so the most recent backup should predate it. If
+# the reaper ever removed something it shouldn't, there is a dump from before it
+# ran rather than one taken afterwards that faithfully records the loss.
+OnCalendar=*-*-* 04:00:00 UTC
+RandomizedDelaySec=300
+# If the host was off at 04:00, run when it comes back rather than skipping the
+# day — expired rows would otherwise accumulate until the next successful run.
+Persistent=true
+Unit=blisswork-gc-attachments.service
+
+[Install]
+WantedBy=timers.target
