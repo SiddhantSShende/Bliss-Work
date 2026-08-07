@@ -258,8 +258,21 @@ jobs:
           output: trivy-fs.sarif
           severity: CRITICAL,HIGH
           ignore-unfixed: true
+      # Uploading SARIF needs code scanning, which on a PRIVATE repo needs a paid
+      # GitHub Code Security licence. Without one this step fails with "Code
+      # scanning is not enabled for this repository" — and because it was
+      # blocking, it failed the whole job, which failed CI, which is what made
+      # Deploy Production and Release Desktop skip. A results-storage feature we
+      # don't have a licence for must not gate shipping.
+      #
+      # The security signal is NOT lost: the blocking table scan below still
+      # fails the build on any CRITICAL. This step only decides whether the
+      # findings also land in the Security tab. Same posture as the semgrep
+      # upload in security-extra.yml. Drop continue-on-error once a Code
+      # Security licence is in place.
       - name: Upload Trivy SARIF
         if: always()
+        continue-on-error: true
         uses: github/codeql-action/upload-sarif@c4dd10e44af883a891fe31ced449bcb4a6728b9b # v3
         with:
           sarif_file: trivy-fs.sarif
