@@ -56,12 +56,16 @@ class FakeAudioContext {
   oscillators: FakeOsc[] = [];
   gains: FakeGain[] = [];
   resumed = 0;
+  scheduledWhileSuspended = false;
 
   constructor() {
     this.state = FakeAudioContext.initialState === "running" ? "running" : "suspended";
     FakeAudioContext.instances.push(this);
   }
   createOscillator() {
+    // Scheduling onto a context that is not running is the v1 bug: it makes a
+    // refused resume look like a working ring.
+    if (this.state !== "running") this.scheduledWhileSuspended = true;
     const o = new FakeOsc();
     this.oscillators.push(o);
     return o;
@@ -132,19 +136,22 @@ describe("createRingtone", () => {
     (window as unknown as { AudioContext: unknown }).AudioContext = FakeAudioContext;
   });
 
-  it("schedules one arpeggio per cycle and keeps looping", async () => {
+  it("rings through a media element — the path that survives an idle tab", async () => {
     const { createRingtone } = await loadRingtone();
     const ring = createRingtone("incoming");
 
     ring.start();
-    // 3 notes × (fundamental + octave partial)
-    expect(ctx().oscillators).toHaveLength(6);
-    expect(ctx().oscillators.every((o) => o.started)).toBe(true);
 
-    vi.advanceTimersByTime(4000); // one cycle
-    expect(ctx().oscillators).toHaveLength(12);
+    expect(FakeAudio.instances).toHaveLength(1);
+    const el = FakeAudio.instances[0]!;
+    expect(el.loop).toBe(true);
+    expect(el.src.startsWith("data:audio/wav;base64,")).toBe(true);
+    expect(el.plays).toBe(1);
+    // Web Audio is the fallback, so it must not even be constructed.
+    expect(FakeAudioContext.instances).toHaveLength(0);
 
     ring.stop();
+    expect(el.paused).toBe(true);
   });
 
   it("is idempotent on start — a second start does not stack a second tone", async () => {
@@ -153,18 +160,37 @@ describe("createRingtone", () => {
 
     ring.start();
     ring.start();
-    expect(ctx().oscillators).toHaveLength(6);
+
+    expect(FakeAudio.instances).toHaveLength(1);
+    expect(FakeAudio.instances[0]!.plays).toBe(1);
+    ring.stop();
+  });
+
+  it("falls back to the Web Audio arpeggio when the element is refused", async () => {
+    FakeAudio.rejectPlay = true;
+    const { createRingtone } = await loadRingtone();
+    const ring = createRingtone("incoming");
+
+    ring.start();
+
+    // 3 notes x (fundamental + octave partial), once the element rejects.
+    await vi.waitFor(() => expect(ctx().oscillators).toHaveLength(6));
+    expect(ctx().oscillators.every((o) => o.started)).toBe(true);
+
+    vi.advanceTimersByTime(4000); // one cycle later, the loop has struck again
+    expect(ctx().oscillators).toHaveLength(12);
 
     ring.stop();
   });
 
-  it("stop() silences the loop, kills scheduled voices and releases the chain", async () => {
+  it("stop() silences the fallback loop and releases the chain", async () => {
+    FakeAudio.rejectPlay = true;
     const { createRingtone } = await loadRingtone();
     const ring = createRingtone("outgoing");
 
     ring.start();
+    await vi.waitFor(() => expect(ctx().oscillators.length).toBeGreaterThan(0));
     const scheduled = ctx().oscillators.length;
-    expect(scheduled).toBeGreaterThan(0);
     const master = ctx().gains[0]!;
 
     ring.stop();
@@ -194,39 +220,38 @@ describe("createRingtone", () => {
   // refused resume looked exactly like a working ring. Nothing may be scheduled
   // until the context actually reports "running".
   it("resumes a suspended context BEFORE scheduling anything", async () => {
+    FakeAudio.rejectPlay = true;
     FakeAudioContext.initialState = "suspended";
     const { createRingtone } = await loadRingtone();
     const ring = createRingtone("incoming");
 
     ring.start();
-    expect(ctx().resumed).toBe(1);
-    expect(ctx().oscillators).toHaveLength(0); // not until the clock is live
+    expect(FakeAudioContext.instances).toHaveLength(0); // nothing synchronous
 
     await vi.waitFor(() => expect(ctx().oscillators).toHaveLength(6));
+    expect(ctx().resumed).toBe(1);
     expect(ctx().state).toBe("running");
+    expect(ctx().scheduledWhileSuspended).toBe(false);
 
     ring.stop();
   });
 
-  it("falls back to an <audio> clip when the browser refuses to resume", async () => {
+  it("reports blocked — rather than ringing silently — when every path is refused", async () => {
+    FakeAudio.rejectPlay = true;
     FakeAudioContext.initialState = "blocked";
     const { createRingtone } = await loadRingtone();
-    const ring = createRingtone("incoming");
+    const onBlocked = vi.fn();
+    const ring = createRingtone("incoming", onBlocked);
 
     ring.start();
-    await vi.waitFor(() => expect(FakeAudio.instances).toHaveLength(1));
 
-    const el = FakeAudio.instances[0]!;
-    expect(el.loop).toBe(true);
-    expect(el.src.startsWith("data:audio/wav;base64,")).toBe(true);
-    expect(el.plays).toBe(1);
+    await vi.waitFor(() => expect(onBlocked).toHaveBeenCalledTimes(1));
     expect(ctx().oscillators).toHaveLength(0);
-
     ring.stop();
-    expect(el.paused).toBe(true);
   });
 
   it("does not start ringing if the call ends while the resume is in flight", async () => {
+    FakeAudio.rejectPlay = true;
     FakeAudioContext.initialState = "suspended";
     const { createRingtone } = await loadRingtone();
     const ring = createRingtone("incoming");
@@ -236,16 +261,17 @@ describe("createRingtone", () => {
     await vi.waitFor(() => expect(ctx().state).toBe("running"));
 
     expect(ctx().oscillators).toHaveLength(0);
-    expect(FakeAudio.instances).toHaveLength(0);
   });
 
-  it("is a silent no-op when the host has no Web Audio", async () => {
+  it("is a silent no-op when the host has neither Web Audio nor media", async () => {
     const { createRingtone } = await loadRingtone(false);
+    delete (window as unknown as { Audio?: unknown }).Audio;
     const ring = createRingtone("incoming");
 
     expect(() => ring.start()).not.toThrow();
     vi.advanceTimersByTime(10_000);
     expect(() => ring.stop()).not.toThrow();
+    (window as unknown as { Audio: unknown }).Audio = FakeAudio;
   });
 });
 

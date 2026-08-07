@@ -183,8 +183,21 @@ type ConversationDTO struct {
 // MessageDTO mirrors the canonical MessageDTO contract. The threading
 // fields (ThreadID, ParentMessageID, IsThreadRoot) are omitempty so legacy
 // /conversations/{id}/messages keeps emitting clean JSON for old clients.
+// Message kinds. 'text' is an ordinary message someone typed; the others are
+// system entries the UI renders differently. The write path accepts only these.
+const (
+	MessageKindText       = "text"
+	MessageKindCallMissed = "call_missed"
+)
+
+// ValidMessageKind reports whether a client-supplied kind is one we accept.
+func ValidMessageKind(kind string) bool {
+	return kind == MessageKindText || kind == MessageKindCallMissed
+}
+
 type MessageDTO struct {
 	ID                string  `json:"id"`
+	Kind              string  `json:"kind,omitempty"`
 	ConversationID    string  `json:"conversationId"`
 	ThreadID          string  `json:"threadId,omitempty"`
 	ParentMessageID   *string `json:"parentMessageId,omitempty"`

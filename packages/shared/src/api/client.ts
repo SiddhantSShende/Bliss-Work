@@ -21,6 +21,7 @@ import {
   InboxPeerDTO,
   InviteDTO,
   MessageDTO,
+  type MessageKind,
   NotificationDTO,
   OrgMembershipDTO,
   ReviewResponse,
@@ -254,11 +255,11 @@ export class ApiClient {
    * Electron utility process (which serializes sends from sticky widgets)
    * can dedupe across windows; otherwise a fresh UUID is generated here.
    */
-  sendMessage(recipientId: string, body: string, clientMsgId?: string) {
+  sendMessage(recipientId: string, body: string, clientMsgId?: string, kind?: MessageKind) {
     return this.req(
       this.cfg.messagingBase,
       "/api/v1/conversations/messages",
-      { method: "POST", body: JSON.stringify({ recipientId, body, clientMsgId: clientMsgId ?? uuid() }) },
+      { method: "POST", body: JSON.stringify({ recipientId, body, clientMsgId: clientMsgId ?? uuid(), kind }) },
       z.object({
         conversationId: z.string(),
         threadId: z.string(),

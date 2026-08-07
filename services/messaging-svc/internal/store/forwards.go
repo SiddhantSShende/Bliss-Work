@@ -20,6 +20,18 @@ const maxForwardDepth = 20
 // zero value is a normal (non-forward) message — SendMessage/Reply pass it.
 type appendOpts struct {
 	forward *forwardInfo
+	// kind is the messages.kind value ("" → 'text'). System entries such as
+	// MessageKindCallMissed set it; it is never taken from raw client input.
+	kind string
+}
+
+// kindArg is the messages.kind value to insert — 'text' unless a system kind
+// was requested, so every existing call site keeps its current behavior.
+func (o appendOpts) kindArg() string {
+	if o.kind == "" {
+		return MessageKindText
+	}
+	return o.kind
 }
 
 // forwardInfo is the provenance ForwardMessage resolves BEFORE cloning, so

@@ -16,7 +16,8 @@ import (
 // and appends a top-level message. Idempotent on (conversation, sender, clientMsgId).
 //
 // "Top-level" = no parentMessageId → a NEW thread is created in the same tx.
-func (s *Store) SendMessage(ctx context.Context, orgID, senderID, recipientID, body, clientMsgID string) (*SendResult, error) {
+// `kind` is a MessageKind* constant ("" → text); the API layer whitelists it.
+func (s *Store) SendMessage(ctx context.Context, orgID, senderID, recipientID, body, clientMsgID, kind string) (*SendResult, error) {
 	if senderID == recipientID {
 		return nil, fmt.Errorf("cannot message self")
 	}
@@ -69,7 +70,7 @@ func (s *Store) SendMessage(ctx context.Context, orgID, senderID, recipientID, b
 	}
 
 	// Top-level send → new thread, this message is the root.
-	return s.appendMessage(ctx, tx, orgID, convID, senderID, recipientID, body, clientMsgID, "", "", appendOpts{})
+	return s.appendMessage(ctx, tx, orgID, convID, senderID, recipientID, body, clientMsgID, "", "", appendOpts{kind: kind})
 }
 
 // Reply appends a message to an existing conversation; the caller must be a member.
@@ -249,11 +250,11 @@ func (s *Store) appendMessage(
 		`INSERT INTO messages
 		   (id, org_id, conversation_id, seq, sender_id, body, body_enc, client_msg_id,
 		    thread_id, parent_message_id, is_thread_root, server_acked_at,
-		    is_forward, forwarded_from_message_id)
-		 VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8, $9, $10, now(), $11, $12)`,
+		    is_forward, forwarded_from_message_id, kind)
+		 VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8, $9, $10, now(), $11, $12, $13)`,
 		msgID, orgID, convID, seq, senderID, bodyEnc, clientMsgID,
 		threadID, parentArg, isThreadRoot,
-		opts.isForwardMsg(), opts.forwardedFromArg())
+		opts.isForwardMsg(), opts.forwardedFromArg(), opts.kindArg())
 	if err != nil {
 		return nil, err
 	}
@@ -296,6 +297,7 @@ func (s *Store) appendMessage(
 		ThreadID:        &threadIDForEvent,
 		ParentMessageID: parentForEvent,
 		IsThreadRoot:    &rootForEvent,
+		Kind:            opts.kind, // empty for ordinary text
 	}
 	if err := insertOutbox(ctx, tx, events.TopicMessaging, convID, evt); err != nil {
 		return nil, err

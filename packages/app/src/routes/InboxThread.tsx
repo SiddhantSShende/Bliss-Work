@@ -122,6 +122,7 @@ function InboxThreadContent({ threadId, me }: { threadId: string; me: UserDTO })
         at: m.createdAt,
         pending: m.id.startsWith("temp:"),
         status: m.status,
+        kind: m.kind,
       })),
     [messages, me.id, me.displayName, header?.peerUsername],
   );

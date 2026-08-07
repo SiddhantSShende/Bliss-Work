@@ -4,7 +4,9 @@ import type { UserDTO } from "@taskboard/shared";
 import { useRuntime } from "./runtime";
 import { useSession } from "../store/session";
 import { CallSession, type CallMedia } from "./callManager";
+import { toast } from "sonner";
 import { createRingtone, primeRingtoneAudio } from "./ringtone";
+import { notifyIncomingCall, notifyMissedCall, primeCallNotifications } from "./callNotify";
 import { qk } from "./queryBridge";
 
 export type CallStatus = "idle" | "outgoing" | "incoming" | "connecting" | "in-call" | "ended";
@@ -76,6 +78,29 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  /** Record a call nobody picked up, so it survives in the conversation instead
+   *  of vanishing with the overlay. Written by the CALLER only — both sides read
+   *  the same thread, and one writer means no duplicate entry. The recipient's
+   *  unread badge, inbox and notification all come free with the message. */
+  const recordMissedCall = useCallback(
+    (peerId: string, media: CallMedia) => {
+      void api
+        .sendMessage(peerId, media === "video" ? "Missed video call" : "Missed voice call", undefined, "call_missed")
+        .then((res) => {
+          // The WS echo of our OWN message is deliberately dropped (the composer
+          // renders those optimistically), and this one never went through the
+          // composer — so refresh the thread ourselves or the caller sees the
+          // entry only after a reload.
+          void qc.invalidateQueries({ queryKey: qk.messages(res.conversationId) });
+          void qc.invalidateQueries({ queryKey: qk.conversations });
+        })
+        .catch(() => {
+          /* best-effort: never let bookkeeping surface as a call error */
+        });
+    },
+    [api, qc],
+  );
+
   /** Caller's display name from the already-loaded directory, if it's there. */
   const cachedName = useCallback(
     (userId: string) => qc.getQueryData<UserDTO[]>(qk.directory)?.find((u) => u.id === userId)?.displayName,
@@ -142,10 +167,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       clearRing();
       ringTimer.current = setTimeout(() => {
         rtc.sendFrame({ type: "call.cancel", toUserId: peerId, callId });
+        recordMissedCall(peerId, media);
         teardown("ended", "No answer");
       }, RING_TIMEOUT_MS);
     },
-    [me, rtc, teardown],
+    [me, rtc, teardown, recordMissedCall],
   );
 
   const accept = useCallback(() => {
@@ -174,13 +200,17 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   }, [rtc, teardown]);
 
   const hangup = useCallback(() => {
-    const { callId, peerId, status } = stateRef.current;
+    const { callId, peerId, status, media } = stateRef.current;
     if (callId && peerId) {
-      if (status === "outgoing") rtc.sendFrame({ type: "call.cancel", toUserId: peerId, callId });
-      else rtc.sendFrame({ type: "call.end", toUserId: peerId, callId });
+      if (status === "outgoing") {
+        // Given up on before the peer answered — from their side that is a
+        // missed call, exactly as if it had rung out.
+        rtc.sendFrame({ type: "call.cancel", toUserId: peerId, callId });
+        recordMissedCall(peerId, media ?? "audio");
+      } else rtc.sendFrame({ type: "call.end", toUserId: peerId, callId });
     }
     teardown("idle");
-  }, [rtc, teardown]);
+  }, [rtc, teardown, recordMissedCall]);
 
   const toggleMic = useCallback(() => {
     const on = sessionRef.current?.toggleMic();
@@ -217,7 +247,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
               camOn: f.media === "video",
             });
             clearRing();
-            ringTimer.current = setTimeout(() => teardown("idle"), RING_TIMEOUT_MS);
+            ringTimer.current = setTimeout(() => {
+              notifyMissedCall(stateRef.current.peerName ?? "Someone");
+              teardown("idle");
+            }, RING_TIMEOUT_MS);
             // Upgrade to the directory display name if the cache was cold —
             // guarded on still ringing the same call when it lands.
             void resolveName(f.fromUserId, f.callId);
@@ -242,7 +275,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             if (f.callId === cur.callId) teardown("ended", "Call declined");
             break;
           case "call.cancel":
-            if (f.callId === (cur.callId ?? incomingRef.current?.callId)) teardown("idle");
+            if (f.callId === (cur.callId ?? incomingRef.current?.callId)) {
+              // Caller hung up before we picked up — a missed call on this side.
+              if (cur.status === "incoming") notifyMissedCall(cur.peerName ?? "Someone");
+              teardown("idle");
+            }
             break;
           case "call.end":
             if (f.callId === cur.callId) teardown("ended", "Call ended");
@@ -265,19 +302,35 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     return off;
   }, [rtc, iceConfig, newSession, teardown, cachedName, resolveName]);
 
-  // Audio ring, driven by call STATUS rather than by the overlay's render so
+  // Ring + notify, driven by call STATUS rather than by the overlay's render so
   // every exit path (accept, decline, cancel, ring timeout, peer unreachable,
-  // unmount) silences it through the effect cleanup — no extra call sites.
+  // unmount) clears both through the effect cleanup — no extra call sites.
   useEffect(() => {
     if (state.status !== "incoming" && state.status !== "outgoing") return;
-    const ring = createRingtone(state.status === "incoming" ? "incoming" : "outgoing");
+    const incoming = state.status === "incoming";
+    const ring = createRingtone(incoming ? "incoming" : "outgoing", () => {
+      // Every audio path refused — say so instead of ringing silently. The
+      // click that dismisses this toast is itself the gesture that unblocks
+      // sound for the rest of the session.
+      if (incoming) toast("Ringtone is muted by your browser", { description: "Click anywhere to allow call sounds." });
+    });
     ring.start();
-    return () => ring.stop();
+    // Only the callee gets a banner; the caller is already looking at the app.
+    const note = incoming ? notifyIncomingCall(state.peerName ?? "Someone", state.media ?? "audio") : undefined;
+    return () => {
+      ring.stop();
+      note?.close();
+    };
+    // peerName is intentionally not a dependency: it can arrive a beat late from
+    // the directory, and re-running would restart the ring from the top.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.status]);
 
-  // Unlock the AudioContext on the first interaction so a call arriving while
-  // the tab sits idle still rings (browsers suspend audio until a gesture).
+  // Unlock audio + ask for notification permission on the first interaction.
+  // Both are refused without a user gesture, and a call arriving at an idle tab
+  // is exactly the case with no recent gesture of its own.
   useEffect(() => primeRingtoneAudio(), []);
+  useEffect(() => primeCallNotifications(), []);
 
   const value = useMemo<CallApi>(
     () => ({ ...state, invite, accept, decline, hangup, toggleMic, toggleCam }),

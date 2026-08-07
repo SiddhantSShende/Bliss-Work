@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 import { motion } from "framer-motion";
-import { MessageSquare, ChevronUp, Loader2 } from "lucide-react";
+import { MessageSquare, ChevronUp, Loader2, PhoneMissed } from "lucide-react";
 import { Avatar } from "@taskboard/ui";
 import type { MessageDTO } from "@taskboard/shared";
 import { clock, groupMessages } from "../lib/chatFormat";
@@ -14,6 +14,8 @@ interface ThreadMsgVisual {
   at?: string;
   pending?: boolean;
   status?: MessageDTO["status"];
+  /** System entries (a missed call) render as a centered notice, not a bubble. */
+  kind?: MessageDTO["kind"];
 }
 
 /**
@@ -123,15 +125,33 @@ export function ThreadView({
           // Guard on a truthy meId so a briefly-missing session id can't
           // right-align the whole thread; received messages default to the left.
           const mine = !!meId && m.senderId === meId;
-          return (
-            <div key={m.id}>
-              {day && (
-                <div className="my-3 flex justify-center">
-                  <span className="rounded-full bg-surface-2 px-3 py-0.5 text-[11px] font-medium text-muted">
-                    {day}
+          const dayChip = day && (
+            <div className="my-3 flex justify-center">
+              <span className="rounded-full bg-surface-2 px-3 py-0.5 text-[11px] font-medium text-muted">{day}</span>
+            </div>
+          );
+
+          // A missed call is a fact about the conversation, not something either
+          // side said — so it sits centered between the bubbles rather than
+          // taking a side. Both members see the same row.
+          if (m.kind === "call_missed") {
+            return (
+              <div key={m.id}>
+                {dayChip}
+                <div className="my-2 flex justify-center">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-2 px-3 py-1 text-[11px] font-medium text-muted ring-1 ring-border/60">
+                    <PhoneMissed size={12} className="text-red-500" />
+                    {mine ? `${m.body} · no answer` : m.body}
+                    <span className="text-muted/70">{clock(m.at)}</span>
                   </span>
                 </div>
-              )}
+              </div>
+            );
+          }
+
+          return (
+            <div key={m.id}>
+              {dayChip}
               <motion.div
                 initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}

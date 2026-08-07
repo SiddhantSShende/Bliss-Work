@@ -110,6 +110,7 @@ export function WsEventBridge() {
                   seq: e.seq,
                   senderId: e.senderId,
                   body: e.body,
+                  kind: e.kind,
                   createdAt: e.occurredAt,
                 });
               return next.sort((a, b) => a.seq - b.seq);

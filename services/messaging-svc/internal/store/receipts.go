@@ -292,7 +292,7 @@ func (s *Store) ListMessages(ctx context.Context, orgID, callerID, convID string
 
 		rows, err := tx.Query(ctx, `
 			SELECT id, conversation_id, thread_id, parent_message_id, is_thread_root,
-			       seq, sender_id, body, body_enc, created_at, sender_dismissed_at
+			       seq, sender_id, body, body_enc, created_at, sender_dismissed_at, kind
 			FROM messages
 			WHERE conversation_id = $1
 			  AND (sender_id <> $2 OR sender_dismissed_at IS NULL)

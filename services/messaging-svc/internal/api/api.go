@@ -269,6 +269,9 @@ type sendReq struct {
 	RecipientID string `json:"recipientId"`
 	Body        string `json:"body"`
 	ClientMsgID string `json:"clientMsgId"`
+	// Optional system kind (e.g. "call_missed"); absent means an ordinary
+	// message. Whitelisted below — clients cannot invent kinds.
+	Kind string `json:"kind"`
 }
 
 func (s *Server) sendMessage(w http.ResponseWriter, r *http.Request) {
@@ -282,7 +285,11 @@ func (s *Server) sendMessage(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "recipientId, body, clientMsgId required")
 		return
 	}
-	res, err := s.store.SendMessage(r.Context(), claims.OrgID, claims.UserID, req.RecipientID, req.Body, req.ClientMsgID)
+	if req.Kind != "" && !store.ValidMessageKind(req.Kind) {
+		writeErr(w, http.StatusBadRequest, "unknown message kind")
+		return
+	}
+	res, err := s.store.SendMessage(r.Context(), claims.OrgID, claims.UserID, req.RecipientID, req.Body, req.ClientMsgID, req.Kind)
 	if err != nil {
 		s.mapErr(w, err)
 		return

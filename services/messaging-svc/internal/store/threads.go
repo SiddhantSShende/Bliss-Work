@@ -285,7 +285,7 @@ func (s *Store) ListThreadMessages(
 
 		rows, err := tx.Query(ctx, `
 			SELECT id, conversation_id, thread_id, parent_message_id, is_thread_root,
-			       seq, sender_id, body, body_enc, created_at, sender_dismissed_at
+			       seq, sender_id, body, body_enc, created_at, sender_dismissed_at, kind
 			FROM messages
 			WHERE thread_id = $1 AND seq < $2
 			  AND (sender_id <> $3 OR sender_dismissed_at IS NULL)
@@ -434,11 +434,17 @@ func scanRawMessage(rows pgx.Rows) (rawMessage, error) {
 		created           time.Time
 		senderDismissedAt *time.Time
 	)
+	var kind string
 	if err := rows.Scan(
 		&r.m.ID, &r.m.ConversationID, &threadID, &parentMsgID, &isThreadRoot,
-		&r.m.Seq, &r.m.SenderID, &bodyPlain, &bodyEnc, &created, &senderDismissedAt,
+		&r.m.Seq, &r.m.SenderID, &bodyPlain, &bodyEnc, &created, &senderDismissedAt, &kind,
 	); err != nil {
 		return rawMessage{}, err
+	}
+	// 'text' is the overwhelming majority; omit it so the wire shape for an
+	// ordinary message is byte-identical to what clients saw before.
+	if kind != MessageKindText {
+		r.m.Kind = kind
 	}
 	if threadID != nil {
 		r.m.ThreadID = *threadID

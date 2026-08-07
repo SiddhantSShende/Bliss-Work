@@ -1,9 +1,18 @@
-/** Call ringtones, synthesized with Web Audio.
+/** Call ringtones, synthesized at runtime.
  *
- *  Deliberately no audio asset: the tone is built from oscillators at runtime,
- *  so the identical code works in the web bundle and in the packaged Electron
- *  renderer (whose CSP is generated from API origins and has no media-src for a
- *  hosted sound), costs nothing in bundle size, and needs no licence.
+ *  Deliberately no audio asset: the tone is generated in code, so the identical
+ *  thing works in the web bundle and in the packaged Electron renderer (whose
+ *  CSP is generated from API origins and has no media-src for a hosted sound),
+ *  costs nothing in bundle size, and needs no licence.
+ *
+ *  ── Why an <audio> element is the PRIMARY path ─────────────────────────────
+ *  Browsers block sound in a document that has no user activation, and a call
+ *  arriving at an idle tab is exactly that. The one thing that survives it is a
+ *  media element that has ALREADY been played once during a real gesture:
+ *  Chrome and Safari track activation per element, so a blessed element may be
+ *  replayed later without a fresh gesture. So we prime one element per voice on
+ *  the user's first interaction (play muted, then pause) and reuse it forever.
+ *  Web Audio remains as the fallback for hosts where that fails.
  *
  *  Two voices:
  *    • "incoming" — a warm bell arpeggio (A4 → C#5 → E5, each with a quiet
@@ -65,21 +74,54 @@ function audioContext(): AudioContext | null {
 export function primeRingtoneAudio(): () => void {
   if (typeof window === "undefined") return () => {};
   const events = ["pointerdown", "pointerup", "keydown", "touchstart", "click"] as const;
+
   const wake = () => {
+    blessElements();
     const ac = audioContext();
-    if (!ac) return off();
-    if (ac.state === "running") return off();
-    void ac
-      .resume()
-      .then(() => {
-        if (ac.state === "running") off();
-      })
-      .catch(() => {});
+    if (ac && ac.state !== "running") void ac.resume().catch(() => {});
+    // Stop listening only once there is something that can actually ring.
+    if (blessed.size === Object.keys(VOICES).length) off();
   };
   const off = () => events.forEach((e) => window.removeEventListener(e, wake));
   events.forEach((e) => window.addEventListener(e, wake, { passive: true }));
   wake(); // the document may already be activated (a click got us here)
   return off;
+}
+
+/** Elements that have been played once under a gesture, keyed by voice. */
+const blessed = new Map<RingKind, HTMLAudioElement>();
+let blessing = false;
+
+/** Play each voice muted and immediately pause it, inside the gesture that got
+ *  us here. That is what marks the element as user-activated; afterwards it can
+ *  be played on an incoming call with no gesture of its own. */
+function blessElements() {
+  if (blessing || typeof Audio === "undefined") return;
+  blessing = true;
+  for (const kind of Object.keys(VOICES) as RingKind[]) {
+    if (blessed.has(kind)) continue;
+    try {
+      const el = new Audio(clipFor(kind));
+      el.loop = true;
+      el.preload = "auto";
+      el.volume = 0;
+      const done = el.play();
+      const bless = () => {
+        el.pause();
+        el.currentTime = 0;
+        el.volume = 1;
+        blessed.set(kind, el);
+      };
+      if (done && typeof done.then === "function") {
+        void done.then(bless).catch(() => {});
+      } else {
+        bless();
+      }
+    } catch {
+      /* no media support — the Web Audio fallback still has a chance */
+    }
+  }
+  blessing = false;
 }
 
 // ── WAV fallback ────────────────────────────────────────────────────────────
@@ -161,8 +203,10 @@ export interface Ringtone {
   stop: () => void;
 }
 
-/** Builds a looping ringtone. One instance drives one call. */
-export function createRingtone(kind: RingKind): Ringtone {
+/** Builds a looping ringtone. One instance drives one call.
+ *  `onBlocked` fires when every path was refused, so the UI can say so rather
+ *  than leaving the user wondering why a call is silent. */
+export function createRingtone(kind: RingKind, onBlocked?: () => void): Ringtone {
   const voice = VOICES[kind];
   let timer: ReturnType<typeof setInterval> | undefined;
   let master: GainNode | undefined;
@@ -217,21 +261,35 @@ export function createRingtone(kind: RingKind): Ringtone {
     }
   };
 
-  /** Last-resort path: loop the pre-rendered clip through an <audio> element. */
-  const playElement = () => {
-    if (stopped || element || typeof Audio === "undefined") return;
+  /** Play through a media element — the blessed one if we have it. */
+  const playElement = (onFail: () => void) => {
+    if (stopped || element || typeof Audio === "undefined") return onFail();
+    let el = blessed.get(kind);
     try {
-      const el = new Audio(clipFor(kind));
-      el.loop = true;
+      if (!el) {
+        el = new Audio(clipFor(kind));
+        el.loop = true;
+      }
       el.volume = 1;
+      el.currentTime = 0;
       element = el;
-      void el.play().catch(() => {
-        // Nothing left to try: the document has never been interacted with.
-        // The call still rings visually; audio is not worth throwing over.
-      });
+      const done = el.play();
+      if (done && typeof done.then === "function") {
+        void done.catch(() => {
+          element = undefined;
+          onFail();
+        });
+      }
     } catch {
       element = undefined;
+      onFail();
     }
+  };
+
+  /** Every path refused. The call still rings visually — never throw over it. */
+  const giveUp = () => {
+    if (stopped) return;
+    onBlocked?.();
   };
 
   /** Schedules the looping arpeggio on the (now running) context. */
@@ -247,25 +305,24 @@ export function createRingtone(kind: RingKind): Ringtone {
     timer = setInterval(cycle, voice.cycle * 1000);
   };
 
+  /** Web Audio: only ever schedule onto a context that is really running — a
+   *  refused resume must be detected, not scheduled over and hoped about. */
+  const playWebAudio = (onFail: () => void) => {
+    const ac = audioContext();
+    if (!ac) return onFail();
+    if (ac.state === "running") return scheduleOn(ac);
+    void ac
+      .resume()
+      .then(() => (ac.state === "running" ? scheduleOn(ac) : onFail()))
+      .catch(onFail);
+  };
+
   const start = () => {
     if (timer || element) return;
     stopped = false;
-    const ac = audioContext();
-    if (!ac) return playElement();
-
-    if (ac.state === "running") {
-      scheduleOn(ac);
-      return;
-    }
-
-    // Suspended: the first version scheduled anyway and hoped the resume landed,
-    // so a refused resume was indistinguishable from a working ring — silence
-    // with nothing to fall back to. Resume FIRST and only schedule once the
-    // context is really running; otherwise hand off to the element.
-    void ac
-      .resume()
-      .then(() => (ac.state === "running" ? scheduleOn(ac) : playElement()))
-      .catch(() => playElement());
+    // Element first: it is the only path that survives a document with no
+    // recent gesture, provided it was blessed at login. Web Audio second.
+    playElement(() => playWebAudio(giveUp));
   };
 
   const stop = () => {
@@ -277,7 +334,10 @@ export function createRingtone(kind: RingKind): Ringtone {
     if (element) {
       try {
         element.pause();
-        element.src = "";
+        element.currentTime = 0;
+        // A blessed element is kept (and stays blessed) for the next call; only
+        // an ad-hoc one is released.
+        if (blessed.get(kind) !== element) element.src = "";
       } catch {
         /* already released */
       }

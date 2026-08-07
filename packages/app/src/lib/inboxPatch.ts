@@ -83,6 +83,7 @@ export function patchThreadOnMessage(qc: QueryClient, e: MessageCreated): void {
       seq: e.seq,
       senderId: e.senderId,
       body: e.body,
+      kind: e.kind,
       createdAt: e.occurredAt,
     };
     const page0 = appendMessage(prev.pages[0] ?? [], msg);

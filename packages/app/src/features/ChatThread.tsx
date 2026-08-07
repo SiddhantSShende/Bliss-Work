@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Send, MessageSquare, Ban, Forward } from "lucide-react";
+import { Send, MessageSquare, Ban, Forward, PhoneMissed } from "lucide-react";
 import { Avatar, Button } from "@taskboard/ui";
 import { clock, groupMessages } from "../lib/chatFormat";
 
@@ -11,6 +11,8 @@ export interface ThreadMessage {
   body: string;
   at?: string;
   pending?: boolean;
+  /** System entries (a missed call) render as a centered notice, not a bubble. */
+  kind?: "text" | "call_missed";
 }
 
 /** Presentational chat thread (bubbles + composer). Reused by DMs and channels. */
@@ -97,13 +99,33 @@ export function ChatThread({
             // never treat a message as "mine" (which would right-align the whole
             // thread). A received message must default to the left.
             const mine = !!meId && m.senderId === meId;
+            const dayChip = day && (
+              <div className="my-3 flex justify-center">
+                <span className="rounded-full bg-surface-2 px-3 py-0.5 text-[11px] font-medium text-muted">{day}</span>
+              </div>
+            );
+
+            // A missed call is a fact about the conversation, not something
+            // either side said — centered, no bubble, no forward action. Both
+            // members see the same row; only the caller is told "no answer".
+            if (m.kind === "call_missed") {
+              return (
+                <div key={m.id}>
+                  {dayChip}
+                  <div className="my-2 flex justify-center">
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-2 px-3 py-1 text-[11px] font-medium text-muted ring-1 ring-border/60">
+                      <PhoneMissed size={12} className="text-red-500" />
+                      {mine ? `${m.body} · no answer` : m.body}
+                      <span className="text-muted/70">{clock(m.at)}</span>
+                    </span>
+                  </div>
+                </div>
+              );
+            }
+
             return (
               <div key={m.id}>
-                {day && (
-                  <div className="my-3 flex justify-center">
-                    <span className="rounded-full bg-surface-2 px-3 py-0.5 text-[11px] font-medium text-muted">{day}</span>
-                  </div>
-                )}
+                {dayChip}
                 <motion.div
                   initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}

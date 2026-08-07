@@ -58,6 +58,14 @@ const chatSticky = new ChatStickyManager();
 process.on("uncaughtException", (err) => console.error("[main] uncaughtException", err));
 process.on("unhandledRejection", (reason) => console.error("[main] unhandledRejection", reason));
 
+// Chromium refuses to play audio in a document that has never been clicked, so
+// an incoming-call ringtone can be silent in a window the user has not touched
+// since launch. That policy exists to stop hostile PAGES autoplaying at you; in
+// a desktop app that only ever loads our own origin there is nothing to defend
+// against, and a call that rings silently is a real bug. Must be set before
+// `ready` — Chromium reads its command line during startup.
+app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
+
 // Single-instance: focus existing + forward deep-link.
 if (!app.requestSingleInstanceLock()) {
   app.quit();

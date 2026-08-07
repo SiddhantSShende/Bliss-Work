@@ -25,10 +25,24 @@ vi.mock("./ringtone", () => ({
 // The rtc transport CallProvider subscribes to, captured so tests can push
 // control frames the way ws-gateway would.
 const rtc = vi.hoisted(() => ({ emit: undefined as ((f: unknown) => void) | undefined }));
+const sent = vi.hoisted(() => ({ calls: [] as unknown[][] }));
+
+vi.mock("./callNotify", () => ({
+  primeCallNotifications: () => () => {},
+  notifyIncomingCall: () => ({ close: () => {} }),
+  notifyMissedCall: () => {},
+}));
 
 vi.mock("./runtime", () => ({
   useRuntime: () => ({
-    api: { directory: () => Promise.resolve([]), turnCredentials: () => Promise.resolve({ iceServers: [] }) },
+    api: {
+      directory: () => Promise.resolve([]),
+      turnCredentials: () => Promise.resolve({ iceServers: [] }),
+      sendMessage: (...args: unknown[]) => {
+        sent.calls.push(args);
+        return Promise.resolve({ conversationId: "c", threadId: "t", messageId: "m", seq: 1 });
+      },
+    },
     rtc: {
       sendFrame: () => {},
       onControl: (cb: (f: unknown) => void) => {
@@ -66,6 +80,7 @@ describe("CallProvider ringing", () => {
   beforeEach(() => {
     started.length = 0;
     stopped.length = 0;
+    sent.calls.length = 0;
   });
   afterEach(() => vi.useRealTimers());
 
@@ -86,5 +101,17 @@ describe("CallProvider ringing", () => {
     fire({ type: "call.cancel", fromUserId: FROM, callId: CALL_ID } as unknown as ControlFrame);
 
     expect(stopped).toEqual(["incoming"]);
+  });
+
+  // The callee must NOT also write one, or every unanswered call lands in the
+  // thread twice.
+  it("does not record a missed call on the receiving side", () => {
+    const { ui, fire } = harness();
+    render(ui);
+
+    fire(INVITE);
+    fire({ type: "call.cancel", fromUserId: FROM, callId: CALL_ID } as unknown as ControlFrame);
+
+    expect(sent.calls).toHaveLength(0);
   });
 });

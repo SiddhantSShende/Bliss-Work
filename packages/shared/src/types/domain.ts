@@ -62,6 +62,15 @@ export type InviteDTO = z.infer<typeof InviteDTO>;
 export const MessageStatus = z.enum(["PENDING", "SENT", "DELIVERED", "SEEN"]);
 export type MessageStatus = z.infer<typeof MessageStatus>;
 
+/**
+ * What a message IS, as opposed to what it says. "text" is something a person
+ * typed; "call_missed" is a system entry the app writes when a call rings out,
+ * rendered as a centered notice rather than a chat bubble. Absent on the wire
+ * for ordinary text, so old payloads parse unchanged.
+ */
+export const MessageKind = z.enum(["text", "call_missed"]);
+export type MessageKind = z.infer<typeof MessageKind>;
+
 export const MessageDTO = z.object({
   id: z.string().uuid(),
   conversationId: z.string().uuid(),
@@ -72,6 +81,8 @@ export const MessageDTO = z.object({
   senderId: z.string().uuid(),
   body: z.string(),
   createdAt: z.string(),
+  /** System entries (e.g. a missed call). Absent = ordinary text. */
+  kind: MessageKind.optional(),
   /** Set only on the sender's own bubbles. */
   status: MessageStatus.optional(),
   /** Set when the sender has dismissed (sender_dismissed_at IS NOT NULL). */

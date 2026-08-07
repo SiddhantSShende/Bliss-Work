@@ -2,6 +2,7 @@
  *  server→client WS frames; Go/Python structs mirror it. Conventions: `orgId`
  *  tenant, `eventId` (UUIDv7) dedup, discrete per-transition types, JSON. */
 import { z } from "zod";
+import { MessageKind } from "./domain";
 
 // ── Kafka topics ────────────────────────────────────────────────────────────
 export const Topics = {
@@ -73,6 +74,8 @@ export const MessageCreated = z.object({
   parentMessageId: z.string().uuid().nullable().optional(),
   /** True when this message is the root of a new thread. */
   isThreadRoot: z.boolean().optional(),
+  /** System entries (e.g. a missed call) rather than typed text. Absent = text. */
+  kind: MessageKind.optional(),
 });
 
 export const ConversationIgnored = z.object({

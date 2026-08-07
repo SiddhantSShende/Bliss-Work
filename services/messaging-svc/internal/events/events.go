@@ -47,6 +47,9 @@ type MessageCreated struct {
 	ThreadID        *string `json:"threadId,omitempty"`
 	ParentMessageID *string `json:"parentMessageId,omitempty"`
 	IsThreadRoot    *bool   `json:"isThreadRoot,omitempty"`
+	// Kind is omitted for ordinary text so pre-existing consumers see exactly
+	// the JSON they saw before; set for system entries such as "call_missed".
+	Kind string `json:"kind,omitempty"`
 }
 
 // ConversationIgnored is emitted when a participant ignores (hides) a conversation
