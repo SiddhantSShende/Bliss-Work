@@ -2,6 +2,33 @@ import type { ClientFrame } from "@taskboard/shared";
 
 export type CallMedia = "audio" | "video";
 
+/**
+ * Microphone capture constraints.
+ *
+ * `audio: true` alone leaves all three of these to the user agent's discretion,
+ * and "whatever the UA felt like" is not a spec guarantee — it varies by
+ * browser, by Electron version, and by whether the OS driver is already doing
+ * some of it. That produced calls with audible background noise: room tone and
+ * keyboard clatter carried through untouched, and worse, the peer's voice
+ * leaving the speakers and re-entering the mic to be sent back as echo.
+ *
+ *   echoCancellation — the big one for anyone not on headphones. Without it,
+ *     speaker output loops back through the mic; mild cases sound like a noisy
+ *     background, bad ones howl.
+ *   noiseSuppression — removes steady-state room noise (fans, traffic, hiss).
+ *   autoGainControl  — levels a quiet or over-hot mic instead of letting it
+ *     hiss at high gain or clip.
+ *
+ * Requested as plain booleans rather than `{ ideal: true }` so a device that
+ * genuinely cannot do them still yields a track instead of failing the call —
+ * these are optional by nature, and a call with noise beats no call.
+ */
+const AUDIO_CONSTRAINTS: MediaTrackConstraints = {
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: true,
+};
+
 export interface CallSessionOpts {
   callId: string;
   peerId: string;
@@ -73,7 +100,10 @@ export class CallSession {
 
   private async acquire(): Promise<void> {
     if (this.local) return;
-    this.local = await navigator.mediaDevices.getUserMedia({ audio: true, video: this.o.media === "video" });
+    this.local = await navigator.mediaDevices.getUserMedia({
+      audio: AUDIO_CONSTRAINTS,
+      video: this.o.media === "video",
+    });
     for (const track of this.local.getTracks()) this.pc.addTrack(track, this.local);
   }
 

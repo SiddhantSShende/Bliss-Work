@@ -16,6 +16,9 @@ import { CallSession } from "./callManager";
 
 type SignalingState = "stable" | "have-local-offer" | "have-remote-offer" | "closed";
 
+/** The mocked mic, so tests can assert what was requested of it. */
+let getUserMedia: ReturnType<typeof vi.fn>;
+
 /** Minimal RTCPeerConnection that enforces the real state machine. */
 class FakePC {
   signalingState: SignalingState = "stable";
@@ -117,17 +120,15 @@ beforeEach(() => {
       return [];
     }
   });
-  vi.stubGlobal("navigator", {
-    mediaDevices: {
-      // Deliberately slow, like a real permission prompt — this is the window
-      // in which a second frame used to slip through.
-      getUserMedia: async () => {
-        await tick();
-        await tick();
-        return { getTracks: () => [{ kind: "audio", stop: vi.fn(), enabled: true }] };
-      },
-    },
+  // Deliberately slow, like a real permission prompt — this is the window in
+  // which a second frame used to slip through. Recorded so the audio
+  // constraints can be asserted.
+  getUserMedia = vi.fn(async () => {
+    await tick();
+    await tick();
+    return { getTracks: () => [{ kind: "audio", stop: vi.fn(), enabled: true }] };
   });
+  vi.stubGlobal("navigator", { mediaDevices: { getUserMedia } });
 });
 
 describe("CallSession signaling", () => {
@@ -182,5 +183,38 @@ describe("CallSession signaling", () => {
     await session.startCaller();
     await session.onAnswer("answer-sdp");
     await expect(session.onAnswer("answer-sdp")).resolves.toBeUndefined();
+  });
+});
+
+describe("microphone capture", () => {
+  // Regression guard. `audio: true` leaves echo cancellation, noise suppression
+  // and gain control to the user agent's discretion, which varies by browser and
+  // by Electron version. That shipped calls with audible room noise and, without
+  // echo cancellation, the peer's own voice looping back through the speakers.
+  it("requests echo cancellation, noise suppression and gain control", async () => {
+    const { session } = makeSession();
+    await session.onOffer("offer-sdp");
+
+    expect(getUserMedia).toHaveBeenCalled();
+    const constraints = getUserMedia.mock.calls[0]?.[0] as MediaStreamConstraints;
+    expect(constraints.audio).toMatchObject({
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+    });
+  });
+
+  it("captures the mic only once per session", async () => {
+    // A second capture would mix two copies of the room into the call.
+    const { session } = makeSession();
+    await Promise.all([session.onOffer("offer-sdp"), session.onOffer("offer-sdp")]);
+    expect(getUserMedia).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not request the camera for an audio call", async () => {
+    const { session } = makeSession();
+    await session.onOffer("offer-sdp");
+    const constraints = getUserMedia.mock.calls[0]?.[0] as MediaStreamConstraints;
+    expect(constraints.video).toBe(false);
   });
 });
