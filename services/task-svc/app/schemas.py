@@ -137,6 +137,44 @@ class TaskExportRow(BaseModel):
     reviewRating: int | None = None
 
 
+# ── Availability roster ───────────────────────────────────────────────────────
+# Counts only: the authoritative member list lives in auth-svc (/auth/directory),
+# and this service's user_projection is a partial `user.created`-only mirror. The
+# client joins these counts onto the directory it already caches and treats a
+# user absent from `counts` as 0/0 — so a new hire with no task history is
+# available immediately.
+class AvailabilityCount(BaseModel):
+    userId: str
+    # >0 ⇒ NOT available. An unacknowledged allocation is not committed work, so
+    # only ACKNOWLEDGED consumes availability.
+    acknowledged: int
+    # SENT rows — surfaced as the "n pending, unacked" hint, never a blocker.
+    pending: int
+
+
+class AvailabilityDTO(BaseModel):
+    counts: list[AvailabilityCount]
+    # Users an org admin removed from the roster. An ORGANIZATIONAL filter, not
+    # an access control — these ids are already public via the directory, and the
+    # roster is assembled client-side so the set has to ship to every member.
+    hiddenUserIds: list[str]
+    # Caller holds org_admin → the client renders the hide / unhide affordances.
+    canManage: bool
+
+
+class HideUserRequest(BaseModel):
+    userId: str
+
+    @field_validator("userId")
+    @classmethod
+    def _user_id_is_uuid(cls, v: str) -> str:
+        try:
+            uuid.UUID(v)
+        except (ValueError, AttributeError) as exc:
+            raise ValueError("userId must be a valid UUID") from exc
+        return v
+
+
 def actions_for(status: str) -> list[TaskActionT]:
     if status == "SENT":
         return ["ACKNOWLEDGE", "IGNORE"]

@@ -162,3 +162,19 @@ async def require_principal(authorization: str | None = Header(default=None)) ->
 
 
 PrincipalDep = Depends(require_principal)
+
+
+def require_org_admin(principal: Principal = PrincipalDep) -> Principal:
+    """Gate a route on the org_admin role carried in the access-token claims.
+
+    Mirrors auth-svc/app/security/auth_dep.py:require_org_admin. Roles are minted
+    into the JWT (auth-svc security/keys.py:mint_access_token), so a role change
+    only takes effect once the ~15-min access token refreshes — acceptable for
+    roster curation, NOT for anything security-critical.
+    """
+    if "org_admin" not in principal.roles:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="org_admin role required")
+    return principal
+
+
+OrgAdminDep = Depends(require_org_admin)
