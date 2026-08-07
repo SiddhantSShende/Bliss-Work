@@ -2,7 +2,7 @@
   "name": "task-board",
   "version": "0.1.0",
   "private": true,
-  "description": "Task-Board — enterprise collaboration platform (messaging + tasks + desktop sticky widgets)",
+  "description": "Task-Board \u2014 enterprise collaboration platform (messaging + tasks + desktop sticky widgets)",
   "homepage": "https://blisswork.rnrtechs.com",
   "engines": {
     "node": ">=20"
@@ -44,6 +44,7 @@
   },
   "overrides": {
     "vite": "6.4.3",
-    "uuid": "^11.1.1"
+    "uuid": "^11.1.1",
+    "js-yaml": "^4.3.1"
   }
 }
