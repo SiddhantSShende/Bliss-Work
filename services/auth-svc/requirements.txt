@@ -16,9 +16,9 @@ python-slugify==8.0.4
 slowapi==0.1.9
 redis==5.2.1
 prometheus-fastapi-instrumentator==8.0.2
-opentelemetry-sdk==1.29.0
-opentelemetry-exporter-otlp-proto-grpc==1.29.0
-opentelemetry-instrumentation-fastapi==0.50b0
-opentelemetry-instrumentation-sqlalchemy==0.50b0
-opentelemetry-instrumentation-httpx==0.50b0
-opentelemetry-instrumentation-asyncpg==0.50b0
+opentelemetry-sdk==1.44.0
+opentelemetry-exporter-otlp-proto-grpc==1.44.0
+opentelemetry-instrumentation-fastapi==0.65b0
+opentelemetry-instrumentation-sqlalchemy==0.65b0
+opentelemetry-instrumentation-httpx==0.65b0
+opentelemetry-instrumentation-asyncpg==0.65b0
