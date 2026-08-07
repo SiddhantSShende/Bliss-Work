@@ -50,6 +50,7 @@ DECLARE
         'thread_members',
         'inbox_items',
         'message_forwards',
+        'attachments',
         'org_keys',
         'user_projection'
     ];

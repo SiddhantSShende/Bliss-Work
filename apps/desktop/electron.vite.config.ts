@@ -52,12 +52,18 @@ function cspPlugin(isProd: boolean, env: Record<string, string | undefined>) {
         // origin is irrelevant here but harmless, and keeping one list keeps the
         // two directives from drifting apart.
         const img = [...origins].filter((o) => o.startsWith("http")).sort().join(" ");
+        // Video and audio attachments stream from the SAME API origins as
+        // images. media-src has no fallback to img-src — it falls back to
+        // default-src ('self') — so without its own directive every <video> in
+        // a chat is blocked with a console-only violation and no UI signal.
+        const media = img;
         // replaceAll, not replace: the explanatory comment above the meta tag
-        // names both placeholders, so a first-match-only replace would patch the
+        // names the placeholders, so a first-match-only replace would patch the
         // comment and leave the actual directive untouched.
         return html
           .replaceAll("%CSP_CONNECT_SRC%", connect)
-          .replaceAll("%CSP_IMG_SRC%", img);
+          .replaceAll("%CSP_IMG_SRC%", img)
+          .replaceAll("%CSP_MEDIA_SRC%", media);
       },
     },
   };

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -397,16 +398,41 @@ func (s *Store) DismissMessage(ctx context.Context, orgID, callerID, messageID s
 	return tx.Commit(ctx)
 }
 
+// envelopeSentinel (U+001F, Unit Separator) marks the boundary between the
+// human-readable prefix of a structured message body and its machine-readable
+// JSON payload. The clients encode file offers, media attachments and shared
+// locations this way (see packages/app/src/lib/chatEnvelope.ts) so that
+// structured messages need no schema change and stay encrypted with the body.
+const envelopeSentinel = ''
+
 // truncatePreview produces the per-thread subject preview shown in the inbox
 // list. Strips newlines and collapses whitespace so the preview is one line.
+//
+// Two subtleties, both of which used to be bugs:
+//
+//  1. Structured bodies carry a JSON payload after a U+001F sentinel. Only the
+//     readable prefix belongs in a preview — otherwise the inbox row reads
+//     `📎 photo.jpg · 2.1 MB␟{"v":2,"kind":"media","items":[{"id":"018f…`.
+//  2. previewLen is a BYTE budget, and the readable prefixes start with a
+//     4-byte emoji. Slicing bytes can cut a rune in half, producing invalid
+//     UTF-8 that survives encryption and comes back as U+FFFD. Truncate on
+//     rune boundaries instead.
 func truncatePreview(body string) string {
+	if i := strings.IndexRune(body, envelopeSentinel); i >= 0 {
+		body = body[:i]
+	}
 	clean := strings.ReplaceAll(body, "\r", " ")
 	clean = strings.ReplaceAll(clean, "\n", " ")
 	clean = strings.Join(strings.Fields(clean), " ")
-	if len(clean) > previewLen {
-		return clean[:previewLen]
+	if len(clean) <= previewLen {
+		return clean
 	}
-	return clean
+	// Walk back to the last rune boundary at or before the byte budget.
+	cut := previewLen
+	for cut > 0 && !utf8.RuneStart(clean[cut]) {
+		cut--
+	}
+	return clean[:cut]
 }
 
 // rawMessage holds one message row's columns BEFORE the body is decrypted. The

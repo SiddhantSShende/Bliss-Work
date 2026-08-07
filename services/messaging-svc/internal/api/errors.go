@@ -31,6 +31,7 @@ const (
 	CodeConflict           ErrorCode = "conflict"
 	CodeValidationError    ErrorCode = "validation_error"
 	CodeRateLimited        ErrorCode = "rate_limited"
+	CodePayloadTooLarge    ErrorCode = "payload_too_large"
 	CodeInternalError      ErrorCode = "internal_error"
 	CodeServiceUnavailable ErrorCode = "service_unavailable"
 	CodeGatewayTimeout     ErrorCode = "gateway_timeout"
@@ -78,6 +79,8 @@ func httpStatusToCode(status int) ErrorCode {
 		return CodeValidationError
 	case status == http.StatusTooManyRequests:
 		return CodeRateLimited
+	case status == http.StatusRequestEntityTooLarge:
+		return CodePayloadTooLarge
 	case status == http.StatusGatewayTimeout:
 		return CodeGatewayTimeout
 	case status == http.StatusServiceUnavailable:
@@ -94,6 +97,10 @@ func mapStoreError(err error) (int, ErrorCode, string) {
 	switch {
 	case errors.Is(err, store.ErrForbidden):
 		return http.StatusForbidden, CodeForbidden, "forbidden"
+	case errors.Is(err, store.ErrNotFound):
+		return http.StatusNotFound, CodeNotFound, "not found"
+	case errors.Is(err, store.ErrQuotaExceeded):
+		return http.StatusRequestEntityTooLarge, CodePayloadTooLarge, "upload quota exceeded"
 	case errors.Is(err, pgx.ErrNoRows):
 		return http.StatusNotFound, CodeNotFound, "not found"
 	case errors.Is(err, context.Canceled):

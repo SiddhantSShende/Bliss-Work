@@ -15,9 +15,11 @@ import (
 
 	"github.com/task-board/messaging-svc/internal/api"
 	"github.com/task-board/messaging-svc/internal/auth"
+	"github.com/task-board/messaging-svc/internal/blob"
 	"github.com/task-board/messaging-svc/internal/config"
 	"github.com/task-board/messaging-svc/internal/crypto"
 	"github.com/task-board/messaging-svc/internal/kafka"
+	"github.com/task-board/messaging-svc/internal/media"
 	"github.com/task-board/messaging-svc/internal/store"
 	"github.com/task-board/messaging-svc/internal/tracing"
 )
@@ -98,6 +100,27 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Attachment storage. New() creates the directory tree and proves the volume
+	// is writable now, so a misconfigured or read-only mount fails at boot
+	// rather than on a user's first upload.
+	blobs, err := blob.New(cfg.Media.Root)
+	if err != nil {
+		log.Error("media blob store init failed", "err", err, "root", cfg.Media.Root)
+		os.Exit(1)
+	}
+
+	// Signer for attachment download URLs. config.Load already rejects a short
+	// or missing MEDIA_URL_SECRET; this is the second, local assertion.
+	signer, err := media.NewSigner(cfg.Media.URLSecret)
+	if err != nil {
+		log.Error("media url signer init failed", "err", err)
+		os.Exit(1)
+	}
+	if cfg.Maps.APIKey == "" {
+		log.Info("static map thumbnails disabled (MAPS_STATIC_API_KEY unset); " +
+			"shared locations will render as a coordinates card")
+	}
+
 	// Background workers.
 	poller := kafka.NewOutboxPoller(st, cfg.KafkaBrokers, log)
 	go poller.Run(rootCtx)
@@ -113,7 +136,9 @@ func main() {
 	// Wrap the root handler so every request is a server span and incoming W3C
 	// tracecontext headers are extracted. When tracing is disabled the global
 	// no-op provider makes this effectively free.
-	handler := otelhttp.NewHandler(api.NewServer(st, verifier, log).Router(cfg.WebOrigin), "messaging-svc")
+	handler := otelhttp.NewHandler(
+		api.NewServer(st, verifier, log, blobs, signer, cfg.Media, cfg.Maps).Router(cfg.WebOrigin),
+		"messaging-svc")
 
 	srv := &http.Server{
 		Addr:              "0.0.0.0:" + cfg.Port,

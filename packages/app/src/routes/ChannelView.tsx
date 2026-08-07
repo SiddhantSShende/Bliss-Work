@@ -8,6 +8,7 @@ import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
 import { ChatThread } from "../features/ChatThread";
+import { useChatMedia } from "../features/useChatMedia";
 
 export function ChannelView() {
   const { channelId = "" } = useParams();
@@ -73,6 +74,17 @@ export function ChannelView() {
     },
   });
 
+  // Declared before the early return so the hook order stays stable while a
+  // channel is briefly missing. No p2pFallback: WebRTC transfers are 1:1 and
+  // have no channel fanout, so oversized files are refused rather than silently
+  // delivered to one arbitrary member.
+  const media = useChatMedia({
+    scope: "channel",
+    scopeId: channelId,
+    meId: me.id,
+    send: (body) => send.mutate(body),
+  });
+
   if (!channel)
     return (
       <div className="flex h-full items-center justify-center">
@@ -128,7 +140,15 @@ export function ChannelView() {
         onSend={(t) => send.mutate(t)}
         showSenderNames
         placeholder={`Message #${channel.name}…`}
+        renderBody={media.renderBody}
+        onAttach={media.onAttach}
+        onShareLocation={media.onShareLocation}
+        onPaste={media.onPaste}
+        dropzone={media.dropzone}
+        dragging={media.dragging}
+        overlay={media.overlay}
       />
+      <input {...media.fileInputProps} />
     </div>
   );
 }

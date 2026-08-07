@@ -10,6 +10,7 @@ import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
 import { ChatThread } from "../features/ChatThread";
 import { ForwardDialog } from "../features/ForwardDialog";
+import { useChatMedia } from "../features/useChatMedia";
 import { useChatTyping } from "../lib/useChatTyping";
 import { useCall } from "../lib/useCall";
 
@@ -89,6 +90,19 @@ export function DMView() {
     },
     onError: () =>
       toast.error("Couldn't update block", { description: "Please try again." }),
+  });
+
+  // Declared before the early return below so the hook order never changes
+  // when a conversation is briefly missing mid-navigation.
+  //
+  // No p2pFallback here: the peer-to-peer path posts its offer through
+  // replyToThread, and this surface works in conversations rather than threads.
+  // Files over the server limit are refused with a clear message instead.
+  const media = useChatMedia({
+    scope: "conversation",
+    scopeId: conversationId,
+    meId: me.id,
+    send: (body) => reply.mutate(body),
   });
 
   if (!conv)
@@ -180,7 +194,15 @@ export function DMView() {
           const msg = messages.find((m) => m.id === id);
           setForwardMsg({ id, body: msg?.body ?? "" });
         }}
+        renderBody={media.renderBody}
+        onAttach={media.onAttach}
+        onShareLocation={media.onShareLocation}
+        onPaste={media.onPaste}
+        dropzone={media.dropzone}
+        dragging={media.dragging}
+        overlay={media.overlay}
       />
+      <input {...media.fileInputProps} />
       <ForwardDialog
         open={!!forwardMsg}
         onClose={() => setForwardMsg(null)}

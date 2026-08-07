@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo } from "react";
 import { useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { X } from "lucide-react";
@@ -12,9 +12,8 @@ import { reconcileOptimistic } from "../lib/threadPagination";
 import { ThreadView } from "../features/ThreadView";
 import { Composer } from "../features/Composer";
 import { PinButton } from "../features/PinButton";
-import { FileAttachmentBubble } from "../features/FileAttachmentBubble";
+import { useChatMedia } from "../features/useChatMedia";
 import { useFileTransfers } from "../lib/fileTransfer";
-import { parseFileOffer } from "../lib/fileOffer";
 
 /**
  * Main pane content for /app/inbox/thread/:threadId.
@@ -42,7 +41,6 @@ function InboxThreadContent({ threadId, me }: { threadId: string; me: UserDTO })
   const { api } = useRuntime();
   const qc = useQueryClient();
   const ft = useFileTransfers();
-  const fileInput = useRef<HTMLInputElement>(null);
 
   const { data: header } = useQuery({
     queryKey: qk.thread(threadId),
@@ -127,33 +125,19 @@ function InboxThreadContent({ threadId, me }: { threadId: string; me: UserDTO })
     [messages, me.id, me.displayName, header?.peerUsername],
   );
 
-  // A file-offer message renders as a transfer bubble instead of plain text.
-  const renderBody = (m: { senderId: string; body: string }) => {
-    const env = parseFileOffer(m.body);
-    if (!env) return null;
-    const mine = m.senderId === me.id;
-    const state = ft.stateOf(env.offerId) ?? { kind: "OFFERED" as const };
-    return (
-      <FileAttachmentBubble
-        mine={mine}
-        fileName={env.name}
-        fileSize={env.size}
-        state={state}
-        onAccept={!mine ? () => ft.accept(env) : undefined}
-        onDecline={!mine ? () => ft.decline(env, m.senderId) : undefined}
-        onCancel={() => ft.cancel(env.offerId)}
-      />
-    );
-  };
-
-  const onPickFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (file && header) void ft.send(file, threadId, header.peerId);
-  };
+  // Attachments, shared locations and legacy peer-to-peer file offers all
+  // render through one hook shared with the DM and channel surfaces.
+  const media = useChatMedia({
+    scope: "thread",
+    scopeId: threadId,
+    meId: me.id,
+    send: (body) => sendMut.mutate(body),
+    // 1:1 surface, so files over the server limit can still go peer-to-peer.
+    p2pFallback: header ? (file) => void ft.send(file, threadId, header.peerId) : undefined,
+  });
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col" {...media.dropzone}>
       {/* Thread header */}
       <div className="flex items-center justify-between gap-3 border-b border-border/60 px-4 py-3">
         <div className="flex min-w-0 items-center gap-2">
@@ -193,14 +177,18 @@ function InboxThreadContent({ threadId, me }: { threadId: string; me: UserDTO })
         hasMore={!!msgQuery.hasNextPage}
         onLoadMore={() => void msgQuery.fetchNextPage()}
         isFetchingPrev={msgQuery.isFetchingNextPage}
-        renderBody={renderBody}
+        renderBody={media.renderBody}
       />
 
       <Composer
         onSend={(text) => sendMut.mutate(text)}
-        onAttach={ft.available ? () => fileInput.current?.click() : undefined}
+        onAttach={media.onAttach}
+        onShareLocation={media.onShareLocation}
+        onPaste={media.onPaste}
+        dragging={media.dragging}
       />
-      <input ref={fileInput} type="file" hidden onChange={onPickFile} />
+      <input {...media.fileInputProps} />
+      {media.overlay}
     </div>
   );
 }

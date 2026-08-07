@@ -61,6 +61,31 @@
 		@downloads path /downloads /downloads/*
 		reverse_proxy @downloads nginx:80
 
+		# 1c) Chat attachment upload + download → messaging-svc. Placed BEFORE
+		#     coraza_waf (and terminal), for the same reason as the installers
+		#     above plus one of its own:
+		#
+		#       * coraza.conf sets SecRequestBodyLimit to 12.5 MB with
+		#         SecRequestBodyLimitAction Reject, so a 100 MB attachment upload
+		#         is a hard 403 AT THE EDGE and never reaches the service.
+		#       * the download URL carries a base64url HMAC token in its query
+		#         string, which reliably trips CRS false positives.
+		#
+		#     Neither is an injection surface: the upload is a JWT-authed opaque
+		#     byte stream that goes straight to disk, and the download is
+		#     HMAC-token authed with a per-request membership re-check upstream.
+		#
+		#     The matcher is deliberately NARROW — the exact upload path and the
+		#     media prefix only. /api/messaging/api/v1/attachments/links and
+		#     .../commit are small JSON and stay behind the WAF via step 5.
+		#     `uri strip_prefix` reproduces what handle_path does for the other
+		#     API prefixes (handle_path cannot take a named matcher).
+		@media path /api/messaging/api/v1/attachments /api/messaging/media/*
+		handle @media {
+			uri strip_prefix /api/messaging
+			reverse_proxy messaging-svc:8004
+		}
+
 		# 2) OWASP-CRS WAF for every remaining (non-WS) request. load_owasp_crs
 		#    pulls the CRS embedded in the coraza-caddy build; the mounted
 		#    /etc/caddy/coraza files layer engine toggle + tuning on top.

@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { motion } from "framer-motion";
-import { Send, MessageSquare, Ban, Forward, PhoneMissed } from "lucide-react";
-import { Avatar, Button } from "@taskboard/ui";
+import { MessageSquare, Ban, Forward, PhoneMissed } from "lucide-react";
+import { Avatar } from "@taskboard/ui";
 import { clock, groupMessages } from "../lib/chatFormat";
+import { isMediaMessage } from "../lib/chatEnvelope";
+import { Composer } from "./Composer";
 
 export interface ThreadMessage {
   id: string;
@@ -28,12 +30,38 @@ export function ChatThread({
   disabled = false,
   notice,
   onForward,
+  renderBody,
+  onAttach,
+  onShareLocation,
+  onPaste,
+  dropzone,
+  dragging = false,
+  overlay,
 }: {
   messages: ThreadMessage[];
   meId: string;
   onSend: (text: string) => void;
   /** When provided, each non-pending bubble shows a hover "Forward" action. */
   onForward?: (messageId: string) => void;
+  /**
+   * Escape hatch for structured bodies (attachments, shared locations). Return
+   * null to fall through to the plain text bubble. Mirrors ThreadView's hook so
+   * both surfaces render the same things.
+   */
+  renderBody?: (m: ThreadMessage) => React.ReactNode | null;
+  /** Composer affordances — hidden when not supplied. */
+  onAttach?: () => void;
+  onShareLocation?: () => void;
+  onPaste?: (e: React.ClipboardEvent) => void;
+  /** Drag-and-drop handlers for the whole surface, from useChatMedia. */
+  dropzone?: {
+    onDragOver: (e: React.DragEvent) => void;
+    onDragLeave: (e: React.DragEvent) => void;
+    onDrop: (e: React.DragEvent) => void;
+  };
+  dragging?: boolean;
+  /** Portal-ish extras rendered alongside the thread (the lightbox). */
+  overlay?: React.ReactNode;
   /** Called on every local keystroke (drives the typing indicator). */
   onType?: () => void;
   /** True while the peer is typing — renders the animated "…" bubble. */
@@ -47,9 +75,7 @@ export function ChatThread({
    *  this user"). */
   notice?: string;
 }) {
-  const [text, setText] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
-  const taRef = useRef<HTMLTextAreaElement>(null);
 
   // Scroll the message list to the bottom on new messages. We scroll the
   // container DIRECTLY rather than calling endRef.scrollIntoView(): the latter
@@ -61,30 +87,8 @@ export function ChatThread({
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, [messages.length]);
 
-  const grow = () => {
-    const ta = taRef.current;
-    if (!ta) return;
-    ta.style.height = "0px";
-    ta.style.height = `${Math.min(ta.scrollHeight, 140)}px`;
-  };
-
-  const send = () => {
-    const t = text.trim();
-    if (!t) return;
-    onSend(t);
-    setText("");
-    requestAnimationFrame(() => taRef.current && (taRef.current.style.height = "auto"));
-  };
-
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      send();
-    }
-  };
-
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 flex-1 flex-col" {...dropzone}>
       <div ref={listRef} className="min-h-0 flex-1 space-y-1 overflow-auto p-5">
         {messages.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-muted">
@@ -123,6 +127,10 @@ export function ChatThread({
               );
             }
 
+            // Structured bodies (attachments, shared locations) render their
+            // own bubble; anything else falls through to plain text.
+            const custom = renderBody?.(m) ?? null;
+
             return (
               <div key={m.id}>
                 {dayChip}
@@ -135,21 +143,30 @@ export function ChatThread({
                   {!mine && showSenderNames && (
                     <div className="w-7 shrink-0">{!grouped && <Avatar name={m.senderName || "?"} size="sm" />}</div>
                   )}
-                  <div className={`flex max-w-[72%] flex-col ${mine ? "items-end" : "items-start"}`}>
+                  <div className={`flex ${custom ? "max-w-[85%]" : "max-w-[72%]"} flex-col ${mine ? "items-end" : "items-start"}`}>
                     {!mine && showSenderNames && !grouped && (
                       <div className="mb-0.5 ml-1 text-xs font-medium text-muted">{m.senderName}</div>
                     )}
                     <div className={`group flex items-center gap-1 ${mine ? "flex-row-reverse" : "flex-row"}`}>
-                      <div
-                        className={`whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2 text-sm shadow-[0_2px_10px_-4px_rgba(40,30,90,0.25)] ${
-                          mine
-                            ? "rounded-br-md bg-gradient-to-br from-brand-from to-brand-to text-accent-fg"
-                            : "rounded-bl-md bg-surface text-fg ring-1 ring-border/60"
-                        } ${m.pending ? "opacity-60" : ""}`}
-                      >
-                        {m.body}
-                      </div>
-                      {onForward && !m.pending && (
+                      {custom ? (
+                        <div className={m.pending ? "opacity-60" : ""}>{custom}</div>
+                      ) : (
+                        <div
+                          className={`whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2 text-sm shadow-[0_2px_10px_-4px_rgba(40,30,90,0.25)] ${
+                            mine
+                              ? "rounded-br-md bg-gradient-to-br from-brand-from to-brand-to text-accent-fg"
+                              : "rounded-bl-md bg-surface text-fg ring-1 ring-border/60"
+                          } ${m.pending ? "opacity-60" : ""}`}
+                        >
+                          {m.body}
+                        </div>
+                      )}
+                      {/* Forwarding clones the body verbatim, so a media message
+                          would hand the recipient attachment ids scoped to a
+                          conversation they aren't in — every download 403s into a
+                          broken card. Hide the affordance rather than ship that.
+                          Text and locations are self-contained and forward fine. */}
+                      {onForward && !m.pending && !isMediaMessage(m.body) && (
                         <button
                           onClick={() => onForward(m.id)}
                           title="Forward"
@@ -188,21 +205,18 @@ export function ChatThread({
           <span>{notice ?? "You can't message this conversation."}</span>
         </div>
       ) : (
-        <form onSubmit={(e) => { e.preventDefault(); send(); }} className="flex items-end gap-2 border-t border-border/60 bg-surface/50 p-3 backdrop-blur">
-          <textarea
-            ref={taRef}
-            rows={1}
-            className="max-h-[140px] min-h-[44px] flex-1 resize-none rounded-2xl border border-border bg-surface px-4 py-2.5 text-sm leading-relaxed text-fg placeholder:text-muted/70 focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/25"
-            placeholder={placeholder}
-            value={text}
-            onChange={(e) => { setText(e.target.value); grow(); onType?.(); }}
-            onKeyDown={onKeyDown}
-          />
-          <Button type="submit" size="icon" disabled={!text.trim()} className="h-11 w-11 shrink-0 rounded-full" title="Send">
-            <Send size={16} />
-          </Button>
-        </form>
+        <Composer
+          onSend={onSend}
+          onType={onType}
+          onAttach={onAttach}
+          onShareLocation={onShareLocation}
+          onPaste={onPaste}
+          placeholder={placeholder}
+          dragging={dragging}
+        />
       )}
+
+      {overlay}
     </div>
   );
 }

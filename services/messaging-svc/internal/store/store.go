@@ -43,6 +43,16 @@ func New(ctx context.Context, dbURL string, cryptor *crypto.Cryptor) (*Store, er
 	return &Store{pool: pool, crypto: cryptor}, nil
 }
 
+// NewUnconnected returns a Store with no database connection.
+//
+// FOR TESTS ONLY. It exists so api.Server.Router() can be constructed in a unit
+// test that inspects routing and middleware wiring without a live Postgres —
+// notably the body-cap regression tests, which have to exercise the REAL router
+// to be worth anything. Any method that touches the pool will panic, which is
+// the intended failure mode: a test that reaches the database with this Store
+// is a test that should have been an integration test.
+func NewUnconnected() *Store { return &Store{} }
+
 // Close releases the pool.
 func (s *Store) Close() { s.pool.Close() }
 

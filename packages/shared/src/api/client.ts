@@ -5,6 +5,9 @@
  */
 import { z } from "zod";
 import {
+  AttachmentDTO,
+  AttachmentLinkDTO,
+  type AttachmentScope,
   ChannelDTO,
   ChannelMessageDTO,
   AppCredentialDTO,
@@ -361,6 +364,182 @@ export class ApiClient {
       z.object({ messageId: z.string(), seq: z.number() }),
     );
   }
+  // ── chat attachments ────────────────────────────────────────────────────────
+
+  /**
+   * Uploads one file and returns its metadata.
+   *
+   * Deliberately does NOT go through `req()`, for two reasons:
+   *   - `req()` hard-sets `content-type: application/json`. A multipart upload
+   *     must let the BROWSER set the header, because only the browser knows the
+   *     boundary it generated for the FormData body.
+   *   - fetch has no upload-progress event. XMLHttpRequest does, and a 100 MB
+   *     upload with no progress bar is indistinguishable from a hung app.
+   *
+   * Metadata rides in the query string rather than as form fields so the server
+   * can authorize the destination before reading a single byte of the body —
+   * form fields arrive interleaved with the file.
+   */
+  async uploadAttachment(
+    scope: AttachmentScope,
+    scopeId: string,
+    file: Blob,
+    opts: {
+      filename: string;
+      role?: "file" | "thumb";
+      parentId?: string;
+      width?: number;
+      height?: number;
+      durationMs?: number;
+      onProgress?: (loaded: number, total: number) => void;
+      signal?: AbortSignal;
+    },
+    retried = false,
+  ): Promise<AttachmentDTO> {
+    const qs = new URLSearchParams({ scope, scopeId });
+    if (opts.role) qs.set("role", opts.role);
+    if (opts.parentId) qs.set("parentId", opts.parentId);
+    if (opts.width !== undefined) qs.set("width", String(Math.round(opts.width)));
+    if (opts.height !== undefined) qs.set("height", String(Math.round(opts.height)));
+    if (opts.durationMs !== undefined) qs.set("durationMs", String(Math.round(opts.durationMs)));
+
+    const token = await this.cfg.getToken();
+    const url = `${this.cfg.messagingBase}/api/v1/attachments?${qs.toString()}`;
+
+    const form = new FormData();
+    form.append("file", file, opts.filename);
+
+    const res = await new Promise<{ status: number; body: unknown; text: string }>(
+      (resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", url, true);
+        xhr.withCredentials = true;
+        if (token) xhr.setRequestHeader("authorization", `Bearer ${token}`);
+        // No content-type here on purpose — see the doc comment.
+
+        if (opts.onProgress) {
+          xhr.upload.onprogress = (e) => {
+            if (e.lengthComputable) opts.onProgress?.(e.loaded, e.total);
+          };
+        }
+        xhr.onload = () => {
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(xhr.responseText);
+          } catch {
+            parsed = undefined;
+          }
+          resolve({ status: xhr.status, body: parsed, text: xhr.responseText });
+        };
+        xhr.onerror = () => reject(new ApiError(0, "network error during upload"));
+        xhr.ontimeout = () => reject(new ApiError(408, "upload timed out"));
+        xhr.onabort = () => reject(new ApiError(0, "upload cancelled"));
+
+        if (opts.signal) {
+          if (opts.signal.aborted) {
+            xhr.abort();
+          } else {
+            opts.signal.addEventListener("abort", () => xhr.abort(), { once: true });
+          }
+        }
+        xhr.send(form);
+      },
+    );
+
+    // Mirror req()'s single silent refresh-and-retry so an access token that
+    // expired mid-upload self-heals instead of losing the user's file.
+    if (res.status === 401 && token && !retried && this.cfg.refreshToken) {
+      const fresh = await this.cfg.refreshToken();
+      if (fresh) return this.uploadAttachment(scope, scopeId, file, opts, true);
+    }
+    if (res.status < 200 || res.status >= 300) {
+      const body = res.body as { error?: { message?: string; code?: ErrorCode } } | undefined;
+      throw new ApiError(
+        res.status,
+        body?.error?.message ?? res.text ?? `upload failed (${res.status})`,
+        { code: body?.error?.code },
+      );
+    }
+
+    const parsed = AttachmentDTO.safeParse(res.body);
+    if (!parsed.success) {
+      console.warn("upload response validation failed", parsed.error.issues);
+      throw new ApiError(502, "invalid response from server");
+    }
+    return parsed.data;
+  }
+
+  /**
+   * Makes uploaded attachments permanent.
+   *
+   * Uploads expire after 24h unless committed, because the link between a
+   * message and its attachments lives inside an encrypted body the server
+   * cannot read — so an abandoned upload can never be discovered as an orphan
+   * by inspection. Call this once the message has actually been sent.
+   */
+  commitAttachment(id: string) {
+    return this.req<void>(this.cfg.messagingBase, `/api/v1/attachments/${id}/commit`, {
+      method: "POST",
+      headers: { "idempotency-key": uuid() },
+    });
+  }
+
+  /**
+   * Mints short-lived signed download URLs.
+   *
+   * Ids the caller may not read are silently omitted rather than failing the
+   * batch: a thread can legitimately contain a forwarded attachment scoped to a
+   * conversation the current viewer is not in, and one such id must not blank
+   * every image on the page.
+   */
+  attachmentLinks(ids: string[]) {
+    return this.req(
+      this.cfg.messagingBase,
+      "/api/v1/attachments/links",
+      { method: "POST", body: JSON.stringify({ ids }) },
+      z.array(AttachmentLinkDTO),
+    );
+  }
+
+  /** Absolute URL for a signed link path returned by `attachmentLinks`. */
+  mediaUrl(path: string): string {
+    return `${this.cfg.messagingBase}${path}`;
+  }
+
+  /**
+   * Fetches a static map thumbnail for a shared location.
+   *
+   * Proxied through our own origin so the tile is same-origin (no CSP change in
+   * the six places that declare one), the user's IP never reaches the map
+   * provider, and the provider key stays server-side.
+   *
+   * Resolves to null whenever no thumbnail is available — no API key
+   * configured, provider down, request timed out. That is a supported state,
+   * not an error: the bubble renders a coordinates card instead.
+   */
+  async staticMap(lat: number, lng: number, zoom = 15): Promise<Blob | null> {
+    const qs = new URLSearchParams({
+      lat: lat.toFixed(5),
+      lng: lng.toFixed(5),
+      z: String(zoom),
+    });
+    const token = await this.cfg.getToken();
+    const headers: Record<string, string> = {};
+    if (token) headers["authorization"] = `Bearer ${token}`;
+    try {
+      const res = await fetch(
+        `${this.cfg.messagingBase}/api/v1/maps/static?${qs.toString()}`,
+        { headers, credentials: "include" },
+      );
+      if (res.status === 204 || !res.ok) return null;
+      const blob = await res.blob();
+      // Guard the render path: only an image may become an object URL for <img>.
+      return blob.type.startsWith("image/") ? blob : null;
+    } catch {
+      return null;
+    }
+  }
+
   /** Removes the thread from BOTH users' inbox; revives on next reply. */
   ignoreThread(threadId: string) {
     return this.req<void>(this.cfg.messagingBase, `/api/v1/threads/${threadId}/ignore`, {

@@ -1,24 +1,32 @@
 import { useRef, useState } from "react";
-import { Paperclip, Send } from "lucide-react";
+import { MapPin, Paperclip, Send } from "lucide-react";
 import { Button } from "@taskboard/ui";
 
 /**
- * Shared message composer extracted from ChatThread. Used inside both
- * ThreadView (Inbox) and the legacy ChatThread. Composes plain text +
- * optional file attachment offers (📎 button).
+ * Shared message composer. Used by ThreadView (Inbox), DMs and channels.
  *
- * The attachment button is gated by `onAttach`; if absent it's hidden so the
- * web app doesn't show a button that can't deliver. In the desktop app
- * Phase 10's renderer wires the picker through MessageChannelMain.
+ * Attachment and location affordances are gated by their callbacks so a surface
+ * that cannot deliver them never shows a button that does nothing.
  */
 export function Composer({
   onSend,
   onAttach,
+  onShareLocation,
+  onPaste,
+  onType,
   placeholder = "Write a message…",
+  dragging = false,
 }: {
   onSend: (text: string) => void;
   onAttach?: () => void;
+  onShareLocation?: () => void;
+  /** Paste-to-upload: clipboard images become attachments. */
+  onPaste?: (e: React.ClipboardEvent) => void;
+  /** Called on every local keystroke (drives the typing indicator). */
+  onType?: () => void;
   placeholder?: string;
+  /** True while a file is being dragged over the surface — highlights the drop target. */
+  dragging?: boolean;
 }) {
   const [text, setText] = useState("");
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -40,26 +48,50 @@ export function Composer({
 
   return (
     <form
-      onSubmit={(e) => { e.preventDefault(); send(); }}
-      className="flex items-end gap-2 border-t border-border/60 bg-surface/50 p-3 backdrop-blur"
+      onSubmit={(e) => {
+        e.preventDefault();
+        send();
+      }}
+      className={`flex items-end gap-2 border-t p-3 backdrop-blur transition-colors ${
+        dragging
+          ? "border-accent bg-accent-soft/40 ring-2 ring-inset ring-accent/40"
+          : "border-border/60 bg-surface/50"
+      }`}
     >
       {onAttach && (
         <button
           type="button"
           onClick={onAttach}
           className="h-11 w-11 shrink-0 rounded-full text-muted hover:bg-surface-2 hover:text-fg"
-          title="Attach file (up to 10 GB, peer-to-peer)"
+          title="Attach photos, videos or files"
+          aria-label="Attach a file"
         >
           <Paperclip size={18} className="mx-auto" />
+        </button>
+      )}
+      {onShareLocation && (
+        <button
+          type="button"
+          onClick={onShareLocation}
+          className="h-11 w-11 shrink-0 rounded-full text-muted hover:bg-surface-2 hover:text-fg"
+          title="Share your location"
+          aria-label="Share your location"
+        >
+          <MapPin size={18} className="mx-auto" />
         </button>
       )}
       <textarea
         ref={taRef}
         rows={1}
         className="max-h-[140px] min-h-[44px] flex-1 resize-none rounded-2xl border border-border bg-surface px-4 py-2.5 text-sm leading-relaxed text-fg placeholder:text-muted/70 focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/25"
-        placeholder={placeholder}
+        placeholder={dragging ? "Drop files to send…" : placeholder}
         value={text}
-        onChange={(e) => { setText(e.target.value); grow(); }}
+        onChange={(e) => {
+          setText(e.target.value);
+          grow();
+          onType?.();
+        }}
+        onPaste={onPaste}
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();

@@ -494,6 +494,18 @@ services:
     <<: *svc-defaults
     build: ./services/messaging-svc
     image: task-board/messaging-svc:${IMAGE_TAG:-latest}
+    # Chat attachment bytes live on a named volume. `read_only: true` from the
+    # anchor still applies — a volume mount stays writable regardless — and it is
+    # the ONLY writable path in the container (/tmp is a small in-memory tmpfs,
+    # which is why uploads spool here and not there).
+    #
+    # ⚠️ YAML `<<:` merge REPLACES list keys rather than concatenating them, so
+    # declaring `volumes:` here DROPS the anchor's Postgres CA mount. It must be
+    # re-listed or `sslmode=verify-full` fails on the next restart. auth-svc has
+    # the same trap.
+    volumes:
+      - ./infra/postgres/certs/ca.crt:/etc/ssl/db/ca.crt:ro
+      - media_blobs:/var/lib/blisswork/media
     depends_on:
       postgres: { condition: service_healthy }
       kafka-init: { condition: service_completed_successfully }
@@ -551,6 +563,10 @@ volumes:
   kafkadata:
   caddy_data:
   caddy_config:
+  # Chat attachments. NOT covered by scripts/backup-db.sh's pg_dump — the media
+  # leg in that script is what backs this up; losing it leaves chat history whose
+  # every attachment 404s.
+  media_blobs:
   web_dist:
   web_node_modules:
   desktop_node_modules:

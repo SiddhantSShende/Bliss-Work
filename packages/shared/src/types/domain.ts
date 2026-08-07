@@ -462,6 +462,49 @@ export const ChannelMessageDTO = z.object({
 });
 export type ChannelMessageDTO = z.infer<typeof ChannelMessageDTO>;
 
+/**
+ * Where an attachment lives, and therefore who may read it.
+ *
+ * Authorization is by scope rather than "can you see a message referencing
+ * this file", because message bodies are encrypted at rest — the server cannot
+ * read a message to discover what it points at. Membership is checked when the
+ * file is uploaded and RE-CHECKED on every download, so losing access to a
+ * channel revokes its files immediately.
+ */
+export const AttachmentScope = z.enum(["conversation", "thread", "channel"]);
+export type AttachmentScope = z.infer<typeof AttachmentScope>;
+
+export const AttachmentDTO = z.object({
+  id: z.string().uuid(),
+  scope: AttachmentScope,
+  scopeId: z.string().uuid(),
+  /** "thumb" rows are client-generated posters hanging off a "file" row. */
+  role: z.enum(["file", "thumb"]),
+  sha256: z.string(),
+  /** SERVER-SNIFFED type — never the Content-Type the upload declared. */
+  mime: z.string(),
+  sizeBytes: z.number().int().nonnegative(),
+  filename: z.string(),
+  /** Client-supplied layout hints; display-only. */
+  width: z.number().int().optional(),
+  height: z.number().int().optional(),
+  durationMs: z.number().int().optional(),
+  createdAt: z.string(),
+});
+export type AttachmentDTO = z.infer<typeof AttachmentDTO>;
+
+/**
+ * A short-lived signed download URL. `<img src>` and `<video src>` cannot send
+ * an Authorization header, so the URL itself carries the authorization; it is
+ * re-minted before `expiresAt`.
+ */
+export const AttachmentLinkDTO = z.object({
+  id: z.string().uuid(),
+  url: z.string(),
+  expiresAt: z.string(),
+});
+export type AttachmentLinkDTO = z.infer<typeof AttachmentLinkDTO>;
+
 /** Which actions are valid for a given assignee status. */
 export function actionsFor(status: AssigneeStatus): TaskAction[] {
   switch (status) {

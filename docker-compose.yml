@@ -173,6 +173,10 @@ services:
     <<: *svc-defaults
     build: ./services/messaging-svc
     ports: ["127.0.0.1:${MESSAGING_PORT}:8004"]
+    # Chat attachment bytes. (The dev anchor declares no `volumes:`, so unlike
+    # docker-compose.prod.yml there is no merge key to preserve here.)
+    volumes:
+      - media_blobs:/var/lib/blisswork/media
     depends_on:
       postgres: { condition: service_healthy }
       kafka-init: { condition: service_completed_successfully }
@@ -289,6 +293,7 @@ services:
 
 volumes:
   pgdata:
+  media_blobs:
   promdata:
   alertmanagerdata:
   tempodata:

@@ -14,8 +14,15 @@
       so it names those origins explicitly rather than allowing https:/wss: at
       large. blob: is in img-src for locally previewed file transfers.
 
-      %CSP_CONNECT_SRC% and %CSP_IMG_SRC% are substituted at build time from the
-      SAME resolveEndpoints() call the renderer and main process use — see the
+      media-src carries mediastream: for call audio AND the API origins, because
+      chat video/audio attachments stream from the backend. It needs the origins
+      spelled out separately from img-src: media-src does NOT fall back to
+      img-src, it falls back to default-src ('self'), so a <video> pointed at
+      the API would be blocked with a console-only violation and no UI signal.
+
+      %CSP_CONNECT_SRC%, %CSP_IMG_SRC% and %CSP_MEDIA_SRC% are substituted at
+      build time from the SAME resolveEndpoints() call the renderer and main
+      process use — see the
       cspPlugin in electron.vite.config.ts. They used to be hardcoded to the
       hosted origin while src/shared/endpoints.ts advertised full VITE_*
       overridability, so repointing a build at another backend produced an app
@@ -24,7 +31,7 @@
     -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: %CSP_IMG_SRC%; font-src 'self' data:; connect-src 'self' %CSP_CONNECT_SRC%; object-src 'none'; base-uri 'self'; form-action 'self'"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: %CSP_IMG_SRC%; font-src 'self' data:; media-src 'self' data: blob: mediastream: %CSP_MEDIA_SRC%; connect-src 'self' %CSP_CONNECT_SRC%; object-src 'none'; base-uri 'self'; form-action 'self'"
     />
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <title>BlissWork</title>
