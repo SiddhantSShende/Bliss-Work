@@ -36,43 +36,6 @@ class ConnectStartOut(BaseModel):
     connection: ConnectionOut | None = None
 
 
-class VerifyStartIn(BaseModel):
-    """Ask us to send a confirmation code to the admin's own number."""
-
-    #: The admin's WhatsApp number in E.164 ("+15551234567").
-    to: str
-    #: Optional name of a Meta-APPROVED template with one body variable. Only
-    #: used when the direct send is refused for a closed 24h session — without
-    #: it, that case falls back to asking the admin to message us instead.
-    template: str | None = None
-    #: Template language code, must match the approved template's own locale.
-    templateLang: str | None = None
-
-
-class VerifyStartOut(BaseModel):
-    #: 'sent'           → the code is on its way to `to`; ask for it.
-    #: 'reply_required' → we could not open the conversation; the admin has to
-    #:                    message the business number first. `replyKeyword` is
-    #:                    the exact text to send, and the inbound webhook
-    #:                    confirms the connection when it arrives.
-    delivery: str
-    #: Present ONLY for 'reply_required' — it embeds the code, which we must not
-    #: hand back to a client that could have it delivered instead.
-    replyKeyword: str | None = None
-    #: The business number to send it to (the connection's display label).
-    businessNumber: str = ""
-    #: Why the direct send didn't work, for display. Never a raw token/secret.
-    reason: str | None = None
-
-
-class VerifyConfirmIn(BaseModel):
-    code: str
-
-
-class VerifyConfirmOut(BaseModel):
-    status: str
-
-
 class ProviderActivityOut(BaseModel):
     """One row of the unified hub activity timeline (inbound + outbound)."""
 

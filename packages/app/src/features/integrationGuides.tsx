@@ -45,16 +45,17 @@ export const GUIDES: Record<string, ProviderGuide> = {
     consoleLabel: "Meta for Developers",
     consoleUrl: "https://developers.facebook.com/apps",
     steps: [
-      "Create an app and add the WhatsApp product to it.",
-      "WhatsApp → API Setup → copy the Phone number ID of your business number.",
-      "Create a System User access token with whatsapp_business_messaging permission, and copy it.",
+      "This is for WhatsApp Business accounts only — you need a WhatsApp Business Account (WABA) with a number verified by Meta. A personal WhatsApp account can't be connected.",
+      "Create an app at Meta for Developers and add the WhatsApp product to it.",
+      "WhatsApp → API Setup → copy the WhatsApp Business Account ID and, below it, the Phone number ID of your business number.",
+      "Create a System User token with BOTH whatsapp_business_messaging (to send) and whatsapp_business_management (so we can check the account), and copy it.",
       "App Settings → Basic → copy the App Secret.",
-      "Paste all three below, along with your own WhatsApp number — we send a confirmation code to it.",
+      "Paste all four below. We check with Meta that the number is verified and belongs to your Business Account before saving anything.",
       "The connection shows a webhook URL and a verify token. In Meta: WhatsApp → Configuration → Webhook → Edit, paste both, and subscribe to the messages field.",
-      "Enter the code you received to finish. The connection stays Pending until it goes through.",
+      "Saving that is the last step — Meta calls us straight away, and the connection turns Connected on its own.",
     ],
     warning:
-      "WhatsApp won't let a business message a number that hasn't messaged it in the last 24 hours, unless you use a template Meta has approved. If the code can't be delivered, we'll ask you to WhatsApp a keyword to your business number instead — which also proves your webhook works.",
+      "Meta has to agree it's a business before we'll connect it. We reject the account if it isn't approved by Meta, if the number hasn't finished verification, if it's an on-premise rather than Cloud API number, or if the number doesn't belong to the Business Account ID you entered. If your token is missing whatsapp_business_management we'll say so explicitly — that one catches almost everybody first time.",
   },
   gmail: {
     consoleLabel: "Google Cloud Console",

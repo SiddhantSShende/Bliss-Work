@@ -39,38 +39,51 @@ replace.
 
 ## WhatsApp (Business Cloud API)
 
+**WhatsApp Business accounts only.** You need a WhatsApp Business Account (WABA)
+with a number Meta has verified. A personal WhatsApp account cannot be connected —
+not as a policy we apply on top, but because the Cloud API this integration is
+built on has no concept of one.
+
 1. Create an app at [developers.facebook.com](https://developers.facebook.com/apps)
    and add the **WhatsApp** product.
-2. Copy the **Phone number ID**, a **System User access token**, and the
-   **App Secret** (Settings → Basic).
-3. In BlissWork: **Connected accounts → WhatsApp → Connect**, paste all three,
-   and add **your own WhatsApp number** (with country code).
-4. The connection shows a **webhook URL** and a **verify token** — we generate the
+2. **WhatsApp → API Setup** → copy the **WhatsApp Business Account ID** and, just
+   below it, the **Phone number ID** of your business number.
+3. Create a **System User token** with **both** `whatsapp_business_messaging`
+   (to send) and `whatsapp_business_management` (so we can check the account).
+4. **App Settings → Basic** → copy the **App Secret**.
+5. In BlissWork: **Connected accounts → WhatsApp → Connect**, paste all four.
+6. The connection shows a **webhook URL** and a **verify token** — we generate the
    verify token because a hand-picked one is reliably weak.
-5. In Meta: **WhatsApp → Configuration → Webhook → Edit**, paste both, subscribe
-   to the `messages` field.
-6. Enter the 6-digit code we send you. The connection is **Pending** until you do.
+7. In Meta: **WhatsApp → Configuration → Webhook → Edit**, paste both, subscribe
+   to the `messages` field. Saving it is the last step.
 
-> **Why the extra confirmation step.** Validating your credentials only proves
-> the token can *read* the number's metadata. It says nothing about whether the
-> number can send, and nothing about whether the webhook is wired — so without
-> this, a connection could sit there reading *Connected* while being completely
-> inert. The code round trip is what makes *Connected* mean something. A pending
-> connection is invisible to the forwarding path, so nothing is silently dropped
-> into a dead integration.
-
-> **If the code doesn't arrive.** WhatsApp refuses free-form messages to a number
-> that hasn't messaged your business number in the last 24 hours — Meta requires
-> an **approved template** to open that conversation. If you have one, enter its
-> name in the connect dialog and we'll use it when the direct send is refused.
-> Otherwise BlissWork shows you a keyword like `CONFIRM 482193` to send **to**
-> your business number from WhatsApp; that confirms the connection the moment it
-> arrives, and has the advantage of also proving your webhook works. It needs
-> step 5 done first.
+> **What we check, and why you might be rejected.** Having Cloud API credentials
+> proves a number exists, not that a business does — an unverified number or one
+> still in Meta's test state would otherwise connect exactly like a fully
+> onboarded one, and only fail later. Before storing anything we ask Meta four
+> things, and refuse if any of them disagrees:
 >
-> The code expires in 10 minutes, allows 5 wrong guesses, and re-sending is
-> limited to once a minute. Re-pasting credentials puts the connection back to
-> **Pending** — new credentials are unproven credentials.
+> | Rejected when | What to do |
+> |---|---|
+> | The Business Account isn't **approved** by Meta | Finish Meta's business review |
+> | The number hasn't completed **verification** | Verify the number in Meta |
+> | It's an **on-premise** number, not Cloud API | Only Cloud API numbers work here |
+> | The number isn't **on that Business Account** | Check you copied both IDs from the same account |
+>
+> If your token is missing `whatsapp_business_management` we say so explicitly
+> rather than blaming the credentials — that one catches almost everybody first
+> time, because sending needs only the *messaging* permission.
+
+> **Why the connection starts as Pending.** The checks above prove the account is
+> real; nothing about a credential can prove Meta can reach *you*. So the
+> connection stays **Pending** until Meta's own webhook verification request
+> arrives — which happens the instant you save the webhook URL in step 7. That
+> request is the confirmation; there is nothing to type, and BlissWork updates
+> itself when it lands. A pending connection is invisible to the forwarding path,
+> so nothing is silently dropped into a dead integration.
+>
+> Re-pasting credentials later does **not** un-confirm a working connection: your
+> webhook URL is unchanged, so what that handshake proved is still true.
 
 > **Mentions on WhatsApp are opt-in.** The Cloud API exposes no mention markup at
 > all, so there is nothing to detect. A connection can opt in to treating any
@@ -160,8 +173,7 @@ rather than disconnecting everyone the moment an admin clicks Remove.
 | Client ID | Encrypted at rest; **readable** in the UI — it isn't secret (it travels in the authorize URL your browser follows). |
 | Webhook token | Plaintext — it must be looked up on an unauthenticated path before any org context exists. It authenticates nothing on its own. |
 | WhatsApp verify token | Encrypted at rest; readable by its own workspace, because the admin has to paste it into Meta and can't re-derive it. |
-| WhatsApp confirmation code | Only its SHA-256 is stored (salted with the connection id), never the code — same rule as password-reset tokens. Single-use, 10-minute TTL, 5 attempts. |
-| The number you confirm with | Encrypted at rest. Used once, to send the code. |
+| WhatsApp Business Account ID, Phone number ID | Encrypted at rest, like every other connection field. Neither is secret; both are needed to re-check the account. |
 
 ## Troubleshooting
 

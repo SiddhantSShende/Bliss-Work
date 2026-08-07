@@ -6,12 +6,13 @@
  * collect their credentials in a dialog; OAuth providers (Gmail, Outlook,
  * Teams) redirect through the provider's consent screen.
  *
- * WhatsApp has one extra step. Validating its credentials only proves the token
- * can READ the business number's metadata — not that the number can send, and
- * not that the inbound webhook is wired. So a WhatsApp connection is created
- * `pending` and only becomes `connected` once a confirmation code has actually
- * travelled to the admin's own phone and back. Everything about the two-step
- * dialog below exists to make that round trip legible.
+ * WhatsApp is BUSINESS ACCOUNTS ONLY, and lands `pending` rather than
+ * `connected`. The server checks the account against Meta at connect time, but
+ * no credential can prove the inbound webhook is wired — so the connection stays
+ * pending until Meta itself calls our webhook URL, which happens when the admin
+ * saves it in their dashboard. Nothing here asks for anyone's phone number: the
+ * whole confirmation is business-side, so this page just has to say clearly
+ * what is still outstanding and update itself when it lands.
  */
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -28,7 +29,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button, Input } from "@taskboard/ui";
-import { ApiError, type IntegrationConnectionDTO, type VerifyStartDTO } from "@taskboard/shared";
+import { ApiError, type IntegrationConnectionDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { Modal } from "./Modal";
@@ -51,10 +52,6 @@ export interface ProviderMeta {
   /** Credential fields. These map 1:1 onto the server's ProviderSpec.fields and
    *  are the ONLY keys it will persist — anything else is dropped. */
   fields?: ProviderField[];
-  /** Collected in the same dialog but NOT credentials: they drive the
-   *  post-connect confirmation and are sent as separate request keys, never
-   *  into the encrypted credential blob. */
-  verifyFields?: ProviderField[];
 }
 
 // Provider catalog. Token-paste providers open a credentials dialog; OAuth
@@ -74,28 +71,22 @@ export const PROVIDERS: ProviderMeta[] = [
   {
     id: "whatsapp",
     label: "WhatsApp",
-    blurb: "WhatsApp Business Cloud API. Paste a system-user token + phone number ID.",
+    blurb:
+      "WhatsApp Business Cloud API. For WhatsApp Business accounts only — the number must be verified with Meta.",
     kind: "token",
     icon: <MessageCircle size={18} />,
+    // All four come off Meta's WhatsApp → API Setup page, in this order. The
+    // Business Account ID isn't decoration: it's what lets the server prove the
+    // number actually belongs to an approved business rather than just existing.
     fields: [
       { key: "accessToken", label: "System-user token" },
+      {
+        key: "wabaId",
+        label: "WhatsApp Business Account ID",
+        hint: "Shown directly above the Phone number ID on Meta's API Setup page.",
+      },
       { key: "phoneNumberId", label: "Phone number ID" },
       { key: "appSecret", label: "App secret" },
-    ],
-    verifyFields: [
-      {
-        key: "to",
-        label: "Your WhatsApp number",
-        placeholder: "+15551234567",
-        hint: "We send a confirmation code here to prove the connection works. Include the country code.",
-      },
-      {
-        key: "template",
-        label: "Confirmation template name",
-        placeholder: "optional",
-        optional: true,
-        hint: "Only needed if your number hasn't messaged the business number recently — WhatsApp requires a Meta-approved template to start that conversation.",
-      },
     ],
   },
   {
@@ -121,24 +112,21 @@ export const PROVIDERS: ProviderMeta[] = [
   },
 ];
 
-/** What the dialog is currently doing. `connection` is set when we're resuming
- *  confirmation for a connection that already exists (a pending one the user
- *  came back to), which skips straight past the credential fields. */
-interface DialogTarget {
-  provider: ProviderMeta;
-  connection?: IntegrationConnectionDTO;
-}
-
 export function ConnectedAccounts() {
   const { api, config } = useRuntime();
   const qc = useQueryClient();
-  const [dialog, setDialog] = useState<DialogTarget | null>(null);
+  const [dialogProvider, setDialogProvider] = useState<ProviderMeta | null>(null);
 
   const { data: connections = [], isError } = useQuery({
     queryKey: qk.integrations,
     queryFn: () => api.integrations(),
     // The service may not be reachable in every environment; don't hammer it.
     retry: 1,
+    // A pending connection is finished in Meta's dashboard, not here, so there
+    // is no in-app action to hang an update off. Poll while any connection is
+    // waiting so the card flips to Connected on its own, then stop.
+    refetchInterval: (q) =>
+      (q.state.data ?? []).some((c) => c.status === "pending") ? 5000 : false,
   });
 
   const byProvider = (id: string) => connections.filter((c) => c.provider === id);
@@ -238,14 +226,6 @@ export function ConnectedAccounts() {
                       <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted">
                         <span className="truncate">{c.displayLabel || c.id}</span>
                         {c.status === "pending" && <StatusPill status="pending" />}
-                        {c.status === "pending" && (
-                          <button
-                            className="font-medium text-accent hover:underline"
-                            onClick={() => setDialog({ provider: p, connection: c })}
-                          >
-                            Confirm number
-                          </button>
-                        )}
                         <button
                           className="text-danger hover:underline"
                           disabled={disconnect.isPending}
@@ -254,9 +234,20 @@ export function ConnectedAccounts() {
                           Disconnect
                         </button>
                       </div>
-                      {/* While pending, pasting the webhook URL into Meta is a
-                          required step (and the fallback confirmation route
-                          depends on it), so it isn't collapsed reference detail. */}
+                      {c.status === "pending" && (
+                        // No button here on purpose: the remaining step happens
+                        // in Meta's dashboard, and offering an in-app action
+                        // would imply there is something left to do here.
+                        <p className="mt-1 text-[11px] text-warning">
+                          Paste the webhook URL and verify token below into Meta (WhatsApp →
+                          Configuration → Webhook → Edit) and subscribe to <code>messages</code>.
+                          This page updates itself the moment Meta calls.
+                        </p>
+                      )}
+                      {/* While pending, pasting the webhook URL into Meta is THE
+                          remaining step — and answering the request it triggers
+                          is what confirms the connection — so it isn't collapsed
+                          reference detail at this moment. */}
                       <WebhookSetup connection={c} defaultOpen={c.status === "pending"} />
                     </div>
                   ))}
@@ -266,7 +257,7 @@ export function ConnectedAccounts() {
                 size="sm"
                 disabled={isError || startOAuth.isPending}
                 onClick={() =>
-                  p.kind === "token" ? setDialog({ provider: p }) : startOAuth.mutate(p.id)
+                  p.kind === "token" ? setDialogProvider(p) : startOAuth.mutate(p.id)
                 }
               >
                 {connected ? "Add another" : "Connect"}
@@ -276,10 +267,10 @@ export function ConnectedAccounts() {
         })}
       </div>
       <ConnectTokenDialog
-        target={dialog}
-        onClose={() => setDialog(null)}
+        provider={dialogProvider}
+        onClose={() => setDialogProvider(null)}
         onConnected={() => {
-          setDialog(null);
+          setDialogProvider(null);
           void qc.invalidateQueries({ queryKey: qk.integrations });
         }}
       />
@@ -291,7 +282,7 @@ function StatusPill({ status }: { status: "connected" | "pending" }) {
   if (status === "pending") {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-warning-soft px-2 py-0.5 text-[10px] font-medium text-warning">
-        <Clock size={10} /> Pending confirmation
+        <Clock size={10} /> Waiting for Meta
       </span>
     );
   }
@@ -414,298 +405,132 @@ function FieldInput({
   value: string;
   onChange: (v: string) => void;
 } & Omit<React.ComponentProps<typeof Input>, "value" | "onChange">) {
+  // The hint is DESCRIBED-BY, not part of the label. Nesting it inside <label>
+  // folds it into the field's accessible name, so a screen reader announces
+  // "WhatsApp Business Account ID Shown directly above the Phone number ID on
+  // Meta's API Setup page" as the name of the box — and two fields whose hints
+  // mention each other stop being tellable apart at all.
+  const hintId = field.hint ? `field-hint-${field.key}` : undefined;
   return (
-    <label className="block">
-      <span className="mb-1 block text-xs font-medium text-muted">
-        {field.label}
-        {field.optional && <span className="ml-1 font-normal opacity-70">(optional)</span>}
-      </span>
-      <Input
-        value={value}
-        placeholder={field.placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        {...rest}
-      />
-      {field.hint && <span className="mt-1 block text-[10px] text-muted">{field.hint}</span>}
-    </label>
+    <div>
+      <label className="block">
+        <span className="mb-1 block text-xs font-medium text-muted">
+          {field.label}
+          {field.optional && <span className="ml-1 font-normal opacity-70">(optional)</span>}
+        </span>
+        <Input
+          value={value}
+          placeholder={field.placeholder}
+          onChange={(e) => onChange(e.target.value)}
+          aria-describedby={hintId}
+          {...rest}
+        />
+      </label>
+      {field.hint && (
+        <p id={hintId} className="mt-1 text-[10px] text-muted">
+          {field.hint}
+        </p>
+      )}
+    </div>
   );
 }
 
 /**
- * Credentials → (WhatsApp only) confirmation code.
+ * The credentials dialog. One step for every token-paste provider.
  *
- * Steps:
- *   "creds"  paste credentials; for WhatsApp, the admin's own number too
- *   "number" resuming a pending connection — credentials are already stored,
- *            we only need somewhere to send the code
- *   "code"   enter what arrived on the phone, or send us the keyword instead
+ * It briefly had a second and third step for WhatsApp, to collect an admin's own
+ * phone number and a confirmation code. That went away with the move to
+ * Business-accounts-only: a WhatsApp connection is now confirmed by Meta's own
+ * webhook verification request, which involves nobody's handset.
  */
 function ConnectTokenDialog({
-  target,
+  provider,
   onClose,
   onConnected,
 }: {
-  target: DialogTarget | null;
+  provider: ProviderMeta | null;
   onClose: () => void;
   onConnected: () => void;
 }) {
   const { api } = useRuntime();
-  const provider = target?.provider ?? null;
-  const needsVerify = provider?.id === "whatsapp";
-
   const [values, setValues] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
-  const [connId, setConnId] = useState<string | null>(null);
-  const [step, setStep] = useState<"creds" | "number" | "code">("creds");
-  const [verify, setVerify] = useState<VerifyStartDTO | null>(null);
-  const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  // Reset whenever the dialog opens on a new target. Resuming a pending
-  // connection skips the credential fields — they're already stored, and we
-  // can't show them back (they never leave the server).
+  // Reset whenever the dialog opens on a different provider, so a failed Slack
+  // attempt can't leave its error sitting above WhatsApp's fields.
   useEffect(() => {
-    if (!target) return;
+    if (!provider) return;
     setValues({});
-    setCode("");
-    setVerify(null);
     setError(null);
     setBusy(false);
-    setConnId(target.connection?.id ?? null);
-    setStep(target.connection ? "number" : "creds");
-  }, [target]);
+  }, [provider]);
 
-  // The confirmation can also complete without this dialog: the admin replies
-  // to the business number and the inbound webhook flips the status. Poll while
-  // we're waiting on a code so that path closes the dialog on its own.
-  const { data: connections } = useQuery({
-    queryKey: qk.integrations,
-    queryFn: () => api.integrations(),
-    enabled: step === "code",
-    refetchInterval: step === "code" ? 5000 : false,
-  });
-  useEffect(() => {
-    if (step !== "code" || !connId) return;
-    const me = connections?.find((c) => c.id === connId);
-    if (me?.status === "connected") {
-      toast.success("WhatsApp confirmed");
-      onConnected();
-    }
-  }, [connections, connId, step, onConnected]);
-
-  const credFields = provider?.fields ?? [];
-  const verifyFields = provider?.verifyFields ?? [];
-  const credsReady = credFields.every((f) => (values[f.key] ?? "").trim().length > 0);
-  const numberReady = !needsVerify || (values.to ?? "").trim().length > 0;
-
-  /** Ask the server to send a code to the number in `values.to`. */
-  const sendCode = async (id: string) => {
-    const to = (values.to ?? "").trim();
-    const res = await api.startIntegrationVerification(id, {
-      to,
-      template: values.template?.trim() || undefined,
-    });
-    setVerify(res);
-    setStep("code");
-    if (res.delivery === "sent") {
-      toast.success("Code sent", { description: `Check WhatsApp on ${to}.` });
-    }
-  };
-
-  const submitCreds = async () => {
-    if (!provider) return;
-    setBusy(true);
-    setError(null);
-    try {
-      // Only the declared credential keys — the number and template name are
-      // not credentials and must not end up in the encrypted creds blob.
-      const creds = Object.fromEntries(credFields.map((f) => [f.key, values[f.key] ?? ""]));
-      const res = await api.connectIntegration(provider.id, creds);
-      const id = res.connection?.id ?? null;
-      if (!needsVerify) {
-        toast.success(`${provider.label} connected`);
-        onConnected();
-        return;
-      }
-      if (!id) throw new Error("no connection returned");
-      setConnId(id);
-      await sendCode(id);
-    } catch (err) {
-      setError(messageOf(err, `Couldn't connect ${provider.label}. Check the credentials.`));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  /** Resuming, or resending after a wrong number: the connection already exists. */
-  const submitNumber = async () => {
-    if (!connId) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await sendCode(connId);
-    } catch (err) {
-      setError(messageOf(err, "Couldn't send the code."));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const submitCode = async () => {
-    if (!connId) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await api.confirmIntegrationVerification(connId, code.trim());
-      toast.success("WhatsApp confirmed");
-      onConnected();
-    } catch (err) {
-      setError(messageOf(err, "That code isn't right."));
-    } finally {
-      setBusy(false);
-    }
-  };
-
+  const fields = provider?.fields ?? [];
+  const ready = fields.every((f) => (values[f.key] ?? "").trim().length > 0);
   const guide = provider ? GUIDES[provider.id] : undefined;
 
+  const submit = async () => {
+    if (!provider || !ready) return;
+    setBusy(true);
+    setError(null);
+    try {
+      // Only the declared fields, so stray dialog state can never be persisted.
+      const creds = Object.fromEntries(fields.map((f) => [f.key, values[f.key]?.trim() ?? ""]));
+      const res = await api.connectIntegration(provider.id, creds);
+      // WhatsApp comes back `pending` — it still needs Meta to call our webhook.
+      // Saying "connected" here would be a lie the card immediately contradicts.
+      if (res.connection?.status === "pending") {
+        toast("Almost there", {
+          description: "Paste the webhook URL into Meta to finish connecting.",
+        });
+      } else {
+        toast.success(`${provider.label} connected`);
+      }
+      onConnected();
+    } catch (err) {
+      // The server's messages here are written for the admin — which business
+      // check failed, or that the token is missing a permission. A generic
+      // "check your credentials" would discard the only useful part.
+      setError(messageOf(err, `Couldn't connect ${provider.label}. Check the details above.`));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <Modal
-      open={!!provider}
-      onClose={onClose}
-      title={step === "code" ? "Confirm your number" : `Connect ${provider?.label ?? ""}`}
-    >
-      {step !== "code" && (
-        <>
-          <p className="mb-3 text-xs text-muted">
-            Credentials are encrypted at rest and never leave the server unencrypted.
-          </p>
-          {guide && (
-            <div className="mb-4 rounded-xl bg-surface-2/60 p-3">
-              <GuideSteps guide={guide} />
-            </div>
-          )}
-        </>
+    <Modal open={!!provider} onClose={onClose} title={`Connect ${provider?.label ?? ""}`}>
+      <p className="mb-3 text-xs text-muted">
+        Credentials are encrypted at rest and never leave the server unencrypted.
+      </p>
+      {guide && (
+        <div className="mb-4 rounded-xl bg-surface-2/60 p-3">
+          <GuideSteps guide={guide} />
+        </div>
       )}
 
       {error && (
         <div className="mb-3 rounded-xl bg-danger-soft px-3 py-2 text-xs text-danger">{error}</div>
       )}
 
-      {step === "creds" && (
-        <div className="space-y-3">
-          {credFields.map((f) => (
-            <FieldInput
-              key={f.key}
-              field={f}
-              value={values[f.key] ?? ""}
-              onChange={(v) => setValues((s) => ({ ...s, [f.key]: v }))}
-            />
-          ))}
-          {verifyFields.map((f) => (
-            <FieldInput
-              key={f.key}
-              field={f}
-              value={values[f.key] ?? ""}
-              onChange={(v) => setValues((s) => ({ ...s, [f.key]: v }))}
-              inputMode={f.key === "to" ? "tel" : undefined}
-            />
-          ))}
-        </div>
-      )}
-
-      {step === "number" && (
-        <div className="space-y-3">
-          <p className="text-xs text-muted">
-            This connection is waiting to be confirmed. Tell us where to send the code.
-          </p>
-          {verifyFields.map((f) => (
-            <FieldInput
-              key={f.key}
-              field={f}
-              value={values[f.key] ?? ""}
-              onChange={(v) => setValues((s) => ({ ...s, [f.key]: v }))}
-              inputMode={f.key === "to" ? "tel" : undefined}
-            />
-          ))}
-        </div>
-      )}
-
-      {step === "code" && verify && (
-        <div className="space-y-3">
-          {verify.delivery === "sent" ? (
-            <>
-              <p className="text-xs text-muted">
-                We sent a 6-digit code to <strong>{values.to}</strong> on WhatsApp. It expires in 10
-                minutes.
-              </p>
-              <label className="block">
-                <span className="mb-1 block text-xs font-medium text-muted">Confirmation code</span>
-                <Input
-                  value={code}
-                  onChange={(e) => setCode(e.target.value)}
-                  placeholder="123456"
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  maxLength={6}
-                />
-              </label>
-            </>
-          ) : (
-            <>
-              {/* Meta refuses free-form messages to a number that hasn't
-                  messaged the business recently. Going the other way needs no
-                  template at all — and it proves the webhook works, which the
-                  outbound path never does. */}
-              <p className="text-xs text-muted">
-                {verify.reason ?? "We couldn't message that number first."} Send this from WhatsApp
-                to your business number instead — we'll confirm the moment it arrives.
-              </p>
-              <div className="space-y-2 rounded-xl bg-surface-2/60 p-2.5">
-                <CopyLine label="Send this message" value={verify.replyKeyword ?? ""} />
-                {verify.businessNumber && (
-                  <CopyLine label="To this number" value={verify.businessNumber} />
-                )}
-              </div>
-              <p className="text-[10px] text-muted">
-                This needs the webhook URL registered in Meta first — it's shown on the connection
-                once you close this dialog.
-              </p>
-            </>
-          )}
-          <button
-            className="text-[11px] font-medium text-accent hover:underline disabled:opacity-50"
-            disabled={busy}
-            onClick={() => {
-              setVerify(null);
-              setCode("");
-              setError(null);
-              setStep("number");
-            }}
-          >
-            Use a different number, or send a new code
-          </button>
-        </div>
-      )}
+      <div className="space-y-3">
+        {fields.map((f) => (
+          <FieldInput
+            key={f.key}
+            field={f}
+            value={values[f.key] ?? ""}
+            onChange={(v) => setValues((s) => ({ ...s, [f.key]: v }))}
+          />
+        ))}
+      </div>
 
       <div className="mt-5 flex justify-end gap-2">
         <Button variant="ghost" size="sm" onClick={onClose}>
-          {step === "code" ? "Close" : "Cancel"}
+          Cancel
         </Button>
-        {step === "creds" && (
-          <Button size="sm" disabled={!credsReady || !numberReady || busy} onClick={submitCreds}>
-            {busy ? <Loader2 size={14} className="animate-spin" /> : "Connect"}
-          </Button>
-        )}
-        {step === "number" && (
-          <Button size="sm" disabled={!numberReady || busy} onClick={submitNumber}>
-            {busy ? <Loader2 size={14} className="animate-spin" /> : "Send code"}
-          </Button>
-        )}
-        {step === "code" && verify?.delivery === "sent" && (
-          <Button size="sm" disabled={code.trim().length < 6 || busy} onClick={submitCode}>
-            {busy ? <Loader2 size={14} className="animate-spin" /> : "Confirm"}
-          </Button>
-        )}
+        <Button size="sm" disabled={!ready || busy} onClick={submit}>
+          {busy ? <Loader2 size={14} className="animate-spin" /> : "Connect"}
+        </Button>
       </div>
     </Modal>
   );

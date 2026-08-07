@@ -71,8 +71,6 @@ async def db_app(database_url):
         for table in (
             "provider_activity",
             "provider_identities",
-            # Before integration_connections — FK on connection_id.
-            "connection_verifications",
             # Before integration_connections + provider_app_credentials: FK
             # references (oauth_states.app_credential_id, and the connection FK).
             "oauth_states",

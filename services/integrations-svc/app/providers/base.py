@@ -62,8 +62,13 @@ PROVIDERS: dict[str, ProviderSpec] = {
         label="WhatsApp",
         auth_kind="token_paste",
         primary_field="accessToken",
+        # Business accounts only. The WABA id is what makes that enforceable —
+        # without it we could confirm a number is verified but not whose it is,
+        # and the check would be bypassable by pairing any approved account with
+        # an unrelated number. Ordered as Meta's own API Setup page shows them.
         fields=(
             ProviderField("accessToken", "System-user token"),
+            ProviderField("wabaId", "WhatsApp Business Account ID", secret=False),
             ProviderField("phoneNumberId", "Phone number ID", secret=False),
             ProviderField("appSecret", "App secret"),
         ),

@@ -19,11 +19,12 @@ import secrets
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from sqlalchemy import text
 
-from .. import verification
 from ..config import settings
+from ..connections import confirm_connection
 from ..crypto import cryptor
 from ..db import session, set_bypass_rls
 from ..ingest import claim_event, ingest_one
+from ..logging_setup import log
 from ..providers import slack, whatsapp
 
 router = APIRouter()
@@ -77,10 +78,11 @@ async def _conn_by_token(db, provider: str, webhook_token: str | None):
     lookup, so a wrong token is a miss, not a partial match.
 
     'pending' connections resolve too, and must: a WhatsApp connection is
-    pending precisely while the admin is pasting this URL into Meta, so
-    excluding them would make the verification handshake — and the CONFIRM reply
-    that ends the pending state — impossible to answer. Callers gate on
-    `conn.status` for what they do with the payload; see _handle_whatsapp.
+    pending precisely while the admin is pasting this URL into Meta, and
+    answering that verification request is the ONLY way it ever becomes
+    connected (see verify_webhook). Excluding them here would make the state
+    unreachable. Callers still gate on `conn.status` for what they do with a
+    payload — a pending connection ingests nothing; see _handle_whatsapp.
     """
     if not webhook_token:
         return None
@@ -142,8 +144,18 @@ async def verify_webhook(
             await set_bypass_rls(db)
             conn = await _conn_by_token(db, "whatsapp", webhook_token)
             expected = await _conn_secret(db, conn, "verifyToken") if conn is not None else ""
-        if expected and secrets.compare_digest(token, expected):
-            return Response(content=challenge, media_type="text/plain")
+            if expected and secrets.compare_digest(token, expected):
+                # THIS is what confirms a WhatsApp connection. Reaching here
+                # means Meta itself called this connection's own URL and proved
+                # it knows the token we generated — i.e. the admin really did
+                # paste both into the dashboard and Meta really can reach us.
+                # It is the one thing credentials cannot establish, and unlike
+                # the confirmation code this replaced, it involves no personal
+                # phone number, no template and no 24-hour window.
+                if conn is not None and await confirm_connection(db, str(conn.id)):
+                    log.info("whatsapp_connection_confirmed", connection_id=str(conn.id))
+                await db.commit()
+                return Response(content=challenge, media_type="text/plain")
 
     # Fallback: the deployment-wide token, for pre-existing setups.
     if settings.whatsapp_verify_token and secrets.compare_digest(
@@ -252,26 +264,12 @@ async def _handle_whatsapp(
                     continue
 
                 if pending:
-                    # The connection isn't proven yet, so this arrival is setup
-                    # traffic, not conversation. The one thing it can be is the
-                    # "CONFIRM 482193" the admin was asked to send when we
-                    # couldn't message them first — and that arriving here is
-                    # itself the proof that inbound delivery works, which is
-                    # more than the outbound path ever establishes.
-                    #
-                    # Inside the claim_event guard on purpose: a Meta redelivery
-                    # of the same message must not burn a second attempt.
-                    code = verification.extract_reply_code(m.get("text", ""))
-                    if code:
-                        try:
-                            if await verification.consume(db, str(conn.id), code):
-                                await verification.confirm_connection(db, str(conn.id))
-                                pending = False
-                        except verification.TooManyAttempts:
-                            pass  # stay pending; the admin re-sends from the UI
-                    # Never ingest while unproven — not the setup keyword (it's
-                    # an artifact of setup, not a message anyone wants in their
-                    # hub) and not anything else that raced in ahead of it.
+                    # Unproven connection: the admin hasn't finished pointing
+                    # Meta at us (verify_webhook is what flips this), so anything
+                    # arriving now predates the connection being real. Dropping
+                    # it is deliberate — surfacing messages in someone's hub from
+                    # a connection the product still shows as not-ready is how a
+                    # half-finished setup starts looking like a working one.
                     continue
 
                 # Surface Meta's forward signal (the only forward Meta exposes).

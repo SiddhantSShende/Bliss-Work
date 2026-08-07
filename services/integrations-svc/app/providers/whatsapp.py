@@ -1,9 +1,18 @@
-"""WhatsApp (Meta Cloud API) adapter — the sanctioned Business relay.
+"""WhatsApp (Meta Cloud API) adapter — Business accounts only.
 
-Connect is token-paste: a system-user access token + a phone_number_id (the
-business number) + the app secret (for webhook signatures). Because every message
-transits the business number, Bliss-Work owns the graph — inbound arrivals, our
-outbound sends, and forwards done through the app are all trackable.
+Connect is token-paste: a system-user access token, the WhatsApp Business Account
+(WABA) id, the phone_number_id of a number on it, and the app secret (for webhook
+signatures). Because every message transits the business number, Bliss-Work owns
+the graph — inbound arrivals, our outbound sends, and forwards done through the
+app are all trackable.
+
+BUSINESS ONLY, and enforced rather than assumed. The Cloud API is already
+structurally out of reach of a personal account — a phone_number_id and a
+system-user token only exist for a number registered to a WABA — but that says
+nothing about whether the business is real. An unverified number, a number still
+in Meta's test state, or an on-premise deployment would all have connected
+identically. `check_business_account` below is the gate: the number must be a
+VERIFIED Cloud API number that genuinely belongs to an APPROVED Business Account.
 
 Inbound webhooks are authenticated by Meta's `X-Hub-Signature-256` = HMAC-SHA256
 over the raw body with the app secret. Meta also carries `context.forwarded` /
@@ -15,9 +24,11 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+from dataclasses import dataclass
 
 import httpx
 
+from ..logging_setup import log
 from ..resilience import CircuitBreaker, retry_async
 
 _GRAPH = "https://graph.facebook.com/v21.0"
@@ -29,6 +40,25 @@ class WhatsAppError(Exception):
     """A definitive WhatsApp/Graph API failure (bad token, bad request)."""
 
 
+class WhatsAppPermissionError(WhatsAppError):
+    """The token authenticated but isn't allowed to read the Business Account.
+
+    Its own class because it is the single most likely first failure of a setup
+    and the only one with a precise fix: sending needs
+    `whatsapp_business_messaging`, but reading WABA metadata needs
+    `whatsapp_business_management`, and people grant only the first.
+    """
+
+
+class NotABusinessAccount(WhatsAppError):
+    """The credentials work, but they don't describe an approved business number.
+
+    Distinct from WhatsApp Error so the route can answer 400-with-this-reason
+    instead of "WhatsApp rejected the credentials", which would send an admin
+    hunting for a typo in a token that is perfectly fine.
+    """
+
+
 def verify_signature(app_secret: str, raw_body: bytes, signature: str) -> bool:
     """Verify Meta's X-Hub-Signature-256 (constant-time). Fail closed on any
     malformed input or mismatch."""
@@ -38,29 +68,144 @@ def verify_signature(app_secret: str, raw_body: bytes, signature: str) -> bool:
     return hmac.compare_digest(expected, signature)
 
 
-async def get_phone_number(access_token: str, phone_number_id: str) -> dict:
-    """Validate the token + phone_number_id by fetching the number's metadata.
-    Returns e.g. {'display_phone_number': '+1…', 'verified_name': '…', 'id': pnid}."""
-    if not phone_number_id:
-        raise WhatsAppError("phone_number_id is required")
+#: Meta error codes for "the token is valid but lacks the permission".
+_PERMISSION_CODES = {10, 200, 299}
 
+
+class _UnknownField(WhatsAppError):
+    """Graph refused the request because a name in `fields` doesn't exist."""
+
+
+def _is_unknown_field(message: str) -> bool:
+    m = message.lower()
+    return "nonexisting field" in m or "unknown field" in m
+
+
+async def _graph_get_raw(access_token: str, path: str, fields: str | None) -> dict:
     async def _attempt() -> dict:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             r = await client.get(
-                f"{_GRAPH}/{phone_number_id}",
-                params={"fields": "display_phone_number,verified_name"},
+                f"{_GRAPH}/{path}",
+                params={"fields": fields} if fields else None,
                 headers={"Authorization": f"Bearer {access_token}"},
             )
             if r.status_code == 200:
                 return r.json()
             # Meta returns 4xx with an {"error": {...}} body for bad token/id.
+            code, err = None, r.text
             try:
-                err = r.json().get("error", {}).get("message", r.text)
+                body = r.json().get("error", {})
+                code, err = body.get("code"), body.get("message", r.text)
             except Exception:  # noqa: BLE001
-                err = r.text
+                pass
+            if code in _PERMISSION_CODES or "permission" in str(err).lower():
+                raise WhatsAppPermissionError(
+                    "your system-user token also needs the "
+                    "`whatsapp_business_management` permission to read the "
+                    f"Business Account ({err})"
+                )
+            if _is_unknown_field(str(err)):
+                raise _UnknownField(str(err))
             raise WhatsAppError(f"{r.status_code}: {err}")
 
     return await retry_async(_attempt, attempts=3, breaker=_wa_breaker)
+
+
+async def _graph_get(access_token: str, path: str, fields: str) -> dict:
+    """One authenticated Graph read, with the shared retry + breaker.
+
+    Graph rejects the WHOLE request with a 400 if any name in `fields` is
+    unknown — so if Meta ever renames or retires one of the fields the business
+    gate asks for, every WhatsApp connect starts failing at once, for a reason
+    that reads like the admin's credentials are bad. Retrying without `fields`
+    falls back to Meta's default projection: the checks then see whatever it
+    does return and fail CLOSED on anything they can't confirm, which is the
+    right way for a gate to break. The warning is what makes it findable.
+    """
+    try:
+        return await _graph_get_raw(access_token, path, fields)
+    except _UnknownField as exc:
+        log.warning(
+            "whatsapp_graph_unknown_field",
+            path=path,
+            fields=fields,
+            error=str(exc),
+        )
+        return await _graph_get_raw(access_token, path, None)
+
+
+@dataclass(frozen=True)
+class BusinessNumber:
+    """A phone number confirmed to belong to an approved WhatsApp Business Account."""
+
+    phone_number_id: str
+    display_phone_number: str
+    verified_name: str
+    business_name: str
+
+
+async def check_business_account(
+    access_token: str, waba_id: str, phone_number_id: str
+) -> BusinessNumber:
+    """Prove these credentials describe a WhatsApp BUSINESS number, or raise.
+
+    Two reads, in this order:
+
+      GET /{waba_id}                 → is the business itself approved?
+      GET /{waba_id}/phone_numbers   → does this number belong to it, and is it
+                                       a verified Cloud API number?
+
+    Listing the WABA's numbers rather than reading /{phone_number_id} directly is
+    deliberate and load-bearing. Reading the number alone would tell us it is
+    verified but not WHOSE it is — so pasting any approved WABA id alongside an
+    unrelated number would sail through the gate. Membership in this list is the
+    binding, and the list carries the per-number fields anyway, so it costs
+    nothing extra.
+    """
+    if not waba_id:
+        raise WhatsAppError("a WhatsApp Business Account ID is required")
+    if not phone_number_id:
+        raise WhatsAppError("a phone number ID is required")
+
+    account = await _graph_get(access_token, waba_id, "id,name,account_review_status")
+    review = str(account.get("account_review_status") or "").upper()
+    if review != "APPROVED":
+        raise NotABusinessAccount(
+            "that WhatsApp Business Account hasn't been approved by Meta yet"
+            + (f" (Meta says: {review.lower()})" if review else "")
+        )
+
+    listing = await _graph_get(
+        access_token,
+        f"{waba_id}/phone_numbers",
+        "id,display_phone_number,verified_name,code_verification_status,platform_type",
+    )
+    numbers = listing.get("data") or []
+    match = next((n for n in numbers if str(n.get("id")) == str(phone_number_id)), None)
+    if match is None:
+        raise NotABusinessAccount(
+            "that phone number ID doesn't belong to the Business Account you entered"
+        )
+
+    if str(match.get("code_verification_status") or "").upper() != "VERIFIED":
+        raise NotABusinessAccount(
+            "that business number hasn't completed Meta's verification yet"
+        )
+    # ON_PREMISE numbers don't deliver through the Cloud API endpoints this
+    # integration is built on, so accepting one would produce a connection that
+    # passes every check and then silently fails to send.
+    platform = str(match.get("platform_type") or "").upper()
+    if platform and platform != "CLOUD_API":
+        raise NotABusinessAccount(
+            f"only Cloud API numbers can connect — this one is {platform.lower()}"
+        )
+
+    return BusinessNumber(
+        phone_number_id=str(phone_number_id),
+        display_phone_number=str(match.get("display_phone_number") or ""),
+        verified_name=str(match.get("verified_name") or ""),
+        business_name=str(account.get("name") or ""),
+    )
 
 
 async def send_text(access_token: str, phone_number_id: str, to: str, text: str) -> dict:
@@ -91,83 +236,6 @@ async def send_text(access_token: str, phone_number_id: str, to: str, text: str)
             raise WhatsAppError(f"{r.status_code}: {err}")
 
     return await retry_async(_attempt, attempts=3, breaker=_wa_breaker)
-
-
-async def send_template(
-    access_token: str,
-    phone_number_id: str,
-    to: str,
-    template: str,
-    params: list[str],
-    lang: str = "en_US",
-) -> dict:
-    """Send an approved template message. `params` fill the body's {{1}}, {{2}}…
-
-    Needed because the Cloud API refuses free-form text to anyone who hasn't
-    messaged the business number in the last 24 hours (see is_reengagement_error).
-    A template is the ONLY way to open that conversation, and it has to be
-    approved by Meta first — which is why the template name comes from the org,
-    not from us.
-    """
-
-    async def _attempt() -> dict:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            r = await client.post(
-                f"{_GRAPH}/{phone_number_id}/messages",
-                headers={
-                    "Authorization": f"Bearer {access_token}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "messaging_product": "whatsapp",
-                    "recipient_type": "individual",
-                    "to": to,
-                    "type": "template",
-                    "template": {
-                        "name": template,
-                        "language": {"code": lang},
-                        "components": (
-                            [
-                                {
-                                    "type": "body",
-                                    "parameters": [
-                                        {"type": "text", "text": p} for p in params
-                                    ],
-                                }
-                            ]
-                            if params
-                            else []
-                        ),
-                    },
-                },
-            )
-            if r.status_code in (200, 201):
-                return r.json()
-            try:
-                err = r.json().get("error", {}).get("message", r.text)
-            except Exception:  # noqa: BLE001
-                err = r.text
-            raise WhatsAppError(f"{r.status_code}: {err}")
-
-    return await retry_async(_attempt, attempts=3, breaker=_wa_breaker)
-
-
-#: Meta's codes for "this number hasn't talked to you recently, use a template":
-#: 131047 is the documented re-engagement error; 470 is the legacy one still
-#: returned by some numbers. Matched alongside the prose because Meta puts the
-#: code in the message body for some failure shapes and not others.
-_REENGAGEMENT_MARKERS = ("131047", "470", "re-engagement", "24 hour", "24-hour")
-
-
-def is_reengagement_error(exc: Exception) -> bool:
-    """True when a send failed only because the 24h session window is closed.
-
-    Kept here rather than string-matching at the call site: the fallback
-    decision (try a template / ask the admin to message us first) is only
-    correct for THIS failure, and must not swallow a bad token or a bad number.
-    """
-    msg = str(exc).lower()
-    return any(m in msg for m in _REENGAGEMENT_MARKERS)
 
 
 def phone_number_id_of(payload: dict) -> str | None:

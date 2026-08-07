@@ -34,8 +34,6 @@ import {
   ThreadDTO,
   UserDTO,
   SessionDTO,
-  VerifyConfirmDTO,
-  VerifyStartDTO,
 } from "../types/domain";
 import {
   ApiErrorBody,
@@ -632,37 +630,6 @@ export class ApiClient {
       `/api/v1/integrations/${provider}/connect/start`,
       { method: "POST", body: JSON.stringify({ ...credentials, returnTo }) },
       ConnectStartDTO,
-    );
-  }
-  /** Send a WhatsApp confirmation code to the admin's own number.
-   *
-   *  A WhatsApp connection is created `pending`: validating the credentials only
-   *  proves we can read the business number's metadata, not that it can send or
-   *  that the webhook is wired. This starts the round trip that proves both, and
-   *  doubles as the resend (the server replaces the outstanding code and
-   *  enforces its own cooldown, answering 429 if you call it too fast).
-   *
-   *  `template` is the name of a Meta-approved template, used only if the direct
-   *  send is refused because the 24h session window is closed. */
-  startIntegrationVerification(
-    connId: string,
-    opts: { to: string; template?: string; templateLang?: string },
-  ) {
-    return this.req(
-      this.cfg.integrationsBase,
-      `/api/v1/integrations/${connId}/verify/start`,
-      { method: "POST", body: JSON.stringify(opts) },
-      VerifyStartDTO,
-    );
-  }
-  /** Check the code the admin typed in; promotes the connection to 'connected'.
-   *  Rejects with 400 for a wrong/expired code and 429 once attempts run out. */
-  confirmIntegrationVerification(connId: string, code: string) {
-    return this.req(
-      this.cfg.integrationsBase,
-      `/api/v1/integrations/${connId}/verify/confirm`,
-      { method: "POST", body: JSON.stringify({ code }) },
-      VerifyConfirmDTO,
     );
   }
   /** Disconnect + revoke a connection (purges its stored tokens). Idempotent. */
