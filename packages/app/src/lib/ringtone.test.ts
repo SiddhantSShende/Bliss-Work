@@ -47,14 +47,18 @@ class FakeOsc extends FakeNode {
 
 class FakeAudioContext {
   static instances: FakeAudioContext[] = [];
+  /** "running" = the page is activated; "suspended" = needs a resume();
+   *  "blocked" = the browser refuses to resume at all (no user gesture). */
+  static initialState: "running" | "suspended" | "blocked" = "running";
   currentTime = 0;
-  state = "running";
+  state: string;
   destination = new FakeNode();
   oscillators: FakeOsc[] = [];
   gains: FakeGain[] = [];
   resumed = 0;
 
   constructor() {
+    this.state = FakeAudioContext.initialState === "running" ? "running" : "suspended";
     FakeAudioContext.instances.push(this);
   }
   createOscillator() {
@@ -72,7 +76,31 @@ class FakeAudioContext {
   }
   resume() {
     this.resumed += 1;
+    if (FakeAudioContext.initialState === "blocked") return Promise.reject(new Error("not allowed"));
+    this.state = "running";
     return Promise.resolve();
+  }
+}
+
+/** Stand-in for HTMLAudioElement — the fallback path when audio is blocked. */
+class FakeAudio {
+  static instances: FakeAudio[] = [];
+  static rejectPlay = false;
+  loop = false;
+  volume = 1;
+  paused = true;
+  plays = 0;
+  constructor(public src: string) {
+    FakeAudio.instances.push(this);
+  }
+  play() {
+    this.plays += 1;
+    if (FakeAudio.rejectPlay) return Promise.reject(new Error("blocked"));
+    this.paused = false;
+    return Promise.resolve();
+  }
+  pause() {
+    this.paused = true;
   }
 }
 
@@ -80,6 +108,8 @@ class FakeAudioContext {
 async function loadRingtone(withAudio = true) {
   vi.resetModules();
   FakeAudioContext.instances = [];
+  FakeAudio.instances = [];
+  (window as unknown as { Audio: unknown }).Audio = FakeAudio;
   if (withAudio) {
     (window as unknown as { AudioContext: unknown }).AudioContext = FakeAudioContext;
   } else {
@@ -92,7 +122,11 @@ async function loadRingtone(withAudio = true) {
 const ctx = () => FakeAudioContext.instances[0]!;
 
 describe("createRingtone", () => {
-  beforeEach(() => vi.useFakeTimers());
+  beforeEach(() => {
+    vi.useFakeTimers();
+    FakeAudioContext.initialState = "running";
+    FakeAudio.rejectPlay = false;
+  });
   afterEach(() => {
     vi.useRealTimers();
     (window as unknown as { AudioContext: unknown }).AudioContext = FakeAudioContext;
@@ -156,6 +190,55 @@ describe("createRingtone", () => {
     vi.advanceTimersByTime(500);
   });
 
+  // v1 scheduled onto a suspended context and hoped the resume landed, so a
+  // refused resume looked exactly like a working ring. Nothing may be scheduled
+  // until the context actually reports "running".
+  it("resumes a suspended context BEFORE scheduling anything", async () => {
+    FakeAudioContext.initialState = "suspended";
+    const { createRingtone } = await loadRingtone();
+    const ring = createRingtone("incoming");
+
+    ring.start();
+    expect(ctx().resumed).toBe(1);
+    expect(ctx().oscillators).toHaveLength(0); // not until the clock is live
+
+    await vi.waitFor(() => expect(ctx().oscillators).toHaveLength(6));
+    expect(ctx().state).toBe("running");
+
+    ring.stop();
+  });
+
+  it("falls back to an <audio> clip when the browser refuses to resume", async () => {
+    FakeAudioContext.initialState = "blocked";
+    const { createRingtone } = await loadRingtone();
+    const ring = createRingtone("incoming");
+
+    ring.start();
+    await vi.waitFor(() => expect(FakeAudio.instances).toHaveLength(1));
+
+    const el = FakeAudio.instances[0]!;
+    expect(el.loop).toBe(true);
+    expect(el.src.startsWith("data:audio/wav;base64,")).toBe(true);
+    expect(el.plays).toBe(1);
+    expect(ctx().oscillators).toHaveLength(0);
+
+    ring.stop();
+    expect(el.paused).toBe(true);
+  });
+
+  it("does not start ringing if the call ends while the resume is in flight", async () => {
+    FakeAudioContext.initialState = "suspended";
+    const { createRingtone } = await loadRingtone();
+    const ring = createRingtone("incoming");
+
+    ring.start();
+    ring.stop(); // answered/declined before resume() settled
+    await vi.waitFor(() => expect(ctx().state).toBe("running"));
+
+    expect(ctx().oscillators).toHaveLength(0);
+    expect(FakeAudio.instances).toHaveLength(0);
+  });
+
   it("is a silent no-op when the host has no Web Audio", async () => {
     const { createRingtone } = await loadRingtone(false);
     const ring = createRingtone("incoming");
@@ -167,20 +250,42 @@ describe("createRingtone", () => {
 });
 
 describe("primeRingtoneAudio", () => {
+  beforeEach(() => {
+    FakeAudioContext.initialState = "suspended";
+  });
   afterEach(() => {
+    FakeAudioContext.initialState = "running";
     (window as unknown as { AudioContext: unknown }).AudioContext = FakeAudioContext;
   });
 
-  it("resumes the context on the first gesture, then unsubscribes", async () => {
+  it("unlocks the context on a gesture, then stops listening", async () => {
     const { primeRingtoneAudio } = await loadRingtone();
     const off = primeRingtoneAudio();
 
     window.dispatchEvent(new Event("pointerdown"));
     expect(ctx().resumed).toBe(1);
+    await vi.waitFor(() => expect(ctx().state).toBe("running"));
 
+    // Unlocked — further gestures cost nothing.
     window.dispatchEvent(new Event("pointerdown"));
     expect(ctx().resumed).toBe(1);
 
     expect(() => off()).not.toThrow();
+  });
+
+  // The regression: v1 listened with {once:true}, so a gesture that arrived
+  // while the browser was still refusing burned the only attempt and the app
+  // stayed muted for the rest of the session.
+  it("keeps trying on later gestures while the browser still refuses", async () => {
+    FakeAudioContext.initialState = "blocked";
+    const { primeRingtoneAudio } = await loadRingtone();
+    const off = primeRingtoneAudio();
+
+    window.dispatchEvent(new Event("pointerdown"));
+    window.dispatchEvent(new Event("keydown"));
+    window.dispatchEvent(new Event("click"));
+
+    expect(ctx().resumed).toBeGreaterThanOrEqual(3);
+    off();
   });
 });

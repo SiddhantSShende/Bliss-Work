@@ -54,19 +54,104 @@ function audioContext(): AudioContext | null {
 }
 
 /** Browsers keep an AudioContext suspended until the page has seen a user
- *  gesture, so a ringtone for a call that arrives while the tab is idle would
- *  be silent. Resume on the first interaction after login and the context stays
- *  unlocked for the session. Returns an unsubscribe for React cleanup. */
+ *  gesture, and a call arriving at an idle tab is precisely the case with no
+ *  recent gesture — the first version of this listened for ONE gesture and gave
+ *  up, which is why the ring was silent in production.
+ *
+ *  So: keep listening on EVERY interaction until the context actually reports
+ *  "running", and create it during the gesture (a context constructed while the
+ *  page is activated starts unlocked, where a later resume() would be refused).
+ *  Returns an unsubscribe for React cleanup. */
 export function primeRingtoneAudio(): () => void {
   if (typeof window === "undefined") return () => {};
-  const events = ["pointerdown", "keydown", "touchstart"] as const;
+  const events = ["pointerdown", "pointerup", "keydown", "touchstart", "click"] as const;
   const wake = () => {
-    void audioContext()?.resume().catch(() => {});
-    off();
+    const ac = audioContext();
+    if (!ac) return off();
+    if (ac.state === "running") return off();
+    void ac
+      .resume()
+      .then(() => {
+        if (ac.state === "running") off();
+      })
+      .catch(() => {});
   };
   const off = () => events.forEach((e) => window.removeEventListener(e, wake));
-  events.forEach((e) => window.addEventListener(e, wake, { once: true, passive: true }));
+  events.forEach((e) => window.addEventListener(e, wake, { passive: true }));
+  wake(); // the document may already be activated (a click got us here)
   return off;
+}
+
+// ── WAV fallback ────────────────────────────────────────────────────────────
+// When the AudioContext cannot be resumed, an <audio> element is a genuine
+// second chance: Chrome gates media elements on the site's media-engagement
+// score as well as on activation, so a site the user works in all day is often
+// allowed to play where a fresh AudioContext is not. The clip is rendered from
+// the SAME voice table, so both paths sound identical.
+
+const RATE = 22050;
+
+/** Renders one cycle of `voice` to mono float samples. */
+function renderCycle(voice: Voice): Float32Array {
+  const out = new Float32Array(Math.round(voice.cycle * RATE));
+  for (const [offset, freq] of voice.notes) {
+    for (const [f, peak] of [
+      [freq, voice.gain],
+      [freq * 2, voice.gain * 0.25],
+    ] as [number, number][]) {
+      const from = Math.round(offset * RATE);
+      const len = Math.round(voice.decay * RATE);
+      for (let i = 0; i < len && from + i < out.length; i++) {
+        const t = i / RATE;
+        // Same shape as the node graph: 90ms attack, exponential decay tail.
+        const env = t < 0.09 ? t / 0.09 : Math.exp(-(t - 0.09) * (5 / voice.decay));
+        out[from + i]! += Math.sin(2 * Math.PI * f * t) * peak * env;
+      }
+    }
+  }
+  return out;
+}
+
+/** Wraps PCM samples in a 16-bit mono WAV container as a data: URI. */
+function wavDataUri(samples: Float32Array): string {
+  const bytes = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(bytes);
+  const ascii = (at: number, s: string) => {
+    for (let i = 0; i < s.length; i++) view.setUint8(at + i, s.charCodeAt(i));
+  };
+  ascii(0, "RIFF");
+  view.setUint32(4, 36 + samples.length * 2, true);
+  ascii(8, "WAVEfmt ");
+  view.setUint32(16, 16, true); // PCM header size
+  view.setUint16(20, 1, true); // format: PCM
+  view.setUint16(22, 1, true); // mono
+  view.setUint32(24, RATE, true);
+  view.setUint32(28, RATE * 2, true); // byte rate
+  view.setUint16(32, 2, true); // block align
+  view.setUint16(34, 16, true); // bits per sample
+  ascii(36, "data");
+  view.setUint32(40, samples.length * 2, true);
+  for (let i = 0; i < samples.length; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]!));
+    view.setInt16(44 + i * 2, s * 0x7fff, true);
+  }
+  let bin = "";
+  const raw = new Uint8Array(bytes);
+  for (let i = 0; i < raw.length; i += 0x8000) {
+    bin += String.fromCharCode(...raw.subarray(i, i + 0x8000));
+  }
+  return `data:audio/wav;base64,${btoa(bin)}`;
+}
+
+const clipCache = new Map<RingKind, string>();
+
+function clipFor(kind: RingKind): string {
+  let uri = clipCache.get(kind);
+  if (!uri) {
+    uri = wavDataUri(renderCycle(VOICES[kind]));
+    clipCache.set(kind, uri);
+  }
+  return uri;
 }
 
 export interface Ringtone {
@@ -83,6 +168,10 @@ export function createRingtone(kind: RingKind): Ringtone {
   let master: GainNode | undefined;
   let live: OscillatorNode[] = [];
   let nextAt = 0;
+  let element: HTMLAudioElement | undefined;
+  // Set by stop(): resume() is async, so a call answered inside that window
+  // must not start a ring nobody can hear the end of.
+  let stopped = false;
 
   /** One bell: sine + quarter-gain octave partial, soft attack, long tail. */
   const strike = (ac: AudioContext, dest: AudioNode, freq: number, at: number, gain: number) => {
@@ -128,13 +217,26 @@ export function createRingtone(kind: RingKind): Ringtone {
     }
   };
 
-  const start = () => {
-    if (timer) return;
-    const ac = audioContext();
-    if (!ac || !ensureChain(ac)) return;
-    // A suspended context schedules fine but stays silent; resuming is
-    // best-effort — a blocked ringtone must never break the call itself.
-    void ac.resume().catch(() => {});
+  /** Last-resort path: loop the pre-rendered clip through an <audio> element. */
+  const playElement = () => {
+    if (stopped || element || typeof Audio === "undefined") return;
+    try {
+      const el = new Audio(clipFor(kind));
+      el.loop = true;
+      el.volume = 1;
+      element = el;
+      void el.play().catch(() => {
+        // Nothing left to try: the document has never been interacted with.
+        // The call still rings visually; audio is not worth throwing over.
+      });
+    } catch {
+      element = undefined;
+    }
+  };
+
+  /** Schedules the looping arpeggio on the (now running) context. */
+  const scheduleOn = (ac: AudioContext) => {
+    if (stopped || timer || !ensureChain(ac)) return;
     const cycle = () => {
       if (!master) return;
       nextAt = Math.max(nextAt, ac.currentTime + 0.02);
@@ -145,10 +247,41 @@ export function createRingtone(kind: RingKind): Ringtone {
     timer = setInterval(cycle, voice.cycle * 1000);
   };
 
+  const start = () => {
+    if (timer || element) return;
+    stopped = false;
+    const ac = audioContext();
+    if (!ac) return playElement();
+
+    if (ac.state === "running") {
+      scheduleOn(ac);
+      return;
+    }
+
+    // Suspended: the first version scheduled anyway and hoped the resume landed,
+    // so a refused resume was indistinguishable from a working ring — silence
+    // with nothing to fall back to. Resume FIRST and only schedule once the
+    // context is really running; otherwise hand off to the element.
+    void ac
+      .resume()
+      .then(() => (ac.state === "running" ? scheduleOn(ac) : playElement()))
+      .catch(() => playElement());
+  };
+
   const stop = () => {
+    stopped = true;
     if (timer) {
       clearInterval(timer);
       timer = undefined;
+    }
+    if (element) {
+      try {
+        element.pause();
+        element.src = "";
+      } catch {
+        /* already released */
+      }
+      element = undefined;
     }
     const ac = shared;
     const g = master;
