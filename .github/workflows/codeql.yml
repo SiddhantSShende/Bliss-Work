@@ -1,14 +1,25 @@
 name: CodeQL
 
 # Static application security testing (SAST) across all three languages.
-# Buildless extraction (build-mode: none) so the multi-module Go layout and the
-# Python/JS sources are scanned without a custom per-service build.
+#
+# Python and JS/TS are extracted buildless (`build-mode: none`). Go is NOT:
+# `none` is only supported for C/C++, C#, Java and Rust, so asking for it on Go
+# failed the `go` leg of this matrix on every run — which is why CodeQL had been
+# red for weeks while the other two languages analysed fine.
+#
+# Go therefore uses `manual`, not `autobuild`: autobuild expects a module it can
+# build from the checkout root, and there is no go.mod there — the three
+# services are separate modules under services/. The manual step below builds
+# each one so the extractor sees a complete program.
 on:
   push:
     branches: [main]
   pull_request:
   schedule:
     - cron: "27 3 * * 1" # weekly, Monday 03:27 UTC
+
+env:
+  GO_VERSION: "1.26"
 
 jobs:
   analyze:
@@ -22,17 +33,45 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [go, python, javascript-typescript]
+        include:
+          - language: go
+            build-mode: manual
+          - language: python
+            build-mode: none
+          - language: javascript-typescript
+            build-mode: none
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      # Toolchain must exist before the manual build step, and before init so
+      # the extractor picks up the same Go it will trace.
+      - name: Set up Go
+        if: matrix.language == 'go'
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false # three separate modules; the default single-path cache misses anyway
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@c4dd10e44af883a891fe31ced449bcb4a6728b9b # v3
         with:
           languages: ${{ matrix.language }}
-          build-mode: none
+          build-mode: ${{ matrix.build-mode }}
           # security-extended adds higher-recall security queries beyond default.
           queries: security-extended
+
+      # Only runs for Go. Each module is built separately because they are
+      # independent modules with their own go.mod — a single root build would
+      # find nothing to compile.
+      - name: Build Go modules
+        if: matrix.language == 'go'
+        run: |
+          set -euo pipefail
+          for svc in messaging-svc notification-svc ws-gateway; do
+            echo "::group::go build $svc"
+            (cd "services/$svc" && go build ./...)
+            echo "::endgroup::"
+          done
 
       - name: Perform CodeQL analysis
         uses: github/codeql-action/analyze@c4dd10e44af883a891fe31ced449bcb4a6728b9b # v3
