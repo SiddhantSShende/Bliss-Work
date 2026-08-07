@@ -80,8 +80,64 @@ jobs:
   # and a mac build numbered differently from the Windows one would advertise a
   # different release under the same feed.
   # ───────────────────────────────────────────────────────────────────────────
+  # ───────────────────────────────────────────────────────────────────────────
+  # Check the credentials BEFORE spending 40 minutes on three platform builds.
+  # Deploy secrets are required for a real release: without them the run builds
+  # everything and then dies at the very end (or worse, used to go green having
+  # shipped nothing). Signing secrets are optional — absent, the installers are
+  # built unsigned, which still works but warns on the user's machine, so say so
+  # out loud rather than letting someone discover it from a SmartScreen dialog.
+  # ───────────────────────────────────────────────────────────────────────────
+  preflight:
+    name: Preflight (secrets)
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success'
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_PATH: ${{ secrets.VPS_PATH }}
+      VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+      MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      ES_USERNAME: ${{ secrets.ES_USERNAME }}
+    steps:
+      - name: Report and gate on required secrets
+        run: |
+          # Presence only — values are never printed.
+          state() { [ -n "$1" ] && echo "✅ set" || echo "❌ **missing**"; }
+          {
+            echo "### Release credentials"
+            echo ""
+            echo "| Secret | Required | Status |"
+            echo "|---|---|---|"
+            echo "| VPS_HOST | yes — publishes to the download page | $(state "$VPS_HOST") |"
+            echo "| VPS_USER | yes | $(state "$VPS_USER") |"
+            echo "| VPS_PATH | yes | $(state "$VPS_PATH") |"
+            echo "| VPS_SSH_KEY | yes | $(state "$VPS_SSH_KEY") |"
+            echo "| MAC_CSC_LINK | no — unsigned mac build without it | $(state "$MAC_CSC_LINK") |"
+            echo "| APPLE_ID | no — no notarization without it | $(state "$APPLE_ID") |"
+            echo "| ES_USERNAME | no — unsigned Windows build without it | $(state "$ES_USERNAME") |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          missing=""
+          for k in VPS_HOST VPS_USER VPS_PATH VPS_SSH_KEY; do
+            [ -z "${!k}" ] && missing="$missing $k"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing required deploy secret(s):$missing"
+            echo "Users download from the VPS. Without these the build cannot reach them."
+            echo "Set them at Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          [ -z "$MAC_CSC_LINK" ] && echo "::warning::MAC_CSC_LINK unset — the macOS build will be UNSIGNED (Gatekeeper will warn users)."
+          [ -z "$ES_USERNAME" ] && echo "::warning::ES_USERNAME unset — the Windows build will be UNSIGNED (SmartScreen will warn users)."
+          echo "Preflight OK — deploy credentials present."
+
   version:
     name: Resolve version
+    needs: preflight
     runs-on: ubuntu-latest
     if: >-
       github.event_name != 'workflow_run' ||
@@ -224,6 +280,18 @@ jobs:
   release:
     name: Sign Windows, checksum & deploy
     needs: [version, build]
+    # `build` is fail-fast: false so a broken platform doesn't cancel the others
+    # — but with a plain `needs:` this job is SKIPPED whenever any leg fails, so
+    # one bad platform silently shipped NOTHING. That is what stranded /downloads
+    # on the 0.1.1 build: the run went through the motions and never reached the
+    # rsync, so the working platforms never published either.
+    #
+    # Each platform has its own update feed (latest.yml / latest-mac.yml /
+    # latest-linux.yml), so publishing the platforms that DID build is safe: the
+    # failed one keeps its previous manifest and its users simply stay where they
+    # are. The "installers are real" and coverage checks below still refuse to
+    # publish junk, and the summary names exactly which platforms shipped.
+    if: ${{ !cancelled() && needs.version.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -277,6 +345,41 @@ jobs:
         run: |
           node scripts/regen-update-manifest.mjs \
             installers latest.yml BlissWork-windows-x64.exe
+
+      # Which platforms actually made it here. With the `if:` above, a failed
+      # platform no longer blocks the others — but that trade is only acceptable
+      # if the partial release is STATED rather than passed off as complete.
+      # Silence is what let a stale download page look healthy for a month.
+      - name: Report platform coverage
+        id: coverage
+        working-directory: installers
+        run: |
+          shipped=""; missing=""
+          check() { # $1 = label, $2 = glob
+            # shellcheck disable=SC2086
+            if compgen -G "$2" > /dev/null; then shipped="$shipped $1"; else missing="$missing $1"; fi
+          }
+          check windows 'BlissWork-windows-*.exe'
+          check mac 'BlissWork-mac-*.dmg'
+          check linux 'BlissWork-linux-*.AppImage'
+
+          {
+            echo "### Desktop release ${{ needs.version.outputs.version }}"
+            echo ""
+            echo "| Platform | Status |"
+            echo "|---|---|"
+            for p in windows mac linux; do
+              case " $shipped " in *" $p "*) echo "| $p | ✅ shipped |";; *) echo "| $p | ❌ **build failed — previous version stays live** |";; esac
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -z "$shipped" ]; then
+            echo "::error::Every platform failed to build — there is nothing to publish."
+            exit 1
+          fi
+          [ -n "$missing" ] && echo "::warning::Publishing a PARTIAL release. Failed platforms:$missing"
+          echo "shipped=$shipped" >> "$GITHUB_OUTPUT"
+          echo "Publishing:$shipped"
 
       # A real installer is tens of megabytes. Anything tiny is a placeholder, a
       # truncated upload, or an error page saved under the wrong name — and the
