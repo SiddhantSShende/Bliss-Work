@@ -16,9 +16,11 @@
 import { ExternalLink, TriangleAlert } from "lucide-react";
 
 export interface ProviderGuide {
-  /** Where the user goes to get these values. */
-  consoleLabel: string;
-  consoleUrl: string;
+  /** Where the user goes to get these values. A list, because a setup can
+   *  legitimately span more than one console — WhatsApp's IDs and app secret
+   *  live in the developer app, but its access token is minted in Business
+   *  Settings, and sending someone to the wrong one wastes the most time. */
+  consoles: { label: string; url: string }[];
   /** One action per step, imperative, in the order they happen. */
   steps: string[];
   /** The thing that bites people. Rendered in the warning callout. */
@@ -27,8 +29,7 @@ export interface ProviderGuide {
 
 export const GUIDES: Record<string, ProviderGuide> = {
   slack: {
-    consoleLabel: "Slack API dashboard",
-    consoleUrl: "https://api.slack.com/apps",
+    consoles: [{ label: "Slack API dashboard", url: "https://api.slack.com/apps" }],
     steps: [
       "Create an app → From scratch, and pick your workspace.",
       "OAuth & Permissions → add the bot scopes chat:write, channels:read, users:read and im:history.",
@@ -42,14 +43,16 @@ export const GUIDES: Record<string, ProviderGuide> = {
       "The webhook URL is unique to this connection — Slack's verification request carries no team id, so it's the only way we can find your signing secret before trusting the request.",
   },
   whatsapp: {
-    consoleLabel: "Meta for Developers",
-    consoleUrl: "https://developers.facebook.com/apps",
+    consoles: [
+      { label: "Meta App Dashboard", url: "https://developers.facebook.com/apps" },
+      { label: "Meta Business Settings", url: "https://business.facebook.com/latest/settings" },
+    ],
     steps: [
       "WhatsApp Business accounts only — you need a WhatsApp Business Account with a number Meta has verified. A personal WhatsApp account can't be connected.",
-      "Create an app at Meta for Developers and add the WhatsApp product to it.",
-      "WhatsApp → API Setup → copy the WhatsApp Business Account ID and, below it, the Phone number ID of your business number.",
-      "Create a System User token with BOTH whatsapp_business_messaging (to send) and whatsapp_business_management (so we can check the account), and copy it.",
-      "App Settings → Basic → copy the App Secret.",
+      "In the Meta App Dashboard: create an app with the WhatsApp use case (Meta still requires an app for Cloud API — there is no way to get these values without one).",
+      "In that app, WhatsApp → API Setup: copy the WhatsApp Business Account ID and, below it, the Phone number ID of your business number.",
+      "Switch to Meta Business Settings → System users: create a system user, give it your WhatsApp Business Account, and generate a token with BOTH whatsapp_business_messaging (to send) and whatsapp_business_management (so we can check the account). Tokens are minted here, NOT in the app dashboard.",
+      "Back in the app dashboard: App settings → Basic → copy the App Secret.",
       "Click Connect and paste all four. We check with Meta that the number is verified and belongs to your Business Account before saving anything.",
       "The connection then shows a webhook URL and a verify token. In Meta: WhatsApp → Configuration → Webhook → Edit, paste both, and subscribe to the messages field.",
       "Saving that is the last step — Meta calls us straight away, and the connection turns Connected on its own.",
@@ -58,8 +61,7 @@ export const GUIDES: Record<string, ProviderGuide> = {
       "Meta has to agree it's a business before we'll connect it. We reject the account if it isn't approved by Meta, if the number hasn't finished verification, if it's an on-premise rather than Cloud API number, or if the number doesn't belong to the Business Account ID you entered. If your token is missing whatsapp_business_management we'll say so explicitly — that one catches almost everybody first time.",
   },
   gmail: {
-    consoleLabel: "Google Cloud Console",
-    consoleUrl: "https://console.cloud.google.com/apis/credentials",
+    consoles: [{ label: "Google Cloud Console", url: "https://console.cloud.google.com/apis/credentials" }],
     steps: [
       "Set up the Google workspace app first — Workspace apps → Google → Set up, above.",
       "Then click Connect here and sign in with the mailbox you want to link.",
@@ -69,8 +71,7 @@ export const GUIDES: Record<string, ProviderGuide> = {
       "gmail.readonly is a restricted scope. Until your Google app passes OAuth verification, only accounts on its test-users list can connect. That review takes weeks — it's Google's policy, not ours.",
   },
   outlook: {
-    consoleLabel: "Microsoft Entra admin center",
-    consoleUrl: "https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps",
+    consoles: [{ label: "Microsoft Entra admin center", url: "https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps" }],
     steps: [
       "Set up the Microsoft workspace app first — Workspace apps → Microsoft → Set up, above.",
       "Then click Connect here and sign in with the mailbox you want to link.",
@@ -80,8 +81,7 @@ export const GUIDES: Record<string, ProviderGuide> = {
       "One Entra app covers both Outlook and Teams, so you only do the workspace setup once.",
   },
   teams: {
-    consoleLabel: "Microsoft Entra admin center",
-    consoleUrl: "https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps",
+    consoles: [{ label: "Microsoft Entra admin center", url: "https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps" }],
     steps: [
       "Set up the Microsoft workspace app first — Workspace apps → Microsoft → Set up, above.",
       "Then click Connect here and sign in.",
@@ -110,15 +110,20 @@ export function GuideSteps({ guide }: { guide: ProviderGuide }) {
         </div>
       )}
 
-      <a
-        href={guide.consoleUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="inline-flex items-center gap-1 text-xs font-medium text-accent hover:underline"
-      >
-        Open the {guide.consoleLabel}
-        <ExternalLink size={12} />
-      </a>
+      <div className="flex flex-wrap gap-x-4 gap-y-1">
+        {guide.consoles.map((c) => (
+          <a
+            key={c.url}
+            href={c.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-xs font-medium text-accent hover:underline"
+          >
+            Open the {c.label}
+            <ExternalLink size={12} />
+          </a>
+        ))}
+      </div>
     </div>
   );
 }

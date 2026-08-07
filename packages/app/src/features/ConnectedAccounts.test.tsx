@@ -89,10 +89,17 @@ describe("setup guides", () => {
     // first failure and the guide is where it gets prevented.
     expect(steps.join(" ")).toMatch(/whatsapp_business_management/);
 
-    const link = screen.getByRole("link", { name: /Meta for Developers/i });
-    expect(link).toHaveAttribute("href", "https://developers.facebook.com/apps");
-    expect(link).toHaveAttribute("target", "_blank");
-    expect(link).toHaveAttribute("rel", expect.stringContaining("noopener"));
+    // Two consoles, because the setup genuinely spans both: the IDs and app
+    // secret come from the app dashboard, the access token from Business
+    // Settings. Sending someone to the wrong one is the biggest time sink here.
+    const appDash = screen.getByRole("link", { name: /Meta App Dashboard/i });
+    expect(appDash).toHaveAttribute("href", "https://developers.facebook.com/apps");
+    const bizSettings = screen.getByRole("link", { name: /Meta Business Settings/i });
+    expect(bizSettings).toHaveAttribute("href", "https://business.facebook.com/latest/settings");
+    for (const link of [appDash, bizSettings]) {
+      expect(link).toHaveAttribute("target", "_blank");
+      expect(link).toHaveAttribute("rel", expect.stringContaining("noopener"));
+    }
   });
 });
 

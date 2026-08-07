@@ -44,16 +44,22 @@ with a number Meta has verified. A personal WhatsApp account cannot be connected
 not as a policy we apply on top, but because the Cloud API this integration is
 built on has no concept of one.
 
-You supply four values, all from Meta's WhatsApp → API Setup page, and one person
-does this once for the whole workspace.
+You supply four values and one person does this once for the whole workspace.
+They come from **two** Meta consoles — three from the app dashboard, the token
+from Business Settings. Meta still requires a developer app for Cloud API; there
+is no way to obtain a Phone number ID without one.
 
-1. Create an app at [developers.facebook.com](https://developers.facebook.com/apps)
-   and add the **WhatsApp** product.
-2. **WhatsApp → API Setup** → copy the **WhatsApp Business Account ID** and, just
-   below it, the **Phone number ID** of your business number.
-3. Create a **System User token** with **both** `whatsapp_business_messaging`
-   (to send) and `whatsapp_business_management` (so we can check the account).
-4. **App Settings → Basic** → copy the **App Secret**.
+1. [Meta App Dashboard](https://developers.facebook.com/apps) → create an app
+   with the **WhatsApp** use case.
+2. In that app, **WhatsApp → API Setup** → copy the **WhatsApp Business Account
+   ID** and, just below it, the **Phone number ID** of your business number.
+3. [Meta Business Settings](https://business.facebook.com/latest/settings) →
+   **System users** → create one, assign it your WhatsApp Business Account, and
+   generate a token with **both** `whatsapp_business_messaging` (to send) and
+   `whatsapp_business_management` (so we can check the account). Tokens are
+   minted here, **not** in the app dashboard — this is the step people lose the
+   most time to.
+4. Back in the app dashboard: **App settings → Basic** → copy the **App Secret**.
 5. In BlissWork: **Connected accounts → WhatsApp → Connect**, paste all four.
 6. The connection shows a **webhook URL** and a **verify token** — we generate the
    verify token because a hand-picked one is reliably weak.
