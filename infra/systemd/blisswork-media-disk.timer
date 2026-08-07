@@ -1,0 +1,18 @@
+[Unit]
+Description=Hourly BlissWork media-volume disk space check
+
+[Timer]
+# Hourly, not daily. A disk does not fill gradually and politely — one large
+# upload burst or a runaway log can cross the threshold in minutes, and a daily
+# check could notice up to 24 hours late, which on a filesystem shared with
+# Postgres means noticing after the outage. The check itself is cheap (a df in a
+# throwaway container) and the alert is deduplicated, so frequent polling costs
+# nothing and sends no extra mail.
+OnCalendar=hourly
+RandomizedDelaySec=300
+# If the host was off at the top of the hour, run when it comes back.
+Persistent=true
+Unit=blisswork-media-disk.service
+
+[Install]
+WantedBy=timers.target

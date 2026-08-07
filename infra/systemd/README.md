@@ -88,6 +88,56 @@ more specific to running a container command from a unit:
 | `GC_DRY_RUN` | unset | Any value: report what would be reclaimed, delete nothing. |
 | `GC_BATCH_SIZE` | `500` | Rows per pass; the job loops until a short batch. |
 
+## blisswork-media-disk.{service,timer}
+
+Hourly check of free space on the filesystem backing the `media_blobs` volume,
+via `scripts/check-media-disk.sh`. **Emails** when it gets tight.
+
+**Why it emails rather than logs:** Prometheus and Alertmanager exist in this
+repo but only under the dev `observability` profile — production runs neither,
+and `journalctl` is not an alert. SMTP is already configured and proven (it
+sends the invite mail), so it is the one channel that reaches a person.
+
+**Why it matters:** Postgres enforces its own limits; a filesystem does not.
+`MEDIA_ORG_DAILY_BYTES` caps how fast ONE org can upload, not the total, and the
+volume shares a filesystem with the database. A volume that fills does not
+merely stop uploads — it takes Postgres down with it.
+
+**Why hourly:** a disk does not fill gradually. One upload burst can cross the
+threshold in minutes, and a daily check could notice up to 24h late. The check
+is a `df` in a throwaway container, so polling is free.
+
+**It will not spam you.** State is kept between runs in
+`/var/lib/blisswork-alerts/media-disk.state`; mail is sent only when the level
+CHANGES (including a RESOLVED notice on recovery), or once per
+`ALERT_REPEAT_HOURS` while it stays bad. A send that FAILS is deliberately not
+recorded, so it retries next hour rather than being suppressed as "already told
+them" — a swallowed alert is indistinguishable from a healthy system.
+
+```sh
+sudo cp infra/systemd/blisswork-media-disk.* /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now blisswork-media-disk.timer
+
+ALERT_FORCE=1 bash scripts/check-media-disk.sh   # prove the mail path works
+sudo journalctl -u blisswork-media-disk.service
+```
+
+Installed 2026-08-07. Only CRIT fails the unit, so `systemctl --failed` stays a
+list of things needing hands rather than a list of warnings.
+
+| Env | Default | Meaning |
+|---|---|---|
+| `DISK_WARN_PERCENT` | `80` | Warning threshold. |
+| `DISK_CRIT_PERCENT` | `90` | Critical; also fails the unit. |
+| `ALERT_EMAIL_TO` | `SMTP_FROM` from `.env.prod` | Recipient. Set in the unit to redirect. |
+| `ALERT_REPEAT_HOURS` | `24` | Re-send cadence while the condition persists. |
+| `MEDIA_VOLUME` | `task-board-prod_media_blobs` | Volume to measure. |
+
+`scripts/send-alert.py` is the mail sender — stdlib-only on purpose, since an
+alerting path that breaks when a dependency moves is not an alerting path. It
+takes everything via the environment so no secret appears in `ps`.
+
 ## Off-host copy
 
 The unit runs `scripts/backup-offsite.sh` immediately after a successful local
