@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { readablePrefix } from "@taskboard/app/chatEnvelope";
 import "@taskboard/ui/styles.css";
 import "./index.css";
 
@@ -139,7 +140,12 @@ function StickyChatApp() {
                       : "rounded-bl-md bg-surface text-fg ring-1 ring-border/60"
                   } ${m.id.startsWith("temp:") ? "opacity-60" : ""}`}
                 >
-                  {m.body}
+                  {/* Attachments and shared locations carry a JSON envelope
+                      after a U+001F sentinel. This window is fed over IPC under
+                      `connect-src 'none'`, so it can never load the image — show
+                      the readable summary ("🖼️ photo.jpg · 2.0 MB") instead of
+                      printing the raw envelope at the user. */}
+                  {readablePrefix(m.body)}
                 </div>
               </div>
             );

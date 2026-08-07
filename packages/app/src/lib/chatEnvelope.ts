@@ -198,6 +198,26 @@ function num(v: unknown): number | undefined {
 }
 
 /**
+ * The human-readable part of a message body, with any structured envelope
+ * stripped.
+ *
+ * For surfaces that show message text but cannot (or should not) render an
+ * attachment bubble — the desktop pinned-chat window is the case this exists
+ * for, since it receives messages over IPC under `connect-src 'none'` and so
+ * can never load an image. Without this it would print the raw body, sentinel
+ * and JSON included:
+ *
+ *     🖼️ photo.jpg · 2.0 MB␟{"v":2,"kind":"media","items":[{"id":"018f…
+ *
+ * Mirrors what the server's own truncatePreview does for inbox rows, so the
+ * same message reads the same way everywhere.
+ */
+export function readablePrefix(body: string): string {
+  const i = body.indexOf(SENTINEL);
+  return (i < 0 ? body : body.slice(0, i)).trim();
+}
+
+/**
  * True when a message is a media attachment.
  *
  * Used to hide the Forward affordance: forwarding clones the body verbatim, so

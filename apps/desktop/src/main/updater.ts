@@ -60,10 +60,33 @@ export function initAutoUpdate(): void {
       });
   });
 
-  autoUpdater.checkForUpdates().catch((e: unknown) => {
-    console.error("[updater] check failed:", e instanceof Error ? e.message : e);
-  });
+  const check = () =>
+    autoUpdater.checkForUpdates().catch((e: unknown) => {
+      console.error("[updater] check failed:", e instanceof Error ? e.message : e);
+    });
+
+  check();
+
+  // Re-check periodically, not only at launch. A desktop app routinely stays
+  // open for days or weeks, so a launch-only check means a release sits
+  // unnoticed until the user happens to restart — which, for someone who never
+  // quits, is never. The point of shipping an update is that it arrives.
+  //
+  // Cheap: one conditional GET of latest.yml (a few hundred bytes) per interval,
+  // and electron-updater ignores a check while a download is already running.
+  const timer = setInterval(check, UPDATE_CHECK_INTERVAL_MS);
+  // Do not hold the event loop open on this alone — a pending timer must never
+  // be the reason the process refuses to exit.
+  timer.unref?.();
+  app.on("before-quit", () => clearInterval(timer));
 }
+
+/**
+ * How often a running app re-checks the feed. Six hours is frequent enough that
+ * an update lands the same day without making the download host field a poll
+ * from every installed client every few minutes.
+ */
+const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 export interface UpdateCheckResult {
   status: "available" | "up-to-date" | "downloading" | "unsupported" | "error";

@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./chatEnvelope": "./src/lib/chatEnvelope.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

@@ -6,9 +6,15 @@ import {
   encodeMedia,
   isMediaMessage,
   parseChatEnvelope,
+  readablePrefix,
   type MediaItem,
 } from "./chatEnvelope";
 import { encodeFileOffer } from "./fileOffer";
+
+// U+001F literal, spelled out: a raw control character in source is easy to
+// lose to an editor or formatter, and losing it turns these assertions into
+// silent no-ops (toContain("") is always true).
+const SEP = String.fromCharCode(0x1f);
 
 const img = (over: Partial<MediaItem> = {}): MediaItem => ({
   id: "018f0000-0000-7000-8000-000000000001",
@@ -31,17 +37,17 @@ describe("media envelopes", () => {
     // Anything that cannot parse the envelope — inbox rows, push notifications,
     // the server's own truncatePreview — shows only this prefix.
     const body = encodeMedia([img()]);
-    const prefix = body.slice(0, body.indexOf(""));
+    const prefix = body.slice(0, body.indexOf(SEP));
     expect(prefix).toBe("🖼️ photo.jpg · 2.0 MB");
     expect(prefix).not.toContain("{");
   });
 
   it("summarises multiple files", () => {
     const photos = encodeMedia([img(), img({ id: "b" }), img({ id: "c" })]);
-    expect(photos.split("")[0]).toBe("🖼️ 3 photos");
+    expect(photos.split(SEP)[0]).toBe("🖼️ 3 photos");
 
     const mixed = encodeMedia([img(), img({ id: "b", name: "a.pdf", mime: "application/pdf" })]);
-    expect(mixed.split("")[0]).toMatch(/^📎 2 files · /);
+    expect(mixed.split(SEP)[0]).toMatch(/^📎 2 files · /);
   });
 
   it("collects attachment ids including thumbnails", () => {
@@ -70,8 +76,8 @@ describe("location envelopes", () => {
   });
 
   it("labels the prefix, falling back to a generic one", () => {
-    expect(encodeLocation({ lat: 1, lng: 2, label: "Office" }).split("")[0]).toBe("📍 Office");
-    expect(encodeLocation({ lat: 1, lng: 2 }).split("")[0]).toBe("📍 Shared location");
+    expect(encodeLocation({ lat: 1, lng: 2, label: "Office" }).split(SEP)[0]).toBe("📍 Office");
+    expect(encodeLocation({ lat: 1, lng: 2 }).split(SEP)[0]).toBe("📍 Shared location");
   });
 
   it("rejects out-of-range coordinates rather than rendering them", () => {
@@ -86,7 +92,7 @@ describe("location envelopes", () => {
   });
 
   it("rejects non-finite coordinates", () => {
-    const body = `📍 x${JSON.stringify({ v: 2, kind: "location", lat: null, lng: 1 })}`;
+    const body = `📍 x${SEP}${JSON.stringify({ v: 2, kind: "location", lat: null, lng: 1 })}`;
     expect(parseChatEnvelope(body)).toBeNull();
   });
 });
@@ -117,12 +123,12 @@ describe("hostile and malformed bodies", () => {
 
   it("treats a sentinel followed by garbage as plain text", () => {
     for (const body of [
-      "hellonot json",
-      "hello{",
-      "hellonull",
-      "hello[]",
-      'hello"a string"',
-      "hello123",
+      `hello${SEP}not json`,
+      `hello${SEP}{`,
+      `hello${SEP}null`,
+      `hello${SEP}[]`,
+      `hello${SEP}"a string"`,
+      `hello${SEP}123`,
     ]) {
       expect(() => parseChatEnvelope(body)).not.toThrow();
       expect(parseChatEnvelope(body)).toBeNull();
@@ -130,7 +136,7 @@ describe("hostile and malformed bodies", () => {
   });
 
   it("drops items missing an id instead of rendering a broken bubble", () => {
-    const body = `x${JSON.stringify({
+    const body = `x${SEP}${JSON.stringify({
       v: 2,
       kind: "media",
       items: [{ name: "no-id.jpg" }, { id: "ok", name: "fine.jpg", mime: "image/jpeg", size: 1 }],
@@ -140,12 +146,12 @@ describe("hostile and malformed bodies", () => {
   });
 
   it("returns null when no item survives validation", () => {
-    const body = `x${JSON.stringify({ v: 2, kind: "media", items: [{}, 7, null] })}`;
+    const body = `x${SEP}${JSON.stringify({ v: 2, kind: "media", items: [{}, 7, null] })}`;
     expect(parseChatEnvelope(body)).toBeNull();
   });
 
   it("defaults a missing mime to a type that is never rendered inline", () => {
-    const body = `x${JSON.stringify({ v: 2, kind: "media", items: [{ id: "a" }] })}`;
+    const body = `x${SEP}${JSON.stringify({ v: 2, kind: "media", items: [{ id: "a" }] })}`;
     const env = parseChatEnvelope(body);
     expect(env && env.kind === "media" && env.items[0]?.mime).toBe("application/octet-stream");
   });
@@ -156,8 +162,41 @@ describe("hostile and malformed bodies", () => {
       { v: 2, kind: "wat", items: [{ id: "a" }] },
       { v: 2 },
     ]) {
-      expect(parseChatEnvelope(`x${JSON.stringify(payload)}`)).toBeNull();
+      expect(parseChatEnvelope(`x${SEP}${JSON.stringify(payload)}`)).toBeNull();
     }
+  });
+});
+
+describe("readablePrefix", () => {
+  // The desktop pinned-chat window renders message text with connect-src 'none',
+  // so it can never load an attachment. It must show the summary, never the raw
+  // envelope JSON.
+  it("strips the envelope from structured bodies", () => {
+    expect(readablePrefix(encodeMedia([img()]))).toBe("🖼️ photo.jpg · 2.0 MB");
+    expect(readablePrefix(encodeLocation({ lat: 1, lng: 2, label: "Office" }))).toBe("📍 Office");
+    expect(
+      readablePrefix(
+        encodeFileOffer({ offerId: "o", name: "a.zip", size: 10, sha256: "d", mime: "application/zip" }),
+      ),
+    ).toBe("📎 a.zip · 10 B");
+  });
+
+  it("never leaks JSON or the sentinel", () => {
+    for (const body of [
+      encodeMedia([img(), img({ id: "b" })]),
+      encodeLocation({ lat: 1, lng: 2 }),
+      `x${SEP}${JSON.stringify({ v: 2, kind: "media", items: [] })}`,
+    ]) {
+      const out = readablePrefix(body);
+      expect(out).not.toContain(SEP);
+      expect(out).not.toContain('"v":');
+      expect(out).not.toContain("{");
+    }
+  });
+
+  it("passes plain text through unchanged", () => {
+    expect(readablePrefix("just a message")).toBe("just a message");
+    expect(readablePrefix("")).toBe("");
   });
 });
 
