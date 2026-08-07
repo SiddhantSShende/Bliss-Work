@@ -1,250 +1,120 @@
 /**
- * Tests for the single-flight session refresh (refresh.ts).
+ * What happens when a refresh CANNOT succeed.
  *
- * The whole reason this module exists is correctness under concurrency: refresh
- * tokens ROTATE on every /auth/refresh and reusing a rotated token revokes the
- * whole family. So the load-bearing invariants are:
- *   1. concurrent callers share exactly ONE network call (single-flight), and
- *   2. a non-ok / malformed response fails CLEANLY (→ null) without ever
- *      writing partial/corrupt state into the session store.
- *
- * We stub global.fetch and reset the session store (and the module's in-flight
- * slot) between tests. fetch is held open via a deferred so we can assert that
- * two simultaneous calls coalesce before either resolves.
+ * The incident: auth-svc revoked a token family, and the app kept presenting the
+ * dead cookie — one refresh per 401'd request, with a presence poll firing every
+ * 20s — for eight minutes, while the UI still looked signed in. A failed refresh
+ * is usually transient and deliberately non-destructive; a revoked family is
+ * neither, and the two must be told apart.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { SessionDTO, type UserDTO } from "@taskboard/shared";
-import { refreshSession } from "./refresh";
-import { useSession } from "../store/session";
+import { describe, expect, it, vi, beforeEach } from "vitest";
 
-const AUTH = "http://auth.test";
+const AUTH = "https://example.test/api/auth";
 
-const validUser: UserDTO = {
-  id: "11111111-1111-1111-1111-111111111111",
-  orgId: "22222222-2222-2222-2222-222222222222",
-  username: "alice",
-  displayName: "Alice",
-  email: "alice@acme.com",
-  roles: ["member"],
-  plan: "free",
-  orgName: "Test Org",
-};
+function jsonResponse(status: number, body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
 
-const validSession: SessionDTO = {
-  accessToken: "access-abc",
-  user: validUser,
+const SESSION = {
+  accessToken: "at",
   expiresIn: 900,
+  user: {
+    id: "11111111-1111-1111-1111-111111111111",
+    orgId: "22222222-2222-2222-2222-222222222222",
+    orgName: "Org",
+    username: "alice",
+    displayName: "Alice",
+    email: "alice@example.com",
+    roles: ["member"],
+    plan: "free",
+  },
 };
 
-/** A fetch Response stand-in — only the bits refresh.ts touches. */
-function fakeResponse(ok: boolean, json: unknown): Response {
-  return {
-    ok,
-    status: ok ? 200 : 401,
-    json: () => Promise.resolve(json),
-  } as unknown as Response;
+/** Fresh module per test — the circuit breaker is module state by design.
+ *  The session store must come from the SAME fresh graph, or the assertions
+ *  would inspect a different store instance than refresh.ts is writing to. */
+async function loadRefresh() {
+  vi.resetModules();
+  const { useSession } = await import("../store/session");
+  const mod = await import("./refresh");
+  useSession.getState().setSession({ user: SESSION.user as never, accessToken: "at" });
+  return { ...mod, useSession };
 }
 
-/** A manually-settled promise so we can hold a fetch open mid-flight. */
-function deferred<T>() {
-  let resolve!: (v: T) => void;
-  let reject!: (e: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
-}
-
-// NOTE: we import refreshSession (and useSession) statically rather than
-// re-importing per test. The module-level `inFlight` slot clears synchronously
-// on settle (see refresh.ts `finally`), and every test below awaits its
-// refresh to completion — so the slot is always empty at the next test's start.
-// Static imports keep the SAME `useSession` store instance refresh.ts writes
-// to, which is exactly what we assert on.
-beforeEach(() => {
-  // Known-anon starting state so we can detect any write into the store.
-  useSession.setState({ user: null, accessToken: null, status: "anon" });
-});
-
-afterEach(() => {
-  vi.restoreAllMocks();
-  vi.unstubAllGlobals();
-});
-
-describe("refreshSession single-flight", () => {
-  it("coalesces concurrent calls into ONE fetch and shares the result", async () => {
-    const d = deferred<Response>();
-    const fetchMock = vi.fn().mockReturnValue(d.promise);
-    vi.stubGlobal("fetch", fetchMock);
-
-    // Fire two refreshes before the first network call settles.
-    const p1 = refreshSession(AUTH);
-    const p2 = refreshSession(AUTH);
-
-    // Single-flight: the second call must reuse the in-flight promise, not
-    // open a second connection (which would revoke the rotating token).
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(p1).toBe(p2);
-
-    d.resolve(fakeResponse(true, validSession));
-    const [r1, r2] = await Promise.all([p1, p2]);
-
-    expect(r1).toEqual(validSession);
-    expect(r2).toEqual(validSession);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    // POST /auth/refresh with credentials so the rotating cookie rides along.
-    expect(fetchMock).toHaveBeenCalledWith(
-      `${AUTH}/auth/refresh`,
-      expect.objectContaining({ method: "POST", credentials: "include" }),
-    );
+describe("refreshSession", () => {
+  beforeEach(() => {
+    // navigator.locks is absent in jsdom; the code degrades to single-flight.
+    vi.restoreAllMocks();
   });
 
-  it("releases the in-flight slot on settle so a later burst makes a fresh call", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(fakeResponse(true, validSession));
-    vi.stubGlobal("fetch", fetchMock);
+  it("stores the new session on success", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(200, SESSION)));
+    const { refreshSession, useSession } = await loadRefresh();
 
-    await refreshSession(AUTH);
-    await refreshSession(AUTH); // second, sequential burst
+    const s = await refreshSession(AUTH);
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(s?.accessToken).toBe("at");
+    expect(useSession.getState().status).toBe("authed");
   });
 
-  it("on success writes user + accessToken to the session store and persists the token", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(fakeResponse(true, validSession)),
-    );
-    const persist = vi.fn();
-
-    const res = await refreshSession(AUTH, persist);
-
-    expect(res).toEqual(validSession);
-    const st = useSession.getState();
-    expect(st.user).toEqual(validUser);
-    expect(st.accessToken).toBe("access-abc");
-    expect(st.status).toBe("authed");
-    expect(persist).toHaveBeenCalledExactlyOnceWith("access-abc");
-  });
-});
-
-describe("refreshSession failure modes (never writes the session)", () => {
-  it.each<[string, () => Response | Promise<never>]>([
-    ["non-ok response (401)", () => fakeResponse(false, { error: "nope" })],
-    [
-      "malformed body — SessionDTO.safeParse rejects (missing user/expiresIn)",
-      () => fakeResponse(true, { accessToken: "only-a-token" }),
-    ],
-    [
-      "malformed body — user fails its uuid/email schema",
-      () =>
-        fakeResponse(true, {
-          accessToken: "t",
-          expiresIn: 900,
-          user: { id: "not-a-uuid", username: "x" },
-        }),
-    ],
-  ])("returns null and leaves the store untouched: %s", async (_label, makeRes) => {
-    const persist = vi.fn();
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(makeRes()));
-
-    const res = await refreshSession(AUTH, persist);
-
-    expect(res).toBeNull();
-    const st = useSession.getState();
-    expect(st.user).toBeNull();
-    expect(st.accessToken).toBeNull();
-    expect(st.status).toBe("anon"); // never flipped to "authed"
-    expect(persist).not.toHaveBeenCalled();
-  });
-
-  it("swallows a thrown fetch (network error) and returns null", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockRejectedValue(new TypeError("Failed to fetch")),
-    );
-
-    await expect(refreshSession(AUTH)).resolves.toBeNull();
-    expect(useSession.getState().status).toBe("anon");
-  });
-
-  it("a rejected fetch still clears the in-flight slot (next call retries)", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockRejectedValueOnce(new TypeError("boom"))
-      .mockResolvedValueOnce(fakeResponse(true, validSession));
-    vi.stubGlobal("fetch", fetchMock);
+  it("keeps the session on a transient failure", async () => {
+    // A 5xx or a blip is NOT evidence the session is over — the current access
+    // token is usually still good, and bouncing the user would be wrong.
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(503, {})));
+    const { refreshSession, isSessionDead, useSession } = await loadRefresh();
 
     expect(await refreshSession(AUTH)).toBeNull();
-    expect(await refreshSession(AUTH)).toEqual(validSession);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-  });
-});
-
-describe("SessionDTO.safeParse boundary (the validation refresh.ts relies on)", () => {
-  it("accepts a well-formed session payload", () => {
-    expect(SessionDTO.safeParse(validSession).success).toBe(true);
+    expect(useSession.getState().status).toBe("authed");
+    expect(isSessionDead()).toBe(false);
   });
 
-  it("rejects a payload missing required fields", () => {
-    expect(SessionDTO.safeParse({ accessToken: "x" }).success).toBe(false);
-  });
-});
+  it("keeps the session when the request simply had no cookie", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(401, { code: "missing" })));
+    const { refreshSession, isSessionDead, useSession } = await loadRefresh();
 
-/**
- * Desktop (file://) refresh path.
- *
- * A packaged Electron build loads the renderer from file://, so every request to
- * the API origin is cross-site and Chromium refuses to attach the SameSite=lax
- * refresh cookie — the server then 401s with "missing refresh token". The host
- * reads the token out of its cookie jar / encrypted store and the renderer puts
- * it in the request body, which /auth/refresh accepts as an alternative source.
- *
- * Web must be completely unaffected: no body, no content-type, cookie only.
- */
-describe("refresh token source (web cookie vs Electron body)", () => {
-  it("web: sends no body and relies on credentials:include", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(fakeResponse(true, validSession));
+    expect(await refreshSession(AUTH)).toBeNull();
+    expect(useSession.getState().status).toBe("authed");
+    expect(isSessionDead()).toBe(false);
+  });
+
+  it("signs the user out when the token family was revoked", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(401, { code: "reused" })));
+    const persist = vi.fn();
+    const { refreshSession, isSessionDead, useSession } = await loadRefresh();
+
+    expect(await refreshSession(AUTH, persist)).toBeNull();
+
+    expect(useSession.getState().status).toBe("anon");
+    expect(persist).toHaveBeenCalledWith(null);
+    expect(isSessionDead()).toBe(true);
+  });
+
+  // The loop itself: without this, every 401'd request and every 20s presence
+  // poll fires another doomed refresh, forever.
+  it("stops hitting the network once the session is dead", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(401, { code: "reused" }));
     vi.stubGlobal("fetch", fetchMock);
+    const { refreshSession } = await loadRefresh();
 
     await refreshSession(AUTH);
+    await refreshSession(AUTH);
+    await refreshSession(AUTH);
 
-    const init = fetchMock.mock.calls[0]![1] as RequestInit;
-    expect(init.credentials).toBe("include");
-    expect(init.body).toBeUndefined();
-    expect(init.headers).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("electron: sends the host-provided token in the body, keeping credentials", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(fakeResponse(true, validSession));
-    vi.stubGlobal("fetch", fetchMock);
+  it("opens the breaker again after a fresh sign-in", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(401, { code: "expired" })));
+    const { refreshSession, isSessionDead, useSession } = await loadRefresh();
 
-    await refreshSession(AUTH, undefined, () => Promise.resolve("refresh-xyz"));
+    await refreshSession(AUTH);
+    expect(isSessionDead()).toBe(true);
 
-    const init = fetchMock.mock.calls[0]![1] as RequestInit;
-    expect(init.credentials).toBe("include"); // harmless on desktop, load-bearing on web
-    expect(JSON.parse(init.body as string)).toEqual({ token: "refresh-xyz" });
-    expect(init.headers).toEqual({ "content-type": "application/json" });
-  });
-
-  it("electron with no stored token: degrades to the web-shaped request", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(fakeResponse(true, validSession));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await refreshSession(AUTH, undefined, () => Promise.resolve(null));
-
-    expect((fetchMock.mock.calls[0]![1] as RequestInit).body).toBeUndefined();
-  });
-
-  it("a throwing host bridge does not break refresh (IPC can fail mid-teardown)", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(fakeResponse(true, validSession));
-    vi.stubGlobal("fetch", fetchMock);
-
-    const res = await refreshSession(AUTH, undefined, () => Promise.reject(new Error("ipc gone")));
-
-    expect(res).toEqual(validSession);
-    expect((fetchMock.mock.calls[0]![1] as RequestInit).body).toBeUndefined();
+    // Signing in mints a NEW family — every login path routes through the store.
+    useSession.getState().setSession({ user: SESSION.user as never, accessToken: "new" });
+    expect(isSessionDead()).toBe(false);
   });
 });

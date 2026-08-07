@@ -22,6 +22,42 @@ import { broadcastSession, getRecentSession } from "./authChannel";
  */
 let inFlight: Promise<SessionDTO | null> | null = null;
 
+/**
+ * Set once the server says this session is over for good ('reused' — the token
+ * family was revoked — or 'expired'). Two jobs:
+ *
+ *   1. Stop the loop. Every 401'd request retries once through refreshSession
+ *      (ApiClient.req), and the presence poll fires every 20s on three screens,
+ *      so a revoked family produced an endless drip of identical 401s: 26 in
+ *      eight minutes in the incident that prompted this. Once dead, refresh
+ *      answers null locally and touches the network no more.
+ *   2. Tell the user. The app used to keep looking signed in while every request
+ *      failed underneath it, because a failed refresh is USUALLY transient and
+ *      is deliberately not destructive. A revoked family is not transient.
+ */
+let sessionDead = false;
+
+/** Terminal codes from auth-svc's /auth/refresh (see routes/auth.py). Anything
+ *  else — a network blip, a missing cookie, a 5xx — stays non-destructive. */
+const TERMINAL_CODES = new Set(["reused", "expired"]);
+
+/** True once refresh has failed terminally; cleared by a successful login. */
+export function isSessionDead(): boolean {
+  return sessionDead;
+}
+
+/** Called on a fresh login so a new family starts from a clean slate. */
+export function resetSessionDead(): void {
+  sessionDead = false;
+}
+
+// Any successful sign-in mints a NEW token family, so the breaker must open
+// again. Subscribing here covers every entry point at once — login, onboarding,
+// invite-accept, org switch — instead of relying on each one to remember.
+useSession.subscribe((s) => {
+  if (s.status === "authed") sessionDead = false;
+});
+
 async function performRefresh(
   authBase: string,
   persist?: (token: string | null) => void,
@@ -66,7 +102,24 @@ async function performRefresh(
     // clears on a null result at page load (no token yet ⇒ go to /login), while
     // mid-session callers (the API 401-retry, the WS re-auth) just let the one
     // request fail and keep the session so the user isn't bounced on a hiccup.
-    if (!res.ok) return null;
+    if (!res.ok) {
+      // A 401 that names a terminal reason means the refresh family is gone:
+      // no amount of retrying brings it back, and every later request will 401.
+      // Clear the session so the router sends the user to /login instead of
+      // leaving a signed-in-looking UI on top of a dead session.
+      if (res.status === 401) {
+        const code = await res
+          .json()
+          .then((b: { code?: string }) => b?.code)
+          .catch(() => undefined);
+        if (code && TERMINAL_CODES.has(code)) {
+          sessionDead = true;
+          persist?.(null);
+          useSession.getState().clear();
+        }
+      }
+      return null;
+    }
     // Validate the session payload at the trust boundary rather than trusting a
     // bare cast — a malformed body fails the refresh cleanly (→ login) instead of
     // writing corrupt user/token state into the session store.
@@ -88,6 +141,9 @@ export function refreshSession(
   persist?: (token: string | null) => void,
   getRefreshToken?: () => Promise<string | null>,
 ): Promise<SessionDTO | null> {
+  // Circuit breaker: the family is revoked, so asking again can only produce
+  // another 401. Answer locally until the user signs in again.
+  if (sessionDead) return Promise.resolve(null);
   if (inFlight) return inFlight;
   inFlight = (async () => {
     try {

@@ -186,6 +186,35 @@ async def build_session(
     return SessionDTO(accessToken=token, user=dto, expiresIn=ttl), raw_refresh
 
 
+# A refresh token that was rotated moments ago is far more likely to be an
+# honest replay than theft: a request retried after a dropped connection, a
+# rotation whose response never reached the client (a deploy recycling the edge
+# mid-flight), or two of the user's own clients a second apart. Revoking the
+# family for those turns a blip into a forced logout — and, before the client
+# learned to give up, into an endless 401 loop. Inside this window we issue a
+# fresh token in the same family instead.
+#
+# The cost, stated plainly: a genuinely stolen token replayed within the window
+# is honoured rather than triggering revocation. That is the standard trade-off
+# for rotating refresh tokens; anything older than the window still revokes.
+REFRESH_REPLAY_GRACE = timedelta(seconds=30)
+
+
+class RefreshError(ValueError):
+    """Why a refresh was rejected.
+
+    `code` is what the client sees, and it decides what the client DOES:
+    'reused' and 'expired' are terminal (this session is over — log in again),
+    while a transport-level failure is not and must not log anyone out.
+    """
+
+    def __init__(self, code: str, message: str, *, user_id: str | None = None, family_id: str | None = None):
+        super().__init__(message)
+        self.code = code
+        self.user_id = user_id
+        self.family_id = family_id
+
+
 async def rotate_refresh_token(
     conn: AsyncConnection, raw_token: str
 ) -> tuple[SessionDTO, str]:
@@ -206,20 +235,41 @@ async def rotate_refresh_token(
     ).first()
 
     if row is None:
-        raise ValueError("invalid refresh token")
+        raise RefreshError("unknown", "invalid refresh token")
 
     now = datetime.now(timezone.utc)
 
-    # Reuse detection: token already rotated or revoked -> revoke entire family.
+    # Reuse detection: token already rotated or revoked -> revoke entire family,
+    # unless the successor was issued within the replay grace window (above).
     if row.revoked or row.rotated_to is not None:
-        await conn.execute(
-            text("UPDATE refresh_tokens SET revoked = true WHERE family_id = :fam"),
-            {"fam": str(row.family_id)},
-        )
-        raise ValueError("refresh token reuse detected")
+        successor_at = None
+        if row.rotated_to is not None:
+            successor_at = (
+                await conn.execute(
+                    text("SELECT issued_at FROM refresh_tokens WHERE id = :id AND NOT revoked"),
+                    {"id": str(row.rotated_to)},
+                )
+            ).scalar()
+        fresh_replay = successor_at is not None and (now - successor_at) <= REFRESH_REPLAY_GRACE
+        if not fresh_replay:
+            await conn.execute(
+                text("UPDATE refresh_tokens SET revoked = true WHERE family_id = :fam"),
+                {"fam": str(row.family_id)},
+            )
+            raise RefreshError(
+                "reused",
+                "refresh token reuse detected",
+                user_id=str(row.user_id),
+                family_id=str(row.family_id),
+            )
 
     if row.expires_at <= now:
-        raise ValueError("refresh token expired")
+        raise RefreshError(
+            "expired",
+            "refresh token expired",
+            user_id=str(row.user_id),
+            family_id=str(row.family_id),
+        )
 
     user_id = str(row.user_id)
     family_id = str(row.family_id)

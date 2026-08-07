@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -258,15 +259,41 @@ async def login(body: LoginRequest, response: Response) -> SessionDTO:
     return session
 
 
+def _refresh_rejected(code: str, *, clear_cookie: bool = True) -> JSONResponse:
+    """401 for a refresh that cannot be honoured.
+
+    RETURNED, never raised. Raising HTTPException discards the `response` object
+    the handler was given, so the `clear_refresh_cookie(response)` that used to
+    live here never reached the browser: the client kept its dead cookie and
+    re-presented it on every poll, which is how one revoked family produced 26
+    identical 401s in eight minutes. Building the response here means the
+    Set-Cookie deletion actually ships.
+
+    `code` tells the client whether this is terminal ('reused' / 'expired' — the
+    session is over) or not ('missing'), which is the difference between a clean
+    trip to /login and a silent 401 loop.
+    """
+    payload = JSONResponse(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        content={"detail": "invalid refresh token", "code": code},
+    )
+    if clear_cookie:
+        clear_refresh_cookie(payload)
+    return payload
+
+
 @router.post("/refresh", response_model=SessionDTO, dependencies=[Depends(enforce_origin)])
 async def refresh(
     response: Response,
     body: RefreshRequest | None = None,
     refresh_token: str | None = Cookie(default=None, alias=REFRESH_COOKIE),
-) -> SessionDTO:
+) -> SessionDTO | JSONResponse:
+    from_body = bool(body and body.token)
     raw = (body.token if body else None) or refresh_token
     if not raw:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "missing refresh token")
+        # No credential at all — nothing to invalidate, and NOT terminal: a
+        # request that simply arrived without the cookie must not log anyone out.
+        return _refresh_rejected("missing", clear_cookie=False)
     try:
         async with engine.begin() as conn:
             # Pre-org-context: the token is looked up by hash in refresh_tokens
@@ -274,10 +301,19 @@ async def refresh(
             # users/org_keys (RLS) cross-org, so this trusted flow uses bypass.
             await service.set_bypass_rls(conn)
             session, new_raw = await service.rotate_refresh_token(conn, raw)
-    except ValueError as exc:
-        log.info("refresh_rejected", error=str(exc))
-        clear_refresh_cookie(response)
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid refresh token") from exc
+    except service.RefreshError as exc:
+        # Log WHO and WHICH family, and whether the token came from the cookie
+        # (browser) or the request body (desktop — see the `raw` line above).
+        # When two clients collide, that field is what identifies the culprit.
+        log.info(
+            "refresh_rejected",
+            error=str(exc),
+            code=exc.code,
+            user_id=exc.user_id,
+            family_id=exc.family_id,
+            source="body" if from_body else "cookie",
+        )
+        return _refresh_rejected(exc.code)
 
     set_refresh_cookie(response, new_raw)
     return session

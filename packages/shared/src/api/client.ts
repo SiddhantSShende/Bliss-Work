@@ -114,6 +114,11 @@ export class ApiClient {
     // unauthenticated 401 (e.g. a bad login) stays a real error, and on
     // `retried` so a still-401 after refresh fails out instead of looping.
     // The retry re-reads getToken(), which now returns the refreshed token.
+    // NOTE: this fires once per 401'd request, and the presence poll alone runs
+    // every 20s on three screens. When the refresh token itself is dead that
+    // adds up to an endless drip of doomed refreshes, so `refreshSession` keeps
+    // a circuit breaker (see packages/app/src/lib/refresh.ts) and answers null
+    // locally once the session is terminal. Retrying here stays correct.
     if (res.status === 401 && token && !retried && this.cfg.refreshToken) {
       const fresh = await this.cfg.refreshToken();
       if (fresh) return this.req<T>(base, path, init, schema, true);
