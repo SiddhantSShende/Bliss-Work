@@ -4,18 +4,21 @@ version: 2
 updates:
   # ── Python services ──────────────────────────────────────────────────────────
   - package-ecosystem: pip
+    cooldown: { default-days: 7 }
     directory: /services/auth-svc
     schedule: { interval: weekly }
     open-pull-requests-limit: 5
     groups:
       python-deps: { patterns: ["*"] }
   - package-ecosystem: pip
+    cooldown: { default-days: 7 }
     directory: /services/task-svc
     schedule: { interval: weekly }
     open-pull-requests-limit: 5
     groups:
       python-deps: { patterns: ["*"] }
   - package-ecosystem: pip
+    cooldown: { default-days: 7 }
     directory: /services/email-worker
     schedule: { interval: weekly }
     open-pull-requests-limit: 5
@@ -24,16 +27,19 @@ updates:
 
   # ── Go services ──────────────────────────────────────────────────────────────
   - package-ecosystem: gomod
+    cooldown: { default-days: 7 }
     directory: /services/notification-svc
     schedule: { interval: weekly }
     groups:
       go-deps: { patterns: ["*"] }
   - package-ecosystem: gomod
+    cooldown: { default-days: 7 }
     directory: /services/messaging-svc
     schedule: { interval: weekly }
     groups:
       go-deps: { patterns: ["*"] }
   - package-ecosystem: gomod
+    cooldown: { default-days: 7 }
     directory: /services/ws-gateway
     schedule: { interval: weekly }
     groups:
@@ -41,6 +47,7 @@ updates:
 
   # ── Frontend / workspace ─────────────────────────────────────────────────────
   - package-ecosystem: npm
+    cooldown: { default-days: 7 }
     directory: /
     schedule: { interval: weekly }
     open-pull-requests-limit: 10
@@ -49,6 +56,7 @@ updates:
 
   # ── Container base images ────────────────────────────────────────────────────
   - package-ecosystem: docker
+    cooldown: { default-days: 7 }
     directories:
       - /services/auth-svc
       - /services/task-svc
@@ -61,5 +69,6 @@ updates:
 
   # ── GitHub Actions ───────────────────────────────────────────────────────────
   - package-ecosystem: github-actions
+    cooldown: { default-days: 7 }
     directory: /
     schedule: { interval: weekly }

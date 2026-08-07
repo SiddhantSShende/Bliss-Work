@@ -177,14 +177,14 @@ jobs:
         os: [windows-latest, macos-latest, ubuntu-latest]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           # Under `workflow_run` the default ref is the branch tip, which races a
           # follow-up push — we would ship a commit CI never checked. Pin to the
           # exact commit that passed.
           ref: ${{ needs.version.outputs.sha }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -255,7 +255,7 @@ jobs:
 
       - name: Upload installers
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: installers-${{ matrix.os }}
           # latest*.yml and *.blockmap are part of the release, not incidental
@@ -299,12 +299,12 @@ jobs:
       ES_USERNAME: ${{ secrets.ES_USERNAME }}
       VPS_HOST: ${{ secrets.VPS_HOST }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ needs.version.outputs.sha }}
 
       - name: Collect installers
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: installers
           pattern: installers-*
@@ -320,7 +320,7 @@ jobs:
       # Tracked in apps/desktop/SIGNING.md.
       - name: Sign Windows installer (SSL.com eSigner)
         if: env.ES_USERNAME != ''
-        uses: sslcom/esigner-codesign@develop
+        uses: sslcom/esigner-codesign@b7f8ff36fc0de8690fbbab8e5b4421d29802f747 # develop
         with:
           command: sign
           username: ${{ secrets.ES_USERNAME }}
@@ -526,7 +526,7 @@ jobs:
 
       - name: Upload signed set as workflow artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: blisswork-installers-signed
           path: installers/*
