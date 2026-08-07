@@ -195,16 +195,43 @@ export function useChatMedia(opts: ChatMediaOptions) {
     [api, scope, scopeId, send, p2pFallback, ft.available],
   );
 
+  /**
+   * Single entry point for every way a file arrives (picker, drop, paste).
+   *
+   * onFiles handles upload failures internally, but anything thrown BEFORE that
+   * — or any bug added later — would otherwise escape as an unhandled rejection
+   * and the user would see literally nothing happen. That silence is what made
+   * a dropped-selection bug take three rounds to find, so the backstop is here
+   * permanently: a failure must always produce a visible message and a console
+   * entry, never nothing.
+   */
+  const runFiles = useCallback(
+    (files: FileList | File[]) => {
+      void onFiles(files).catch((err: unknown) => {
+        console.error("[chat-media] attach failed", err);
+        toast.error("Couldn't attach that file. Please try again.");
+      });
+    },
+    [onFiles],
+  );
+
   const onAttach = useCallback(() => fileInput.current?.click(), []);
 
   const onPickFile = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      const files = e.target.files;
-      // Reset first so re-picking the same file fires change again.
+      // COPY THE FILES OUT FIRST. `e.target.files` is a LIVE FileList — in
+      // Chromium it is the same object every time, and setting `value = ""`
+      // empties it IN PLACE. Reading `files.length` after the reset therefore
+      // saw 0 and silently dropped every selection: no upload, no error, no
+      // toast, nothing at all. It survived a jsdom test because jsdom replaces
+      // the FileList rather than mutating it, so the captured reference stayed
+      // populated there while every real browser dropped it.
+      const files = Array.from(e.target.files ?? []);
+      // Reset only AFTER copying, so re-picking the same file still fires change.
       e.target.value = "";
-      if (files?.length) void onFiles(files);
+      if (files.length) runFiles(files);
     },
-    [onFiles],
+    [runFiles],
   );
 
   // ── location ──────────────────────────────────────────────────────────────
@@ -327,10 +354,10 @@ export function useChatMedia(opts: ChatMediaOptions) {
         if (!Array.from(e.dataTransfer.types).includes("Files")) return;
         e.preventDefault();
         setDragging(false);
-        if (e.dataTransfer.files?.length) void onFiles(e.dataTransfer.files);
+        if (e.dataTransfer.files?.length) runFiles(e.dataTransfer.files);
       },
     }),
-    [onFiles],
+    [runFiles],
   );
 
   const onPaste = useCallback(
@@ -342,9 +369,9 @@ export function useChatMedia(opts: ChatMediaOptions) {
       if (files.length === 0) return;
       // Let a normal text paste through untouched.
       e.preventDefault();
-      void onFiles(files);
+      runFiles(files);
     },
-    [onFiles],
+    [runFiles],
   );
 
   const fileInputProps = {
