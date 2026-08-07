@@ -568,8 +568,10 @@ const TypingServer = z.object({
   conversationId: z.string().uuid(),
   state: z.enum(["start", "stop"]),
 });
-// Call lifecycle pushed to the peer (gateway stamps fromUserId).
-const CallInviteServer = z.object({ type: z.literal("call.invite"), fromUserId: z.string().uuid(), callId: z.string().uuid(), media: z.enum(["audio", "video"]) });
+// Call lifecycle pushed to the peer (gateway stamps fromUserId). `fromName` is
+// the caller's name, also stamped gateway-side from the JWT claims so the ring
+// screen can name the caller; optional so an older gateway still validates.
+const CallInviteServer = z.object({ type: z.literal("call.invite"), fromUserId: z.string().uuid(), callId: z.string().uuid(), media: z.enum(["audio", "video"]), fromName: z.string().optional() });
 const CallAcceptServer = z.object({ type: z.literal("call.accept"), fromUserId: z.string().uuid(), callId: z.string().uuid() });
 const CallDeclineServer = z.object({ type: z.literal("call.decline"), fromUserId: z.string().uuid(), callId: z.string().uuid() });
 const CallCancelServer = z.object({ type: z.literal("call.cancel"), fromUserId: z.string().uuid(), callId: z.string().uuid() });

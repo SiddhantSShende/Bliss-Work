@@ -46,6 +46,10 @@ type Frame struct {
 	// call lifecycle
 	CallID string `json:"callId,omitempty"`
 	Media  string `json:"media,omitempty"`
+	// FromName is the caller's display name, stamped by the gateway from the
+	// verified JWT claims so the callee can show who is ringing. Never taken
+	// from the client frame — a client-supplied name would be spoofable.
+	FromName string `json:"fromName,omitempty"`
 }
 
 // IsSignaling tells whether `t` is a gateway-relayed signaling frame (the four

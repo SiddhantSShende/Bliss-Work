@@ -208,6 +208,44 @@ func TestHandleClientFrame_AckTruncatedToMaxBatch(t *testing.T) {
 	}
 }
 
+// TestCallFrameFor_StampsCallerNameFromClaims guards the incoming-call screen:
+// without a name on the wire the callee can only show a placeholder. The name
+// must come from the verified JWT — a client that puts its own "fromName" on
+// the frame must not be able to ring someone under a borrowed identity.
+func TestCallFrameFor_StampsCallerNameFromClaims(t *testing.T) {
+	var f clientFrame
+	raw := `{"type":"call.invite","toUserId":"u-callee","callId":"c-1","media":"video","fromName":"ceo"}`
+	if err := json.Unmarshal([]byte(raw), &f); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	sess := &session{claims: &auth.Claims{UserID: "u-sender", OrgID: "org-1", Username: "alice"}}
+	got := callFrameFor(sess, &f)
+
+	if got.FromName != "alice" {
+		t.Fatalf("FromName = %q, want the claims username %q (spoofed value was %q)", got.FromName, "alice", "ceo")
+	}
+	if got.CallID != "c-1" || got.Media != "video" || got.Type != "call.invite" {
+		t.Fatalf("call fields not copied: %+v", got)
+	}
+	// toUserId is stripped by Dispatcher.Forward, so it must not ride along here.
+	if got.ToUserID != "" {
+		t.Fatalf("ToUserID = %q, want empty", got.ToUserID)
+	}
+
+	out, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var wire map[string]any
+	if err := json.Unmarshal(out, &wire); err != nil {
+		t.Fatalf("unmarshal wire: %v", err)
+	}
+	if wire["fromName"] != "alice" {
+		t.Fatalf("wire fromName = %v, want alice (%s)", wire["fromName"], out)
+	}
+}
+
 // TestDeliverCtx_BacklogLargerThanBufferIsDeliveredWithoutClosing is the
 // regression guard for the connect→replay→overflow→disconnect loop. The hello
 // replay can exceed the send buffer (sendChanCap=256) for a backlogged client;

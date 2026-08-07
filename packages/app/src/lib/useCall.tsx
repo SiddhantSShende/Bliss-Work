@@ -1,7 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import type { UserDTO } from "@taskboard/shared";
 import { useRuntime } from "./runtime";
 import { useSession } from "../store/session";
 import { CallSession, type CallMedia } from "./callManager";
+import { createRingtone, primeRingtoneAudio } from "./ringtone";
+import { qk } from "./queryBridge";
 
 export type CallStatus = "idle" | "outgoing" | "incoming" | "connecting" | "in-call" | "ended";
 
@@ -43,6 +47,7 @@ const IDLE: CallState = { status: "idle", micOn: true, camOn: true };
 
 export function CallProvider({ children }: { children: React.ReactNode }) {
   const { rtc, api } = useRuntime();
+  const qc = useQueryClient();
   const me = useSession((s) => s.user);
   const [state, setState] = useState<CallState>(IDLE);
   const sessionRef = useRef<CallSession | null>(null);
@@ -70,6 +75,30 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       setTimeout(() => setState((s) => (s.status === "ended" ? IDLE : s)), 2500);
     }
   }, []);
+
+  /** Caller's display name from the already-loaded directory, if it's there. */
+  const cachedName = useCallback(
+    (userId: string) => qc.getQueryData<UserDTO[]>(qk.directory)?.find((u) => u.id === userId)?.displayName,
+    [qc],
+  );
+
+  /** Fetch the directory when the cache is cold so an incoming call can still
+   *  show a display name. Best-effort: the gateway-stamped username is already
+   *  on screen, so a failure here just leaves that in place. */
+  const resolveName = useCallback(
+    async (userId: string, callId: string) => {
+      if (cachedName(userId)) return;
+      try {
+        const dir = await qc.fetchQuery({ queryKey: qk.directory, queryFn: () => api.directory() });
+        const name = dir.find((u) => u.id === userId)?.displayName;
+        if (!name) return;
+        setState((s) => (s.callId === callId ? { ...s, peerName: name } : s));
+      } catch {
+        /* keep whatever the invite frame carried */
+      }
+    },
+    [api, cachedName, qc],
+  );
 
   const iceConfig = useCallback(async (): Promise<RTCConfiguration> => {
     try {
@@ -176,9 +205,22 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
               return;
             }
             incomingRef.current = { callId: f.callId, peerId: f.fromUserId, media: f.media };
-            setState({ ...IDLE, status: "incoming", callId: f.callId, peerId: f.fromUserId, media: f.media, camOn: f.media === "video" });
+            setState({
+              ...IDLE,
+              status: "incoming",
+              callId: f.callId,
+              peerId: f.fromUserId,
+              // Name the caller straight away from what the gateway stamped, so
+              // the ring screen is never the anonymous "User" placeholder.
+              peerName: cachedName(f.fromUserId) ?? f.fromName,
+              media: f.media,
+              camOn: f.media === "video",
+            });
             clearRing();
             ringTimer.current = setTimeout(() => teardown("idle"), RING_TIMEOUT_MS);
+            // Upgrade to the directory display name if the cache was cold —
+            // guarded on still ringing the same call when it lands.
+            void resolveName(f.fromUserId, f.callId);
             break;
           }
           case "call.accept": {
@@ -221,7 +263,21 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       })();
     });
     return off;
-  }, [rtc, iceConfig, newSession, teardown]);
+  }, [rtc, iceConfig, newSession, teardown, cachedName, resolveName]);
+
+  // Audio ring, driven by call STATUS rather than by the overlay's render so
+  // every exit path (accept, decline, cancel, ring timeout, peer unreachable,
+  // unmount) silences it through the effect cleanup — no extra call sites.
+  useEffect(() => {
+    if (state.status !== "incoming" && state.status !== "outgoing") return;
+    const ring = createRingtone(state.status === "incoming" ? "incoming" : "outgoing");
+    ring.start();
+    return () => ring.stop();
+  }, [state.status]);
+
+  // Unlock the AudioContext on the first interaction so a call arriving while
+  // the tab sits idle still rings (browsers suspend audio until a gesture).
+  useEffect(() => primeRingtoneAudio(), []);
 
   const value = useMemo<CallApi>(
     () => ({ ...state, invite, accept, decline, hangup, toggleMic, toggleCam }),

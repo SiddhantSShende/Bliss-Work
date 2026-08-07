@@ -284,6 +284,20 @@ func (s *Server) handleTypingFrame(ctx context.Context, conn *hub.Conn, sess *se
 	})
 }
 
+// callFrameFor builds the frame forwarded to the peer. Only the discriminant,
+// callId and media are copied off the client frame; the caller's NAME comes
+// from the verified JWT claims (clientFrame has no fromName field), so a peer
+// can never ring someone under a borrowed name. The callee needs it because the
+// ring screen has no other way to say who is calling.
+func callFrameFor(sess *session, f *clientFrame) signal.Frame {
+	return signal.Frame{
+		Type:     f.Type,
+		CallID:   f.CallID,
+		Media:    f.Media,
+		FromName: sess.claims.Username,
+	}
+}
+
 // handleCallFrame relays a 1:1 call lifecycle frame (invite/accept/decline/
 // cancel/end) to the peer over the same signaling path as rtc.*. The media SDP
 // and ICE candidates ride the existing rtc.offer/answer/ice frames (offerId ==
@@ -300,11 +314,7 @@ func (s *Server) handleCallFrame(ctx context.Context, conn *hub.Conn, sess *sess
 	if f.ToUserID == "" || f.ToUserID == sess.claims.UserID || f.CallID == "" {
 		return
 	}
-	delivered := s.signal.Forward(ctx, sess.claims.OrgID, sess.claims.UserID, f.ToUserID, signal.Frame{
-		Type:   f.Type,
-		CallID: f.CallID,
-		Media:  f.Media,
-	})
+	delivered := s.signal.Forward(ctx, sess.claims.OrgID, sess.claims.UserID, f.ToUserID, callFrameFor(sess, f))
 	if !delivered && f.Type == "call.invite" {
 		if raw, err := signal.UnreachableFrame(f.CallID, "offline"); err == nil {
 			select {
