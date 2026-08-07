@@ -1,6 +1,6 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { App, useSession, refreshSession, type PlatformConfig, type ServerEvent, type RtcTransport, type FileSink } from "@taskboard/app";
+import { App, useSession, refreshSession, type PlatformConfig, type ServerEvent, type RtcTransport, type FileSink, type ChatStickyHost, installChunkReloadRecovery } from "@taskboard/app";
 import type { PinResult } from "@taskboard/shared";
 import { resolveEndpoints } from "../shared/endpoints";
 import "@taskboard/ui/styles.css";
@@ -10,6 +10,8 @@ declare global {
   interface Window {
     taskboard: {
       setToken: (t: string | null) => void;
+      getRefreshToken: () => Promise<string | null>;
+      setRefreshToken: (t: string | null) => void;
       pinTask: (taskId: string) => Promise<PinResult>;
       listPinned: () => Promise<string[]>;
       onWsEvent: (cb: (e: ServerEvent) => void) => () => void;
@@ -30,8 +32,15 @@ declare global {
         digest: (id: string) => Promise<string>;
       };
     };
+    /** Pinned-chat bridge, exposed by the same preload. Surfaced to the shared
+     *  app through PlatformConfig.chatSticky rather than read off window there. */
+    chatSticky?: ChatStickyHost;
   }
 }
+
+// Recover from a stale lazy chunk (Export Tasks pulls exceljs dynamically).
+// Shared with the web entry so both platforms behave the same.
+installChunkReloadRecovery();
 
 const bridge = window.taskboard;
 
@@ -56,6 +65,12 @@ const config: PlatformConfig = {
   pinTask: (taskId) => bridge.pinTask(taskId),
   listPinned: () => bridge.listPinned(),
   persistToken: (t) => bridge.setToken(t),
+  // file:// makes every API request cross-site, so the SameSite=lax refresh
+  // cookie never travels — the token comes from the host and goes in the body.
+  // See apps/desktop/src/main/session-token.ts.
+  getRefreshToken: () => bridge.getRefreshToken(),
+  persistRefreshToken: (t) => bridge.setRefreshToken(t),
+  chatSticky: window.chatSticky,
   // OAuth has to run in the system browser (Google blocks embedded webviews)
   // and return through the taskboard://oauth deep link.
   openExternal: (url) => bridge.openExternal(url),
@@ -90,7 +105,7 @@ useSession.subscribe((s) => bridge.setToken(s.accessToken));
 // store + forwards via config.persistToken on success; on failure we forward
 // null so ws-process's pending token request unblocks instead of hanging.
 bridge.onTokenRequest(async () => {
-  const s = await refreshSession(config.authBase, config.persistToken);
+  const s = await refreshSession(config.authBase, config.persistToken, config.getRefreshToken);
   if (!s) bridge.setToken(null);
 });
 

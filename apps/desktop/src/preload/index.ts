@@ -25,6 +25,18 @@ const api = {
     return () => ipcRenderer.removeListener("ws:event", handler);
   },
 
+  /** The refresh token, read from the Electron cookie jar / OS-encrypted store.
+   *
+   *  The packaged renderer runs on file://, which makes every request to the API
+   *  origin cross-site, so Chromium will not attach the SameSite=lax refresh
+   *  cookie. /auth/refresh also accepts the token in the request body, so the
+   *  renderer fetches it from here and sends it explicitly. See
+   *  src/main/session-token.ts for the full reasoning. */
+  getRefreshToken: (): Promise<string | null> => ipcRenderer.invoke("auth:refresh-token"),
+
+  /** Mirror a refresh token to the encrypted store, or clear it (null) on logout. */
+  setRefreshToken: (token: string | null) => ipcRenderer.send("auth:set-refresh-token", token),
+
   /** Host asks the renderer for a fresh token (it holds the refresh cookie). */
   onTokenRequest: (cb: () => void) => {
     const handler = () => cb();

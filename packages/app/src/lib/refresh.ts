@@ -25,6 +25,7 @@ let inFlight: Promise<SessionDTO | null> | null = null;
 async function performRefresh(
   authBase: string,
   persist?: (token: string | null) => void,
+  getRefreshToken?: () => Promise<string | null>,
 ): Promise<SessionDTO | null> {
   // #3: a sibling tab just refreshed and broadcast its session while we were
   // queued on the lock — adopt it rather than rotating the cookie a second time.
@@ -37,9 +38,24 @@ async function performRefresh(
   }
 
   try {
+    // Electron only: the packaged renderer is on file://, so the SameSite=lax
+    // refresh cookie is never attached to this cross-site request and the server
+    // would 401 with "missing refresh token". /auth/refresh also reads the token
+    // from the body, so the host hands it over explicitly. On web this is
+    // undefined and the request is byte-for-byte what it always was — the cookie
+    // stays HttpOnly and keeps its SameSite protection.
+    const bodyToken = getRefreshToken ? await getRefreshToken().catch(() => null) : null;
     const res = await fetch(`${authBase}/auth/refresh`, {
       method: "POST",
+      // Kept unconditional: web depends on it, and on desktop it is a harmless
+      // no-op (the cookie exists in the jar, it just won't travel cross-site).
       credentials: "include",
+      ...(bodyToken
+        ? {
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ token: bodyToken }),
+          }
+        : {}),
     });
     // Return null on failure WITHOUT clearing the in-memory session. A failed
     // refresh is often transient — a rotating-refresh-token race, a reload firing
@@ -70,6 +86,7 @@ async function performRefresh(
 export function refreshSession(
   authBase: string,
   persist?: (token: string | null) => void,
+  getRefreshToken?: () => Promise<string | null>,
 ): Promise<SessionDTO | null> {
   if (inFlight) return inFlight;
   inFlight = (async () => {
@@ -83,9 +100,11 @@ export function refreshSession(
       ).navigator?.locks;
       if (locks?.request) {
         // Exclusive lock across all same-origin tabs; held for the whole refresh.
-        return await locks.request("tb-auth-refresh", () => performRefresh(authBase, persist));
+        return await locks.request("tb-auth-refresh", () =>
+          performRefresh(authBase, persist, getRefreshToken),
+        );
       }
-      return await performRefresh(authBase, persist);
+      return await performRefresh(authBase, persist, getRefreshToken);
     } finally {
       // Release the in-flight slot the moment this refresh settles so the next
       // refresh (the following token expiry) starts fresh. Concurrent callers

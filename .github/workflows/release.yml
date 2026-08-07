@@ -167,6 +167,17 @@ jobs:
         # the next step checks and what the deploy step ships.
         run: npx --no-install electron-builder --publish never
 
+      # Inspect what actually went in the box. The static publish config in
+      # package.json was already correct when 0.1.0 shipped with a `github`
+      # provider baked into its resources/app-update.yml — only an artifact-level
+      # check catches that, and it is the single most expensive bug this project
+      # has had (every 0.1.0 install is permanently un-updatable). Also verifies
+      # installers are real binaries and, on Windows, that rcedit stamped our
+      # icon instead of leaving the stock Electron atom.
+      - name: Verify release artifacts (update feed, magic bytes, icon)
+        shell: bash
+        run: node scripts/check-release-artifacts.mjs apps/desktop/release
+
       # Fail loudly here rather than shipping a feed users can never read.
       - name: Verify update manifests exist
         shell: bash
@@ -317,6 +328,19 @@ jobs:
             installers/ "$VPS_USER@$VPS_HOST:$VPS_PATH/"
           echo "Deployed ${{ needs.version.outputs.version }} to $VPS_USER@$VPS_HOST:$VPS_PATH"
 
+      # A release that publishes NOTHING must not report success. Both the deploy
+      # and the live-host verification below are gated on VPS_HOST, so with the
+      # secret unset this workflow went green while shipping nothing at all —
+      # which is how /downloads ended up hand-assembled and a month stale while
+      # CI looked healthy the whole time.
+      - name: Fail if a real release published nothing
+        if: env.VPS_HOST == '' && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_run')
+        run: |
+          echo "::error::VPS_HOST is not set, so this release deployed nothing."
+          echo "Set the VPS_HOST / VPS_USER / VPS_PATH / VPS_SSH_KEY repository secrets."
+          echo "Users download from the VPS — a build that never reaches it is not a release."
+          exit 1
+
       # Everything above this point verifies CI's OWN artifacts. Nothing verified
       # that the live host actually serves them — which is how a 128-byte
       # placeholder .dmg sat on the download page for weeks. Check the real URLs
@@ -340,9 +364,25 @@ jobs:
             fail=1
           fi
 
+          # Same treatment for the other two feeds: reachable is not enough, they
+          # must advertise THIS version. All three disagreeing is what makes one
+          # platform silently stop receiving updates.
           for m in latest-mac.yml latest-linux.yml; do
-            curl -fsS "$BASE/$m" >/dev/null \
-              || { echo "::error::$m is not reachable"; fail=1; }
+            echo "--- $BASE/$m ---"
+            if ! curl -fsS "$BASE/$m" | tee "/tmp/$m"; then
+              echo "::error::$m is not reachable"; fail=1
+            elif ! grep -q "version: $VERSION" "/tmp/$m"; then
+              echo "::error::$m does not advertise $VERSION"; fail=1
+            fi
+          done
+
+          # electron-updater downloads the ZIP on macOS, never the dmg — the dmg
+          # is only what the website hands a human. A missing zip means mac
+          # auto-update 404s exactly the way Windows already did, so assert the
+          # manifest names both architectures.
+          for arch in arm64 x64; do
+            grep -q "BlissWork-mac-$arch.zip" /tmp/latest-mac.yml \
+              || { echo "::error::latest-mac.yml does not list BlissWork-mac-$arch.zip — mac auto-update will 404"; fail=1; }
           done
 
           # The site's "Verify checksums" link (DownloadProvider.tsx) points here.
@@ -354,6 +394,7 @@ jobs:
           MIN_BYTES=$((5 * 1024 * 1024))
           for f in BlissWork-windows-x64.exe \
                    BlissWork-mac-arm64.dmg BlissWork-mac-x64.dmg \
+                   BlissWork-mac-arm64.zip BlissWork-mac-x64.zip \
                    BlissWork-linux-x64.AppImage BlissWork-linux-x64.deb; do
             len=$(curl -fsSI "$BASE/$f" \
                   | awk 'tolower($1)=="content-length:"{print $2+0}' | tail -1)
@@ -367,6 +408,14 @@ jobs:
 
           [ "$fail" -eq 0 ] || exit 1
           echo "Live host is serving $VERSION."
+
+      # Everything above checks communication.rnrtechs.com. The marketing site is
+      # a SECOND download surface on a different host, with its own copy of the
+      # filename list — so it can serve different (or missing) files while the
+      # web app looks perfectly healthy. Check both hosts agree, byte for byte.
+      - name: Verify the website and the web app offer the same installers
+        if: env.VPS_HOST != ''
+        run: node scripts/check-download-links.mjs --live
 
       - name: Scrub the key
         if: always()

@@ -2,9 +2,17 @@
 <html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
+    <!--
+      Same lockdown as the main window (index.html), minus connect-src: these
+      windows make NO network calls of their own — every byte arrives over IPC
+      from the ws-process — so connect-src is 'none' rather than an allowlist.
+      They render user-supplied task titles and chat messages, so object-src,
+      base-uri and form-action matter here just as much as in the main document;
+      they were simply missing before.
+    -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self'"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'"
     />
     <title>Chat</title>
     <style>

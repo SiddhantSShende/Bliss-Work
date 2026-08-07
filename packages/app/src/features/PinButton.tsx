@@ -1,35 +1,24 @@
 import { useEffect, useState } from "react";
 import { Pin, PinOff } from "lucide-react";
+import { useRuntime } from "../lib/runtime";
 
 /**
  * 📌 Pin-to-desktop toggle for a chat thread header. Only renders when the
- * Electron sticky-chat bridge is present on window — on the web app the
- * 10 GB+ persistent desktop window doesn't exist, so we hide instead of
- * showing a button that can't deliver.
+ * Electron sticky-chat bridge is present — on the web app the persistent
+ * desktop window doesn't exist, so we hide instead of showing a button that
+ * can't deliver.
+ *
+ * The host arrives via PlatformConfig.chatSticky. It used to be sniffed off
+ * `window.chatSticky`, which made it the one platform capability living outside
+ * the PlatformConfig seam: its interface was declared here AND in the desktop
+ * preload, with nothing checking that the two agreed. Routing it through the
+ * config means a mismatch is a compile error and every capability is discovered
+ * in one place.
  *
  * State source of truth: main-process sticky-state.json. Renderer hydrates
- * once at mount via `stickyChatHost.list()` and re-checks on every toggle.
- * No Zustand/TanStack mirror — two sources of truth was the bug Phase 8
- * was warned about.
+ * once at mount via `list()` and re-checks on every toggle. No Zustand/
+ * TanStack mirror — two sources of truth was the bug Phase 8 was warned about.
  */
-interface ChatStickyHost {
-  pin: (boot: {
-    threadId: string;
-    conversationId: string;
-    myUserId: string;
-    peerUserId: string;
-    peerUsername: string;
-  }) => void;
-  unpin: (threadId: string) => void;
-  list: () => Promise<string[]>;
-}
-
-declare global {
-  interface Window {
-    chatSticky?: ChatStickyHost;
-  }
-}
-
 export function PinButton(props: {
   threadId: string;
   conversationId: string;
@@ -37,7 +26,8 @@ export function PinButton(props: {
   peerUserId: string;
   peerUsername: string;
 }) {
-  const host = typeof window !== "undefined" ? window.chatSticky : undefined;
+  const { config } = useRuntime();
+  const host = config.chatSticky;
   const [pinned, setPinned] = useState(false);
 
   useEffect(() => {

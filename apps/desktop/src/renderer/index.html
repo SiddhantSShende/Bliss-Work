@@ -13,10 +13,18 @@
       desktop build only ever talks to the hosted backend (or localhost in dev),
       so it names those origins explicitly rather than allowing https:/wss: at
       large. blob: is in img-src for locally previewed file transfers.
+
+      %CSP_CONNECT_SRC% and %CSP_IMG_SRC% are substituted at build time from the
+      SAME resolveEndpoints() call the renderer and main process use — see the
+      cspPlugin in electron.vite.config.ts. They used to be hardcoded to the
+      hosted origin while src/shared/endpoints.ts advertised full VITE_*
+      overridability, so repointing a build at another backend produced an app
+      whose every request was CSP-blocked, with nothing in the build output
+      saying why. One source of truth now.
     -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://communication.rnrtechs.com; font-src 'self' data:; connect-src 'self' https://communication.rnrtechs.com wss://communication.rnrtechs.com http://localhost:* ws://localhost:*; object-src 'none'; base-uri 'self'; form-action 'self'"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: %CSP_IMG_SRC%; font-src 'self' data:; connect-src 'self' %CSP_CONNECT_SRC%; object-src 'none'; base-uri 'self'; form-action 'self'"
     />
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <title>BlissWork</title>

@@ -6,6 +6,12 @@ import { createMainWindow } from "./windows";
 import { StickyManager } from "./sticky-manager";
 import { ChatStickyManager, type ChatStickyBootstrap } from "./chat-sticky-manager";
 import { initCache, getTasks, setTasks } from "./cache";
+import {
+  initSessionToken,
+  getRefreshToken,
+  setRefreshToken,
+  clearRefreshToken,
+} from "./session-token";
 import { flushSync as flushStickyState, initStickyState } from "./sticky-state";
 import { trayIcon } from "./assets";
 import { buildAppMenu } from "./menu";
@@ -94,6 +100,7 @@ app.on("open-url", (_e, url) => {
 
 function bootstrap() {
   initCache();
+  initSessionToken();
   initStickyState();
   sticky.setTasks(getTasks());
 
@@ -348,8 +355,35 @@ ipcMain.handle("app:version", () => app.getVersion());
 
 ipcMain.handle("app:check-updates", () => checkForUpdatesNow());
 
-ipcMain.on("auth:token", (_e, token: string | null) => {
+// The auth channels carry credentials, so they are the one IPC group that must
+// not accept traffic from any window that happens to have a preload. Only the
+// main window ever holds a session; the sticky windows load different preloads
+// and have no business touching tokens.
+function fromMainWindow(e: { sender: Electron.WebContents }): boolean {
+  return e.sender === mainWindow?.webContents;
+}
+
+ipcMain.on("auth:token", (e, token: string | null) => {
+  if (!fromMainWindow(e)) return;
   wsProc?.postMessage({ type: "token", token });
+});
+
+// See src/main/session-token.ts: the packaged renderer is on file://, so it
+// cannot send the SameSite=lax refresh cookie itself and reads the token here
+// to put in the /auth/refresh body instead.
+ipcMain.handle("auth:refresh-token", (e) => {
+  if (!fromMainWindow(e)) return null;
+  return getRefreshToken();
+});
+
+ipcMain.on("auth:set-refresh-token", (e, token: unknown) => {
+  if (!fromMainWindow(e)) return;
+  if (token === null) {
+    void clearRefreshToken();
+    return;
+  }
+  if (typeof token !== "string" || !token) return;
+  setRefreshToken(token);
 });
 ipcMain.on("task:intent", (_e, intent: { taskId: string; action: string }) => {
   wsProc?.postMessage({ type: "intent", ...intent });

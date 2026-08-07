@@ -144,7 +144,7 @@ function SessionBootstrap({
     let alive = true;
     // Single-flight: dedupes the StrictMode double-invoke so the rotating
     // refresh token isn't consumed twice (which would revoke the session).
-    refreshSession(config.authBase, config.persistToken).then((s) => {
+    refreshSession(config.authBase, config.persistToken, config.getRefreshToken).then((s) => {
       if (!s) useSession.getState().clear();
       if (alive) setReady(true);
     });
