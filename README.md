@@ -65,6 +65,38 @@ make demo          # scripted end-to-end: message-ignore + task ack/complete
 Demo org `acme` with users **alice / bob / carol** (password `Passw0rd!`) is seeded.
 Mailpit UI (captured invite emails): http://localhost:8025
 
+### Shipping updates (production host)
+
+Both apps are built by Docker — no CI service is involved, so nothing can be
+blocked by one being red.
+
+```bash
+# Web app + services. Rebuilds the browser bundle and rolls the services.
+bash scripts/deploy-prod.sh
+
+# Desktop app: Linux (AppImage + deb) AND Windows (.exe, built under Wine).
+# Publishes straight into the live /downloads feed that electron-updater polls.
+sudo docker compose -f docker-compose.prod.yml --profile desktop up desktop-builder
+
+# Both in one go
+sudo docker compose -f docker-compose.prod.yml --profile desktop up -d --build
+```
+
+The desktop build sits behind the `desktop` profile so a routine deploy — which
+runs `compose up -d` — doesn't pay ~10 minutes for an Electron build it didn't
+ask for.
+
+The version is derived from the **published feed**, not `package.json`, and the
+patch is bumped automatically (`scripts/next-desktop-version.mjs`). electron-updater
+only offers an update when the feed version is strictly greater than what the user
+is running, and `package.json` has long sat behind the feed. Override with
+`DESKTOP_VERSION=1.2.0` for a minor/major bump.
+
+**macOS is the one platform this cannot build.** Apple requires a `.dmg` to be
+produced and signed on macOS. Its feed is left untouched, so mac users stay where
+they are rather than being pointed at something that isn't there. Build on a Mac
+and publish with `bash scripts/publish-desktop.sh <dir>`.
+
 ## Features
 
 - **Communication:** send a message → recipient sees Reply / Ignore. **Ignore** removes the

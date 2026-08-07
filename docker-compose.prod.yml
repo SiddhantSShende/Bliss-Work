@@ -89,6 +89,57 @@ services:
     command: >-
       sh -lc "npm ci && npm run build -w @taskboard/web && rm -rf /dist/* && cp -a apps/web/dist/. /dist/"
 
+  # Desktop installers, built the same way the web bundle is: a one-shot
+  # container that runs on `docker compose up` and exits. `docker compose up`
+  # therefore refreshes BOTH apps — the web bundle via web-builder above, and
+  # the downloadable desktop app here — with no CI system in the loop.
+  #
+  # WINDOWS IS BUILT ON LINUX, via Wine in this image. The .exe target is nsis,
+  # which electron-builder can produce under Wine, so Windows users get updates
+  # from this host without a Windows machine anywhere.
+  #
+  # macOS CANNOT be built here, by Apple's design: a .dmg must be produced and
+  # signed on macOS. Those installers are skipped, and skipping is safe because
+  # each platform has its own update feed (latest.yml / latest-mac.yml /
+  # latest-linux.yml) — leaving latest-mac.yml alone leaves mac users exactly
+  # where they are rather than pointing them at something that isn't there.
+  #
+  # Runs under the `desktop` profile so it is opt-in:
+  #     docker compose -f docker-compose.prod.yml --profile desktop up desktop-builder
+  # A desktop build is ~10 minutes and downloads Electron; making every routine
+  # `up` pay that (including each deploy, which runs `up -d`) would turn a
+  # 40-second service restart into a coffee break. The web bundle still rebuilds
+  # on every plain `up`, as before.
+  desktop-builder:
+    image: electronuserland/builder:wine
+    profiles: [desktop]
+    restart: "no"
+    working_dir: /workspace
+    environment:
+      npm_config_update_notifier: "false"
+      # Leave unset to auto-bump the patch of whatever is currently published —
+      # see scripts/next-desktop-version.mjs for why package.json can't be the
+      # source of truth. Set explicitly for a minor/major bump.
+      DESKTOP_VERSION: "${DESKTOP_VERSION:-}"
+    volumes:
+      - ./:/workspace
+      # Separate from web_node_modules: this image runs a different Node major,
+      # and sharing the tree would have each build clobber the other's native
+      # rebuilds.
+      - desktop_node_modules:/workspace/node_modules
+      # Electron and its build cache are ~500MB. Persisted so a rebuild is
+      # minutes rather than a fresh download every time.
+      - desktop_electron_cache:/root/.cache/electron
+      - desktop_builder_cache:/root/.cache/electron-builder
+      # The live download directory — nginx mounts this same path read-only.
+      - /home/ubuntu/BlissWork/downloads:/downloads
+      - /home/ubuntu/BlissWork/downloads-backup:/downloads-backup
+    # Exec form (a LIST, not a string): compose word-splits an inline string
+    # command, so `bash -lc "a; b; c"` would arrive as argv ["bash","-lc","a;",
+    # "b;","c"] and run only the first fragment. The script keeps the logic
+    # out of YAML entirely, where $ and quote escaping are their own trap.
+    command: ["bash", "scripts/build-desktop-container.sh"]
+
   nginx:
     image: nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
     restart: unless-stopped
@@ -502,6 +553,9 @@ volumes:
   caddy_config:
   web_dist:
   web_node_modules:
+  desktop_node_modules:
+  desktop_electron_cache:
+  desktop_builder_cache:
 
 networks:
   taskboard:
