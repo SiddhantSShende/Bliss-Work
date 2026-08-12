@@ -111,7 +111,7 @@ export function DMView() {
         <EmptyState icon={<MessageSquare size={24} />} title="Conversation not found" hint="Pick another from the sidebar." />
       </div>
     );
-
+  
   // Calls require the peer to have a live socket (ws-gateway rejects an offline
   // callee with rtc.peer.unreachable). Rather than silently disable the buttons,
   // let the click through and surface a clear note when the peer is offline.
