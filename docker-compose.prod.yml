@@ -193,8 +193,16 @@ services:
       - "443:443"   # HTTPS
       - "443:443/udp" # HTTP/3 (QUIC)
     environment:
-      DOMAIN: ${DOMAIN}
-      ACME_EMAIL: ${ACME_EMAIL}
+      # `:?` — REQUIRED, not optional. caddy is the one service that does NOT
+      # inherit `env_file: .env.prod` (it declares its own ports and volumes), so
+      # these reach it only through compose INTERPOLATION, which reads `.env`.
+      # Blank here is not a degraded mode: the Caddyfile gets a bare `email`
+      # directive, Caddy refuses to parse it, and the TLS edge crash-loops — the
+      # whole site goes down while every service behind it reports healthy.
+      # Failing the deploy with a named variable beats discovering it from
+      # user reports.
+      DOMAIN: ${DOMAIN:?DOMAIN must be set in .env (the caddy edge reads it via interpolation, not .env.prod)}
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL must be set in .env (the caddy edge reads it via interpolation, not .env.prod)}
     volumes:
       - ./infra/caddy/Caddyfile.waf:/etc/caddy/Caddyfile:ro  # WAF variant (Coraza, DetectionOnly)
       - ./infra/caddy/coraza:/etc/caddy/coraza:ro            # WAF engine config + CRS tuning
