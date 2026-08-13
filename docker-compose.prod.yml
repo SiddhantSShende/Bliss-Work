@@ -216,6 +216,21 @@ services:
       notification-svc: { condition: service_healthy }
       messaging-svc: { condition: service_healthy }
       ws-gateway: { condition: service_healthy }
+    # Caddy had NO healthcheck, so it could not be in the deploy's health gate —
+    # which is how a deploy once reported success with the TLS edge crash-looping
+    # on an unparseable Caddyfile. Every service BEHIND the dead edge was healthy,
+    # so the gate saw nothing wrong while the site was entirely unreachable.
+    #
+    # The admin API answers only when Caddy is running AND its config loaded; a
+    # config Caddy refuses to parse makes it exit, so this probe fails exactly in
+    # the case that used to be invisible. It listens on 127.0.0.1:2019 inside the
+    # container only — nothing is exposed by probing it.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:2019/config/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     deploy:
       resources:
         limits: { cpus: "0.50", memory: 128M }

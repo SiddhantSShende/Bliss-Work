@@ -45,9 +45,15 @@ SHA_TAGGED_SERVICES=(auth-svc email-worker task-svc notification-svc messaging-s
 BUILT_SERVICES=("${SHA_TAGGED_SERVICES[@]}" caddy)
 
 # Services that declare a healthcheck and must report `healthy` before a deploy
-# counts as good. caddy and email-worker declare none, so polling them would
-# wait forever on a status that never arrives.
-HEALTH_SERVICES=(auth-svc task-svc notification-svc messaging-svc integrations-svc telemetry-svc ws-gateway nginx)
+# counts as good. email-worker declares none, so polling it would wait forever on
+# a status that never arrives.
+#
+# caddy IS here now, and it is the most important entry: it is the only service
+# whose failure takes the whole site down, and it used to be excluded for lacking
+# a healthcheck. A deploy once passed this gate with every service behind the edge
+# healthy while the edge itself crash-looped — the gate was measuring the wrong
+# eight things.
+HEALTH_SERVICES=(auth-svc task-svc notification-svc messaging-svc integrations-svc telemetry-svc ws-gateway nginx caddy)
 
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-180}"
 KEEP_IMAGE_TAGS="${KEEP_IMAGE_TAGS:-3}"
@@ -172,6 +178,17 @@ smoke_test() {
     fi
     log "Smoke test: https://$domain/"
     curl -fsS --max-time 20 "https://$domain/" -o /dev/null
+
+    # A status code cannot tell you the app WORKS. Two deploys have now gone
+    # green while it was dead — once because a missing VITE_* var made the
+    # bundle throw on boot, once because index.html named a bundle that no
+    # longer existed. Both served 200 for every request.
+    #
+    # smoke-web.mjs loads the app in a real browser and fails on an uncaught
+    # error or an empty #root. It degrades to asset checks where no browser is
+    # available, so a CI image without Chromium still deploys — and says so.
+    log "Smoke test: does the app boot?"
+    node "$REPO_DIR/scripts/smoke-web.mjs" "https://$domain"
 }
 
 # Rebuild the SPA bundle into the web_dist volume, then recreate nginx so it
