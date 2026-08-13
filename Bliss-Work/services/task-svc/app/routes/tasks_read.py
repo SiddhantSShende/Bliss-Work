@@ -52,7 +52,8 @@ async def _sticky_list(
                     "       ta.status, ta.status_version, ta.assigned_at, ta.acknowledged_at, "
                     "       ta.completed_at, ta.ignored_at, ta.left_at, ta.reviewed_at, "
                     "       ta.review_enc, ta.review_rating, "
-                    "       COALESCE(up.username, '') AS sender_username "
+                    "       COALESCE(up.username, '') AS sender_username, "
+                    "       COALESCE(up.display_name, '') AS sender_display_name "
                     "FROM task_assignees ta "
                     "JOIN tasks t ON t.id = ta.task_id "
                     "LEFT JOIN user_projection up "
@@ -82,6 +83,7 @@ async def _sticky_list(
                     description=await cryptor().decrypt(db, org, r.description_enc) or "",
                     senderId=str(r.sender_id),
                     senderUsername=r.sender_username,
+                    senderDisplayName=r.sender_display_name,
                     myStatus=r.status,
                     actions=actions_for(r.status),
                     statusVersion=r.status_version,
@@ -138,7 +140,8 @@ async def task_detail(
                     "       ta.status, ta.status_version, ta.assigned_at, ta.acknowledged_at, "
                     "       ta.completed_at, ta.ignored_at, ta.left_at, ta.reviewed_at, "
                     "       ta.review_enc, ta.review_rating, "
-                    "       COALESCE(up.username, '') AS sender_username "
+                    "       COALESCE(up.username, '') AS sender_username, "
+                    "       COALESCE(up.display_name, '') AS sender_display_name "
                     "FROM task_assignees ta "
                     "JOIN tasks t ON t.id = ta.task_id "
                     "LEFT JOIN user_projection up "
@@ -163,6 +166,7 @@ async def task_detail(
             description=await cryptor().decrypt(db, org, row.description_enc) or "",
             senderId=str(row.sender_id),
             senderUsername=row.sender_username,
+            senderDisplayName=row.sender_display_name,
             myStatus=row.status,
             actions=actions_for(row.status),
             statusVersion=row.status_version,

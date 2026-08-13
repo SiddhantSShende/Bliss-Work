@@ -196,6 +196,10 @@ type ChannelMessageCreated struct {
 	SenderUsername string   `json:"senderUsername"`
 	Body           string   `json:"body"`
 	Members        []string `json:"members"`
+	// SenderDisplayName is the sender's real name. Omitted when the projection
+	// has no display_name, so consumers that predate it are unaffected and
+	// clients fall back to senderUsername (the email local-part).
+	SenderDisplayName string `json:"senderDisplayName,omitempty"`
 	// Kind mirrors MessageCreated.Kind — omitted for ordinary text so the wire
 	// shape is unchanged for consumers that predate channel system entries.
 	Kind string `json:"kind,omitempty"`

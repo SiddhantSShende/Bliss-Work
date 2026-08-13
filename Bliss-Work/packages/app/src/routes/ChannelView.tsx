@@ -72,7 +72,9 @@ export function ChannelView() {
       const tempId = `temp:${crypto.randomUUID()}`;
       const seq = prev.reduce((m, x) => Math.max(m, x.seq), 0) + 1;
       const optimistic: ChannelMessageDTO = {
-        id: tempId, channelId, seq, senderId: me.id, senderUsername: me.username, body, createdAt: new Date().toISOString(),
+        id: tempId, channelId, seq, senderId: me.id,
+        senderUsername: me.username, senderDisplayName: me.displayName,
+        body, createdAt: new Date().toISOString(),
       };
       qc.setQueryData<ChannelMessageDTO[]>(qk.channelMessages(channelId), [...prev, optimistic]);
       return { tempId };
@@ -163,10 +165,15 @@ export function ChannelView() {
       />
       <ChatThread
         messages={messages.map((m) => ({
-          id: m.id, senderId: m.senderId, senderName: m.senderUsername, body: m.body, at: m.createdAt, kind: m.kind, pending: m.id.startsWith("temp:"),
+          // senderUsername is the email local-part; the display name is what a
+          // reader should see above a channel bubble.
+          id: m.id, senderId: m.senderId, senderName: m.senderDisplayName || m.senderUsername,
+          body: m.body, at: m.createdAt, kind: m.kind, pending: m.id.startsWith("temp:"),
         }))}
         meId={me.id}
-        onSend={(t) => send.mutate(t)}
+        // flushStaged, not send.mutate: Send must emit the attachment tray as
+        // well as the text, and must tolerate an empty text (attachments only).
+        onSend={(t) => media.flushStaged(t)}
         showSenderNames
         placeholder={`Message #${channel.name}…`}
         onForward={(id) => {
@@ -179,6 +186,9 @@ export function ChannelView() {
         onPaste={media.onPaste}
         dropzone={media.dropzone}
         dragging={media.dragging}
+        attachments={media.staged}
+        onRemoveAttachment={media.removeStaged}
+        uploading={Object.keys(media.uploads).length}
         overlay={media.overlay}
       />
       <input {...media.fileInputProps} />

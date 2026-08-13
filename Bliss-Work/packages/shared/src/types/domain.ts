@@ -462,7 +462,14 @@ export type ProviderIdentityDTO = z.infer<typeof ProviderIdentityDTO>;
 export const ConversationDTO = z.object({
   id: z.string().uuid(),
   peerId: z.string().uuid(),
+  /**
+   * The peer's handle. NOTE: this is derived from the EMAIL LOCAL-PART at
+   * signup, so it reads "j.okafor", not "Jane Okafor". Render
+   * `peerDisplayName ?? peerUsername` — see lib/userLabel.
+   */
   peerUsername: z.string(),
+  /** Real name. Absent only while the messaging projection lags a rename. */
+  peerDisplayName: z.string().optional(),
   lastMessage: z.string().nullable(),
   lastMessageAt: z.string().nullable(),
   unread: z.number().int(),
@@ -531,6 +538,8 @@ export const ThreadDTO = z.object({
   rootMessageId: z.string().uuid(),
   peerId: z.string().uuid(),
   peerUsername: z.string(),
+  /** Real name. Prefer this over `peerUsername`, which is the email local-part. */
+  peerDisplayName: z.string().optional(),
   subjectPreview: z.string(),
   lastEventAt: z.string(),
   lastMessageSeq: z.number().int(),
@@ -564,6 +573,8 @@ export const StickyTaskDTO = z.object({
   description: z.string(),
   senderId: z.string().uuid(),
   senderUsername: z.string(),
+  /** Real name. Prefer this over `senderUsername`, which is the email local-part. */
+  senderDisplayName: z.string().optional(),
   myStatus: AssigneeStatus,
   actions: z.array(TaskAction),
   statusVersion: z.number().int(),
@@ -718,6 +729,8 @@ export const ChannelMessageDTO = z.object({
   seq: z.number().int(),
   senderId: z.string().uuid(),
   senderUsername: z.string(),
+  /** Real name. Prefer this over `senderUsername`, which is the email local-part. */
+  senderDisplayName: z.string().optional(),
   body: z.string(),
   createdAt: z.string(),
   /** System entries in a channel, mirroring MessageDTO.kind. Absent = text. */

@@ -58,6 +58,11 @@ class StickyTaskDTO(BaseModel):
     description: str
     senderId: str
     senderUsername: str
+    # The allocator's real name. `senderUsername` is the email local-part
+    # (auth-svc derives it at signup), so a task note rendered from it alone
+    # reads "from j.okafor". Empty until the projection catches up; clients fall
+    # back to senderUsername.
+    senderDisplayName: str = ""
     myStatus: AssigneeStatus
     actions: list[TaskActionT]
     statusVersion: int

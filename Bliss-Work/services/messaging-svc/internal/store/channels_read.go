@@ -140,8 +140,11 @@ func (s *Store) ChannelMessages(ctx context.Context, orgID, channelID, callerID 
 	}
 
 	rows, err := tx.Query(ctx,
+		// display_name alongside username: `username` is the email local-part, so
+		// on its own it renders "j.okafor" over every channel message.
 		`SELECT m.id, m.channel_id, m.seq, m.sender_id,
-		        COALESCE(up.username, ''), m.body, m.body_enc, m.created_at, m.kind
+		        COALESCE(up.username, ''), COALESCE(up.display_name, ''),
+		        m.body, m.body_enc, m.created_at, m.kind
 		 FROM channel_messages m
 		 LEFT JOIN user_projection up ON up.user_id = m.sender_id
 		 WHERE m.channel_id = $1 ORDER BY m.seq ASC`, channelID)
@@ -162,7 +165,8 @@ func (s *Store) ChannelMessages(ctx context.Context, orgID, channelID, callerID 
 	for rows.Next() {
 		var r rawChMsg
 		if err := rows.Scan(&r.m.ID, &r.m.ChannelID, &r.m.Seq, &r.m.SenderID,
-			&r.m.SenderUsername, &r.bodyTxt, &r.bodyEnc, &r.created, &r.kind); err != nil {
+			&r.m.SenderUsername, &r.m.SenderDisplayName,
+			&r.bodyTxt, &r.bodyEnc, &r.created, &r.kind); err != nil {
 			rows.Close()
 			return nil, err
 		}

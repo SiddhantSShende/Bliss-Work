@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useChatMedia } from "./useChatMedia";
@@ -68,11 +68,16 @@ function Harness({ send = vi.fn() }: { send?: (b: string) => void }) {
   return (
     <div {...media.dropzone}>
       <Composer
-        onSend={send}
+        // Every real surface routes Send through flushStaged, not through its
+        // own send mutation — that is what makes attachments wait for the user.
+        onSend={media.flushStaged}
         onAttach={media.onAttach}
         onShareLocation={media.onShareLocation}
         onPaste={media.onPaste}
         dragging={media.dragging}
+        attachments={media.staged}
+        onRemoveAttachment={media.removeStaged}
+        uploading={Object.keys(media.uploads).length}
       />
       <input data-testid="file-input" {...media.fileInputProps} />
       {media.overlay}
@@ -120,7 +125,7 @@ describe("attaching a file", () => {
     expect(clickSpy).toHaveBeenCalled();
   });
 
-  it("uploads the chosen file and sends one message referencing it", async () => {
+  it("uploads the chosen file but sends nothing until Send is pressed", async () => {
     const { send } = renderHarness();
     const input = screen.getByTestId("file-input") as HTMLInputElement;
 
@@ -133,12 +138,52 @@ describe("attaching a file", () => {
     expect((file as File).name).toBe("notes.pdf");
     expect((opts as { filename: string }).filename).toBe("notes.pdf");
 
+    // The file is STAGED: a chip appears, and nothing has been sent or
+    // committed. Picking a file used to fire the message immediately.
+    await waitFor(() => expect(screen.getByText("notes.pdf")).toBeInTheDocument());
+    expect(send).not.toHaveBeenCalled();
+    expect(commitAttachment).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByTitle("Send"));
+
     // Exactly one message for the batch, carrying the envelope.
     await waitFor(() => expect(send).toHaveBeenCalledTimes(1));
     expect(send.mock.calls[0]![0]).toContain("notes.pdf");
 
     // Committed only after the send, so an abandoned upload lapses on its own.
     await waitFor(() => expect(commitAttachment).toHaveBeenCalledWith("018f0000-0000-7000-8000-0000000000aa"));
+  });
+
+  // THE reported bug: dragging an image into the chat delivered it before the
+  // sender could look at it. Drop must attach, never send.
+  it("stages a dropped file instead of sending it", async () => {
+    const { send } = renderHarness();
+    const dropzone = screen.getByLabelText("Attach a file").closest("div")!.parentElement!;
+    const file = new File(["abc"], "photo.png", { type: "image/png" });
+
+    fireEvent.drop(dropzone, { dataTransfer: { files: [file], types: ["Files"] } });
+
+    await waitFor(() => expect(uploadAttachment).toHaveBeenCalled());
+    expect((uploadAttachment.mock.calls[0]![2] as File).name).toBe("photo.png");
+    // The chip is named from the SERVER's response, which this suite's mock
+    // always answers as notes.pdf regardless of what went up.
+    await waitFor(() => expect(screen.getByText("notes.pdf")).toBeInTheDocument());
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("drops a staged file from the tray without sending it", async () => {
+    const { send } = renderHarness();
+    const input = screen.getByTestId("file-input") as HTMLInputElement;
+
+    await userEvent.upload(input, new File(["abc"], "notes.pdf", { type: "application/pdf" }));
+    await waitFor(() => expect(screen.getByText("notes.pdf")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByLabelText("Remove notes.pdf"));
+
+    expect(screen.queryByText("notes.pdf")).not.toBeInTheDocument();
+    expect(send).not.toHaveBeenCalled();
+    // Never committed, so the orphaned upload lapses server-side on its own.
+    expect(commitAttachment).not.toHaveBeenCalled();
   });
 
   it("accepts a file type no allowlist would have included", async () => {

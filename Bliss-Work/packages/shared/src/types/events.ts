@@ -225,6 +225,12 @@ export const ChannelMessageCreated = z.object({
   seq: z.number().int().nonnegative(),
   senderId: z.string().uuid(),
   senderUsername: z.string(),
+  /**
+   * Real name, so a live message renders identically to a refetched one.
+   * Optional: older producers don't send it, and clients fall back to
+   * `senderUsername` (the email local-part).
+   */
+  senderDisplayName: z.string().optional(),
   body: z.string(),
   /** All channel members — the gateway pushes to each. */
   members: z.array(z.string().uuid()),

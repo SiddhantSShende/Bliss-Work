@@ -25,11 +25,14 @@ type ThreadDTO struct {
 	RootMessageID  string `json:"rootMessageId"`
 	PeerID         string `json:"peerId"`
 	PeerUsername   string `json:"peerUsername"`
-	SubjectPreview string `json:"subjectPreview"`
-	LastEventAt    string `json:"lastEventAt"`
-	LastMessageSeq int64  `json:"lastMessageSeq"`
-	UnreadCount    int64  `json:"unreadCount"`
-	MyLastReadSeq  int64  `json:"myLastReadSeq"`
+	// Real name; see ConversationDTO.PeerDisplayName. Empty until the projection
+	// catches up, in which case clients fall back to peerUsername.
+	PeerDisplayName string `json:"peerDisplayName,omitempty"`
+	SubjectPreview  string `json:"subjectPreview"`
+	LastEventAt     string `json:"lastEventAt"`
+	LastMessageSeq  int64  `json:"lastMessageSeq"`
+	UnreadCount     int64  `json:"unreadCount"`
+	MyLastReadSeq   int64  `json:"myLastReadSeq"`
 }
 
 // ensureThread creates a new thread row + both thread_members rows when the
@@ -210,6 +213,7 @@ func (s *Store) GetThread(ctx context.Context, orgID, callerID, threadID string)
 			    t.last_event_at, t.last_message_seq,
 			    CASE WHEN t.sender_id = $2 THEN t.recipient_id ELSE t.sender_id END AS peer_id,
 			    COALESCE(up.username, ''),
+			    COALESCE(up.display_name, ''),
 			    COALESCE(tm.last_read_seq, 0)
 			FROM threads t
 			JOIN thread_members tm ON tm.thread_id = t.id AND tm.user_id = $2
@@ -221,7 +225,7 @@ func (s *Store) GetThread(ctx context.Context, orgID, callerID, threadID string)
 				// dest[5] is t.last_event_at (timestamptz) → scan into a time.Time,
 				// NOT a *string. dest[7] (&d.PeerID) already maps the peer_id column.
 				&d.ThreadID, &d.ConversationID, &d.RootMessageID, &subjectPlain, &subjectEnc,
-				&lastAt, &d.LastMessageSeq, &peerID, &d.PeerUsername, &d.MyLastReadSeq,
+				&lastAt, &d.LastMessageSeq, &peerID, &d.PeerUsername, &d.PeerDisplayName, &d.MyLastReadSeq,
 			)
 		if errors.Is(serr, pgx.ErrNoRows) {
 			return ErrForbidden

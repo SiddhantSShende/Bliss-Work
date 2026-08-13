@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { MessageSquare, Ban, Forward, PhoneMissed } from "lucide-react";
 import { Avatar } from "@taskboard/ui";
 import { clock, groupMessages } from "../lib/chatFormat";
-import { isMediaMessage } from "../lib/chatEnvelope";
+import { isMediaMessage, type MediaItem } from "../lib/chatEnvelope";
 import { Composer } from "./Composer";
 import { SystemPill } from "./SystemPill";
 
@@ -38,6 +38,9 @@ export function ChatThread({
   onPaste,
   dropzone,
   dragging = false,
+  attachments,
+  onRemoveAttachment,
+  uploading,
   overlay,
 }: {
   messages: ThreadMessage[];
@@ -62,6 +65,10 @@ export function ChatThread({
     onDrop: (e: React.DragEvent) => void;
   };
   dragging?: boolean;
+  /** Staged-attachment tray, straight from useChatMedia. */
+  attachments?: MediaItem[];
+  onRemoveAttachment?: (id: string) => void;
+  uploading?: number;
   /** Portal-ish extras rendered alongside the thread (the lightbox). */
   overlay?: React.ReactNode;
   /** Called on every local keystroke (drives the typing indicator). */
@@ -232,6 +239,9 @@ export function ChatThread({
           onPaste={onPaste}
           placeholder={placeholder}
           dragging={dragging}
+          attachments={attachments}
+          onRemoveAttachment={onRemoveAttachment}
+          uploading={uploading}
         />
       )}
 

@@ -255,6 +255,7 @@ func (s *Store) ListConversations(ctx context.Context, orgID, callerID string) (
 			    c.id,
 			    CASE WHEN c.user_low = $2 THEN c.user_high ELSE c.user_low END AS peer_id,
 			    COALESCE(up.username, '') AS peer_username,
+			    COALESCE(up.display_name, '') AS peer_display_name,
 			    lm.body,
 			    lm.body_enc,
 			    c.last_msg_at,
@@ -297,7 +298,7 @@ func (s *Store) ListConversations(ctx context.Context, orgID, callerID string) (
 		var raws []rawConv
 		for rows.Next() {
 			var rc rawConv
-			if err := rows.Scan(&rc.d.ID, &rc.d.PeerID, &rc.d.PeerUsername,
+			if err := rows.Scan(&rc.d.ID, &rc.d.PeerID, &rc.d.PeerUsername, &rc.d.PeerDisplayName,
 				&rc.lastMsg, &rc.lastEnc, &rc.lastAt, &rc.d.Unread,
 				&rc.d.BlockedByMe, &rc.d.BlockedByPeer); err != nil {
 				rows.Close()

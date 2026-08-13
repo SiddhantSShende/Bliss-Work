@@ -48,6 +48,12 @@ export function StickyWidget({
     locked,
   });
 
+  // senderUsername is the email local-part, so "from j.okafor" is what a note
+  // built from it alone says. This widget also renders in the desktop sticky
+  // window, which has no directory query — hence the field on the DTO rather
+  // than a lookup here.
+  const senderName = task.senderDisplayName || task.senderUsername;
+
   // Whole surface is the OS-window drag region so the user can grab the note
   // from anywhere — title, body, even the empty space below the description.
   // The header buttons (X / Minus / Badge) and the action button row opt out
@@ -62,10 +68,10 @@ export function StickyWidget({
     >
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-start gap-2.5">
-          <Avatar name={task.senderUsername} size="sm" />
+          <Avatar name={senderName} size="sm" />
           <div className="min-w-0">
             <div className="truncate font-semibold leading-tight text-fg">{task.title}</div>
-            <div className="text-xs text-muted">from {task.senderUsername}</div>
+            <div className="text-xs text-muted">from {senderName}</div>
           </div>
         </div>
         <div className="app-no-drag flex items-center gap-1.5">

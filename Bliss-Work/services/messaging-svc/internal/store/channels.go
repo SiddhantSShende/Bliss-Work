@@ -173,23 +173,28 @@ func (s *Store) SendChannelMessage(ctx context.Context, orgID, channelID, sender
 	if err != nil {
 		return nil, err
 	}
-	senderName, err := username(ctx, tx, senderID)
+	// Both names travel on the event so a message arriving over the socket
+	// renders the same as one that came back from a refetch. Sending only the
+	// username made a live message flip from "Jane Okafor" to "j.okafor" until
+	// the next fetch.
+	senderName, senderDisplay, err := userNames(ctx, tx, senderID)
 	if err != nil {
 		return nil, err
 	}
 
 	evt := events.ChannelMessageCreated{
-		Type:           events.TypeChannelMessageCreated,
-		EventID:        uuid.Must(uuid.NewV7()).String(),
-		OrgID:          orgID,
-		OccurredAt:     nowISO(),
-		ChannelID:      channelID,
-		MessageID:      msgID,
-		Seq:            seq,
-		SenderID:       senderID,
-		SenderUsername: senderName,
-		Body:           body,
-		Members:        members,
+		Type:              events.TypeChannelMessageCreated,
+		EventID:           uuid.Must(uuid.NewV7()).String(),
+		OrgID:             orgID,
+		OccurredAt:        nowISO(),
+		ChannelID:         channelID,
+		MessageID:         msgID,
+		Seq:               seq,
+		SenderID:          senderID,
+		SenderUsername:    senderName,
+		SenderDisplayName: senderDisplay,
+		Body:              body,
+		Members:           members,
 	}
 	if err := insertOutbox(ctx, tx, channelID, evt); err != nil {
 		return nil, err
@@ -254,6 +259,19 @@ func channelMemberIDs(ctx context.Context, tx pgx.Tx, channelID string) ([]strin
 		out = append(out, id)
 	}
 	return out, rows.Err()
+}
+
+// userNames resolves both projected names for a user; either may be empty if
+// unknown. Callers that render a person should prefer displayName and fall back
+// to username, which is only the EMAIL LOCAL-PART (see auth-svc signup).
+func userNames(ctx context.Context, tx pgx.Tx, userID string) (uname, display string, err error) {
+	err = tx.QueryRow(ctx,
+		`SELECT COALESCE(username, ''), COALESCE(display_name, '')
+		 FROM user_projection WHERE user_id = $1`, userID).Scan(&uname, &display)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", "", nil
+	}
+	return uname, display, err
 }
 
 // username resolves a user_projection username, empty if unknown.

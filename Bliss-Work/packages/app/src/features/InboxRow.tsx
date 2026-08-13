@@ -4,10 +4,11 @@ import { ListTodo, MessageCircle, Reply, X, Trash2, Flag, Check } from "lucide-r
 import { Avatar, Badge } from "@taskboard/ui";
 import type { InboxItemDTO } from "@taskboard/shared";
 import { relative } from "../lib/chatFormat";
+import { useUserLabels } from "../lib/userLabel";
 
 /**
  * Single row in the unified Inbox feed. Branches on item_kind:
- *   THREAD → email-style row with peer username, preview, unread pill,
+ *   THREAD → email-style row with the peer's EMAIL ADDRESS, preview, unread pill,
  *            status badge for sender-side rows.
  *   TASK   → row with task title + acknowledge / complete / ignore / leave
  *            controls (the actual mutations call task-svc).
@@ -33,11 +34,19 @@ export function InboxRow({
   /** TASK rows only: complete an ACKNOWLEDGED task. Shows the flag button. */
   onComplete?: (refId: string) => void;
 }) {
+  const { nameOf, emailOf } = useUserLabels();
   const isTask = item.itemKind === "TASK";
   const to = isTask
     ? `/app/inbox/task/${item.refId}`
     : `/app/inbox/thread/${item.refId}`;
-  const peer = item.peerUsername ?? "—";
+  // The Inbox is an email surface, so a row is identified the way an email
+  // client identifies one: by ADDRESS. `peerUsername` is only the email
+  // local-part, so the full address is joined in from the org directory and the
+  // handle is kept as the fallback for anyone no longer listed there.
+  const peerEmail = emailOf(item.peerUserId, item.peerUsername);
+  // The avatar still needs a human name for its initials — "j.okafor" would
+  // render "JO" from the wrong halves.
+  const peerName = nameOf(item.peerUserId, item.peerUsername);
   const isUnread = item.unreadCount > 0;
 
   return (
@@ -56,7 +65,7 @@ export function InboxRow({
               <ListTodo size={16} />
             </div>
           ) : (
-            <Avatar name={peer} size="sm" />
+            <Avatar name={peerName} size="sm" />
           )}
           {isUnread && (
             <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold text-accent-fg">
@@ -67,7 +76,7 @@ export function InboxRow({
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">
             <div className={`truncate ${isUnread ? "font-semibold text-fg" : "text-fg/90"}`}>
-              {isTask ? <span className="inline-flex items-center gap-1"><ListTodo size={13} /> {item.preview || "(untitled task)"}</span> : peer}
+              {isTask ? <span className="inline-flex items-center gap-1"><ListTodo size={13} /> {item.preview || "(untitled task)"}</span> : peerEmail}
             </div>
             <span className="shrink-0 text-[10px] text-muted">{relative(item.lastEventAt)}</span>
           </div>

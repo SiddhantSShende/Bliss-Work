@@ -8,6 +8,7 @@ import type { ConversationDTO, MessageDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
+import { displayNameOf } from "../lib/userLabel";
 import { ChatThread } from "../features/ChatThread";
 import { ForwardDialog } from "../features/ForwardDialog";
 import { useChatMedia } from "../features/useChatMedia";
@@ -123,6 +124,8 @@ export function DMView() {
   // callee with rtc.peer.unreachable). Rather than silently disable the buttons,
   // let the click through and surface a clear note when the peer is offline.
   const isBlocked = conv.blockedByMe || conv.blockedByPeer;
+  // Never render peerUsername directly — it is the email local-part.
+  const peerName = displayNameOf(conv);
   const startCall = (media: "audio" | "video") => {
     if (isBlocked) {
       toast("Can't start call", {
@@ -134,11 +137,11 @@ export function DMView() {
     }
     if (!isOnline) {
       toast("Can't start call", {
-        description: `${conv.peerUsername} must be online to receive a call.`,
+        description: `${peerName} must be online to receive a call.`,
       });
       return;
     }
-    call.invite(conv.peerId, conv.peerUsername, media);
+    call.invite(conv.peerId, peerName, media);
   };
 
   return (
@@ -154,9 +157,9 @@ export function DMView() {
           >
             <ChevronLeft size={20} />
           </button>
-          <Avatar name={conv.peerUsername} online={isOnline} />
+          <Avatar name={peerName} online={isOnline} />
           <div className="min-w-0 leading-tight">
-            <div className="truncate font-semibold text-fg">{conv.peerUsername}</div>
+            <div className="truncate font-semibold text-fg">{peerName}</div>
             <div className={`text-xs ${isOnline ? "text-success" : "text-muted"}`}>{isOnline ? "Online" : "Offline"}</div>
           </div>
         </div>
@@ -184,11 +187,13 @@ export function DMView() {
       <ChatThread
         messages={messages.map((m) => ({ id: m.id, senderId: m.senderId, body: m.body, at: m.createdAt, kind: m.kind, pending: m.id.startsWith("temp:") }))}
         meId={me.id}
-        onSend={(t) => { reply.mutate(t); stopTyping(); }}
+        // flushStaged, not reply.mutate: Send must emit the attachment tray as
+        // well as the text, and must tolerate an empty text (attachments only).
+        onSend={(t) => { media.flushStaged(t); stopTyping(); }}
         onType={onType}
         peerTyping={peerTyping}
-        peerName={conv.peerUsername}
-        placeholder={`Message ${conv.peerUsername}…`}
+        peerName={peerName}
+        placeholder={`Message ${peerName}…`}
         disabled={isBlocked}
         notice={
           conv.blockedByMe
@@ -207,6 +212,9 @@ export function DMView() {
         onPaste={media.onPaste}
         dropzone={media.dropzone}
         dragging={media.dragging}
+        attachments={media.staged}
+        onRemoveAttachment={media.removeStaged}
+        uploading={Object.keys(media.uploads).length}
         overlay={media.overlay}
       />
       <input {...media.fileInputProps} />

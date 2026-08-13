@@ -6,6 +6,7 @@ import { Avatar } from "@taskboard/ui";
 import type { MessageDTO, UserDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
+import { displayNameOf } from "../lib/userLabel";
 import { useSession } from "../store/session";
 import { flatThreadMessages, useThreadMessages } from "../lib/useCursorPagination";
 import { reconcileOptimistic } from "../lib/threadPagination";
@@ -109,20 +110,24 @@ function InboxThreadContent({ threadId, me }: { threadId: string; me: UserDTO })
     onSuccess: () => void qc.invalidateQueries({ queryKey: qk.unifiedInbox }),
   });
 
+  // The peer's real name. `peerUsername` is the email local-part, so it must
+  // never be rendered on its own — see lib/userLabel.
+  const peerName = header ? displayNameOf(header) : "";
+
   // Decorate the messages for ThreadView (senderName + at).
   const visual = useMemo(
     () =>
       messages.map((m) => ({
         id: m.id,
         senderId: m.senderId,
-        senderName: m.senderId === me.id ? me.displayName : header?.peerUsername ?? "",
+        senderName: m.senderId === me.id ? me.displayName : peerName,
         body: m.body,
         at: m.createdAt,
         pending: m.id.startsWith("temp:"),
         status: m.status,
         kind: m.kind,
       })),
-    [messages, me.id, me.displayName, header?.peerUsername],
+    [messages, me.id, me.displayName, peerName],
   );
 
   // Attachments, shared locations and legacy peer-to-peer file offers all
@@ -141,10 +146,10 @@ function InboxThreadContent({ threadId, me }: { threadId: string; me: UserDTO })
       {/* Thread header */}
       <div className="flex items-center justify-between gap-3 border-b border-border/60 px-4 py-3">
         <div className="flex min-w-0 items-center gap-2">
-          <Avatar name={header?.peerUsername ?? "?"} size="sm" />
+          <Avatar name={peerName || "?"} size="sm" />
           <div className="min-w-0">
             <div className="truncate text-sm font-semibold text-fg">
-              {header?.peerUsername ?? "Loading…"}
+              {peerName || "Loading…"}
             </div>
             <div className="truncate text-[11px] text-muted">
               {header?.subjectPreview || "Thread"}
@@ -158,7 +163,7 @@ function InboxThreadContent({ threadId, me }: { threadId: string; me: UserDTO })
               conversationId={header.conversationId}
               myUserId={me.id}
               peerUserId={header.peerId}
-              peerUsername={header.peerUsername}
+              peerUsername={peerName}
             />
           )}
           <button
@@ -181,11 +186,16 @@ function InboxThreadContent({ threadId, me }: { threadId: string; me: UserDTO })
       />
 
       <Composer
-        onSend={(text) => sendMut.mutate(text)}
+        // flushStaged, not sendMut.mutate: Send must emit the attachment tray
+        // as well as the text, and must tolerate an empty text.
+        onSend={(text) => media.flushStaged(text)}
         onAttach={media.onAttach}
         onShareLocation={media.onShareLocation}
         onPaste={media.onPaste}
         dragging={media.dragging}
+        attachments={media.staged}
+        onRemoveAttachment={media.removeStaged}
+        uploading={Object.keys(media.uploads).length}
       />
       <input {...media.fileInputProps} />
       {media.overlay}

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { AttachmentScope } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
@@ -31,12 +31,20 @@ import { FileAttachmentBubble } from "./FileAttachmentBubble";
  *
  * The upload/send order matters and is not arbitrary:
  *   1. upload the bytes and get back attachment ids
- *   2. send ONE message whose body carries those ids
- *   3. commit the attachments so they stop expiring
+ *   2. STAGE them — the user must still press Send
+ *   3. send ONE message whose body carries those ids
+ *   4. commit the attachments so they stop expiring
  *
  * Committing last is what makes an abandoned or failed send self-cleaning: the
  * server cannot read the (encrypted) message body to discover which attachments
- * are referenced, so an uncommitted upload simply lapses after 24h.
+ * are referenced, so an uncommitted upload simply lapses after 24h. Staging
+ * relies on exactly that property — a file the user attaches and then thinks
+ * better of costs nothing and cleans itself up.
+ *
+ * Step 2 is why dropping a photo into a chat no longer fires it off at the
+ * recipient before the sender has had a chance to look at it. Uploading still
+ * begins immediately so the progress bar is honest and Send is instant; only
+ * the SEND waits for the user.
  */
 
 export interface ChatMediaOptions {
@@ -76,6 +84,23 @@ export function useChatMedia(opts: ChatMediaOptions) {
   const [uploads, setUploads] = useState<Record<string, UploadProgress>>({});
   const [lightbox, setLightbox] = useState<{ items: MediaItem[]; index: number } | null>(null);
 
+  // Uploaded but NOT yet sent. The composer renders these as removable chips.
+  const [staged, setStaged] = useState<MediaItem[]>([]);
+  // Mirror of staged.length for onFiles' per-message cap check. A ref, so
+  // onFiles keeps a stable identity instead of being rebuilt — and re-bound
+  // through runFiles/dropzone/onPaste — on every attachment added or removed.
+  const stagedCount = useRef(0);
+  stagedCount.current = staged.length;
+
+  // Attachments are authorized against (scope, scopeId) at upload time, so a
+  // chip carried into another conversation would reference a scope the reader
+  // is not in. Navigating away discards the tray; the uncommitted uploads lapse
+  // on their own.
+  useEffect(() => {
+    setStaged([]);
+    setUploads({});
+  }, [scopeId]);
+
   // ── uploading ─────────────────────────────────────────────────────────────
 
   const onFiles = useCallback(
@@ -83,7 +108,10 @@ export function useChatMedia(opts: ChatMediaOptions) {
       const files = Array.from(fileList);
       if (files.length === 0) return;
 
-      if (files.length > MEDIA_MAX_FILES) {
+      // The cap is on the MESSAGE, so anything already sitting in the tray
+      // counts against it — otherwise ten drops of one file each would build a
+      // twelve-attachment message that the server then rejects on send.
+      if (stagedCount.current + files.length > MEDIA_MAX_FILES) {
         toast.error(`You can send up to ${MEDIA_MAX_FILES} files at a time.`);
         return;
       }
@@ -178,12 +206,9 @@ export function useChatMedia(opts: ChatMediaOptions) {
           }),
         );
 
-        // One message for the whole batch, so ten photos are one bubble.
-        send(encodeMedia(items));
-
-        // Commit only after the message is on its way. If the send throws, the
-        // uploads lapse on their own rather than becoming unreachable garbage.
-        await Promise.allSettled(items.map((it) => api.commitAttachment(it.id)));
+        // Into the tray, NOT down the wire. flushStaged (below) is the only
+        // thing that sends, and it only runs when the user presses Send.
+        setStaged((prev) => [...prev, ...items]);
       } catch (err) {
         pending.forEach(({ key }) => clearUpload(key));
         const message = err instanceof Error ? err.message : "Upload failed";
@@ -192,7 +217,7 @@ export function useChatMedia(opts: ChatMediaOptions) {
           : `Couldn't send attachment: ${message}`);
       }
     },
-    [api, scope, scopeId, send, p2pFallback, ft.available],
+    [api, scope, scopeId, p2pFallback, ft.available],
   );
 
   /**
@@ -216,6 +241,36 @@ export function useChatMedia(opts: ChatMediaOptions) {
   );
 
   const onAttach = useCallback(() => fileInput.current?.click(), []);
+
+  /** Drop one chip from the tray. The upload is left to lapse rather than
+   *  deleted: it was never committed, so it expires on its own in 24h. */
+  const removeStaged = useCallback((id: string) => {
+    setStaged((prev) => prev.filter((it) => it.id !== id));
+  }, []);
+
+  /**
+   * THE send path for every surface: emits the staged attachments (one message
+   * for the whole tray, so ten photos are one bubble) and then the typed text.
+   *
+   * Both are optional — Send is enabled when either is present — so this is
+   * also what keeps an attachment-only send from posting an empty text message
+   * behind it. Commit runs after the send for the reason documented at the top
+   * of this file: an upload that never made it into a message must lapse rather
+   * than become unreachable garbage.
+   */
+  const flushStaged = useCallback(
+    (text: string) => {
+      const items = staged;
+      if (items.length > 0) {
+        setStaged([]);
+        send(encodeMedia(items));
+        void Promise.allSettled(items.map((it) => api.commitAttachment(it.id)));
+      }
+      const t = text.trim();
+      if (t) send(t);
+    },
+    [staged, send, api],
+  );
 
   const onPickFile = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -401,6 +456,11 @@ export function useChatMedia(opts: ChatMediaOptions) {
     dropzone,
     dragging,
     uploads,
+    /** Uploaded, awaiting an explicit Send. Render as removable chips. */
+    staged,
+    removeStaged,
+    /** Call from the composer's Send. Sends the tray, then the text. */
+    flushStaged,
     fileInputProps,
     overlay,
   };

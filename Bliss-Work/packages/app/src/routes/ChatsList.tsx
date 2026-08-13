@@ -6,6 +6,7 @@ import { Avatar, EmptyState } from "@taskboard/ui";
 import type { ConversationDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
+import { displayNameOf } from "../lib/userLabel";
 import { ListHeader, rowClass, relTime } from "../features/ListPane";
 import { NewChatDialog } from "../features/NewChatDialog";
 
@@ -36,10 +37,10 @@ export function ChatsList() {
         ) : (
           conversations.map((c: ConversationDTO) => (
             <NavLink key={c.id} to={`/app/chats/${c.id}`} className={({ isActive }) => rowClass(isActive)}>
-              <Avatar name={c.peerUsername} online={onlineSet.has(c.peerId)} />
+              <Avatar name={displayNameOf(c)} online={onlineSet.has(c.peerId)} />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="truncate font-medium text-fg">{c.peerUsername}</span>
+                  <span className="truncate font-medium text-fg">{displayNameOf(c)}</span>
                   <span className="shrink-0 text-[10px] text-muted">{relTime(c.lastMessageAt)}</span>
                 </div>
                 <div className="flex items-center justify-between gap-2">

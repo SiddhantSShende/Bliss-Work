@@ -287,6 +287,7 @@ export function WsEventBridge() {
                   seq: e.seq,
                   senderId: e.senderId,
                   senderUsername: e.senderUsername,
+                  senderDisplayName: e.senderDisplayName,
                   body: e.body,
                   createdAt: e.occurredAt,
                 });

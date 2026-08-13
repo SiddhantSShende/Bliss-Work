@@ -180,14 +180,21 @@ type SendResult struct {
 // BlockedByPeer = the peer blocked the caller ("You have been blocked").
 // Sends are gated whenever EITHER is true.
 type ConversationDTO struct {
-	ID            string  `json:"id"`
-	PeerID        string  `json:"peerId"`
-	PeerUsername  string  `json:"peerUsername"`
-	LastMessage   *string `json:"lastMessage"`
-	LastMessageAt *string `json:"lastMessageAt"`
-	Unread        int64   `json:"unread"`
-	BlockedByMe   bool    `json:"blockedByMe"`
-	BlockedByPeer bool    `json:"blockedByPeer"`
+	ID           string `json:"id"`
+	PeerID       string `json:"peerId"`
+	PeerUsername string `json:"peerUsername"`
+	// PeerDisplayName is the peer's real name. `username` is DERIVED FROM THE
+	// EMAIL LOCAL-PART at signup (auth-svc routes/auth.py), so rendering it in
+	// chat shows "j.okafor" where "Jane Okafor" belongs. user_projection has
+	// carried display_name all along; it simply was never selected.
+	// Empty when the projection has not caught up — clients fall back to
+	// peerUsername.
+	PeerDisplayName string  `json:"peerDisplayName,omitempty"`
+	LastMessage     *string `json:"lastMessage"`
+	LastMessageAt   *string `json:"lastMessageAt"`
+	Unread          int64   `json:"unread"`
+	BlockedByMe     bool    `json:"blockedByMe"`
+	BlockedByPeer   bool    `json:"blockedByPeer"`
 }
 
 // MessageDTO mirrors the canonical MessageDTO contract. The threading
@@ -256,8 +263,11 @@ type ChannelMessageDTO struct {
 	Seq            int64  `json:"seq"`
 	SenderID       string `json:"senderId"`
 	SenderUsername string `json:"senderUsername"`
-	Body           string `json:"body"`
-	CreatedAt      string `json:"createdAt"`
+	// Real name; see ConversationDTO.PeerDisplayName for why username alone is
+	// the wrong thing to render. Empty until the projection catches up.
+	SenderDisplayName string `json:"senderDisplayName,omitempty"`
+	Body              string `json:"body"`
+	CreatedAt         string `json:"createdAt"`
 	// Kind mirrors MessageDTO.Kind — omitted for ordinary text so the wire
 	// shape of a normal channel message is unchanged.
 	Kind string `json:"kind,omitempty"`
