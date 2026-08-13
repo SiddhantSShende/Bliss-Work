@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { Loader2, MapPin, Paperclip, Send, X } from "lucide-react";
 import { Button } from "@taskboard/ui";
 import { prettySize, type MediaItem } from "../lib/chatEnvelope";
+import { EmojiPickerButton } from "./EmojiPicker";
 
 /**
  * Shared message composer. Used by ThreadView (Inbox), DMs and channels.
@@ -20,6 +21,8 @@ export function Composer({
   attachments = [],
   onRemoveAttachment,
   uploading = 0,
+  replyPreview,
+  onCancelReply,
 }: {
   /**
    * Called with the typed text, which may be EMPTY when the user is sending
@@ -41,6 +44,10 @@ export function Composer({
   onRemoveAttachment?: (id: string) => void;
   /** How many uploads are still in flight — renders a "preparing…" chip. */
   uploading?: number;
+  /** Shown above the box while a quote is pending, so the user can see what
+   *  they are replying to without scrolling back to find it. */
+  replyPreview?: { who?: string; text: string };
+  onCancelReply?: () => void;
 }) {
   const [text, setText] = useState("");
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -75,6 +82,28 @@ export function Composer({
           : "border-border/60 bg-surface/50"
       }`}
     >
+      {replyPreview && (
+        <div className="flex items-start gap-2 rounded-xl bg-surface-2 px-3 py-2">
+          <div className="min-w-0 flex-1 border-l-2 border-accent pl-2">
+            <div className="text-[11px] font-medium text-accent">
+              Replying to {replyPreview.who ?? "this message"}
+            </div>
+            <div className="line-clamp-2 break-words text-xs text-muted">{replyPreview.text}</div>
+          </div>
+          {onCancelReply && (
+            <button
+              type="button"
+              onClick={onCancelReply}
+              title="Cancel reply"
+              aria-label="Cancel reply"
+              className="shrink-0 rounded-lg p-1 text-muted hover:bg-surface hover:text-fg"
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+      )}
+
       {/* The attachment tray. Files land here on pick/drop/paste and go nowhere
           until Send — previously any of those three sent immediately, so a photo
           dragged into the wrong window was already gone. */}
@@ -133,6 +162,18 @@ export function Composer({
           <MapPin size={18} className="mx-auto" />
         </button>
       )}
+      <EmojiPickerButton
+        onPick={(e) => {
+          // Appended rather than inserted at the caret: the textarea is
+          // uncontrolled from the picker's side, and reaching into its
+          // selection would couple the two for no gain anyone has asked for.
+          setText((t) => t + e);
+          requestAnimationFrame(() => {
+            taRef.current?.focus();
+            grow();
+          });
+        }}
+      />
       <textarea
         ref={taRef}
         rows={1}

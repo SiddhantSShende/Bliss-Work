@@ -1,13 +1,14 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { motion } from "framer-motion";
-import { MessageSquare, Ban, Forward, PhoneMissed } from "lucide-react";
+import { MessageSquare, Ban, PhoneMissed } from "lucide-react";
 import { Avatar } from "@taskboard/ui";
 import { clock, groupMessages } from "../lib/chatFormat";
-import type { MessageDTO } from "@taskboard/shared";
-import { isMediaMessage, type MediaItem } from "../lib/chatEnvelope";
+import type { MessageDTO, ReactionDTO } from "@taskboard/shared";
+import { isMediaMessage, readablePrefix, type MediaItem } from "../lib/chatEnvelope";
 import { Composer } from "./Composer";
 import { SystemPill } from "./SystemPill";
 import { MessageStatusBadge } from "./MessageStatusBadge";
+import { MessageActions, ReactionChips } from "./MessageActions";
 
 export interface ThreadMessage {
   id: string;
@@ -21,6 +22,44 @@ export interface ThreadMessage {
   kind?: "text" | "call_missed" | "forward_external";
   /** Sender-side delivery state. Set only on the caller's own messages. */
   status?: MessageDTO["status"];
+  /** The message this one quotes. Rendered as a strip above the body. */
+  replyToId?: string;
+  /** Deleted for everyone: render a tombstone, not the body (which is empty). */
+  deletedForAll?: boolean;
+  /** This message's reaction tally, from the caller's point of view. */
+  reactions?: ReactionDTO[];
+}
+
+/** Is the caller already reacting with this emoji? Drives whether a tap on the
+ *  quick row adds or removes, so the same gesture toggles. */
+function minePressed(m: ThreadMessage, emoji: string): boolean {
+  return !!m.reactions?.some((r) => r.emoji === emoji && r.mine);
+}
+
+/**
+ * The quote strip above a reply's body.
+ *
+ * A media or location quote uses `readablePrefix` rather than the raw body —
+ * the body of an attachment message is an envelope, and quoting it verbatim
+ * would print JSON at the reader. An unresolved id (the quoted message is
+ * older than the loaded page, or was deleted) still renders a strip: "you are
+ * replying to something" is information, and silence would make the reply look
+ * like a non-sequitur.
+ */
+function quoted(m: ThreadMessage, byId: Map<string, ThreadMessage>) {
+  if (!m.replyToId) return null;
+  const src = byId.get(m.replyToId);
+  const text = src
+    ? src.deletedForAll
+      ? "Deleted message"
+      : readablePrefix(src.body) || src.body
+    : "Original message";
+  return (
+    <div className="mb-1 border-l-2 border-current/40 pl-2 text-xs opacity-75">
+      {src?.senderName && <div className="font-medium">{src.senderName}</div>}
+      <div className="line-clamp-2 break-words">{text}</div>
+    </div>
+  );
 }
 
 /** Presentational chat thread (bubbles + composer). Reused by DMs and channels. */
@@ -36,6 +75,12 @@ export function ChatThread({
   disabled = false,
   notice,
   onForward,
+  onReply,
+  onHide,
+  onDeleteForAll,
+  onReact,
+  replyTo,
+  onCancelReply,
   renderBody,
   onAttach,
   onShareLocation,
@@ -50,8 +95,19 @@ export function ChatThread({
   messages: ThreadMessage[];
   meId: string;
   onSend: (text: string) => void;
-  /** When provided, each non-pending bubble shows a hover "Forward" action. */
+  /** When provided, each non-pending bubble offers "Forward". */
   onForward?: (messageId: string) => void;
+  /** Start a reply quoting this message. */
+  onReply?: (messageId: string) => void;
+  /** "Delete for me" — hides it for the caller only. */
+  onHide?: (messageId: string) => void;
+  /** "Delete for everyone" — sender only; the menu hides it on others' messages. */
+  onDeleteForAll?: (messageId: string) => void;
+  /** Toggle one emoji reaction on a message. */
+  onReact?: (messageId: string, emoji: string, on: boolean) => void;
+  /** The message currently being quoted — renders the composer's reply bar. */
+  replyTo?: ThreadMessage | null;
+  onCancelReply?: () => void;
   /**
    * Escape hatch for structured bodies (attachments, shared locations). Return
    * null to fall through to the plain text bubble. Mirrors ThreadView's hook so
@@ -89,6 +145,11 @@ export function ChatThread({
   notice?: string;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
+
+  // Index for resolving a reply's quoted message. Client-side because a DM's
+  // message list loads in full — the server would have to decrypt and ship a
+  // preview per message otherwise, for something the page already holds.
+  const byId = useMemo(() => new Map(messages.map((m) => [m.id, m])), [messages]);
 
   // Scroll the message list to the bottom on new messages. We scroll the
   // container DIRECTLY rather than calling endRef.scrollIntoView(): the latter
@@ -178,7 +239,18 @@ export function ChatThread({
                       <div className="mb-0.5 ml-1 text-xs font-medium text-muted">{m.senderName}</div>
                     )}
                     <div className={`group flex items-center gap-1 ${mine ? "flex-row-reverse" : "flex-row"}`}>
-                      {custom ? (
+                      {m.deletedForAll ? (
+                        // A tombstone, not a gap. The body genuinely is not on
+                        // the client — the server never decrypts a deleted
+                        // message — so there is nothing here to reveal.
+                        <div
+                          className={`inline-flex items-center gap-1.5 rounded-2xl px-3.5 py-2 text-sm italic ${
+                            mine ? "rounded-br-md" : "rounded-bl-md"
+                          } bg-surface-2 text-muted ring-1 ring-border/60`}
+                        >
+                          <Ban size={13} /> This message was deleted
+                        </div>
+                      ) : custom ? (
                         <div className={m.pending ? "opacity-60" : ""}>{custom}</div>
                       ) : (
                         <div
@@ -188,25 +260,30 @@ export function ChatThread({
                               : "rounded-bl-md bg-surface text-fg ring-1 ring-border/60"
                           } ${m.pending ? "opacity-60" : ""}`}
                         >
+                          {quoted(m, byId)}
                           {m.body}
                         </div>
                       )}
-                      {/* Forwarding clones the body verbatim, so a media message
-                          would hand the recipient attachment ids scoped to a
-                          conversation they aren't in — every download 403s into a
-                          broken card. Hide the affordance rather than ship that.
-                          Text and locations are self-contained and forward fine. */}
-                      {onForward && !m.pending && !isMediaMessage(m.body) && (
-                        <button
-                          onClick={() => onForward(m.id)}
-                          title="Forward"
-                          aria-label="Forward message"
-                          className="shrink-0 rounded-full p-1 text-muted opacity-0 transition-opacity hover:bg-surface-2 hover:text-fg focus-visible:opacity-100 group-hover:opacity-100"
-                        >
-                          <Forward size={13} />
-                        </button>
+                      {!m.pending && !m.deletedForAll && (
+                        <MessageActions
+                          mine={mine}
+                          canForward={!!onForward}
+                          onForward={onForward ? () => onForward(m.id) : undefined}
+                          onReply={onReply ? () => onReply(m.id) : undefined}
+                          onHide={onHide ? () => onHide(m.id) : undefined}
+                          onDeleteForAll={onDeleteForAll ? () => onDeleteForAll(m.id) : undefined}
+                          onReact={
+                            onReact ? (emoji) => onReact(m.id, emoji, !minePressed(m, emoji)) : undefined
+                          }
+                        />
                       )}
                     </div>
+                    {onReact && m.reactions && (
+                      <ReactionChips
+                        reactions={m.reactions}
+                        onToggle={(emoji, on) => onReact(m.id, emoji, on)}
+                      />
+                    )}
                     <span className="mt-0.5 flex items-center gap-1 px-1 text-[10px] text-muted/70">
                       {m.pending ? "Sending…" : clock(m.at)}
                       {/* Sent → Delivered → Seen, on my own bubbles only. The
@@ -251,6 +328,17 @@ export function ChatThread({
           attachments={attachments}
           onRemoveAttachment={onRemoveAttachment}
           uploading={uploading}
+          replyPreview={
+            replyTo
+              ? {
+                  who: replyTo.senderName,
+                  text: replyTo.deletedForAll
+                    ? "Deleted message"
+                    : readablePrefix(replyTo.body) || replyTo.body,
+                }
+              : undefined
+          }
+          onCancelReply={onCancelReply}
         />
       )}
 

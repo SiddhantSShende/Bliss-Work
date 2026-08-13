@@ -31,6 +31,10 @@ import {
 export const qk = {
   conversations: ["conversations"] as const,
   messages: (id: string) => ["messages", id] as const,
+  /** Reaction tallies for a conversation. Kept OFF the message list: the tally
+   *  is per-viewer and changes far more often than the messages do, so folding
+   *  it in would invalidate the whole thread on every tap. */
+  reactions: (id: string) => ["reactions", id] as const,
   inbox: ["tasks", "inbox"] as const,
   sent: ["tasks", "sent"] as const,
   sticky: ["tasks", "sticky"] as const,
@@ -248,6 +252,29 @@ export function WsEventBridge() {
         case EventType.MessageDismissed: {
           patchOnDismissed(qc, e);
           refreshInboxSidebars(qc);
+          break;
+        }
+        case EventType.MessageDeleted: {
+          // Swap the bubble for a tombstone in place rather than refetching:
+          // the body is already gone server-side, so there is nothing to fetch,
+          // and a delete the recipient watches happen is the point.
+          qc.setQueryData<MessageDTO[]>(qk.messages(e.conversationId), (prev) =>
+            (prev ?? []).map((m) =>
+              m.id === e.messageId ? { ...m, body: "", deletedForAll: true } : m,
+            ),
+          );
+          // The thread view paginates, so its cache shape differs — let it refetch.
+          if (e.threadId) void qc.invalidateQueries({ queryKey: qk.threadMessages(e.threadId) });
+          refreshInboxSidebars(qc);
+          break;
+        }
+        case EventType.MessageReaction: {
+          // Refetch rather than patch: the tally is per-viewer (`mine` differs
+          // between the parties), so the actor's numbers are not ours. Skip our
+          // own echo — the mutation already invalidated on success.
+          if (e.actorId !== me) {
+            void qc.invalidateQueries({ queryKey: qk.reactions(e.conversationId) });
+          }
           break;
         }
         case EventType.MessageForwarded: {

@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { X, MessageSquare, ChevronLeft, Phone, Video, Ban } from "lucide-react";
 import { toast } from "sonner";
 import { Avatar, Button, EmptyState } from "@taskboard/ui";
-import type { ConversationDTO, MessageDTO } from "@taskboard/shared";
+import type { ConversationDTO, MessageDTO, ReactionDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
@@ -54,14 +54,74 @@ export function DMView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages.length, conversationId]);
 
+  // The message being quoted, if any. Cleared on send and on navigation.
+  //
+  // Mirrored into a ref because useChatMedia closes over `send` and would
+  // otherwise capture a stale value: the quote must be read at the moment the
+  // user presses Send, not at the moment the hook was built.
+  const [replyTo, setReplyTo] = useState<string | null>(null);
+  const replyToRef = useRef<string | null>(null);
+  replyToRef.current = replyTo;
+  useEffect(() => setReplyTo(null), [conversationId]);
+
+  /** Consume the pending quote: it applies to the FIRST message this send
+   *  emits, and to nothing after it. */
+  const takeReply = () => {
+    const id = replyToRef.current ?? undefined;
+    replyToRef.current = null;
+    if (id) setReplyTo(null);
+    return id;
+  };
+
+  // Reactions ride a separate query rather than the message DTO: the tally is
+  // per-viewer and changes far more often than the messages do, so folding it
+  // into the message list would invalidate the whole thread on every tap.
+  const { data: reactions = [] } = useQuery({
+    queryKey: qk.reactions(conversationId),
+    queryFn: () => api.conversationReactions(conversationId),
+    enabled: !!conversationId,
+  });
+  const reactionsByMessage = useMemo(() => {
+    const map = new Map<string, ReactionDTO[]>();
+    for (const r of reactions) {
+      const list = map.get(r.messageId);
+      if (list) list.push(r);
+      else map.set(r.messageId, [r]);
+    }
+    return map;
+  }, [reactions]);
+
+  const react = useMutation({
+    mutationFn: ({ id, emoji, on }: { id: string; emoji: string; on: boolean }) =>
+      api.setReaction(id, emoji, on),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.reactions(conversationId) }),
+    onError: () => toast.error("Couldn't save that reaction"),
+  });
+
+  const hide = useMutation({
+    mutationFn: (id: string) => api.hideMessage(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.messages(conversationId) }),
+    onError: () => toast.error("Couldn't hide that message"),
+  });
+
+  const removeForAll = useMutation({
+    mutationFn: (id: string) => api.deleteMessageForAll(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.messages(conversationId) }),
+    onError: () => toast.error("Couldn't delete that message"),
+  });
+
   const reply = useMutation({
-    mutationFn: (body: string) => api.reply(conversationId, body),
-    onMutate: async (body) => {
+    mutationFn: ({ body, replyToId }: { body: string; replyToId?: string }) =>
+      api.reply(conversationId, body, undefined, replyToId),
+    onMutate: async ({ body, replyToId }) => {
       await qc.cancelQueries({ queryKey: qk.messages(conversationId) });
       const prev = qc.getQueryData<MessageDTO[]>(qk.messages(conversationId)) ?? [];
       const tempId = `temp:${crypto.randomUUID()}`;
       const seq = prev.reduce((m, x) => Math.max(m, x.seq), 0) + 1;
-      const optimistic: MessageDTO = { id: tempId, conversationId, seq, senderId: me.id, body, createdAt: new Date().toISOString() };
+      const optimistic: MessageDTO = {
+        id: tempId, conversationId, seq, senderId: me.id, body, replyToId,
+        createdAt: new Date().toISOString(),
+      };
       qc.setQueryData<MessageDTO[]>(qk.messages(conversationId), [...prev, optimistic]);
       return { tempId };
     },
@@ -110,7 +170,7 @@ export function DMView() {
     scope: "conversation",
     scopeId: conversationId,
     meId: me.id,
-    send: (body) => reply.mutate(body),
+    send: (body) => reply.mutate({ body, replyToId: takeReply() }),
   });
 
   if (!conv)
@@ -188,11 +248,19 @@ export function DMView() {
         messages={messages.map((m) => ({
           id: m.id, senderId: m.senderId, body: m.body, at: m.createdAt, kind: m.kind,
           status: m.status, pending: m.id.startsWith("temp:"),
+          replyToId: m.replyToId, deletedForAll: m.deletedForAll,
+          reactions: reactionsByMessage.get(m.id),
         }))}
         meId={me.id}
         // flushStaged, not reply.mutate: Send must emit the attachment tray as
         // well as the text, and must tolerate an empty text (attachments only).
         onSend={(t) => { media.flushStaged(t); stopTyping(); }}
+        replyTo={replyTo ? messages.find((m) => m.id === replyTo) ?? null : null}
+        onCancelReply={() => setReplyTo(null)}
+        onReply={(id) => setReplyTo(id)}
+        onHide={(id) => hide.mutate(id)}
+        onDeleteForAll={(id) => removeForAll.mutate(id)}
+        onReact={(id, emoji, on) => react.mutate({ id, emoji, on })}
         onType={onType}
         peerTyping={peerTyping}
         peerName={peerName}
