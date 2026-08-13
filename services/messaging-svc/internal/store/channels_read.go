@@ -27,9 +27,20 @@ func scanRawChannelRows(rows pgx.Rows) ([]rawChannelRow, error) {
 	var out []rawChannelRow
 	for rows.Next() {
 		var rc rawChannelRow
+		// `created_by` predates the column being NOT NULL anywhere, and `role`
+		// is NULL for the open-channel listing (no membership row to join), so
+		// both are scanned through pointers rather than assumed present.
+		var createdBy, role *string
 		if err := rows.Scan(&rc.d.ID, &rc.d.Name, &rc.d.MemberCount,
-			&rc.lastMsg, &rc.lastEnc, &rc.lastAt, &rc.d.IsLocked); err != nil {
+			&rc.lastMsg, &rc.lastEnc, &rc.lastAt, &rc.d.IsLocked,
+			&createdBy, &role); err != nil {
 			return nil, err
+		}
+		if createdBy != nil {
+			rc.d.CreatedBy = *createdBy
+		}
+		if role != nil {
+			rc.d.MyRole = *role
 		}
 		out = append(out, rc)
 	}
@@ -74,7 +85,9 @@ func (s *Store) ListChannels(ctx context.Context, orgID, callerID string) ([]Cha
 			    lm.body,
 			    lm.body_enc,
 			    c.last_msg_at,
-			    c.is_locked
+			    c.is_locked,
+			    c.created_by,
+			    cm.role
 			FROM channels c
 			JOIN channel_members cm
 			    ON cm.channel_id = c.id AND cm.user_id = $2

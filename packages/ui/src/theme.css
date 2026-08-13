@@ -30,6 +30,27 @@
   --color-danger: oklch(0.62 0.21 25);
   --color-warning: oklch(0.8 0.15 80);
 
+  /* ── Chart tokens ──────────────────────────────────────────────────────────
+     Deliberately ONE hue plus a de-emphasis gray, not a categorical palette.
+     Every chart in the activity views does one of two jobs — "compare magnitude"
+     (bars, heatmap) or "one series is the point, the rest is context" (active vs
+     idle) — and both are answered by a single sequential hue. A categorical
+     palette would be a liability here: the candidate 3-colour set was measured
+     and failed the lightness band and the 3:1 contrast floor on this surface.
+
+     --color-heat-0..5 is a SEQUENTIAL ramp: one hue (the brand's 285), strictly
+     monotonic in lightness, light→dark = low→high. Step 0 is allowed to recede
+     toward the surface because it means "near zero". */
+  --color-chart-ink: oklch(0.58 0.22 285);
+  --color-chart-context: oklch(0.72 0.02 280);
+  --color-chart-grid: oklch(0.93 0.008 285);
+  --color-heat-0: oklch(0.965 0.012 285);
+  --color-heat-1: oklch(0.9 0.05 285);
+  --color-heat-2: oklch(0.82 0.09 285);
+  --color-heat-3: oklch(0.72 0.14 285);
+  --color-heat-4: oklch(0.63 0.19 285);
+  --color-heat-5: oklch(0.52 0.22 285);
+
   --shadow-soft: 0 1px 2px rgba(40, 30, 90, 0.04), 0 8px 24px rgba(40, 30, 90, 0.07);
   --shadow-card: 0 1px 3px rgba(40, 30, 90, 0.06), 0 16px 40px rgba(40, 30, 90, 0.1);
   --shadow-widget: 0 18px 50px rgba(20, 12, 60, 0.28);
@@ -57,6 +78,19 @@
   --color-success: oklch(0.75 0.15 158);
   --color-danger: oklch(0.68 0.2 25);
   --color-warning: oklch(0.82 0.15 80);
+
+  /* Dark steps are CHOSEN for the dark surface, not an inversion of the light
+     ramp: the same hue, re-stepped so the ramp still runs low→high away from a
+     dark ground (step 0 recedes toward the surface, step 5 is the brightest). */
+  --color-chart-ink: oklch(0.66 0.2 288);
+  --color-chart-context: oklch(0.5 0.02 280);
+  --color-chart-grid: oklch(0.3 0.025 280);
+  --color-heat-0: oklch(0.24 0.02 288);
+  --color-heat-1: oklch(0.32 0.06 288);
+  --color-heat-2: oklch(0.42 0.11 288);
+  --color-heat-3: oklch(0.52 0.16 288);
+  --color-heat-4: oklch(0.62 0.19 288);
+  --color-heat-5: oklch(0.74 0.19 288);
 
   --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.35);
   --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.35), 0 16px 40px rgba(0, 0, 0, 0.45);

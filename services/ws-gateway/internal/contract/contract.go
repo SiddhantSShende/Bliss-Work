@@ -26,6 +26,10 @@ type Event struct {
 	ThreadID        string   `json:"threadId"`
 	ParentMessageID string   `json:"parentMessageId"`
 	DismissedBy     string   `json:"dismissedBy"`
+	// The person a channel moderation event was ABOUT. They are usually no
+	// longer in `Members` — that is precisely why it has to be carried
+	// separately, or the removed member never learns they were removed.
+	UserID          string   `json:"userId"`
 
 	// Forward tracking
 	ForwardedBy  string `json:"forwardedBy"`
@@ -50,6 +54,13 @@ func (e *Event) RecipientsOf() []string {
 		return dedupe(e.Members)
 	case "channel.message.created":
 		return dedupe(e.Members)
+	case "channel.member.removed", "channel.member.role_changed",
+		"channel.blocked", "channel.unblocked":
+		// Surviving members refresh the roster; the affected user is appended
+		// because they are no longer in it and would otherwise sit looking at a
+		// channel they can no longer post to. dedupe drops the empty entry if a
+		// producer ever omits userId.
+		return dedupe(append(append([]string{}, e.Members...), e.UserID))
 	case "message.read":
 		return dedupe([]string{e.RecipientID})
 	case "message.delivered":

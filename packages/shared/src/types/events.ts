@@ -25,6 +25,10 @@ export const EventType = {
   MessageDismissed: "message.dismissed",
   MessageForwarded: "message.forwarded",
   ChannelMessageCreated: "channel.message.created",
+  ChannelMemberRemoved: "channel.member.removed",
+  ChannelRoleChanged: "channel.member.role_changed",
+  ChannelBlocked: "channel.blocked",
+  ChannelUnblocked: "channel.unblocked",
   TaskAssigned: "task.assigned",
   TaskAcknowledged: "task.acknowledged",
   TaskCompleted: "task.completed",
@@ -38,6 +42,13 @@ export const EventType = {
   PresenceOffline: "presence.offline",
   PresenceSnapshot: "presence.snapshot",
   UserCreated: "user.created",
+  UserRoleChanged: "user.role_changed",
+  UserDeactivated: "user.deactivated",
+  UserReactivated: "user.reactivated",
+  UserRemoved: "user.removed",
+  UserSessionStarted: "user.session.started",
+  UserSessionEnded: "user.session.ended",
+  UserOrgSwitched: "user.org_switched",
   InviteCreated: "invite.created",
   PasswordResetRequested: "password.reset.requested",
   EmailVerificationRequested: "email.verification.requested",
@@ -206,6 +217,38 @@ export const ChannelMessageCreated = z.object({
   members: z.array(z.string().uuid()),
 });
 
+/**
+ * Channel moderation. `members` is the SURVIVING roster and `userId` is the
+ * person acted upon — who is usually no longer in it, which is exactly why the
+ * two are separate fields. The gateway routes to dedupe(members + userId) so a
+ * removed member's own client learns what happened instead of sitting on a
+ * channel it can no longer post to.
+ */
+const channelModeration = {
+  ...envelope,
+  channelId: z.string().uuid(),
+  userId: z.string().uuid(),
+  actorId: z.string().uuid().optional(),
+  members: z.array(z.string().uuid()),
+};
+
+export const ChannelMemberRemoved = z.object({
+  type: z.literal(EventType.ChannelMemberRemoved),
+  ...channelModeration,
+});
+export const ChannelRoleChanged = z.object({
+  type: z.literal(EventType.ChannelRoleChanged),
+  ...channelModeration,
+});
+export const ChannelBlocked = z.object({
+  type: z.literal(EventType.ChannelBlocked),
+  ...channelModeration,
+});
+export const ChannelUnblocked = z.object({
+  type: z.literal(EventType.ChannelUnblocked),
+  ...channelModeration,
+});
+
 // ── Task events (per-assignee) ───────────────────────────────────────────────
 const taskBase = {
   ...envelope,
@@ -339,6 +382,75 @@ export const UserCreated = z.object({
   displayName: z.string(),
 });
 
+/**
+ * Membership lifecycle, emitted by auth-svc in the same transaction as the
+ * change. INTERNAL-ONLY — the gateway's default branch drops every `user.*`
+ * event, so none of these reach a client socket. Their job is the
+ * `user_projection` mirrors in messaging-svc and task-svc, which until now only
+ * ever learned that a user was CREATED and so listed departed members forever.
+ *
+ * The target learns of their own removal the moment their next `/auth/refresh`
+ * fails — auth-svc revokes every refresh family in the same transaction.
+ */
+const membershipChange = {
+  ...envelope,
+  userId: z.string().uuid(),
+  /** The admin who made the change. Absent on system-initiated changes. */
+  actorId: z.string().uuid().optional(),
+};
+
+export const UserRoleChanged = z.object({
+  type: z.literal(EventType.UserRoleChanged),
+  ...membershipChange,
+  /** The user's COMPLETE role set after the change, not a delta. */
+  roles: z.array(z.string()),
+});
+
+export const UserDeactivated = z.object({
+  type: z.literal(EventType.UserDeactivated),
+  ...membershipChange,
+});
+
+export const UserReactivated = z.object({
+  type: z.literal(EventType.UserReactivated),
+  ...membershipChange,
+});
+
+export const UserRemoved = z.object({
+  type: z.literal(EventType.UserRemoved),
+  ...membershipChange,
+});
+
+/**
+ * Session lifecycle, emitted by auth-svc in the same transaction that issues or
+ * revokes the session. INTERNAL-ONLY — consumed by telemetry-svc to anchor the
+ * activity timeline; the gateway's default branch never pushes `user.*`.
+ *
+ * There is deliberately no `user.session.refreshed`: /auth/refresh fires ~4x an
+ * hour per device and tells us only "still signed in", which the session row
+ * already says.
+ */
+export const UserSessionStarted = z.object({
+  type: z.literal(EventType.UserSessionStarted),
+  ...envelope,
+  userId: z.string().uuid(),
+});
+
+export const UserSessionEnded = z.object({
+  type: z.literal(EventType.UserSessionEnded),
+  ...envelope,
+  userId: z.string().uuid(),
+});
+
+/** Switching workspaces ends the activity session in the org being left and
+ *  opens one in the org being entered — activity is scoped per membership. */
+export const UserOrgSwitched = z.object({
+  type: z.literal(EventType.UserOrgSwitched),
+  ...envelope,
+  userId: z.string().uuid(),
+  fromOrgId: z.string().uuid(),
+});
+
 /** Internal event consumed by email-worker (never pushed to a client socket). */
 export const InviteCreated = z.object({
   type: z.literal(EventType.InviteCreated),
@@ -386,6 +498,10 @@ export const ServerEvent = z.discriminatedUnion("type", [
   MessageDismissed,
   MessageForwarded,
   ChannelMessageCreated,
+  ChannelMemberRemoved,
+  ChannelRoleChanged,
+  ChannelBlocked,
+  ChannelUnblocked,
   TaskAssigned,
   TaskAcknowledged,
   TaskCompleted,
@@ -412,6 +528,10 @@ export const DomainEvent = z.discriminatedUnion("type", [
   MessageDismissed,
   MessageForwarded,
   ChannelMessageCreated,
+  ChannelMemberRemoved,
+  ChannelRoleChanged,
+  ChannelBlocked,
+  ChannelUnblocked,
   TaskAssigned,
   TaskAcknowledged,
   TaskCompleted,
@@ -422,6 +542,13 @@ export const DomainEvent = z.discriminatedUnion("type", [
   IntegrationActivityCreated,
   IntegrationMentionCreated,
   UserCreated,
+  UserRoleChanged,
+  UserDeactivated,
+  UserReactivated,
+  UserRemoved,
+  UserSessionStarted,
+  UserSessionEnded,
+  UserOrgSwitched,
   InviteCreated,
   PasswordResetRequested,
   EmailVerificationRequested,
@@ -437,6 +564,10 @@ export type MessageDelivered = z.infer<typeof MessageDelivered>;
 export type MessageDismissed = z.infer<typeof MessageDismissed>;
 export type MessageForwarded = z.infer<typeof MessageForwarded>;
 export type ChannelMessageCreated = z.infer<typeof ChannelMessageCreated>;
+export type ChannelMemberRemoved = z.infer<typeof ChannelMemberRemoved>;
+export type ChannelRoleChanged = z.infer<typeof ChannelRoleChanged>;
+export type ChannelBlocked = z.infer<typeof ChannelBlocked>;
+export type ChannelUnblocked = z.infer<typeof ChannelUnblocked>;
 export type TaskAssigned = z.infer<typeof TaskAssigned>;
 export type TaskAcknowledged = z.infer<typeof TaskAcknowledged>;
 export type TaskCompleted = z.infer<typeof TaskCompleted>;
@@ -450,6 +581,13 @@ export type PresenceOnline = z.infer<typeof PresenceOnline>;
 export type PresenceOffline = z.infer<typeof PresenceOffline>;
 export type PresenceSnapshot = z.infer<typeof PresenceSnapshot>;
 export type UserCreated = z.infer<typeof UserCreated>;
+export type UserRoleChanged = z.infer<typeof UserRoleChanged>;
+export type UserDeactivated = z.infer<typeof UserDeactivated>;
+export type UserReactivated = z.infer<typeof UserReactivated>;
+export type UserRemoved = z.infer<typeof UserRemoved>;
+export type UserSessionStarted = z.infer<typeof UserSessionStarted>;
+export type UserSessionEnded = z.infer<typeof UserSessionEnded>;
+export type UserOrgSwitched = z.infer<typeof UserOrgSwitched>;
 export type InviteCreated = z.infer<typeof InviteCreated>;
 export type PasswordResetRequested = z.infer<typeof PasswordResetRequested>;
 export type EmailVerificationRequested = z.infer<typeof EmailVerificationRequested>;
@@ -654,6 +792,14 @@ export function recipientsOf(e: DomainEvent): string[] {
       );
     case EventType.ChannelMessageCreated:
       return e.members;
+    case EventType.ChannelMemberRemoved:
+    case EventType.ChannelRoleChanged:
+    case EventType.ChannelBlocked:
+    case EventType.ChannelUnblocked:
+      // Surviving members refresh the roster; the affected user is appended
+      // because they are no longer IN it and would otherwise be left looking at
+      // a channel they can no longer post to.
+      return [...e.members, e.userId];
     case EventType.TaskAssigned:
       return [e.assigneeId];
     case EventType.TaskAcknowledged:

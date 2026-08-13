@@ -46,6 +46,7 @@ export function RuntimeProvider({
       taskBase: config.taskBase,
       messagingBase: config.messagingBase,
       integrationsBase: config.integrationsBase,
+      telemetryBase: config.telemetryBase,
       notificationBase: config.notificationBase,
       presenceBase,
       getToken,

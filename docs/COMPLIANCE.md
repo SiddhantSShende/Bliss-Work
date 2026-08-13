@@ -55,6 +55,9 @@ claim.
 | Audit chain verification | Re-walks the chain, returns `{ok, broken_at, reason}` | `services/auth-svc/app/service.py::verify_audit_chain`; endpoint `services/auth-svc/app/routes/internal.py` (`/internal/audit/verify/{org_id}`) |
 | Request traceability | `X-Request-Id` on every response, bound into structured logs | `services/auth-svc/app/middleware.py::RequestIDMiddleware` |
 | Telemetry | OTEL traces + Prometheus `/metrics` (RED) | `services/auth-svc/app/main.py`; `infra/observability/*` |
+| Member-admin actions audited | role change / suspend / reactivate / remove written to the hash chain | `services/auth-svc/app/routes/members_service.py` (`member.*` actions) |
+| Authentication events audited | login, failed login, logout, org switch | `services/auth-svc/app/routes/session_events.py` |
+| Audit trail readable by the tenant | `GET /auth/audit` (org_admin), keyset-paginated | `services/auth-svc/app/routes/members.py::list_audit`; Members → Security tab |
 
 ## 4. Change management (SOC 2 CC8.1 / ISO A.8.32, A.8.25)
 
@@ -109,6 +112,11 @@ claim.
 | Right-to-erasure (crypto-shred) | delete the org's `org_keys` row → all `*_enc` columns unreadable in O(1) | [`SECURITY.md`](./SECURITY.md) §4; `org_keys` + `crypto.py` (no DEK ⇒ `CryptoError`) |
 | Per-user erasure | null/overwrite that user's `*_enc` columns | [`SECURITY.md`](./SECURITY.md) §4 |
 | Retention | policy-driven; expired data crypto-shredded rather than bulk-deleted | [`SECURITY.md`](./SECURITY.md) §4 |
+| Behavioural telemetry: purpose + retention | 90-day raw activity, daily rollups retained; day-partitioned so expiry is a `DROP TABLE` | [`TELEMETRY.md`](./TELEMETRY.md) §1, §3; `services/telemetry-svc/migrations/0001_init.sql` |
+| Behavioural telemetry: access control | a member reads only their own record; anyone else's requires org_admin | `services/telemetry-svc/app/routes/subject.py::resolve_subject` (+ its dedicated test suite) |
+| Behavioural telemetry: transparency | in-product notice + self-service view of one's own record | `packages/app/src/features/ActivityNotice.tsx`, `packages/app/src/routes/MyActivity.tsx` |
+| Behavioural telemetry: data minimisation | no window titles, no full-URL aggregates, message previews truncated + encrypted, no names/emails stored | [`TELEMETRY.md`](./TELEMETRY.md) §1; `services/telemetry-svc/app/event_map.py::preview_of` |
+| Retention enforcement is fail-loud | the prune refuses to drop a day that was never rolled up and exits non-zero | `services/telemetry-svc/app/jobs/prune.py::assert_rolled_up` |
 
 ## 9. Network & boundary protection (SOC 2 CC6.6 / ISO A.8.20–A.8.23)
 

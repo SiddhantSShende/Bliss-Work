@@ -7,6 +7,8 @@ import type { NotificationDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { qk, WsEventBridge } from "../lib/queryBridge";
+import { listSectionOf, railSectionOf } from "../lib/section";
+import { TelemetryBridge } from "../lib/telemetry";
 import { CallProvider } from "../lib/useCall";
 import { CallUI } from "../features/CallUI";
 import { NotificationsPanel } from "../features/NotificationsPanel";
@@ -40,36 +42,21 @@ export function AppShell() {
   const railBadges: Record<string, number> = { inbox: inboxUnread, tasks: unread };
 
   // inbox/chats/tasks/channels drive the contextual list pane; utility pages
-  // (search/invite/profile) render full-width with no list pane.
-  const section = loc.pathname.startsWith("/app/inbox")
-    ? "inbox"
-    : loc.pathname.startsWith("/app/tasks")
-      ? "tasks"
-      : loc.pathname.startsWith("/app/channels")
-        ? "channels"
-        : loc.pathname.startsWith("/app/members")
-          ? "members"
-          : loc.pathname.startsWith("/app/chats")
-            ? "chats"
-            : null;
-
-  // Integrations + Org are full-width utility pages (no list pane), so they stay
-  // out of `section` above (which drives the pane + mobile logic). They ARE rail
-  // items, though, so derive a highlight-only key for the Rail so their icon
-  // activates.
-  const railSection = loc.pathname.startsWith("/app/integrations")
-    ? "integrations"
-    : loc.pathname.startsWith("/app/org")
-      ? "org"
-      : section;
+  // (search/invite/profile) render full-width with no list pane. Integrations
+  // and Org are full-width but ARE rail items, so the rail gets its own
+  // highlight-only key. Both live in lib/section.ts, which telemetry shares —
+  // three copies of this prefix chain is three chances for a new route to be
+  // classified inconsistently.
+  const section = listSectionOf(loc.pathname);
+  const railSection = railSectionOf(loc.pathname);
 
   // On phones we only have room for ONE pane. A path with a third segment
-  // (/app/chats/:id, /app/tasks/:view) is a "detail" → show the main content;
-  // a bare section index (/app/chats, /app/members) → show the list pane.
-  // members has no detail view of its own, so it always stays on the list.
-  // md+ shows both panes side by side, so these flags are ignored there.
+  // (/app/chats/:id, /app/members/:userId, /app/tasks/:view) is a "detail" →
+  // show the main content; a bare section index (/app/chats, /app/members) →
+  // show the list pane. md+ shows both panes side by side, so these flags are
+  // ignored there.
   const hasDetail = loc.pathname.split("/").filter(Boolean).length >= 3;
-  const showMainOnMobile = section === null || (section !== "members" && hasDetail);
+  const showMainOnMobile = section === null || hasDetail;
   const showListOnMobile = section !== null && !showMainOnMobile;
 
   return (
@@ -79,6 +66,7 @@ export function AppShell() {
     <CallProvider>
     <div className="flex flex-col overflow-hidden brand-mesh" style={{ position: "fixed", inset: 0 }}>
       <WsEventBridge />
+      <TelemetryBridge />
       <CallUI />
       <VerifyEmailBanner />
       <TopNavbar unread={unread} onOpenNotifs={() => setNotifOpen(true)} />

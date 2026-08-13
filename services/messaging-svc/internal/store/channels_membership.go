@@ -45,7 +45,9 @@ func (s *Store) ListOpenChannels(ctx context.Context, orgID, callerID string) ([
 			    lm.body,
 			    lm.body_enc,
 			    c.last_msg_at,
-			    c.is_locked
+			    c.is_locked,
+			    c.created_by,
+			    NULL::text AS my_role   -- not a member by definition of this view
 			FROM channels c
 			LEFT JOIN LATERAL (
 			    SELECT body, body_enc FROM channel_messages m
@@ -57,6 +59,12 @@ func (s *Store) ListOpenChannels(ctx context.Context, orgID, callerID string) ([
 			  AND NOT EXISTS (
 			      SELECT 1 FROM channel_members cm
 			      WHERE cm.channel_id = c.id AND cm.user_id = $2
+			  )
+			  -- Hide channels the caller is blocked from, so Browse never shows
+			  -- a Join button that is guaranteed to 403.
+			  AND NOT EXISTS (
+			      SELECT 1 FROM channel_blocks cb
+			      WHERE cb.channel_id = c.id AND cb.user_id = $2
 			  )
 			ORDER BY c.last_msg_at DESC NULLS LAST, c.created_at DESC`,
 			orgID, callerID)
@@ -113,6 +121,13 @@ func (s *Store) JoinChannel(ctx context.Context, orgID, channelID, callerID stri
 		return err
 	}
 	if locked {
+		return ErrForbidden
+	}
+	// THE case the block table exists for: without this, kicking a disruptive
+	// member from an OPEN channel accomplishes nothing — they re-join.
+	if blocked, err := isBlocked(ctx, tx, channelID, callerID); err != nil {
+		return err
+	} else if blocked {
 		return ErrForbidden
 	}
 

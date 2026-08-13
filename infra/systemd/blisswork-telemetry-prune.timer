@@ -1,0 +1,16 @@
+[Unit]
+Description=Daily BlissWork member-activity retention prune
+
+[Timer]
+# 04:30 — after the 02:30 backup AND after the 04:00 attachment GC. This job
+# DELETES data, so the most recent dump must predate it; and the two heavy
+# nightly jobs should not overlap on a single-host Postgres.
+OnCalendar=*-*-* 04:30:00 UTC
+RandomizedDelaySec=300
+# If the host was off, run on the next boot rather than skipping: expired
+# partitions would otherwise accumulate until the next successful run.
+Persistent=true
+Unit=blisswork-telemetry-prune.service
+
+[Install]
+WantedBy=timers.target

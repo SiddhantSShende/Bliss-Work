@@ -94,6 +94,12 @@ func httpStatusToCode(status int) ErrorCode {
 // mapStoreError translates known store errors to canonical (status, code, message).
 func mapStoreError(err error) (int, ErrorCode, string) {
 	switch {
+	case errors.Is(err, store.ErrLastOwner):
+		// 409, not 500: the request was well-formed and the caller was allowed
+		// to make it — it just would have left the channel with no owner. The
+		// client shows "transfer ownership first", which a 500 could not.
+		return http.StatusConflict, CodeConflict,
+			"a channel must keep an owner — transfer ownership first"
 	case errors.Is(err, store.ErrForbidden):
 		return http.StatusForbidden, CodeForbidden, "forbidden"
 	case errors.Is(err, store.ErrNotFound):

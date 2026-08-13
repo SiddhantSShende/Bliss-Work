@@ -32,6 +32,7 @@ from ..security.passwords import (
     password_meets_policy,
     verify_password,
 )
+from . import session_events
 from .account_service import create_email_verification_tx
 from .cookies import REFRESH_COOKIE, clear_refresh_cookie, set_refresh_cookie
 
@@ -199,6 +200,7 @@ async def login(body: LoginRequest, response: Response) -> SessionDTO:
     session: SessionDTO | None = None
     raw_refresh: str | None = None
     failed = False
+    deactivated = False  # correct password, but every membership is suspended/removed
     locked_secs = 0  # >0 => the account just crossed the lockout threshold
     async with engine.begin() as conn:
         # Pre-org-context: resolve the IDENTITY by the cross-org email blind index
@@ -223,6 +225,10 @@ async def login(body: LoginRequest, response: Response) -> SessionDTO:
 
         if not verify_password(ident.password_hash, body.password):
             locked_secs = await _register_failed_login(conn, ident)
+            # Recorded in the same transaction as the counter increment, so the
+            # audit trail and the lockout state can never disagree about how many
+            # attempts there were.
+            await session_events.login_failed(conn, str(ident.id))
             failed = True  # commit the increment, then raise below
         elif settings.require_email_verification and not ident.email_verified:
             # Correct password but unverified and the gate is enabled. Not a
@@ -235,13 +241,27 @@ async def login(body: LoginRequest, response: Response) -> SessionDTO:
             # Pick the org to open: last-used if still valid, else active-then-oldest.
             membership_id = await service.default_membership(conn, ident)
             if membership_id is None:
-                # Identity with no active membership — treat as invalid credentials.
-                failed = True
+                # No ACTIVE membership. Two very different situations:
+                #  - the identity never had one -> generic 401 (no account oracle)
+                #  - every membership was suspended/removed -> a specific 403, so
+                #    the user knows to contact their admin instead of retrying a
+                #    password that is in fact correct. Not an oracle: the caller
+                #    already proved they own this credential.
+                if await service.has_any_membership(conn, str(ident.id)):
+                    deactivated = True
+                else:
+                    failed = True
             else:
                 if ident.failed_login_count or ident.locked_until is not None:
                     await service.reset_identity_lockout(conn, str(ident.id))
                 await service.touch_last_user(conn, str(ident.id), membership_id)
                 session, raw_refresh = await service.build_session(conn, membership_id)
+                # Only in the SUCCESS branch. The failed path above commits its
+                # counter and raises afterwards, so anything enqueued before this
+                # point would be published for sign-ins that never happened.
+                await session_events.session_started(
+                    conn, session.user.orgId, membership_id
+                )
     # Transaction committed. Any persisted failed-login increment is durable now.
 
     if failed:
@@ -252,6 +272,12 @@ async def login(body: LoginRequest, response: Response) -> SessionDTO:
                 headers={"Retry-After": str(locked_secs)},
             )
         raise generic
+
+    if deactivated:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "your account has been deactivated; contact your workspace admin",
+        )
 
     assert session is not None and raw_refresh is not None
     set_refresh_cookie(response, raw_refresh)
@@ -330,7 +356,23 @@ async def logout(
 ) -> Response:
     if refresh_token:
         async with engine.begin() as conn:
+            # Logout carries no bearer token — the cookie is the only credential
+            # — so the member is resolved from the refresh-token row itself
+            # BEFORE the family is revoked. Cross-org lookup by token hash, hence
+            # bypass, exactly as /auth/refresh does.
+            await service.set_bypass_rls(conn)
+            row = (
+                await conn.execute(
+                    text(
+                        "SELECT u.id, u.org_id FROM refresh_tokens rt "
+                        "JOIN users u ON u.id = rt.user_id WHERE rt.token_hash = :h"
+                    ),
+                    {"h": service.sha256_bytes(refresh_token)},
+                )
+            ).first()
             await service.revoke_family_by_token(conn, refresh_token)
+            if row is not None:
+                await session_events.session_ended(conn, str(row.org_id), str(row.id))
     clear_refresh_cookie(response)
     response.status_code = status.HTTP_204_NO_CONTENT
     return response
@@ -383,6 +425,13 @@ async def switch_org(
             raise HTTPException(status.HTTP_403_FORBIDDEN, "not a member of that organization")
         await service.touch_last_user(conn, iid, target_user)
         session, raw_refresh = await service.build_session(conn, target_user)
+        # Ends the activity session in the org being left and opens one in the
+        # org being entered — they are separate rows, because activity is scoped
+        # per membership, not per person.
+        await session_events.session_ended(
+            conn, principal.org_id, principal.user_id, audit=False
+        )
+        await session_events.org_switched(conn, org_id, target_user, principal.org_id)
     set_refresh_cookie(response, raw_refresh)
     log.info("org_switched", user_id=session.user.id, org_id=org_id)
     return session
@@ -428,14 +477,29 @@ async def update_me(
 
 
 @router.get("/directory", response_model=list[UserDTO])
-async def directory(principal: Principal = Depends(get_principal)) -> list[UserDTO]:
+async def directory(
+    includeInactive: bool = False,
+    principal: Principal = Depends(get_principal),
+) -> list[UserDTO]:
+    """Everyone in the caller's org. Suspended and removed members are excluded
+    so they stop appearing in pickers, mention lists and the chat launcher.
+
+    `includeInactive=true` (org_admin only) puts them back, because the name and
+    email of a departed colleague must still resolve for the member-admin screen
+    and for historical exports — the tasks .xlsx joins names from this endpoint,
+    and a task allocated by someone who has since left must not export blank.
+    """
+    show_all = includeInactive and "org_admin" in principal.roles
     async with engine.connect() as conn:
         # Lists users in the caller's org and decrypts each via org_keys (RLS).
         await service.set_org_guc(conn, principal.org_id)
         rows = (
             await conn.execute(
-                text("SELECT id FROM users WHERE org_id = :org ORDER BY username"),
-                {"org": principal.org_id},
+                text(
+                    "SELECT id FROM users WHERE org_id = :org "
+                    "AND (CAST(:all AS boolean) OR status = 'active') ORDER BY username"
+                ),
+                {"org": principal.org_id, "all": show_all},
             )
         ).all()
         out: list[UserDTO] = []

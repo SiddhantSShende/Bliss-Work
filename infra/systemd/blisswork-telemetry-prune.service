@@ -1,0 +1,18 @@
+[Unit]
+Description=BlissWork member-activity retention prune (drops expired raw partitions)
+Documentation=file:///home/ubuntu/BlissWork/Bliss-Work/infra/systemd/README.md
+After=snap.docker.dockerd.service
+Requires=snap.docker.dockerd.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/BlissWork/Bliss-Work
+Environment=PATH=/snap/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# The job refuses to drop a day that was never rolled up and exits non-zero, so
+# this unit going red is a real signal — see the script header for the fix.
+ExecStart=/home/ubuntu/BlissWork/Bliss-Work/scripts/telemetry-prune.sh
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

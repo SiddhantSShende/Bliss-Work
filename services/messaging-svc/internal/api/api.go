@@ -215,6 +215,15 @@ func (s *Server) Router(webOrigin string) http.Handler {
 			r.Post("/channels/{id}/members", s.addChannelMembers)
 			r.Post("/channels/{id}/join", s.joinChannel)
 			r.Post("/channels/{id}/leave", s.leaveChannel)
+			// Moderation. `/members/roster` is registered BEFORE the
+			// `/members/{userId}` routes so chi does not treat the literal
+			// "roster" as a user id — same registration-order rule the
+			// app-credentials routes rely on in integrations-svc.
+			r.Get("/channels/{id}/members/roster", s.channelRoster)
+			r.Delete("/channels/{id}/members/{userId}", s.kickChannelMember)
+			r.Patch("/channels/{id}/members/{userId}", s.setChannelRole)
+			r.Post("/channels/{id}/blocks/{userId}", s.blockChannelMember)
+			r.Delete("/channels/{id}/blocks/{userId}", s.unblockChannelMember)
 
 			// ── Phase 3: unified inbox + email-style threads ───────────────
 			r.Get("/inbox", s.listInbox)

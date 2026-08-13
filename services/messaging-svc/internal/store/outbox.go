@@ -51,6 +51,22 @@ func (s *Store) UpsertUser(ctx context.Context, userID, orgID, username, display
 	})
 }
 
+// SetUserActive flips user_projection.active for a membership lifecycle event
+// (user.deactivated / user.reactivated / user.removed).
+//
+// The row is never deleted: messages, channel memberships and forward chains
+// all reference user_id, and their sender names are resolved through this
+// projection — dropping the row would blank the history a departed member left
+// behind. Same cross-org BYPASS reasoning as UpsertUser above.
+func (s *Store) SetUserActive(ctx context.Context, userID string, active bool) error {
+	return s.withBypass(ctx, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx,
+			`UPDATE user_projection SET active = $2 WHERE user_id = $1`,
+			userID, active)
+		return err
+	})
+}
+
 // ── Consumer dedup ──────────────────────────────────────────────────────────────
 
 // MarkConsumed records an event_id; returns false if it was already processed.

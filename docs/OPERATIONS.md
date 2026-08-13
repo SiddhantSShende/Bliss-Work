@@ -133,6 +133,28 @@ openssl verify -CAfile infra/postgres/certs/ca.crt infra/postgres/certs/server.c
 Outputs `infra/postgres/certs/{ca.crt,ca.key,server.crt,server.key}` (gitignored).
 Keep `ca.key` offline (or delete it) — it can mint trusted server certs.
 
+> **`server.key` must be `0600` and owned by uid 70.** The bind mount passes the
+> host uid straight into the container, and Postgres refuses to start on anything
+> else:
+>
+> | ownership | result |
+> |---|---|
+> | `70:70` mode `600` | ✅ starts |
+> | `1000:1000` mode `600` | ❌ `FATAL: private key file … must be owned by the database user or root` |
+> | `root:root` mode `600` | ❌ passes the ownership check, then `could not load private key file: Permission denied` |
+>
+> `gen-db-certs.sh` sets this, but **anything that rewrites ownership across the
+> repo** (a broad `chown -R`, an rsync, a restore from backup) silently breaks it.
+> It is a *dormant* failure: Postgres reads the key only at startup, so a running
+> server keeps serving and the box only falls over at the next restart, deploy, or
+> reboot — potentially weeks later, and nowhere near the change that caused it.
+> Check it whenever certs or repo permissions are touched:
+>
+> ```bash
+> ls -ln infra/postgres/certs/server.key   # want: -rw------- 1 70 70
+> sudo chown 70:70 infra/postgres/certs/server.key && sudo chmod 600 $_
+> ```
+
 **Real production:** do NOT ship a self-signed CA. Use a **managed Postgres**
 (RDS / Cloud SQL / Azure DB — download their CA bundle and mount it as
 `/etc/ssl/db/ca.crt`; server cert/key are managed for you, so you can drop the
@@ -295,6 +317,74 @@ sudo ufw default allow outgoing
 sudo ufw enable
 sudo ufw status verbose
 ```
+
+That leaves **22, 80, 443 (+ 3478 and 49160-49200 for coturn)** reachable — plus
+**5432**, which is host-published for DB admin access and gated separately; see
+below.
+
+### Direct Postgres access (5432)
+
+`docker-compose.prod.yml` publishes postgres as `0.0.0.0:5432:5432` so you can
+attach `psql` or a GUI client (DBeaver / pgAdmin / TablePlus) without shelling
+into the container.
+
+> **ufw does not protect this port.** Docker's DNAT and FORWARD rules are
+> evaluated *before* ufw's chains, so `default deny incoming` has no effect on a
+> published port. The gate is a source-IP allowlist in the `DOCKER-USER` chain —
+> the one hook that runs ahead of Docker's own ACCEPT.
+
+Install it **before** the container is created, and re-run it whenever your ISP
+rotates your address:
+
+```bash
+sudo bash infra/host/db-allowlist.sh                    # current default allowlist
+sudo bash infra/host/db-allowlist.sh 203.0.113.7/32     # after an IP change
+```
+
+The script persists its rules in `/etc/ufw/after.rules`, so they survive
+`ufw reload` and reboot. Verify from an address that is *not* on the allowlist —
+it must time out, not connect and not refuse:
+
+```bash
+nc -vz -w 5 <host> 5432     # expected: timeout;  nmap -Pn -p 5432 → filtered
+```
+
+#### Connecting from the VPS itself
+
+The allowlist does not apply here (host-local traffic never crosses `FORWARD`),
+and `verify-full` works because the server cert's SAN covers `IP:127.0.0.1`:
+
+```bash
+psql "postgresql://taskboard@127.0.0.1:5432/postgres?sslmode=verify-full&sslrootcert=infra/postgres/certs/ca.crt"
+```
+
+#### Connecting from a workstation
+
+Copy the CA down once, then use `verify-ca`:
+
+```bash
+scp <host>:BlissWork/Bliss-Work/infra/postgres/certs/ca.crt ~/blisswork-db-ca.crt
+psql "postgresql://taskboard@<host>:5432/postgres?sslmode=verify-ca&sslrootcert=$HOME/blisswork-db-ca.crt"
+```
+
+In a GUI client: SSL mode `verify-ca`, root certificate `~/blisswork-db-ca.crt`.
+
+`verify-full` **fails** from a workstation — the leaf cert's SAN is
+`DNS:postgres, DNS:localhost, IP:127.0.0.1` and does not include the host's
+public address. `verify-ca` still validates the chain against your private CA and
+only skips the hostname check. To get `verify-full` off-box you would have to
+re-issue the leaf with the public IP/domain in its SAN (the CA, and therefore
+every service's `sslrootcert`, can stay as-is).
+
+#### Which role to connect as
+
+Credentials live in `.env.prod` (gitignored). `POSTGRES_USER` / `POSTGRES_PASSWORD`
+is the **superuser**: it reaches every database, and it **bypasses Row-Level
+Security**. Use it for schema inspection and ops, but never to sanity-check
+per-org isolation — RLS will appear to be off. For that, connect as the
+per-service role that the app actually uses (`auth_user` → `authdb`,
+`task_user` → `taskdb`, …, created in `infra/postgres/init/02-create-roles.sh`)
+with the matching `*_DB_PASSWORD`.
 
 ### SSH daemon checklist
 

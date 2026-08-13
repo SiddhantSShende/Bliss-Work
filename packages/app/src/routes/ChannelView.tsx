@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Hash, Users, ChevronLeft, LogOut, Lock } from "lucide-react";
@@ -8,12 +9,14 @@ import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
 import { ChatThread } from "../features/ChatThread";
+import { ChannelMembersSheet } from "../features/ChannelMembersSheet";
 import { useChatMedia } from "../features/useChatMedia";
 
 export function ChannelView() {
   const { channelId = "" } = useParams();
   const { api } = useRuntime();
   const qc = useQueryClient();
+  const [rosterOpen, setRosterOpen] = useState(false);
   const me = useSession((s) => s.user)!;
   const nav = useNavigate();
 
@@ -118,9 +121,18 @@ export function ChannelView() {
           )}
         </div>
         <div className="flex shrink-0 items-center gap-3">
-          <span className="flex items-center gap-1.5 text-sm text-muted">
+          {/* The member count has always been here as plain text. It is the
+              obvious place to look for "who else is in this channel", so it is
+              now the button that answers that — and, for a manager, the way in
+              to adding, removing and blocking people. */}
+          <button
+            onClick={() => setRosterOpen(true)}
+            title="Channel members"
+            aria-label={`${channel.memberCount} members — view and manage`}
+            className="flex items-center gap-1.5 rounded-lg px-1.5 py-1 text-sm text-muted transition-colors hover:bg-surface-2 hover:text-fg"
+          >
             <Users size={15} /> {channel.memberCount}
-          </span>
+          </button>
           <button
             onClick={confirmLeave}
             disabled={leave.isPending}
@@ -132,6 +144,11 @@ export function ChannelView() {
           </button>
         </div>
       </header>
+      <ChannelMembersSheet
+        open={rosterOpen}
+        onClose={() => setRosterOpen(false)}
+        channel={channel}
+      />
       <ChatThread
         messages={messages.map((m) => ({
           id: m.id, senderId: m.senderId, senderName: m.senderUsername, body: m.body, at: m.createdAt, pending: m.id.startsWith("temp:"),

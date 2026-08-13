@@ -24,6 +24,9 @@ import { VerifyEmail } from "./routes/VerifyEmail";
 import { AppShell } from "./routes/AppShell";
 import { DMView } from "./routes/DMView";
 import { ChannelView } from "./routes/ChannelView";
+import { MemberDetail } from "./routes/MemberDetail";
+import { MyActivity } from "./routes/MyActivity";
+import { OrgActivity } from "./routes/OrgActivity";
 import { Tasks } from "./routes/Tasks";
 import { Search } from "./routes/Search";
 import { InvitePage } from "./routes/InvitePage";
@@ -100,12 +103,15 @@ export function App({ config }: { config: PlatformConfig }) {
                     <Route path="channels" element={<ChannelsEmpty />} />
                     <Route path="channels/:channelId" element={<ChannelView />} />
                     <Route path="members" element={<MembersEmpty />} />
+                    <Route path="members/activity" element={<OrgActivity />} />
+                    <Route path="members/:userId" element={<MemberDetail />} />
                     <Route path="tasks" element={<Navigate to="/app/tasks/allocated" replace />} />
                     <Route path="tasks/:view" element={<Tasks />} />
                     <Route path="search" element={<Search />} />
                     <Route path="invite" element={<InvitePage />} />
                     <Route path="profile" element={<Profile />} />
                     <Route path="settings" element={<Settings />} />
+                    <Route path="settings/activity" element={<MyActivity />} />
                     <Route path="integrations" element={<Integrations />} />
                     <Route path="org" element={<Org />} />
                   </Route>
@@ -193,7 +199,7 @@ function ChannelsEmpty() {
 function MembersEmpty() {
   return (
     <div className="flex h-full items-center justify-center">
-      <EmptyState icon={<Users size={26} />} title="Members" hint="Pick a teammate on the left to start a conversation." />
+      <EmptyState icon={<Users size={26} />} title="Members" hint="Pick a teammate on the left to see their profile, or tap the chat icon to message them." />
     </div>
   );
 }

@@ -41,13 +41,13 @@ LAST_GOOD="$STATE_DIR/last-good"
 #
 # caddy is built too, but it pins its own `task-board/caddy-waf:2.11` tag rather
 # than ${IMAGE_TAG}, so it takes no part in the SHA-tag/prune/rollback bookkeeping.
-SHA_TAGGED_SERVICES=(auth-svc email-worker task-svc notification-svc messaging-svc integrations-svc ws-gateway)
+SHA_TAGGED_SERVICES=(auth-svc email-worker task-svc notification-svc messaging-svc integrations-svc telemetry-svc ws-gateway)
 BUILT_SERVICES=("${SHA_TAGGED_SERVICES[@]}" caddy)
 
 # Services that declare a healthcheck and must report `healthy` before a deploy
 # counts as good. caddy and email-worker declare none, so polling them would
 # wait forever on a status that never arrives.
-HEALTH_SERVICES=(auth-svc task-svc notification-svc messaging-svc integrations-svc ws-gateway nginx)
+HEALTH_SERVICES=(auth-svc task-svc notification-svc messaging-svc integrations-svc telemetry-svc ws-gateway nginx)
 
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-180}"
 KEEP_IMAGE_TAGS="${KEEP_IMAGE_TAGS:-3}"

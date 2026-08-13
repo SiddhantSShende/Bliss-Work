@@ -1,4 +1,5 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -7,6 +8,7 @@ import {
   type StickyTaskDTO,
   type ConversationDTO,
   type MessageDTO,
+  type ChannelDTO,
   type ChannelMessageDTO,
   type UserDTO,
   actionsFor,
@@ -36,12 +38,35 @@ export const qk = {
    *  POLLED, not pushed — see the note in useAvailability. */
   availability: ["tasks", "availability"] as const,
   directory: ["directory"] as const,
+  /** Admin roster: every membership INCLUDING suspended/removed ones. Kept off
+   *  the ["directory"] key so the admin screen's inactive rows can never leak
+   *  into the pickers and mention lists that read the plain directory. */
+  members: ["members"] as const,
+  /** The org's tamper-evident audit trail. `targetId` scopes it to one member's
+   *  Security tab; the bare prefix is the org-wide log. */
+  audit: (targetId?: string) => ["audit", targetId ?? "all"] as const,
+  // ── Member activity record (telemetry-svc) ───────────────────────────────
+  // `userId` is part of every key, and "me" is a valid value the server
+  // resolves to the caller — so a member's own view and an admin's view of
+  // that member never share a cache entry, and the two can never bleed.
+  activityRoster: ["activity", "roster"] as const,
+  activityTimeline: (userId: string) => ["activity", "timeline", userId] as const,
+  activitySessions: (userId: string) => ["activity", "sessions", userId] as const,
+  activitySummary: (userId: string, from: string, to: string) =>
+    ["activity", "summary", userId, from, to] as const,
+  orgActivitySummary: (from: string, to: string) =>
+    ["activity", "org", from, to] as const,
+  /** This person's paired agents (desktop app / browser extension). */
+  agentTokens: ["activity", "agents"] as const,
   invites: ["invites"] as const,
   presence: ["presence"] as const,
   notifications: ["notifications"] as const,
   channels: ["channels"] as const,
   openChannels: ["channels", "open"] as const,
   channelMessages: (id: string) => ["channelMessages", id] as const,
+  /** Members of ONE channel WITH their roles. Separate from the bare member-id
+   *  list the task dialog reads, which must keep its string[] shape. */
+  channelRoster: (id: string) => ["channelRoster", id] as const,
   // ── Phase 4: unified inbox + email-style threads ─────────────────────────
   unifiedInbox: ["unifiedInbox"] as const,
   unifiedInboxUnread: ["unifiedInbox", "unread"] as const,
@@ -87,6 +112,12 @@ export const qk = {
 export function WsEventBridge() {
   const qc = useQueryClient();
   const { ws, config } = useRuntime();
+  // Held in a ref, not a dependency: the effect below is deliberately keyed on
+  // orgId alone (it opens the socket), and adding navigate would tear the
+  // connection down and back up on every navigation.
+  const navigate = useNavigate();
+  const navRef = useRef(navigate);
+  navRef.current = navigate;
   // Re-run the connect/subscribe effect when the active org changes (org switch)
   // so the socket reconnects under the new token and re-subscribes for that org.
   const orgId = useSession((s) => s.user?.orgId);
@@ -158,6 +189,39 @@ export function WsEventBridge() {
             );
           }
           void qc.invalidateQueries({ queryKey: qk.conversations });
+          break;
+        }
+        case EventType.ChannelMemberRemoved:
+        case EventType.ChannelBlocked: {
+          void qc.invalidateQueries({ queryKey: qk.channelRoster(e.channelId) });
+          if (e.userId === me) {
+            // It was ME. Drop the channel from my list immediately rather than
+            // waiting for a refetch, and if I am standing in it, leave — a
+            // channel I can no longer read should not keep rendering as if I
+            // could, and the next send would 403 with no explanation.
+            qc.setQueryData<ChannelDTO[]>(qk.channels, (prev) =>
+              (prev ?? []).filter((c) => c.id !== e.channelId),
+            );
+            toast.info(
+              e.type === EventType.ChannelBlocked
+                ? "You were blocked from a channel"
+                : "You were removed from a channel",
+            );
+            if (window.location.pathname.includes(e.channelId)) {
+              navRef.current("/app/channels");
+            }
+          }
+          void qc.invalidateQueries({ queryKey: qk.channels });
+          void qc.invalidateQueries({ queryKey: qk.openChannels });
+          break;
+        }
+        case EventType.ChannelRoleChanged:
+        case EventType.ChannelUnblocked: {
+          void qc.invalidateQueries({ queryKey: qk.channelRoster(e.channelId) });
+          // myRole rides ChannelDTO, so the channel list has to refetch for the
+          // moderation controls to appear or disappear.
+          void qc.invalidateQueries({ queryKey: qk.channels });
+          void qc.invalidateQueries({ queryKey: qk.openChannels });
           break;
         }
         case EventType.MessageRead: {

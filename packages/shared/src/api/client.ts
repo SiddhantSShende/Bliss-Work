@@ -8,8 +8,15 @@ import {
   AttachmentDTO,
   AttachmentLinkDTO,
   type AttachmentScope,
+  ActivityExportRow,
+  ActivitySessionPage,
+  AgentTokenDTO,
+  ActivitySummaryDTO,
+  AuditPage,
   AvailabilityDTO,
   ChannelDTO,
+  ChannelMemberDTO,
+  type ChannelRole,
   ChannelMessageDTO,
   AppCredentialDTO,
   ConnectStartDTO,
@@ -21,9 +28,12 @@ import {
   MentionState,
   ProviderActivityDTO,
   ProviderIdentityDTO,
+  type Role,
   InboxPageDTO,
   InboxPeerDTO,
   InviteDTO,
+  MemberActivityDTO,
+  MemberDTO,
   MessageDTO,
   type MessageKind,
   NotificationDTO,
@@ -32,7 +42,9 @@ import {
   SentTaskDTO,
   StickyTaskDTO,
   TaskExportRow,
+  OrgActivitySummaryDTO,
   ThreadDTO,
+  TimelinePage,
   UserDTO,
   SessionDTO,
 } from "../types/domain";
@@ -47,6 +59,7 @@ export interface ApiConfig {
   taskBase: string; // e.g. http://localhost:8002
   messagingBase: string; // e.g. http://localhost:8004
   integrationsBase: string; // external integrations svc, e.g. http://localhost:8005
+  telemetryBase: string; // member activity record, e.g. http://localhost:8006
   notificationBase: string; // notifications are served by task/notification svc
   presenceBase: string; // ws-gateway HTTP, e.g. http://localhost:8090
   getToken: () => string | null | Promise<string | null>;
@@ -62,6 +75,17 @@ export interface ApiConfig {
    *  connection can't pin a request — and the UI state waiting on it — open
    *  forever. Each attempt (including the post-refresh retry) gets a fresh timer. */
   timeoutMs?: number;
+}
+
+/** Shared `?from=&to=` builder. Dates are ABSOLUTE and computed by the client in
+ *  the viewer's timezone — the server never interprets "last week", because only
+ *  the client knows where the user is. Same rule as the tasks export. */
+function rangeQuery(range: { from?: string; to?: string }): string {
+  const q = new URLSearchParams();
+  if (range.from) q.set("from", range.from);
+  if (range.to) q.set("to", range.to);
+  const qs = q.toString();
+  return qs ? `?${qs}` : "";
 }
 
 function uuid(): string {
@@ -181,8 +205,187 @@ export class ApiClient {
   revokeInvite(id: string) {
     return this.req<void>(this.cfg.authBase, `/auth/invites/${id}`, { method: "DELETE" });
   }
-  directory() {
-    return this.req(this.cfg.authBase, "/auth/directory", {}, z.array(UserDTO));
+  /** Everyone in the org. Suspended/removed members are excluded unless
+   *  `includeInactive` is set, which the server honours for org_admins only —
+   *  needed so a departed colleague's name still resolves in admin screens and
+   *  in historical exports. */
+  directory(includeInactive = false) {
+    const q = includeInactive ? "?includeInactive=true" : "";
+    return this.req(this.cfg.authBase, `/auth/directory${q}`, {}, z.array(UserDTO));
+  }
+
+  // ── member administration (org_admin) ────────────────────────────────────────
+  /** Every membership including suspended and removed ones — this is the screen
+   *  they are reactivated from, so hiding them would strand them. */
+  listMembers() {
+    return this.req(this.cfg.authBase, "/auth/members", {}, z.array(MemberDTO));
+  }
+  changeMemberRole(userId: string, role: Role) {
+    return this.req(this.cfg.authBase, `/auth/members/${userId}/role`, {
+      method: "PATCH",
+      body: JSON.stringify({ role }),
+    }, MemberDTO);
+  }
+  /** Suspend: membership survives, every session dies, sign-in is refused. */
+  deactivateMember(userId: string) {
+    return this.req(this.cfg.authBase, `/auth/members/${userId}/deactivate`, {
+      method: "POST",
+    }, MemberDTO);
+  }
+  reactivateMember(userId: string) {
+    return this.req(this.cfg.authBase, `/auth/members/${userId}/reactivate`, {
+      method: "POST",
+    }, MemberDTO);
+  }
+  /** Remove from the workspace. Soft — their messages, tasks and audit trail
+   *  keep resolving their name, and they can be re-invited. */
+  removeMember(userId: string) {
+    return this.req(this.cfg.authBase, `/auth/members/${userId}`, {
+      method: "DELETE",
+    }, MemberDTO);
+  }
+  // ── member activity record (telemetry-svc) ──────────────────────────────────
+  // `userId` accepts the literal "me" so a member can read their own record
+  // without knowing their id. The server resolves the subject through a single
+  // function: your own record always, anyone else's only as an org_admin.
+  /** Live roster: who is online/idle/offline, last login, today's active time. */
+  memberActivity() {
+    return this.req(this.cfg.telemetryBase, "/telemetry/members", {}, z.array(MemberActivityDTO));
+  }
+  activityTimeline(
+    userId: string,
+    opts: { cursor?: string; limit?: number; category?: string } = {},
+  ) {
+    const q = new URLSearchParams();
+    if (opts.cursor) q.set("cursor", opts.cursor);
+    if (opts.limit) q.set("limit", String(opts.limit));
+    if (opts.category) q.set("category", opts.category);
+    const qs = q.toString();
+    return this.req(
+      this.cfg.telemetryBase,
+      `/telemetry/members/${userId}/timeline${qs ? `?${qs}` : ""}`,
+      {}, TimelinePage,
+    );
+  }
+  activitySessions(userId: string, opts: { cursor?: string; limit?: number } = {}) {
+    const q = new URLSearchParams();
+    if (opts.cursor) q.set("cursor", opts.cursor);
+    if (opts.limit) q.set("limit", String(opts.limit));
+    const qs = q.toString();
+    return this.req(
+      this.cfg.telemetryBase,
+      `/telemetry/members/${userId}/sessions${qs ? `?${qs}` : ""}`,
+      {}, ActivitySessionPage,
+    );
+  }
+  activitySummary(userId: string, range: { from?: string; to?: string } = {}) {
+    return this.req(
+      this.cfg.telemetryBase,
+      `/telemetry/members/${userId}/summary${rangeQuery(range)}`,
+      {}, ActivitySummaryDTO,
+    );
+  }
+  orgActivitySummary(range: { from?: string; to?: string } = {}) {
+    return this.req(
+      this.cfg.telemetryBase, `/telemetry/org/summary${rangeQuery(range)}`,
+      {}, OrgActivitySummaryDTO,
+    );
+  }
+  /** Flat rollup rows for the spreadsheet builder — not raw events: a year of
+   *  raw activity is millions of rows and no use in Excel. */
+  exportActivity(opts: { scope: "member" | "org"; userId?: string; from?: string; to?: string }) {
+    const q = new URLSearchParams({ scope: opts.scope });
+    if (opts.userId) q.set("userId", opts.userId);
+    if (opts.from) q.set("from", opts.from);
+    if (opts.to) q.set("to", opts.to);
+    return this.req(
+      this.cfg.telemetryBase, `/telemetry/export?${q.toString()}`,
+      {}, z.array(ActivityExportRow),
+    );
+  }
+  /**
+   * Flush a batch of client-observed activity.
+   *
+   * `keepalive` — not sendBeacon. sendBeacon cannot set an Authorization header,
+   * and with a JSON content-type it triggers a preflight it cannot complete
+   * during unload, which forces text/plain — exactly the shape the WAF flags.
+   * keepalive fetch keeps the normal bearer path and is honoured for bodies
+   * under 64KB in every engine, including during pagehide.
+   */
+  sendBeacon(body: unknown) {
+    return this.req(
+      this.cfg.telemetryBase, "/telemetry/beacon",
+      { method: "POST", body: JSON.stringify(body), keepalive: true },
+      z.object({ sessionId: z.string(), accepted: z.number() }),
+    );
+  }
+
+  /** The org's tamper-evident audit trail, newest first. `before` is the
+   *  `nextCursor` of the previous page. */
+  // ── activity agents (desktop sampler / browser extension) ───────────────────
+  /** Mint a pairing secret for one of YOUR OWN agents. The raw value is
+   *  returned exactly once and never again — losing it means minting another,
+   *  which is the correct cost for a credential that writes your activity. */
+  createAgentToken(kind: "desktop" | "extension", label = "") {
+    const q = new URLSearchParams({ kind });
+    if (label) q.set("label", label);
+    return this.req(this.cfg.telemetryBase, `/telemetry/tokens?${q.toString()}`, {
+      method: "POST",
+    }, z.object({ id: z.string(), kind: z.string(), token: z.string() }));
+  }
+  listAgentTokens() {
+    return this.req(this.cfg.telemetryBase, "/telemetry/tokens", {}, z.array(AgentTokenDTO));
+  }
+  revokeAgentToken(id: string) {
+    return this.req<void>(this.cfg.telemetryBase, `/telemetry/tokens/${id}`, {
+      method: "DELETE",
+    });
+  }
+
+  // ── channel moderation ──────────────────────────────────────────────────────
+  /** Members WITH roles, plus anyone blocked. A separate route from
+   *  `channelMembers()`, whose bare string[] the task dialog depends on. */
+  channelRoster(channelId: string) {
+    return this.req(
+      this.cfg.messagingBase, `/api/v1/channels/${channelId}/members/roster`,
+      {}, z.array(ChannelMemberDTO),
+    );
+  }
+  kickChannelMember(channelId: string, userId: string) {
+    return this.req<void>(
+      this.cfg.messagingBase, `/api/v1/channels/${channelId}/members/${userId}`,
+      { method: "DELETE" },
+    );
+  }
+  setChannelMemberRole(channelId: string, userId: string, role: ChannelRole) {
+    return this.req<void>(
+      this.cfg.messagingBase, `/api/v1/channels/${channelId}/members/${userId}`,
+      { method: "PATCH", body: JSON.stringify({ role }) },
+    );
+  }
+  /** Bars someone from the channel AND removes them. The block outlives
+   *  membership, which is what stops them re-joining an open channel. */
+  blockFromChannel(channelId: string, userId: string, reason = "") {
+    return this.req<void>(
+      this.cfg.messagingBase, `/api/v1/channels/${channelId}/blocks/${userId}`,
+      { method: "POST", body: JSON.stringify({ reason }) },
+    );
+  }
+  unblockFromChannel(channelId: string, userId: string) {
+    return this.req<void>(
+      this.cfg.messagingBase, `/api/v1/channels/${channelId}/blocks/${userId}`,
+      { method: "DELETE" },
+    );
+  }
+
+  auditLog(opts: { before?: number; limit?: number; action?: string; targetId?: string } = {}) {
+    const q = new URLSearchParams();
+    if (opts.before) q.set("before", String(opts.before));
+    if (opts.limit) q.set("limit", String(opts.limit));
+    if (opts.action) q.set("action", opts.action);
+    if (opts.targetId) q.set("targetId", opts.targetId);
+    const qs = q.toString();
+    return this.req(this.cfg.authBase, `/auth/audit${qs ? `?${qs}` : ""}`, {}, AuditPage);
   }
   me() {
     return this.req(this.cfg.authBase, "/auth/me", {}, UserDTO);

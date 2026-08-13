@@ -68,7 +68,7 @@ MIN_BYTES=2048
 mkdir -p "$OUT_DIR"
 failed=0
 
-for db in authdb taskdb messagingdb notificationdb emaildb integrationsdb; do
+for db in authdb taskdb messagingdb notificationdb emaildb integrationsdb telemetrydb; do
   out="$OUT_DIR/${db}-${TS}.sql.enc"
   part="$out.part"
   echo "backing up $db -> $out"

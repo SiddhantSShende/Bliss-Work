@@ -13,6 +13,10 @@ from one shared React codebase:
 - **External integrations** — connect Slack, WhatsApp, Gmail, Outlook and Teams
   with **your own** OAuth apps. The Hub surfaces only messages that *tagged you*,
   each with Claim (→ a task assigned to you) and Ignore.
+- **Members & activity** — org admins change roles, suspend and remove members,
+  and see each person's activity: sign-ins, online/idle/offline sessions, what
+  they worked on, with charts and **.xlsx export**. Every member can see their
+  own record. Channels have owners and admins who can add, remove and block.
 - **Multi-org** — one login across several workspaces, with a top-bar switcher.
 
 ## Architecture
@@ -29,6 +33,7 @@ browser web app and an Electron desktop app from one shared codebase.
 | `notification-svc` | Go | 8003 | persistent notification inbox |
 | `messaging-svc` | Go | 8004 | conversations, channels, messages, ignore/block, forward-tracking |
 | `integrations-svc` | Python/FastAPI | 8005 | external platform connections, OAuth, webhooks, Hub mentions |
+| `telemetry-svc` | Python/FastAPI | 8006 | member activity record: sessions, activity timeline, rollups, .xlsx export |
 | `ws-gateway` | Go | 8080 → host **8090** | WebSocket fan-out (consume-all-and-filter), WebRTC signaling, presence |
 
 Clients connect to the WebSocket at `ws://localhost:8090/ws` (the gateway listens on
@@ -117,13 +122,15 @@ and publish with `bash scripts/publish-desktop.sh <dir>`.
 | [`docs/DEPLOY.md`](docs/DEPLOY.md) | The CI/CD pipeline, required secrets, manual deploy + rollback |
 | [`docs/INTEGRATIONS-SETUP.md`](docs/INTEGRATIONS-SETUP.md) | Connecting Slack / WhatsApp / Gmail / Outlook / Teams with your own apps |
 | [`docs/OPERATIONS.md`](docs/OPERATIONS.md) | Backups, key rotation, WAF rollout |
+| [`docs/TELEMETRY.md`](docs/TELEMETRY.md) | What the activity record collects, retention, the nightly jobs |
+| [`apps/extension/README.md`](apps/extension/README.md) | The browser extension: what it records, how it pairs, how to ship it |
 | [`apps/desktop/STORE.md`](apps/desktop/STORE.md) | Microsoft Store submission |
 
 ## Layout
 
 ```
-packages/{shared,ui,app}          apps/{web,desktop}
-services/{auth-svc,email-worker,task-svc,notification-svc,messaging-svc,integrations-svc,ws-gateway}
+packages/{shared,ui,app}          apps/{web,desktop,extension}
+services/{auth-svc,email-worker,task-svc,notification-svc,messaging-svc,integrations-svc,telemetry-svc,ws-gateway}
 infra/{postgres,kafka,nginx,caddy}
 scripts/   (seed.ts, demo-e2e.ts, gen-keys.ts, wait-for.sh, deploy-prod.sh, responsive-check.ts)
 ```

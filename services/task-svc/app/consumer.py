@@ -54,7 +54,8 @@ def _clean_str(value, max_len: int = _MAX_STR) -> str:
 class TaskSvcConsumer:
     """Subscribes to the upstream topics task-svc needs to react to:
 
-      * auth.events  → maintain user_projection on user.created
+      * auth.events  → maintain user_projection: user.created creates the row,
+                       user.deactivated/reactivated/removed flip `active`
       * messaging.events.v1 → react to channel.member.joined by fanning out
         any active channel-allocated tasks to the new member (retroactive
         membership flow).
@@ -188,6 +189,8 @@ class TaskSvcConsumer:
         event_type = event.get("type")
         if event_type == "user.created":
             await self._handle_user_created(event)
+        elif event_type in ("user.deactivated", "user.reactivated", "user.removed"):
+            await self._handle_membership_changed(event, active=event_type == "user.reactivated")
         elif event_type == "channel.member.joined":
             await self._handle_channel_member_joined(event)
         # All other events on these topics are intentionally ignored.
@@ -223,6 +226,32 @@ class TaskSvcConsumer:
             )
             await db.commit()
             log.info("user_projection_upserted", user_id=user_id)
+
+    async def _handle_membership_changed(self, event: dict, *, active: bool) -> None:
+        """Suspended / removed / reactivated in auth-svc → flip the mirror.
+
+        The projection row is kept: tasks reference assignee and allocator ids
+        and resolve their names here, so a removed member's completed work must
+        still render with their name on it. Marking them inactive is what stops
+        the Available roster and the assignee picker offering someone who is no
+        longer in the org.
+        """
+        event_id = event.get("eventId")
+        user_id = event.get("userId")
+        if not (event_id and user_id):
+            return
+
+        async with session() as db:
+            # Same cross-org background-worker reasoning as _handle_user_created.
+            await set_bypass_rls(db)
+            if await _claim(db, event_id) is False:
+                return
+            await db.execute(
+                text("UPDATE user_projection SET active = :a WHERE user_id = :uid"),
+                {"a": active, "uid": user_id},
+            )
+            await db.commit()
+            log.info("user_projection_membership_changed", user_id=user_id, active=active)
 
     async def _handle_channel_member_joined(self, event: dict) -> None:
         """Retroactive task assignment.

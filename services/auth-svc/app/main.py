@@ -24,6 +24,7 @@ from .routes import email_verify as email_verify_routes
 from .routes import internal as internal_routes
 from .routes import invites as invite_routes
 from .routes import jwks as jwks_routes
+from .routes import members as member_routes
 from .routes import password_reset as password_reset_routes
 from .security.keys import jwks  # warm key load
 from .tracing import setup_tracing, shutdown_tracing
@@ -126,6 +127,7 @@ Instrumentator(should_group_status_codes=False).instrument(app).expose(app, incl
 app.include_router(jwks_routes.router)
 app.include_router(auth_routes.router)
 app.include_router(invite_routes.router)
+app.include_router(member_routes.router)
 app.include_router(password_reset_routes.router)
 app.include_router(email_verify_routes.router)
 app.include_router(internal_routes.router)

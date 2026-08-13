@@ -25,6 +25,16 @@ declare global {
         version?: string;
         message?: string;
       }>;
+      activity: {
+        state: () => Promise<{
+          enabled: boolean;
+          paired: boolean;
+          appTracking: boolean;
+          reason: string | null;
+        } | null>;
+        setEnabled: (enabled: boolean) => Promise<{ enabled: boolean; paired: boolean } | null>;
+        pair: (token: string | null) => Promise<{ enabled: boolean; paired: boolean } | null>;
+      };
       rtc: RtcTransport;
       fileSink: FileSink;
       hash: {
@@ -77,6 +87,7 @@ const config: PlatformConfig = {
   onOAuthReturn: (cb) => bridge.onOAuthReturn(cb),
   appVersion: () => bridge.appVersion(),
   checkForUpdates: () => bridge.checkForUpdates(),
+  activityAgent: bridge.activity,
   eventSource: {
     connect: () => bridge.setToken(useSession.getState().accessToken),
     subscribe: (cb) => bridge.onWsEvent(cb),

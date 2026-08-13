@@ -75,6 +75,13 @@ func (s *Store) AddChannelMembers(ctx context.Context, orgID, channelID, callerI
 		return err
 	}
 	for _, uid := range dedupeMembers("", memberIDs) {
+		// Re-adding a blocked user would silently undo a moderation decision.
+		// 403 rather than skipping, so the caller learns why.
+		if blocked, err := isBlocked(ctx, tx, channelID, uid); err != nil {
+			return err
+		} else if blocked {
+			return ErrForbidden
+		}
 		var alreadyMember bool
 		err := tx.QueryRow(ctx,
 			`SELECT EXISTS (SELECT 1 FROM channel_members WHERE channel_id = $1 AND user_id = $2)`,
@@ -110,6 +117,15 @@ func (s *Store) SendChannelMessage(ctx context.Context, orgID, channelID, sender
 
 	if err := requireChannelMember(ctx, tx, orgID, channelID, senderID); err != nil {
 		return nil, err
+	}
+	// A block WITHOUT a kick is a mute: the member keeps their row and keeps
+	// reading, but cannot post. Checked on the send path for the same reason the
+	// DM block is (messages.go) — the authoritative gate belongs where the write
+	// happens, not only where the UI hides a button.
+	if blocked, err := isBlocked(ctx, tx, channelID, senderID); err != nil {
+		return nil, err
+	} else if blocked {
+		return nil, ErrForbidden
 	}
 
 	// Idempotency: return the existing message if this client_msg_id was seen.

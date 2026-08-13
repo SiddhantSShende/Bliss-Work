@@ -204,8 +204,9 @@ class RefreshError(ValueError):
     """Why a refresh was rejected.
 
     `code` is what the client sees, and it decides what the client DOES:
-    'reused' and 'expired' are terminal (this session is over — log in again),
-    while a transport-level failure is not and must not log anyone out.
+    'reused', 'expired' and 'deactivated' are terminal (this session is over —
+    log in again), while a transport-level failure is not and must not log
+    anyone out. Terminal codes are mirrored in packages/app/src/lib/refresh.ts.
     """
 
     def __init__(self, code: str, message: str, *, user_id: str | None = None, family_id: str | None = None):
@@ -273,6 +274,29 @@ async def rotate_refresh_token(
 
     user_id = str(row.user_id)
     family_id = str(row.family_id)
+
+    # Membership backstop. Suspend/remove revokes every family in the same
+    # transaction, so this should never fire — but /auth/refresh is the one
+    # chokepoint EVERY long-lived session passes through, and a session that
+    # outlives a deactivation is precisely the failure this feature exists to
+    # prevent. Cheap to check, and it fails closed if a future code path forgets
+    # to revoke.
+    status_row = (
+        await conn.execute(
+            text("SELECT status FROM users WHERE id = :uid"), {"uid": user_id}
+        )
+    ).first()
+    if status_row is None or status_row.status != "active":
+        await conn.execute(
+            text("UPDATE refresh_tokens SET revoked = true WHERE family_id = :fam"),
+            {"fam": family_id},
+        )
+        raise RefreshError(
+            "deactivated",
+            "membership is no longer active",
+            user_id=user_id,
+            family_id=family_id,
+        )
 
     # Issue the next family member, then point the old token at it + revoke it.
     new_raw = await issue_refresh_token(conn, user_id=user_id, family_id=family_id)
@@ -363,7 +387,13 @@ async def identity_id_for_user(conn: AsyncConnection, user_id: str) -> str | Non
 
 async def default_membership(conn: AsyncConnection, identity) -> str | None:
     """The membership (users.id) to open by default: last-used if still a valid
-    active membership, else active-then-oldest. Powers 'open last org'."""
+    active membership, else the oldest ACTIVE one. Powers 'open last org'.
+
+    The fallback filters on `status = 'active'` in the WHERE clause, not merely
+    in the ORDER BY. Sorting by `(status = 'active') DESC` — as this did before
+    member suspension existed — returns a suspended membership whenever no
+    active one remains, which would have let a suspended user log straight in.
+    """
     if identity.last_user_id:
         row = (
             await conn.execute(
@@ -379,13 +409,30 @@ async def default_membership(conn: AsyncConnection, identity) -> str | None:
     row = (
         await conn.execute(
             text(
-                "SELECT id FROM users WHERE identity_id = :iid "
-                "ORDER BY (status = 'active') DESC, created_at ASC LIMIT 1"
+                "SELECT id FROM users WHERE identity_id = :iid AND status = 'active' "
+                "ORDER BY created_at ASC LIMIT 1"
             ),
             {"iid": str(identity.id)},
         )
     ).first()
     return str(row.id) if row else None
+
+
+async def has_any_membership(conn: AsyncConnection, identity_id: str) -> bool:
+    """True when the identity has at least one membership in ANY state.
+
+    Distinguishes 'this credential was never a member of anything' (→ generic
+    401, no account oracle) from 'every membership has been suspended or
+    removed' (→ a specific 403 the user can act on). Safe to be specific in the
+    second case: the caller already proved they own the credential.
+    """
+    row = (
+        await conn.execute(
+            text("SELECT 1 FROM users WHERE identity_id = :iid LIMIT 1"),
+            {"iid": identity_id},
+        )
+    ).first()
+    return row is not None
 
 
 async def membership_in_org(conn: AsyncConnection, identity_id: str, org_id: str) -> str | None:

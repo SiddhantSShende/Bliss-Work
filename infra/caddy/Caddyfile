@@ -79,6 +79,9 @@
 	handle_path /api/integrations/* {
 		reverse_proxy integrations-svc:8005
 	}
+	handle_path /api/telemetry/* {
+		reverse_proxy telemetry-svc:8006
+	}
 	# Public inbound webhooks + OAuth callbacks for external integrations. NOT under
 	# /internal/ (which is 404'd), and provider-signature authenticated upstream.
 	handle /ext/* {

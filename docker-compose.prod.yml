@@ -13,6 +13,9 @@
 #   • restart: unless-stopped on every long-running service.
 #   • Internal service ports are NOT published to the host. Only the reverse
 #     proxy (Caddy) exposes 80/443. Browsers reach services through Caddy.
+#     THE ONE EXCEPTION is postgres:5432, published for admin access and gated
+#     by a source-IP allowlist — see the ⚠️ note on that service, and run
+#     infra/host/db-allowlist.sh on the host before bringing it up.
 #   • /readyz healthchecks gate dependency ordering and the proxy's upstreams.
 #   • Mailpit / observability dev conveniences are dropped.
 #
@@ -272,6 +275,7 @@ services:
       MESSAGING_DB_PASSWORD: ${MESSAGING_DB_PASSWORD}
       NOTIFICATION_DB_PASSWORD: ${NOTIFICATION_DB_PASSWORD}
       EMAIL_DB_PASSWORD: ${EMAIL_DB_PASSWORD}
+      TELEMETRY_DB_PASSWORD: ${TELEMETRY_DB_PASSWORD}
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
@@ -279,7 +283,22 @@ services:
       # a real CA-issued server cert/key + CA bundle (prod). server.key MUST be
       # mode 0600 owned by root or the postgres user — the script sets this.
       - ./infra/postgres/certs:/etc/postgres/certs:ro
-    # No host port mapping — internal-only on the taskboard network.
+    # HOST-PUBLISHED (the ONE datastore that is) so you can point psql / DBeaver
+    # / pgAdmin at this box instead of shelling into the container.
+    #
+    # ⚠️ ufw DOES NOT PROTECT THIS. Docker's DNAT + FORWARD rules run BEFORE the
+    # ufw chains, so `default deny incoming` is irrelevant to a published port —
+    # on its own, this line puts the production DB on the public internet. What
+    # actually gates it is a source-IP allowlist in the DOCKER-USER chain,
+    # installed by infra/host/db-allowlist.sh. That script MUST be run on the
+    # host BEFORE this container is (re)created, and re-run whenever the allowed
+    # IP changes. If `nmap -Pn -p 5432 <host>` from an unlisted address reports
+    # anything other than `filtered`, re-run it.
+    #
+    # The explicit `0.0.0.0:` prefix binds IPv4 only — deliberate, because the
+    # ip6tables DOCKER-USER chain carries no matching allowlist.
+    ports:
+      - "0.0.0.0:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d postgres"]
       interval: 10s
@@ -529,6 +548,23 @@ services:
       auth-svc: { condition: service_healthy }
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8005/readyz').status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    deploy:
+      resources:
+        limits: { cpus: "1.00", memory: 384M }
+
+  telemetry-svc:
+    <<: *svc-defaults
+    build: ./services/telemetry-svc
+    image: task-board/telemetry-svc:${IMAGE_TAG:-latest}
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
+      auth-svc: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8006/readyz').status==200 else 1)\""]
       interval: 10s
       timeout: 5s
       retries: 20

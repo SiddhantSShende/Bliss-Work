@@ -1,0 +1,17 @@
+{
+  "name": "@taskboard/extension",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "BlissWork browser extension — reports visited sites to the member activity record",
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node build.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run --passWithNoTests"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.287",
+    "esbuild": "^0.24.0",
+    "vitest": "^4.1.10"
+  }
+}

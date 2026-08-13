@@ -37,6 +37,7 @@ function build(cfg: {
   taskBase: string;
   messagingBase: string;
   integrationsBase: string;
+  telemetryBase: string;
   notificationBase: string;
   wsUrl: string;
 }) {
@@ -45,6 +46,7 @@ function build(cfg: {
     taskBase: cfg.taskBase,
     messagingBase: cfg.messagingBase,
     integrationsBase: cfg.integrationsBase,
+    telemetryBase: cfg.telemetryBase,
     notificationBase: cfg.notificationBase,
     presenceBase: cfg.wsUrl.replace(/^ws/, "http").replace(/\/ws\/?$/, ""),
     getToken: () => token,

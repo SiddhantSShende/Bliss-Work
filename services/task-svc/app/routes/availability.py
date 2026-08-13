@@ -19,10 +19,11 @@ async def availability(principal: Principal = PrincipalDep) -> AvailabilityDTO:
 
     Deliberately returns COUNTS ONLY, not a member list: the authoritative org
     directory lives in auth-svc (/auth/directory), while this service's
-    user_projection is a partial `user.created`-only mirror with no roles, email
-    or deactivation. The client joins these counts onto the directory it already
-    caches and treats an absent user as 0/0 — so a brand-new hire with no task
-    history shows up as Available immediately.
+    user_projection is a partial mirror carrying only name and an `active` flag —
+    no roles, no email. The client joins these counts onto the directory it
+    already caches and treats an absent user as 0/0 — so a brand-new hire with no
+    task history shows up as Available immediately. Suspended and removed members
+    drop out on their own, because /auth/directory no longer lists them.
 
     Available = acknowledged == 0. SENT rows do NOT consume availability (an
     allocation nobody has picked up isn't committed work) but are surfaced as a

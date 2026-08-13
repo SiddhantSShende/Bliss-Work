@@ -37,9 +37,12 @@ let inFlight: Promise<SessionDTO | null> | null = null;
  */
 let sessionDead = false;
 
-/** Terminal codes from auth-svc's /auth/refresh (see routes/auth.py). Anything
- *  else — a network blip, a missing cookie, a 5xx — stays non-destructive. */
-const TERMINAL_CODES = new Set(["reused", "expired"]);
+/** Terminal codes from auth-svc's /auth/refresh (see service.py RefreshError).
+ *  Anything else — a network blip, a missing cookie, a 5xx — stays
+ *  non-destructive. 'deactivated' means an admin suspended or removed this
+ *  membership: the session must end at the next refresh rather than linger
+ *  until the ~15-minute access token expires. */
+const TERMINAL_CODES = new Set(["reused", "expired", "deactivated"]);
 
 /** True once refresh has failed terminally; cleared by a successful login. */
 export function isSessionDead(): boolean {

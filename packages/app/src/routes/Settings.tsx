@@ -11,9 +11,11 @@
  * they sync across devices.
  */
 import { useEffect, useState } from "react";
-import { Sun, Moon, Bell, BellOff, Info, RefreshCw } from "lucide-react";
+import { Sun, Moon, Bell, BellOff, Info, RefreshCw, Eye } from "lucide-react";
 import { toast } from "sonner";
 import { Button, PageHeader } from "@taskboard/ui";
+import { Link } from "react-router-dom";
+import { DeviceActivitySettings } from "../features/DeviceActivitySettings";
 import { useTheme } from "@taskboard/ui";
 import { BUILD_SHA } from "../lib/buildInfo";
 import { useRuntime } from "../lib/runtime";
@@ -61,6 +63,23 @@ export function Settings() {
               </Button>
             }
           />
+
+          {/* Permanently discoverable, unlike the dismissible banner: a member
+              must always be able to find what is recorded about them. */}
+          <SettingRow
+            icon={<Eye size={18} />}
+            title="Your activity"
+            description="See everything BlissWork records about how you work — the same record your workspace admins see."
+            action={
+              <Link to="/app/settings/activity">
+                <Button variant="subtle" size="sm">View</Button>
+              </Link>
+            }
+          />
+
+          {/* Desktop only — absent on web, where a browser cannot observe other
+              applications at all. */}
+          <DeviceActivitySettings />
 
           <SettingRow
             icon={desktopNotifs ? <Bell size={18} /> : <BellOff size={18} />}

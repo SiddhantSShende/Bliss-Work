@@ -62,6 +62,7 @@ export interface PlatformConfig {
   messagingBase: string;
   /** External Integrations service (OAuth/webhooks/provider connections). */
   integrationsBase: string;
+  telemetryBase: string;
   wsUrl: string;
   /** "browser" for web, "hash" for the Electron file:// renderer. */
   router: "browser" | "hash";
@@ -115,6 +116,21 @@ export interface PlatformConfig {
     version?: string;
     message?: string;
   }>;
+  /** Present only in Electron: consent + pairing for the desktop activity agent.
+   *  Absent on web, where the browser gives no way to observe other apps at all
+   *  — the Settings section simply does not render. Deliberately narrow: no way
+   *  to read a sample and no way to read the pairing secret back, because the
+   *  sampled data never enters the renderer. */
+  activityAgent?: {
+    state: () => Promise<{
+      enabled: boolean;
+      paired: boolean;
+      appTracking: boolean;
+      reason: string | null;
+    } | null>;
+    setEnabled: (enabled: boolean) => Promise<{ enabled: boolean; paired: boolean } | null>;
+    pair: (token: string | null) => Promise<{ enabled: boolean; paired: boolean } | null>;
+  };
   /** Present only in Electron: open a URL in the user's DEFAULT browser.
    *  Google refuses OAuth inside an embedded webview (`disallowed_useragent`),
    *  so the authorize URL must leave the app entirely. Absent on web, where a

@@ -12,6 +12,8 @@ import {
   setRefreshToken,
   clearRefreshToken,
 } from "./session-token";
+import * as activityAgent from "./activity-agent";
+import * as activityState from "./activity-state";
 import { flushSync as flushStickyState, initStickyState } from "./sticky-state";
 import { trayIcon } from "./assets";
 import { buildAppMenu } from "./menu";
@@ -237,6 +239,9 @@ function forwardDeepLink(url?: string) {
 function startWsProcess() {
   wsProc = utilityProcess.fork(join(here, "ws-process.js"));
   wsProc.postMessage({ type: "config", ...ENDPOINTS });
+  // Starts only if consent was granted AT THIS VERSION and a pairing token
+  // exists; otherwise it is a no-op that costs one function call.
+  activityAgent.reconcile(ENDPOINTS.telemetryBase);
 
   // Recover from a child crash: realtime events + sticky pushes flow through
   // this utility process, so a silent death would freeze the whole app's live
@@ -393,6 +398,34 @@ ipcMain.on("auth:set-refresh-token", (e, token: unknown) => {
   if (typeof token !== "string" || !token) return;
   setRefreshToken(token);
 });
+// ── Desktop activity agent ───────────────────────────────────────────────────
+// Guarded by fromMainWindow for the same reason the auth channels are: only the
+// main window holds a session, and consent for OS-level monitoring is not
+// something a sticky-note window should be able to grant.
+ipcMain.handle("activity:state", async (e) => {
+  if (!fromMainWindow(e)) return null;
+  const { enabled, token } = activityState.getState();
+  const cap = await activityAgent.capability();
+  // `paired` rather than the token itself: the renderer never needs the secret
+  // back, and not returning it means an XSS cannot exfiltrate it.
+  return { enabled, paired: !!token, ...cap };
+});
+
+ipcMain.handle("activity:set-enabled", (e, enabled: unknown) => {
+  if (!fromMainWindow(e)) return null;
+  const next = activityState.setEnabled(enabled === true);
+  activityAgent.reconcile(ENDPOINTS.telemetryBase);
+  return { enabled: next.enabled, paired: !!next.token };
+});
+
+ipcMain.handle("activity:pair", (e, token: unknown) => {
+  if (!fromMainWindow(e)) return null;
+  const value = typeof token === "string" && token.trim() ? token.trim() : null;
+  const next = activityState.setToken(value);
+  activityAgent.reconcile(ENDPOINTS.telemetryBase);
+  return { enabled: next.enabled, paired: !!next.token };
+});
+
 ipcMain.on("task:intent", (_e, intent: { taskId: string; action: string }) => {
   wsProc?.postMessage({ type: "intent", ...intent });
 });
@@ -500,4 +533,8 @@ app.on("before-quit", () => {
   // tray-quit. The atomic temp-then-rename means a SIGKILL during this call
   // still leaves a valid prior file in place.
   flushStickyState();
+  // Last chance to record the open foreground span. Fire-and-forget: blocking
+  // quit on a network call would hang the app when offline, and one lost span
+  // matters far less than an app that will not close.
+  void activityAgent.flushOnQuit();
 });

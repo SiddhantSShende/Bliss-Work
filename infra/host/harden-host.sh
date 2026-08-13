@@ -8,9 +8,16 @@
 #   80/tcp, 443/tcp + 443/udp   the app (published by the Caddy container)
 #   22/tcp                       SSH for administration
 #
-# Postgres/Redis/Kafka and every application service are NOT host-published
+# Redis/Kafka and every application service are NOT host-published
 # (docker-compose.prod.yml has no `ports:` for them) — they live only on the
 # private `taskboard` bridge network, so this script does not need to touch them.
+#
+# POSTGRES IS THE EXCEPTION: 5432 IS host-published (for psql/GUI admin access)
+# and is therefore NOT closed by anything this script does — see the Docker-vs-ufw
+# note below. Its source-IP allowlist is a separate concern, installed by
+# infra/host/db-allowlist.sh. Run that too; this script does not call it, so that
+# the "what's open to the world" and "who may reach the DB" decisions stay
+# independently reviewable.
 #
 # What this does (idempotent — safe to re-run):
 #   1. ufw firewall: default-deny incoming, allow 22/80/443.
@@ -23,8 +30,10 @@
 # NOT filter the Caddy-published 80/443 — and that's exactly what we want (they
 # must stay public). ufw governs the host's own listeners (sshd, and anything
 # you add later that is NOT a `-p` docker publish). Do not "ufw deny 80" expecting
-# it to close the app — to close an app port, remove its `ports:` mapping in
-# docker-compose.prod.yml instead.
+# it to close the app — to close or restrict a published port you must either
+# remove its `ports:` mapping in docker-compose.prod.yml, or filter it in the
+# DOCKER-USER chain, which IS consulted before Docker's own ACCEPT. The latter is
+# what infra/host/db-allowlist.sh does for postgres:5432.
 #
 # Usage:  sudo bash infra/host/harden-host.sh
 #
@@ -120,4 +129,7 @@ cat <<'NOTE'
 Verify from OFF the box (so Docker's chain is in play):
   nmap -Pn -p 22,80,443,5432,6379,9092,8001-8004,8080 <host>
 Expect ONLY 22, 80, 443 open; every datastore/service port filtered/closed.
+5432 IS published, so it must read `filtered` from an address that is not on the
+db-allowlist.sh allowlist. `open` there means the allowlist is not in force —
+run `sudo bash infra/host/db-allowlist.sh` and re-scan.
 NOTE

@@ -81,7 +81,10 @@ func (c *AuthConsumer) handle(ctx context.Context, value []byte) {
 		c.log.Error("auth consumer bad json", "err", err)
 		return
 	}
-	if head.Type != events.TypeUserCreated {
+	switch head.Type {
+	case events.TypeUserCreated, events.TypeUserDeactivated,
+		events.TypeUserReactivated, events.TypeUserRemoved:
+	default:
 		return
 	}
 
@@ -93,6 +96,23 @@ func (c *AuthConsumer) handle(ctx context.Context, value []byte) {
 	}
 	if !fresh {
 		return // already processed
+	}
+
+	if head.Type != events.TypeUserCreated {
+		// Membership lifecycle. The row stays — a departed member's name still
+		// has to render on everything they left behind — only `active` moves.
+		var evt events.MembershipChanged
+		if err := json.Unmarshal(value, &evt); err != nil {
+			c.log.Error("auth consumer decode membership change", "type", head.Type, "err", err)
+			return
+		}
+		active := head.Type == events.TypeUserReactivated
+		if err := c.store.SetUserActive(ctx, evt.UserID, active); err != nil {
+			c.log.Error("user_projection set active failed", "userId", evt.UserID, "err", err)
+			return
+		}
+		c.log.Info("user_projection membership changed", "userId", evt.UserID, "active", active)
+		return
 	}
 
 	var evt events.UserCreated

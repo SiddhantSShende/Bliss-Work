@@ -1,0 +1,244 @@
+/**
+ * The client half of the member activity record.
+ *
+ * Mounted once inside the authenticated shell. It observes four things and
+ * nothing else:
+ *
+ *   * which section you are in, and for how long   (route.enter / route.dwell)
+ *   * whether the window has focus                 (focus / blur)
+ *   * whether you are actually at the keyboard     (idle.start / idle.end)
+ *   * that you are still here                      (heartbeat)
+ *
+ * It does NOT observe what you type, click, or read — everything of that kind
+ * is already recorded server-side from the events the services emit, where it
+ * cannot be forged. This half exists to answer "were they working", which no
+ * server-side event can answer on its own.
+ *
+ * Every timer and listener is torn down on unmount, and the whole thing is inert
+ * until the session is authenticated.
+ */
+import { useEffect, useRef } from "react";
+import { useLocation } from "react-router-dom";
+import { useRuntime } from "./runtime";
+import { useSession } from "../store/session";
+import { surfaceOf } from "./section";
+import { TelemetryQueue, type QueuedEvent } from "./telemetryQueue";
+import {
+  getSessionId,
+  installTelemetrySession,
+  onSessionIdChange,
+  setSessionId,
+} from "./telemetrySession";
+
+/** Flush cadence while the tab is visible. */
+const FLUSH_MS = 30_000;
+/**
+ * No pointer/key/scroll for this long, while visible, and you are idle. Five
+ * minutes is the interval at which "away from the keyboard" starts to mean
+ * something; anything shorter reports a person reading a long document as idle.
+ */
+const IDLE_AFTER_MS = 5 * 60_000;
+/** Heartbeat while visible. The server's session timeout is 3x this. */
+const HEARTBEAT_MS = 60_000;
+/** Hidden-but-open: still alive, but at a twentieth of the traffic. */
+const HIDDEN_HEARTBEAT_MS = 5 * 60_000;
+
+const ACTIVITY_EVENTS = ["pointerdown", "keydown", "wheel", "touchstart", "scroll"] as const;
+
+export function TelemetryBridge() {
+  const { api } = useRuntime();
+  const location = useLocation();
+  const status = useSession((s) => s.status);
+  const authed = status === "authed";
+
+  const queueRef = useRef<TelemetryQueue | null>(null);
+  // Refs, not state: every one of these changes on a timer or a DOM event, and
+  // re-rendering the whole shell because a heartbeat fired would make the
+  // observer more expensive than the thing observed.
+  const lastInputRef = useRef(Date.now());
+  const idleSinceRef = useRef<number | null>(null);
+  const accrualStartRef = useRef(Date.now());
+  const surfaceRef = useRef<{ name: string; since: number } | null>(null);
+
+  useEffect(() => {
+    if (!authed) return;
+
+    const queue = new TelemetryQueue(
+      (payload) => api.sendBeacon(payload),
+      // Desktop rows are distinguishable from web rows in the record, which
+      // matters once the desktop agent starts contributing app usage too.
+      typeof window !== "undefined" && "taskboard" in window ? "desktop" : "web",
+    );
+    queueRef.current = queue;
+    queue.sessionId = getSessionId();
+
+    const teardownSession = installTelemetrySession();
+    const unsubscribe = onSessionIdChange((id) => {
+      queue.sessionId = id;
+    });
+
+    const now = () => Date.now();
+    const push = (event: QueuedEvent) => {
+      queue.push(event);
+      if (queue.shouldFlush) void queue.flush();
+    };
+    const stamp = (extra: Partial<QueuedEvent> & { action: string }): QueuedEvent => ({
+      category: "navigation",
+      occurredAt: new Date().toISOString(),
+      ...extra,
+    });
+
+    /** Bank the time since the last accrual as active or idle, and reset. */
+    const accrue = () => {
+      const t = now();
+      const elapsed = Math.max(0, t - accrualStartRef.current);
+      accrualStartRef.current = t;
+      if (!elapsed) return;
+      // Hidden or idle time is IDLE time. Counting a backgrounded tab as active
+      // is the single easiest way to make this record dishonest, and it would
+      // flatter everyone equally rather than measuring anything.
+      const isIdle =
+        document.visibilityState === "hidden" || idleSinceRef.current !== null;
+      queue.addTime(isIdle ? 0 : elapsed, isIdle ? elapsed : 0);
+    };
+
+    const markActive = () => {
+      lastInputRef.current = now();
+      if (idleSinceRef.current !== null) {
+        accrue();
+        idleSinceRef.current = null;
+        push(stamp({ action: "idle.end", category: "engagement" }));
+      }
+    };
+
+    const checkIdle = () => {
+      if (document.visibilityState === "hidden") return; // already idle by definition
+      if (idleSinceRef.current !== null) return;
+      if (now() - lastInputRef.current < IDLE_AFTER_MS) return;
+      accrue();
+      idleSinceRef.current = now();
+      push(stamp({ action: "idle.start", category: "engagement" }));
+    };
+
+    const onVisibility = () => {
+      accrue();
+      if (document.visibilityState === "hidden") {
+        push(stamp({ action: "blur", category: "engagement" }));
+        // Flush on the way out: a tab that is hidden may never come back, and
+        // whatever is buffered is the most recent thing we know.
+        void queue.flush();
+      } else {
+        markActive();
+        push(stamp({ action: "focus", category: "engagement" }));
+      }
+    };
+
+    /**
+     * Last chance to speak. `pagehide` (not `beforeunload`) because it is the
+     * only unload-ish event that fires reliably on mobile Safari and when a tab
+     * is discarded — and `ended: true` closes the session precisely instead of
+     * leaving it for the sweeper three minutes later.
+     */
+    const onPageHide = () => {
+      accrue();
+      closeSurface();
+      void queue.flush({ ended: true });
+    };
+
+    const closeSurface = () => {
+      const open = surfaceRef.current;
+      if (!open) return;
+      const durationMs = now() - open.since;
+      surfaceRef.current = null;
+      // Sub-second dwells are navigation noise — a redirect, a mistyped click.
+      if (durationMs >= 1000) {
+        push(stamp({ action: "route.dwell", surface: open.name, durationMs }));
+      }
+    };
+
+    ACTIVITY_EVENTS.forEach((e) =>
+      window.addEventListener(e, markActive, { passive: true }),
+    );
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", onPageHide);
+
+    const flushTimer = window.setInterval(() => {
+      accrue();
+      void queue.flush();
+    }, FLUSH_MS);
+    const idleTimer = window.setInterval(checkIdle, 30_000);
+    const beat = () => {
+      accrue();
+      push(stamp({ action: "heartbeat", category: "engagement" }));
+    };
+    let heartbeatTimer = window.setInterval(beat, HEARTBEAT_MS);
+    const retuneHeartbeat = () => {
+      window.clearInterval(heartbeatTimer);
+      heartbeatTimer = window.setInterval(
+        beat,
+        document.visibilityState === "hidden" ? HIDDEN_HEARTBEAT_MS : HEARTBEAT_MS,
+      );
+    };
+    document.addEventListener("visibilitychange", retuneHeartbeat);
+
+    return () => {
+      ACTIVITY_EVENTS.forEach((e) => window.removeEventListener(e, markActive));
+      document.removeEventListener("visibilitychange", onVisibility);
+      document.removeEventListener("visibilitychange", retuneHeartbeat);
+      window.removeEventListener("pagehide", onPageHide);
+      window.clearInterval(flushTimer);
+      window.clearInterval(idleTimer);
+      window.clearInterval(heartbeatTimer);
+      unsubscribe();
+      teardownSession();
+      accrue();
+      closeSurface();
+      void queue.flush();
+      queueRef.current = null;
+    };
+    // Rebuilt only when auth flips — `api` is stable for the life of the runtime.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authed]);
+
+  // Route changes: close the previous surface with its dwell time, open the new.
+  useEffect(() => {
+    const queue = queueRef.current;
+    if (!authed || !queue) return;
+    const name = surfaceOf(location.pathname);
+    const open = surfaceRef.current;
+    if (open?.name === name) return; // a detail route inside the same section
+
+    if (open) {
+      const durationMs = Date.now() - open.since;
+      if (durationMs >= 1000) {
+        queue.push({
+          action: "route.dwell",
+          category: "navigation",
+          occurredAt: new Date().toISOString(),
+          surface: open.name,
+          durationMs,
+        });
+      }
+    }
+    surfaceRef.current = name ? { name, since: Date.now() } : null;
+    if (name) {
+      queue.push({
+        action: "route.enter",
+        category: "navigation",
+        occurredAt: new Date().toISOString(),
+        surface: name,
+      });
+    }
+    if (queue.shouldFlush) void queue.flush();
+  }, [authed, location.pathname]);
+
+  // Sign-out: end the session everywhere and drop anything unsent. Sending it
+  // after the token is gone would only 401.
+  useEffect(() => {
+    if (authed) return;
+    queueRef.current?.reset();
+    setSessionId(null);
+  }, [authed]);
+
+  return null;
+}

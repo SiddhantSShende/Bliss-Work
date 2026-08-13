@@ -34,6 +34,7 @@ const REQUIRED_ENV = [
   "VITE_NOTIFICATION_BASE",
   "VITE_MESSAGING_BASE",
   "VITE_INTEGRATIONS_BASE",
+  "VITE_TELEMETRY_BASE",
   "VITE_WS_URL",
 ] as const;
 if (env.PROD) {
@@ -53,6 +54,7 @@ const config: PlatformConfig = {
   notificationBase: env.VITE_NOTIFICATION_BASE ?? "http://localhost:8003",
   messagingBase: env.VITE_MESSAGING_BASE ?? "http://localhost:8004",
   integrationsBase: env.VITE_INTEGRATIONS_BASE ?? "http://localhost:8005",
+  telemetryBase: env.VITE_TELEMETRY_BASE ?? "http://localhost:8006",
   wsUrl: env.VITE_WS_URL ?? "ws://localhost:8090/ws",
   router: "browser",
 };

@@ -19,8 +19,15 @@ const (
 	TypeMessageDismissed      = "message.dismissed"
 	TypeMessageForwarded      = "message.forwarded"
 	TypeUserCreated           = "user.created"
+	TypeUserDeactivated       = "user.deactivated"
+	TypeUserReactivated       = "user.reactivated"
+	TypeUserRemoved           = "user.removed"
 	TypeChannelMessageCreated = "channel.message.created"
 	TypeChannelMemberJoined   = "channel.member.joined"
+	TypeChannelMemberRemoved  = "channel.member.removed"
+	TypeChannelRoleChanged    = "channel.member.role_changed"
+	TypeChannelBlocked        = "channel.blocked"
+	TypeChannelUnblocked      = "channel.unblocked"
 	TypeConversationBlocked   = "conversation.blocked"
 	TypeConversationUnblocked = "conversation.unblocked"
 )
@@ -198,4 +205,35 @@ type UserCreated struct {
 	UserID      string `json:"userId"`
 	Username    string `json:"username"`
 	DisplayName string `json:"displayName"`
+}
+
+// MembershipChanged carries user.deactivated / user.reactivated / user.removed.
+// The projection row is KEPT in every case — a departed member's name still has
+// to render on the messages and channels they left behind. Only the `active`
+// flag moves, so pickers and rosters can stop offering them.
+type MembershipChanged struct {
+	Type       string `json:"type"`
+	EventID    string `json:"eventId"`
+	OrgID      string `json:"orgId"`
+	OccurredAt string `json:"occurredAt"`
+	UserID     string `json:"userId"`
+	ActorID    string `json:"actorId,omitempty"`
+}
+
+// ChannelMembershipChanged carries every channel moderation event:
+// member.removed, member.role_changed, blocked and unblocked.
+//
+// `Members` is the SURVIVING roster and `UserID` is the person acted upon — who
+// by definition is usually no longer in it. The gateway routes to
+// dedupe(Members + UserID) so the removed member's own client learns what
+// happened rather than silently going stale until the next refetch.
+type ChannelMembershipChanged struct {
+	Type       string   `json:"type"`
+	EventID    string   `json:"eventId"`
+	OrgID      string   `json:"orgId"`
+	OccurredAt string   `json:"occurredAt"`
+	ChannelID  string   `json:"channelId"`
+	UserID     string   `json:"userId"`
+	ActorID    string   `json:"actorId,omitempty"`
+	Members    []string `json:"members"`
 }

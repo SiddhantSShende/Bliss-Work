@@ -92,6 +92,23 @@ describe("refreshSession", () => {
     expect(isSessionDead()).toBe(true);
   });
 
+  // An admin suspending or removing someone revokes every refresh family in the
+  // same transaction. The target is still holding a valid access token for up to
+  // ~15 more minutes, so the refresh 401 is the moment their session actually
+  // ends — treating 'deactivated' as transient would leave a removed member
+  // looking signed in while every request quietly failed underneath them.
+  it("signs the user out when their membership was deactivated", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(401, { code: "deactivated" })));
+    const persist = vi.fn();
+    const { refreshSession, isSessionDead, useSession } = await loadRefresh();
+
+    expect(await refreshSession(AUTH, persist)).toBeNull();
+
+    expect(useSession.getState().status).toBe("anon");
+    expect(persist).toHaveBeenCalledWith(null);
+    expect(isSessionDead()).toBe(true);
+  });
+
   // The loop itself: without this, every 401'd request and every 20s presence
   // poll fires another doomed refresh, forever.
   it("stops hitting the network once the session is dead", async () => {

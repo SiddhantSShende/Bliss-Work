@@ -45,6 +45,10 @@ class UpdateProfileRequest(BaseModel):
     displayName: str = Field(min_length=1, max_length=80)
 
 
+class ChangeRoleRequest(BaseModel):
+    role: Role
+
+
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
 
@@ -115,3 +119,41 @@ class InviteVerifyResponse(BaseModel):
     email: str | None = None
     orgName: str | None = None
     valid: bool
+
+
+# `removed` keeps the users row (messages, tasks, channel membership and audit
+# entries all reference user_id — a hard delete would orphan every one of them)
+# while revoking the membership. `suspended` is the reversible middle state.
+MemberStatus = Literal["active", "suspended", "removed"]
+
+
+class MemberDTO(BaseModel):
+    """A member as the admin screen sees them: the directory fields plus the
+    lifecycle state that `UserDTO` deliberately does not carry."""
+
+    id: str
+    username: str
+    displayName: str
+    email: str
+    roles: list[Role]
+    status: MemberStatus
+    emailVerified: bool = True
+    createdAt: str
+    removedAt: str | None = None
+
+
+class AuditEntryDTO(BaseModel):
+    id: int
+    actorId: str | None = None
+    action: str
+    target: str | None = None
+    meta: dict | None = None
+    at: str
+
+
+class AuditPage(BaseModel):
+    """Keyset page over audit_log, newest first. `nextCursor` is the id to pass
+    back as `before`; null means the caller has reached the first entry."""
+
+    entries: list[AuditEntryDTO]
+    nextCursor: int | None = None

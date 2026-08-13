@@ -36,6 +36,7 @@ function makeClient(timeoutMs: number, fetchImpl: typeof fetch): ApiClient {
     taskBase: "http://task.test",
     messagingBase: "http://msg.test",
     integrationsBase: "http://integrations.test",
+    telemetryBase: "http://telemetry.test",
     notificationBase: "http://notif.test",
     presenceBase: "http://presence.test",
     getToken: () => null,

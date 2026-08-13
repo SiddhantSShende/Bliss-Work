@@ -32,8 +32,10 @@
 #     PG_HOST=db.internal DAYS=365 scripts/gen-db-certs.sh
 #
 # Re-running regenerates everything (idempotent for dev). Postgres requires the
-# server key to be owned by the postgres user and mode 0600 — the prod compose
-# mounts it read-only and Postgres tolerates a root-owned 0600 file mounted in.
+# server key to be mode 0600 AND owned by uid 70 (the postgres user in the
+# image) — a bind mount passes the host uid through unchanged. See the ownership
+# block near the bottom: getting this wrong does not break a running server, it
+# breaks the NEXT restart.
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -82,6 +84,32 @@ rm -f server.csr server.ext ca.srl
 # Postgres refuses a server key that is group/world readable.
 chmod 600 server.key ca.key
 chmod 644 server.crt ca.crt
+
+# ── OWNERSHIP: server.key MUST be owned by uid 70 ────────────────────────────
+# Postgres checks `st_uid == geteuid() || st_uid == 0` and REFUSES to start
+# otherwise:
+#     FATAL: private key file "…/server.key" must be owned by the database user
+#            or root
+# The alpine image runs as uid 70, and a bind mount carries the HOST uid straight
+# through, so a key left owned by the invoking user (uid 1000) fails that check.
+# Note that root:root 0600 does NOT work either — it passes the ownership check
+# but uid 70 then cannot READ the file ("could not load private key file:
+# Permission denied"). uid 70 owning it satisfies both.
+#
+# This has teeth: a key left owned by uid 1000 does not break the RUNNING
+# server — Postgres validates the key only at startup — so the failure lies
+# dormant until the next restart, deploy, or reboot, and then takes the database
+# down. Chowning needs root; when this script runs unprivileged it warns loudly
+# rather than leaving a silent time bomb.
+if [ "$(id -u)" -eq 0 ]; then
+  chown 70:70 server.key
+elif sudo -n true 2>/dev/null; then
+  sudo -n chown 70:70 server.key
+else
+  echo "WARNING: could not chown server.key to uid 70 (no root / no passwordless sudo)." >&2
+  echo "         Postgres WILL FAIL TO START on its next restart. Fix with:" >&2
+  echo "           sudo chown 70:70 ${OUT_DIR}/server.key" >&2
+fi
 
 # ── Optional: a Redis server cert signed by the SAME CA (REDIS=1) ─────────────
 # Redis TLS has the ws-gateway self-signed-CA caveat documented in

@@ -144,6 +144,16 @@
 		handle_path /api/integrations/* {
 			reverse_proxy integrations-svc:8005
 		}
+		# Member activity record. The beacon (POST /api/telemetry/beacon) is the
+		# highest-frequency JSON POST in the product — a batch per client every
+		# 30s — which is exactly the shape OWASP CRS anomaly scoring trips on. If
+		# beacons start 403ing, add a scoped exclusion keyed on
+		# REQUEST_URI "^/api/telemetry/beacon" in
+		# infra/caddy/coraza/rules/99-tuning.conf rather than lowering the
+		# paranoia level globally.
+		handle_path /api/telemetry/* {
+			reverse_proxy telemetry-svc:8006
+		}
 		# Public inbound webhooks + OAuth callbacks for external integrations. NOT
 		# under /internal/ (404'd) and provider-signature authenticated upstream.
 		# NOTE: signed/base64 provider payloads can trip OWASP CRS — if you see 403s

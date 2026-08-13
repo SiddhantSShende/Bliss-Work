@@ -23,6 +23,193 @@ export const UserDTO = z.object({
 });
 export type UserDTO = z.infer<typeof UserDTO>;
 
+/**
+ * Membership lifecycle. `suspended` blocks sign-in to this workspace but keeps
+ * the membership; `removed` revokes it. Neither deletes the user row — messages,
+ * tasks, channel rows and audit entries all reference the id, and the history
+ * has to keep rendering their name. Both are reversible by an admin.
+ */
+export const MemberStatus = z.enum(["active", "suspended", "removed"]);
+export type MemberStatus = z.infer<typeof MemberStatus>;
+
+/** A member as the admin screen sees them: directory fields plus the lifecycle
+ *  state `UserDTO` deliberately does not carry. */
+export const MemberDTO = z.object({
+  id: z.string().uuid(),
+  username: z.string(),
+  displayName: z.string(),
+  email: z.string(),
+  roles: z.array(Role),
+  status: MemberStatus,
+  emailVerified: z.boolean().default(true),
+  createdAt: z.string(),
+  removedAt: z.string().nullable().default(null),
+});
+export type MemberDTO = z.infer<typeof MemberDTO>;
+
+/** One entry of the tamper-evident audit chain (auth-svc `audit_log`). */
+export const AuditEntryDTO = z.object({
+  id: z.number().int(),
+  actorId: z.string().nullable().default(null),
+  action: z.string(),
+  target: z.string().nullable().default(null),
+  meta: z.record(z.unknown()).nullable().default(null),
+  at: z.string(),
+});
+export type AuditEntryDTO = z.infer<typeof AuditEntryDTO>;
+
+export const AuditPage = z.object({
+  entries: z.array(AuditEntryDTO),
+  nextCursor: z.number().int().nullable().default(null),
+});
+export type AuditPage = z.infer<typeof AuditPage>;
+
+// ── Member activity record (telemetry-svc) ───────────────────────────────────
+/**
+ * Where an activity row came from, and therefore how much it can be trusted.
+ *
+ * `server` rows are derived from domain events the services emitted while doing
+ * the work — unforgeable. Everything else is self-reported by a client. The UI
+ * and the export mark the difference, because anyone using this screen to make a
+ * decision about a person deserves to know which they are looking at.
+ */
+export const ActivitySource = z.enum(["server", "web", "desktop", "extension"]);
+export type ActivitySource = z.infer<typeof ActivitySource>;
+
+/** Online / idle / offline — three states, where raw presence has only two. */
+export const PresenceState = z.enum(["online", "idle", "offline"]);
+export type PresenceState = z.infer<typeof PresenceState>;
+
+export const MemberActivityDTO = z.object({
+  userId: z.string().uuid(),
+  state: PresenceState,
+  lastSeenAt: z.string().nullable().default(null),
+  lastLoginAt: z.string().nullable().default(null),
+  lastLogoutAt: z.string().nullable().default(null),
+  todayActiveMs: z.number().default(0),
+  last7dActiveMs: z.number().default(0),
+  sessionsToday: z.number().default(0),
+});
+export type MemberActivityDTO = z.infer<typeof MemberActivityDTO>;
+
+export const TimelineEntry = z.object({
+  id: z.string(),
+  occurredAt: z.string(),
+  source: ActivitySource,
+  category: z.string(),
+  action: z.string(),
+  surface: z.string().nullable().default(null),
+  targetKind: z.string().nullable().default(null),
+  targetId: z.string().nullable().default(null),
+  durationMs: z.number().nullable().default(null),
+  /** Decrypted server-side per row: a message preview, a URL path. Absent when
+   *  the row carries no detail, or when the org's key has been shredded. */
+  detail: z.record(z.string()).nullable().default(null),
+});
+export type TimelineEntry = z.infer<typeof TimelineEntry>;
+
+export const TimelinePage = z.object({
+  entries: z.array(TimelineEntry),
+  nextCursor: z.string().nullable().default(null),
+});
+export type TimelinePage = z.infer<typeof TimelinePage>;
+
+export const ActivitySessionDTO = z.object({
+  id: z.string(),
+  source: z.string(),
+  deviceLabel: z.string(),
+  startedAt: z.string(),
+  lastSeenAt: z.string(),
+  endedAt: z.string().nullable().default(null),
+  endReason: z.string().nullable().default(null),
+  activeMs: z.number().default(0),
+  idleMs: z.number().default(0),
+  ipPrefix: z.string().nullable().default(null),
+});
+export type ActivitySessionDTO = z.infer<typeof ActivitySessionDTO>;
+
+export const ActivitySessionPage = z.object({
+  sessions: z.array(ActivitySessionDTO),
+  nextCursor: z.string().nullable().default(null),
+});
+export type ActivitySessionPage = z.infer<typeof ActivitySessionPage>;
+
+export const DayBucket = z.object({
+  day: z.string(),
+  activeMs: z.number().default(0),
+  idleMs: z.number().default(0),
+  onlineMs: z.number().default(0),
+  sessions: z.number().default(0),
+  events: z.number().default(0),
+});
+export type DayBucket = z.infer<typeof DayBucket>;
+
+export const NamedCount = z.object({
+  key: z.string(),
+  label: z.string().default(""),
+  valueMs: z.number().default(0),
+  count: z.number().default(0),
+});
+export type NamedCount = z.infer<typeof NamedCount>;
+
+export const ActivitySummaryDTO = z.object({
+  userId: z.string(),
+  from: z.string(),
+  to: z.string(),
+  totalActiveMs: z.number().default(0),
+  totalIdleMs: z.number().default(0),
+  totalOnlineMs: z.number().default(0),
+  sessions: z.number().default(0),
+  events: z.number().default(0),
+  days: z.array(DayBucket).default([]),
+  bySurface: z.array(NamedCount).default([]),
+  byAction: z.array(NamedCount).default([]),
+  topApps: z.array(NamedCount).default([]),
+  topSites: z.array(NamedCount).default([]),
+  /** 7 x 24 grid of active ms, Monday-first, in the server's rollup timezone. */
+  hourly: z.array(z.array(z.number())).default([]),
+});
+export type ActivitySummaryDTO = z.infer<typeof ActivitySummaryDTO>;
+
+export const OrgActivitySummaryDTO = z.object({
+  from: z.string(),
+  to: z.string(),
+  members: z.array(ActivitySummaryDTO).default([]),
+  days: z.array(DayBucket).default([]),
+});
+export type OrgActivitySummaryDTO = z.infer<typeof OrgActivitySummaryDTO>;
+
+/** One flat per-member-per-day row for the .xlsx export. Names are joined from
+ *  the directory client-side — telemetry-svc holds no names. */
+export const ActivityExportRow = z.object({
+  userId: z.string(),
+  day: z.string(),
+  activeMs: z.number().default(0),
+  idleMs: z.number().default(0),
+  onlineMs: z.number().default(0),
+  sessions: z.number().default(0),
+  events: z.number().default(0),
+  firstSeenAt: z.string().nullable().default(null),
+  lastSeenAt: z.string().nullable().default(null),
+  topSurface: z.string().nullable().default(null),
+  topApp: z.string().nullable().default(null),
+  topSite: z.string().nullable().default(null),
+});
+export type ActivityExportRow = z.infer<typeof ActivityExportRow>;
+
+/** A paired activity agent — this person's desktop app or browser extension.
+ *  The secret itself is never in this shape; it exists once, in the response
+ *  that mints it. */
+export const AgentTokenDTO = z.object({
+  id: z.string(),
+  kind: z.string(),
+  label: z.string().default(""),
+  createdAt: z.string().nullable().default(null),
+  lastUsedAt: z.string().nullable().default(null),
+  expiresAt: z.string().nullable().default(null),
+});
+export type AgentTokenDTO = z.infer<typeof AgentTokenDTO>;
+
 /** One organization the signed-in identity belongs to — for the org switcher.
  *  A single email/password can span multiple orgs; `active` marks the current one. */
 export const OrgMembershipDTO = z.object({
@@ -473,8 +660,32 @@ export const ChannelDTO = z.object({
    *  caller's own channels) and false for /channels/open (the directory of
    *  joinable channels). */
   iAmMember: z.boolean().default(true),
+  /** Who created the channel. Written since the first channels migration and,
+   *  until channel roles existed, never read back. */
+  createdBy: z.string().default(""),
+  /** The CALLER's standing in this channel: "owner" | "admin" | "member", or ""
+   *  when they are not a member. Gates the moderation UI; the server re-checks
+   *  every action regardless. Defaults to "" so a response from a server that
+   *  predates roles still parses. */
+  myRole: z.string().default(""),
 });
 export type ChannelDTO = z.infer<typeof ChannelDTO>;
+
+/** Channel standing. `owner` is the creator (or whoever it was transferred to);
+ *  `admin` is a moderator they appointed. An org_admin can moderate any channel
+ *  without appearing in its roster at all. */
+export const ChannelRole = z.enum(["owner", "admin", "member"]);
+export type ChannelRole = z.infer<typeof ChannelRole>;
+
+/** One row of a channel roster. Blocked users appear too — they are not members,
+ *  but an admin needs to see who is barred in order to unblock them. */
+export const ChannelMemberDTO = z.object({
+  userId: z.string().uuid(),
+  role: ChannelRole,
+  joinedAt: z.string().default(""),
+  blocked: z.boolean().default(false),
+});
+export type ChannelMemberDTO = z.infer<typeof ChannelMemberDTO>;
 
 export const ChannelMessageDTO = z.object({
   id: z.string().uuid(),

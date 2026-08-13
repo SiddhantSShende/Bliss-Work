@@ -233,6 +233,12 @@ type ChannelDTO struct {
 	LastMessageAt *string `json:"lastMessageAt"`
 	IsLocked      bool    `json:"isLocked"`
 	IAmMember     bool    `json:"iAmMember"`
+	// Who created the channel. Written since 0002 and, until channel roles
+	// existed, never once read back.
+	CreatedBy string `json:"createdBy"`
+	// The CALLER's role in this channel — "" when they are not a member. What
+	// the UI gates the moderation controls on; the server re-checks regardless.
+	MyRole string `json:"myRole"`
 }
 
 // ChannelMessageDTO mirrors the canonical ChannelMessageDTO contract.

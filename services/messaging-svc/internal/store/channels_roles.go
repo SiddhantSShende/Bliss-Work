@@ -1,0 +1,190 @@
+package store
+
+import (
+	"context"
+	"errors"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+
+	"github.com/task-board/messaging-svc/internal/events"
+)
+
+// Channel roles. `owner` is the creator (or whoever it was transferred to);
+// `admin` is a moderator they appointed; everyone else is `member`.
+const (
+	RoleOwner  = "owner"
+	RoleAdmin  = "admin"
+	RoleMember = "member"
+)
+
+// ChannelMember is one row of the roster: who, and with what standing.
+type ChannelMember struct {
+	UserID   string `json:"userId"`
+	Role     string `json:"role"`
+	JoinedAt string `json:"joinedAt"`
+	Blocked  bool   `json:"blocked"`
+}
+
+// channelRole returns the caller's role in a channel, or "" if not a member.
+func channelRole(ctx context.Context, tx pgx.Tx, channelID, userID string) (string, error) {
+	var role string
+	err := tx.QueryRow(ctx,
+		`SELECT role FROM channel_members WHERE channel_id = $1 AND user_id = $2`,
+		channelID, userID).Scan(&role)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	return role, err
+}
+
+// isOrgAdmin reports whether the VERIFIED JWT claims carry org_admin.
+//
+// Read from the token rather than from a table because messaging-svc has no
+// copy of the org's role assignments — auth-svc owns them, and mirroring them
+// here would be a second source of truth that goes stale. The documented cost is
+// that a demotion takes effect at the target's next token refresh (~15 min);
+// that is acceptable for channel moderation, where the worst case is one extra
+// kick, and is the same trade every other service in this stack makes.
+func isOrgAdmin(claimRoles []string) bool {
+	for _, r := range claimRoles {
+		if r == "org_admin" {
+			return true
+		}
+	}
+	return false
+}
+
+// requireChannelManager returns ErrForbidden unless the caller may moderate the
+// channel: its owner, one of its admins, or an org_admin.
+//
+// An org_admin is NOT required to be a member — moderating a channel you are not
+// in is the point of the capability. The channel must still belong to the
+// caller's org, which the explicit org check below enforces alongside RLS.
+func requireChannelManager(
+	ctx context.Context, tx pgx.Tx, orgID, channelID, userID string, claimRoles []string,
+) error {
+	var cOrg string
+	err := tx.QueryRow(ctx, `SELECT org_id FROM channels WHERE id = $1`, channelID).Scan(&cOrg)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && cOrg != orgID) {
+		return ErrForbidden
+	}
+	if err != nil {
+		return err
+	}
+	if isOrgAdmin(claimRoles) {
+		return nil
+	}
+	role, err := channelRole(ctx, tx, channelID, userID)
+	if err != nil {
+		return err
+	}
+	if role == RoleOwner || role == RoleAdmin {
+		return nil
+	}
+	return ErrForbidden
+}
+
+// isBlocked reports whether a user is barred from a channel.
+func isBlocked(ctx context.Context, tx pgx.Tx, channelID, userID string) (bool, error) {
+	var blocked bool
+	err := tx.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM channel_blocks WHERE channel_id = $1 AND user_id = $2)`,
+		channelID, userID).Scan(&blocked)
+	return blocked, err
+}
+
+// ChannelRoster lists the members of a channel with their roles, plus anyone
+// blocked from it. Callers must be a member, or an org_admin.
+func (s *Store) ChannelRoster(
+	ctx context.Context, orgID, channelID, callerID string, claimRoles []string,
+) ([]ChannelMember, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	if err := setOrgGUC(ctx, tx, orgID); err != nil {
+		return nil, err
+	}
+
+	// Seeing who is in a room requires being in it — except for org admins, who
+	// can already see every channel in their workspace.
+	if !isOrgAdmin(claimRoles) {
+		if err := requireChannelMember(ctx, tx, orgID, channelID, callerID); err != nil {
+			return nil, err
+		}
+	}
+
+	rows, err := tx.Query(ctx,
+		`SELECT user_id, role, joined_at FROM channel_members
+		  WHERE channel_id = $1 ORDER BY
+		    CASE role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, joined_at`,
+		channelID)
+	if err != nil {
+		return nil, err
+	}
+	out := []ChannelMember{}
+	for rows.Next() {
+		var m ChannelMember
+		var joined time.Time
+		if err := rows.Scan(&m.UserID, &m.Role, &joined); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		m.JoinedAt = joined.UTC().Format("2006-01-02T15:04:05.000Z")
+		out = append(out, m)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Blocked users are listed too — they are not members, but an admin looking
+	// at the roster needs to see who has been barred in order to unblock them.
+	brows, err := tx.Query(ctx,
+		`SELECT user_id FROM channel_blocks WHERE channel_id = $1`, channelID)
+	if err != nil {
+		return nil, err
+	}
+	for brows.Next() {
+		var uid string
+		if err := brows.Scan(&uid); err != nil {
+			brows.Close()
+			return nil, err
+		}
+		out = append(out, ChannelMember{UserID: uid, Role: RoleMember, Blocked: true})
+	}
+	brows.Close()
+	if err := brows.Err(); err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// emitChannelEvent writes one membership/moderation event to the outbox,
+// addressed to the surviving members PLUS the affected user — who is usually no
+// longer a member and would otherwise never learn what happened to them.
+func emitChannelEvent(
+	ctx context.Context, tx pgx.Tx, evtType, orgID, channelID, userID, actorID string,
+) error {
+	members, err := channelMemberIDs(ctx, tx, channelID)
+	if err != nil {
+		return err
+	}
+	return insertOutbox(ctx, tx, channelID, events.ChannelMembershipChanged{
+		Type:       evtType,
+		EventID:    uuid.Must(uuid.NewV7()).String(),
+		OrgID:      orgID,
+		OccurredAt: nowISO(),
+		ChannelID:  channelID,
+		UserID:     userID,
+		ActorID:    actorID,
+		Members:    members,
+	})
+}

@@ -102,6 +102,30 @@ const api = {
     message?: string;
   }> => ipcRenderer.invoke("app:check-updates"),
 
+  /**
+   * Desktop activity agent — CONSENT AND PAIRING ONLY.
+   *
+   * Note what is absent: there is no way to read a sample, no way to read the
+   * pairing secret back, and no way to start the sampler with a token the
+   * renderer supplies out of nowhere. Sampled data never enters the renderer at
+   * all; main posts it directly. This surface exists so a person can see and
+   * change what their own machine is doing, and for nothing else.
+   */
+  activity: {
+    state: (): Promise<{
+      enabled: boolean;
+      paired: boolean;
+      appTracking: boolean;
+      reason: string | null;
+    } | null> => ipcRenderer.invoke("activity:state"),
+    setEnabled: (enabled: boolean): Promise<{ enabled: boolean; paired: boolean } | null> =>
+      ipcRenderer.invoke("activity:set-enabled", enabled),
+    /** Pass the one-time secret from Settings → Connect this device. `null`
+     *  unpairs, which also withdraws consent. */
+    pair: (token: string | null): Promise<{ enabled: boolean; paired: boolean } | null> =>
+      ipcRenderer.invoke("activity:pair", token),
+  },
+
   /** Phase 10 sender-side streaming sha256 — the renderer feeds file slices and
    *  main hashes them incrementally so a huge file isn't loaded into memory. */
   hash: {
