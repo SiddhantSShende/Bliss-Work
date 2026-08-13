@@ -50,12 +50,32 @@ func normalizeE164(raw string) (string, error) {
 	return digits, nil
 }
 
+// isBidiOverride reports whether r can visually reorder the text around it.
+// These are category Cf, not Cc, so unicode.IsControl does NOT catch them — and
+// they matter here specifically because the pill renders the name immediately
+// before a phone number: an embedded RLO makes the number a reader sees differ
+// from the number that was stored and opened. Only the overrides are listed;
+// other Cf runes (notably U+200D ZWJ) are load-bearing inside emoji and several
+// scripts, so blanket-stripping Cf would mangle legitimate names.
+func isBidiOverride(r rune) bool {
+	return (r >= 0x202A && r <= 0x202E) || (r >= 0x2066 && r <= 0x2069)
+}
+
 // sanitizeContactName reduces a captured contact name to something safe to embed
-// in a system message: no control characters (a newline would break the pill out
-// of its single line), no runs of whitespace, and bounded length.
+// in a system message: no control characters, no bidi overrides, no runs of
+// whitespace, and bounded length.
 //
 // This is not an XSS guard — React escapes text and `react/no-danger` is a
-// blocking lint rule. It is a guard against a name that lies about its own shape.
+// blocking lint rule. It guards against a name that lies about its own shape.
+// Two cases beyond a newline breaking the pill out of its single line:
+//
+//   - U+001F is the chat-envelope sentinel (packages/app/src/lib/chatEnvelope.ts:30).
+//     A name carrying one would make the pill body parse as a structured payload
+//     and render as an attachment or location card in someone else's thread. It
+//     is Cc, so the IsControl arm below already removes it — recorded here so a
+//     later simplification of that arm knows what it is holding up.
+//   - bidi overrides, per isBidiOverride.
+//
 // An empty result is legitimate: the picker can return a number with no name and
 // the manual form leaves the field optional; callers fall back to a generic label.
 func sanitizeContactName(raw string) string {
@@ -63,7 +83,7 @@ func sanitizeContactName(raw string) string {
 	lastWasSpace := false
 	for _, r := range raw {
 		switch {
-		case unicode.IsControl(r):
+		case unicode.IsControl(r), isBidiOverride(r):
 			// Drop outright rather than convert to a space — a name is not
 			// meant to contain one, so it carries no information to preserve.
 			continue

@@ -255,8 +255,25 @@ export type MessageStatus = z.infer<typeof MessageStatus>;
  * rendered as a centered notice rather than a chat bubble. Absent on the wire
  * for ordinary text, so old payloads parse unchanged.
  */
-export const MessageKind = z.enum(["text", "call_missed"]);
+export const MessageKind = z.enum(["text", "call_missed", "forward_external"]);
 export type MessageKind = z.infer<typeof MessageKind>;
+
+/**
+ * The wire-tolerant variant, and the one every INBOUND payload must use.
+ *
+ * ApiClient.req throws ApiError(502, "invalid response from server") when a
+ * response fails safeParse, and WsClient silently drops frames that fail it. So
+ * with a bare enum, the first server-side `kind` a client has never heard of
+ * does not degrade that one message — it fails the whole `messages` response
+ * and the entire conversation refuses to load. That is a real risk here and not
+ * a hypothetical one: the desktop app updates on its own cadence via
+ * electron-updater and has historically run weeks behind the web app.
+ *
+ * `.catch("text")` makes an unknown kind render as an ordinary message instead.
+ * Losing the centered-pill styling on an old build is a far better failure than
+ * losing the conversation.
+ */
+export const MessageKindWire = MessageKind.catch("text");
 
 export const MessageDTO = z.object({
   id: z.string().uuid(),
@@ -268,8 +285,9 @@ export const MessageDTO = z.object({
   senderId: z.string().uuid(),
   body: z.string(),
   createdAt: z.string(),
-  /** System entries (e.g. a missed call). Absent = ordinary text. */
-  kind: MessageKind.optional(),
+  /** System entries (a missed call, a forward handed off to WhatsApp).
+   *  Absent = ordinary text. Wire-tolerant: see MessageKindWire. */
+  kind: MessageKindWire.optional(),
   /** Set only on the sender's own bubbles. */
   status: MessageStatus.optional(),
   /** Set when the sender has dismissed (sender_dismissed_at IS NOT NULL). */
@@ -296,6 +314,14 @@ export const ForwardEdgeDTO = z.object({
   platform: z.string(),
   depth: z.number().int().positive(),
   createdAt: z.string(),
+  /** "confirmed" — a provider acknowledged the send. "unconfirmed" — we opened a
+   *  wa.me deep link and cannot observe whether the user pressed send. Absent on
+   *  payloads from before deep-link forwarding, all of which were confirmed. */
+  delivery: z.enum(["confirmed", "unconfirmed"]).catch("confirmed").optional(),
+  /** The captured contact's display name, when one was captured. */
+  forwardedToName: z.string().nullable().optional(),
+  /** Set when the forwarded message lived in a channel rather than a DM. */
+  channelId: z.string().uuid().nullable().optional(),
 });
 export type ForwardEdgeDTO = z.infer<typeof ForwardEdgeDTO>;
 
@@ -307,6 +333,8 @@ export const ForwardActivityDTO = z.object({
   preview: z.string(),
   forwardCount: z.number().int().nonnegative(),
   lastForwardedAt: z.string(),
+  /** At least one hop of this message was a deep link we could not verify. */
+  hasUnconfirmed: z.boolean().optional(),
 });
 export type ForwardActivityDTO = z.infer<typeof ForwardActivityDTO>;
 
@@ -695,6 +723,8 @@ export const ChannelMessageDTO = z.object({
   senderUsername: z.string(),
   body: z.string(),
   createdAt: z.string(),
+  /** System entries in a channel, mirroring MessageDTO.kind. Absent = text. */
+  kind: MessageKindWire.optional(),
 });
 export type ChannelMessageDTO = z.infer<typeof ChannelMessageDTO>;
 

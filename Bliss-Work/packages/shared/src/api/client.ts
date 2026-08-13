@@ -802,6 +802,39 @@ export class ApiClient {
       z.object({ status: z.string(), externalId: z.string().optional(), platform: z.string() }),
     );
   }
+  /** Record a forward the caller is about to make by opening a WhatsApp deep
+   *  link, and write the system entry into the origin chat.
+   *
+   *  This sends NOTHING. Unlike forwardMessageExternal it needs no connected
+   *  WhatsApp Business account — the caller opens https://wa.me/<e164>?text=…
+   *  and the user sends from their own WhatsApp — and in exchange we cannot
+   *  observe the outcome, so the recorded forward is `unconfirmed`.
+   *
+   *  The caller must build and open the wa.me URL itself: the window has to be
+   *  opened synchronously inside the click handler or a popup blocker eats it,
+   *  which rules out waiting on this response. Idempotent on clientMsgId. */
+  forwardMessageLink(messageId: string, targetPhone: string, targetName?: string, clientMsgId?: string) {
+    return this.req(
+      this.cfg.messagingBase,
+      `/api/v1/messages/${messageId}/forward-link`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          channel: "whatsapp",
+          targetPhone,
+          targetName: targetName ?? "",
+          clientMsgId: clientMsgId ?? uuid(),
+        }),
+      },
+      z.object({
+        status: z.string(),
+        platform: z.string(),
+        delivery: z.string(),
+        targetPhone: z.string(),
+        systemMessageId: z.string(),
+      }),
+    );
+  }
   /** The downstream forward tree of a message the caller authored — every hop,
    *  ordered by depth. Empty when the message was never forwarded. */
   messageForwards(messageId: string) {

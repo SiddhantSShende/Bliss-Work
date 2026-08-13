@@ -258,6 +258,9 @@ type ChannelMessageDTO struct {
 	SenderUsername string `json:"senderUsername"`
 	Body           string `json:"body"`
 	CreatedAt      string `json:"createdAt"`
+	// Kind mirrors MessageDTO.Kind — omitted for ordinary text so the wire
+	// shape of a normal channel message is unchanged.
+	Kind string `json:"kind,omitempty"`
 }
 
 // ChannelSendResult is returned to the API after a channel message send.

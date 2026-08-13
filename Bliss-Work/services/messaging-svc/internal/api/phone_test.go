@@ -64,6 +64,17 @@ func TestSanitizeContactName(t *testing.T) {
 		{"drops control characters", "Jane\x00\x07Doe", "JaneDoe"},
 		{"empty stays empty", "   ", ""},
 		{"non-latin survives", "ヤマダ タロウ", "ヤマダ タロウ"},
+		// U+001F is the chat-envelope sentinel (chatEnvelope.ts:30). A name
+		// carrying one would make the pill body parse as a structured payload on
+		// the client and render as an attachment card in someone else's thread.
+		{"drops the chat-envelope sentinel", "Jane\u001f{\"v\":2}", "Jane{\"v\":2}"},
+		// Category Cf, so unicode.IsControl does not see these. They matter
+		// because the pill renders the name immediately before a phone number.
+		{"drops RLO", "Jane\u202eDoe", "JaneDoe"},
+		{"drops LRI/PDI isolates", "\u2066Jane\u2069 Doe", "Jane Doe"},
+		// ZWJ is Cf too, but is load-bearing inside emoji and several scripts, so
+		// blanket-stripping Cf would mangle real names. It must survive.
+		{"keeps ZWJ inside an emoji sequence", "Jane \U0001F469\u200d\U0001F4BB", "Jane \U0001F469\u200d\U0001F4BB"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

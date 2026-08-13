@@ -82,6 +82,9 @@ function ForwardActivityRow({ item }: { item: ForwardActivityDTO }) {
           <div className="mt-0.5 text-xs text-muted">
             forwarded {item.forwardCount} {item.forwardCount === 1 ? "time" : "times"} · last{" "}
             {new Date(item.lastForwardedAt).toLocaleString()}
+            {item.hasUnconfirmed && (
+              <span className="ml-1.5 text-amber-500">· some unconfirmed</span>
+            )}
           </div>
         </div>
       </button>
@@ -96,8 +99,15 @@ function ForwardActivityRow({ item }: { item: ForwardActivityDTO }) {
           ) : (
             <ul className="space-y-1.5 overflow-x-auto">
               {edges.map((e: ForwardEdgeDTO) => {
-                const to = e.forwardedTo ? nameOf(e.forwardedTo) : (e.forwardedToExternal ?? "someone");
+                const to = e.forwardedTo
+                  ? nameOf(e.forwardedTo)
+                  : (e.forwardedToName ?? e.forwardedToExternal ?? "someone");
                 const via = e.platform === "blisswork" ? "" : ` · via ${e.platform}`;
+                // An opened deep link is not a delivery. Rendering it the same
+                // way as a provider-acknowledged send would make this feed —
+                // whose whole promise is telling the author where their message
+                // went — assert something nobody observed.
+                const unconfirmed = e.delivery === "unconfirmed";
                 return (
                   <li
                     key={e.id}
@@ -106,8 +116,17 @@ function ForwardActivityRow({ item }: { item: ForwardActivityDTO }) {
                   >
                     <Forward size={12} className="shrink-0 text-accent" />
                     <span>
-                      <span className="font-medium">{nameOf(e.forwardedBy)}</span> forwarded to{" "}
+                      <span className="font-medium">{nameOf(e.forwardedBy)}</span>{" "}
+                      {unconfirmed ? "opened WhatsApp to forward to" : "forwarded to"}{" "}
                       <span className="font-medium">{to}</span>
+                      {unconfirmed && (
+                        <span
+                          className="ml-1.5 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-600"
+                          title="BlissWork opened WhatsApp with the message prefilled. Whether it was sent isn't something we can observe."
+                        >
+                          Unconfirmed
+                        </span>
+                      )}
                       <span className="text-muted">
                         {via} · {new Date(e.createdAt).toLocaleString()}
                       </span>

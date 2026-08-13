@@ -39,9 +39,12 @@ type LinkForwardCtx struct {
 	Body  string
 
 	// DM sources. OtherUserID is the conversation's other participant — the
-	// recipient of the system entry.
+	// recipient of the system entry. ThreadID is the source message's thread,
+	// passed to appendMessage as a hint so the pill joins the thread it is
+	// about instead of opening a new one in the inbox.
 	ConversationID string
 	OtherUserID    string
+	ThreadID       string
 
 	// Channel sources.
 	ChannelID string
@@ -96,13 +99,14 @@ func (s *Store) resolveLinkSource(ctx context.Context, tx pgx.Tx, orgID, forward
 		low     string
 		high    string
 	)
+	var threadID *string
 	err := tx.QueryRow(ctx,
 		`SELECT m.sender_id::text, m.body, m.body_enc, m.conversation_id::text,
-		        c.user_low::text, c.user_high::text
+		        m.thread_id::text, c.user_low::text, c.user_high::text
 		   FROM messages m
 		   JOIN conversations c ON c.id = m.conversation_id
 		  WHERE m.id = $1`, sourceMessageID).
-		Scan(&sender, &body, &bodyEnc, &out.ConversationID, &low, &high)
+		Scan(&sender, &body, &bodyEnc, &out.ConversationID, &threadID, &low, &high)
 	switch {
 	case err == nil:
 		if forwarderID != low && forwarderID != high {
@@ -112,6 +116,12 @@ func (s *Store) resolveLinkSource(ctx context.Context, tx pgx.Tx, orgID, forward
 		out.OtherUserID = low
 		if forwarderID == low {
 			out.OtherUserID = high
+		}
+		// Nullable for rows written before the threading migration; an empty
+		// hint makes appendMessage open a new thread, which is the right
+		// fallback for a message that never belonged to one.
+		if threadID != nil {
+			out.ThreadID = *threadID
 		}
 	case errors.Is(err, pgx.ErrNoRows):
 		e := tx.QueryRow(ctx,

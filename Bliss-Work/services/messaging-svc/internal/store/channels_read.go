@@ -141,7 +141,7 @@ func (s *Store) ChannelMessages(ctx context.Context, orgID, channelID, callerID 
 
 	rows, err := tx.Query(ctx,
 		`SELECT m.id, m.channel_id, m.seq, m.sender_id,
-		        COALESCE(up.username, ''), m.body, m.body_enc, m.created_at
+		        COALESCE(up.username, ''), m.body, m.body_enc, m.created_at, m.kind
 		 FROM channel_messages m
 		 LEFT JOIN user_projection up ON up.user_id = m.sender_id
 		 WHERE m.channel_id = $1 ORDER BY m.seq ASC`, channelID)
@@ -156,12 +156,13 @@ func (s *Store) ChannelMessages(ctx context.Context, orgID, channelID, callerID 
 		created time.Time
 		bodyTxt *string
 		bodyEnc []byte
+		kind    string
 	}
 	var raws []rawChMsg
 	for rows.Next() {
 		var r rawChMsg
 		if err := rows.Scan(&r.m.ID, &r.m.ChannelID, &r.m.Seq, &r.m.SenderID,
-			&r.m.SenderUsername, &r.bodyTxt, &r.bodyEnc, &r.created); err != nil {
+			&r.m.SenderUsername, &r.bodyTxt, &r.bodyEnc, &r.created, &r.kind); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -184,6 +185,11 @@ func (s *Store) ChannelMessages(ctx context.Context, orgID, channelID, callerID 
 			m.Body = dec
 		} else if r.bodyTxt != nil {
 			m.Body = *r.bodyTxt
+		}
+		// 'text' is the overwhelming majority; omit it so an ordinary channel
+		// message serializes exactly as it did before kinds existed here.
+		if r.kind != MessageKindText {
+			m.Kind = r.kind
 		}
 		m.CreatedAt = r.created.UTC().Format("2006-01-02T15:04:05.000Z")
 		out = append(out, m)

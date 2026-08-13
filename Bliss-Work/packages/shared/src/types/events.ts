@@ -2,7 +2,7 @@
  *  server→client WS frames; Go/Python structs mirror it. Conventions: `orgId`
  *  tenant, `eventId` (UUIDv7) dedup, discrete per-transition types, JSON. */
 import { z } from "zod";
-import { MessageKind } from "./domain";
+import { MessageKindWire } from "./domain";
 
 // ── Kafka topics ────────────────────────────────────────────────────────────
 export const Topics = {
@@ -85,8 +85,9 @@ export const MessageCreated = z.object({
   parentMessageId: z.string().uuid().nullable().optional(),
   /** True when this message is the root of a new thread. */
   isThreadRoot: z.boolean().optional(),
-  /** System entries (e.g. a missed call) rather than typed text. Absent = text. */
-  kind: MessageKind.optional(),
+  /** System entries (e.g. a missed call) rather than typed text. Absent = text.
+   *  Wire-tolerant so an unknown kind degrades instead of dropping the frame. */
+  kind: MessageKindWire.optional(),
 });
 
 export const ConversationIgnored = z.object({
@@ -194,6 +195,18 @@ export const MessageForwarded = z.object({
   /** External handle (phone/email/channel) when platform != 'blisswork'. */
   forwardedToExternal: z.string().optional(),
   platform: z.string(),
+  /** "confirmed" — the platform accepted it, or a real Bliss-Work clone exists.
+   *  "unconfirmed" — we opened a wa.me deep link and cannot observe whether the
+   *  user pressed send. Absent means confirmed: omitted on the wire so consumers
+   *  from before deep-link forwarding see byte-identical JSON. */
+  delivery: z.enum(["confirmed", "unconfirmed"]).catch("confirmed").optional(),
+  /** The captured contact's display name, so the author reads "forwarded to
+   *  Jane Doe" rather than a bare number. */
+  forwardedToName: z.string().optional(),
+  /** Set when the forwarded message lived in a channel rather than a DM.
+   *  Routing is unaffected — this event still reaches only the forwarder and
+   *  the original author, never the whole channel. */
+  channelId: z.string().uuid().optional(),
   /** Hop number (1 = the author's message forwarded once). */
   depth: z.number().int().positive(),
   /** Truncated body so A's toast can show what was forwarded. */

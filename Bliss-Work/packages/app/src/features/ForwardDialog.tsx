@@ -9,32 +9,44 @@ import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
 import { matchUser, rankUsers } from "../lib/matchUser";
 import { Modal } from "./Modal";
+import { WhatsAppForward } from "./WhatsAppForward";
 
 /**
- * Forward a message — either to another Bliss-Work user (in-app relay) or OUT to a
- * contact on a connected external platform (Slack channel, WhatsApp number, …).
- * Either way the ORIGINAL author is notified and the forward is recorded in the
- * forwarding-activity tree, with the platform tagged.
+ * Forward a message: to another Bliss-Work user (in-app relay), OUT through a
+ * connected external account, or by handing it to WhatsApp as a deep link.
+ * Whichever route, the ORIGINAL author is notified and the forward is recorded
+ * in the forwarding-activity tree with the platform tagged.
  *
  * Available to EVERY org member. The plan gate this used to describe was removed
  * in 465a195: each org now supplies its own provider credentials, so there is
  * nothing central to meter.
+ *
+ * `scope` is not cosmetic. The in-app relay and the connected-account send both
+ * resolve their source through `messages JOIN conversations` server-side, so a
+ * channel message 403s on both — only the deep link accepts one. Offering tabs
+ * that cannot work is worse than not offering them, so a channel source shows
+ * the WhatsApp route alone.
  */
 export function ForwardDialog({
   open,
   onClose,
   sourceMessageId,
   preview,
+  scope = "dm",
 }: {
   open: boolean;
   onClose: () => void;
   sourceMessageId: string | null;
+  /** The FULL body of the source message — clamped to two lines for display,
+   *  and used verbatim as the text prefilled into WhatsApp. */
   preview?: string;
+  scope?: "dm" | "channel";
 }) {
-  const [mode, setMode] = useState<"internal" | "external">("internal");
+  const channelSource = scope === "channel";
+  const [mode, setMode] = useState<"internal" | "external" | "walink">("internal");
   useEffect(() => {
-    if (open) setMode("internal");
-  }, [open]);
+    if (open) setMode(channelSource ? "walink" : "internal");
+  }, [open, channelSource]);
 
   return (
     <Modal open={!!sourceMessageId && open} onClose={onClose} title="Forward message">
@@ -44,24 +56,33 @@ export function ForwardDialog({
           <span className="line-clamp-2 break-words">{preview}</span>
         </div>
       )}
-      <div className="mb-3 flex gap-1 rounded-xl bg-surface-2 p-1 text-xs font-medium">
-        <button
-          onClick={() => setMode("internal")}
-          className={`flex-1 rounded-lg py-1.5 transition-colors ${mode === "internal" ? "bg-surface text-fg shadow-sm" : "text-muted"}`}
-        >
-          Bliss-Work
-        </button>
-        <button
-          onClick={() => setMode("external")}
-          className={`flex-1 rounded-lg py-1.5 transition-colors ${mode === "external" ? "bg-surface text-fg shadow-sm" : "text-muted"}`}
-        >
-          External
-        </button>
-      </div>
-      {mode === "internal" ? (
-        <InternalForward sourceMessageId={sourceMessageId} onDone={onClose} />
-      ) : (
-        <ExternalForward sourceMessageId={sourceMessageId} onDone={onClose} />
+      {!channelSource && (
+        <div className="mb-3 flex gap-1 rounded-xl bg-surface-2 p-1 text-xs font-medium">
+          {(
+            [
+              ["internal", "Bliss-Work"],
+              ["external", "External"],
+              ["walink", "WhatsApp"],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              onClick={() => setMode(value)}
+              className={`flex-1 rounded-lg py-1.5 transition-colors ${mode === value ? "bg-surface text-fg shadow-sm" : "text-muted"}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+      {mode === "internal" && <InternalForward sourceMessageId={sourceMessageId} onDone={onClose} />}
+      {mode === "external" && <ExternalForward sourceMessageId={sourceMessageId} onDone={onClose} />}
+      {mode === "walink" && (
+        <WhatsAppForward
+          sourceMessageId={sourceMessageId}
+          sourceBody={preview ?? ""}
+          onDone={onClose}
+        />
       )}
     </Modal>
   );

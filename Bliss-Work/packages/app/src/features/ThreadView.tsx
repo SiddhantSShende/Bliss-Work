@@ -1,10 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 import { motion } from "framer-motion";
-import { MessageSquare, ChevronUp, Loader2, PhoneMissed } from "lucide-react";
+import { MessageSquare, ChevronUp, Forward, Loader2, PhoneMissed } from "lucide-react";
 import { Avatar } from "@taskboard/ui";
 import type { MessageDTO } from "@taskboard/shared";
 import { clock, groupMessages } from "../lib/chatFormat";
 import { MessageStatusBadge } from "./MessageStatusBadge";
+import { SystemPill } from "./SystemPill";
 
 interface ThreadMsgVisual {
   id: string;
@@ -138,13 +139,27 @@ export function ThreadView({
             return (
               <div key={m.id}>
                 {dayChip}
-                <div className="my-2 flex justify-center">
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-2 px-3 py-1 text-[11px] font-medium text-muted ring-1 ring-border/60">
-                    <PhoneMissed size={12} className="text-red-500" />
-                    {mine ? `${m.body} · no answer` : m.body}
-                    <span className="text-muted/70">{clock(m.at)}</span>
-                  </span>
-                </div>
+                <SystemPill icon={<PhoneMissed size={12} className="text-red-500" />} at={m.at}>
+                  {mine ? `${m.body} · no answer` : m.body}
+                </SystemPill>
+              </div>
+            );
+          }
+
+          // Same class of fact: the message left the workspace for WhatsApp.
+          // The peer's copy carries the caveat — see ChatThread.
+          if (m.kind === "forward_external") {
+            return (
+              <div key={m.id}>
+                {dayChip}
+                <SystemPill
+                  icon={<Forward size={12} className="text-accent" />}
+                  at={m.at}
+                  title="BlissWork opened WhatsApp with the message prefilled. Whether it was sent isn't something we can observe."
+                >
+                  {m.body}
+                  {!mine && <span className="text-amber-500">· not confirmed</span>}
+                </SystemPill>
               </div>
             );
           }

@@ -127,7 +127,7 @@ func (s *Store) ForwardLinkRecord(
 	// reconnecting client and appears in history like any other message. It
 	// commits; do not commit again here.
 	res, err := s.appendMessage(ctx, tx, orgID, fc.ConversationID, forwarderID, fc.OtherUserID,
-		pill, clientMsgID, "", "", appendOpts{kind: MessageKindForwardExternal})
+		pill, clientMsgID, "", fc.ThreadID, appendOpts{kind: MessageKindForwardExternal})
 	if err != nil {
 		return nil, err
 	}

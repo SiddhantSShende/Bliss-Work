@@ -5,6 +5,7 @@ import { Avatar } from "@taskboard/ui";
 import { clock, groupMessages } from "../lib/chatFormat";
 import { isMediaMessage } from "../lib/chatEnvelope";
 import { Composer } from "./Composer";
+import { SystemPill } from "./SystemPill";
 
 export interface ThreadMessage {
   id: string;
@@ -13,8 +14,9 @@ export interface ThreadMessage {
   body: string;
   at?: string;
   pending?: boolean;
-  /** System entries (a missed call) render as a centered notice, not a bubble. */
-  kind?: "text" | "call_missed";
+  /** System entries (a missed call, a forward handed off to WhatsApp) render as
+   *  a centered notice, not a bubble. */
+  kind?: "text" | "call_missed" | "forward_external";
 }
 
 /** Presentational chat thread (bubbles + composer). Reused by DMs and channels. */
@@ -116,13 +118,30 @@ export function ChatThread({
               return (
                 <div key={m.id}>
                   {dayChip}
-                  <div className="my-2 flex justify-center">
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-2 px-3 py-1 text-[11px] font-medium text-muted ring-1 ring-border/60">
-                      <PhoneMissed size={12} className="text-red-500" />
-                      {mine ? `${m.body} · no answer` : m.body}
-                      <span className="text-muted/70">{clock(m.at)}</span>
-                    </span>
-                  </div>
+                  <SystemPill icon={<PhoneMissed size={12} className="text-red-500" />} at={m.at}>
+                    {mine ? `${m.body} · no answer` : m.body}
+                  </SystemPill>
+                </div>
+              );
+            }
+
+            // Handing a message to WhatsApp is the same class of fact: it left
+            // the workspace. The body is authored server-side. The peer's copy
+            // carries the caveat, because at depth 1 the peer IS the original
+            // author — the person entitled to know we cannot actually confirm
+            // a deep-link send.
+            if (m.kind === "forward_external") {
+              return (
+                <div key={m.id}>
+                  {dayChip}
+                  <SystemPill
+                    icon={<Forward size={12} className="text-accent" />}
+                    at={m.at}
+                    title="BlissWork opened WhatsApp with the message prefilled. Whether it was sent isn't something we can observe."
+                  >
+                    {m.body}
+                    {!mine && <span className="text-amber-500">· not confirmed</span>}
+                  </SystemPill>
                 </div>
               );
             }

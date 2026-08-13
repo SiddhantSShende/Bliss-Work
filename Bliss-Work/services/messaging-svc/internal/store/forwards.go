@@ -73,6 +73,16 @@ type ForwardEdgeDTO struct {
 	Platform            string  `json:"platform"`
 	Depth               int     `json:"depth"`
 	CreatedAt           string  `json:"createdAt"`
+	// Delivery is "confirmed" when a provider acknowledged the send, and
+	// "unconfirmed" for a deep link. The activity UI renders the two
+	// differently — presenting an opened wa.me link the same way as a
+	// Graph-API-acknowledged send would undermine the point of this feed.
+	Delivery string `json:"delivery"`
+	// ForwardedToName is the captured contact's display name, decrypted for
+	// the root author. Absent when none was captured.
+	ForwardedToName *string `json:"forwardedToName,omitempty"`
+	// ChannelID is set when the forwarded message lived in a channel.
+	ChannelID *string `json:"channelId,omitempty"`
 }
 
 // ForwardMessage clones a message the caller can see into a new 1:1 message
@@ -338,6 +348,10 @@ func (s *Store) ForwardExternalRecord(ctx context.Context, orgID, forwarderID, s
 		Platform:            platform,
 		Depth:               fc.Depth,
 		BodyPreview:         truncatePreview(fc.Body),
+		// Explicit rather than left to the column default: this path is only
+		// reached after the provider accepted the message, and saying so here
+		// keeps it legible next to the deep-link path that cannot.
+		Delivery: "confirmed",
 	}
 	if err := insertOutbox(ctx, tx, fc.ConversationID, evt); err != nil {
 		return err
@@ -355,26 +369,53 @@ func (s *Store) ListForwards(ctx context.Context, orgID, callerID, rootMessageID
 		rows, err := tx.Query(ctx,
 			`SELECT id::text, root_message_id::text, root_author_id::text,
 			        parent_message_id::text, forwarded_message_id::text, forwarded_by::text,
-			        forwarded_to::text, forwarded_to_external, platform, depth, created_at
+			        forwarded_to::text, forwarded_to_external, platform, depth, created_at,
+			        delivery, forwarded_to_name_enc, channel_id::text
 			   FROM message_forwards
 			  WHERE root_message_id = $1
 			  ORDER BY depth, created_at`, rootMessageID)
 		if err != nil {
 			return err
 		}
-		defer rows.Close()
+		// Buffer the rows and close the cursor BEFORE decrypting: a Decrypt
+		// query issued on this tx while `rows` is still open errors with
+		// "conn busy". Same shape as ListMyForwardActivity below — this loop
+		// used to stream straight out, and gained the buffer when the contact
+		// name became an encrypted column.
+		type rawEdge struct {
+			e       ForwardEdgeDTO
+			created time.Time
+			nameEnc []byte
+		}
+		var raws []rawEdge
 		for rows.Next() {
-			var e ForwardEdgeDTO
-			var createdAt time.Time
-			if err := rows.Scan(&e.ID, &e.RootMessageID, &e.RootAuthorID,
-				&e.ParentMessageID, &e.ForwardedMessageID, &e.ForwardedBy,
-				&e.ForwardedTo, &e.ForwardedToExternal, &e.Platform, &e.Depth, &createdAt); err != nil {
+			var r rawEdge
+			if err := rows.Scan(&r.e.ID, &r.e.RootMessageID, &r.e.RootAuthorID,
+				&r.e.ParentMessageID, &r.e.ForwardedMessageID, &r.e.ForwardedBy,
+				&r.e.ForwardedTo, &r.e.ForwardedToExternal, &r.e.Platform, &r.e.Depth,
+				&r.created, &r.e.Delivery, &r.nameEnc, &r.e.ChannelID); err != nil {
+				rows.Close()
 				return err
 			}
-			e.CreatedAt = createdAt.UTC().Format("2006-01-02T15:04:05.000Z")
+			raws = append(raws, r)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		for _, r := range raws {
+			e := r.e
+			if r.nameEnc != nil {
+				name, derr := s.crypto.Decrypt(ctx, tx, orgID, r.nameEnc)
+				if derr != nil {
+					return derr
+				}
+				e.ForwardedToName = &name
+			}
+			e.CreatedAt = r.created.UTC().Format("2006-01-02T15:04:05.000Z")
 			out = append(out, e)
 		}
-		return rows.Err()
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -395,6 +436,12 @@ type ForwardActivityDTO struct {
 	Preview         string `json:"preview"`
 	ForwardCount    int    `json:"forwardCount"`
 	LastForwardedAt string `json:"lastForwardedAt"`
+	// HasUnconfirmed is true when at least one hop of this message was a deep
+	// link we could not verify. It stays a flag rather than splitting
+	// ForwardCount in two: the count answers "how far did this travel", which
+	// is unchanged, and the flag answers "is any of it unverified", which is
+	// what the row needs in order not to overstate itself.
+	HasUnconfirmed bool `json:"hasUnconfirmed,omitempty"`
 }
 
 // ListMyForwardActivity returns every original message the caller authored that
@@ -404,13 +451,21 @@ type ForwardActivityDTO struct {
 func (s *Store) ListMyForwardActivity(ctx context.Context, orgID, callerID string) ([]ForwardActivityDTO, error) {
 	out := []ForwardActivityDTO{}
 	err := s.withOrg(ctx, orgID, func(tx pgx.Tx) error {
+		// The root can live in either message table: a DM message, or — since
+		// deep-link forwarding — a channel message. Joining only `messages`
+		// would leave every channel-rooted row with a blank preview.
 		rows, err := tx.Query(ctx,
-			`SELECT f.root_message_id::text, m.body, m.body_enc,
-			        count(*) AS forward_count, max(f.created_at) AS last_forwarded_at
+			`SELECT f.root_message_id::text,
+			        COALESCE(m.body, cm.body)         AS body,
+			        COALESCE(m.body_enc, cm.body_enc) AS body_enc,
+			        count(*) AS forward_count, max(f.created_at) AS last_forwarded_at,
+			        bool_or(f.delivery = 'unconfirmed') AS has_unconfirmed
 			   FROM message_forwards f
-			   LEFT JOIN messages m ON m.id = f.root_message_id
+			   LEFT JOIN messages m          ON m.id = f.root_message_id
+			   LEFT JOIN channel_messages cm ON cm.id = f.root_message_id
 			  WHERE f.root_author_id = $1
-			  GROUP BY f.root_message_id, m.body, m.body_enc
+			  GROUP BY f.root_message_id, COALESCE(m.body, cm.body),
+			           COALESCE(m.body_enc, cm.body_enc)
 			  ORDER BY max(f.created_at) DESC`, callerID)
 		if err != nil {
 			return err
@@ -424,7 +479,8 @@ func (s *Store) ListMyForwardActivity(ctx context.Context, orgID, callerID strin
 		var raws []raw
 		for rows.Next() {
 			var r raw
-			if err := rows.Scan(&r.d.RootMessageID, &r.body, &r.bodyEnc, &r.d.ForwardCount, &r.last); err != nil {
+			if err := rows.Scan(&r.d.RootMessageID, &r.body, &r.bodyEnc,
+				&r.d.ForwardCount, &r.last, &r.d.HasUnconfirmed); err != nil {
 				rows.Close()
 				return err
 			}

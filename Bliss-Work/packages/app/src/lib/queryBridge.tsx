@@ -249,11 +249,23 @@ export function WsEventBridge() {
               dir.find((u) => u.id === id)?.displayName ?? "someone";
             const to = e.forwardedTo
               ? nameOf(e.forwardedTo)
-              : e.forwardedToExternal ?? "someone";
+              : e.forwardedToName || e.forwardedToExternal || "someone";
             const via = e.platform === "blisswork" ? "" : ` via ${e.platform}`;
-            toast(`Your message was forwarded to ${to}`, {
-              description: `${nameOf(e.forwardedBy)} forwarded "${e.bodyPreview}"${via}`,
-            });
+            // A deep-link forward is unconfirmed by construction: we opened
+            // WhatsApp and stopped being able to see. Saying "was forwarded"
+            // would tell the author something we never observed, so the verb
+            // describes OUR action instead of a delivery.
+            const unconfirmed = e.delivery === "unconfirmed";
+            toast(
+              unconfirmed
+                ? `Your message may have been forwarded to ${to}`
+                : `Your message was forwarded to ${to}`,
+              {
+                description: unconfirmed
+                  ? `${nameOf(e.forwardedBy)} opened WhatsApp with "${e.bodyPreview}" — delivery isn't confirmed.`
+                  : `${nameOf(e.forwardedBy)} forwarded "${e.bodyPreview}"${via}`,
+              },
+            );
             // Refresh this original's tree + the "my forwarding activity" list.
             void qc.invalidateQueries({ queryKey: qk.forwardActivity(e.rootMessageId) });
             void qc.invalidateQueries({ queryKey: ["forwardActivity"] });
