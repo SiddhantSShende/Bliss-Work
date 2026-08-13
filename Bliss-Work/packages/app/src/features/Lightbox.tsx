@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, Download, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import type { MediaItem } from "../lib/chatEnvelope";
 import { prettySize } from "../lib/chatEnvelope";
 
@@ -78,19 +78,10 @@ export function Lightbox({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          {url && (
-            <a
-              // ?dl=1 makes the server send Content-Disposition: attachment even
-              // for types it would otherwise display inline.
-              href={`${url}&dl=1`}
-              download={current.name}
-              title="Download"
-              aria-label={`Download ${current.name}`}
-              className="rounded-full p-2 text-white/80 hover:bg-white/10 hover:text-white"
-            >
-              <Download size={18} />
-            </a>
-          )}
+          {/* No download control, by product decision — attachments are for
+              viewing in the app, not for saving. The server ignores ?dl=1 too
+              (internal/api/attachments.go), so a hand-crafted link cannot
+              re-enable it. */}
           <button
             onClick={onClose}
             title="Close"

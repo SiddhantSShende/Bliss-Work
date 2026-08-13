@@ -454,6 +454,23 @@ export class ApiClient {
   conversations() {
     return this.req(this.cfg.messagingBase, "/api/v1/conversations", {}, z.array(ConversationDTO));
   }
+  /**
+   * Open the 1:1 conversation with `peerId` without sending anything, returning
+   * its id. Idempotent — an existing conversation is returned as-is.
+   *
+   * Use this for every "message this person" affordance. Before it existed, a
+   * conversation could only be created by sending a message, so the UI faked a
+   * greeting ("👋 Hi Sam!") to force one into existence and the recipient got a
+   * message nobody had typed.
+   */
+  openConversation(peerId: string) {
+    return this.req(
+      this.cfg.messagingBase,
+      "/api/v1/conversations",
+      { method: "POST", body: JSON.stringify({ peerId }) },
+      z.object({ conversationId: z.string() }),
+    );
+  }
   messages(conversationId: string) {
     return this.req(
       this.cfg.messagingBase,

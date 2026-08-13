@@ -1,4 +1,4 @@
-import { AlertCircle, Download, FileIcon, Loader2, Play } from "lucide-react";
+import { AlertCircle, FileIcon, Loader2, Play } from "lucide-react";
 import { prettySize, type MediaItem } from "../lib/chatEnvelope";
 
 /**
@@ -193,19 +193,10 @@ function FileCard({
           </div>
         )}
       </div>
-      {url ? (
-        <a
-          href={`${url}&dl=1`}
-          download={item.name}
-          title="Download"
-          aria-label={`Download ${item.name}`}
-          className={`shrink-0 rounded-lg p-1.5 transition-colors ${
-            mine ? "hover:bg-white/20" : "text-muted hover:bg-surface-2 hover:text-fg"
-          }`}
-        >
-          <Download size={15} />
-        </a>
-      ) : isResolved ? null : (
+      {/* No download control, by product decision — a non-visual attachment
+          shows its name and size only. The server ignores ?dl=1 as well
+          (internal/api/attachments.go), so there is no link to hand-craft. */}
+      {url || isResolved ? null : (
         <Loader2 size={15} className="shrink-0 animate-spin opacity-60" />
       )}
     </div>

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { BarChart3, MessageSquare, Search, Users } from "lucide-react";
 import { Avatar, EmptyState, Input } from "@taskboard/ui";
 import type { ConversationDTO, MemberActivityDTO, UserDTO } from "@taskboard/shared";
@@ -17,6 +17,7 @@ import { ActivityNotice } from "../features/ActivityNotice";
  *  made the app's primary messaging entry point two clicks slower. */
 export function MembersList() {
   const { api } = useRuntime();
+  const qc = useQueryClient();
   const me = useSession((s) => s.user)!;
   const nav = useNavigate();
   const { userId } = useParams();
@@ -42,13 +43,18 @@ export function MembersList() {
   const convByPeer = new Map(conversations.map((c: ConversationDTO) => [c.peerId, c.id] as [string, string]));
   const results = rankUsers(users.filter((u) => u.id !== me.id && matchUser(u, q)), q);
 
+  // Opens the chat without saying anything. This used to post "👋 Hi {name}!"
+  // because sending was the only way to create a conversation row.
   const message = async (u: UserDTO) => {
     const existing = convByPeer.get(u.id);
     if (existing) return nav(`/app/chats/${existing}`);
     setBusy(true);
     try {
-      const r = await api.sendMessage(u.id, `👋 Hi ${u.displayName.split(" ")[0]}!`);
-      nav(`/app/chats/${r.conversationId}`);
+      const { conversationId } = await api.openConversation(u.id);
+      // DMView reads its header from the conversation list, so refresh it before
+      // navigating or a brand-new chat flashes "Conversation not found".
+      await qc.invalidateQueries({ queryKey: qk.conversations });
+      nav(`/app/chats/${conversationId}`);
     } finally {
       setBusy(false);
     }

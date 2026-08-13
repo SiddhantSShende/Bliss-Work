@@ -102,6 +102,7 @@ export function InboxRow({
             <Quick
               icon={<Check size={14} />}
               title="Acknowledge — accept this task"
+              label="Acknowledge"
               tone="accent"
               onClick={(e) => { e.preventDefault(); onAcknowledge(item.refId); }}
             />
@@ -110,6 +111,7 @@ export function InboxRow({
             <Quick
               icon={<Flag size={14} />}
               title="Mark complete"
+              label="Complete"
               tone="success"
               onClick={(e) => { e.preventDefault(); onComplete(item.refId); }}
             />
@@ -118,6 +120,7 @@ export function InboxRow({
             <Quick
               icon={<X size={14} />}
               title={isTask ? "Ignore — remove from inbox" : "Ignore — hides for both"}
+              label="Ignore"
               tone="danger"
               onClick={(e) => { e.preventDefault(); onIgnore(item.itemKind, item.refId); }}
             />
@@ -145,11 +148,19 @@ function statusTone(s: string): "accent" | "success" | "neutral" {
 function Quick({
   icon,
   title,
+  label,
   tone,
   onClick,
 }: {
   icon: React.ReactNode;
   title: string;
+  /**
+   * Visible text beside the icon. Supplied for the task state-machine actions,
+   * which are otherwise indistinguishable glyphs — a ✓ and an ✗ do not say
+   * "Acknowledge" and "Ignore" to anyone who hasn't been told. Omitted for
+   * Reply and Delete, whose icons are conventional and whose row has no room.
+   */
+  label?: string;
   tone: "muted" | "danger" | "accent" | "success";
   onClick: (e: React.MouseEvent) => void;
 }) {
@@ -163,9 +174,11 @@ function Quick({
     <button
       onClick={onClick}
       title={title}
-      className={`rounded-lg p-1 transition-colors ${tones[tone]}`}
+      aria-label={label ?? title}
+      className={`inline-flex items-center gap-1 rounded-lg p-1 text-[11px] font-medium transition-colors ${tones[tone]}`}
     >
       {icon}
+      {label}
     </button>
   );
 }

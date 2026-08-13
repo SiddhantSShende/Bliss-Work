@@ -64,9 +64,13 @@ export function createStickyWindow(taskId: string, index: number, collapsed = fa
   //   • showInactive() (below) surfaces it WITHOUT stealing focus.
   // The StickyManager confines its position to the primary display.
   const win = new BrowserWindow({
-    width: 320,
+    // Wide enough for "Acknowledge" and "Ignore" to sit side by side with their
+    // text labels. The note used to render those two as bare icons to fit 320px,
+    // which is unusable on a window that cannot take keyboard focus and only
+    // shows tooltips on hover.
+    width: 360,
     height: 200,
-    minWidth: 240,
+    minWidth: 300,
     minHeight: 140,
     frame: false,
     transparent: true,

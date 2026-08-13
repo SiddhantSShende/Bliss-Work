@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, Download, MessageSquare, Users } from "lucide-react";
 import { Avatar, Badge, Button, EmptyState, Spinner } from "@taskboard/ui";
 import type { MemberDTO } from "@taskboard/shared";
@@ -22,6 +22,7 @@ type TabKey = "overview" | "timeline" | "analytics" | "sessions" | "admin" | "se
 export function MemberDetail() {
   const { userId = "" } = useParams();
   const { api } = useRuntime();
+  const qc = useQueryClient();
   const nav = useNavigate();
   const me = useSession((s) => s.user)!;
   const isAdmin = me.roles.includes("org_admin");
@@ -29,6 +30,14 @@ export function MemberDetail() {
   const [tab, setTab] = useState<TabKey>("overview");
   const [patched, setPatched] = useState<MemberDTO | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
+
+  // This component is mounted once for `members/:userId`, so opening another
+  // member reuses it and keeps the previous tab selected — which can be a tab
+  // that isn't even in the new member's tab list, leaving a blank panel.
+  useEffect(() => {
+    setTab("overview");
+    setExportOpen(false);
+  }, [userId]);
 
   // Admins read the roster (which includes suspended/removed people); everyone
   // else reads the plain directory, which by design lists only active members.
@@ -52,13 +61,18 @@ export function MemberDetail() {
   });
 
   const [opening, setOpening] = useState(false);
-  const openDm = async (displayName: string) => {
+  // Opens the chat without saying anything. This used to post "👋 Hi {name}!"
+  // because sending was the only way to create a conversation row.
+  const openDm = async () => {
     const existing = conversations.find((c) => c.peerId === userId);
     if (existing) return nav(`/app/chats/${existing.id}`);
     setOpening(true);
     try {
-      const r = await api.sendMessage(userId, `👋 Hi ${displayName.split(" ")[0]}!`);
-      nav(`/app/chats/${r.conversationId}`);
+      const { conversationId } = await api.openConversation(userId);
+      // DMView reads its header from the conversation list, so refresh it before
+      // navigating or a brand-new chat flashes "Conversation not found".
+      await qc.invalidateQueries({ queryKey: qk.conversations });
+      nav(`/app/chats/${conversationId}`);
     } finally {
       setOpening(false);
     }
@@ -116,10 +130,14 @@ export function MemberDetail() {
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center gap-3 border-b border-border/70 bg-surface/60 px-5 py-3 backdrop-blur">
+        {/* Not md:hidden. The list pane sits beside this on desktop, but the
+            desktop APP is a single window with no browser chrome — hiding the
+            only back control there left keyboard users with no way out. */}
         <button
           onClick={() => nav("/app/members")}
           title="Back to members"
-          className="-ml-1 shrink-0 rounded-lg p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg md:hidden"
+          aria-label="Back to members"
+          className="-ml-1 shrink-0 rounded-lg p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg"
         >
           <ChevronLeft size={20} />
         </button>
@@ -149,7 +167,7 @@ export function MemberDetail() {
             size="sm"
             variant="secondary"
             loading={opening}
-            onClick={() => openDm(member.displayName)}
+            onClick={() => void openDm()}
             className="hidden sm:inline-flex"
           >
             <MessageSquare size={15} /> Message

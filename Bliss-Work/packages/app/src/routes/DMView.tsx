@@ -40,6 +40,13 @@ export function DMView() {
   // available to every org member (each org supplies its own provider credentials).
   const [forwardMsg, setForwardMsg] = useState<{ id: string; body: string } | null>(null);
 
+  // Same route-reuse trap as ChannelView's members sheet: navigating to another
+  // conversation keeps this component mounted, so an open Forward dialog would
+  // follow the user into the next chat still holding the old message id.
+  useEffect(() => {
+    setForwardMsg(null);
+  }, [conversationId]);
+
   useEffect(() => {
     const maxSeq = messages.reduce((m, x) => Math.max(m, x.seq), 0);
     if (maxSeq > 0) api.read(conversationId, maxSeq).catch(() => {});

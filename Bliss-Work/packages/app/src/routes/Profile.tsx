@@ -5,11 +5,13 @@ import { Avatar, Badge, Button, Input, PageHeader } from "@taskboard/ui";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
+import { useGoBack } from "../lib/useGoBack";
 import { Field } from "./Onboarding";
 
 export function Profile() {
   const { api } = useRuntime();
   const qc = useQueryClient();
+  const goBack = useGoBack();
   const user = useSession((s) => s.user)!;
   const setUser = useSession((s) => s.setUser);
   const [name, setName] = useState(user.displayName);
@@ -30,7 +32,7 @@ export function Profile() {
 
   return (
     <div className="flex h-full flex-col">
-      <PageHeader title="My Profile" subtitle="Manage how you appear to your team." />
+      <PageHeader title="My Profile" subtitle="Manage how you appear to your team." onBack={goBack} />
       <div className="min-h-0 flex-1 overflow-auto p-6">
         <div className="mx-auto max-w-xl space-y-6">
           <div className="glass flex items-center gap-4 rounded-2xl p-5">

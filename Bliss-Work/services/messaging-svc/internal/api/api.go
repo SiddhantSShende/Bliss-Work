@@ -178,6 +178,9 @@ func (s *Server) Router(webOrigin string) http.Handler {
 			r.Use(mw.MaxBytes(smallBody))
 
 			r.Post("/conversations/messages", s.sendMessage)
+			// Open-or-create with no message, so "message this person" can
+			// navigate to an empty thread instead of sending a fake greeting.
+			r.Post("/conversations", s.openConversation)
 			r.Get("/conversations", s.listConversations)
 			r.Post("/conversations/{id}/reply", s.reply)
 			r.Post("/conversations/{id}/ignore", s.ignore)
@@ -203,6 +206,12 @@ func (s *Server) Router(webOrigin string) http.Handler {
 			// idempotency group.
 			r.Post("/messages/{id}/forward", s.forwardMessage)
 			r.Post("/messages/{id}/forward-external", s.forwardExternal)
+			// Deep link (wa.me): records the forward and writes the system
+			// entry, but sends nothing — the client opens WhatsApp itself.
+			// Needs no connected Business account, so unlike forward-external
+			// it is usable by every org. Idempotent on clientMsgId, so it too
+			// stays out of the idempotency group.
+			r.Post("/messages/{id}/forward-link", s.forwardLink)
 			r.Get("/messages/{id}/forwards", s.listForwards)
 			r.Get("/forwards/activity", s.listForwardActivity)
 
@@ -356,6 +365,38 @@ type sendReq struct {
 	// Optional system kind (e.g. "call_missed"); absent means an ordinary
 	// message. Whitelisted below — clients cannot invent kinds.
 	Kind string `json:"kind"`
+}
+
+type openConversationReq struct {
+	PeerID string `json:"peerId"`
+}
+
+// openConversation opens the 1:1 conversation with `peerId` WITHOUT sending
+// anything, so "message this person" can navigate straight to an empty thread.
+// See store.OpenConversation for why the app previously had to send a greeting.
+func (s *Server) openConversation(w http.ResponseWriter, r *http.Request) {
+	claims, _ := auth.FromContext(r.Context())
+	var req openConversationReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if !validUUID(req.PeerID) {
+		writeErr(w, http.StatusBadRequest, "peerId required")
+		return
+	}
+	if req.PeerID == claims.UserID {
+		writeErr(w, http.StatusBadRequest, "cannot open a conversation with yourself")
+		return
+	}
+	convID, err := s.store.OpenConversation(r.Context(), claims.OrgID, claims.UserID, req.PeerID)
+	if err != nil {
+		s.mapErr(w, err)
+		return
+	}
+	// 200, not 201: the conversation may well have already existed, and the
+	// caller cannot tell the difference (nor should it care).
+	writeJSON(w, http.StatusOK, map[string]string{"conversationId": convID})
 }
 
 func (s *Server) sendMessage(w http.ResponseWriter, r *http.Request) {

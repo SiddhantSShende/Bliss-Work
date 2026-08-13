@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { Search, Users } from "lucide-react";
 import { Avatar, Input, EmptyState } from "@taskboard/ui";
@@ -12,6 +12,7 @@ import { Modal } from "./Modal";
 
 export function NewChatDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { api } = useRuntime();
+  const qc = useQueryClient();
   const me = useSession((s) => s.user)!;
   const nav = useNavigate();
   const [q, setQ] = useState("");
@@ -24,12 +25,18 @@ export function NewChatDialog({ open, onClose }: { open: boolean; onClose: () =>
 
   const results = rankUsers(users.filter((u) => u.id !== me.id && matchUser(u, q)), q);
 
+  // Opening a chat must not SAY anything. This used to post "👋 Hi {name}!"
+  // because sending was the only way to create a conversation row; openConversation
+  // creates it silently. The conversation list is refreshed before navigating
+  // because DMView resolves the header from it and would otherwise flash
+  // "Conversation not found" for a brand-new, empty chat.
   const start = async (u: UserDTO) => {
     setBusy(true);
     try {
-      const r = await api.sendMessage(u.id, `👋 Hi ${u.displayName.split(" ")[0]}!`);
+      const { conversationId } = await api.openConversation(u.id);
+      await qc.invalidateQueries({ queryKey: qk.conversations });
       onClose();
-      nav(`/app/chats/${r.conversationId}`);
+      nav(`/app/chats/${conversationId}`);
     } finally {
       setBusy(false);
     }

@@ -104,16 +104,15 @@ export function StickyWidget({
         <p className="line-clamp-3 text-sm leading-relaxed text-fg/80">{task.description}</p>
       )}
 
+      {/* Every action is LABELLED, including on the compact floating note. It
+          used to render bare glyphs there (iconOnly={compact}), which left the
+          desktop widget showing a ✓ and an ✗ with no way to tell which was
+          which — the tooltip only appears if you hover and wait, and the note
+          is not focusable so it cannot be reached by keyboard either. */}
       <div className="app-no-drag flex flex-wrap gap-2">
         {task.actions.includes("ACKNOWLEDGE") && !locked && (
-          <ActionBtn
-            tone="accent"
-            iconOnly={compact}
-            label="Acknowledge"
-            onClick={() => onAction("ACKNOWLEDGE")}
-          >
-            <Check size={compact ? 17 : 15} />
-            {!compact && " Acknowledge"}
+          <ActionBtn tone="accent" label="Acknowledge" onClick={() => onAction("ACKNOWLEDGE")}>
+            <Check size={15} /> Acknowledge
           </ActionBtn>
         )}
         {/* Explicit Ignore button next to Acknowledge for every SENT card. On
@@ -122,14 +121,8 @@ export function StickyWidget({
             expect (and asked for) a clearly-labelled Ignore button beside
             Acknowledge rather than only a corner ✗ — so render it in both. */}
         {task.actions.includes("IGNORE") && !locked && (
-          <ActionBtn
-            tone="danger"
-            iconOnly={compact}
-            label="Ignore"
-            onClick={() => onAction("IGNORE")}
-          >
-            <X size={compact ? 17 : 15} />
-            {!compact && " Ignore"}
+          <ActionBtn tone="danger" label="Ignore" onClick={() => onAction("IGNORE")}>
+            <X size={15} /> Ignore
           </ActionBtn>
         )}
         {task.actions.includes("COMPLETE") && (
@@ -162,16 +155,12 @@ function ActionBtn({
   onClick,
   tone,
   label,
-  iconOnly = false,
 }: {
   children: React.ReactNode;
   onClick: () => void;
   tone: "accent" | "success" | "ghost" | "danger";
-  /** Tooltip + accessible name — required when iconOnly so the button isn't
-   *  just a bare glyph to a screen reader. */
+  /** Tooltip text. The visible label is the button's own children. */
   label?: string;
-  /** Render the icon with no text label (the compact floating note). */
-  iconOnly?: boolean;
 }) {
   const tones = {
     accent: "bg-accent text-accent-fg hover:bg-accent-strong shadow-soft",

@@ -56,6 +56,7 @@ var cappedRoutes = map[string]string{
 	"POST /internal/messages/delivered": "small",
 
 	// /api/v1 — everything small except the one upload route.
+	"POST /api/v1/conversations":                  "small",
 	"POST /api/v1/conversations/messages":         "small",
 	"POST /api/v1/conversations/{id}/reply":       "small",
 	"POST /api/v1/conversations/{id}/ignore":      "small",
@@ -66,6 +67,7 @@ var cappedRoutes = map[string]string{
 	"POST /api/v1/attachments/links":              "small",
 	"POST /api/v1/messages/{id}/forward":          "small",
 	"POST /api/v1/messages/{id}/forward-external": "small",
+	"POST /api/v1/messages/{id}/forward-link":     "small",
 	"POST /api/v1/channels":                       "small",
 	"POST /api/v1/channels/{id}/messages":         "small",
 	"POST /api/v1/channels/{id}/members":          "small",

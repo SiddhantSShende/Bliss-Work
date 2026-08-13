@@ -194,13 +194,21 @@ type ConversationDTO struct {
 // fields (ThreadID, ParentMessageID, IsThreadRoot) are omitempty so legacy
 // /conversations/{id}/messages keeps emitting clean JSON for old clients.
 // Message kinds. 'text' is an ordinary message someone typed; the others are
-// system entries the UI renders differently. The write path accepts only these.
+// system entries the UI renders as a centered pill rather than a chat bubble.
 const (
 	MessageKindText       = "text"
 	MessageKindCallMissed = "call_missed"
+	// MessageKindForwardExternal records that a message was handed off to an
+	// external app (currently a WhatsApp deep link). Deliberately NOT in
+	// ValidMessageKind: the pill names a recipient and shows a phone number, so
+	// a client able to post one directly could forge "Forwarded to IT Support
+	// (+1800…)" in someone else's thread. Only ForwardLinkRecord sets it.
+	MessageKindForwardExternal = "forward_external"
 )
 
-// ValidMessageKind reports whether a client-supplied kind is one we accept.
+// ValidMessageKind reports whether a CLIENT-SUPPLIED kind is one we accept on
+// the send path. Server-derived kinds are set through appendOpts.kind and are
+// intentionally absent here — see MessageKindForwardExternal.
 func ValidMessageKind(kind string) bool {
 	return kind == MessageKindText || kind == MessageKindCallMissed
 }

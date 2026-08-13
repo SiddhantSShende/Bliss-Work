@@ -147,6 +147,10 @@ type MessageDismissed struct {
 // without a DB lookup. Outbound-to-external forward (Platform != "blisswork"):
 // there is no clone, so ForwardedMessageID/ThreadID/Seq are empty and
 // ForwardedToExternal carries the external handle instead of ForwardedTo.
+//
+// Delivery/ForwardedToName/ChannelID were added for deep-link forwarding and are
+// omitempty, so producers and consumers from before it emit and read exactly the
+// JSON they did before.
 type MessageForwarded struct {
 	Type                string  `json:"type"`
 	EventID             string  `json:"eventId"`
@@ -165,6 +169,18 @@ type MessageForwarded struct {
 	ForwardedMessageID  string  `json:"forwardedMessageId,omitempty"`
 	ThreadID            *string `json:"threadId,omitempty"`
 	Seq                 int64   `json:"seq,omitempty"`
+	// Delivery is "confirmed" when a provider acknowledged the send, and
+	// "unconfirmed" for a deep link — we opened WhatsApp and lost sight of it.
+	// The original author is told which; presenting the two alike would make
+	// this event claim more than it knows.
+	Delivery string `json:"delivery,omitempty"`
+	// ForwardedToName is the captured contact's display name, so the author
+	// reads "forwarded to Jane Doe" rather than a bare number.
+	ForwardedToName string `json:"forwardedToName,omitempty"`
+	// ChannelID is set when the forwarded message lives in a channel rather
+	// than a 1:1 conversation. Routing is unaffected — this event still goes
+	// only to the forwarder and the original author, never the whole channel.
+	ChannelID string `json:"channelId,omitempty"`
 }
 
 // ChannelMessageCreated is emitted when a new message is appended to a group channel.
@@ -180,6 +196,9 @@ type ChannelMessageCreated struct {
 	SenderUsername string   `json:"senderUsername"`
 	Body           string   `json:"body"`
 	Members        []string `json:"members"`
+	// Kind mirrors MessageCreated.Kind — omitted for ordinary text so the wire
+	// shape is unchanged for consumers that predate channel system entries.
+	Kind string `json:"kind,omitempty"`
 }
 
 // ChannelMemberJoined is emitted when a user joins a channel (open self-

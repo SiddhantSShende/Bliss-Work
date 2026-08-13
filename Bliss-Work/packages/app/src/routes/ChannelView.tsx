@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Hash, Users, ChevronLeft, LogOut, Lock } from "lucide-react";
@@ -19,6 +19,15 @@ export function ChannelView() {
   const [rosterOpen, setRosterOpen] = useState(false);
   const me = useSession((s) => s.user)!;
   const nav = useNavigate();
+
+  // Switching channels must land on the CHAT, never on the previous channel's
+  // members sheet. This component is mounted once for the whole
+  // `channels/:channelId` route (App.tsx), so React Router reuses it across a
+  // param change and every piece of local state — this one included — survives
+  // into the next channel unless it is explicitly reset.
+  useEffect(() => {
+    setRosterOpen(false);
+  }, [channelId]);
 
   const { data: channels = [] } = useQuery({ queryKey: qk.channels, queryFn: () => api.channels() });
   const channel = channels.find((c: ChannelDTO) => c.id === channelId);

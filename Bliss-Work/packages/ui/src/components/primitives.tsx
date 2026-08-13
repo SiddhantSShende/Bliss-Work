@@ -1,5 +1,5 @@
 import { forwardRef } from "react";
-import { Loader2 } from "lucide-react";
+import { ChevronLeft, Loader2 } from "lucide-react";
 import { cn } from "../lib/cn";
 
 export const Card = forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
@@ -135,11 +135,22 @@ export function PageHeader({
   title,
   subtitle,
   action,
+  onBack,
+  backLabel = "Back",
   className,
 }: {
   title: string;
   subtitle?: string;
   action?: React.ReactNode;
+  /**
+   * Renders a leading back control. Full-width routes (Profile, Settings, Org,
+   * Integrations) are reached from a menu rather than from a list pane, so
+   * without this the only way out is the browser's back gesture — which the
+   * desktop app does not offer at all.
+   */
+  onBack?: () => void;
+  /** Accessible name for the back control; also its tooltip. */
+  backLabel?: string;
   className?: string;
 }) {
   return (
@@ -149,9 +160,22 @@ export function PageHeader({
         className,
       )}
     >
-      <div className="min-w-0">
-        <h1 className="truncate text-lg font-semibold tracking-tight text-fg">{title}</h1>
-        {subtitle && <p className="mt-0.5 truncate text-sm text-muted">{subtitle}</p>}
+      <div className="flex min-w-0 items-center gap-2">
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            title={backLabel}
+            aria-label={backLabel}
+            className="-ml-2 shrink-0 rounded-lg p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg"
+          >
+            <ChevronLeft size={20} />
+          </button>
+        )}
+        <div className="min-w-0">
+          <h1 className="truncate text-lg font-semibold tracking-tight text-fg">{title}</h1>
+          {subtitle && <p className="mt-0.5 truncate text-sm text-muted">{subtitle}</p>}
+        </div>
       </div>
       {action}
     </div>

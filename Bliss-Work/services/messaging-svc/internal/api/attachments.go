@@ -329,10 +329,16 @@ func (s *Server) downloadMedia(w http.ResponseWriter, r *http.Request) {
 	// ever served inline, everything else is downgraded to octet-stream AND
 	// forced to attachment. See internal/media/mime.go.
 	ct, inline := media.ServeAs(att.MIME)
-	// ?dl=1 lets the UI's Download button force a save even for inline types.
-	if r.URL.Query().Get("dl") != "" {
-		inline = false
-	}
+	// NOTE: `?dl=1` is deliberately NOT honoured. It used to let the UI's
+	// Download button force `Content-Disposition: attachment` even for types
+	// that display inline; downloading chat attachments is no longer offered, so
+	// the parameter is ignored rather than removed — old links in a cache or a
+	// pasted URL then render inline instead of saving.
+	//
+	// This is deterrence, not DRM: `inline` is still false for everything
+	// ServeAs refuses to display, because forcing a script-capable file to
+	// download rather than execute is a security control and stays put. Media a
+	// viewer can see, a viewer can still capture.
 	h := w.Header()
 	h.Set("Content-Type", ct)
 	h.Set("Content-Disposition", media.ContentDisposition(inline, att.Filename))

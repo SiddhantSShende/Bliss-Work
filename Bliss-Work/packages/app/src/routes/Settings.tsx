@@ -19,6 +19,7 @@ import { DeviceActivitySettings } from "../features/DeviceActivitySettings";
 import { useTheme } from "@taskboard/ui";
 import { BUILD_SHA } from "../lib/buildInfo";
 import { useRuntime } from "../lib/runtime";
+import { useGoBack } from "../lib/useGoBack";
 
 const NOTIF_KEY = "tb.notifications.desktop";
 
@@ -40,6 +41,7 @@ function saveDesktopNotifs(on: boolean) {
 
 export function Settings() {
   const { theme, toggle } = useTheme();
+  const goBack = useGoBack();
   const [desktopNotifs, setDesktopNotifs] = useState(loadDesktopNotifs);
 
   const toggleNotifs = () => {
@@ -50,7 +52,11 @@ export function Settings() {
 
   return (
     <div className="flex h-full flex-col">
-      <PageHeader title="Settings" subtitle="Preferences for how the app behaves on this device." />
+      <PageHeader
+        title="Settings"
+        subtitle="Preferences for how the app behaves on this device."
+        onBack={goBack}
+      />
       <div className="min-h-0 flex-1 overflow-auto p-6">
         <div className="mx-auto max-w-xl space-y-4">
           <SettingRow

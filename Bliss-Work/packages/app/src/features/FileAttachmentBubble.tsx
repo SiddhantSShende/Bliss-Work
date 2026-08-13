@@ -1,4 +1,4 @@
-import { Check, Download, FileIcon, Loader2, X } from "lucide-react";
+import { Check, FileIcon, Loader2, X } from "lucide-react";
 import type { TransferState } from "../lib/rtcTransfer";
 
 /**
@@ -51,9 +51,13 @@ export function FileAttachmentBubble(props: FileAttachmentBubbleProps) {
       <StateLine state={state} />
 
       <div className="mt-1 flex flex-wrap gap-1.5">
+        {/* Accept is gone: this transfer writes the file to the recipient's
+            disk, which is exactly what downloading attachments is no longer
+            allowed to do. Decline stays so the offer can still be cleared
+            instead of sitting in the thread forever. */}
         {state.kind === "OFFERED" && !mine && (
           <>
-            <Btn variant="accent" onClick={props.onAccept}>Accept</Btn>
+            <span className="text-xs opacity-70">File downloads are turned off.</span>
             <Btn variant="ghost" onClick={props.onDecline}>Decline</Btn>
           </>
         )}
@@ -63,11 +67,9 @@ export function FileAttachmentBubble(props: FileAttachmentBubbleProps) {
         {state.kind === "TRANSFERRING" && (
           <Btn variant="ghost" onClick={props.onCancel}>Cancel</Btn>
         )}
-        {state.kind === "DONE" && (
-          <Btn variant="ghost" onClick={props.onOpen}>
-            <Download size={13} /> Open
-          </Btn>
-        )}
+        {/* "Open" reveals the received file on disk — same reason as Accept.
+            Historic DONE transfers keep their completion line, without the
+            handle back to the file. */}
         {state.kind === "FAILED" && (
           <>
             <span className="inline-flex items-center gap-1 text-xs text-danger">

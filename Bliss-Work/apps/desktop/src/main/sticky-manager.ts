@@ -42,10 +42,10 @@ const PILL_W = 220;
 const PILL_H = 52;
 /** The note's normal minimum size (mirrors createStickyWindow). Restored when
  *  the user expands a collapsed pill back to a full note. */
-const FULL_MIN_W = 240;
+const FULL_MIN_W = 300;
 const FULL_MIN_H = 140;
 /** Fallback full size if we somehow lack a stored expanded size. */
-const FULL_W = 320;
+const FULL_W = 360;
 const FULL_H = 200;
 
 /**
@@ -377,7 +377,9 @@ export class StickyManager {
       return;
     }
     const { workArea } = screen.getPrimaryDisplay();
-    const x = workArea.x + workArea.width - 340 - SCREEN_PAD;
+    // Inset by the note's own width so the default position tucks it against
+    // the right edge rather than half off-screen.
+    const x = workArea.x + workArea.width - FULL_W - SCREEN_PAD;
     const y = workArea.y + 20 + index * 220;
     w.setPosition(Math.max(workArea.x + SCREEN_PAD, x), Math.max(workArea.y + SCREEN_PAD, y));
   }

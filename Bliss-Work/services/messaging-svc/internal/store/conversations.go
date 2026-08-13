@@ -24,6 +24,53 @@ func (s *Store) upsertMember(ctx context.Context, tx pgx.Tx, convID, orgID, user
 	return err
 }
 
+// ── Open ──────────────────────────────────────────────────────────────────────
+
+// OpenConversation ensures the 1:1 conversation between the caller and the peer
+// exists and is visible to the CALLER, without appending a message. Idempotent:
+// re-opening an existing conversation returns the same id.
+//
+// WHY THIS EXISTS. Creating a conversation used to be a side effect of sending
+// one — SendMessage's INSERT … ON CONFLICT below was the only path that ever
+// wrote a `conversations` row. So every "message this person" button in the app
+// fabricated a greeting ("👋 Hi Sam!") purely to make the row appear, and the
+// recipient received a message no human had written. This is the same upsert
+// minus appendMessage: no seq, no thread, no inbox_items row, no outbox event.
+//
+// Only the CALLER's member row is upserted, deliberately. Reviving the peer's
+// row too would put an empty conversation in their sidebar the moment someone
+// opened a chat window — the same unsolicited "you got contacted" signal the
+// fake greeting produced. Both rows are upserted on the first real send
+// (SendMessage / replyImpl), which is when the peer genuinely has something to
+// see.
+//
+// Blocking is deliberately NOT enforced here: opening the window is harmless,
+// and DMView renders the "you blocked this user" notice from the conversation
+// DTO. Refusing would produce an error dialog where an explanation belongs.
+func (s *Store) OpenConversation(ctx context.Context, orgID, callerID, peerID string) (string, error) {
+	if callerID == peerID {
+		return "", ErrForbidden
+	}
+	low, high := orderedPair(callerID, peerID)
+
+	convID := uuid.Must(uuid.NewV7()).String()
+	err := s.withOrg(ctx, orgID, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(ctx,
+			`INSERT INTO conversations (id, org_id, user_low, user_high)
+			 VALUES ($1, $2, $3, $4)
+			 ON CONFLICT (org_id, user_low, user_high) DO UPDATE SET org_id = EXCLUDED.org_id
+			 RETURNING id`,
+			convID, orgID, low, high).Scan(&convID); err != nil {
+			return err
+		}
+		return s.upsertMember(ctx, tx, convID, orgID, callerID)
+	})
+	if err != nil {
+		return "", err
+	}
+	return convID, nil
+}
+
 // ── Ignore ────────────────────────────────────────────────────────────────────
 
 // Ignore hides the conversation for BOTH members and emits conversation.ignored.
