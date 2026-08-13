@@ -75,6 +75,29 @@ interface NoteState {
 type PositionMap = Record<string, NoteState>;
 type UnpinnedSet = Record<string, true>;
 
+/**
+ * Broadcast so a mounted BrowserStickies picks up a dismissal made from
+ * somewhere else in the app. `storage` events only fire in OTHER tabs, so the
+ * tab that did the writing needs its own signal.
+ */
+const DISMISS_EVENT = "tb:sticky-dismissed";
+
+/**
+ * Clear a task's floating note on the web, from anywhere.
+ *
+ * The web counterpart of PlatformConfig.dismissSticky: opening a task is what
+ * reading its notification means, so the note should go — and stay gone across
+ * a refresh, which is what the persisted unpinned set gives us. Safe to call
+ * when no note is showing, and on desktop (where the write is simply inert).
+ */
+export function dismissBrowserSticky(taskId: string): void {
+  if (typeof window === "undefined" || !taskId) return;
+  const current = readJSON<UnpinnedSet>(UNPINNED_KEY, {});
+  if (current[taskId]) return;
+  writeJSON(UNPINNED_KEY, { ...current, [taskId]: true as const });
+  window.dispatchEvent(new CustomEvent(DISMISS_EVENT, { detail: taskId }));
+}
+
 function readJSON<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
   try {
@@ -144,6 +167,17 @@ export function BrowserStickies() {
 
   useEffect(() => writeJSON(POSITION_KEY, positionMap), [positionMap]);
   useEffect(() => writeJSON(UNPINNED_KEY, unpinned), [unpinned]);
+
+  // Someone dismissed a note from elsewhere (opening the task, most often).
+  // Adopt it so the note disappears immediately rather than at the next mount.
+  useEffect(() => {
+    const onDismiss = (e: Event) => {
+      const taskId = (e as CustomEvent<string>).detail;
+      if (taskId) setUnpinned((prev) => (prev[taskId] ? prev : { ...prev, [taskId]: true }));
+    };
+    window.addEventListener(DISMISS_EVENT, onDismiss);
+    return () => window.removeEventListener(DISMISS_EVENT, onDismiss);
+  }, []);
 
   // Tasks the user just acted on locally. Held back from the visible set so
   // an in-flight refetch can't briefly revive the note after a dismiss.

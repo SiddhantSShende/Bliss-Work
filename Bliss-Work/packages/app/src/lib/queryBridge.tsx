@@ -11,6 +11,7 @@ import {
   type ChannelDTO,
   type ChannelMessageDTO,
   type UserDTO,
+  type WsEventMeta,
   actionsFor,
 } from "@taskboard/shared";
 import { useRuntime } from "./runtime";
@@ -128,8 +129,17 @@ export function WsEventBridge() {
     if (source) source.connect();
     else void ws.connect();
 
-    const handle = (e: ServerEvent) => {
+    const handle = (e: ServerEvent, meta?: WsEventMeta) => {
       const me = useSession.getState().user?.id;
+      /**
+       * Everything below still patches the caches from a replayed event — the
+       * screens must be correct after a reconnect. What must NOT happen is
+       * ANNOUNCING it. The gateway replays up to 200 events on every connect,
+       * so without this gate each launch, reload, wake-from-sleep and org
+       * switch fired the same wall of "New task: …" toasts and re-pinned the
+       * same desktop notes, for things the user dealt with days ago.
+       */
+      const live = !meta?.replayed;
       switch (e.type) {
         case EventType.MessageCreated: {
           // Own messages are rendered optimistically by the open thread, so skip
@@ -202,11 +212,13 @@ export function WsEventBridge() {
             qc.setQueryData<ChannelDTO[]>(qk.channels, (prev) =>
               (prev ?? []).filter((c) => c.id !== e.channelId),
             );
-            toast.info(
-              e.type === EventType.ChannelBlocked
-                ? "You were blocked from a channel"
-                : "You were removed from a channel",
-            );
+            if (live) {
+              toast.info(
+                e.type === EventType.ChannelBlocked
+                  ? "You were blocked from a channel"
+                  : "You were removed from a channel",
+              );
+            }
             if (window.location.pathname.includes(e.channelId)) {
               navRef.current("/app/channels");
             }
@@ -256,16 +268,18 @@ export function WsEventBridge() {
             // would tell the author something we never observed, so the verb
             // describes OUR action instead of a delivery.
             const unconfirmed = e.delivery === "unconfirmed";
-            toast(
-              unconfirmed
-                ? `Your message may have been forwarded to ${to}`
-                : `Your message was forwarded to ${to}`,
-              {
-                description: unconfirmed
-                  ? `${nameOf(e.forwardedBy)} opened WhatsApp with "${e.bodyPreview}" — delivery isn't confirmed.`
-                  : `${nameOf(e.forwardedBy)} forwarded "${e.bodyPreview}"${via}`,
-              },
-            );
+            if (live) {
+              toast(
+                unconfirmed
+                  ? `Your message may have been forwarded to ${to}`
+                  : `Your message was forwarded to ${to}`,
+                {
+                  description: unconfirmed
+                    ? `${nameOf(e.forwardedBy)} opened WhatsApp with "${e.bodyPreview}" — delivery isn't confirmed.`
+                    : `${nameOf(e.forwardedBy)} forwarded "${e.bodyPreview}"${via}`,
+                },
+              );
+            }
             // Refresh this original's tree + the "my forwarding activity" list.
             void qc.invalidateQueries({ queryKey: qk.forwardActivity(e.rootMessageId) });
             void qc.invalidateQueries({ queryKey: ["forwardActivity"] });
@@ -304,7 +318,7 @@ export function WsEventBridge() {
             // New TASK row lands in the unified inbox / People sidebar.
             void qc.invalidateQueries({ queryKey: qk.unifiedInbox });
             refreshInboxSidebars(qc);
-            toast(`New task: ${e.title}`, { description: `from ${e.senderUsername}` });
+            if (live) toast(`New task: ${e.title}`, { description: `from ${e.senderUsername}` });
           }
           // Availability roster: task.* events reach only the sender + assignee
           // (ws-gateway contract.RecipientsOf), so this invalidation is instant
@@ -316,7 +330,7 @@ export function WsEventBridge() {
           break;
         }
         case EventType.TaskAcknowledged: {
-          if (e.senderId === me)
+          if (e.senderId === me && live)
             toast.success(`Task acknowledged by ${e.assigneeUsername}`);
           if (e.assigneeId === me) {
             patchStickyStatus(qc, e.taskId, "ACKNOWLEDGED", e.statusVersion);
@@ -324,7 +338,11 @@ export function WsEventBridge() {
             // web ⇒ no-op, the task simply lands in the Tasks section). Single
             // chokepoint covering every acknowledge surface (inbox row, task
             // detail, sticky). Locked-until-Complete is enforced by StickyWidget.
-            autoPinOnAcknowledge(qc, config, e.taskId);
+            //
+            // Gated on `live`: a replayed acknowledge is one the user already
+            // dealt with, and re-pinning it made every relaunch repopulate the
+            // desktop with notes they had already cleared.
+            if (live) autoPinOnAcknowledge(qc, config, e.taskId);
             void qc.invalidateQueries({ queryKey: qk.unifiedInbox });
             refreshInboxSidebars(qc);
           }
@@ -338,7 +356,7 @@ export function WsEventBridge() {
         }
         case EventType.TaskCompleted: {
           if (e.senderId === me) {
-            toast.success(`Task completed by ${e.assigneeUsername}`);
+            if (live) toast.success(`Task completed by ${e.assigneeUsername}`);
             // Sender's inbox row needs to refresh so the row reflects the
             // completion (status badge / hidden state). Without this the
             // allocator only learns via the toast and a stale row stays put.
@@ -364,7 +382,7 @@ export function WsEventBridge() {
           // durable notification arrives separately via NotificationCreated).
           if (e.senderId === me) {
             const verb = e.type === EventType.TaskLeft ? "left" : "ignored";
-            toast(`Task ${verb} by ${e.assigneeUsername}`);
+            if (live) toast(`Task ${verb} by ${e.assigneeUsername}`);
             void qc.invalidateQueries({ queryKey: qk.unifiedInbox });
             refreshInboxSidebars(qc);
           }
@@ -388,7 +406,7 @@ export function WsEventBridge() {
           if (e.assigneeId === me) {
             void qc.invalidateQueries({ queryKey: qk.assigned });
             void qc.invalidateQueries({ queryKey: qk.sticky });
-            toast(`${e.reviewerUsername} reviewed your task`);
+            if (live) toast(`${e.reviewerUsername} reviewed your task`);
           }
           break;
         }
@@ -411,7 +429,7 @@ export function WsEventBridge() {
           // Someone actually tagged me — this one is worth interrupting for.
           if (e.recipientId === me) {
             void qc.invalidateQueries({ queryKey: ["mentions"] });
-            toast(`You were mentioned on ${e.provider}`);
+            if (live) toast(`You were mentioned on ${e.provider}`);
           }
           break;
         }

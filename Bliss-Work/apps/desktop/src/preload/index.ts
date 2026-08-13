@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { ServerEvent, ClientFrame, ControlFrame, PinResult } from "@taskboard/shared";
+import type { ServerEvent, ClientFrame, ControlFrame, PinResult, WsEventMeta } from "@taskboard/shared";
 
 /**
  * Main-window preload. Exposes a fixed, typed surface on window.taskboard.
@@ -18,9 +18,17 @@ const api = {
    *  sticky-state.json). The renderer hydrates the Pin button from this. */
   listPinned: (): Promise<string[]> => ipcRenderer.invoke("task:list-pinned"),
 
+  /** Clear a task's desktop note and remember that it was cleared, so the
+   *  auto-pin does not re-float it on the next launch. Called when the task is
+   *  opened — opening it is what "reading the notification" means. */
+  dismissSticky: (taskId: string) => ipcRenderer.send("sticky:dismiss", taskId),
+
   /** Subscribe to realtime ServerEvents relayed from the utilityProcess. */
-  onWsEvent: (cb: (e: ServerEvent) => void) => {
-    const handler = (_: unknown, e: ServerEvent) => cb(e);
+  onWsEvent: (cb: (e: ServerEvent, meta?: WsEventMeta) => void) => {
+    // `meta.replayed` distinguishes the connect-time catch-up burst from live
+    // traffic. The socket lives in the utilityProcess and the toasts fire here,
+    // so the flag has to make the trip.
+    const handler = (_: unknown, e: ServerEvent, meta?: WsEventMeta) => cb(e, meta);
     ipcRenderer.on("ws:event", handler);
     return () => ipcRenderer.removeListener("ws:event", handler);
   },

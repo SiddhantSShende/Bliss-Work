@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu, screen, session, Tray, utilityProcess, UtilityProcess } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, powerMonitor, screen, session, Tray, utilityProcess, UtilityProcess } from "electron";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { StickyTaskDTO } from "@taskboard/shared";
@@ -83,8 +83,23 @@ if (!app.requestSingleInstanceLock()) {
     // NSCameraUsageDescription + NSMicrophoneUsageDescription (Info.plist) and the
     // com.apple.security.device.{camera,audio-input} entitlements, or the OS
     // blocks capture before this handler is ever consulted.
-    session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => cb(permission === "media"));
-    session.defaultSession.setPermissionCheckHandler((_wc, permission) => permission === "media");
+    // "geolocation" joins "media" here: sharing your location in chat goes
+    // through navigator.geolocation, and Electron's default DENY meant every
+    // attempt failed with PERMISSION_DENIED before it could even reach a
+    // location provider. Still a closed allowlist — notifications, MIDI, USB,
+    // clipboard-read and the rest stay denied.
+    //
+    // Granting is necessary but not sufficient: Chromium's NETWORK locator
+    // needs a Google API key that Electron does not ship, so on a machine with
+    // no OS-level provider (typically Linux) getCurrentPosition still fails.
+    // useChatMedia falls back to /maps/whereami for exactly that case.
+    //
+    // NOTE for packaged macOS builds: CoreLocation is gated by the OS before
+    // this handler is consulted, so Info.plist needs
+    // NSLocationWhenInUseUsageDescription — see electron-builder config.
+    const allowed = new Set(["media", "geolocation"]);
+    session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => cb(allowed.has(permission)));
+    session.defaultSession.setPermissionCheckHandler((_wc, permission) => allowed.has(permission));
     bootstrap();
     // Check for a newer release + auto-update (packaged non-Store builds only).
     initAutoUpdate();
@@ -180,6 +195,12 @@ function wireMainWindow(win: BrowserWindow) {
   // window's focus/minimize state no longer gates them. We only intercept close
   // to keep running in the tray — so the widgets + WS survive the window being
   // dismissed. A real quit sets `quitting`.
+  // Windows only, and it must be registered BEFORE the close handler below so
+  // `quitting` is already set by the time the shutdown's close arrives —
+  // otherwise the app hides itself instead of quitting, which is what made the
+  // window appear to minimise when the machine was shut down.
+  win.on("session-end", onSystemShutdown);
+
   win.on("close", (e) => {
     if (!quitting) {
       e.preventDefault();
@@ -266,6 +287,8 @@ function startWsProcess() {
     (m: {
       type: string;
       event?: unknown;
+      /** True for the connect-time catch-up burst — see WsEventMeta. */
+      replayed?: boolean;
       tasks?: StickyTaskDTO[];
       // Phase 8: ws-process drives sticky-chat fan-out for pinned threads.
       threadId?: string;
@@ -278,7 +301,7 @@ function startWsProcess() {
       wsRestarts = 0;
       switch (m.type) {
         case "event":
-          mainWindow?.webContents.send("ws:event", m.event);
+          mainWindow?.webContents.send("ws:event", m.event, { replayed: m.replayed === true });
           break;
         case "sticky": {
           const live = m.tasks ?? [];
@@ -452,6 +475,18 @@ ipcMain.handle("task:list-pinned", () => {
     return [];
   }
 });
+// Clear a note from the desktop and remember it. Sent both by the note's own
+// dismiss control and by the app when the task is opened — reading a task IS
+// dealing with its notification.
+ipcMain.on("sticky:dismiss", (_e, taskId: unknown) => {
+  if (typeof taskId !== "string" || !taskId) return;
+  try {
+    sticky.dismiss(taskId);
+    updateTray();
+  } catch (err) {
+    console.error("[sticky] sticky:dismiss failed", err);
+  }
+});
 // A note's renderer has subscribed to "sticky:task" and is ready for its task.
 // Re-push it so a did-finish-load push that raced ahead of the renderer's IPC
 // listener registration can't strand the note on "Loading…".
@@ -526,6 +561,29 @@ app.on("window-all-closed", () => {
   // Keep running in tray (widgets + WS alive) except on explicit quit.
   if (process.platform !== "darwin" && quitting) app.quit();
 });
+
+/**
+ * The OS is shutting down, logging out, or restarting.
+ *
+ * Without this the shutdown reads as an ordinary window close, so the handler
+ * in wireMainWindow preventDefaults it and calls `win.hide()` — the window
+ * disappears (users read that as "it minimised itself"), the app is killed a
+ * moment later, and nothing has flushed. Setting `quitting` lets the close fall
+ * through to a real quit, and flushing here means the window's geometry is on
+ * disk even if the kill arrives before `before-quit` does.
+ *
+ * Both signals are wired because neither is universal. `session-end` is a
+ * BrowserWindow event and Windows-only (WM_ENDSESSION); powerMonitor's
+ * `shutdown` is what Linux and macOS emit. The handler is idempotent, so a
+ * platform that delivers both is harmless.
+ */
+function onSystemShutdown(): void {
+  quitting = true;
+  flushStickyState();
+  void activityAgent.flushOnQuit();
+}
+
+powerMonitor.on("shutdown", onSystemShutdown);
 
 app.on("before-quit", () => {
   quitting = true;

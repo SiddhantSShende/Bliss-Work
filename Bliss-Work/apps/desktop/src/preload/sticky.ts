@@ -29,6 +29,12 @@ const api = {
   /** Collapse this note to a pill / expand it back; main resizes the window. */
   setCollapsed: (collapsed: boolean) =>
     ipcRenderer.send("sticky:collapse", { taskId: api.taskId, collapsed }),
+
+  /** Clear this note from the desktop for good. Distinct from `act(…, "ignore")`
+   *  — that is a decision about the TASK; this is only about the note, and the
+   *  task keeps its status. Main remembers so the auto-pin doesn't bring it
+   *  back on the next launch. */
+  dismiss: () => ipcRenderer.send("sticky:dismiss", api.taskId),
 };
 
 contextBridge.exposeInMainWorld("sticky", api);

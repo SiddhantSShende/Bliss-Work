@@ -373,6 +373,14 @@ func (s *Server) onHello(ctx context.Context, conn *hub.Conn, sess *session, las
 			return
 		}
 	}
+
+	// Close the catch-up burst explicitly. Everything above already happened, so
+	// a client that announced it would re-toast up to 200 events on every launch
+	// and reconnect. The client cannot infer the boundary on its own: events
+	// carry SERVER timestamps, and a client whose clock disagrees would either
+	// silence live events or announce replayed ones. Sent even when the replay
+	// was empty, so the client always leaves catch-up mode.
+	s.deliverJSONCtx(ctx, conn, map[string]string{"type": "replay.done"})
 }
 
 // deliverCtx pushes one frame to the connection's outbound buffer with

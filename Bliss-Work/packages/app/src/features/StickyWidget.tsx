@@ -28,6 +28,7 @@ export function StickyWidget({
   pinned = false,
   locked = false,
   onCollapse,
+  onDismiss,
 }: {
   task: StickyTaskDTO;
   onAction: (action: TaskAction) => void;
@@ -40,6 +41,11 @@ export function StickyWidget({
   locked?: boolean;
   /** Floating note only: collapse this note to a pill. */
   onCollapse?: () => void;
+  /**
+   * Floating note only: clear the NOTE without touching the TASK. Distinct from
+   * Ignore, which is a decision about the work; this just says "I've seen it".
+   */
+  onDismiss?: () => void;
 }) {
   const showPin = shouldOfferPin({
     status: task.myStatus,
@@ -79,18 +85,34 @@ export function StickyWidget({
             {task.myStatus.toLowerCase()}
           </Badge>
           {locked || compact ? (
-            // Floating note: Ignore lives in the button row, so the header gets a
-            // collapse-to-pill control instead of a dismiss X. (A locked note has
-            // no Ignore at all — collapse is its only non-Complete affordance.)
-            onCollapse && (
-              <button
-                className="app-no-drag rounded-lg p-1 text-muted hover:bg-surface-2 hover:text-fg"
-                title="Collapse to a pill"
-                onClick={onCollapse}
-              >
-                <Minus size={16} />
-              </button>
-            )
+            // Floating note: Ignore lives in the button row, so the header gets
+            // a collapse-to-pill control — plus, now, a real dismiss.
+            <>
+              {onCollapse && (
+                <button
+                  className="app-no-drag rounded-lg p-1 text-muted hover:bg-surface-2 hover:text-fg"
+                  title="Collapse to a pill"
+                  onClick={onCollapse}
+                >
+                  <Minus size={16} />
+                </button>
+              )}
+              {/* Clearing the NOTE is not the same as ignoring the TASK, and
+                  the note used to offer neither: collapse replaced the X, so a
+                  note the user had read could only be got rid of by completing
+                  or ignoring the task it belonged to. This closes it and
+                  remembers, without touching the commitment. */}
+              {onDismiss && (
+                <button
+                  className="app-no-drag rounded-lg p-1 text-muted hover:bg-surface-2 hover:text-fg"
+                  title="Clear this note (the task stays)"
+                  aria-label="Clear this note"
+                  onClick={onDismiss}
+                >
+                  <X size={16} />
+                </button>
+              )}
+            </>
           ) : task.actions.includes("IGNORE") ? (
             // Header X = Ignore, shown ONLY when Ignore is actually a valid
             // action (SENT). For acknowledged/terminal tasks there is no Ignore,

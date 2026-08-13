@@ -150,6 +150,11 @@ func (l *Limiter) sweep(now time.Time) {
 // service, and nothing else can reach it — it is not published outside the
 // compose network. If a second trusted proxy is ever added, this must skip that
 // many entries from the right instead of one.
+// ClientIP is clientIP for callers outside this package. Same trust model:
+// only the rightmost X-Forwarded-For entry — the one our own edge observed —
+// may be believed.
+func ClientIP(r *http.Request) string { return clientIP(r) }
+
 func clientIP(r *http.Request) string {
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		parts := strings.Split(xff, ",")

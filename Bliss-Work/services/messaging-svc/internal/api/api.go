@@ -198,6 +198,12 @@ func (s *Server) Router(webOrigin string) http.Handler {
 			// the image is same-origin, the user's IP never reaches the provider
 			// and the API key stays off the client. Returns 204 when unavailable.
 			r.Get("/maps/static", s.staticMap)
+			// Names a coordinate so a shared location reads as a place rather
+			// than "Shared location", and resolves a coarse position by IP for
+			// desktops whose browser geolocation has no provider to ask. Both
+			// answer 204 when the feature is not configured.
+			r.Get("/maps/reverse", s.reverseGeocode)
+			r.Get("/maps/whereami", s.whereami)
 
 			// Forward tracking is available to every org — each org brings its own
 			// third-party credentials, so it is NOT a Bliss-Work paid tier. Any

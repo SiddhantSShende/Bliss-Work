@@ -1,7 +1,7 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { App, useSession, refreshSession, type PlatformConfig, type ServerEvent, type RtcTransport, type FileSink, type ChatStickyHost, installChunkReloadRecovery } from "@taskboard/app";
-import type { PinResult } from "@taskboard/shared";
+import type { PinResult, WsEventMeta } from "@taskboard/shared";
 import { resolveEndpoints } from "../shared/endpoints";
 import "@taskboard/ui/styles.css";
 import "./index.css";
@@ -14,7 +14,8 @@ declare global {
       setRefreshToken: (t: string | null) => void;
       pinTask: (taskId: string) => Promise<PinResult>;
       listPinned: () => Promise<string[]>;
-      onWsEvent: (cb: (e: ServerEvent) => void) => () => void;
+      dismissSticky: (taskId: string) => void;
+      onWsEvent: (cb: (e: ServerEvent, meta?: WsEventMeta) => void) => () => void;
       onTokenRequest: (cb: () => void) => () => void;
       onInviteDeepLink: (cb: (token: string) => void) => () => void;
       openExternal: (url: string) => void;
@@ -74,6 +75,7 @@ const config: PlatformConfig = {
   router: "hash",
   pinTask: (taskId) => bridge.pinTask(taskId),
   listPinned: () => bridge.listPinned(),
+  dismissSticky: (taskId) => bridge.dismissSticky(taskId),
   persistToken: (t) => bridge.setToken(t),
   // file:// makes every API request cross-site, so the SameSite=lax refresh
   // cookie never travels — the token comes from the host and goes in the body.

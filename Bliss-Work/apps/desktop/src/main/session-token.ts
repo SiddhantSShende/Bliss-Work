@@ -2,6 +2,7 @@ import { app, safeStorage, session } from "electron";
 import { readFileSync, writeFileSync, existsSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { resolveEndpoints } from "../shared/endpoints";
+import { refreshTokenFromSetCookie } from "../shared/refresh-cookie";
 
 /**
  * The desktop refresh token, kept where the renderer can actually reach it.
@@ -31,11 +32,28 @@ import { resolveEndpoints } from "../shared/endpoints";
  * the only thing currently stopping a forged /auth/refresh from rotating a
  * victim's token and tripping reuse-detection into a full logout.
  *
- * Two sources, in order:
- *   1. The Electron cookie jar — authoritative and self-updating, since every
- *      refresh response still carries a Set-Cookie that Chromium stores happily.
- *   2. userData/session.bin — a safeStorage-encrypted mirror, so the session
- *      survives a cleared jar. Refreshed from (1) on every read.
+ * ── Where the token actually comes from ─────────────────────────────────────
+ * Two sources, MIRROR FIRST:
+ *   1. userData/session.bin — a safeStorage-encrypted mirror, written by
+ *      watchRefreshCookie() from the Set-Cookie header of every auth response.
+ *   2. The Electron cookie jar — the fallback, for a mirror that is missing
+ *      (first run after upgrade, or a box where safeStorage failed). Whatever
+ *      the jar holds is copied into the mirror on the way past.
+ *
+ * The order used to be the other way round, on the assumption that "the cookie
+ * is stored fine, it just never goes back out". That assumption is what made
+ * reloading the desktop app log people out. A `SameSite=Lax` cookie is not only
+ * withheld on a cross-site REQUEST — Chromium also declines to STORE it from a
+ * cross-site RESPONSE, and a packaged renderer on file:// makes every call to
+ * the API cross-site. So the rotated token from /auth/refresh could silently
+ * fail to land in the jar, leaving the jar (and the mirror copied from it)
+ * holding a token that had already been spent. Presenting a spent token trips
+ * the server's reuse detection, which revokes the whole family and answers
+ * `code: "reused"` — a TERMINAL code, so the client clears the session and the
+ * user is at /login. Every reload, for a reason no log made obvious.
+ *
+ * watchRefreshCookie reads the header directly out of the network response, so
+ * it is unaffected by whether Chromium chose to persist the cookie.
  *
  * Kept out of cache.ts on purpose: that file caches sticky task content and has
  * a different threat model. A credential does not belong in it.
@@ -61,6 +79,38 @@ function cookieUrl(): string {
 
 export function initSessionToken(): void {
   file = join(app.getPath("userData"), "session.bin");
+  watchRefreshCookie();
+}
+
+/**
+ * Mirror the refresh token out of every auth response's Set-Cookie header.
+ *
+ * This is the desktop's authoritative capture point — see the file header for
+ * why the cookie jar cannot be trusted to hold the rotated token. It covers
+ * every path that mints one (login, refresh rotation, org switch, invite
+ * accept) without any of them having to remember to, and logout's
+ * `refresh_token=; Max-Age=0` clears the mirror through the same route.
+ *
+ * Registered once, from initSessionToken. onHeadersReceived allows a single
+ * listener per session — adding another anywhere would silently replace this.
+ */
+function watchRefreshCookie(): void {
+  const origin = cookieUrl();
+  session.defaultSession.webRequest.onHeadersReceived(
+    { urls: [`${origin}/*`] },
+    (details, callback) => {
+      // Header casing is not normalised across platforms, so match on the
+      // lowercased key rather than indexing "set-cookie" directly.
+      const headers = details.responseHeaders ?? {};
+      const key = Object.keys(headers).find((k) => k.toLowerCase() === "set-cookie");
+      // undefined = this response said nothing about the token, so leave the
+      // mirror alone; null = the logout cookie, so clear it.
+      const next = refreshTokenFromSetCookie(key ? headers[key] : undefined);
+      if (next !== undefined) writeMirror(next);
+      // Pass the response through untouched.
+      callback({});
+    },
+  );
 }
 
 function readMirror(): string | null {
@@ -100,13 +150,23 @@ function writeMirror(token: string | null): void {
 }
 
 /**
- * Current refresh token, jar first. Re-mirrors whatever the jar holds so token
- * ROTATION self-heals — each /auth/refresh rotates the token and sets a new
- * cookie, and reading it back here is what keeps session.bin from going stale
- * and presenting an already-spent token (which reuse-detection would treat as
- * theft and revoke the whole family).
+ * Current refresh token, MIRROR FIRST.
+ *
+ * The mirror is written straight from the Set-Cookie header of every auth
+ * response (watchRefreshCookie), so it always holds the most recently minted
+ * token. The jar can lag it — Chromium may decline to store a SameSite=Lax
+ * cookie arriving on a cross-site response, which is every response in a
+ * packaged file:// build — and handing back a lagging token means handing back
+ * a SPENT one, which reuse-detection treats as theft and answers by revoking
+ * the family. Reading the jar first is what made every reload a logout.
+ *
+ * The jar remains the fallback for a missing mirror (first run after an
+ * upgrade, or a Linux box where safeStorage has no backend), and whatever it
+ * holds is copied forward so the next read is served from the mirror.
  */
 export async function getRefreshToken(): Promise<string | null> {
+  const mirrored = readMirror();
+  if (mirrored) return mirrored;
   try {
     const jar = await session.defaultSession.cookies.get({
       url: cookieUrl(),
@@ -118,9 +178,9 @@ export async function getRefreshToken(): Promise<string | null> {
       return value;
     }
   } catch {
-    /* fall through to the mirror */
+    /* no jar entry either — the caller treats null as "please sign in" */
   }
-  return readMirror();
+  return null;
 }
 
 export function setRefreshToken(token: string | null): void {

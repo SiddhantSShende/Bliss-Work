@@ -14,6 +14,7 @@ declare global {
       act: (taskId: string, action: string) => void;
       setCollapsed: (collapsed: boolean) => void;
       ready: () => void;
+      dismiss: () => void;
     };
   }
 }
@@ -110,6 +111,7 @@ function StickyApp() {
         compact
         locked={task.myStatus === "ACKNOWLEDGED"}
         onCollapse={collapse}
+        onDismiss={() => window.sticky.dismiss()}
         onAction={(action: TaskAction) => window.sticky.act(task.taskId, VERB[action])}
       />
     </div>

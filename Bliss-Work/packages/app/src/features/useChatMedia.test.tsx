@@ -27,6 +27,11 @@ vi.mock("../lib/runtime", () => ({
       attachmentLinks,
       mediaUrl: (p: string) => `https://example.test${p}`,
       staticMap: vi.fn().mockResolvedValue(null),
+      // The location path isn't exercised here, but the hook closes over both
+      // and an absent mock would surface as a confusing TypeError the day
+      // someone adds a location test.
+      reverseGeocode: vi.fn().mockResolvedValue(null),
+      whereami: vi.fn().mockResolvedValue(null),
     },
   }),
 }));

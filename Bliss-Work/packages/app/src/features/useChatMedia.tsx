@@ -291,36 +291,89 @@ export function useChatMedia(opts: ChatMediaOptions) {
 
   // ── location ──────────────────────────────────────────────────────────────
 
+  /**
+   * Send a pin, TAGGED with a place name where one can be resolved.
+   *
+   * The label is what makes the bubble read "12 Rue Foo, Paris" instead of
+   * "Shared location", and it is also the `q=` term on the Apple Maps deep
+   * link — so on macOS an untagged pin loses its name twice over. Resolution is
+   * best-effort: reverseGeocode answers null on any failure and the coordinates
+   * card is fully functional without it, so a slow or unconfigured provider
+   * must never block the send.
+   */
+  const sendLocation = useCallback(
+    async (pos: { lat: number; lng: number; accuracy?: number }) => {
+      const label = (await api.reverseGeocode(pos.lat, pos.lng)) ?? undefined;
+      send(
+        encodeLocation({
+          lat: pos.lat,
+          lng: pos.lng,
+          accuracy: pos.accuracy,
+          label,
+        }),
+      );
+    },
+    [api, send],
+  );
+
   const onShareLocation = useCallback(() => {
+    const pending = toast.loading("Getting your location…");
+
+    /**
+     * Last resort: ask the server where this IP is.
+     *
+     * Chromium's network locator needs a Google API key Electron does not ship,
+     * and a Linux desktop has no OS locator to fall back on — so
+     * getCurrentPosition fails outright there however the permission is set.
+     * A city-level fix is far better than refusing, provided the user is TOLD
+     * it is approximate; the large accuracy makes the bubble say so too.
+     */
+    const fallback = async (reason: string) => {
+      const coarse = await api.whereami();
+      toast.dismiss(pending);
+      if (!coarse) {
+        toast.error(reason);
+        return;
+      }
+      await sendLocation(coarse);
+      toast("Shared an approximate location", {
+        description: "Your device couldn't get a precise fix, so this is based on your network.",
+      });
+    };
+
     if (typeof navigator === "undefined" || !navigator.geolocation) {
-      toast.error("Location sharing isn't available on this device.");
+      void fallback("Location sharing isn't available on this device.");
       return;
     }
-    const pending = toast.loading("Getting your location…");
+
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         toast.dismiss(pending);
-        send(
-          encodeLocation({
-            lat: pos.coords.latitude,
-            lng: pos.coords.longitude,
-            accuracy: Number.isFinite(pos.coords.accuracy) ? pos.coords.accuracy : undefined,
-          }),
-        );
+        void sendLocation({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          accuracy: Number.isFinite(pos.coords.accuracy) ? pos.coords.accuracy : undefined,
+        });
       },
       (err) => {
-        toast.dismiss(pending);
-        // Distinguish "you said no" from "your device couldn't" — the fixes are
-        // completely different and a generic message helps nobody.
-        toast.error(
-          err.code === err.PERMISSION_DENIED
-            ? "Location permission denied. Enable it in your browser settings to share your location."
-            : "Couldn't determine your location. Try again, or check that location services are on.",
+        // "You said no" is the one case with no fallback: overriding an
+        // explicit refusal with an IP lookup would be a betrayal, not a
+        // feature. Everything else is the device failing, not the user
+        // declining, so it is worth trying the coarse path.
+        if (err.code === err.PERMISSION_DENIED) {
+          toast.dismiss(pending);
+          toast.error(
+            "Location permission denied. Enable it in your system settings to share your location.",
+          );
+          return;
+        }
+        void fallback(
+          "Couldn't determine your location. Try again, or check that location services are on.",
         );
       },
       { enableHighAccuracy: true, timeout: 10_000, maximumAge: 60_000 },
     );
-  }, [send]);
+  }, [api, sendLocation]);
 
   // ── rendering ─────────────────────────────────────────────────────────────
 

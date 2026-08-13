@@ -8,7 +8,7 @@
  *   out: {type:'event', event}, {type:'sticky', tasks}, {type:'need-token'}
  */
 import { WebSocket as NodeWebSocket } from "ws";
-import { ApiClient, WsClient, type ServerEvent, type StickyTaskDTO, type ClientFrame } from "@taskboard/shared";
+import { ApiClient, WsClient, type ServerEvent, type StickyTaskDTO, type ClientFrame, type WsEventMeta } from "@taskboard/shared";
 
 const parent = (process as unknown as { parentPort: NodeJS.EventEmitter & { postMessage: (m: unknown) => void } }).parentPort;
 
@@ -77,8 +77,11 @@ async function refreshSticky() {
   }
 }
 
-function onEvent(e: ServerEvent) {
-  send({ type: "event", event: e });
+function onEvent(e: ServerEvent, meta: WsEventMeta) {
+  // `replayed` rides along to the renderer, which is where the toasts and the
+  // sticky auto-pin live. Without it every launch re-announces the connect-time
+  // catch-up burst — up to 200 events — as if it had all just happened.
+  send({ type: "event", event: e, replayed: meta.replayed });
   if (e.type.startsWith("task.")) void refreshSticky();
 
   // Phase 8: forward MessageCreated events for pinned threads to the main

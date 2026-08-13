@@ -1,8 +1,9 @@
-import { BrowserWindow } from "electron";
+import { BrowserWindow, screen } from "electron";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { appIcon } from "./assets";
 import { hardenWindow } from "./harden";
+import { getMainWindowBounds, saveMainWindowBounds } from "./sticky-state";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 const DEV_URL = process.env.ELECTRON_RENDERER_URL;
@@ -11,10 +12,34 @@ const preloadMain = join(here, "../preload/index.js");
 const preloadSticky = join(here, "../preload/sticky.js");
 const rendererDir = join(here, "../renderer");
 
+/**
+ * A stored rectangle is only usable if it still lands on a display that exists.
+ * Unplugging the monitor a window was last closed on would otherwise reopen it
+ * at coordinates no screen covers — the app looks like it failed to launch.
+ * Require a real overlap, not merely a corner, so a window left one pixel onto
+ * a since-removed display doesn't come back as a sliver.
+ */
+function isOnSomeDisplay(b: { x: number; y: number; width: number; height: number }): boolean {
+  const MIN_VISIBLE = 120;
+  return screen.getAllDisplays().some((d) => {
+    const wa = d.workArea;
+    const overlapX = Math.min(b.x + b.width, wa.x + wa.width) - Math.max(b.x, wa.x);
+    const overlapY = Math.min(b.y + b.height, wa.y + wa.height) - Math.max(b.y, wa.y);
+    return overlapX >= MIN_VISIBLE && overlapY >= MIN_VISIBLE;
+  });
+}
+
 export function createMainWindow(startHidden = false): BrowserWindow {
+  // Restore where the user left the window. Without this every launch was a
+  // fresh 1180×800 at the OS default position, which is why an OS shutdown
+  // looked like the app had "resized itself".
+  const saved = getMainWindowBounds();
+  const usable = saved && isOnSomeDisplay(saved) ? saved : undefined;
+
   const win = new BrowserWindow({
-    width: 1180,
-    height: 800,
+    ...(usable ? { x: usable.x, y: usable.y } : {}),
+    width: usable?.width ?? 1180,
+    height: usable?.height ?? 800,
     minWidth: 900,
     minHeight: 600,
     show: false,
@@ -30,6 +55,10 @@ export function createMainWindow(startHidden = false): BrowserWindow {
     },
   });
 
+  // Maximize BEFORE first paint so the window doesn't visibly snap open at its
+  // restored size and then grow.
+  if (usable?.maximized) win.maximize();
+
   // When auto-started at login we stay in the tray + reload any persisted
   // sticky notes (the StickyManager restores them from sticky-state.json on
   // its own); the main window only shows when the user clicks the tray icon.
@@ -37,12 +66,47 @@ export function createMainWindow(startHidden = false): BrowserWindow {
   win.on("ready-to-show", () => {
     if (!startHidden) win.show();
   });
+
+  wireBoundsPersistence(win);
   hardenWindow(win, "main");
 
   if (DEV_URL) void win.loadURL(DEV_URL);
   else void win.loadFile(join(rendererDir, "index.html"));
 
   return win;
+}
+
+/**
+ * Keep sticky-state's record of the main window in step with reality.
+ *
+ * `getNormalBounds()` rather than `getBounds()`: while maximized the latter
+ * reports the full screen, so storing it would make "restore down" a no-op on
+ * the next launch. The maximized flag carries that state separately.
+ *
+ * Writes are debounced inside sticky-state, so a drag firing dozens of `move`
+ * events costs one file write.
+ */
+function wireBoundsPersistence(win: BrowserWindow): void {
+  const persist = () => {
+    if (win.isDestroyed() || win.isMinimized()) return;
+    const b = win.getNormalBounds();
+    saveMainWindowBounds({
+      x: b.x,
+      y: b.y,
+      width: b.width,
+      height: b.height,
+      maximized: win.isMaximized(),
+    });
+  };
+  // Registered one by one: Electron's `on` overloads are per-event-name, so a
+  // loop over a union of names does not typecheck.
+  win.on("resized", persist);
+  win.on("moved", persist);
+  win.on("maximize", persist);
+  win.on("unmaximize", persist);
+  // The close path matters most: an OS shutdown closes the window without ever
+  // emitting a resize, and this is the last moment its geometry exists.
+  win.on("close", persist);
 }
 
 export function createStickyWindow(taskId: string, index: number, collapsed = false): BrowserWindow {

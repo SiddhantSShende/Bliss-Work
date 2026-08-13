@@ -9,14 +9,18 @@ import {
 } from "@taskboard/shared";
 import { createStickyWindow } from "./windows";
 import {
+  addDismissed,
   addPinned,
   clampToPrimary,
   forget,
   gc,
+  getDismissed,
   getGeometry,
   getPinned,
+  isDismissed,
   isOnPrimary,
   isPinned,
+  removeDismissed,
   removePinned,
   saveGeometry,
   touch,
@@ -104,11 +108,33 @@ export class StickyManager {
     let floating = selectFloatingTasks(this.tasks, getPinned(), -1).length;
     for (const t of this.tasks) {
       if (floating >= MAX_WIDGETS) break;
+      // A dismissed task stays dismissed. Auto-pin used to re-float every
+      // actionable task on every launch and every live push, so a note the user
+      // had read and cleared reappeared each time the app started.
+      if (isDismissed(t.taskId)) continue;
       if (!isPinned(t.taskId) && canFloatTask(t.myStatus)) {
         addPinned(t.taskId);
         floating++;
       }
     }
+  }
+
+  /**
+   * Clear a note from the desktop and remember that the user did.
+   *
+   * Called both from the note's own dismiss control and from the app when the
+   * task is opened — reading a task IS dealing with its notification, and
+   * requiring a second dismissal after that is the complaint this answers.
+   * The task itself is untouched: this is about the note, not the commitment.
+   */
+  dismiss(taskId: string): void {
+    if (typeof taskId !== "string" || !taskId) return;
+    addDismissed(taskId);
+    removePinned(taskId);
+    forget(taskId);
+    const w = this.widgets.get(taskId);
+    if (w && !w.isDestroyed()) w.close();
+    this.widgets.delete(taskId);
   }
 
   taskFor(id: string): StickyTaskDTO | undefined {
@@ -210,6 +236,12 @@ export class StickyManager {
    */
   prunePinned(liveIds: Iterable<string>): void {
     const live = new Set(liveIds);
+    // A task that has left the actionable set can also forget it was dismissed:
+    // that keeps the dismissed set bounded, and means a task which becomes
+    // actionable AGAIN (reassigned, re-opened) is free to float once more.
+    for (const id of getDismissed()) {
+      if (!live.has(id)) removeDismissed(id);
+    }
     for (const id of getPinned()) {
       if (!live.has(id)) {
         removePinned(id);

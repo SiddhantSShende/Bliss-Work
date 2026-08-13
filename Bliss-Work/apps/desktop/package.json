@@ -114,7 +114,8 @@
       "artifactName": "BlissWork-mac-${arch}.${ext}",
       "extendInfo": {
         "NSCameraUsageDescription": "BlissWork uses your camera for video calls.",
-        "NSMicrophoneUsageDescription": "BlissWork uses your microphone for voice and video calls."
+        "NSMicrophoneUsageDescription": "BlissWork uses your microphone for voice and video calls.",
+        "NSLocationWhenInUseUsageDescription": "BlissWork uses your location only when you choose to share it in a chat."
       }
     },
     "dmg": {

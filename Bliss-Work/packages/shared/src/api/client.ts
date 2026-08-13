@@ -761,6 +761,54 @@ export class ApiClient {
     }
   }
 
+  /**
+   * A human-readable name for a coordinate ("12 Rue Foo, Paris"), or null when
+   * the deployment has no map provider configured. Used to TAG a shared
+   * location so the bubble and the Maps deep link name a place instead of
+   * reading "Shared location".
+   */
+  async reverseGeocode(lat: number, lng: number): Promise<string | null> {
+    const qs = new URLSearchParams({ lat: lat.toFixed(4), lng: lng.toFixed(4) });
+    try {
+      const out = await this.req(
+        this.cfg.messagingBase,
+        `/api/v1/maps/reverse?${qs.toString()}`,
+        {},
+        z.object({ label: z.string() }),
+      );
+      return out?.label || null;
+    } catch {
+      // A missing label is cosmetic — never let it block a send.
+      return null;
+    }
+  }
+
+  /**
+   * Coarse, IP-derived position for this caller, or null when unavailable.
+   *
+   * The fallback for desktops where `navigator.geolocation` has no provider to
+   * ask — Electron ships without the API key Chromium's network locator needs,
+   * and a Linux box has no OS locator either. `accuracy` is deliberately large
+   * (city-scale) so the bubble can say so.
+   */
+  async whereami(): Promise<{ lat: number; lng: number; accuracy: number; label?: string } | null> {
+    try {
+      return await this.req(
+        this.cfg.messagingBase,
+        "/api/v1/maps/whereami",
+        {},
+        z.object({
+          lat: z.number(),
+          lng: z.number(),
+          accuracy: z.number(),
+          label: z.string().optional(),
+        }),
+      );
+    } catch {
+      return null;
+    }
+  }
+
   /** Removes the thread from BOTH users' inbox; revives on next reply. */
   ignoreThread(threadId: string) {
     return this.req<void>(this.cfg.messagingBase, `/api/v1/threads/${threadId}/ignore`, {

@@ -1,4 +1,4 @@
-import type { ServerEvent, ClientFrame, ControlFrame, PinResult } from "@taskboard/shared";
+import type { ServerEvent, ClientFrame, ControlFrame, PinResult, WsEventMeta } from "@taskboard/shared";
 
 /**
  * Platform abstraction — the one seam between the web shell and the Electron
@@ -13,8 +13,16 @@ import type { ServerEvent, ClientFrame, ControlFrame, PinResult } from "@taskboa
 export interface EventSource {
   /** Ask the host (utilityProcess) to (re)connect its socket. */
   connect: () => void;
-  /** Subscribe to forwarded ServerEvents; returns an unsubscribe fn. */
-  subscribe: (cb: (e: ServerEvent) => void) => () => void;
+  /**
+   * Subscribe to forwarded ServerEvents; returns an unsubscribe fn.
+   *
+   * `meta.replayed` marks the connect-time catch-up burst. It has to cross the
+   * IPC boundary because the socket lives in the utilityProcess while the
+   * toasts fire in the renderer — without it, every desktop launch re-announces
+   * the last 200 events. Optional so a host that predates it still compiles;
+   * absent is read as "not replayed", i.e. the old behaviour.
+   */
+  subscribe: (cb: (e: ServerEvent, meta?: WsEventMeta) => void) => () => void;
 }
 
 /**
@@ -85,6 +93,13 @@ export interface PlatformConfig {
   /** Present only in Electron: the task ids currently pinned to the desktop
    *  (source of truth = main process). Drives the Pin button's pinned state. */
   listPinned?: () => Promise<string[]>;
+  /**
+   * Present only in Electron: clear a task's desktop note and remember it, so
+   * the auto-pin does not re-float it on the next launch. Called when the task
+   * is opened — reading a task is what dealing with its notification means.
+   * Absent on web, where BrowserStickies keeps the equivalent state locally.
+   */
+  dismissSticky?: (taskId: string) => void;
   /** Forward the current access token to the host (Electron → utilityProcess). */
   persistToken?: (token: string | null) => void;
   /** Present only in Electron: pin a DM thread to the desktop as a standalone

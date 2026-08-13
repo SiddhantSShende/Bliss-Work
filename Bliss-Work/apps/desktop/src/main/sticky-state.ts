@@ -57,18 +57,45 @@ export interface StickyGeometry {
   expandedHeight?: number;
 }
 
+/**
+ * The MAIN window's last geometry. Deliberately not stored as a `geometry`
+ * entry: that map is GC'd on age and clamped to the primary display, both of
+ * which are right for a desktop note and wrong for the app window, which may
+ * legitimately live on a second monitor and must survive a month of not being
+ * opened.
+ */
+export interface MainWindowBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** Restored maximized rather than at the stored rectangle. */
+  maximized: boolean;
+}
+
 interface OnDisk {
   version: number;
   geometry: Record<string, StickyGeometry>;
+  /** Absent until the window has been moved or resized at least once. */
+  main?: MainWindowBounds;
   /** Task ids the user has explicitly pinned to the desktop. The single source
    *  of truth for which acknowledged tasks float (StickyManager gates on this ∩
    *  ACKNOWLEDGED). Persisted so a pinned note re-floats after relaunch — the
    *  "only Complete removes it" promise must survive a restart. */
   pinned: string[];
+  /**
+   * Task ids the user has cleared from the desktop — by dismissing the note, or
+   * by opening the task and reading it. Without this, autopinActionable
+   * re-floated every actionable task on every launch, so notes the user had
+   * already dealt with kept coming back. Entries are dropped by prunePinned
+   * once the task leaves the actionable set, so the set stays bounded and a
+   * re-activated task can float again.
+   */
+  dismissed: string[];
 }
 
 let filePath = "";
-let mem: OnDisk = { version: SCHEMA_VERSION, geometry: {}, pinned: [] };
+let mem: OnDisk = { version: SCHEMA_VERSION, geometry: {}, pinned: [], dismissed: [] };
 let dirty = false;
 let flushTimer: NodeJS.Timeout | null = null;
 
@@ -91,12 +118,44 @@ export function initStickyState(): void {
         parsed.geometry && typeof parsed.geometry === "object"
           ? parsed.geometry
           : {},
-      pinned: Array.isArray(parsed.pinned) ? parsed.pinned.filter((x): x is string => typeof x === "string") : [],
+      pinned: stringList(parsed.pinned),
+      dismissed: stringList(parsed.dismissed),
+      main: isMainBounds(parsed.main) ? parsed.main : undefined,
     };
   } catch {
     // Don't crash on a corrupted file; merge defaults instead.
-    mem = { version: SCHEMA_VERSION, geometry: {}, pinned: [] };
+    mem = { version: SCHEMA_VERSION, geometry: {}, pinned: [], dismissed: [] };
   }
+}
+
+function stringList(v: unknown): string[] {
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+}
+
+function isMainBounds(v: unknown): v is MainWindowBounds {
+  if (!v || typeof v !== "object") return false;
+  const b = v as Record<string, unknown>;
+  return (
+    Number.isFinite(b.x) &&
+    Number.isFinite(b.y) &&
+    // A zero or negative size would open an invisible window that the user then
+    // has no way to grab — reject the whole record rather than half-apply it.
+    typeof b.width === "number" && b.width > 0 &&
+    typeof b.height === "number" && b.height > 0 &&
+    typeof b.maximized === "boolean"
+  );
+}
+
+/** Last known main-window geometry, or undefined for a first run. */
+export function getMainWindowBounds(): MainWindowBounds | undefined {
+  return mem.main ? { ...mem.main } : undefined;
+}
+
+/** Record the main window's geometry (debounced, atomic — same writer as the
+ *  sticky geometry). */
+export function saveMainWindowBounds(b: MainWindowBounds): void {
+  mem.main = { ...b };
+  scheduleFlush();
 }
 
 // ── Pinned set ────────────────────────────────────────────────────────────────
@@ -118,6 +177,36 @@ export function addPinned(id: string): void {
   if (typeof id !== "string" || !id) return;
   if (!mem.pinned.includes(id)) {
     mem.pinned.push(id);
+    scheduleFlush();
+  }
+}
+
+// ── Dismissed set ─────────────────────────────────────────────────────────────
+
+export function isDismissed(id: string): boolean {
+  return mem.dismissed.includes(id);
+}
+
+/** Current dismissed ids (a copy — callers must not mutate the array). */
+export function getDismissed(): string[] {
+  return [...mem.dismissed];
+}
+
+/** Remember that the user has cleared this note. Idempotent. */
+export function addDismissed(id: string): void {
+  if (typeof id !== "string" || !id) return;
+  if (!mem.dismissed.includes(id)) {
+    mem.dismissed.push(id);
+    scheduleFlush();
+  }
+}
+
+/** Forget a dismissal — called when the task leaves the actionable set, so a
+ *  task that comes back (reassigned, un-completed) can float again. */
+export function removeDismissed(id: string): void {
+  const i = mem.dismissed.indexOf(id);
+  if (i !== -1) {
+    mem.dismissed.splice(i, 1);
     scheduleFlush();
   }
 }

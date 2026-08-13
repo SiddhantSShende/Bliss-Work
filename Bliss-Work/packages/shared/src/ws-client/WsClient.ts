@@ -6,7 +6,19 @@
  */
 import { ServerEvent, ControlFrame, type ClientFrame } from "../types/events";
 
-type Handler = (e: ServerEvent) => void;
+/**
+ * What the client knows about an event beyond the event itself.
+ *
+ * `replayed` is true for anything delivered in the connect-time catch-up burst
+ * — i.e. it happened before this socket existed. Caches must still be patched
+ * from it; anything that ANNOUNCES (a toast, a re-pinned desktop note, a sound)
+ * must not fire, or every launch replays the last 200 events at the user.
+ */
+export interface WsEventMeta {
+  replayed: boolean;
+}
+
+type Handler = (e: ServerEvent, meta: WsEventMeta) => void;
 type StatusHandler = (s: WsStatus) => void;
 type ControlHandler = (f: ControlFrame) => void;
 export type WsStatus = "connecting" | "open" | "closed" | "reauth";
@@ -29,6 +41,11 @@ export interface WsClientOptions {
 const PING_INTERVAL_MS = 20_000;
 const MAX_BACKOFF_MS = 30_000;
 const DEDUP_LRU = 2048;
+/** How long to wait for `replay.done` before assuming it isn't coming. The
+ *  catch-up burst is written in one pass immediately after `hello`, so this is
+ *  generous by an order of magnitude — it exists to bound the failure, not to
+ *  time the happy path. */
+const REPLAY_GRACE_MS = 10_000;
 // Phase 5: per-thread (or per-conversation when no thread is set) ack batching
 // window. 500 ms keeps "Delivered" feeling instant to the sender while
 // preventing a 1-msg-per-second-per-recipient HTTP storm to messaging-svc
@@ -50,6 +67,27 @@ export class WsClient {
    *  catching up on a backlog flushes one frame per bucket per ACK_FLUSH_MS. */
   private readonly ackBuf = new Map<string, Set<string>>();
   private ackFlushTimer?: ReturnType<typeof setTimeout>;
+  /**
+   * True from the moment `hello` is sent until the gateway's `replay.done`.
+   * Everything delivered in that window is catch-up, not news.
+   */
+  private replaying = false;
+  /**
+   * Dead-man's switch on the above. `replay.done` is a newer frame than some
+   * gateways send, and a lost marker would otherwise leave this client silently
+   * suppressing every toast for the life of the connection — a far worse
+   * failure than the storm it was added to prevent. The burst arrives inside
+   * one connect round-trip, so anything still waiting after this is not coming.
+   */
+  private replayTimer?: ReturnType<typeof setTimeout>;
+  /**
+   * Highest `occurredAt` (epoch ms) seen on this client, which is the score the
+   * gateway's replay ZSET is keyed by. Sent as the next `hello`'s cursor so a
+   * reconnect within a session asks only for what it missed instead of pulling
+   * the same 200 events again. Deliberately in memory: it is an optimisation,
+   * and a fresh process legitimately wants the full catch-up.
+   */
+  private highWaterMs = 0;
 
   constructor(private readonly opts: WsClientOptions) {}
 
@@ -81,9 +119,12 @@ export class WsClient {
   }
 
   /** Subscribe to a single event type; returns an unsubscribe fn. */
-  subscribe(type: ServerEvent["type"], handler: (e: ServerEvent) => void): () => void {
-    const wrapped: Handler = (e) => {
-      if (e.type === type) handler(e);
+  subscribe(
+    type: ServerEvent["type"],
+    handler: (e: ServerEvent, meta: WsEventMeta) => void,
+  ): () => void {
+    const wrapped: Handler = (e, meta) => {
+      if (e.type === type) handler(e, meta);
     };
     return this.on(wrapped);
   }
@@ -106,6 +147,7 @@ export class WsClient {
   close(): void {
     this.stopped = true;
     if (this.pingTimer) clearInterval(this.pingTimer);
+    if (this.replayTimer) clearTimeout(this.replayTimer);
     // Best-effort drain: ack any buffered messageIds before the socket goes.
     this.flushAcks();
     this.ws?.close();
@@ -173,7 +215,10 @@ export class WsClient {
     ws.onopen = () => {
       this.attempt = 0;
       this.setStatus("open");
-      const lastSeenSeq = this.opts.lastSeenSeq?.();
+      // Prefer our own high-water mark over the host's initial hint: within a
+      // session it is always the more advanced of the two.
+      const lastSeenSeq = this.highWaterMs || this.opts.lastSeenSeq?.();
+      this.startReplay();
       ws.send(JSON.stringify({ type: "hello", lastSeenSeq }));
       this.startPing();
     };
@@ -189,6 +234,21 @@ export class WsClient {
     ws.onerror = () => {
       // onclose follows; reconnect handled there.
     };
+  }
+
+  /** Enter catch-up mode, armed with the dead-man's switch. */
+  private startReplay() {
+    this.replaying = true;
+    if (this.replayTimer) clearTimeout(this.replayTimer);
+    this.replayTimer = setTimeout(() => this.endReplay(), REPLAY_GRACE_MS);
+  }
+
+  private endReplay() {
+    this.replaying = false;
+    if (this.replayTimer) {
+      clearTimeout(this.replayTimer);
+      this.replayTimer = undefined;
+    }
   }
 
   private startPing() {
@@ -218,6 +278,8 @@ export class WsClient {
         const token = await this.opts.refreshToken();
         this.ws?.send(JSON.stringify({ type: "auth.renew", token }));
       }
+      // Catch-up is over; everything from here is genuinely new.
+      if (control.data.type === "replay.done") this.endReplay();
       // Fan out rtc.* signaling (and other control frames) to the WebRTC layer.
       for (const h of this.controlHandlers) h(control.data);
       return;
@@ -249,7 +311,13 @@ export class WsClient {
       this.queueAck(e.threadId ?? e.conversationId, e.messageId);
     }
 
-    for (const h of this.handlers) h(e);
+    // Advance the replay cursor. The gateway scores its outbox by occurredAt in
+    // epoch-ms, so this is exactly the value its `lastSeenSeq` compares against.
+    const at = Date.parse(e.occurredAt);
+    if (Number.isFinite(at) && at > this.highWaterMs) this.highWaterMs = at;
+
+    const meta: WsEventMeta = { replayed: this.replaying };
+    for (const h of this.handlers) h(e, meta);
   }
 
   /** Bucket a messageId for a 500ms-deferred batched ack frame. */

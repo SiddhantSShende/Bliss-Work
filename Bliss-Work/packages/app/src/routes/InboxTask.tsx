@@ -8,6 +8,7 @@ import { ListTodo } from "lucide-react";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { StickyWidget } from "../features/StickyWidget";
+import { dismissBrowserSticky } from "../features/BrowserStickies";
 
 /**
  * Main pane content for /app/inbox/task/:taskId.
@@ -71,6 +72,13 @@ export function InboxTask() {
   useEffect(() => {
     if (!taskId || markedRef.current === taskId) return;
     markedRef.current = taskId;
+    // Opening the task IS reading its notification, so clear its floating note
+    // as well — on the desktop (persisted in the main process, so the auto-pin
+    // does not resurrect it next launch) and on the web. Previously the note
+    // survived being read, so the only way to be rid of it was to finish or
+    // ignore the task.
+    config.dismissSticky?.(taskId);
+    dismissBrowserSticky(taskId);
     void api
       .readInboxItem("TASK", taskId)
       .then(() => {

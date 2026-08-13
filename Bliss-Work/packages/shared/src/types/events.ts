@@ -741,6 +741,15 @@ export const ControlFrame = z.discriminatedUnion("type", [
   z.object({ type: z.literal("pong") }),
   z.object({ type: z.literal("token.refresh.required") }),
   z.object({ type: z.literal("ready"), userId: z.string(), orgId: z.string() }),
+  /**
+   * Marks the end of the connect-time catch-up burst. Everything between
+   * `ready` and this frame ALREADY HAPPENED — the client must apply it to its
+   * caches but must not announce it, or every launch re-toasts the last 200
+   * events. An explicit marker rather than a timestamp comparison because
+   * `occurredAt` is server time and the client's clock may disagree with it by
+   * more than the window would allow.
+   */
+  z.object({ type: z.literal("replay.done") }),
   // WebRTC control frames pushed by the gateway. Treated as control (not
   // ServerEvent) so the WS dedup LRU / replay outbox does NOT see them.
   RtcOfferServer,

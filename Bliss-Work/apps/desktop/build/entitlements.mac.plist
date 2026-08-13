@@ -5,7 +5,10 @@
 
   Electron needs the JIT / unsigned-executable-memory exceptions (V8) and,
   because it loads native modules, library-validation must be relaxed. The
-  device + network entitlements back the app's voice/video calls (WebRTC).
+  device + network entitlements back the app's voice/video calls (WebRTC), and
+  the personal-information.location one backs "share my location" in chat —
+  without it CoreLocation refuses before Electron's permission handler is ever
+  consulted, so navigator.geolocation fails no matter what the app grants.
   These are REQUIRED for Apple notarization to accept a hardened-runtime app.
 -->
 <plist version="1.0">
@@ -21,6 +24,8 @@
     <key>com.apple.security.device.audio-input</key>
     <true/>
     <key>com.apple.security.device.camera</key>
+    <true/>
+    <key>com.apple.security.personal-information.location</key>
     <true/>
     <key>com.apple.security.network.client</key>
     <true/>
