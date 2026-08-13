@@ -172,10 +172,7 @@ function ActionBtn({
     <button
       onClick={onClick}
       title={label}
-      aria-label={iconOnly ? label : undefined}
-      className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl text-sm font-medium transition-all active:scale-[0.98] ${
-        iconOnly ? "py-2.5" : "px-3 py-2"
-      } ${tones[tone]}`}
+      className={`inline-flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium transition-all active:scale-[0.98] ${tones[tone]}`}
     >
       {children}
     </button>
