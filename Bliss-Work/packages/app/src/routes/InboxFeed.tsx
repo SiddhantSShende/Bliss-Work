@@ -30,10 +30,16 @@ export function InboxFeed() {
   const sentinel = useRef<HTMLDivElement>(null);
 
   const q = useInboxPages(api, peerId);
-  // allItems retains both kinds; we use it to mark threads as read below.
-  // `items` is the displayed list — TASK-only because DMs live in /app/chats.
+  // Both kinds are displayed now.
+  //
+  // This used to filter to TASK because every DM wrote a THREAD row and the
+  // Inbox would otherwise have been a second, worse copy of Chats. The server
+  // now only writes THREAD rows for MAIL-origin threads (migration 0014), so
+  // what arrives here is exactly what belongs: tasks, and threads someone
+  // started from Compose. Filtering them out again would hide the one surface
+  // Compose sends to.
   const allItems = flatInbox(q.data);
-  const items = allItems.filter((item) => item.itemKind === "TASK");
+  const items = allItems;
 
   // Mark-as-read on view: when the user opens a peer's feed, every unread
   // thread is sent a /threads/{id}/read request AND the People-list cache is
@@ -188,8 +194,8 @@ export function InboxFeed() {
         </div>
         <div className="text-[11px] text-muted">
           {peerId
-            ? "Tasks involving this person — DMs are in Chats"
-            : "Tasks assigned to you, newest first — DMs are in Chats"}
+            ? "Tasks and messages from this person — chats are in Chats"
+            : "Tasks and messages sent to you, newest first — chats are in Chats"}
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-auto p-2">

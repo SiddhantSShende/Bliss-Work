@@ -69,6 +69,12 @@ func (e *Event) RecipientsOf() []string {
 	case "message.dismissed":
 		// Multi-device sync for the sender who dismissed.
 		return dedupe([]string{e.DismissedBy})
+	case "message.deleted", "message.reaction":
+		// BOTH parties, unlike message.dismissed. A delete-for-everyone that
+		// the recipient only learned about at their next refetch is one they
+		// may well have screenshotted first; a reaction nobody sees arrive is
+		// not a reaction.
+		return dedupe(e.Members)
 	case "message.forwarded":
 		// C receives the forward (internal only), B's other devices sync, and —
 		// the whole point — the ORIGINAL author learns B→C. ForwardedTo is empty
@@ -100,6 +106,8 @@ var NoDeliveryAckFor = map[string]struct{}{
 	"message.delivered":      {},
 	"message.read":           {},
 	"message.dismissed":      {},
+	"message.deleted":        {},
+	"message.reaction":       {},
 	"message.forwarded":      {},
 	"conversation.ignored":   {},
 	"conversation.blocked":   {},

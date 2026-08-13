@@ -255,6 +255,15 @@ export type MessageStatus = z.infer<typeof MessageStatus>;
  * rendered as a centered notice rather than a chat bubble. Absent on the wire
  * for ordinary text, so old payloads parse unchanged.
  */
+/**
+ * Which surface started a thread, and therefore whether it belongs in the
+ * Inbox. Chats is instant messaging; the Inbox is email-style. Before this
+ * distinction existed every DM wrote an Inbox row, which is why chat traffic
+ * drove the Inbox badge and People sidebar.
+ */
+export const ThreadOrigin = z.enum(["chat", "mail"]);
+export type ThreadOrigin = z.infer<typeof ThreadOrigin>;
+
 export const MessageKind = z.enum(["text", "call_missed", "forward_external"]);
 export type MessageKind = z.infer<typeof MessageKind>;
 
@@ -292,7 +301,26 @@ export const MessageDTO = z.object({
   status: MessageStatus.optional(),
   /** Set when the sender has dismissed (sender_dismissed_at IS NOT NULL). */
   dismissedBySender: z.boolean().optional(),
+  /** The message this one quotes. Distinct from parentMessageId (threading). */
+  replyToId: z.string().uuid().optional(),
+  /**
+   * "Deleted for everyone". The row still arrives — seq orders the conversation
+   * and other tables reference the id — but `body` is empty and the client
+   * renders a tombstone in place, so the reader sees that something was removed
+   * rather than a gap that quietly rewrites what they remember.
+   */
+  deletedForAll: z.boolean().optional(),
 });
+
+/** One emoji's tally on one message, from the caller's point of view. */
+export const ReactionDTO = z.object({
+  messageId: z.string().uuid(),
+  emoji: z.string(),
+  count: z.number().int().positive(),
+  /** True when the caller is one of the reactors — renders the chip pressed. */
+  mine: z.boolean(),
+});
+export type ReactionDTO = z.infer<typeof ReactionDTO>;
 export type MessageDTO = z.infer<typeof MessageDTO>;
 
 /**

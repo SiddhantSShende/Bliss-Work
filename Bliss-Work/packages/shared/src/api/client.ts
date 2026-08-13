@@ -28,6 +28,7 @@ import {
   MentionState,
   ProviderActivityDTO,
   ProviderIdentityDTO,
+  ReactionDTO,
   type Role,
   InboxPageDTO,
   InboxPeerDTO,
@@ -36,6 +37,7 @@ import {
   MemberDTO,
   MessageDTO,
   type MessageKind,
+  type ThreadOrigin,
   NotificationDTO,
   OrgMembershipDTO,
   ReviewResponse,
@@ -484,11 +486,32 @@ export class ApiClient {
    * Electron utility process (which serializes sends from sticky widgets)
    * can dedupe across windows; otherwise a fresh UUID is generated here.
    */
-  sendMessage(recipientId: string, body: string, clientMsgId?: string, kind?: MessageKind) {
+  sendMessage(
+    recipientId: string,
+    body: string,
+    clientMsgId?: string,
+    kind?: MessageKind,
+    /**
+     * Which surface is sending. Defaults to "chat" server-side; ONLY the
+     * Compose dialog passes "mail", and only mail threads reach the Inbox —
+     * that separation is what keeps chat traffic out of it.
+     */
+    opts?: { origin?: ThreadOrigin; replyToId?: string },
+  ) {
     return this.req(
       this.cfg.messagingBase,
       "/api/v1/conversations/messages",
-      { method: "POST", body: JSON.stringify({ recipientId, body, clientMsgId: clientMsgId ?? uuid(), kind }) },
+      {
+        method: "POST",
+        body: JSON.stringify({
+          recipientId,
+          body,
+          clientMsgId: clientMsgId ?? uuid(),
+          kind,
+          origin: opts?.origin,
+          replyToId: opts?.replyToId,
+        }),
+      },
       z.object({
         conversationId: z.string(),
         threadId: z.string(),
@@ -497,11 +520,11 @@ export class ApiClient {
       }),
     );
   }
-  reply(conversationId: string, body: string, clientMsgId?: string) {
+  reply(conversationId: string, body: string, clientMsgId?: string, replyToId?: string) {
     return this.req(
       this.cfg.messagingBase,
       `/api/v1/conversations/${conversationId}/reply`,
-      { method: "POST", body: JSON.stringify({ body, clientMsgId: clientMsgId ?? uuid() }) },
+      { method: "POST", body: JSON.stringify({ body, clientMsgId: clientMsgId ?? uuid(), replyToId }) },
       z.object({ messageId: z.string(), seq: z.number(), threadId: z.string() }),
     );
   }
@@ -569,7 +592,11 @@ export class ApiClient {
       z.array(MessageDTO),
     );
   }
-  replyToThread(threadId: string, body: string, opts?: { parentMessageId?: string; clientMsgId?: string }) {
+  replyToThread(
+    threadId: string,
+    body: string,
+    opts?: { parentMessageId?: string; clientMsgId?: string; replyToId?: string },
+  ) {
     return this.req(
       this.cfg.messagingBase,
       `/api/v1/threads/${threadId}/reply`,
@@ -580,6 +607,7 @@ export class ApiClient {
           body,
           parentMessageId: opts?.parentMessageId ?? null,
           clientMsgId: opts?.clientMsgId ?? uuid(),
+          replyToId: opts?.replyToId,
         }),
       },
       z.object({ messageId: z.string(), seq: z.number() }),
@@ -815,6 +843,47 @@ export class ApiClient {
       method: "POST",
       headers: { "idempotency-key": uuid() },
     });
+  }
+  /**
+   * "Delete for me" — hides one message from THIS user's view only. Either
+   * party may do it, for any message; the other side is unaffected and never
+   * learns of it.
+   */
+  hideMessage(messageId: string) {
+    return this.req<void>(this.cfg.messagingBase, `/api/v1/messages/${messageId}/hide`, {
+      method: "POST",
+      headers: { "idempotency-key": uuid() },
+    });
+  }
+  /**
+   * "Delete for everyone" — tombstones the message for both parties. SENDER
+   * ONLY (the server enforces it). The row survives as a tombstone: `seq`
+   * orders the conversation and other tables reference the id, and a reader
+   * seeing "this message was deleted" is more honest than a silent gap.
+   */
+  deleteMessageForAll(messageId: string) {
+    return this.req<void>(this.cfg.messagingBase, `/api/v1/messages/${messageId}`, {
+      method: "DELETE",
+      headers: { "idempotency-key": uuid() },
+    });
+  }
+  /** Add or remove one emoji reaction. Returns the message's new tally. */
+  setReaction(messageId: string, emoji: string, on: boolean) {
+    return this.req(
+      this.cfg.messagingBase,
+      `/api/v1/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`,
+      { method: on ? "PUT" : "DELETE" },
+      z.array(ReactionDTO),
+    );
+  }
+  /** Every reaction in a conversation, so bubbles and chips render together. */
+  conversationReactions(conversationId: string) {
+    return this.req(
+      this.cfg.messagingBase,
+      `/api/v1/conversations/${conversationId}/reactions`,
+      {},
+      z.array(ReactionDTO),
+    );
   }
   /** Sender-only soft-delete: hides this message from the sender's own inbox. */
   dismissMessage(messageId: string) {

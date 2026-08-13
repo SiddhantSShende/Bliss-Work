@@ -2,7 +2,7 @@
  *  server→client WS frames; Go/Python structs mirror it. Conventions: `orgId`
  *  tenant, `eventId` (UUIDv7) dedup, discrete per-transition types, JSON. */
 import { z } from "zod";
-import { MessageKindWire } from "./domain";
+import { MessageKindWire, ThreadOrigin } from "./domain";
 
 // ── Kafka topics ────────────────────────────────────────────────────────────
 export const Topics = {
@@ -23,6 +23,8 @@ export const EventType = {
   MessageRead: "message.read",
   MessageDelivered: "message.delivered",
   MessageDismissed: "message.dismissed",
+  MessageDeleted: "message.deleted",
+  MessageReaction: "message.reaction",
   MessageForwarded: "message.forwarded",
   ChannelMessageCreated: "channel.message.created",
   ChannelMemberRemoved: "channel.member.removed",
@@ -88,6 +90,15 @@ export const MessageCreated = z.object({
   /** System entries (e.g. a missed call) rather than typed text. Absent = text.
    *  Wire-tolerant so an unknown kind degrades instead of dropping the frame. */
   kind: MessageKindWire.optional(),
+  /**
+   * Which surface this message's thread belongs to. Only 'mail' threads are
+   * Inbox items — the client patches its inbox cache from this event, and
+   * without the origin it would re-insert rows the server no longer writes.
+   * Absent on pre-0014 producers; treated as 'chat'.
+   */
+  origin: ThreadOrigin.optional(),
+  /** The message this one quotes, if any. */
+  replyToId: z.string().uuid().optional(),
 });
 
 export const ConversationIgnored = z.object({
@@ -178,6 +189,36 @@ export const MessageDismissed = z.object({
  * is replaced by `forwardedToExternal` (the external handle). Native re-forwards
  * downstream of an external platform are invisible to us and never appear here.
  */
+/**
+ * MessageDeleted is "delete for everyone" — the message is a tombstone for BOTH
+ * parties now. Routed to `members`, unlike MessageDismissed, which is the
+ * sender-only inbox hide and changes nothing for the recipient.
+ */
+export const MessageDeleted = z.object({
+  type: z.literal(EventType.MessageDeleted),
+  ...envelope,
+  conversationId: z.string().uuid(),
+  threadId: z.string().uuid().optional(),
+  messageId: z.string().uuid(),
+  deletedBy: z.string().uuid(),
+  members: z.array(z.string().uuid()),
+});
+
+/**
+ * MessageReaction says a message's reactions CHANGED, and carries no counts.
+ * The tally is per-viewer (`mine` differs between the parties), so a payload of
+ * numbers would be right for the actor and wrong for everyone else; each client
+ * refetches its own view instead.
+ */
+export const MessageReaction = z.object({
+  type: z.literal(EventType.MessageReaction),
+  ...envelope,
+  conversationId: z.string().uuid(),
+  messageId: z.string().uuid(),
+  actorId: z.string().uuid(),
+  members: z.array(z.string().uuid()),
+});
+
 export const MessageForwarded = z.object({
   type: z.literal(EventType.MessageForwarded),
   ...envelope,
@@ -515,6 +556,8 @@ export const ServerEvent = z.discriminatedUnion("type", [
   MessageRead,
   MessageDelivered,
   MessageDismissed,
+  MessageDeleted,
+  MessageReaction,
   MessageForwarded,
   ChannelMessageCreated,
   ChannelMemberRemoved,
@@ -545,6 +588,8 @@ export const DomainEvent = z.discriminatedUnion("type", [
   MessageRead,
   MessageDelivered,
   MessageDismissed,
+  MessageDeleted,
+  MessageReaction,
   MessageForwarded,
   ChannelMessageCreated,
   ChannelMemberRemoved,
@@ -581,6 +626,8 @@ export type ConversationUnblocked = z.infer<typeof ConversationUnblocked>;
 export type MessageRead = z.infer<typeof MessageRead>;
 export type MessageDelivered = z.infer<typeof MessageDelivered>;
 export type MessageDismissed = z.infer<typeof MessageDismissed>;
+export type MessageDeleted = z.infer<typeof MessageDeleted>;
+export type MessageReaction = z.infer<typeof MessageReaction>;
 export type MessageForwarded = z.infer<typeof MessageForwarded>;
 export type ChannelMessageCreated = z.infer<typeof ChannelMessageCreated>;
 export type ChannelMemberRemoved = z.infer<typeof ChannelMemberRemoved>;
@@ -811,6 +858,13 @@ export function recipientsOf(e: DomainEvent): string[] {
     case EventType.MessageDismissed:
       // Multi-device sync for the sender who dismissed; never to the peer.
       return [e.dismissedBy];
+    case EventType.MessageDeleted:
+    case EventType.MessageReaction:
+      // BOTH parties, unlike MessageDismissed. A delete-for-everyone the
+      // recipient only learns about at their next refetch is one they may well
+      // have screenshotted first, and a reaction nobody sees arrive is not a
+      // reaction.
+      return e.members;
     case EventType.MessageForwarded:
       // C receives the forward (internal only), B's other devices sync, and —
       // the whole point — the ORIGINAL author learns B→C. forwardedTo is absent
@@ -868,6 +922,10 @@ export const NO_DELIVERY_ACK_FOR = new Set<string>([
   EventType.MessageDelivered,
   EventType.MessageRead,
   EventType.MessageDismissed,
+  // Neither is a message arriving, so neither has a delivery to acknowledge —
+  // acking them would fan straight back into messaging-svc for nothing.
+  EventType.MessageDeleted,
+  EventType.MessageReaction,
   // Provenance-only — the real message to C rides its own message.created, which
   // owns delivery/read acks. Acking the forward event would double-count.
   EventType.MessageForwarded,

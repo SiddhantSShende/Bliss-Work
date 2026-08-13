@@ -185,7 +185,10 @@ export function DMView() {
         </div>
       </header>
       <ChatThread
-        messages={messages.map((m) => ({ id: m.id, senderId: m.senderId, body: m.body, at: m.createdAt, kind: m.kind, pending: m.id.startsWith("temp:") }))}
+        messages={messages.map((m) => ({
+          id: m.id, senderId: m.senderId, body: m.body, at: m.createdAt, kind: m.kind,
+          status: m.status, pending: m.id.startsWith("temp:"),
+        }))}
         meId={me.id}
         // flushStaged, not reply.mutate: Send must emit the attachment tray as
         // well as the text, and must tolerate an empty text (attachments only).

@@ -76,14 +76,21 @@ var cappedRoutes = map[string]string{
 	// Channel moderation. The two DELETEs take no body at all and the PATCH/POST
 	// take a tiny JSON object; all four sit inside the same /api/v1 group that
 	// applies mw.MaxBytes, so the cap is inherited rather than per-handler.
-	"DELETE /api/v1/channels/{id}/members/{userId}":  "small",
-	"PATCH /api/v1/channels/{id}/members/{userId}":   "small",
-	"POST /api/v1/channels/{id}/blocks/{userId}":     "small",
-	"DELETE /api/v1/channels/{id}/blocks/{userId}":   "small",
-	"POST /api/v1/threads/{id}/reply":                "small",
-	"POST /api/v1/threads/{id}/ignore":               "small",
-	"POST /api/v1/threads/{id}/read":                 "small",
-	"POST /api/v1/messages/{id}/dismiss":             "small",
+	"DELETE /api/v1/channels/{id}/members/{userId}": "small",
+	"PATCH /api/v1/channels/{id}/members/{userId}":  "small",
+	"POST /api/v1/channels/{id}/blocks/{userId}":    "small",
+	"DELETE /api/v1/channels/{id}/blocks/{userId}":  "small",
+	"POST /api/v1/threads/{id}/reply":               "small",
+	"POST /api/v1/threads/{id}/ignore":              "small",
+	"POST /api/v1/threads/{id}/read":                "small",
+	"POST /api/v1/messages/{id}/dismiss":            "small",
+	// Deleting and reacting. The two DELETEs and the PUT carry no body at all
+	// (their arguments are in the path), and all four sit inside the same
+	// /api/v1 group that applies mw.MaxBytes, so the cap is inherited.
+	"POST /api/v1/messages/{id}/hide":                "small",
+	"DELETE /api/v1/messages/{id}":                   "small",
+	"PUT /api/v1/messages/{id}/reactions/{emoji}":    "small",
+	"DELETE /api/v1/messages/{id}/reactions/{emoji}": "small",
 	"POST /api/v1/inbox/items/{kind}/{refId}/ignore": "small",
 	"POST /api/v1/inbox/items/{kind}/{refId}/read":   "small",
 

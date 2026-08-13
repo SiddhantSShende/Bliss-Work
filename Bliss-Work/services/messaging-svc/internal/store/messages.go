@@ -17,7 +17,21 @@ import (
 //
 // "Top-level" = no parentMessageId → a NEW thread is created in the same tx.
 // `kind` is a MessageKind* constant ("" → text); the API layer whitelists it.
-func (s *Store) SendMessage(ctx context.Context, orgID, senderID, recipientID, body, clientMsgID, kind string) (*SendResult, error) {
+// SendOptions carries the optional extras a send may specify. All are validated
+// by the API layer before they reach here; a zero value is an ordinary chat
+// message with no quote.
+type SendOptions struct {
+	// Kind is a MessageKind* constant ("" → text). System entries only.
+	Kind string
+	// Origin is the surface starting the thread — ThreadOriginChat unless the
+	// Compose dialog asked for mail. Only meaningful on a top-level send; a
+	// reply inherits its thread's.
+	Origin string
+	// ReplyToID is the message being quoted, in the same conversation.
+	ReplyToID string
+}
+
+func (s *Store) SendMessage(ctx context.Context, orgID, senderID, recipientID, body, clientMsgID string, opts SendOptions) (*SendResult, error) {
 	if senderID == recipientID {
 		return nil, fmt.Errorf("cannot message self")
 	}
@@ -70,19 +84,20 @@ func (s *Store) SendMessage(ctx context.Context, orgID, senderID, recipientID, b
 	}
 
 	// Top-level send → new thread, this message is the root.
-	return s.appendMessage(ctx, tx, orgID, convID, senderID, recipientID, body, clientMsgID, "", "", appendOpts{kind: kind})
+	return s.appendMessage(ctx, tx, orgID, convID, senderID, recipientID, body, clientMsgID, "", "",
+		appendOpts{kind: opts.Kind, origin: opts.Origin, replyToID: opts.ReplyToID})
 }
 
 // Reply appends a message to an existing conversation; the caller must be a member.
 // If parentMessageID is empty the reply nests under the conversation's *most recent*
 // thread (rare; used by legacy /conversations/{id}/reply with no thread context).
-func (s *Store) Reply(ctx context.Context, orgID, senderID, convID, body, clientMsgID string) (*SendResult, error) {
-	return s.replyImpl(ctx, orgID, senderID, convID, "", body, clientMsgID)
+func (s *Store) Reply(ctx context.Context, orgID, senderID, convID, body, clientMsgID, replyToID string) (*SendResult, error) {
+	return s.replyImpl(ctx, orgID, senderID, convID, "", body, clientMsgID, replyToID)
 }
 
 // ReplyToThread appends a message under a specific parent (Phase 3 /threads
 // path). If parentMessageID == "", appends as a sibling of the thread root.
-func (s *Store) ReplyToThread(ctx context.Context, orgID, senderID, threadID, parentMessageID, body, clientMsgID string) (*SendResult, error) {
+func (s *Store) ReplyToThread(ctx context.Context, orgID, senderID, threadID, parentMessageID, body, clientMsgID, replyToID string) (*SendResult, error) {
 	// Look up the conv from the thread; defense against cross-thread sneaking.
 	// RLS: the threads read runs inside withOrg so app.org_id is set.
 	var convID string
@@ -98,10 +113,10 @@ func (s *Store) ReplyToThread(ctx context.Context, orgID, senderID, threadID, pa
 	if err != nil {
 		return nil, err
 	}
-	return s.replyImpl(ctx, orgID, senderID, convID, parentMessageID, body, clientMsgID)
+	return s.replyImpl(ctx, orgID, senderID, convID, parentMessageID, body, clientMsgID, replyToID)
 }
 
-func (s *Store) replyImpl(ctx context.Context, orgID, senderID, convID, parentMessageID, body, clientMsgID string) (*SendResult, error) {
+func (s *Store) replyImpl(ctx context.Context, orgID, senderID, convID, parentMessageID, body, clientMsgID, replyToID string) (*SendResult, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return nil, err
@@ -155,7 +170,8 @@ func (s *Store) replyImpl(ctx context.Context, orgID, senderID, convID, parentMe
 		return nil, err
 	}
 
-	return s.appendMessage(ctx, tx, orgID, convID, senderID, recipientID, body, clientMsgID, parentMessageID, "", appendOpts{})
+	return s.appendMessage(ctx, tx, orgID, convID, senderID, recipientID, body, clientMsgID, parentMessageID, "",
+		appendOpts{replyToID: replyToID})
 }
 
 // appendMessage allocates a seq, inserts the message (idempotent), creates or
@@ -216,6 +232,7 @@ func (s *Store) appendMessage(
 		threadID     string
 		isThreadRoot bool
 		parentArg    *string
+		origin       = opts.origin
 	)
 	switch {
 	case parentMessageID != "":
@@ -233,11 +250,21 @@ func (s *Store) appendMessage(
 		threadID = threadIDHint
 	default:
 		// Top-level — create a new thread with THIS message as root.
-		threadID, err = s.ensureThread(ctx, tx, orgID, convID, msgID, senderID, recipientID, body)
+		threadID, err = s.ensureThread(ctx, tx, orgID, convID, msgID, senderID, recipientID, body, origin)
 		if err != nil {
 			return nil, err
 		}
 		isThreadRoot = true
+	}
+
+	// A reply lives in whatever kind of thread it joined; only a NEW thread gets
+	// to declare one. Reading it back (rather than trusting opts) is what stops a
+	// chat reply from smuggling itself into the Inbox by claiming origin=mail.
+	if !isThreadRoot {
+		if err = tx.QueryRow(ctx,
+			`SELECT origin FROM threads WHERE id = $1`, threadID).Scan(&origin); err != nil {
+			return nil, err
+		}
 	}
 
 	// Encrypt the body under the org DEK (created lazily in THIS tx). The
@@ -246,15 +273,23 @@ func (s *Store) appendMessage(
 	if err != nil {
 		return nil, err
 	}
+	// reply_to_id is DISTINCT from parent_message_id: the latter is Gmail-style
+	// threading (it decides which thread a message joins), the former is "this
+	// bubble quotes that bubble". Overloading one for the other would reshape
+	// the Inbox thread tree every time someone replied in chat.
+	var replyToArg *string
+	if opts.replyToID != "" {
+		replyToArg = &opts.replyToID
+	}
 	_, err = tx.Exec(ctx,
 		`INSERT INTO messages
 		   (id, org_id, conversation_id, seq, sender_id, body, body_enc, client_msg_id,
 		    thread_id, parent_message_id, is_thread_root, server_acked_at,
-		    is_forward, forwarded_from_message_id, kind)
-		 VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8, $9, $10, now(), $11, $12, $13)`,
+		    is_forward, forwarded_from_message_id, kind, reply_to_id)
+		 VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8, $9, $10, now(), $11, $12, $13, $14)`,
 		msgID, orgID, convID, seq, senderID, bodyEnc, clientMsgID,
 		threadID, parentArg, isThreadRoot,
-		opts.isForwardMsg(), opts.forwardedFromArg(), opts.kindArg())
+		opts.isForwardMsg(), opts.forwardedFromArg(), opts.kindArg(), replyToArg)
 	if err != nil {
 		return nil, err
 	}
@@ -266,15 +301,25 @@ func (s *Store) appendMessage(
 		return nil, err
 	}
 
-	// Inbox projection — same tx, with monotonic last_event_at guard. Sender
-	// row never bumps unread (their own send); recipient row +1.
+	// Inbox projection — MAIL THREADS ONLY.
+	//
+	// This is the whole "chat is showing up in my Inbox" fix. Every message used
+	// to write these two rows, so /inbox/peers summed chat unread into the rail
+	// badge and listed DM-only peers in the People sidebar, whose feed then
+	// rendered empty because the feed itself filtered them back out.
+	//
+	// Same tx, with a monotonic last_event_at guard. The sender's row never
+	// bumps unread (it is their own send); the recipient's gets +1.
+	// Also used by the forward-provenance event below, so it stays out here.
 	preview := truncatePreview(body)
-	now := time.Now().UTC()
-	if err := s.upsertThreadInboxItem(ctx, tx, orgID, senderID, threadID, recipientID, preview, "SENT", now, 0); err != nil {
-		return nil, err
-	}
-	if err := s.upsertThreadInboxItem(ctx, tx, orgID, recipientID, threadID, senderID, preview, "", now, 1); err != nil {
-		return nil, err
+	if origin == ThreadOriginMail {
+		now := time.Now().UTC()
+		if err := s.upsertThreadInboxItem(ctx, tx, orgID, senderID, threadID, recipientID, preview, "SENT", now, 0); err != nil {
+			return nil, err
+		}
+		if err := s.upsertThreadInboxItem(ctx, tx, orgID, recipientID, threadID, senderID, preview, "", now, 1); err != nil {
+			return nil, err
+		}
 	}
 
 	// MessageCreated outbox payload carries the threading fields (post-Phase 0
@@ -298,6 +343,12 @@ func (s *Store) appendMessage(
 		ParentMessageID: parentForEvent,
 		IsThreadRoot:    &rootForEvent,
 		Kind:            opts.kind, // empty for ordinary text
+		// The consumer needs this for the same reason appendMessage does: the
+		// client optimistically inserts an inbox row on MessageCreated, and
+		// without the origin it would put back exactly the rows we stopped
+		// writing above.
+		Origin:    origin,
+		ReplyToID: opts.replyToID,
 	}
 	if err := insertOutbox(ctx, tx, convID, evt); err != nil {
 		return nil, err

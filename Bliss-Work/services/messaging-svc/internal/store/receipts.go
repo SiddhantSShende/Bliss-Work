@@ -291,12 +291,16 @@ func (s *Store) ListMessages(ctx context.Context, orgID, callerID, convID string
 		}
 
 		rows, err := tx.Query(ctx, `
-			SELECT id, conversation_id, thread_id, parent_message_id, is_thread_root,
-			       seq, sender_id, body, body_enc, created_at, sender_dismissed_at, kind
-			FROM messages
-			WHERE conversation_id = $1
-			  AND (sender_id <> $2 OR sender_dismissed_at IS NULL)
-			ORDER BY seq ASC`, convID, callerID)
+			SELECT`+messageColumns+`
+			FROM messages m`+messageDeliveryJoin+`
+			WHERE m.conversation_id = $1
+			  AND (m.sender_id <> $2 OR m.sender_dismissed_at IS NULL)
+			  -- "Delete for me": one reader's decision, invisible to the other.
+			  AND NOT EXISTS (
+			      SELECT 1 FROM message_hides h
+			      WHERE h.message_id = m.id AND h.user_id = $2
+			  )
+			ORDER BY m.seq ASC`, convID, callerID)
 		if err != nil {
 			return err
 		}
@@ -318,6 +322,12 @@ func (s *Store) ListMessages(ctx context.Context, orgID, callerID, convID string
 			m, derr := s.decryptMessage(ctx, tx, orgID, r)
 			if derr != nil {
 				return derr
+			}
+			// A delivery receipt is a fact about MY message reaching someone
+			// else. On a message I received it is meaningless (and would render
+			// as a checkmark on the wrong side of the thread).
+			if m.SenderID != callerID {
+				m.Status = ""
 			}
 			out = append(out, m)
 		}

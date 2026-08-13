@@ -19,6 +19,20 @@ import (
 const previewLen = 80
 
 // ThreadDTO is the per-thread header returned by GET /threads/{id}.
+// Which surface started a thread, and therefore whether it belongs in the
+// Inbox. Chats is instant messaging; the Inbox is an email-style surface, and
+// before this distinction existed every DM wrote an inbox_items row — which is
+// why chat traffic showed up in the Inbox's badge and People sidebar.
+const (
+	ThreadOriginChat = "chat"
+	ThreadOriginMail = "mail"
+)
+
+// ValidThreadOrigin reports whether a CLIENT-SUPPLIED origin is one we accept.
+func ValidThreadOrigin(v string) bool {
+	return v == ThreadOriginChat || v == ThreadOriginMail
+}
+
 type ThreadDTO struct {
 	ThreadID       string `json:"threadId"`
 	ConversationID string `json:"conversationId"`
@@ -43,8 +57,11 @@ type ThreadDTO struct {
 func (s *Store) ensureThread(
 	ctx context.Context,
 	tx pgx.Tx,
-	orgID, convID, rootMessageID, senderID, recipientID, body string,
+	orgID, convID, rootMessageID, senderID, recipientID, body, origin string,
 ) (threadID string, err error) {
+	if origin == "" {
+		origin = ThreadOriginChat
+	}
 	threadID = uuid.Must(uuid.NewV7()).String()
 	preview := truncatePreview(body)
 
@@ -70,9 +87,9 @@ func (s *Store) ensureThread(
 	_, err = tx.Exec(ctx,
 		`INSERT INTO threads
 		   (id, org_id, conversation_id, root_message_id, sender_id, recipient_id,
-		    subject_preview, subject_preview_enc, last_event_at, last_message_seq)
-		 VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, now(), 0)`,
-		threadID, orgID, convID, rootMessageID, senderID, recipientID, previewEnc)
+		    subject_preview, subject_preview_enc, last_event_at, last_message_seq, origin)
+		 VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, now(), 0, $8)`,
+		threadID, orgID, convID, rootMessageID, senderID, recipientID, previewEnc, origin)
 	if err != nil {
 		return "", fmt.Errorf("insert thread: %w", err)
 	}
@@ -289,12 +306,16 @@ func (s *Store) ListThreadMessages(
 		}
 
 		rows, err := tx.Query(ctx, `
-			SELECT id, conversation_id, thread_id, parent_message_id, is_thread_root,
-			       seq, sender_id, body, body_enc, created_at, sender_dismissed_at, kind
-			FROM messages
-			WHERE thread_id = $1 AND seq < $2
-			  AND (sender_id <> $3 OR sender_dismissed_at IS NULL)
-			ORDER BY seq DESC
+			SELECT`+messageColumns+`
+			FROM messages m`+messageDeliveryJoin+`
+			WHERE m.thread_id = $1 AND m.seq < $2
+			  AND (m.sender_id <> $3 OR m.sender_dismissed_at IS NULL)
+			  -- "Delete for me": one reader's decision, invisible to the other.
+			  AND NOT EXISTS (
+			      SELECT 1 FROM message_hides h
+			      WHERE h.message_id = m.id AND h.user_id = $3
+			  )
+			ORDER BY m.seq DESC
 			LIMIT $4`,
 			threadID, beforeSeq, callerID, limit)
 		if err != nil {
@@ -318,6 +339,11 @@ func (s *Store) ListThreadMessages(
 			m, derr := s.decryptMessage(ctx, tx, orgID, r)
 			if derr != nil {
 				return derr
+			}
+			// See ListMessages: a receipt only means something on my own
+			// messages.
+			if m.SenderID != callerID {
+				m.Status = ""
 			}
 			out = append(out, m)
 		}
@@ -449,10 +475,35 @@ type rawMessage struct {
 	bodyEnc []byte
 }
 
-// scanRawMessage decodes one row of the (id, conv, thread, parent, root, seq,
-// sender, body, body_enc, created_at, sender_dismissed_at) tuple WITHOUT
-// touching the DB — pure column copy, safe to call inside rows.Next(). The body
-// is left encrypted in rawMessage.bodyEnc for a later decryptMessage call.
+// messageColumns is the SELECT list every message reader uses, in exactly the
+// order scanRawMessage expects. Shared as a constant because there are two
+// readers (conversations and threads) and a column added to one but not the
+// other is a scan-order bug that only shows up at runtime.
+//
+// `status` is the sender-side receipt, computed from the single message_delivery
+// row the 1:1 recipient owns. It is SELECTed rather than accumulated on the
+// client because a receipt held only in a cache patch dies with the page — which
+// is why sent messages showed no delivery state at all after a reload.
+const messageColumns = `
+	m.id, m.conversation_id, m.thread_id, m.parent_message_id, m.is_thread_root,
+	m.seq, m.sender_id, m.body, m.body_enc, m.created_at, m.sender_dismissed_at, m.kind,
+	m.reply_to_id, m.deleted_for_all_at,
+	CASE
+	    WHEN md.read_at      IS NOT NULL THEN 'SEEN'
+	    WHEN md.delivered_at IS NOT NULL THEN 'DELIVERED'
+	    ELSE 'SENT'
+	END AS status`
+
+// messageDeliveryJoin pairs with messageColumns. `recipient_id <> m.sender_id`
+// identifies the other party without needing to know who they are: a 1:1
+// conversation has exactly one delivery row per message, belonging to the peer.
+const messageDeliveryJoin = `
+	LEFT JOIN message_delivery md
+	       ON md.message_id = m.id AND md.recipient_id <> m.sender_id`
+
+// scanRawMessage decodes one messageColumns row WITHOUT touching the DB — pure
+// column copy, safe to call inside rows.Next(). The body is left encrypted in
+// rawMessage.bodyEnc for a later decryptMessage call.
 func scanRawMessage(rows pgx.Rows) (rawMessage, error) {
 	var (
 		r                 rawMessage
@@ -463,14 +514,23 @@ func scanRawMessage(rows pgx.Rows) (rawMessage, error) {
 		bodyEnc           []byte
 		created           time.Time
 		senderDismissedAt *time.Time
+		replyToID         *string
+		deletedForAllAt   *time.Time
+		status            string
 	)
 	var kind string
 	if err := rows.Scan(
 		&r.m.ID, &r.m.ConversationID, &threadID, &parentMsgID, &isThreadRoot,
 		&r.m.Seq, &r.m.SenderID, &bodyPlain, &bodyEnc, &created, &senderDismissedAt, &kind,
+		&replyToID, &deletedForAllAt, &status,
 	); err != nil {
 		return rawMessage{}, err
 	}
+	if replyToID != nil {
+		r.m.ReplyToID = *replyToID
+	}
+	r.m.Status = status
+	r.m.DeletedForAll = deletedForAllAt != nil
 	// 'text' is the overwhelming majority; omit it so the wire shape for an
 	// ordinary message is byte-identical to what clients saw before.
 	if kind != MessageKindText {
@@ -496,6 +556,15 @@ func scanRawMessage(rows pgx.Rows) (rawMessage, error) {
 // closed.
 func (s *Store) decryptMessage(ctx context.Context, q crypto.Querier, orgID string, r rawMessage) (MessageDTO, error) {
 	m := r.m
+	// A message deleted for everyone travels as a TOMBSTONE: the row is still
+	// there (seq is the conversation's ordering key, and message_delivery and
+	// message_forwards reference the id), but the body never leaves the server.
+	// Skipping the decrypt is the point — "deleted" that still ships the text
+	// to every client and merely hides it in CSS is not deletion.
+	if m.DeletedForAll {
+		m.Body = ""
+		return m, nil
+	}
 	if r.bodyEnc != nil {
 		dec, err := s.crypto.Decrypt(ctx, q, orgID, r.bodyEnc)
 		if err != nil {

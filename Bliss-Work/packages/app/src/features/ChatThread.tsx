@@ -3,9 +3,11 @@ import { motion } from "framer-motion";
 import { MessageSquare, Ban, Forward, PhoneMissed } from "lucide-react";
 import { Avatar } from "@taskboard/ui";
 import { clock, groupMessages } from "../lib/chatFormat";
+import type { MessageDTO } from "@taskboard/shared";
 import { isMediaMessage, type MediaItem } from "../lib/chatEnvelope";
 import { Composer } from "./Composer";
 import { SystemPill } from "./SystemPill";
+import { MessageStatusBadge } from "./MessageStatusBadge";
 
 export interface ThreadMessage {
   id: string;
@@ -17,6 +19,8 @@ export interface ThreadMessage {
   /** System entries (a missed call, a forward handed off to WhatsApp) render as
    *  a centered notice, not a bubble. */
   kind?: "text" | "call_missed" | "forward_external";
+  /** Sender-side delivery state. Set only on the caller's own messages. */
+  status?: MessageDTO["status"];
 }
 
 /** Presentational chat thread (bubbles + composer). Reused by DMs and channels. */
@@ -203,8 +207,13 @@ export function ChatThread({
                         </button>
                       )}
                     </div>
-                    <span className="mt-0.5 px-1 text-[10px] text-muted/70">
+                    <span className="mt-0.5 flex items-center gap-1 px-1 text-[10px] text-muted/70">
                       {m.pending ? "Sending…" : clock(m.at)}
+                      {/* Sent → Delivered → Seen, on my own bubbles only. The
+                          Inbox thread has shown this for a while; DMs and
+                          channels never did, so there was no way to tell
+                          whether a message had landed. */}
+                      {mine && !m.pending && <MessageStatusBadge status={m.status} />}
                     </span>
                   </div>
                 </motion.div>

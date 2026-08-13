@@ -185,7 +185,13 @@ func (s *Server) Router(webOrigin string) http.Handler {
 			r.Post("/conversations/{id}/reply", s.reply)
 			r.Post("/conversations/{id}/ignore", s.ignore)
 			r.Get("/conversations/{id}/messages", s.listMessages)
+			r.Get("/conversations/{id}/reactions", s.listConversationReactions)
 			r.Post("/conversations/{id}/read", s.markRead)
+
+			// Reactions. Same URL under two verbs, so a double-tap is
+			// idempotent at the HTTP layer and not only in SQL.
+			r.Put("/messages/{id}/reactions/{emoji}", s.setReaction)
+			r.Delete("/messages/{id}/reactions/{emoji}", s.setReaction)
 			r.Post("/users/{id}/block", s.block)
 			r.Delete("/users/{id}/block", s.unblock)
 
@@ -253,6 +259,10 @@ func (s *Server) Router(webOrigin string) http.Handler {
 				g.Post("/threads/{id}/ignore", s.ignoreThread)
 				g.Post("/threads/{id}/read", s.readThread)
 				g.Post("/messages/{id}/dismiss", s.dismissMessage)
+				// Two different acts: hide is one reader's view, delete is the
+				// message itself and only its author may do it.
+				g.Post("/messages/{id}/hide", s.hideMessage)
+				g.Delete("/messages/{id}", s.deleteMessage)
 				g.Post("/inbox/items/{kind}/{refId}/ignore", s.ignoreInboxItem)
 				g.Post("/inbox/items/{kind}/{refId}/read", s.markInboxItemRead)
 			})
@@ -371,6 +381,11 @@ type sendReq struct {
 	// Optional system kind (e.g. "call_missed"); absent means an ordinary
 	// message. Whitelisted below — clients cannot invent kinds.
 	Kind string `json:"kind"`
+	// Which surface is sending: "chat" (default) or "mail". Only the Compose
+	// dialog sends "mail", and only mail threads reach the Inbox.
+	Origin string `json:"origin"`
+	// Message being quoted, if any.
+	ReplyToID string `json:"replyToId"`
 }
 
 type openConversationReq struct {
@@ -420,7 +435,18 @@ func (s *Server) sendMessage(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "unknown message kind")
 		return
 	}
-	res, err := s.store.SendMessage(r.Context(), claims.OrgID, claims.UserID, req.RecipientID, req.Body, req.ClientMsgID, req.Kind)
+	// Whitelisted, like Kind: the origin decides whether this thread appears in
+	// the Inbox, so a client must not be able to invent a third value.
+	if req.Origin != "" && !store.ValidThreadOrigin(req.Origin) {
+		writeErr(w, http.StatusBadRequest, "unknown origin")
+		return
+	}
+	if req.ReplyToID != "" && !validUUID(req.ReplyToID) {
+		writeErr(w, http.StatusBadRequest, "invalid replyToId")
+		return
+	}
+	res, err := s.store.SendMessage(r.Context(), claims.OrgID, claims.UserID, req.RecipientID, req.Body, req.ClientMsgID,
+		store.SendOptions{Kind: req.Kind, Origin: req.Origin, ReplyToID: req.ReplyToID})
 	if err != nil {
 		s.mapErr(w, err)
 		return
@@ -431,6 +457,9 @@ func (s *Server) sendMessage(w http.ResponseWriter, r *http.Request) {
 type replyReq struct {
 	Body        string `json:"body"`
 	ClientMsgID string `json:"clientMsgId"`
+	// Message being quoted, if any. A reply always inherits its thread's origin,
+	// so there is nothing to declare here.
+	ReplyToID string `json:"replyToId"`
 }
 
 func (s *Server) reply(w http.ResponseWriter, r *http.Request) {
@@ -449,7 +478,11 @@ func (s *Server) reply(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "body, clientMsgId required")
 		return
 	}
-	res, err := s.store.Reply(r.Context(), claims.OrgID, claims.UserID, convID, req.Body, req.ClientMsgID)
+	if req.ReplyToID != "" && !validUUID(req.ReplyToID) {
+		writeErr(w, http.StatusBadRequest, "invalid replyToId")
+		return
+	}
+	res, err := s.store.Reply(r.Context(), claims.OrgID, claims.UserID, convID, req.Body, req.ClientMsgID, req.ReplyToID)
 	if err != nil {
 		s.mapErr(w, err)
 		return

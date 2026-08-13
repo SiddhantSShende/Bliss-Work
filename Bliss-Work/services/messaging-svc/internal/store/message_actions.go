@@ -1,0 +1,311 @@
+package store
+
+import (
+	"context"
+	"errors"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+
+	"github.com/task-board/messaging-svc/internal/events"
+)
+
+// Deleting a message, and reacting to one.
+//
+// ── Two deletions, deliberately not one ──────────────────────────────────────
+// "Delete for me" is a fact about ONE READER: a row in message_hides, invisible
+// to anyone else, available to either party for any message.
+// "Delete for everyone" is a fact about THE MESSAGE: one timestamp, seen by
+// both, and only its author may set it.
+//
+// Both are SOFT. The row has to survive: `seq` is the conversation's ordering
+// key, and message_delivery and message_forwards reference the id — a hard
+// delete would punch a hole in the sequence and orphan the receipts. Keeping it
+// is also the honest thing to render: the reader sees "this message was
+// deleted" where the message was, instead of a gap that silently rewrites what
+// they remember reading.
+
+// HideMessage hides one message from ONE user's view. Either party may hide
+// any message in a conversation they belong to. Idempotent.
+func (s *Store) HideMessage(ctx context.Context, orgID, callerID, messageID string) error {
+	return s.withOrg(ctx, orgID, func(tx pgx.Tx) error {
+		// Membership check via the conversation, so a caller cannot hide a
+		// message in someone else's chat (which would be a cheap way to probe
+		// whether a message id exists).
+		var convID string
+		err := tx.QueryRow(ctx, `
+			SELECT m.conversation_id
+			FROM messages m
+			JOIN conversation_members cm
+			  ON cm.conversation_id = m.conversation_id AND cm.user_id = $2
+			WHERE m.id = $1 AND m.org_id = $3`,
+			messageID, callerID, orgID).Scan(&convID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrForbidden
+		}
+		if err != nil {
+			return err
+		}
+
+		_, err = tx.Exec(ctx, `
+			INSERT INTO message_hides (message_id, user_id, org_id)
+			VALUES ($1, $2, $3)
+			ON CONFLICT (message_id, user_id) DO NOTHING`,
+			messageID, callerID, orgID)
+		return err
+	})
+}
+
+// DeleteMessageForAll tombstones a message for both parties. SENDER ONLY.
+//
+// Emits MessageDeleted so the other side's open thread swaps the bubble for a
+// tombstone immediately — a delete the recipient only learns about on their
+// next refetch is one they may well screenshot first.
+func (s *Store) DeleteMessageForAll(ctx context.Context, orgID, callerID, messageID string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if err := setOrgGUC(ctx, tx, orgID); err != nil {
+		return err
+	}
+
+	var convID, senderID string
+	var threadID *string
+	err = tx.QueryRow(ctx,
+		`SELECT conversation_id, sender_id, thread_id FROM messages
+		 WHERE id = $1 AND org_id = $2`,
+		messageID, orgID).Scan(&convID, &senderID, &threadID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrForbidden
+	}
+	if err != nil {
+		return err
+	}
+	// Only the author. Unbounded in time on purpose: a time limit ("you may
+	// unsend for 15 minutes") is a policy this product has not asked for, and
+	// guessing one would be worse than not having it.
+	if senderID != callerID {
+		return ErrForbidden
+	}
+
+	// Idempotent: re-deleting keeps the FIRST timestamp rather than moving it.
+	if _, err = tx.Exec(ctx, `
+		UPDATE messages
+		SET deleted_for_all_at = COALESCE(deleted_for_all_at, now()),
+		    deleted_by         = COALESCE(deleted_by, $2)
+		WHERE id = $1`,
+		messageID, callerID); err != nil {
+		return err
+	}
+
+	// The Inbox preview quotes the body, so a mail thread whose latest message
+	// was just deleted would keep showing the deleted text in the feed.
+	if threadID != nil {
+		if _, err = tx.Exec(ctx, `
+			UPDATE inbox_items
+			SET preview = '', preview_enc = NULL, updated_at = now()
+			WHERE item_kind = 'THREAD' AND ref_id = $1`, *threadID); err != nil {
+			return err
+		}
+	}
+
+	evt := events.MessageDeleted{
+		Type:           events.TypeMessageDeleted,
+		EventID:        uuid.Must(uuid.NewV7()).String(),
+		OrgID:          orgID,
+		OccurredAt:     nowISO(),
+		ConversationID: convID,
+		MessageID:      messageID,
+		DeletedBy:      callerID,
+		Members:        []string{},
+	}
+	if threadID != nil {
+		evt.ThreadID = threadID
+	}
+	members, err := conversationMemberIDs(ctx, tx, convID)
+	if err != nil {
+		return err
+	}
+	evt.Members = members
+	if err := insertOutbox(ctx, tx, convID, evt); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// conversationMemberIDs lists both sides of a 1:1, so the gateway can route an
+// event to each without a second lookup.
+func conversationMemberIDs(ctx context.Context, tx pgx.Tx, convID string) ([]string, error) {
+	rows, err := tx.Query(ctx,
+		`SELECT user_id FROM conversation_members WHERE conversation_id = $1`, convID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
+// ── Reactions ────────────────────────────────────────────────────────────────
+
+// SetReaction adds (on=true) or removes (on=false) one emoji from one user on
+// one message. Both directions are idempotent by construction — the primary key
+// (message_id, user_id, emoji) IS the uniqueness rule, so a toggle is an INSERT
+// … ON CONFLICT DO NOTHING or a DELETE, with no read-modify-write and therefore
+// no lost update when two devices race.
+func (s *Store) SetReaction(ctx context.Context, orgID, callerID, messageID, emoji string, on bool) ([]ReactionDTO, error) {
+	var out []ReactionDTO
+	err := s.withOrg(ctx, orgID, func(tx pgx.Tx) error {
+		// Same membership gate as HideMessage: you may only react inside a
+		// conversation you are part of.
+		var convID string
+		err := tx.QueryRow(ctx, `
+			SELECT m.conversation_id
+			FROM messages m
+			JOIN conversation_members cm
+			  ON cm.conversation_id = m.conversation_id AND cm.user_id = $2
+			WHERE m.id = $1 AND m.org_id = $3`,
+			messageID, callerID, orgID).Scan(&convID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrForbidden
+		}
+		if err != nil {
+			return err
+		}
+
+		if on {
+			_, err = tx.Exec(ctx, `
+				INSERT INTO message_reactions (message_id, user_id, org_id, emoji)
+				VALUES ($1, $2, $3, $4)
+				ON CONFLICT (message_id, user_id, emoji) DO NOTHING`,
+				messageID, callerID, orgID, emoji)
+		} else {
+			_, err = tx.Exec(ctx, `
+				DELETE FROM message_reactions
+				WHERE message_id = $1 AND user_id = $2 AND emoji = $3`,
+				messageID, callerID, emoji)
+		}
+		if err != nil {
+			return err
+		}
+
+		// Tell the other side. The payload deliberately carries no counts: the
+		// tally is per-viewer (`mine` differs), so each client refetches its own
+		// rather than trying to apply someone else's numbers.
+		members, err := conversationMemberIDs(ctx, tx, convID)
+		if err != nil {
+			return err
+		}
+		evt := events.MessageReaction{
+			Type:           events.TypeMessageReaction,
+			EventID:        uuid.Must(uuid.NewV7()).String(),
+			OrgID:          orgID,
+			OccurredAt:     nowISO(),
+			ConversationID: convID,
+			MessageID:      messageID,
+			ActorID:        callerID,
+			Members:        members,
+		}
+		if err := insertOutbox(ctx, tx, convID, evt); err != nil {
+			return err
+		}
+
+		out, err = reactionsFor(ctx, tx, []string{messageID}, callerID)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ReactionDTO is one emoji's tally on one message, from the caller's point of
+// view. `Mine` is what lets the UI render the chip as pressed.
+type ReactionDTO struct {
+	MessageID string `json:"messageId"`
+	Emoji     string `json:"emoji"`
+	Count     int    `json:"count"`
+	Mine      bool   `json:"mine"`
+}
+
+// reactionsFor tallies reactions across a whole page of messages in ONE query.
+// Per-message queries would be N+1 on the hottest read in the app.
+func reactionsFor(ctx context.Context, tx pgx.Tx, messageIDs []string, callerID string) ([]ReactionDTO, error) {
+	out := []ReactionDTO{}
+	if len(messageIDs) == 0 {
+		return out, nil
+	}
+	rows, err := tx.Query(ctx, `
+		SELECT message_id, emoji, count(*)::int,
+		       bool_or(user_id = $2) AS mine
+		FROM message_reactions
+		WHERE message_id = ANY($1)
+		GROUP BY message_id, emoji
+		ORDER BY message_id, count(*) DESC, emoji ASC`,
+		messageIDs, callerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var r ReactionDTO
+		if err := rows.Scan(&r.MessageID, &r.Emoji, &r.Count, &r.Mine); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// ReactionsForConversation tallies every reaction in a conversation the caller
+// belongs to, so the message list and its reactions arrive together instead of
+// the bubbles rendering first and the chips popping in afterwards.
+func (s *Store) ReactionsForConversation(ctx context.Context, orgID, callerID, convID string) ([]ReactionDTO, error) {
+	var out []ReactionDTO
+	err := s.withOrg(ctx, orgID, func(tx pgx.Tx) error {
+		var present int
+		err := tx.QueryRow(ctx,
+			`SELECT 1 FROM conversation_members WHERE conversation_id = $1 AND user_id = $2`,
+			convID, callerID).Scan(&present)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrForbidden
+		}
+		if err != nil {
+			return err
+		}
+		rows, err := tx.Query(ctx, `
+			SELECT r.message_id, r.emoji, count(*)::int, bool_or(r.user_id = $2) AS mine
+			FROM message_reactions r
+			JOIN messages m ON m.id = r.message_id
+			WHERE m.conversation_id = $1
+			GROUP BY r.message_id, r.emoji
+			ORDER BY r.message_id, count(*) DESC, r.emoji ASC`,
+			convID, callerID)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		out = []ReactionDTO{}
+		for rows.Next() {
+			var r ReactionDTO
+			if err := rows.Scan(&r.MessageID, &r.Emoji, &r.Count, &r.Mine); err != nil {
+				return err
+			}
+			out = append(out, r)
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}

@@ -75,7 +75,12 @@ export function ComposeDialog({ open, onClose }: { open: boolean; onClose: () =>
     mutationFn: async () => {
       const ids = [...selected];
       if (mode === "message") {
-        const res = await api.sendMessage(ids[0]!, body.trim());
+        // origin: "mail" — this is the email-style surface, and it is the ONLY
+        // caller that says so. Everything sent from Chats stays out of the
+        // Inbox, which is what stopped chat traffic driving the Inbox badge.
+        const res = await api.sendMessage(ids[0]!, body.trim(), undefined, undefined, {
+          origin: "mail",
+        });
         return { kind: "message" as const, threadId: res.threadId };
       }
       await api.createTask({ title: title.trim(), description: description.trim(), assigneeIds: ids });

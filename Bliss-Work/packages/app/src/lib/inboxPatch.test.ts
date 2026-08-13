@@ -105,6 +105,9 @@ function created(over: Partial<MessageCreated> = {}): MessageCreated {
     seq: 5,
     body: "hello world",
     occurredAt: "2026-06-24T12:00:00.000Z",
+    // Inbox rows exist for MAIL threads only, so the inbox-patch cases below
+    // are all mail. `chat` is covered separately.
+    origin: "mail",
     ...over,
   } as unknown as MessageCreated;
 }
@@ -115,6 +118,29 @@ beforeEach(() => {
 });
 
 describe("patchInboxOnMessage", () => {
+  // THE separation that keeps chat out of the Inbox. The server stopped writing
+  // inbox_items rows for chat threads in migration 0014; if this optimistic
+  // patch still ran, chat messages would flash into the Inbox and then vanish
+  // on the next refetch — the same bug, now with a flicker.
+  it("ignores a CHAT message entirely", () => {
+    seedInbox(qc, [inboxItem({ unreadCount: 2, statusBadge: "SEEN" })]);
+
+    patchInboxOnMessage(qc, created({ origin: "chat", body: "a chat message" }), ME);
+
+    const row = inboxRows(qc)[0]!;
+    expect(row.unreadCount).toBe(2);
+    expect(row.preview).not.toBe("a chat message");
+  });
+
+  it("ignores a message from a producer too old to say", () => {
+    // Pre-0014 producers omit `origin`, and every thread they created is chat.
+    seedInbox(qc, [inboxItem({ unreadCount: 2 })]);
+
+    patchInboxOnMessage(qc, created({ origin: undefined, body: "legacy" }), ME);
+
+    expect(inboxRows(qc)[0]!.unreadCount).toBe(2);
+  });
+
   it("increments unreadCount for an INCOMING message and keeps the existing badge", () => {
     seedInbox(qc, [inboxItem({ unreadCount: 2, statusBadge: "SEEN" })]);
 

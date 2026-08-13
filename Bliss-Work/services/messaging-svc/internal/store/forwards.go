@@ -23,6 +23,11 @@ type appendOpts struct {
 	// kind is the messages.kind value ("" → 'text'). System entries such as
 	// MessageKindCallMissed set it; it is never taken from raw client input.
 	kind string
+	// origin is the surface starting a NEW thread — ThreadOriginChat unless
+	// Compose asked for mail. Ignored on a reply, which inherits the thread's.
+	origin string
+	// replyToID quotes another message in the same conversation ("" → none).
+	replyToID string
 }
 
 // kindArg is the messages.kind value to insert — 'text' unless a system kind

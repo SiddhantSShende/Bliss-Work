@@ -72,6 +72,8 @@ type threadReplyReq struct {
 	Body            string  `json:"body"`
 	ClientMsgID     string  `json:"clientMsgId"`
 	ParentMessageID *string `json:"parentMessageId"`
+	// Inline quote. Distinct from parentMessageId, which is THREADING.
+	ReplyToID string `json:"replyToId"`
 }
 
 // replyToThread serves POST /api/v1/threads/{id}/reply.
@@ -99,7 +101,11 @@ func (s *Server) replyToThread(w http.ResponseWriter, r *http.Request) {
 		}
 		parent = *req.ParentMessageID
 	}
-	res, err := s.store.ReplyToThread(r.Context(), claims.OrgID, claims.UserID, threadID, parent, req.Body, req.ClientMsgID)
+	if req.ReplyToID != "" && !validUUID(req.ReplyToID) {
+		writeErr(w, http.StatusBadRequest, "invalid replyToId")
+		return
+	}
+	res, err := s.store.ReplyToThread(r.Context(), claims.OrgID, claims.UserID, threadID, parent, req.Body, req.ClientMsgID, req.ReplyToID)
 	if err != nil {
 		s.mapErr(w, err)
 		return

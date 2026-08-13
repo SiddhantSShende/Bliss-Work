@@ -232,6 +232,22 @@ type MessageDTO struct {
 	Body              string  `json:"body"`
 	CreatedAt         string  `json:"createdAt"`
 	DismissedBySender bool    `json:"dismissedBySender,omitempty"`
+	// Status is the sender-side delivery state — SENT | DELIVERED | SEEN — and
+	// is set ONLY on the caller's own messages. Empty for anything they
+	// received, where the question is meaningless.
+	//
+	// It comes from the server rather than being accumulated client-side from
+	// live events, because the client's copy dies with the page: a receipt that
+	// only exists in a cache patch is gone the moment the thread is reopened,
+	// which is why sent messages showed no state at all after a reload.
+	Status string `json:"status,omitempty"`
+	// ReplyToID is the message this one quotes, if any.
+	ReplyToID string `json:"replyToId,omitempty"`
+	// DeletedForAll marks a tombstone. The row still travels — seq is the
+	// conversation's ordering key and other tables reference the id — but Body
+	// is empty and never leaves the server, so the client renders "this message
+	// was deleted" in place rather than showing a gap it can't explain.
+	DeletedForAll bool `json:"deletedForAll,omitempty"`
 }
 
 // ChannelDTO mirrors the canonical ChannelDTO contract.

@@ -17,6 +17,8 @@ const (
 	TypeMessageRead           = "message.read"
 	TypeMessageDelivered      = "message.delivered"
 	TypeMessageDismissed      = "message.dismissed"
+	TypeMessageDeleted        = "message.deleted"
+	TypeMessageReaction       = "message.reaction"
 	TypeMessageForwarded      = "message.forwarded"
 	TypeUserCreated           = "user.created"
 	TypeUserDeactivated       = "user.deactivated"
@@ -57,6 +59,12 @@ type MessageCreated struct {
 	// Kind is omitted for ordinary text so pre-existing consumers see exactly
 	// the JSON they saw before; set for system entries such as "call_missed".
 	Kind string `json:"kind,omitempty"`
+	// Origin is the thread's surface — 'chat' or 'mail'. The client patches its
+	// inbox cache optimistically from this event, so without the origin it would
+	// re-insert the very rows appendMessage now declines to write.
+	Origin string `json:"origin,omitempty"`
+	// ReplyToID is the message this one quotes, if any.
+	ReplyToID string `json:"replyToId,omitempty"`
 }
 
 // ConversationIgnored is emitted when a participant ignores (hides) a conversation
@@ -137,6 +145,44 @@ type MessageDismissed struct {
 	ThreadID       *string `json:"threadId,omitempty"`
 	MessageID      string  `json:"messageId"`
 	DismissedBy    string  `json:"dismissedBy"`
+}
+
+// MessageDeleted is "delete for everyone": the message is now a tombstone for
+// BOTH parties. Routed to `Members` so the other side swaps the bubble out
+// immediately — a delete the recipient only learns about at their next refetch
+// is one they may well have screenshotted first.
+//
+// Deliberately distinct from MessageDismissed, which is the SENDER-ONLY inbox
+// hide and changes nothing for the recipient.
+type MessageDeleted struct {
+	Type           string   `json:"type"`
+	EventID        string   `json:"eventId"`
+	OrgID          string   `json:"orgId"`
+	OccurredAt     string   `json:"occurredAt"`
+	ConversationID string   `json:"conversationId"`
+	ThreadID       *string  `json:"threadId,omitempty"`
+	MessageID      string   `json:"messageId"`
+	DeletedBy      string   `json:"deletedBy"`
+	Members        []string `json:"members"`
+}
+
+// MessageReaction announces that SOMETHING about one message's reactions
+// changed, and carries no counts.
+//
+// Deliberate: the tally is per-viewer (`mine` differs between the two parties),
+// so a payload of numbers would be right for the actor and wrong for everyone
+// else. Each client refetches its own view instead — one small query on a
+// change a human just made by hand, which is not a rate worth optimising.
+type MessageReaction struct {
+	Type           string   `json:"type"`
+	EventID        string   `json:"eventId"`
+	OrgID          string   `json:"orgId"`
+	OccurredAt     string   `json:"occurredAt"`
+	ConversationID string   `json:"conversationId"`
+	MessageID      string   `json:"messageId"`
+	// Who toggled — used to skip the actor's own echo.
+	ActorID string   `json:"actorId"`
+	Members []string `json:"members"`
 }
 
 // MessageForwarded records one hop of internal-relay forward tracking. When B

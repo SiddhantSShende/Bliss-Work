@@ -24,8 +24,17 @@ type InboxInfinite = { pages: InboxPageDTO[]; pageParams: (string | undefined)[]
 // Thread cache shape: InfiniteData<MessageDTO[]>.
 type ThreadInfinite = { pages: MessageDTO[][]; pageParams: (number | undefined)[] };
 
-/** Hoist a thread to the top of the unified inbox feed on MessageCreated. */
+/**
+ * Hoist a thread to the top of the unified inbox feed on MessageCreated.
+ *
+ * MAIL THREADS ONLY. The server stopped writing inbox_items rows for chat in
+ * migration 0014; patching optimistically here regardless would put back
+ * exactly the rows it declines to write, and the user would watch chat messages
+ * appear in the Inbox and then vanish on the next refetch. Absent origin means
+ * a producer older than 0014, whose threads are all being treated as chat.
+ */
 export function patchInboxOnMessage(qc: QueryClient, e: MessageCreated, meId: string): void {
+  if (e.origin !== "mail") return;
   const threadId = e.threadId ?? e.conversationId;
   const peerId = e.senderId === meId ? e.recipientId : e.senderId;
   const isFromMe = e.senderId === meId;
