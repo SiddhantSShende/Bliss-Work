@@ -1,0 +1,124 @@
+name: Deploy Site
+
+# Auto-deploys the BlissWork marketing site to the production VPS on every push
+# to `main`. Push to main → this fires → https://blisswork.rnrtechs.com is live.
+#
+# All the logic lives in `scripts/deploy-site.sh`, in the repo, so a deploy is
+# reviewable in a PR and reproducible by hand when GitHub is down. This workflow
+# only carries the SSH key and calls it. (Same shape as Bliss-Work's
+# .github/workflows/deploy-prod.yml — keep them in sync.)
+#
+# ── Relationship to the desktop installers ───────────────────────────────────
+# None, deliberately, and that is the point. The installers served at
+# /downloads/* are published by Bliss-Work's `release.yml` into
+# /home/ubuntu/BlissWork/downloads and served by nginx. They used to live in this
+# site's `dist/downloads`, where the rebuild below would have deleted them on
+# every single deploy. Nothing in this workflow may write under /downloads.
+#
+# ── Repository secrets ───────────────────────────────────────────────────────
+#   VPS_HOST      production host (same box as Bliss-Work)
+#   VPS_USER      ssh user, e.g. ubuntu
+#   VPS_SSH_KEY   private key whose public half is in that user's authorized_keys
+#   VPS_SITE_DIR  optional; defaults to /home/ubuntu/BlissWork/Bliss-Website
+#
+# With VPS_HOST unset the job exits cleanly without deploying, matching the
+# convention in Bliss-Work — the pipeline is safe to merge before the secrets
+# exist.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Never cancel a deploy in flight: the publish step rsyncs into the directory
+# Caddy is actively serving, so an interrupted run could leave a new index.html
+# beside the previous build's fingerprinted assets. Later runs queue instead.
+concurrency:
+  group: deploy-site
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to production
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_SITE_DIR: ${{ secrets.VPS_SITE_DIR || '/home/ubuntu/BlissWork/Bliss-Website' }}
+    steps:
+      - name: Report what triggered this
+        run: |
+          echo "event:  ${{ github.event_name }}"
+          echo "commit: ${{ github.sha }}"
+          if [ -z "$VPS_HOST" ]; then
+            echo "::warning::VPS_HOST is not set — skipping deploy."
+          fi
+
+      - name: Configure SSH
+        if: env.VPS_HOST != ''
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          # Pin the host key so StrictHostKeyChecking=yes below is meaningful.
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Deploy
+        if: env.VPS_HOST != ''
+        run: |
+          # -T: no pty, so the script's output streams into the job log verbatim.
+          # The remote script does its own locking and clean-tree guarding, and
+          # builds into staging so a failure leaves the live site untouched.
+          ssh -T -i ~/.ssh/id_deploy -o StrictHostKeyChecking=yes \
+            "$VPS_USER@$VPS_HOST" \
+            "bash '$VPS_SITE_DIR/scripts/deploy-site.sh'"
+
+      # The deploy is a file copy with no health check of its own, so confirm the
+      # live host actually serves the site — and, just as important, that the
+      # rebuild did not disturb the installers sharing this hostname.
+      - name: Verify the live site
+        if: env.VPS_HOST != ''
+        run: |
+          set -euo pipefail
+          BASE=https://blisswork.rnrtechs.com
+          curl -fsS "$BASE/" >/dev/null
+          # /downloads/* is routed to nginx, NOT served from dist/. If this 404s,
+          # the Caddy route or the nginx mount regressed — see Bliss-Work
+          # infra/caddy/Caddyfile and docker-compose.prod.yml.
+          len=$(curl -fsSI "$BASE/downloads/BlissWork-windows-x64.exe" \
+                | awk 'tolower($1)=="content-length:"{print $2+0}' | tail -1)
+          if [ "${len:-0}" -lt $((5 * 1024 * 1024)) ]; then
+            echo "::error::installer serves ${len:-0} bytes — the site deploy disturbed /downloads"
+            exit 1
+          fi
+          echo "Site is up; installers still served ($len bytes)."
+
+      # The check above only covers the Windows exe. This covers every link in
+      # src/config/downloads.ts, on BOTH download hosts, and catches the failure
+      # this site is uniquely exposed to: its filename list is a hand-maintained
+      # copy of Bliss-Work's, so a rename there silently 404s the buttons here.
+      #
+      # Advisory, not blocking. Publishing installers is Bliss-Work's release.yml
+      # (which fails hard on the same conditions); this repo cannot fix a missing
+      # or placeholder .dmg, so a content change to the marketing site must not
+      # be held hostage to one. Read the annotation — it is not noise.
+      - uses: actions/checkout@v4
+        if: env.VPS_HOST != ''
+      - uses: actions/setup-node@v4
+        if: env.VPS_HOST != ''
+        with:
+          node-version: 20
+      - name: Verify every download link resolves on both hosts
+        if: env.VPS_HOST != ''
+        continue-on-error: true
+        run: node scripts/check-download-links.mjs
+
+      - name: Scrub the key
+        if: always()
+        run: rm -f ~/.ssh/id_deploy

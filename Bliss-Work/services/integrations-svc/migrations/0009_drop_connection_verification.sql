@@ -1,0 +1,17 @@
+-- 0009_drop_connection_verification.sql — remove the confirmation-code table.
+-- Idempotent; replayed on every boot by db.py::run_migrations.
+--
+-- 0008 introduced this table one release ago to hold a 6-digit code we sent to
+-- an admin's own WhatsApp number. The integration is now Business-accounts-only,
+-- and a personal phone has no place in it: the connection is instead confirmed
+-- by Meta's own webhook verification request, which is business-side and needs
+-- no code, no template and nobody's handset (see app/connections.py).
+--
+-- Dropped rather than left in place. It carries `target_enc` — an encrypted
+-- personal phone number — and a table nothing writes to is a table nobody
+-- remembers to purge. 0008 itself cannot simply be edited: migrations replay on
+-- every boot, so the create has to be undone by a later file.
+--
+-- Safe to run: production held zero rows when this landed, and the feature that
+-- wrote them shipped and was withdrawn inside the same day.
+DROP TABLE IF EXISTS connection_verifications;

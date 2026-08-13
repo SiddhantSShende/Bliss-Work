@@ -1,0 +1,30 @@
+[Unit]
+Description=BlissWork encrypted database backups (all six service DBs)
+Documentation=file:///home/ubuntu/BlissWork/Bliss-Work/infra/systemd/README.md
+# pg_dump runs inside the postgres container, so the daemon must be up first.
+# Docker here is the SNAP — there is no docker.service on this host, and naming
+# it that way makes the unit unstartable ("Unit docker.service not found").
+After=snap.docker.dockerd.service
+Requires=snap.docker.dockerd.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/BlissWork/Bliss-Work
+# systemd's default PATH excludes /snap/bin, so `docker` would not be found.
+Environment=PATH=/snap/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=BACKUP_DIR=/var/backups/blisswork
+Environment=BACKUP_KEEP_DAYS=14
+# Off-host target lives here, not in git — it names a private host. Optional
+# file (leading `-`) so a missing one doesn't make the unit unloadable.
+EnvironmentFile=-/etc/blisswork-backup.env
+# The passphrase is read from the key file at run time and never written into
+# this unit — the unit is world-readable, the key file is 0600.
+ExecStart=/usr/bin/env bash -c 'BACKUP_ENCRYPTION_KEY="$(cat /home/ubuntu/bliss-backup-key.txt)" exec /home/ubuntu/BlissWork/Bliss-Work/scripts/backup-db.sh'
+# Ships only dumps that already passed local verification. oneshot runs these in
+# order and stops on the first failure, so a bad dump is never shipped.
+ExecStart=/home/ubuntu/BlissWork/Bliss-Work/scripts/backup-offsite.sh
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

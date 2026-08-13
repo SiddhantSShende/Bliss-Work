@@ -1,0 +1,27 @@
+-- 0007_drop_webhook_payload.sql — remove webhook_events.payload_enc.
+-- Idempotent; replayed on every boot by db.py::run_migrations.
+--
+-- The column was declared in 0001 as "payload retained encrypted for audit" and
+-- was NEVER written, by any code path, at any point. That was not an oversight
+-- so much as an impossibility: webhook_events is populated by the PUBLIC
+-- receiver *before* the connection — and therefore the org — is resolved, and
+-- the Cryptor's envelope encryption is per-org. There is no key to encrypt
+-- under at that moment.
+--
+-- The alternatives were both worse than dropping it:
+--
+--   * Store the payload in PLAINTEXT. Raw provider payloads are message bodies,
+--     addresses and phone numbers — the most sensitive data this service
+--     touches — in a table with no org_id and no RLS, which is exactly the
+--     shape a cross-tenant leak takes.
+--
+--   * Re-encrypt later, once the org is known. That means holding plaintext PII
+--     somewhere in the interim, which is the same problem with more moving
+--     parts.
+--
+-- Dedup and audit do not need the body: uq_webhook_events_ext (provider,
+-- external_event_id) is the idempotency guard, and `signature_verified` plus
+-- the timestamps answer "did this arrive, and was it authentic?".
+--
+-- Safe to run: the column has never held a single byte.
+ALTER TABLE webhook_events DROP COLUMN IF EXISTS payload_enc;

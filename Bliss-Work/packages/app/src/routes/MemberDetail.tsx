@@ -1,0 +1,220 @@
+import { useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { ChevronLeft, Download, MessageSquare, Users } from "lucide-react";
+import { Avatar, Badge, Button, EmptyState, Spinner } from "@taskboard/ui";
+import type { MemberDTO } from "@taskboard/shared";
+import { useRuntime } from "../lib/runtime";
+import { useSession } from "../store/session";
+import { qk } from "../lib/queryBridge";
+import { Tabs, type TabSpec } from "../features/Tabs";
+import { ExportActivityDialog } from "../features/ExportActivityDialog";
+import { MemberAdmin } from "../features/member/MemberAdmin";
+import { MemberAnalytics } from "../features/member/MemberAnalytics";
+import { MemberAuditLog } from "../features/member/MemberAuditLog";
+import { MemberSessions } from "../features/member/MemberSessions";
+import { MemberTimeline } from "../features/member/MemberTimeline";
+
+type TabKey = "overview" | "timeline" | "analytics" | "sessions" | "admin" | "security";
+
+/** One member's profile. Admins additionally get the lifecycle controls and the
+ *  audit trail; everyone else sees the overview only. */
+export function MemberDetail() {
+  const { userId = "" } = useParams();
+  const { api } = useRuntime();
+  const nav = useNavigate();
+  const me = useSession((s) => s.user)!;
+  const isAdmin = me.roles.includes("org_admin");
+  const isSelf = userId === me.id;
+  const [tab, setTab] = useState<TabKey>("overview");
+  const [patched, setPatched] = useState<MemberDTO | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
+
+  // Admins read the roster (which includes suspended/removed people); everyone
+  // else reads the plain directory, which by design lists only active members.
+  const { data: members, isLoading: loadingMembers } = useQuery({
+    queryKey: qk.members,
+    queryFn: () => api.listMembers(),
+    enabled: isAdmin,
+  });
+  const { data: directory = [], isLoading: loadingDir } = useQuery({
+    queryKey: qk.directory,
+    queryFn: () => api.directory(),
+  });
+  const { data: online = [] } = useQuery({
+    queryKey: qk.presence,
+    queryFn: () => api.presence(),
+    refetchInterval: 20_000,
+  });
+  const { data: conversations = [] } = useQuery({
+    queryKey: qk.conversations,
+    queryFn: () => api.conversations(),
+  });
+
+  const [opening, setOpening] = useState(false);
+  const openDm = async (displayName: string) => {
+    const existing = conversations.find((c) => c.peerId === userId);
+    if (existing) return nav(`/app/chats/${existing.id}`);
+    setOpening(true);
+    try {
+      const r = await api.sendMessage(userId, `👋 Hi ${displayName.split(" ")[0]}!`);
+      nav(`/app/chats/${r.conversationId}`);
+    } finally {
+      setOpening(false);
+    }
+  };
+
+  const fromRoster = members?.find((m) => m.id === userId);
+  const fromDirectory = directory.find((u) => u.id === userId);
+  // `patched` holds the DTO a just-completed mutation returned, so the header
+  // reflects the new state on the same frame the toast appears rather than after
+  // the roster refetch lands.
+  const member: MemberDTO | null =
+    (patched?.id === userId ? patched : null) ??
+    fromRoster ??
+    (fromDirectory
+      ? {
+          id: fromDirectory.id,
+          username: fromDirectory.username,
+          displayName: fromDirectory.displayName,
+          email: fromDirectory.email,
+          roles: fromDirectory.roles,
+          status: "active",
+          emailVerified: fromDirectory.emailVerified ?? true,
+          createdAt: "",
+          removedAt: null,
+        }
+      : null);
+
+  if ((isAdmin && loadingMembers) || loadingDir)
+    return <div className="flex h-full items-center justify-center"><Spinner /></div>;
+
+  if (!member)
+    return (
+      <div className="flex h-full items-center justify-center">
+        <EmptyState icon={<Users size={24} />} title="Member not found" hint="Pick another teammate on the left." />
+      </div>
+    );
+
+  // A member can always see their OWN activity — that is the transparency half
+  // of the bargain. Everyone else's is admin-only, enforced server-side by
+  // `resolve_subject`; hiding the tab here is convenience, not the control.
+  const canSeeActivity = isAdmin || isSelf;
+  const tabs: TabSpec<TabKey>[] = [
+    { key: "overview", label: "Overview" },
+    ...(canSeeActivity
+      ? ([
+          { key: "timeline", label: "Activity" },
+          { key: "analytics", label: "Analytics" },
+          { key: "sessions", label: "Sessions" },
+        ] as TabSpec<TabKey>[])
+      : []),
+    ...(isAdmin ? ([{ key: "admin", label: "Admin" }, { key: "security", label: "Security" }] as TabSpec<TabKey>[]) : []),
+  ];
+  const isOnline = online.includes(member.id);
+
+  return (
+    <div className="flex h-full flex-col">
+      <header className="flex items-center gap-3 border-b border-border/70 bg-surface/60 px-5 py-3 backdrop-blur">
+        <button
+          onClick={() => nav("/app/members")}
+          title="Back to members"
+          className="-ml-1 shrink-0 rounded-lg p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg md:hidden"
+        >
+          <ChevronLeft size={20} />
+        </button>
+        <Avatar name={member.displayName} size="lg" online={member.status === "active" ? isOnline : undefined} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="truncate font-semibold text-fg">{member.displayName}</span>
+            {member.roles.includes("org_admin") && <Badge tone="accent">Admin</Badge>}
+            {member.status !== "active" && (
+              <Badge tone={member.status === "suspended" ? "warning" : "danger"}>{member.status}</Badge>
+            )}
+          </div>
+          <div className="truncate text-sm text-muted">@{member.username}</div>
+        </div>
+        {canSeeActivity && (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setExportOpen(true)}
+            title="Export this member's activity"
+          >
+            <Download size={15} /> Export
+          </Button>
+        )}
+        {!isSelf && member.status === "active" && (
+          <Button
+            size="sm"
+            variant="secondary"
+            loading={opening}
+            onClick={() => openDm(member.displayName)}
+            className="hidden sm:inline-flex"
+          >
+            <MessageSquare size={15} /> Message
+          </Button>
+        )}
+      </header>
+
+      <div className="min-h-0 flex-1 overflow-auto p-5">
+        {tabs.length > 1 && <Tabs tabs={tabs} active={tab} onChange={setTab} className="mb-5" />}
+
+        {tab === "overview" && (
+          <dl className="grid max-w-lg grid-cols-[9rem_1fr] gap-x-4 gap-y-3 text-sm">
+            <Row label="Email" value={member.email} />
+            <Row label="Username" value={`@${member.username}`} />
+            <Row label="Role" value={member.roles.includes("org_admin") ? "Admin" : "Member"} />
+            <Row label="Status" value={member.status} />
+            <Row label="Presence" value={isOnline ? "Online" : "Offline"} />
+            <Row label="Email verified" value={member.emailVerified ? "Yes" : "Not yet"} />
+            {member.createdAt && <Row label="Joined" value={new Date(member.createdAt).toLocaleDateString()} />}
+            {member.removedAt && <Row label="Removed" value={new Date(member.removedAt).toLocaleString()} />}
+          </dl>
+        )}
+
+        {tab === "timeline" && canSeeActivity && (
+          <div className="space-y-4">
+            {isSelf && (
+              <p className="rounded-xl bg-accent-soft px-4 py-3 text-sm text-accent">
+                This is your own activity record. Your workspace admins can see it too.
+              </p>
+            )}
+            <MemberTimeline userId={isSelf ? "me" : member.id} />
+          </div>
+        )}
+
+        {tab === "analytics" && canSeeActivity && (
+          <MemberAnalytics userId={isSelf ? "me" : member.id} />
+        )}
+
+        {tab === "sessions" && canSeeActivity && (
+          <MemberSessions userId={isSelf ? "me" : member.id} />
+        )}
+
+        {tab === "admin" && isAdmin && (
+          <MemberAdmin member={member} isSelf={isSelf} onChanged={setPatched} />
+        )}
+
+        {tab === "security" && isAdmin && (
+          <MemberAuditLog targetId={member.id} directory={directory} />
+        )}
+      </div>
+
+      <ExportActivityDialog
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        member={{ id: isSelf ? "me" : member.id, displayName: member.displayName }}
+      />
+    </div>
+  );
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <>
+      <dt className="text-muted">{label}</dt>
+      <dd className="truncate text-fg">{value}</dd>
+    </>
+  );
+}

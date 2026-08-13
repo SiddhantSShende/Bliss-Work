@@ -1,0 +1,173 @@
+# Caddy reverse proxy for the Task-Board production stack.
+#
+# Terminates TLS and routes to the internal services by their compose service
+# name. {$DOMAIN} and {$ACME_EMAIL} are injected from .env.prod.
+#
+# DNS: point an A/AAAA record for ${DOMAIN} at this host so Caddy's automatic
+# ACME (Let's Encrypt) HTTP-01 challenge on :80 can validate and issue certs.
+# To use pre-provisioned / private-CA certs instead, replace the `email` global
+# option with per-site `tls /etc/caddy/cert.pem /etc/caddy/key.pem` directives
+# and mount the cert + key into the container.
+{
+	email {$ACME_EMAIL}
+	# For a staging/private CA, uncomment:
+	# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	# ── Block introspection/observability endpoints from the public internet ────
+	# /metrics (Prometheus), /docs, /redoc and /openapi.json (FastAPI) must never
+	# be reachable by anonymous clients in production. Prometheus scrapes the
+	# services over the private compose network; the SPA never needs these paths.
+	# Matched on the ORIGINAL request path (before handle_path strips the
+	# /api/<svc> prefix), so a single rule covers every upstream. handle blocks are
+	# terminal + source-ordered, so this MUST come first to win over the API/catch
+	# -all handlers below.
+	@introspection path */metrics */openapi.json */docs */docs/* */redoc */redoc/*
+	handle @introspection {
+		respond 404
+	}
+
+	# Service-to-service endpoints (X-Internal-Token guarded) are ONLY ever called
+	# over the private compose network (e.g. http://messaging-svc:8004/internal/…).
+	# They must NEVER be reachable from the public internet, so drop any request
+	# whose path contains an /internal/ segment regardless of the /api/<svc> prefix.
+	@internal path */internal/*
+	handle @internal {
+		respond 404
+	}
+
+	# WebSocket upgrades (real-time fan-out) → ws-gateway. This MUST be a `handle`
+	# block (not a bare `reverse_proxy @ws`): a bare reverse_proxy directive sorts
+	# AFTER all handle blocks, so the catch-all `handle { … nginx }` below would
+	# shadow it and /ws would wrongly serve the SPA. As a handle block it keeps its
+	# source order and matches before the catch-all.
+	@ws path /ws /ws/*
+	handle @ws {
+		reverse_proxy ws-gateway:8080
+	}
+
+	# Desktop app installers → nginx static file server (served from our own VPS,
+	# not GitHub). A `handle` block keeps its source order and matches before the
+	# catch-all SPA handler below, so /downloads/* serves the installer instead of
+	# the SPA shell. nginx serves them from /srv/downloads.
+	@downloads path /downloads /downloads/*
+	handle @downloads {
+		reverse_proxy nginx:80
+	}
+
+	# REST APIs. Strip the public /api/<svc> prefix when proxying upstream.
+	handle_path /api/auth/* {
+		reverse_proxy auth-svc:8001
+	}
+	handle_path /api/tasks/* {
+		reverse_proxy task-svc:8002
+	}
+	handle_path /api/notifications/* {
+		reverse_proxy notification-svc:8003
+	}
+	# Chat attachments (upload and the signed /media/* download) ride this same
+	# prefix. Caddyfile.waf needs a SEPARATE, earlier @media block for them —
+	# there they must bypass Coraza, whose 12.5 MB SecRequestBodyLimit would 403
+	# a 100 MB upload at the edge. This file has no WAF, so one handler suffices;
+	# the asymmetry between the two files is deliberate, not drift.
+	handle_path /api/messaging/* {
+		reverse_proxy messaging-svc:8004
+	}
+	handle_path /api/integrations/* {
+		reverse_proxy integrations-svc:8005
+	}
+	handle_path /api/telemetry/* {
+		reverse_proxy telemetry-svc:8006
+	}
+	# Public inbound webhooks + OAuth callbacks for external integrations. NOT under
+	# /internal/ (which is 404'd), and provider-signature authenticated upstream.
+	handle /ext/* {
+		reverse_proxy integrations-svc:8005
+	}
+
+	# JWKS must be reachable at a stable public path for any external verifier.
+	handle /.well-known/jwks.json {
+		reverse_proxy auth-svc:8001
+	}
+
+	# TURN credentials for WebRTC calls → ws-gateway.
+	@turn path /turn-credentials
+	handle @turn {
+		reverse_proxy ws-gateway:8080
+	}
+
+	# Presence (online-user set) HTTP endpoint → ws-gateway. Polled by the SPA
+	# every 20s; without an explicit matcher it falls to the SPA catch-all and
+	# returns HTML, breaking online-status. JWT-authed in the handler.
+	@presence path /presence
+	handle @presence {
+		reverse_proxy ws-gateway:8080
+	}
+
+	# Static SPA assets are served by nginx on the private network.
+	# CSP is set on the SPA shell ONLY (not the global header block) so JSON/API
+	# responses keep their own stricter policy. frame-ancestors must be a real
+	# header (ignored in the <meta> tag); connect-src allows wss: for the gateway.
+	handle {
+		header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob: mediastream:; connect-src 'self' https: wss: http://localhost:* ws://localhost:*; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		reverse_proxy nginx:80
+	}
+
+	# Security headers. HSTS is safe because every route is HTTPS-only here.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+}
+
+# ── BlissWork marketing site (static React/Vite SPA) ────────────────────────────
+# Served straight from the built dist/ folder bind-mounted at /srv/blisswork.
+# Automatic HTTPS (Let's Encrypt) is handled by the global `email` option above.
+# `try_files {path} /index.html` is the SPA catch-all so client-side React Router
+# routes (/userflow, /architecture, /about) resolve on hard refresh / deep links.
+blisswork.rnrtechs.com {
+	encode zstd gzip
+
+	# Desktop app installers → nginx static file server, exactly as the
+	# communication.rnrtechs.com block above. The installers used to live inside
+	# /srv/blisswork (= the site's dist/) and were served incidentally by
+	# file_server; they now live in their own directory that a website rebuild
+	# can't wipe, so this host has to route /downloads/* explicitly.
+	#
+	# A `handle` block keeps its source order and matches before the catch-all
+	# below, so a MISSING installer 404s here instead of falling through to the
+	# SPA shell — which would hand the user an HTML page named *.exe.
+	@downloads path /downloads /downloads/*
+	handle @downloads {
+		reverse_proxy nginx:80
+	}
+
+	# Everything else is the SPA. Wrapped in `handle` (rather than left as bare
+	# directives) so it is unambiguously ordered after @downloads.
+	handle {
+		root * /srv/blisswork
+		try_files {path} /index.html
+		file_server
+	}
+
+	# Long-cache the fingerprinted asset bundle; never cache the HTML shell.
+	@assets path /assets/*
+	header @assets Cache-Control "public, max-age=31536000, immutable"
+	@html path / /index.html
+	header @html Cache-Control "no-cache"
+
+	header {
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+}

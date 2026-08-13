@@ -1,0 +1,637 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Task-Board — PRODUCTION compose (single-host / small scale).
+#
+# INTENDED USE: one production host (or a small VM), behind TLS, for a modest
+# user base or a staging/preview environment. It is the "one box" deployment.
+# For real horizontal scale, HA, rolling deploys and autoscaling, use the Helm
+# chart on Kubernetes instead — this file is the small-scale complement to it.
+#
+# DIFFERENCES from the dev docker-compose.yml (which this file does NOT replace):
+#   • All secrets come from the ENVIRONMENT / a secrets file (env_file: .env.prod)
+#     — there are NO hardcoded dev passwords or tokens here.
+#   • Per-service resource limits (deploy.resources.limits) cap blast radius.
+#   • restart: unless-stopped on every long-running service.
+#   • Internal service ports are NOT published to the host. Only the reverse
+#     proxy (Caddy) exposes 80/443. Browsers reach services through Caddy.
+#     THE ONE EXCEPTION is postgres:5432, published for admin access and gated
+#     by a source-IP allowlist — see the ⚠️ note on that service, and run
+#     infra/host/db-allowlist.sh on the host before bringing it up.
+#   • /readyz healthchecks gate dependency ordering and the proxy's upstreams.
+#   • Mailpit / observability dev conveniences are dropped.
+#
+# BRING UP:
+#   1. Provision keys/  (see docs/OPERATIONS.md — Ed25519 keypair, gitignored).
+#   2. Create .env.prod from .env.example with REAL secrets (never commit it).
+#   3. Point your DNS A/AAAA record at this host and set DOMAIN in .env.prod.
+#   4. docker compose -f docker-compose.prod.yml up -d --build
+#
+# `deploy.resources.limits` is honoured by `docker compose up` (Compose v2)
+# without Swarm; `deploy.replicas`/rollout keys are intentionally NOT used here
+# (that's the Helm chart's job).
+# ─────────────────────────────────────────────────────────────────────────────
+name: task-board-prod
+
+# Shared defaults for the application services. Each reads ALL config (incl.
+# secrets) from .env.prod — nothing sensitive is inlined in this file.
+x-svc-defaults: &svc-defaults
+  restart: unless-stopped
+  env_file:
+    # Copy .env.prod.example → .env.prod and fill in REAL secrets before `up`.
+    # required:false so tooling (e.g. `config -q`, CI lint) works before the
+    # operator has placed the secrets file on the host; `up` will fail loudly if
+    # the secrets are genuinely absent.
+    - path: .env.prod
+      required: false
+  networks: [taskboard]
+  # ── Runtime hardening (mirrors the Helm securityContext) ────────────────────
+  # The app services are stateless, run as non-root uid 10001, and listen on high
+  # ports, so they need NO Linux capabilities and NO writable root filesystem.
+  #   • cap_drop ALL: drop the entire default capability set.
+  #   • read_only root + tmpfs /tmp: an exploit can't persist to disk; the only
+  #     writable path is an in-memory /tmp (mounted secrets stay read-only).
+  # NOTE: `no-new-privileges` is intentionally NOT set — on this host's Docker it
+  # makes execve fail with EPERM for BOTH the Python venv console-script and the
+  # Go static binaries (an overlayfs/no_new_privs interaction). It's redundant
+  # here anyway: non-root uid 10001 + cap_drop ALL leaves nothing to escalate to.
+  # PID limits are handled per-service via deploy.resources.limits.
+  cap_drop:
+    - ALL
+  read_only: true
+  tmpfs:
+    - /tmp
+  # The Postgres CA bundle is mounted read-only into EVERY app service at
+  # /etc/ssl/db/ca.crt so the *_DATABASE_URL `sslmode=verify-full&sslrootcert=…`
+  # can validate the server's certificate chain. ws-gateway doesn't talk to
+  # Postgres, but the harmless extra mount keeps the anchor DRY. Services that
+  # declare their own `volumes:` (auth-svc) must re-list this mount because YAML
+  # `<<:` merge REPLACES list keys, it does not concatenate them.
+  volumes:
+    - ./infra/postgres/certs/ca.crt:/etc/ssl/db/ca.crt:ro
+  # No `ports:` — application services are internal-only and reached via Caddy.
+
+services:
+  # ── Web build + static host ────────────────────────────────────────────────
+  web-builder:
+    image: node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293
+    restart: "no"
+    working_dir: /workspace
+    env_file:
+      - path: .env.prod
+        required: false
+    environment:
+      npm_config_update_notifier: "false"
+      # Stamped into the bundle so you can tell WHICH commit is live from the
+      # browser. scripts/deploy-prod.sh exports IMAGE_TAG as the deployed commit
+      # SHA; without it (a hand-run `docker compose up`) the build says "dev".
+      # Vite only exposes VITE_-prefixed vars to client code.
+      VITE_BUILD_SHA: "${IMAGE_TAG:-dev}"
+    volumes:
+      - ./:/workspace
+      - web_node_modules:/workspace/node_modules
+      - web_dist:/dist
+    command: >-
+      sh -lc "npm ci && npm run build -w @taskboard/web && rm -rf /dist/* && cp -a apps/web/dist/. /dist/"
+
+  # Desktop installers, built the same way the web bundle is: a one-shot
+  # container that runs on `docker compose up` and exits. `docker compose up`
+  # therefore refreshes BOTH apps — the web bundle via web-builder above, and
+  # the downloadable desktop app here — with no CI system in the loop.
+  #
+  # WINDOWS IS BUILT ON LINUX, via Wine in this image. The .exe target is nsis,
+  # which electron-builder can produce under Wine, so Windows users get updates
+  # from this host without a Windows machine anywhere.
+  #
+  # macOS CANNOT be built here, by Apple's design: a .dmg must be produced and
+  # signed on macOS. Those installers are skipped, and skipping is safe because
+  # each platform has its own update feed (latest.yml / latest-mac.yml /
+  # latest-linux.yml) — leaving latest-mac.yml alone leaves mac users exactly
+  # where they are rather than pointing them at something that isn't there.
+  #
+  # Runs under the `desktop` profile so it is opt-in:
+  #     docker compose -f docker-compose.prod.yml --profile desktop up desktop-builder
+  # A desktop build is ~10 minutes and downloads Electron; making every routine
+  # `up` pay that (including each deploy, which runs `up -d`) would turn a
+  # 40-second service restart into a coffee break. The web bundle still rebuilds
+  # on every plain `up`, as before.
+  desktop-builder:
+    image: electronuserland/builder:wine
+    profiles: [desktop]
+    restart: "no"
+    working_dir: /workspace
+    environment:
+      npm_config_update_notifier: "false"
+      # Leave unset to auto-bump the patch of whatever is currently published —
+      # see scripts/next-desktop-version.mjs for why package.json can't be the
+      # source of truth. Set explicitly for a minor/major bump.
+      DESKTOP_VERSION: "${DESKTOP_VERSION:-}"
+    volumes:
+      - ./:/workspace
+      # Separate from web_node_modules: this image runs a different Node major,
+      # and sharing the tree would have each build clobber the other's native
+      # rebuilds.
+      - desktop_node_modules:/workspace/node_modules
+      # Electron and its build cache are ~500MB. Persisted so a rebuild is
+      # minutes rather than a fresh download every time.
+      - desktop_electron_cache:/root/.cache/electron
+      - desktop_builder_cache:/root/.cache/electron-builder
+      # The live download directory — nginx mounts this same path read-only.
+      - /home/ubuntu/BlissWork/downloads:/downloads
+      - /home/ubuntu/BlissWork/downloads-backup:/downloads-backup
+    # Exec form (a LIST, not a string): compose word-splits an inline string
+    # command, so `bash -lc "a; b; c"` would arrive as argv ["bash","-lc","a;",
+    # "b;","c"] and run only the first fragment. The script keeps the logic
+    # out of YAML entirely, where $ and quote escaping are their own trap.
+    command: ["bash", "scripts/build-desktop-container.sh"]
+
+  nginx:
+    image: nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
+    restart: unless-stopped
+    depends_on:
+      web-builder:
+        condition: service_completed_successfully
+    volumes:
+      - web_dist:/usr/share/nginx/html:ro
+      - ./infra/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      # Desktop app installers, served at communication.rnrtechs.com/downloads/*
+      # AND blisswork.rnrtechs.com/downloads/* (both hosts proxy /downloads/* here
+      # via Caddy), so there's a single installer set on the VPS. Read-only.
+      #
+      # Deliberately NOT inside Bliss-Website/dist: that directory is Vite build
+      # output, and `npm run build` empties it — a website rebuild used to delete
+      # every installer and update manifest. This path is owned by the release
+      # pipeline alone (release.yml rsyncs here; VPS_PATH must match).
+      - /home/ubuntu/BlissWork/downloads:/srv/downloads:ro
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /usr/share/nginx/html/index.html"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+    deploy:
+      resources:
+        limits: { cpus: "0.25", memory: 128M }
+    networks: [taskboard]
+
+  # ── Reverse proxy / TLS termination ─────────────────────────────────────────
+  # Caddy is the ONLY service that publishes host ports. It terminates TLS
+  # (automatic certs via Let's Encrypt / ZeroSSL using the ACME HTTP-01
+  # challenge on :80) and reverse-proxies to the internal services by name.
+  #
+  # DNS: create an A/AAAA record for ${DOMAIN} → this host's public IP so ACME
+  # can validate. For a private CA or pre-provisioned certs, mount them and use
+  # `tls /etc/caddy/cert.pem /etc/caddy/key.pem` in the Caddyfile instead of the
+  # automatic-HTTPS email line.
+  #
+  caddy:
+    # Custom Caddy compiled with the Coraza WAF (OWASP CRS) — see infra/caddy/Dockerfile.
+    # ROLLBACK: revert to `image: caddy:2.8-alpine@sha256:af32e97399febea808609119bb21544d0265c58a02836576e32a2d082c262c17`
+    # + the plain Caddyfile mount below, and recreate.
+    build: ./infra/caddy
+    image: task-board/caddy-waf:2.11
+    restart: unless-stopped
+    ports:
+      - "80:80"     # ACME HTTP-01 challenge + HTTP→HTTPS redirect
+      - "443:443"   # HTTPS
+      - "443:443/udp" # HTTP/3 (QUIC)
+    environment:
+      # `:?` — REQUIRED, not optional. caddy is the one service that does NOT
+      # inherit `env_file: .env.prod` (it declares its own ports and volumes), so
+      # these reach it only through compose INTERPOLATION, which reads `.env`.
+      # Blank here is not a degraded mode: the Caddyfile gets a bare `email`
+      # directive, Caddy refuses to parse it, and the TLS edge crash-loops — the
+      # whole site goes down while every service behind it reports healthy.
+      # Failing the deploy with a named variable beats discovering it from
+      # user reports.
+      DOMAIN: ${DOMAIN:?DOMAIN must be set in .env (the caddy edge reads it via interpolation, not .env.prod)}
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL must be set in .env (the caddy edge reads it via interpolation, not .env.prod)}
+    volumes:
+      - ./infra/caddy/Caddyfile.waf:/etc/caddy/Caddyfile:ro  # WAF variant (Coraza, DetectionOnly)
+      - ./infra/caddy/coraza:/etc/caddy/coraza:ro            # WAF engine config + CRS tuning
+      - /home/ubuntu/BlissWork/Bliss-Website/dist:/srv/blisswork:ro  # BlissWork marketing site (static SPA)
+      - caddy_data:/data     # persisted certs + ACME account (DO NOT lose this)
+      - caddy_config:/config
+    depends_on:
+      nginx: { condition: service_healthy }
+      auth-svc: { condition: service_healthy }
+      task-svc: { condition: service_healthy }
+      notification-svc: { condition: service_healthy }
+      messaging-svc: { condition: service_healthy }
+      ws-gateway: { condition: service_healthy }
+    # Caddy had NO healthcheck, so it could not be in the deploy's health gate —
+    # which is how a deploy once reported success with the TLS edge crash-looping
+    # on an unparseable Caddyfile. Every service BEHIND the dead edge was healthy,
+    # so the gate saw nothing wrong while the site was entirely unreachable.
+    #
+    # The admin API answers only when Caddy is running AND its config loaded; a
+    # config Caddy refuses to parse makes it exit, so this probe fails exactly in
+    # the case that used to be invisible. It listens on 127.0.0.1:2019 inside the
+    # container only — nothing is exposed by probing it.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:2019/config/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits: { cpus: "0.50", memory: 128M }
+    networks: [taskboard]
+
+  # ── WebRTC TURN relay (self-hosted coturn) ──────────────────────────────────
+  # Relays call media for peers behind symmetric NAT. Uses HOST networking because
+  # it needs a contiguous UDP relay-port range (min/max-port) that docker's
+  # per-port publishing can't express. Credentials are short-lived HMAC (coturn
+  # REST API): ws-gateway mints them at /turn-credentials using the SAME
+  # TURN_SECRET, so coturn and the gateway never need to talk to each other. The
+  # denied-peer-ip ranges stop a client from relaying to RFC1918 internal hosts
+  # (TURN SSRF). Open on the host firewall: 3478/udp+tcp and 49160-49200/udp.
+  coturn:
+    image: coturn/coturn:4.6-alpine@sha256:e2bca2f79a4269d7240de5872ab60a9305013ad37296d2acf14f9510874346be
+    restart: unless-stopped
+    network_mode: host
+    command: >-
+      -n --log-file=stdout --no-cli --no-tlsv1 --no-tlsv1_1
+      --listening-port=3478 --min-port=49160 --max-port=49200
+      --realm=${DOMAIN} --use-auth-secret --static-auth-secret=${TURN_SECRET}
+      --fingerprint --no-multicast-peers
+      --denied-peer-ip=127.0.0.0-127.255.255.255
+      --denied-peer-ip=10.0.0.0-10.255.255.255
+      --denied-peer-ip=172.16.0.0-172.31.255.255
+      --denied-peer-ip=192.168.0.0-192.168.255.255
+    deploy:
+      resources:
+        limits: { cpus: "0.50", memory: 128M }
+
+  # ── Infrastructure ──────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:17-alpine@sha256:dc17045ccfd343b49600570ea734b9c4991cf1c3f3302e67df51e3b402dd55c4
+    restart: unless-stopped
+    # IN-TRANSIT TLS (PROD-ONLY): even though Postgres is internal to the compose
+    # network, prod encrypts client↔DB traffic so a compromised co-tenant /
+    # sidecar / packet capture on the bridge can't read credentials or row data.
+    #   • ssl=on with a server cert/key signed by our CA (see scripts/gen-db-certs.sh).
+    #   • ssl_ca_file enables optional client-cert auth later; today it pins the
+    #     chain the clients verify with sslmode=verify-full.
+    #   • TLSv1.2 floor — drop legacy protocols.
+    # The dev docker-compose.yml deliberately stays plaintext (sslmode=disable).
+    command:
+      - postgres
+      - -c
+      - ssl=on
+      - -c
+      - ssl_cert_file=/etc/postgres/certs/server.crt
+      - -c
+      - ssl_key_file=/etc/postgres/certs/server.key
+      - -c
+      - ssl_ca_file=/etc/postgres/certs/ca.crt
+      - -c
+      - ssl_min_protocol_version=TLSv1.2
+    environment:
+      # Superuser is used ONLY for init (creating per-service DBs + least-priv
+      # roles). Application services connect as their own per-service users —
+      # see infra/postgres/init/02-create-roles.sql and the *_DATABASE_URL vars.
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: postgres
+      # Per-service role passwords, consumed by 02-create-roles.sql via psql vars.
+      AUTH_DB_PASSWORD: ${AUTH_DB_PASSWORD}
+      TASK_DB_PASSWORD: ${TASK_DB_PASSWORD}
+      MESSAGING_DB_PASSWORD: ${MESSAGING_DB_PASSWORD}
+      NOTIFICATION_DB_PASSWORD: ${NOTIFICATION_DB_PASSWORD}
+      EMAIL_DB_PASSWORD: ${EMAIL_DB_PASSWORD}
+      TELEMETRY_DB_PASSWORD: ${TELEMETRY_DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+      # TLS material: generate with scripts/gen-db-certs.sh (dev/staging) or mount
+      # a real CA-issued server cert/key + CA bundle (prod). server.key MUST be
+      # mode 0600 owned by root or the postgres user — the script sets this.
+      - ./infra/postgres/certs:/etc/postgres/certs:ro
+    # HOST-PUBLISHED (the ONE datastore that is) so you can point psql / DBeaver
+    # / pgAdmin at this box instead of shelling into the container.
+    #
+    # ⚠️ ufw DOES NOT PROTECT THIS. Docker's DNAT + FORWARD rules run BEFORE the
+    # ufw chains, so `default deny incoming` is irrelevant to a published port —
+    # on its own, this line puts the production DB on the public internet. What
+    # actually gates it is a source-IP allowlist in the DOCKER-USER chain,
+    # installed by infra/host/db-allowlist.sh. That script MUST be run on the
+    # host BEFORE this container is (re)created, and re-run whenever the allowed
+    # IP changes. If `nmap -Pn -p 5432 <host>` from an unlisted address reports
+    # anything other than `filtered`, re-run it.
+    #
+    # The explicit `0.0.0.0:` prefix binds IPv4 only — deliberate, because the
+    # ip6tables DOCKER-USER chain carries no matching allowlist.
+    ports:
+      - "0.0.0.0:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    deploy:
+      resources:
+        limits: { cpus: "2.00", memory: 1536M }
+    networks: [taskboard]
+
+  redis:
+    image: redis:7.4-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
+    restart: unless-stopped
+    # AUTH: requirepass is ALWAYS on in prod (no anonymous access on the shared
+    # network). The matching password rides in REDIS_URL as
+    #   rediss://:${REDIS_PASSWORD}@redis:6379/0   (see .env.prod.example).
+    #
+    # TLS — read docs/OPERATIONS.md §7 before enabling. Redis can serve TLS via
+    # `--tls-port 6379 --port 0 --tls-cert-file … --tls-key-file … --tls-ca-cert-file …`
+    # (mount infra/redis/certs from scripts/gen-db-certs.sh REDIS=1). HONEST
+    # CAVEAT: ws-gateway connects with go-redis `ParseURL`, whose `rediss://`
+    # path validates the server cert against the SYSTEM root store and does NOT
+    # load a private CA from the URL. A SELF-SIGNED Redis CA therefore won't
+    # verify without a ws-gateway code change. The verifying prod path is a
+    # MANAGED Redis (ElastiCache / Upstash / Redis Cloud) whose cert chains to a
+    # public CA — then `rediss://` "just works". This bundled Redis is left on
+    # `requirepass` over the PRIVATE compose network (never exposed off-host);
+    # flip in the TLS flags below only with a publicly-trusted cert or after the
+    # ws-gateway custom-CA follow-up.
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - ${REDIS_PASSWORD}
+      # ── Opt-in TLS (managed-CA / post-code-follow-up only) ──
+      # - --tls-port
+      # - "6379"
+      # - --port
+      # - "0"
+      # - --tls-cert-file
+      # - /etc/redis/certs/server.crt
+      # - --tls-key-file
+      # - /etc/redis/certs/server.key
+      # - --tls-ca-cert-file
+      # - /etc/redis/certs/ca.crt
+    volumes:
+      - redisdata:/data
+      # - ./infra/redis/certs:/etc/redis/certs:ro   # uncomment with TLS above
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    deploy:
+      resources:
+        limits: { cpus: "0.50", memory: 512M }
+    networks: [taskboard]
+
+  # ── Kafka ─────────────────────────────────────────────────────────────────
+  # IN-TRANSIT ENCRYPTION (read docs/OPERATIONS.md §6 before changing):
+  #
+  #   The bundled single broker speaks PLAINTEXT — IDENTICAL to dev — and is NOT
+  #   the recommended production message bus (RF=1, no HA, no auth). For real
+  #   production durability AND wire encryption, run Kafka EXTERNALLY (managed
+  #   MSK / Confluent Cloud / Redpanda or Strimzi via the Helm chart) with a
+  #   SASL_SSL listener, and point the producers/consumers at it by setting
+  #   KAFKA_BROKERS + the KAFKA_SECURITY_* client vars in .env.prod (§6).
+  #
+  #   IMPORTANT HONEST CAVEAT: the in-tree clients (aiokafka in the Python
+  #   services, segmentio/kafka-go in ws-gateway) currently read ONLY
+  #   KAFKA_BROKERS — they do NOT yet wire security.protocol / SASL / TLS from
+  #   env. Enabling SASL_SSL end-to-end therefore needs a small CODE follow-up in
+  #   each client (out of scope for this transit-hardening config change). The
+  #   broker-side SASL_SSL listener recipe and the client env contract are both
+  #   documented in docs/OPERATIONS.md §6 so the wiring is ready when that lands.
+  #   Until then this single broker stays PLAINTEXT on the private compose
+  #   network and MUST NOT be exposed off-host.
+  kafka:
+    image: apache/kafka:3.9.0@sha256:fbc7d7c428e3755cf36518d4976596002477e4c052d1f80b5b9eafd06d0fff2f
+    restart: unless-stopped
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      # ── SASL_SSL listener recipe (for an EXTERNAL/multi-broker prod cluster) ──
+      # Mount infra/postgres/certs/ca.crt (or a dedicated Kafka CA) + a broker
+      # keystore/truststore, then replace the listener block above with, e.g.:
+      #   KAFKA_LISTENERS: SASL_SSL://:9092,CONTROLLER://:9093
+      #   KAFKA_ADVERTISED_LISTENERS: SASL_SSL://kafka:9092
+      #   KAFKA_INTER_BROKER_LISTENER_NAME: SASL_SSL
+      #   KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,SASL_SSL:SASL_SSL
+      #   KAFKA_SASL_ENABLED_MECHANISMS: SCRAM-SHA-512
+      #   KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: SCRAM-SHA-512
+      #   KAFKA_SSL_KEYSTORE_LOCATION / _PASSWORD, KAFKA_SSL_TRUSTSTORE_LOCATION / _PASSWORD
+      # See docs/OPERATIONS.md §6 for the full broker + client recipe.
+      #
+      # NOTE: single-broker KRaft. RF>1 (and the prod topic settings in
+      # infra/kafka/create-topics.sh) require a MULTI-broker cluster — run Kafka
+      # externally (managed MSK/Confluent/Redpanda) or via the Helm chart for HA.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    volumes:
+      - kafkadata:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+    deploy:
+      resources:
+        limits: { cpus: "2.00", memory: 1536M }
+    networks: [taskboard]
+
+  kafka-init:
+    image: apache/kafka:3.9.0@sha256:fbc7d7c428e3755cf36518d4976596002477e4c052d1f80b5b9eafd06d0fff2f
+    depends_on:
+      kafka: { condition: service_healthy }
+    environment:
+      KAFKA_BROKERS: kafka:9092
+      TOPIC_PARTITIONS: ${TOPIC_PARTITIONS:-12}
+      # On a multi-broker prod cluster set REPLICATION_FACTOR=3 (see the script).
+      REPLICATION_FACTOR: ${REPLICATION_FACTOR:-1}
+    entrypoint: ["bash", "/create-topics.sh"]
+    volumes:
+      - ./infra/kafka/create-topics.sh:/create-topics.sh:ro
+    restart: "no"
+    networks: [taskboard]
+
+  # ── Application services ─────────────────────────────────────────────────────
+  # Built from the SAME hardened Dockerfiles as dev. Pin a release tag via
+  # ${IMAGE_TAG} so a host can pull a known-good build instead of building.
+  auth-svc:
+    <<: *svc-defaults
+    build: ./services/auth-svc
+    image: task-board/auth-svc:${IMAGE_TAG:-latest}
+    volumes:
+      - ./keys:/keys:ro   # Ed25519 keypair — provisioned per-env, gitignored.
+      # Re-listed (not inherited) — see the x-svc-defaults note: `<<:` replaces
+      # the `volumes:` list rather than merging it.
+      - ./infra/postgres/certs/ca.crt:/etc/ssl/db/ca.crt:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8001/readyz').status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    deploy:
+      resources:
+        limits: { cpus: "1.00", memory: 512M }
+
+  email-worker:
+    <<: *svc-defaults
+    build: ./services/email-worker
+    image: task-board/email-worker:${IMAGE_TAG:-latest}
+    # Pure Kafka consumer — no HTTP port, no /readyz. Liveness is process-up.
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
+      auth-svc: { condition: service_healthy }
+    deploy:
+      resources:
+        limits: { cpus: "0.50", memory: 384M }
+
+  task-svc:
+    <<: *svc-defaults
+    build: ./services/task-svc
+    image: task-board/task-svc:${IMAGE_TAG:-latest}
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
+      auth-svc: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8002/readyz').status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    deploy:
+      resources:
+        limits: { cpus: "1.00", memory: 512M }
+
+  notification-svc:
+    <<: *svc-defaults
+    build: ./services/notification-svc
+    image: task-board/notification-svc:${IMAGE_TAG:-latest}
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
+      auth-svc: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8003/readyz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    deploy:
+      resources:
+        limits: { cpus: "1.00", memory: 384M }
+
+  messaging-svc:
+    <<: *svc-defaults
+    build: ./services/messaging-svc
+    image: task-board/messaging-svc:${IMAGE_TAG:-latest}
+    # Chat attachment bytes live on a named volume. `read_only: true` from the
+    # anchor still applies — a volume mount stays writable regardless — and it is
+    # the ONLY writable path in the container (/tmp is a small in-memory tmpfs,
+    # which is why uploads spool here and not there).
+    #
+    # ⚠️ YAML `<<:` merge REPLACES list keys rather than concatenating them, so
+    # declaring `volumes:` here DROPS the anchor's Postgres CA mount. It must be
+    # re-listed or `sslmode=verify-full` fails on the next restart. auth-svc has
+    # the same trap.
+    volumes:
+      - ./infra/postgres/certs/ca.crt:/etc/ssl/db/ca.crt:ro
+      - media_blobs:/var/lib/blisswork/media
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
+      auth-svc: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8004/readyz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    deploy:
+      resources:
+        limits: { cpus: "1.00", memory: 384M }
+
+  integrations-svc:
+    <<: *svc-defaults
+    build: ./services/integrations-svc
+    image: task-board/integrations-svc:${IMAGE_TAG:-latest}
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
+      auth-svc: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8005/readyz').status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    deploy:
+      resources:
+        limits: { cpus: "1.00", memory: 384M }
+
+  telemetry-svc:
+    <<: *svc-defaults
+    build: ./services/telemetry-svc
+    image: task-board/telemetry-svc:${IMAGE_TAG:-latest}
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
+      auth-svc: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8006/readyz').status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    deploy:
+      resources:
+        limits: { cpus: "1.00", memory: 384M }
+
+  ws-gateway:
+    <<: *svc-defaults
+    build: ./services/ws-gateway
+    image: task-board/ws-gateway:${IMAGE_TAG:-latest}
+    depends_on:
+      redis: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
+      auth-svc: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8080/readyz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    deploy:
+      resources:
+        limits: { cpus: "1.00", memory: 384M }
+
+  # The web SPA is built in the `web-builder` service and served by nginx.
+  # Caddy stays in front for TLS termination and request routing. The Electron
+  # desktop client runs on end-user machines, not here.
+
+volumes:
+  pgdata:
+  redisdata:
+  kafkadata:
+  caddy_data:
+  caddy_config:
+  # Chat attachments. NOT covered by scripts/backup-db.sh's pg_dump — the media
+  # leg in that script is what backs this up; losing it leaves chat history whose
+  # every attachment 404s.
+  media_blobs:
+  web_dist:
+  web_node_modules:
+  desktop_node_modules:
+  desktop_electron_cache:
+  desktop_builder_cache:
+
+networks:
+  taskboard:
+    driver: bridge

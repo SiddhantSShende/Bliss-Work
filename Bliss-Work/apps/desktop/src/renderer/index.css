@@ -1,0 +1,15 @@
+@import "tailwindcss";
+
+/* The SAME design system the web app uses — tokens, .glass, .brand-mesh, the
+   auth hero, animations and the document base. This file used to be a hand-kept
+   copy that had fallen behind (no .auth-hero, no .auth-grid, no keyframes), so
+   the desktop login screen rendered its brand panel unstyled and the animated
+   backdrop sat frozen. Importing the shared sheet makes that drift impossible.
+
+   The Electron drag-region helpers (.app-drag/.app-no-drag) live in
+   @taskboard/ui/styles.css, which the renderer already imports. */
+@import "@taskboard/ui/theme.css";
+
+/* Tailwind v4 ignores node_modules — scan the workspace UI/app packages. */
+@source "../../../../packages/ui/src";
+@source "../../../../packages/app/src";

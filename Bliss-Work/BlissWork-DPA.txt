@@ -1,0 +1,254 @@
+BLISSWORK DATA PROCESSING ADDENDUM (DPA)
+
+Version 1.0  |  Last updated: 3 July 2026
+
+This Data Processing Addendum ("DPA") forms part of, and is subject to, the
+BlissWork Terms of Service (the "Agreement") between AEIV Global Private Limited
+("AEIV Global", "we", "us", the "Processor") and the customer organisation that
+has entered into the Agreement ("Customer", "you", the "Controller"). It applies
+to the extent AEIV Global processes Personal Data on behalf of the Customer in
+providing BlissWork (the "Service"), and reflects the parties' agreement on such
+processing under applicable data protection laws, including the EU and UK GDPR
+and India's Digital Personal Data Protection Act, 2023 ("Applicable Data
+Protection Law").
+
+If you are a business customer and require a countersigned copy, contact us at
+siddhant.shende@consultrnr.com.
+
+
+------------------------------------------------------------------------
+1. DEFINITIONS
+------------------------------------------------------------------------
+
+Capitalised terms not defined here have the meaning given in the Agreement.
+"Controller", "Processor", "Data Subject", "Personal Data", "Processing", and
+"Personal Data Breach" have the meanings given in Applicable Data Protection
+Law. "Sub-processor" means any third party engaged by AEIV Global to process
+Personal Data. "Customer Personal Data" means Personal Data contained in Your
+Content that AEIV Global processes on the Customer's behalf.
+
+
+------------------------------------------------------------------------
+2. ROLES AND SCOPE
+------------------------------------------------------------------------
+
+For Customer Personal Data, the Customer is the Controller and AEIV Global is
+the Processor. Where the Customer is itself a processor for another controller,
+AEIV Global acts as a sub-processor. Each party will comply with its obligations
+under Applicable Data Protection Law. This DPA does not apply to data for which
+AEIV Global is an independent controller (such as account-registration and
+billing data), which is governed by our Privacy Policy.
+
+
+------------------------------------------------------------------------
+3. PROCESSING ON DOCUMENTED INSTRUCTIONS
+------------------------------------------------------------------------
+
+AEIV Global will process Customer Personal Data only on the Customer's
+documented instructions -- including as set out in this DPA, the Agreement, and
+the Customer's configuration and use of the Service -- and as required by law
+(in which case we will inform the Customer unless legally prohibited). The
+subject matter, nature, purpose, duration, types of Personal Data, and
+categories of Data Subjects are described in Annex I. The Customer is
+responsible for ensuring it has a lawful basis to provide the Customer Personal
+Data and for the accuracy of its instructions.
+
+
+------------------------------------------------------------------------
+4. CONFIDENTIALITY
+------------------------------------------------------------------------
+
+AEIV Global ensures that personnel authorised to process Customer Personal Data
+are bound by appropriate obligations of confidentiality and access it only on a
+need-to-know basis.
+
+
+------------------------------------------------------------------------
+5. SECURITY
+------------------------------------------------------------------------
+
+AEIV Global implements and maintains appropriate technical and organisational
+measures to protect Customer Personal Data against accidental or unlawful
+destruction, loss, alteration, unauthorised disclosure, or access, as described
+in Annex II. AEIV Global may update these measures provided the level of
+protection is not materially reduced.
+
+
+------------------------------------------------------------------------
+6. SUB-PROCESSORS
+------------------------------------------------------------------------
+
+The Customer grants AEIV Global general authorisation to engage Sub-processors
+to provide the Service. A current list of Sub-processors is set out in Annex
+III. AEIV Global imposes data protection obligations on each Sub-processor that
+are no less protective than those in this DPA, and remains responsible for their
+performance. We will give the Customer reasonable prior notice of the addition
+or replacement of a Sub-processor and, where the Customer has a reasonable,
+data-protection-based objection, the parties will work in good faith to resolve
+it.
+
+
+------------------------------------------------------------------------
+7. DATA SUBJECT REQUESTS
+------------------------------------------------------------------------
+
+Taking into account the nature of the Processing, AEIV Global will assist the
+Customer by appropriate technical and organisational measures, insofar as
+possible, to respond to requests from Data Subjects exercising their rights. If
+AEIV Global receives such a request directly, it will, where permitted, direct
+the Data Subject to the Customer.
+
+
+------------------------------------------------------------------------
+8. PERSONAL DATA BREACH
+------------------------------------------------------------------------
+
+AEIV Global will notify the Customer without undue delay after becoming aware of
+a Personal Data Breach affecting Customer Personal Data, and will provide
+information reasonably available to assist the Customer in meeting its
+breach-notification and cooperation obligations.
+
+
+------------------------------------------------------------------------
+9. IMPACT ASSESSMENTS AND CONSULTATION
+------------------------------------------------------------------------
+
+AEIV Global will provide reasonable assistance to the Customer with data
+protection impact assessments and prior consultations with supervisory
+authorities, taking into account the nature of the Processing and the
+information available to AEIV Global.
+
+
+------------------------------------------------------------------------
+10. INTERNATIONAL TRANSFERS
+------------------------------------------------------------------------
+
+AEIV Global and its Sub-processors may process Customer Personal Data in
+countries other than the Customer's own. Where such transfers are subject to
+Applicable Data Protection Law, the parties rely on an appropriate transfer
+mechanism -- such as the Standard Contractual Clauses (and, for the UK, the UK
+International Data Transfer Addendum) or an adequacy decision -- which are
+incorporated by reference where applicable.
+
+
+------------------------------------------------------------------------
+11. DELETION AND RETURN
+------------------------------------------------------------------------
+
+On termination of the Agreement, or on the Customer's request, AEIV Global will
+delete or return Customer Personal Data and delete existing copies, except to
+the extent retention is required by law. Deletion of an Organisation triggers
+crypto-shredding of its encryption keys, rendering its data permanently
+unreadable; residual backup copies are purged on our routine rotation cycle.
+
+
+------------------------------------------------------------------------
+12. AUDITS
+------------------------------------------------------------------------
+
+AEIV Global will make available to the Customer information reasonably necessary
+to demonstrate compliance with this DPA and will allow for and contribute to
+audits, including inspections, conducted by the Customer or an auditor it
+mandates, subject to reasonable notice, confidentiality, frequency, and security
+requirements. Where practicable, AEIV Global may satisfy audit requests by
+providing relevant documentation or third-party reports.
+
+
+------------------------------------------------------------------------
+13. LIABILITY
+------------------------------------------------------------------------
+
+Each party's liability under or in connection with this DPA is subject to the
+limitations and exclusions of liability set out in the Agreement.
+
+
+------------------------------------------------------------------------
+14. TERM
+------------------------------------------------------------------------
+
+This DPA takes effect when the Customer accepts the Agreement and continues
+until AEIV Global has ceased processing Customer Personal Data and completed
+deletion or return under Section 11.
+
+
+------------------------------------------------------------------------
+15. GOVERNING LAW
+------------------------------------------------------------------------
+
+This DPA is governed by the law and subject to the dispute-resolution and
+jurisdiction provisions of the Agreement, except where Applicable Data
+Protection Law requires otherwise.
+
+
+------------------------------------------------------------------------
+16. ORDER OF PRECEDENCE
+------------------------------------------------------------------------
+
+In the event of a conflict between this DPA and the Agreement regarding the
+processing of Customer Personal Data, this DPA prevails. In the event of a
+conflict between this DPA and the Standard Contractual Clauses, the Standard
+Contractual Clauses prevail.
+
+
+========================================================================
+ANNEX I -- DETAILS OF PROCESSING
+========================================================================
+
+   - Subject matter: AEIV Global's provision of the BlissWork Service to the
+     Customer.
+   - Duration: the term of the Agreement and until deletion or return of
+     Customer Personal Data.
+   - Nature and purpose: hosting, storage, transmission, encryption, and display
+     of Customer Personal Data to provide team-collaboration features (channels,
+     messaging, presence, invitations) and to secure and support the Service.
+   - Types of Personal Data: names and display names, usernames, email
+     addresses, message and file content, presence and activity data, and
+     related metadata submitted through the Service.
+   - Categories of Data Subjects: the Customer's authorised users and
+     administrators, and the people they invite or communicate with.
+
+
+========================================================================
+ANNEX II -- TECHNICAL AND ORGANISATIONAL MEASURES
+========================================================================
+
+   - Encryption at rest: sensitive fields (email addresses, display names,
+     message content) encrypted with AES-256-GCM, keyed per organisation.
+   - Encryption in transit: TLS for all client and inter-service traffic;
+     verified TLS for database connections.
+   - Password protection: Argon2id hashing; plaintext passwords are never
+     stored.
+   - Tenant isolation: database row-level security isolating each organisation's
+     data.
+   - Access control: least-privilege, authenticated internal service access;
+     limited and logged production access.
+   - Auditability: tamper-evident, hash-chained audit logs of account and
+     administrative actions.
+   - Deletion: crypto-shredding of encryption keys on organisation deletion, and
+     routine purging of backups.
+   - Resilience: encrypted backups and continuous monitoring of the platform.
+
+
+========================================================================
+ANNEX III -- SUB-PROCESSORS
+========================================================================
+
+   - Cloud hosting / infrastructure provider -- hosting and storage of Service
+     data.
+   - Transactional email provider -- delivery of invitation and account emails.
+   - Payment processor (for paid plans) -- processing of subscription payments.
+
+A current, more detailed list is available from AEIV Global on request.
+
+
+------------------------------------------------------------------------
+CONTACT
+------------------------------------------------------------------------
+
+AEIV Global Private Limited
+Registered office: 24 B Layout, Bezonbagh, Nagpur, Maharashtra, India, 440014
+Data protection contact: siddhant.shende@consultrnr.com
+
+Grievance Officers (as required under Indian law):
+   Names: Mr. Siddhant Shende and Mr. Nitish Goyal
+   Email: siddhant.shende@consultrnr.com

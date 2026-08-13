@@ -1,0 +1,58 @@
+# golangci-lint config for the Go services (notification-svc, messaging-svc,
+# ws-gateway). ci.yml's lint-go job invokes it; this makes the enabled linter
+# set explicit and adds security-relevant analysers.
+#
+# Format v2, migrated from v1 because the services target Go 1.26 and the last
+# v1 golangci-lint was built with Go 1.23, which refuses to analyse a newer
+# language version. That meant this job had NEVER successfully run — everything
+# it reported on its first real execution is fixed in the commit that bumped it.
+version: "2"
+run:
+  tests: true
+linters:
+  enable:
+    - bodyclose
+    - gosec
+    - misspell
+    - noctx
+    - unconvert
+    - unparam
+  settings:
+    errcheck:
+      # `defer tx.Rollback(ctx)` is the canonical pgx idiom: after a successful
+      # Commit the deferred Rollback returns ErrTxClosed, which is exactly the
+      # expected outcome and not something a caller can act on. Checking it at
+      # 24 call sites would be pure noise around the one line that matters.
+      exclude-functions:
+        - (github.com/jackc/pgx/v5.Tx).Rollback
+    gosec:
+      excludes:
+        - G104
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - bodyclose
+          - errcheck
+          - gosec
+          - noctx
+        path: _test\.go
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+formatters:
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

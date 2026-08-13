@@ -1,0 +1,25 @@
+apiVersion: v2
+name: taskboard
+description: >-
+  Cloud-agnostic Helm chart for the Task-Board platform. Deploys the six
+  application services (auth-svc, task-svc, email-worker, notification-svc,
+  messaging-svc, ws-gateway). Postgres, Redis and Kafka are assumed to be
+  provided EXTERNALLY (managed cloud services or in-cluster operators) and
+  are wired in via values.yaml + (preferably) an external secret store.
+type: application
+
+# SemVer 2 chart version — bump on every chart change.
+version: 0.1.0
+
+# The version of the application this chart deploys. Quoted so a value like
+# "0.1.0" is never coerced to a float by YAML.
+appVersion: "0.1.0"
+
+keywords:
+  - taskboard
+  - microservices
+  - fastapi
+  - golang
+home: https://github.com/your-org/task-board
+maintainers:
+  - name: Task-Board Platform Team

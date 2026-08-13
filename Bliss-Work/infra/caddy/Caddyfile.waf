@@ -1,0 +1,238 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Caddy reverse proxy + OWASP-CRS WAF for the Task-Board production edge.
+#
+# HARDENED variant of infra/caddy/Caddyfile: IDENTICAL routing/headers/site list,
+# plus an inline Coraza (ModSecurity-compatible) WAF running the OWASP Core Rule
+# Set on the app site — SQLi/XSS/RCE/LFI/protocol-anomaly detection in front of
+# every upstream. Keep this in lock-step with Caddyfile when routing changes.
+#
+# REQUIRES the custom Caddy build in infra/caddy/Dockerfile (xcaddy +
+# corazawaf/coraza-caddy/v2); the `coraza_waf` directive only parses there.
+# Engine runs in BLOCKING mode (SecRuleEngine On in coraza/coraza.conf) — monitor
+# the CRS logs and add exclusions under coraza/rules/ for any false positives.
+# Instant rollback = point the compose `caddy` service back at the stock image +
+# Caddyfile, or set SecRuleEngine back to DetectionOnly.
+#
+# {$DOMAIN} and {$ACME_EMAIL} are injected from .env.prod.
+# ─────────────────────────────────────────────────────────────────────────────
+{
+	email {$ACME_EMAIL}
+	# Serve the edge over HTTP/1.1 ONLY. Browsers negotiate HTTP/2 by default, and
+	# `new WebSocket()` over an h2 connection uses RFC 8441 Extended CONNECT — which
+	# does NOT survive this edge (the Coraza response wrapper defeats the h2 WS
+	# stream), so the socket upgrades then dies ~140ms later in a reconnect loop.
+	# Over HTTP/1.1 the classic Upgrade handshake works perfectly (verified: 101 +
+	# live frames). Forcing h1 makes browsers use the working path. The cost is
+	# losing h2/h3 multiplexing for REST/SPA traffic — negligible at this app's
+	# scale and worth it for reliable real-time. (Revisit with proper RFC 8441
+	# support if h2 perf is ever needed.)
+	servers {
+		protocols h1
+	}
+	# NOTE: deliberately NO global `order coraza_waf first`. That hoists the WAF to
+	# the site's FIRST handler — ahead of the route below — so it wraps the
+	# response of EVERY request, INCLUDING the /ws upgrade, and eats the
+	# `101 Switching Protocols` line (the browser then sees an invalid handshake
+	# and the socket dies ~140ms after connecting). Instead the WAF runs INSIDE the
+	# route (explicit written order is honoured there), AFTER the terminal /ws
+	# proxy, so WebSockets never reach it.
+	# For a staging/private CA, uncomment:
+	# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	# One explicit `route` so WE control handler order (route does NOT auto-sort).
+	# This is the only reliable way to run the WAF on everything EXCEPT the
+	# WebSocket upgrade — see the global-options note above.
+	route {
+		# 1) WebSocket upgrades → ws-gateway. Terminal, and placed BEFORE coraza_waf
+		#    so /ws is handled and the route stops before the WAF can wrap (and
+		#    corrupt) the 101 Switching Protocols response.
+		@ws path /ws /ws/*
+		reverse_proxy @ws ws-gateway:8080
+
+		# 1b) Desktop app installers → nginx static file server. Placed BEFORE
+		#     coraza_waf (and terminal) so the WAF never buffers/inspects a
+		#     100 MB+ binary installer — same rationale as the WAF-less marketing
+		#     site: a static installer has no injection surface. nginx serves
+		#     them from /srv/downloads (see infra/nginx/default.conf).
+		@downloads path /downloads /downloads/*
+		reverse_proxy @downloads nginx:80
+
+		# 1c) Chat attachment upload + download → messaging-svc. Placed BEFORE
+		#     coraza_waf (and terminal), for the same reason as the installers
+		#     above plus one of its own:
+		#
+		#       * coraza.conf sets SecRequestBodyLimit to 12.5 MB with
+		#         SecRequestBodyLimitAction Reject, so a 100 MB attachment upload
+		#         is a hard 403 AT THE EDGE and never reaches the service.
+		#       * the download URL carries a base64url HMAC token in its query
+		#         string, which reliably trips CRS false positives.
+		#
+		#     Neither is an injection surface: the upload is a JWT-authed opaque
+		#     byte stream that goes straight to disk, and the download is
+		#     HMAC-token authed with a per-request membership re-check upstream.
+		#
+		#     The matcher is deliberately NARROW — the exact upload path and the
+		#     media prefix only. /api/messaging/api/v1/attachments/links and
+		#     .../commit are small JSON and stay behind the WAF via step 5.
+		#     `uri strip_prefix` reproduces what handle_path does for the other
+		#     API prefixes (handle_path cannot take a named matcher).
+		@media path /api/messaging/api/v1/attachments /api/messaging/media/*
+		handle @media {
+			uri strip_prefix /api/messaging
+			reverse_proxy messaging-svc:8004
+		}
+
+		# 2) OWASP-CRS WAF for every remaining (non-WS) request. load_owasp_crs
+		#    pulls the CRS embedded in the coraza-caddy build; the mounted
+		#    /etc/caddy/coraza files layer engine toggle + tuning on top.
+		#    Blocking (SecRuleEngine On).
+		coraza_waf {
+			load_owasp_crs
+			directives `
+				Include /etc/caddy/coraza/coraza.conf
+				Include @crs-setup.conf.example
+				Include /etc/caddy/coraza/crs-setup.conf
+				Include @owasp_crs/*.conf
+				Include /etc/caddy/coraza/rules/*.conf
+			`
+		}
+		# ORDER IS LOAD-BEARING, in both directions:
+		#
+		#   * Our crs-setup.conf must come AFTER @crs-setup.conf.example. It is a
+		#     delta, not a replacement — the example supplies every CRS default,
+		#     ours overrides the handful of knobs we care about. Later phase:1
+		#     setvar wins.
+		#   * It must come BEFORE @owasp_crs/*.conf, because those rules READ the
+		#     variables it sets (REQUEST-901-INITIALIZATION only fills in a default
+		#     when a var is still unset, and REQUEST-911 then enforces it).
+		#
+		# This Include was missing entirely until 2026-07-27, so tx.allowed_methods
+		# fell back to the CRS default `GET HEAD POST OPTIONS` and rule 911100
+		# ("Method is not allowed by policy") 403'd EVERY DELETE, PUT and PATCH at
+		# the edge — the request never reached the service. It presented as an
+		# application permission bug: unblocking a user, revoking an invite,
+		# PATCHing your profile and deleting an integration all failed with 403
+		# while the corresponding POSTs worked.
+
+		# 3) Block introspection/observability endpoints from the public internet
+		#    (/metrics, /docs, /redoc, /openapi.json). Before the API proxies so
+		#    e.g. /api/tasks/metrics is 404, not proxied.
+		@introspection path */metrics */openapi.json */docs */docs/* */redoc */redoc/*
+		respond @introspection 404
+
+		# 4) Service-to-service endpoints are private-network only.
+		@internal path */internal/*
+		respond @internal 404
+
+		# 5) REST APIs. Strip the public /api/<svc> prefix when proxying upstream.
+		handle_path /api/auth/* {
+			reverse_proxy auth-svc:8001
+		}
+		handle_path /api/tasks/* {
+			reverse_proxy task-svc:8002
+		}
+		handle_path /api/notifications/* {
+			reverse_proxy notification-svc:8003
+		}
+		handle_path /api/messaging/* {
+			reverse_proxy messaging-svc:8004
+		}
+		handle_path /api/integrations/* {
+			reverse_proxy integrations-svc:8005
+		}
+		# Member activity record. The beacon (POST /api/telemetry/beacon) is the
+		# highest-frequency JSON POST in the product — a batch per client every
+		# 30s — which is exactly the shape OWASP CRS anomaly scoring trips on. If
+		# beacons start 403ing, add a scoped exclusion keyed on
+		# REQUEST_URI "^/api/telemetry/beacon" in
+		# infra/caddy/coraza/rules/99-tuning.conf rather than lowering the
+		# paranoia level globally.
+		handle_path /api/telemetry/* {
+			reverse_proxy telemetry-svc:8006
+		}
+		# Public inbound webhooks + OAuth callbacks for external integrations. NOT
+		# under /internal/ (404'd) and provider-signature authenticated upstream.
+		# NOTE: signed/base64 provider payloads can trip OWASP CRS — if you see 403s
+		# on /ext/*, add a scoped ctl:ruleRemoveById exclusion in
+		# infra/caddy/coraza/rules/*.conf keyed on REQUEST_URI "^/ext/".
+		handle /ext/* {
+			reverse_proxy integrations-svc:8005
+		}
+
+		# 6) JWKS at a stable public path for any external verifier.
+		handle /.well-known/jwks.json {
+			reverse_proxy auth-svc:8001
+		}
+
+		# TURN credentials (short-lived HMAC) for WebRTC calls → ws-gateway.
+		@turn path /turn-credentials
+		reverse_proxy @turn ws-gateway:8080
+
+		# Presence (online-user set) HTTP endpoint → ws-gateway. Polled by the SPA
+		# every 20s; without this it falls to the SPA catch-all below and returns
+		# HTML, breaking online-status. Terminal, JWT-authed in the handler.
+		@presence path /presence
+		reverse_proxy @presence ws-gateway:8080
+
+		# 7) Everything else → the SPA served by nginx on the private network.
+		#    CSP is set HERE (terminal SPA branch of the route), NOT in the global
+		#    header block, so it lands only on the HTML shell: frame-ancestors MUST
+		#    be a real header (it's ignored in the <meta> tag) and JSON/API
+		#    responses keep their own stricter default-src 'none' policy. connect-src
+		#    allows wss: for the realtime gateway.
+		header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'self' https: wss:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		reverse_proxy nginx:80
+	}
+
+	# Security headers. HSTS is safe because every route is HTTPS-only here.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+}
+
+# ── BlissWork marketing site (static React/Vite SPA) ────────────────────────────
+# Static SPA with no backend / injection surface, so no WAF here (avoids CRS
+# false-positives on a pure file server). Mirrors the Caddyfile site exactly.
+blisswork.rnrtechs.com {
+	encode zstd gzip
+
+	# Desktop app installers → nginx static file server (/srv/downloads). They no
+	# longer live under /srv/blisswork (the site's dist/, which a rebuild empties),
+	# so this host must route /downloads/* explicitly. `handle` keeps source order,
+	# matching before the SPA catch-all so a missing installer 404s rather than
+	# returning the index.html shell under an *.exe filename.
+	@downloads path /downloads /downloads/*
+	handle @downloads {
+		reverse_proxy nginx:80
+	}
+
+	# Everything else is the SPA.
+	handle {
+		root * /srv/blisswork
+		try_files {path} /index.html
+		file_server
+	}
+
+	# Long-cache the fingerprinted asset bundle; never cache the HTML shell.
+	@assets path /assets/*
+	header @assets Cache-Control "public, max-age=31536000, immutable"
+	@html path / /index.html
+	header @html Cache-Control "no-cache"
+
+	header {
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+}

@@ -1,0 +1,23 @@
+Windows registry template — force-install the BlissWork Activity extension on
+managed Chrome. Import with `reg import`, or set via Group Policy / Intune. For
+Edge, replace `Google\Chrome` with `Microsoft\Edge` throughout. Replace
+__EXTENSION_ID__ (printed by pack-crx.sh) and the URLs.
+
+The per-member ingest token goes under the 3rdparty managed-storage path and must
+be targeted PER USER (one token = one member), which is easiest through Intune /
+GPP per-user policy rather than a machine-wide .reg. There is deliberately no key
+here for capture scope or incognito — those are not policy-controllable.
+
+-------------------------------------------------------------------------------
+Windows Registry Editor Version 5.00
+
+; Force-install from the self-hosted update URL.
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Google\Chrome\ExtensionInstallForcelist]
+"1"="__EXTENSION_ID__;https://REPLACE-WITH-YOUR-HOST/updates.xml"
+
+; Per-user enrolment (managed storage). Prefer per-user targeting so each member
+; gets their OWN token; a machine-wide value would attribute every user on the
+; box to one person.
+[HKEY_CURRENT_USER\SOFTWARE\Policies\Google\Chrome\3rdparty\extensions\__EXTENSION_ID__\policy]
+"apiBase"="https://REPLACE-WITH-YOUR-WORKSPACE/api/telemetry"
+"token"="REPLACE-PER-USER-INGEST-TOKEN"

@@ -1,0 +1,418 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Task-Board Helm values — cloud-agnostic.
+#
+# Postgres, Redis and Kafka are NOT part of this chart. They are expected to be
+# provided externally (a managed cloud service such as RDS / ElastiCache / MSK,
+# or an in-cluster operator such as CloudNativePG / Strimzi). You wire them in
+# via the `env` and `secrets` blocks below.
+#
+# SECRETS: Do NOT commit real secret values to this file. The `secrets` map here
+# exists only so the chart renders and for throwaway dev clusters. In production,
+# leave `secrets` empty and source `secretName` from an externally-managed Secret
+# (External Secrets Operator, sealed-secrets, or a CSI driver). See secret.yaml.
+# ─────────────────────────────────────────────────────────────────────────────
+
+global:
+  # Container image registry + tag applied to every service whose `image`
+  # in the `services` map below is a bare repo/path (no registry, no tag).
+  image:
+    registry: ghcr.io/your-org/task-board
+    tag: "0.1.0"
+  imagePullPolicy: IfNotPresent
+  # Image pull secrets (private registry). Names of pre-existing Secrets of type
+  # kubernetes.io/dockerconfigjson.
+  imagePullSecrets: []
+  # e.g. - name: ghcr-pull-secret
+
+# Namespace is intentionally NOT set here — install with `helm -n <ns>` so the
+# same chart can target dev/stage/prod namespaces without edits.
+
+# Common pod-level security context (defense in depth; container-level context
+# is in deployment.yaml). All processes run as a non-root user.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+# Spread replicas across availability zones (and then nodes) for HA. Honored by
+# templates/deployment.yaml via topologySpreadConstraints.
+topologySpread:
+  enabled: true
+  # ScheduleAnyway keeps the workload schedulable on a smaller / single-zone
+  # cluster; switch to DoNotSchedule once you have >=2 well-stocked zones.
+  whenUnsatisfiable: ScheduleAnyway
+  maxSkew: 1
+  zoneTopologyKey: topology.kubernetes.io/zone
+  nodeTopologyKey: kubernetes.io/hostname
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Per-service definitions. Templates `range` over this map.
+#
+#   image       repo/path (registry+tag from global.image are prepended unless
+#               the value already contains a registry host or a tag).
+#   port        container/Service port, or null for a service with no HTTP
+#               listener (email-worker is a pure Kafka consumer).
+#   http        whether the service serves HTTP. Drives Service / HPA / Ingress /
+#               PDB / probes. email-worker is http:false.
+#   replicas    baseline replica count (HPA overrides at runtime when enabled).
+#   hpa         autoscaling bounds + CPU target %. enabled:false for workloads
+#               you scale manually (e.g. a partition-bound consumer).
+#   resources   requests/limits. requests must be set for HPA CPU% to be meaningful.
+#   healthPath  liveness probe path.   readyPath   readiness probe path.
+#   readOnlyRootFilesystem  per-service override (see note on auth-svc below).
+# ─────────────────────────────────────────────────────────────────────────────
+services:
+  auth-svc:
+    image: auth-svc
+    port: 8001
+    http: true
+    replicas: 2
+    hpa:
+      enabled: true
+      min: 2
+      max: 6
+      cpu: 70
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits: { cpu: "1", memory: 512Mi }
+    healthPath: /healthz
+    readyPath: /readyz
+    # auth-svc mounts signing keys read-only; it does not write to its own FS.
+    readOnlyRootFilesystem: true
+
+  task-svc:
+    image: task-svc
+    port: 8002
+    http: true
+    replicas: 2
+    hpa:
+      enabled: true
+      min: 2
+      max: 8
+      cpu: 70
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits: { cpu: "1", memory: 512Mi }
+    healthPath: /healthz
+    readyPath: /readyz
+    readOnlyRootFilesystem: true
+
+  notification-svc:
+    image: notification-svc
+    port: 8003
+    http: true
+    replicas: 2
+    hpa:
+      enabled: true
+      min: 2
+      max: 6
+      cpu: 70
+    resources:
+      requests: { cpu: 50m, memory: 64Mi }
+      limits: { cpu: 500m, memory: 256Mi }
+    healthPath: /healthz
+    readyPath: /readyz
+    readOnlyRootFilesystem: true
+
+  messaging-svc:
+    image: messaging-svc
+    port: 8004
+    http: true
+    replicas: 2
+    hpa:
+      enabled: true
+      min: 2
+      max: 8
+      cpu: 70
+    resources:
+      requests: { cpu: 50m, memory: 64Mi }
+      limits: { cpu: 500m, memory: 256Mi }
+    healthPath: /healthz
+    readyPath: /readyz
+    readOnlyRootFilesystem: true
+
+  ws-gateway:
+    image: ws-gateway
+    port: 8080
+    http: true
+    replicas: 3
+    hpa:
+      # WebSocket fan-out is connection-bound, not CPU-bound. CPU autoscaling is
+      # a coarse safety net here — prefer a custom "active connections" metric
+      # (see the commented example in templates/hpa.yaml).
+      enabled: true
+      min: 3
+      max: 12
+      cpu: 65
+    resources:
+      requests: { cpu: 100m, memory: 128Mi }
+      limits: { cpu: "1", memory: 512Mi }
+    healthPath: /healthz
+    readyPath: /readyz
+    readOnlyRootFilesystem: true
+
+  email-worker:
+    image: email-worker
+    # No HTTP port: pure Kafka consumer. No Service / Ingress / HPA / PDB / probes.
+    port: null
+    http: false
+    # Single replica + a stable consumer group means Kafka assigns partitions to
+    # this instance. Scale by raising replicas up to the partition count; do NOT
+    # CPU-autoscale a partition-bound consumer (rebalances churn throughput).
+    replicas: 1
+    hpa:
+      enabled: false
+      min: 1
+      max: 1
+      cpu: 80
+    resources:
+      requests: { cpu: 50m, memory: 128Mi }
+      limits: { cpu: 500m, memory: 256Mi }
+    healthPath: /healthz
+    readyPath: /readyz
+    readOnlyRootFilesystem: true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Non-secret environment shared by all services (rendered into a ConfigMap).
+# Service code reads these by name (validated against each service's config).
+# Point the *_DATABASE_URL hosts at your managed Postgres (or the in-cluster
+# pgbouncer Service when `pgbouncer.enabled: true` — see note below).
+# ─────────────────────────────────────────────────────────────────────────────
+env:
+  # Kafka brokers (comma-separated). Managed MSK/Confluent/Redpanda or Strimzi.
+  KAFKA_BROKERS: "kafka-bootstrap:9092"
+  # Kafka SASL_SSL (managed/multi-broker). HONEST CAVEAT: the in-tree clients
+  # read only KAFKA_BROKERS today — wiring security.protocol/SASL/TLS is a small
+  # code follow-up (docs/OPERATIONS.md §6). Defined here so the contract is ready;
+  # SASL_USERNAME/PASSWORD belong in `secrets`, not this ConfigMap.
+  # KAFKA_SECURITY_PROTOCOL: "SASL_SSL"
+  # KAFKA_SASL_MECHANISM: "SCRAM-SHA-512"
+  # KAFKA_SSL_CA_LOCATION: "/etc/ssl/kafka/ca.crt"
+
+  # auth-svc publishes JWKS; every other service fetches + caches it from here.
+  JWKS_URL: "http://auth-svc:8001/.well-known/jwks.json"
+  JWT_ISSUER: "task-board"
+  JWT_ACCESS_TTL_SECONDS: "900"
+  JWT_REFRESH_TTL_SECONDS: "2592000"
+  JWT_KID: "ed25519-1"
+  JWT_PRIVATE_KEY_PATH: "/keys/ed25519_private.pem"
+  JWT_PUBLIC_KEY_PATH: "/keys/ed25519_public.pem"
+
+  # Public web origin (CORS + invite/deep links). Override per environment.
+  WEB_ORIGIN: "https://app.example.com"
+  INVITE_BASE_URL: "https://app.example.com/invite"
+  WEB_BASE_URL: "https://app.example.com"
+
+  # Refresh-cookie hardening — MUST be true in production (TLS-only cookie).
+  COOKIE_SECURE: "true"
+  COOKIE_SAMESITE: "lax"
+
+  # Internal service base URLs (in-cluster Service DNS).
+  TB_MESSAGING_INTERNAL_BASE: "http://messaging-svc:8004"
+  AUTH_INTERNAL_BASE: "http://auth-svc:8001"
+
+  # ws-gateway connection caps.
+  WS_MAX_CONNECTIONS: "50000"
+  WS_MAX_CONNS_PER_USER: "20"
+
+  # Email / SMTP (non-secret parts; credentials go in `secrets`).
+  SMTP_HOST: "smtp.example.com"
+  SMTP_PORT: "587"
+  SMTP_FROM: "no-reply@example.com"
+  SMTP_STARTTLS: "true"
+
+  LOG_LEVEL: "info"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Secret environment (rendered into a Secret). PRODUCTION: leave these empty and
+# set `existingSecret` to a Secret managed by External Secrets Operator /
+# sealed-secrets. The values below are dev placeholders only.
+#
+# *_DATABASE_URL: one per service (database-per-service). Host them on your
+# managed Postgres or via the in-cluster pgbouncer (pgbouncer.enabled: true),
+# in which case point the host at `taskboard-pgbouncer:6432`.
+# ─────────────────────────────────────────────────────────────────────────────
+  # In-transit TLS to the managed DB: use sslmode=verify-full and point
+  # sslrootcert at the CA bundle you mount (managed-DB CA / org PKI). The chart's
+  # NetworkPolicy already scopes egress to your DB CIDR (networkPolicy.egress).
+  AUTH_DATABASE_URL: "postgresql://taskboard:CHANGE_ME@postgres:5432/authdb?sslmode=verify-full&sslrootcert=/etc/ssl/db/ca.crt"
+  TASK_DATABASE_URL: "postgresql://taskboard:CHANGE_ME@postgres:5432/taskdb?sslmode=verify-full&sslrootcert=/etc/ssl/db/ca.crt"
+  NOTIFICATION_DATABASE_URL: "postgres://taskboard:CHANGE_ME@postgres:5432/notificationdb?sslmode=verify-full&sslrootcert=/etc/ssl/db/ca.crt"
+  MESSAGING_DATABASE_URL: "postgres://taskboard:CHANGE_ME@postgres:5432/messagingdb?sslmode=verify-full&sslrootcert=/etc/ssl/db/ca.crt"
+  EMAIL_DATABASE_URL: "postgres://taskboard:CHANGE_ME@postgres:5432/emaildb?sslmode=verify-full&sslrootcert=/etc/ssl/db/ca.crt"
+  # Managed Redis with a publicly-trusted cert verifies out of the box via
+  # rediss:// (TLS). Self-signed Redis CAs are NOT validated by ws-gateway's
+  # go-redis client — see docs/OPERATIONS.md §7.
+  REDIS_URL: "rediss://:CHANGE_ME@redis:6379/0"
+  # Shared secret for internal service-to-service calls (X-Internal-Token).
+  TB_INTERNAL_TOKEN: "CHANGE_ME_internal_token"
+  # SMTP credentials.
+  SMTP_USERNAME: ""
+  SMTP_PASSWORD: ""
+
+# If set, the chart will NOT render its own Secret; every service's envFrom will
+# reference this externally-managed Secret instead (External Secrets Operator,
+# sealed-secrets, vault-injector, CSI). The keys above must exist in it.
+existingSecret: ""
+
+# JWT signing keys (Ed25519) for auth-svc, mounted read-only at /keys. In prod,
+# point `existingKeysSecret` at an externally-managed Secret holding
+# ed25519_private.pem / ed25519_public.pem and leave `data` empty.
+signingKeys:
+  enabled: true
+  existingKeysSecret: ""
+  mountPath: /keys
+  data: {}
+  # ed25519_private.pem: |
+  #   -----BEGIN PRIVATE KEY-----
+  #   ...
+  # ed25519_public.pem: |
+  #   -----BEGIN PUBLIC KEY-----
+  #   ...
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Ingress — routes external traffic to the HTTP services. TLS via cert-manager.
+# ─────────────────────────────────────────────────────────────────────────────
+ingress:
+  enabled: true
+  className: nginx
+  # cert-manager issues + renews the TLS cert referenced in tls.secretName.
+  clusterIssuer: letsencrypt-prod
+  host: app.example.com
+  tls:
+    enabled: true
+    secretName: taskboard-tls
+  annotations: {}
+  # Per-path routing on a single host. ws-gateway gets the websocket prefix.
+  paths:
+    auth-svc: /api/auth
+    task-svc: /api/tasks
+    notification-svc: /api/notifications
+    messaging-svc: /api/messaging
+    ws-gateway: /ws
+  # Long timeout for the ws-gateway upgrade — see ingress.yaml comments.
+  websocketTimeoutSeconds: 3600
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PodDisruptionBudgets — keep a minimum available during voluntary disruptions
+# (node drains, rollouts). Applied to every http service.
+# ─────────────────────────────────────────────────────────────────────────────
+pdb:
+  enabled: true
+  minAvailable: "50%"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NetworkPolicy — per-service least-privilege.
+#
+# Baseline is default-deny for BOTH ingress and egress on every pod in the
+# release, then narrow allow-policies re-open exactly the flows that exist:
+#   • DNS egress for all pods (so name resolution survives default-deny).
+#   • Egress to the EXTERNAL datastores (Postgres / Redis / Kafka / SMTP) which
+#     live outside the cluster — matched by CIDR + port, NOT pod selector.
+#   • Ingress from the ingress controller to each HTTP service on its port.
+#   • The intra-cluster service-to-service calls that actually happen
+#     (ws-gateway→messaging, task-svc→messaging, email-worker→auth, all→auth JWKS).
+#   • Prometheus scraping /metrics on each HTTP service.
+#   • Egress to the OpenTelemetry collector (OTLP gRPC 4317).
+# email-worker takes NO ingress — it runs no server (pure Kafka consumer).
+#
+# Requires a CNI that ENFORCES NetworkPolicy (Calico, Cilium, Antrea, ...). On a
+# CNI without enforcement these objects are silently inert.
+# ─────────────────────────────────────────────────────────────────────────────
+networkPolicy:
+  enabled: true
+  # Allow DNS egress to kube-dns (otherwise default-deny breaks name resolution).
+  allowDNS: true
+  # Namespace where kube-dns/CoreDNS runs. The selector below matches it by the
+  # well-known kubernetes.io/metadata.name label (set automatically by the API
+  # server on every namespace since k8s 1.21).
+  dnsNamespace: kube-system
+
+  # Who is allowed to reach the HTTP services from outside the namespace, i.e.
+  # the ingress controller. Defaults to the standard ingress-nginx install,
+  # which labels its namespace kubernetes.io/metadata.name=ingress-nginx.
+  # Adjust namespaceSelector/podSelector to match your controller (Traefik,
+  # Contour, a cloud LB controller, etc.).
+  ingressController:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: ingress-nginx
+    # Optional pod-level narrowing within that namespace. Empty = any pod there.
+    podSelector: {}
+
+  # Prometheus / metrics scraper allowed to hit /metrics on the HTTP port of
+  # each service. Defaults to a kube-prometheus-stack style install in a
+  # `monitoring` namespace. Set podSelector to pin to the Prometheus pods.
+  monitoring:
+    enabled: true
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: monitoring
+    podSelector: {}
+
+  # OpenTelemetry collector egress (traces/metrics via OTLP gRPC). By default the
+  # collector is assumed IN-cluster, so we allow egress to it by namespace + port
+  # rather than CIDR. Disable if you do not run a collector, or switch to a
+  # cidr-based rule (like the datastores below) for an out-of-cluster collector.
+  otelCollector:
+    enabled: true
+    port: 4317
+    # In-cluster collector: allow egress to its namespace. Same namespace by
+    # default (empty namespaceSelector = the release's own namespace via the
+    # standard metadata.name label is overkill, so we match any ns here and rely
+    # on the port to scope it). Tighten to the collector's namespace/pod.
+    namespaceSelector: {}
+    podSelector: {}
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # External datastore egress. These backends are OUT of the cluster, so they
+  # are matched by CIDR + port (a pod selector can't target them). The defaults
+  # allow 0.0.0.0/0 on the standard ports so the chart works out of the box —
+  # TIGHTEN cidr to your real managed-service ranges (RDS / ElastiCache / MSK /
+  # SES subnets) before relying on these for security.
+  # ───────────────────────────────────────────────────────────────────────────
+  egress:
+    postgres:
+      enabled: true
+      cidr: 0.0.0.0/0
+      ports: [5432]
+    redis:
+      enabled: true
+      cidr: 0.0.0.0/0
+      ports: [6379]
+    kafka:
+      enabled: true
+      cidr: 0.0.0.0/0
+      ports: [9092]
+    smtp:
+      enabled: true
+      cidr: 0.0.0.0/0
+      # Submission (587), implicit-TLS (465) and legacy (25).
+      ports: [587, 465, 25]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PgBouncer — optional in-cluster connection pooler (transaction pooling) in
+# front of an external Postgres. Off by default; enable to cap the connection
+# count managed Postgres sees from autoscaled stateless pods.
+# ─────────────────────────────────────────────────────────────────────────────
+pgbouncer:
+  enabled: false
+  image: bitnami/pgbouncer:1.23.1
+  replicas: 2
+  port: 6432
+  # Upstream Postgres (managed instance). PgBouncer fans the per-service DBs in.
+  upstream:
+    host: postgres
+    port: 5432
+  poolMode: transaction
+  maxClientConn: 1000
+  defaultPoolSize: 25
+  # Admin/auth credentials sourced from the Secret (keys must exist there).
+  authSecretName: ""   # defaults to the chart Secret when empty
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 250m, memory: 128Mi }

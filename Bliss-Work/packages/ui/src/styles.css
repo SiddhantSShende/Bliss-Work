@@ -1,0 +1,11 @@
+/* Component-layer styles for @taskboard/ui.
+   Design tokens live in the consuming app's index.css (@theme).
+   Tailwind v4 auto-detects utility classes used in these components. */
+
+/* Drag region helpers for the Electron frameless sticky widgets. */
+.app-drag {
+  -webkit-app-region: drag;
+}
+.app-no-drag {
+  -webkit-app-region: no-drag;
+}

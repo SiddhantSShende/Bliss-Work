@@ -1,0 +1,17 @@
+[Unit]
+Description=Daily BlissWork member-activity rollup
+
+[Timer]
+# 01:30, deliberately BEFORE the 02:30 backup. The ordering is the point: these
+# rollups are the only part of the activity record that outlives the 90-day
+# prune, so each night's dump should contain the day that just closed rather
+# than trailing it by 24 hours.
+OnCalendar=*-*-* 01:30:00 UTC
+RandomizedDelaySec=300
+# If the host was off at 01:30, run when it comes back rather than skipping the
+# day — an unrolled day blocks the prune, so a skipped run compounds.
+Persistent=true
+Unit=blisswork-telemetry-rollup.service
+
+[Install]
+WantedBy=timers.target

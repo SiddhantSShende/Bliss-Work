@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="630" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0e0c1a" />
+      <stop offset="1" stop-color="#1a1430" />
+    </linearGradient>
+    <linearGradient id="brand" x1="0" y1="0" x2="96" y2="96" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4F6BF6" />
+      <stop offset="1" stop-color="#9A4DF0" />
+    </linearGradient>
+    <radialGradient id="orb" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#6D5BF0" stop-opacity="0.55" />
+      <stop offset="1" stop-color="#6D5BF0" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)" />
+  <circle cx="980" cy="120" r="320" fill="url(#orb)" />
+  <circle cx="180" cy="560" r="300" fill="url(#orb)" />
+
+  <g transform="translate(110, 150)">
+    <rect x="18" y="12" width="21" height="72" rx="10.5" fill="url(#brand)" />
+    <path d="M18,12 L60,12 Q78.8,12 78.8,31.88 Q78.8,45 67.5,48 Q78.8,51 78.8,64.13 Q78.8,84 63.75,84 L18,84 Z" fill="url(#brand)" />
+    <rect x="25.88" y="54.75" width="52.13" height="20.63" rx="5.06" fill="white" />
+    <path d="M31.88,75.38 L23.25,75.38 L18.75,84.38 Q18.19,85.69 19.69,84.75 Z" fill="white" />
+    <circle cx="41.06" cy="65.06" r="3" fill="#4F6BF6"/>
+    <circle cx="51.94" cy="65.06" r="3" fill="#6D5BF0"/>
+    <circle cx="62.81" cy="65.06" r="3" fill="#9A4DF0"/>
+  </g>
+
+  <text x="228" y="205" font-family="Inter, sans-serif" font-size="48" font-weight="700" fill="#ffffff">BlissWork</text>
+  <text x="230" y="240" font-family="Inter, sans-serif" font-size="22" font-weight="600" letter-spacing="1.5" fill="#9A8CF8">ENTERPRISE COMMUNICATION NETWORK</text>
+
+  <text x="110" y="360" font-family="Inter, sans-serif" font-size="84" font-weight="800" fill="#ffffff">Work, <tspan fill="#9A8CF8">in flow.</tspan></text>
+  <text x="112" y="430" font-family="Inter, sans-serif" font-size="32" font-weight="500" fill="#b9b4d0">Tasks that pin themselves to your desktop. Focused messaging.</text>
+  <text x="112" y="472" font-family="Inter, sans-serif" font-size="32" font-weight="500" fill="#b9b4d0">Real-time, encrypted, cross-platform enterprise communication.</text>
+
+  <g transform="translate(112, 520)" font-family="Inter, sans-serif" font-size="26" font-weight="600" fill="#8f8aa8">
+    <text x="0" y="24">Windows  ·  macOS  ·  Linux</text>
+  </g>
+</svg>

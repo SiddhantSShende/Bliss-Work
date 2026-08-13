@@ -1,0 +1,171 @@
+{
+  "name": "@taskboard/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "BlissWork — desktop app with always-on-top sticky task notes",
+  "author": "BlissWork",
+  "homepage": "https://blisswork.rnrtechs.com",
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run --passWithNoTests",
+    "package": "electron-vite build && electron-builder",
+    "package:dir": "electron-vite build && electron-builder --dir",
+    "package:store": "electron-vite build && electron-builder --win --config.win.target=appx --publish=never",
+    "icon": "bash build/gen-appx-assets.sh"
+  },
+  "build": {
+    "appId": "com.blisswork.desktop",
+    "productName": "BlissWork",
+    "executableName": "BlissWork",
+    "copyright": "Copyright © 2026 BlissWork",
+    "electronVersion": "42.5.2",
+    "directories": {
+      "buildResources": "build",
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build/icon.png",
+        "to": "icon.png"
+      }
+    ],
+    "asar": true,
+    "afterSign": "build/notarize.cjs",
+    "protocols": [
+      {
+        "name": "BlissWork",
+        "schemes": [
+          "taskboard"
+        ]
+      }
+    ],
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://communication.rnrtechs.com/downloads",
+        "channel": "latest"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "artifactName": "BlissWork-windows-${arch}.${ext}"
+    },
+    "appx": {
+      "identityName": "SiddhantSShende.BlissWork",
+      "publisher": "CN=8577DCDE-7A86-447A-B011-0283EB9A3FAC",
+      "publisherDisplayName": "SiddhantSShende",
+      "backgroundColor": "#6D5BF0",
+      "languages": [
+        "en-us"
+      ],
+      "showNameOnTiles": true,
+      "applicationId": "BlissWork",
+      "publish": null
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "BlissWork",
+      "uninstallDisplayName": "BlissWork"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "build/icon.icns",
+      "category": "public.app-category.productivity",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": false,
+      "artifactName": "BlissWork-mac-${arch}.${ext}",
+      "extendInfo": {
+        "NSCameraUsageDescription": "BlissWork uses your camera for video calls.",
+        "NSMicrophoneUsageDescription": "BlissWork uses your microphone for voice and video calls."
+      }
+    },
+    "dmg": {
+      "title": "BlissWork ${version}"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png",
+      "category": "Office",
+      "maintainer": "BlissWork <support@blisswork.app>",
+      "syncDesktopName": true,
+      "synopsis": "Always-on-top sticky task notes for teams",
+      "artifactName": "BlissWork-linux-x64.${ext}"
+    }
+  },
+  "devDependencies": {
+    "@electron/notarize": "^2.5.0",
+    "@tailwindcss/vite": "^4.0.0",
+    "@tanstack/react-query": "^5.62.0",
+    "@taskboard/app": "*",
+    "@taskboard/shared": "*",
+    "@taskboard/ui": "*",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "@types/ws": "^8.5.13",
+    "@vitejs/plugin-react-swc": "^3.7.2",
+    "electron": "42.5.2",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.0",
+    "vitest": "4.1.9",
+    "ws": "^8.18.0"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
+  }
+}

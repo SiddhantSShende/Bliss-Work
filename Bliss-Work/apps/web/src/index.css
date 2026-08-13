@@ -1,0 +1,10 @@
+@import "tailwindcss";
+
+/* The design system — tokens, .glass, .brand-mesh, the auth hero, animations
+   and the document base. Shared verbatim with the Electron renderer so the two
+   shells cannot drift; put anything visual THERE, not here. */
+@import "@taskboard/ui/theme.css";
+
+/* Tailwind v4 ignores node_modules — scan the workspace UI/app packages. */
+@source "../../../packages/ui/src";
+@source "../../../packages/app/src";

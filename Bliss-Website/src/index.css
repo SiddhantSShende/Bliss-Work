@@ -1,0 +1,196 @@
+@import "tailwindcss";
+
+/* ──────────────────────────────────────────────────────────────────────────
+   BlissWork brand tokens — ported verbatim from the product app so the
+   marketing site is visually identical, while remaining a fully independent
+   project. WHITE default; `.dark` overrides. Blue → violet brand gradient.
+   ────────────────────────────────────────────────────────────────────────── */
+@theme {
+  --color-bg: oklch(0.985 0.007 285);
+  --color-surface: oklch(1 0 0);
+  --color-surface-2: oklch(0.972 0.008 285);
+  --color-border: oklch(0.912 0.012 285);
+  --color-muted: oklch(0.52 0.03 280);
+  --color-fg: oklch(0.26 0.045 275);
+  --color-accent: oklch(0.58 0.22 285);
+  --color-accent-strong: oklch(0.52 0.22 285);
+  --color-accent-fg: oklch(0.99 0 0);
+  --color-accent-soft: oklch(0.95 0.04 285);
+  --color-brand-from: oklch(0.62 0.19 264);
+  --color-brand-to: oklch(0.6 0.23 302);
+  --color-success: oklch(0.7 0.15 158);
+  --color-danger: oklch(0.62 0.21 25);
+  --color-warning: oklch(0.8 0.15 80);
+
+  --shadow-soft: 0 1px 2px rgba(40, 30, 90, 0.04), 0 8px 24px rgba(40, 30, 90, 0.07);
+  --shadow-card: 0 1px 3px rgba(40, 30, 90, 0.06), 0 16px 40px rgba(40, 30, 90, 0.1);
+  --shadow-widget: 0 18px 50px rgba(20, 12, 60, 0.28);
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+:root {
+  --glass-bg: rgba(255, 255, 255, 0.62);
+  --glass-border: rgba(255, 255, 255, 0.7);
+  --glass-shadow: 0 8px 32px rgba(60, 40, 120, 0.12);
+}
+
+.dark {
+  --color-bg: oklch(0.16 0.02 280);
+  --color-surface: oklch(0.21 0.025 280);
+  --color-surface-2: oklch(0.25 0.028 280);
+  --color-border: oklch(0.31 0.03 280);
+  --color-muted: oklch(0.66 0.03 280);
+  --color-fg: oklch(0.97 0.01 285);
+  --color-accent: oklch(0.66 0.2 288);
+  --color-accent-strong: oklch(0.72 0.2 288);
+  --color-accent-fg: oklch(0.14 0.02 285);
+  --color-accent-soft: oklch(0.3 0.06 288);
+  --color-brand-from: oklch(0.66 0.19 264);
+  --color-brand-to: oklch(0.66 0.23 302);
+  --color-success: oklch(0.75 0.15 158);
+  --color-danger: oklch(0.68 0.2 25);
+  --color-warning: oklch(0.82 0.15 80);
+
+  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.35);
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.35), 0 16px 40px rgba(0, 0, 0, 0.45);
+  --shadow-widget: 0 18px 50px rgba(0, 0, 0, 0.6);
+
+  --glass-bg: rgba(30, 28, 54, 0.55);
+  --glass-border: rgba(255, 255, 255, 0.09);
+  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+html {
+  scroll-behavior: smooth;
+  /* offset anchored sections below the sticky navbar */
+  scroll-padding-top: 5.5rem;
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+::selection {
+  background: var(--color-accent-soft);
+  color: var(--color-fg);
+}
+
+/* Frosted-glass surface used across nav, cards, modals. */
+.glass {
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(20px) saturate(165%);
+  backdrop-filter: blur(20px) saturate(165%);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+/* Living brand gradient-mesh backdrop: two slow-drifting colour orbs. */
+.brand-mesh {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background: var(--color-bg);
+}
+.brand-mesh::before,
+.brand-mesh::after {
+  content: "";
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(90px);
+  opacity: 0.55;
+  z-index: -1;
+  will-change: transform;
+}
+.brand-mesh::before {
+  width: 36rem;
+  height: 36rem;
+  top: -10rem;
+  left: -6rem;
+  background: radial-gradient(circle, var(--color-brand-from), transparent 68%);
+  animation: bw-float-a 20s ease-in-out infinite;
+}
+.brand-mesh::after {
+  width: 40rem;
+  height: 40rem;
+  bottom: -14rem;
+  right: -8rem;
+  background: radial-gradient(circle, var(--color-brand-to), transparent 68%);
+  animation: bw-float-b 26s ease-in-out infinite;
+}
+@keyframes bw-float-a {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(5rem, 3rem) scale(1.1); }
+}
+@keyframes bw-float-b {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-4rem, -2.5rem) scale(1.08); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .brand-mesh::before, .brand-mesh::after { animation: none; }
+}
+
+/* Brand gradient text (headlines / accents). */
+.text-gradient {
+  background: linear-gradient(120deg, var(--color-brand-from), var(--color-brand-to));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Subtle dotted grid backdrop for content sections. */
+.dot-grid {
+  background-image: radial-gradient(var(--color-border) 1px, transparent 1px);
+  background-size: 22px 22px;
+  -webkit-mask-image: radial-gradient(ellipse at center, black 40%, transparent 78%);
+  mask-image: radial-gradient(ellipse at center, black 40%, transparent 78%);
+}
+
+/* Thin gradient hairline used to underline section headers. */
+.brand-rule {
+  height: 2px;
+  background: linear-gradient(90deg, var(--color-brand-from), var(--color-brand-to));
+  border-radius: 9999px;
+}
+
+/* Animated conic ring glow for feature highlights. */
+@keyframes bw-spin {
+  to { transform: rotate(360deg); }
+}
+.ring-glow::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: conic-gradient(from 0deg, var(--color-brand-from), var(--color-brand-to), var(--color-brand-from));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+.ring-glow:hover::before { opacity: 1; }
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--color-muted);
+  background-clip: padding-box;
+}

@@ -1,0 +1,29 @@
+# Version control
+.git
+.gitignore
+
+# Python bytecode / caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+
+# Tests (not needed at runtime)
+tests/
+test/
+
+# Local environment / secrets
+.env
+.env.*
+
+# Docs & Docker meta
+*.md
+Dockerfile
+.dockerignore

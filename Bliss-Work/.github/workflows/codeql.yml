@@ -1,0 +1,97 @@
+name: CodeQL
+
+# Static application security testing (SAST) across all three languages.
+#
+# Python and JS/TS are extracted buildless (`build-mode: none`). Go is NOT:
+# `none` is only supported for C/C++, C#, Java and Rust, so asking for it on Go
+# failed the `go` leg of this matrix on every run — which is why CodeQL had been
+# red for weeks while the other two languages analysed fine.
+#
+# Go therefore uses `manual`, not `autobuild`: autobuild expects a module it can
+# build from the checkout root, and there is no go.mod there — the three
+# services are separate modules under services/. The manual step below builds
+# each one so the extractor sees a complete program.
+# ── PARKED: manual-dispatch only ────────────────────────────────────────────
+# CodeQL cannot pass on this repository today. Every language now analyses
+# correctly (see the build-mode note above), then ALL THREE fail at the upload
+# step with:
+#
+#     Code scanning is not enabled for this repository.
+#
+# Code scanning on a PRIVATE repo requires a paid GitHub Code Security licence.
+# Until there is one, each push ran three jobs for ~5 minutes each, produced
+# results that could not be stored anywhere, and left a red X that looked like a
+# security finding — burning Actions minutes on a private repo's quota to
+# produce nothing but noise.
+#
+# Left on workflow_dispatch rather than deleted: the config is correct now, so
+# re-enabling is a two-line change once the licence exists. Restore the
+# push/pull_request/schedule triggers below at that point.
+#
+#   push:
+#     branches: [main]
+#   pull_request:
+#   schedule:
+#     - cron: "27 3 * * 1"   # weekly, Monday 03:27 UTC
+on:
+  workflow_dispatch:
+
+env:
+  GO_VERSION: "1.26"
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: go
+            build-mode: manual
+          - language: python
+            build-mode: none
+          - language: javascript-typescript
+            build-mode: none
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      # Toolchain must exist before the manual build step, and before init so
+      # the extractor picks up the same Go it will trace.
+      - name: Set up Go
+        if: matrix.language == 'go'
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false # three separate modules; the default single-path cache misses anyway
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@c4dd10e44af883a891fe31ced449bcb4a6728b9b # v3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          # security-extended adds higher-recall security queries beyond default.
+          queries: security-extended
+
+      # Only runs for Go. Each module is built separately because they are
+      # independent modules with their own go.mod — a single root build would
+      # find nothing to compile.
+      - name: Build Go modules
+        if: matrix.language == 'go'
+        run: |
+          set -euo pipefail
+          for svc in messaging-svc notification-svc ws-gateway; do
+            echo "::group::go build $svc"
+            (cd "services/$svc" && go build ./...)
+            echo "::endgroup::"
+          done
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@c4dd10e44af883a891fe31ced449bcb4a6728b9b # v3
+        with:
+          category: "/language:${{ matrix.language }}"

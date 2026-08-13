@@ -1,0 +1,60 @@
+{{/*
+One HorizontalPodAutoscaler per HTTP service that opts in (hpa.enabled). CPU is
+the portable, always-available signal. For latency-sensitive services prefer a
+custom p99 metric (see the commented `metrics` entry below) — that needs the
+Prometheus Adapter (or a cloud custom-metrics adapter) installed.
+*/}}
+{{- $root := . -}}
+{{- range $name, $svc := .Values.services }}
+{{- if and $svc.http $svc.hpa.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "taskboard.svcLabels" (dict "root" $root "svc" $name) | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ $name }}
+  minReplicas: {{ $svc.hpa.min }}
+  maxReplicas: {{ $svc.hpa.max }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ $svc.hpa.cpu }}
+    # ── Custom p99-latency scaling (requires Prometheus Adapter) ──────────────
+    # Expose a recording rule like `http_request_p99_seconds{service="..."}` and
+    # register it with the custom.metrics.k8s.io API, then scale on it:
+    #
+    # - type: Pods
+    #   pods:
+    #     metric:
+    #       name: http_request_p99_seconds
+    #     target:
+    #       type: AverageValue
+    #       averageValue: "250m"   # scale out when p99 > 250ms
+    #
+    # For ws-gateway, an "active_ws_connections" Pods metric (target ~8000/pod)
+    # tracks the connection-bound load far better than CPU.
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+    scaleDown:
+      # Drain slowly so we don't thrash on bursty traffic.
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 50
+          periodSeconds: 60
+{{- end }}
+{{- end }}

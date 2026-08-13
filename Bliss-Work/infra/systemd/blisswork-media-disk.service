@@ -1,0 +1,30 @@
+[Unit]
+Description=BlissWork media-volume disk space check (emails when space runs low)
+Documentation=file:///home/ubuntu/BlissWork/Bliss-Work/infra/systemd/README.md
+# Reads the volume through the Docker daemon, so it must be up. Docker here is
+# the SNAP — there is no docker.service on this host, and naming it that way
+# makes the unit unstartable ("Unit docker.service not found").
+After=snap.docker.dockerd.service
+Requires=snap.docker.dockerd.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/BlissWork/Bliss-Work
+# systemd's default PATH excludes /snap/bin, so `docker` would not be found.
+Environment=PATH=/snap/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# Thresholds. 80% is early enough to act without hurrying; 90% on a ~190G disk
+# still leaves ~19G, which is a working margin rather than an emergency.
+Environment=DISK_WARN_PERCENT=80
+Environment=DISK_CRIT_PERCENT=90
+# Re-send at most once a day while the condition persists, so a real alert is
+# never lost in a stream of duplicates.
+Environment=ALERT_REPEAT_HOURS=24
+# Recipient. Defaults to SMTP_FROM in .env.prod; override here to send
+# somewhere else (an ops alias, a pager address) without touching secrets.
+# Environment=ALERT_EMAIL_TO=someone@example.com
+ExecStart=/home/ubuntu/BlissWork/Bliss-Work/scripts/check-media-disk.sh
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
