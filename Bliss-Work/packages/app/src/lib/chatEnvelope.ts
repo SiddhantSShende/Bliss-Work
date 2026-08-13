@@ -220,6 +220,12 @@ export function readablePrefix(body: string): string {
 /**
  * True when a message is a media attachment.
  *
+ * NOTE: this no longer gates the Forward action. It used to — forwarding cloned
+ * the body verbatim, so the recipient got attachment ids scoped to a
+ * conversation they were not in and every tile read "Not available to you".
+ * The server now re-scopes them on forward (store.recloneAttachments), so media
+ * forwards land correctly and the affordance is offered for every message.
+ *
  * Used to hide the Forward affordance: forwarding clones the body verbatim, so
  * the recipient would receive attachment ids scoped to a conversation they are
  * not in, and every download would 403 into a broken card. Text and locations

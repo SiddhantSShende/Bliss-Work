@@ -174,12 +174,12 @@ type MessageDeleted struct {
 // else. Each client refetches its own view instead — one small query on a
 // change a human just made by hand, which is not a rate worth optimising.
 type MessageReaction struct {
-	Type           string   `json:"type"`
-	EventID        string   `json:"eventId"`
-	OrgID          string   `json:"orgId"`
-	OccurredAt     string   `json:"occurredAt"`
-	ConversationID string   `json:"conversationId"`
-	MessageID      string   `json:"messageId"`
+	Type           string `json:"type"`
+	EventID        string `json:"eventId"`
+	OrgID          string `json:"orgId"`
+	OccurredAt     string `json:"occurredAt"`
+	ConversationID string `json:"conversationId"`
+	MessageID      string `json:"messageId"`
 	// Who toggled — used to skip the actor's own echo.
 	ActorID string   `json:"actorId"`
 	Members []string `json:"members"`

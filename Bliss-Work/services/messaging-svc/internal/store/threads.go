@@ -18,7 +18,6 @@ import (
 // previewLen caps the subject preview stored on the threads row + inbox_items.
 const previewLen = 80
 
-// ThreadDTO is the per-thread header returned by GET /threads/{id}.
 // Which surface started a thread, and therefore whether it belongs in the
 // Inbox. Chats is instant messaging; the Inbox is an email-style surface, and
 // before this distinction existed every DM wrote an inbox_items row — which is
@@ -33,6 +32,7 @@ func ValidThreadOrigin(v string) bool {
 	return v == ThreadOriginChat || v == ThreadOriginMail
 }
 
+// ThreadDTO is the per-thread header returned by GET /threads/{id}.
 type ThreadDTO struct {
 	ThreadID       string `json:"threadId"`
 	ConversationID string `json:"conversationId"`

@@ -4,7 +4,7 @@ import { MessageSquare, Ban, PhoneMissed } from "lucide-react";
 import { Avatar } from "@taskboard/ui";
 import { clock, groupMessages } from "../lib/chatFormat";
 import type { MessageDTO, ReactionDTO } from "@taskboard/shared";
-import { isMediaMessage, readablePrefix, type MediaItem } from "../lib/chatEnvelope";
+import { readablePrefix, type MediaItem } from "../lib/chatEnvelope";
 import { Composer } from "./Composer";
 import { SystemPill } from "./SystemPill";
 import { MessageStatusBadge } from "./MessageStatusBadge";

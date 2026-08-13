@@ -216,6 +216,20 @@ func (s *Store) ForwardMessage(ctx context.Context, orgID, forwarderID, sourceMe
 		return nil, err
 	}
 
+	// Re-scope any attachments the body references into the DESTINATION.
+	//
+	// Attachments are authorized by (scope, scope_id) — see 0010_attachments.sql
+	// — so a body cloned verbatim hands C ids scoped to A↔B, and every tile in
+	// the forwarded message renders "Not available to you". Forwarding media was
+	// simply hidden in the UI because of it. Cloning the ROWS (not the bytes:
+	// the blob is content-addressed by sha256 and shared) is what makes a
+	// forwarded photo actually arrive.
+	if rewritten, err := s.recloneAttachments(ctx, tx, orgID, forwarderID, body, convID); err != nil {
+		return nil, err
+	} else if rewritten != "" {
+		body = rewritten
+	}
+
 	// Clone the source as a NEW top-level message from B to C, carrying forward
 	// provenance. appendMessage inserts the clone + the message_forwards edge +
 	// both MessageCreated (for C) and message.forwarded (for A), then commits.
