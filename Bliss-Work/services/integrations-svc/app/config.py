@@ -60,12 +60,6 @@ class Settings(BaseSettings):
     # per-connection signing secret (collected at connect time) is used for events.
     slack_signing_secret: str = ""
 
-    # WhatsApp (Meta) app-level webhook config. `whatsapp_verify_token` is the token
-    # you set in the Meta webhook config; the GET handshake echoes hub.challenge only
-    # when it matches. `whatsapp_app_secret` verifies X-Hub-Signature-256 (app-level;
-    # falls back to the per-connection app secret resolved by phone_number_id).
-    whatsapp_verify_token: str = ""
-    whatsapp_app_secret: str = ""
 
     # ── At-rest column encryption (envelope: per-org DEK wrapped by a KEK) ──────
     # IDENTICAL field names + dev defaults to task-svc/auth-svc so the shared

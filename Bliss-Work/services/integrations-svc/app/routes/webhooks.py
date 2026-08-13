@@ -7,25 +7,24 @@ before its body is trusted; an unsigned/invalid request is rejected 401 and
 nothing is persisted.
 
   Slack   : HMAC-SHA256 over `v0:{ts}:{body}` (5-min skew) + url_verification echo.
-  WhatsApp: GET hub.challenge handshake; POST `X-Hub-Signature-256` = HMAC-SHA256
-            over the raw body with the Meta app secret. Meta's `context.forwarded`
-            flag (a message forwarded INTO the business number) is surfaced.
+
+WhatsApp used to be the other half of this module (a GET hub.challenge
+handshake plus X-Hub-Signature-256 on POST). It was removed with the rest of the
+WhatsApp Business integration; the GET route existed only for Meta, so it is
+gone rather than left answering 404 on a path nobody calls.
 """
 from __future__ import annotations
 
 import json
-import secrets
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from sqlalchemy import text
 
 from ..config import settings
-from ..connections import confirm_connection
 from ..crypto import cryptor
 from ..db import session, set_bypass_rls
 from ..ingest import claim_event, ingest_one
-from ..logging_setup import log
-from ..providers import slack, whatsapp
+from ..providers import slack
 
 router = APIRouter()
 
@@ -41,7 +40,7 @@ async def _conn_by_account(db, provider: str, external_id: str | None):
     """Resolve a connection from an identifier inside the PAYLOAD.
 
     Only usable once the payload is parsed, which is a problem for handshakes:
-    Slack's `url_verification` carries no team_id at all, and WhatsApp's GET
+    Slack's `url_verification` carries no team_id at all, and the GET
     challenge has no body. `_conn_by_token` exists for those.
     """
     if not external_id:
@@ -77,12 +76,11 @@ async def _conn_by_token(db, provider: str, webhook_token: str | None):
     connection a delivery belongs to. It is compared by an indexed equality
     lookup, so a wrong token is a miss, not a partial match.
 
-    'pending' connections resolve too, and must: a WhatsApp connection is
-    pending precisely while the admin is pasting this URL into Meta, and
-    answering that verification request is the ONLY way it ever becomes
-    connected (see verify_webhook). Excluding them here would make the state
-    unreachable. Callers still gate on `conn.status` for what they do with a
-    payload — a pending connection ingests nothing; see _handle_whatsapp.
+    'pending' connections resolve too. Nothing creates one any more — WhatsApp
+    was the only provider that started pending, and it is gone — but rows
+    already in that state predate the removal, and silently excluding them here
+    would make them invisible rather than inert. Callers still gate on
+    `conn.status` for what they do with a payload.
     """
     if not webhook_token:
         return None
@@ -118,53 +116,6 @@ async def _conn_secret(db, conn, key: str) -> str:
         return ""
 
 
-# ── WhatsApp GET verification handshake ───────────────────────────────────────
-# Two shapes of the same route. The token-suffixed one is what new connections
-# register (it identifies the connection from the path); the bare one is kept
-# so webhooks configured before per-connection URLs existed keep working.
-@router.get("/{provider}/webhook")
-@router.get("/{provider}/webhook/{webhook_token}")
-async def verify_webhook(
-    provider: str, request: Request, webhook_token: str | None = None
-) -> Response:
-    if provider != "whatsapp":
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="unknown provider")
-    q = request.query_params
-    mode = q.get("hub.mode")
-    token = q.get("hub.verify_token")
-    challenge = q.get("hub.challenge", "")
-    if mode != "subscribe" or not token:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="verification failed")
-
-    # Per-connection verify token, resolved from the path. This GET carries no
-    # body at all, so without the path token the only way to answer it is a
-    # server-wide shared secret.
-    if webhook_token:
-        async with session() as db:
-            await set_bypass_rls(db)
-            conn = await _conn_by_token(db, "whatsapp", webhook_token)
-            expected = await _conn_secret(db, conn, "verifyToken") if conn is not None else ""
-            if expected and secrets.compare_digest(token, expected):
-                # THIS is what confirms a WhatsApp connection. Reaching here
-                # means Meta itself called this connection's own URL and proved
-                # it knows the token we generated — i.e. the admin really did
-                # paste both into the dashboard and Meta really can reach us.
-                # It is the one thing credentials cannot establish, and unlike
-                # the confirmation code this replaced, it involves no personal
-                # phone number, no template and no 24-hour window.
-                if conn is not None and await confirm_connection(db, str(conn.id)):
-                    log.info("whatsapp_connection_confirmed", connection_id=str(conn.id))
-                await db.commit()
-                return Response(content=challenge, media_type="text/plain")
-
-    # Fallback: the deployment-wide token, for pre-existing setups.
-    if settings.whatsapp_verify_token and secrets.compare_digest(
-        token, settings.whatsapp_verify_token
-    ):
-        return Response(content=challenge, media_type="text/plain")
-    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="verification failed")
-
-
 # ── POST inbound events ───────────────────────────────────────────────────────
 @router.post("/{provider}/webhook")
 @router.post("/{provider}/webhook/{webhook_token}")
@@ -179,8 +130,6 @@ async def provider_webhook(
 
     if provider == "slack":
         return await _handle_slack(request, raw, payload, webhook_token)
-    if provider == "whatsapp":
-        return await _handle_whatsapp(request, raw, payload, webhook_token)
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="unknown provider")
 
 
@@ -228,64 +177,5 @@ async def _handle_slack(
                 body=ev.get("text", ""),
                 status_label="received",
             )
-        await db.commit()
-    return Response(status_code=status.HTTP_200_OK)
-
-
-async def _handle_whatsapp(
-    request: Request, raw: bytes, payload: dict, webhook_token: str | None = None
-) -> Response:
-    sig = request.headers.get("X-Hub-Signature-256", "")
-    pnid = whatsapp.phone_number_id_of(payload)
-    async with session() as db:
-        await set_bypass_rls(db)
-        # Path token first, same reasoning as Slack — see _conn_by_token.
-        conn = await _conn_by_token(db, "whatsapp", webhook_token)
-        if conn is None:
-            conn = await _conn_by_account(db, "whatsapp", pnid)
-
-        app_secret = ""
-        if conn is not None:
-            app_secret = await _conn_secret(db, conn, "appSecret")
-        if not app_secret:
-            app_secret = settings.whatsapp_app_secret
-        if not app_secret or not whatsapp.verify_signature(app_secret, raw, sig):
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="bad signature")
-
-        if conn is not None:
-            # WhatsApp has no mention markup, so a connection only produces
-            # mentions when it opts in by naming the person its number belongs
-            # to (see mentions._whatsapp_scan).
-            owner_handle = await _conn_secret(db, conn, "mentionOwnerUserId")
-            pending = conn.status == "pending"
-            for m in whatsapp.parse_inbound(payload):
-                ext_id = m.get("external_id")
-                if not ext_id or not await claim_event(db, "whatsapp", str(ext_id)):
-                    continue
-
-                if pending:
-                    # Unproven connection: the admin hasn't finished pointing
-                    # Meta at us (verify_webhook is what flips this), so anything
-                    # arriving now predates the connection being real. Dropping
-                    # it is deliberate — surfacing messages in someone's hub from
-                    # a connection the product still shows as not-ready is how a
-                    # half-finished setup starts looking like a working one.
-                    continue
-
-                # Surface Meta's forward signal (the only forward Meta exposes).
-                st = "received"
-                if m.get("frequently_forwarded"):
-                    st = "received-frequently-forwarded"
-                elif m.get("forwarded"):
-                    st = "received-forwarded"
-                await ingest_one(
-                    db, conn, "whatsapp",
-                    raw=m,
-                    external_id=ext_id,
-                    peer=m.get("from", ""),
-                    body=m.get("text", ""),
-                    status_label=st,
-                    owner_handle=owner_handle or None,
-                )
         await db.commit()
     return Response(status_code=status.HTTP_200_OK)

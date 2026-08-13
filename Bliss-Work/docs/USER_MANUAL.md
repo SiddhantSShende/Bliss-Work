@@ -24,8 +24,8 @@ BlissWork is available both as a modern Web application and as an Electron Deskt
    - [Electron Desktop Stickies](#electron-desktop-stickies)
    - [In-Browser Floating Notes](#in-browser-floating-notes)
 5. [External Integrations & Hub Mentions](#5-external-integrations--hub-mentions)
-   - [Connecting External Apps (Slack, WhatsApp, Gmail, Outlook, Teams)](#connecting-external-apps-slack-whatsapp-gmail-outlook-teams)
-   - [Setting Up Webhooks & WhatsApp Verification](#setting-up-webhooks--whatsapp-verification)
+   - [Connecting External Apps (Slack, Gmail, Outlook, Teams)](#connecting-external-apps-slack-gmail-outlook-teams)
+   - [Setting Up Webhooks](#setting-up-webhooks)
    - [Hub Mentions & Claiming Mentions as Tasks](#hub-mentions--claiming-mentions-as-tasks)
    - [Mapping External Handles](#mapping-external-handles)
 6. [Organization & Account Administration](#6-organization--account-administration)
@@ -82,6 +82,7 @@ Channels (`/app/channels`) enable topic-driven or department-wide group discussi
 * **Create Channel:** Click **+ New Channel**, specify a channel name (e.g., `#engineering`, `#announcements`), and optional topic description.
 * **Public vs Private:** Join open public channels or get invited to private team channels.
 * **Message Threading & Forwarding:** Reply directly within message threads or forward critical updates to other channels or members.
+* **Forward to WhatsApp:** Hover any message, click the **Forward** arrow, and choose the **WhatsApp** tab. Enter the recipient's name and phone number *including the country code* (on Android Chrome you can pick them from your contacts instead), then click **Open WhatsApp** — WhatsApp opens with the message already written, and you press send there. No WhatsApp Business account is required. Because BlissWork only opens WhatsApp and cannot see what you do next, the note left in the chat reads "Opened WhatsApp to forward this to …" and the forwarding activity marks it **Unconfirmed**.
 
 ### Media, File Attachments & WebRTC Calls
 
@@ -204,25 +205,22 @@ When using the Web version, floating sticky notes render directly inside the bro
 
 ## 5. External Integrations & Hub Mentions
 
-BlissWork connects with external workplace tools (Slack, WhatsApp, Gmail, Outlook, Microsoft Teams) to consolidate notifications and action items into a single dashboard.
+BlissWork connects with external workplace tools (Slack, Gmail, Outlook, Microsoft Teams) to consolidate notifications and action items into a single dashboard.
 
-### Connecting External Apps (Slack, WhatsApp, Gmail, Outlook, Teams)
+### Connecting External Apps (Slack, Gmail, Outlook, Teams)
 
 Navigate to **Integrations** (`/app/integrations`) to link accounts:
 
 | Provider | Method | Credentials Required |
 |---|---|---|
 | **Slack** | Token / Webhook | Bot Token (`xoxb-…`), Signing Secret |
-| **WhatsApp** | Cloud API Token (**Business accounts only**) | System-user Token, WhatsApp Business Account ID, Phone Number ID, App Secret |
 | **Gmail** | OAuth 2.0 | Google Account Sign-In |
 | **Outlook** | OAuth 2.0 | Microsoft Account Sign-In |
 | **Microsoft Teams** | OAuth 2.0 | Microsoft Account Sign-In |
 
-### Setting Up Webhooks & Finishing a WhatsApp Connection
+### Setting Up Webhooks
 
-1. **Webhook URL:** After connecting a provider (e.g. Slack or WhatsApp), expand **Show Webhook Setup** on the connection card and copy the generated Webhook URL and Verification Token into the provider's developer dashboard.
-2. **WhatsApp — Business accounts only.** WhatsApp connects a *business* number, never a personal WhatsApp account. Click **Connect** and paste four values: the Business Account ID, Phone number ID and App Secret from your app at [developers.facebook.com](https://developers.facebook.com/apps), and a System User token from [Business Settings](https://business.facebook.com/latest/settings) → System users. Your system-user token needs both `whatsapp_business_messaging` and `whatsapp_business_management`, and BlissWork checks with Meta that the Business Account is approved and the number is verified and belongs to it before saving anything.
-3. **Finishing the connection.** A new WhatsApp connection shows as **Waiting for Meta**. Paste its Webhook URL and Verify Token into **WhatsApp → Configuration → Webhook → Edit** and subscribe to `messages`. Meta calls BlissWork the moment you save, and the connection turns **Connected** on its own — there is nothing else to enter.
+1. **Webhook URL:** After connecting a provider (e.g. Slack), expand **Show Webhook Setup** on the connection card and copy the generated Webhook URL into the provider's developer dashboard.
 
 ### Hub Mentions & Claiming Mentions as Tasks
 
@@ -237,7 +235,7 @@ To ensure BlissWork recognizes external `@mentions` as belonging to you:
 
 1. Scroll to **My Handles** on the Integrations page.
 2. Click **+ Add handle**.
-3. Select the platform (e.g., Slack, WhatsApp, Gmail) and enter your exact handle ID or email address.
+3. Select the platform (e.g., Slack, Gmail) and enter your exact handle ID or email address.
 
 ---
 

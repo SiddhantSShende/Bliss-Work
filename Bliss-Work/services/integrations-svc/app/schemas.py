@@ -14,17 +14,15 @@ class ConnectionOut(BaseModel):
     scopes: list[str]
     lastError: str | None = None
     #: Per-connection webhook URL to paste into the provider's dashboard. Present
-    #: only for providers that receive webhooks (Slack, WhatsApp). Not a secret
+    #: only for providers that receive webhooks (Slack). Not a secret
     #: on its own — the provider's HMAC signature still authenticates every
     #: request — it only identifies which connection a delivery belongs to.
     webhookUrl: str | None = None
-    #: WhatsApp only: the `hub.verify_token` to paste into the Meta dashboard.
     #: Generated server-side (a user-chosen one is reliably weak). Returned to
     #: the connection's own org because the admin has to read it to complete
     #: setup, and cannot re-derive it. It grants nothing on its own — it only
     #: lets its holder answer OUR verification handshake, which already requires
     #: knowing the per-connection webhook URL.
-    webhookVerifyToken: str | None = None
     createdAt: str
     updatedAt: str
 

@@ -357,12 +357,9 @@ export const IntegrationConnectionDTO = z.object({
   scopes: z.array(z.string()),
   lastError: z.string().nullable().optional(),
   /** Per-connection webhook URL to paste into the provider's dashboard. Only
-   *  set for providers that call us (Slack, WhatsApp). Not a secret on its own —
+   *  set for providers that call us (Slack). Not a secret on its own —
    *  the provider's HMAC signature still authenticates every delivery. */
   webhookUrl: z.string().nullable().optional(),
-  /** WhatsApp only: the `hub.verify_token` to paste into Meta alongside the URL.
-   *  Generated server-side; the admin can't re-derive it, so it's readable. */
-  webhookVerifyToken: z.string().nullable().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

@@ -80,8 +80,10 @@ def detect_mentions(
     """Extract the handles tagged in one inbound message.
 
     ``connected_account`` is the connection's own identity (a mailbox address);
-    it is used to drop self-echoes. ``owner_handle`` opts a WhatsApp connection
-    into treating direct messages as tagging its owner — see _whatsapp_scan.
+    it is used to drop self-echoes. ``owner_handle`` let a connection treat
+    direct messages as tagging its owner; only WhatsApp used it, and no scanner
+    reads it now, but it stays in the signature so the scanner protocol is one
+    shape for every provider.
     An unknown provider yields an empty scan rather than raising, so a new
     provider can start recording activity before its parser exists.
     """
@@ -130,27 +132,6 @@ def _slack_scan(
         thread_ref=f"{channel}/{ts}" if channel or ts else None,
         # The Events API doesn't include a permalink; chat.getPermalink is a
         # separate call and belongs in the provider layer, not this pure module.
-        permalink=None,
-    )
-
-
-# ── WhatsApp ──────────────────────────────────────────────────────────────────
-def _whatsapp_scan(
-    msg: dict[str, Any], _connected: str | None, owner_handle: str | None
-) -> MentionScan:
-    """Scan one flattened WhatsApp Cloud API message.
-
-    WhatsApp exposes NO mention markup, so there is no honest "you were tagged"
-    signal and WhatsApp yields nothing by default. A connection may opt in by
-    setting `mentionOwnerUserId`, which the caller passes as ``owner_handle``:
-    then every inbound 1:1 message counts as tagging that owner, which is
-    truthful for a personal business number but would be noise on a shared one.
-    """
-    if not owner_handle:
-        return MentionScan()
-    return MentionScan(
-        handles=(owner_handle,),
-        thread_ref=msg.get("external_id") or None,
         permalink=None,
     )
 
@@ -255,7 +236,6 @@ def _teams_scan(
 
 _SCANNERS = {
     "slack": _slack_scan,
-    "whatsapp": _whatsapp_scan,
     "gmail": _gmail_scan,
     "outlook": _outlook_scan,
     "teams": _teams_scan,

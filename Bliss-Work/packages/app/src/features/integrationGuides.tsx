@@ -17,7 +17,7 @@ import { ExternalLink, TriangleAlert } from "lucide-react";
 
 export interface ProviderGuide {
   /** Where the user goes to get these values. A list, because a setup can
-   *  legitimately span more than one console — WhatsApp's IDs and app secret
+   *  legitimately span more than one console — some providers' IDs and secrets
    *  live in the developer app, but its access token is minted in Business
    *  Settings, and sending someone to the wrong one wastes the most time. */
   consoles: { label: string; url: string }[];
@@ -41,24 +41,6 @@ export const GUIDES: Record<string, ProviderGuide> = {
     ],
     warning:
       "The webhook URL is unique to this connection — Slack's verification request carries no team id, so it's the only way we can find your signing secret before trusting the request.",
-  },
-  whatsapp: {
-    consoles: [
-      { label: "Meta App Dashboard", url: "https://developers.facebook.com/apps" },
-      { label: "Meta Business Settings", url: "https://business.facebook.com/latest/settings" },
-    ],
-    steps: [
-      "WhatsApp Business accounts only — you need a WhatsApp Business Account with a number Meta has verified. A personal WhatsApp account can't be connected.",
-      "In the Meta App Dashboard: create an app with the WhatsApp use case (Meta still requires an app for Cloud API — there is no way to get these values without one).",
-      "In that app, WhatsApp → API Setup: copy the WhatsApp Business Account ID and, below it, the Phone number ID of your business number.",
-      "Switch to Meta Business Settings → System users: create a system user, give it your WhatsApp Business Account, and generate a token with BOTH whatsapp_business_messaging (to send) and whatsapp_business_management (so we can check the account). Tokens are minted here, NOT in the app dashboard.",
-      "Back in the app dashboard: App settings → Basic → copy the App Secret.",
-      "Click Connect and paste all four. We check with Meta that the number is verified and belongs to your Business Account before saving anything.",
-      "The connection then shows a webhook URL and a verify token. In Meta: WhatsApp → Configuration → Webhook → Edit, paste both, and subscribe to the messages field.",
-      "Saving that is the last step — Meta calls us straight away, and the connection turns Connected on its own.",
-    ],
-    warning:
-      "Meta has to agree it's a business before we'll connect it. We reject the account if it isn't approved by Meta, if the number hasn't finished verification, if it's an on-premise rather than Cloud API number, or if the number doesn't belong to the Business Account ID you entered. If your token is missing whatsapp_business_management we'll say so explicitly — that one catches almost everybody first time.",
   },
   gmail: {
     consoles: [{ label: "Google Cloud Console", url: "https://console.cloud.google.com/apis/credentials" }],

@@ -15,11 +15,10 @@ there is fine — but callers must not assume an id exists.
 """
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 
 from .crypto import cryptor
-from .providers import gmail, microsoft as ms, slack, whatsapp
+from .providers import gmail, microsoft as ms, slack
 
 
 class OutboundError(Exception):
@@ -41,17 +40,6 @@ class SendResult:
     #: 'message' for chat platforms, 'email' for mail — drives the activity
     #: mirror's `kind`, which the mentions feed and the hub both read.
     kind: str = "message"
-
-
-async def _connection_meta(db, org_id: str, metadata_enc) -> dict:
-    """Decrypt a connection's credential metadata blob."""
-    if not metadata_enc:
-        return {}
-    plain = await cryptor().decrypt(db, org_id, bytes(metadata_enc))
-    try:
-        return json.loads(plain or "{}")
-    except (ValueError, TypeError):
-        return {}
 
 
 async def send_via_connection(
@@ -80,9 +68,6 @@ async def send_via_connection(
 
     if provider == "slack":
         return await _send_slack(token, target, text)
-    if provider == "whatsapp":
-        meta = await _connection_meta(db, org_id, row.metadata_enc)
-        return await _send_whatsapp(token, meta, target, text)
     if provider == "gmail":
         return await _send_gmail(token, target, text, subject)
     if provider == "outlook":
@@ -100,18 +85,6 @@ async def _send_slack(token: str, target: str, text: str) -> SendResult:
     except slack.SlackError as exc:
         raise OutboundError(str(exc)) from exc
     return SendResult(external_id=res.get("ts"))
-
-
-async def _send_whatsapp(token: str, meta: dict, target: str, text: str) -> SendResult:
-    pnid = str(meta.get("phoneNumberId") or "")
-    if not pnid:
-        raise OutboundUnsupported("connection is missing its phone_number_id")
-    try:
-        res = await whatsapp.send_text(token, pnid, target, text)
-    except whatsapp.WhatsAppError as exc:
-        raise OutboundError(str(exc)) from exc
-    msgs = res.get("messages") or []
-    return SendResult(external_id=msgs[0].get("id") if msgs else None)
 
 
 #: Subject used when a caller sends mail without one. Mail with an empty subject

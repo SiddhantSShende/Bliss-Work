@@ -1,4 +1,4 @@
-"""Teams + WhatsApp mention extraction, and the cross-provider dispatch rules."""
+"""Teams mention extraction, and the cross-provider dispatch rules."""
 
 from app.mentions import MentionScan, detect_mentions
 
@@ -73,24 +73,19 @@ def test_teams_thread_ref_and_permalink():
     assert s.permalink == "https://teams.microsoft.com/l/message/1"
 
 
-# ── WhatsApp ──────────────────────────────────────────────────────────────────
-def test_whatsapp_is_not_a_mention_by_default():
-    # The Cloud API exposes no mention markup, so there is no honest signal.
-    msg = {"external_id": "wamid.X", "from": "15551234567", "text": "hello"}
-    assert detect_mentions("whatsapp", msg).handles == ()
-
-
-def test_whatsapp_opt_in_treats_direct_messages_as_tagging_the_owner():
-    msg = {"external_id": "wamid.X", "from": "15551234567", "text": "hello"}
-    s = detect_mentions("whatsapp", msg, owner_handle="15559999999")
-    assert s.handles == ("15559999999",)
-    assert s.thread_ref == "wamid.X"
-
-
 # ── dispatch ──────────────────────────────────────────────────────────────────
 def test_unknown_provider_yields_empty_scan_rather_than_raising():
     # A provider can start recording activity before its parser exists.
     assert detect_mentions("signal", {"text": "<@U1>"}) == MentionScan()
+
+
+def test_removed_whatsapp_provider_is_inert_not_special_cased():
+    # WhatsApp's scanner was deleted with the rest of that integration. Any row
+    # still in the DB from before must fall through the same empty-scan path as
+    # any unknown provider — never raise, and never resurrect a mention.
+    msg = {"external_id": "wamid.X", "from": "15551234567", "text": "hello"}
+    assert detect_mentions("whatsapp", msg) == MentionScan()
+    assert detect_mentions("whatsapp", msg, owner_handle="15559999999") == MentionScan()
 
 
 def test_scan_is_immutable():

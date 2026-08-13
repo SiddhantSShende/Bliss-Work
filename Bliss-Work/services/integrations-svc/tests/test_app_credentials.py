@@ -43,10 +43,10 @@ def test_gmail_maps_to_google():
     assert app_credentials.providers_for("google") == ["gmail"]
 
 
-@pytest.mark.parametrize("provider", ["slack", "whatsapp", "nonsense", ""])
+@pytest.mark.parametrize("provider", ["slack", "nonsense", ""])
 def test_non_oauth_providers_have_no_vendor(provider):
-    # Slack and WhatsApp are token-paste; asking for their OAuth vendor must
-    # return None rather than silently picking one.
+    # Slack is token-paste; asking for its OAuth vendor must return None rather
+    # than silently picking one.
     assert app_credentials.vendor_for(provider) is None
 
 
@@ -103,7 +103,7 @@ def test_missing_credentials_return_none(provider, creds):
     assert oauth.config_for(provider, creds) is None
 
 
-@pytest.mark.parametrize("provider", ["slack", "whatsapp", "unknown"])
+@pytest.mark.parametrize("provider", ["slack", "unknown"])
 def test_non_oauth_providers_have_no_config(provider):
     assert oauth.config_for(provider, FakeCreds()) is None
 

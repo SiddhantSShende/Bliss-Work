@@ -40,7 +40,6 @@ const TABS: { key: MentionState; label: string }[] = [
 
 const PROVIDER_ICON: Record<string, React.ReactNode> = {
   slack: <Slack size={14} />,
-  whatsapp: <MessageCircle size={14} />,
   gmail: <Mail size={14} />,
   outlook: <Mail size={14} />,
   teams: <Users size={14} />,

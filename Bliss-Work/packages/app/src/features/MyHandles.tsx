@@ -21,7 +21,6 @@ const PROVIDERS = [
   { id: "gmail", label: "Gmail", placeholder: "you@gmail.com" },
   { id: "outlook", label: "Outlook", placeholder: "you@company.com" },
   { id: "teams", label: "Teams", placeholder: "you@company.com" },
-  { id: "whatsapp", label: "WhatsApp", placeholder: "15551234567" },
 ];
 
 export function MyHandles() {

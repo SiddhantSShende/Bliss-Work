@@ -25,7 +25,7 @@ from ..auth import PrincipalDep, Principal
 from ..config import settings
 from ..crypto import cryptor
 from ..db import session, set_org_context
-from ..providers import get_provider, oauth, slack, whatsapp
+from ..providers import get_provider, oauth, slack
 from ..schemas import ConnectionOut, ConnectStartOut, ProviderActivityOut
 
 router = APIRouter()
@@ -48,41 +48,11 @@ def _webhook_url(provider: str, token: str | None) -> str | None:
     return f"{settings.public_base_url.rstrip('/')}/ext/{provider}/webhook/{token}"
 
 
-async def _existing_meta_field(
-    db, org_id: str, provider: str, external_account_id: str | None, key: str
-) -> str:
-    """Read one field out of the encrypted metadata of the connection this
-    connect would UPDATE, so values that must survive a re-connect can be
-    carried over. Empty string when there is no such connection yet."""
-    if not external_account_id:
-        return ""
-    row = (
-        await db.execute(
-            text(
-                """
-                SELECT metadata_enc FROM integration_connections
-                 WHERE provider = :p AND external_account_id_bidx = :b
-                 LIMIT 1
-                """
-            ),
-            {"p": provider, "b": cryptor().blind_index(external_account_id)},
-        )
-    ).one_or_none()
-    if not row or not row.metadata_enc:
-        return ""
-    plain = await cryptor().decrypt(db, org_id, bytes(row.metadata_enc))
-    try:
-        return str(json.loads(plain or "{}").get(key, "") or "")
-    except (ValueError, TypeError):
-        return ""
-
-
-def _row_to_out(r, verify_token: str | None = None) -> ConnectionOut:
+def _row_to_out(r) -> ConnectionOut:
     # webhook_token is only selected on some queries; treat its absence as None
     # rather than requiring every SELECT to carry the column.
     token = getattr(r, "webhook_token", None)
     return ConnectionOut(
-        webhookVerifyToken=verify_token or None,
         id=str(r.id),
         provider=r.provider,
         status=r.status,
@@ -115,21 +85,11 @@ async def list_integrations(principal: Principal = PrincipalDep) -> list[Connect
         )
         rows = res.all()  # materialized — safe to run decrypt queries next
 
-        out: list[ConnectionOut] = []
-        for r in rows:
-            # WhatsApp setup needs the verify token read back (the admin pastes
-            # it into Meta), and it lives inside the encrypted metadata blob.
-            # No other provider's metadata is ever decrypted here — that blob
-            # holds access tokens and signing secrets, which must never leave.
-            verify_token = None
-            if r.provider == "whatsapp" and r.metadata_enc:
-                plain = await cryptor().decrypt(db, principal.org_id, bytes(r.metadata_enc))
-                try:
-                    verify_token = json.loads(plain or "{}").get("verifyToken") or None
-                except (ValueError, TypeError):
-                    verify_token = None
-            out.append(_row_to_out(r, verify_token))
-        return out
+        # No connection's metadata_enc is decrypted here. WhatsApp was the only
+        # provider that needed a value read back out of it (its verify token,
+        # for pasting into Meta); that blob otherwise holds access tokens and
+        # signing secrets, so leaving it sealed is the correct resting state.
+        return [_row_to_out(r) for r in rows]
 
 
 @router.get("/integrations/activity", response_model=list[ProviderActivityOut])
@@ -171,24 +131,6 @@ async def hub_activity(principal: Principal = PrincipalDep) -> list[ProviderActi
         return out
 
 
-#: Raised as a clean 409 when another workspace already owns this WhatsApp
-#: number. Meta guarantees a phone_number_id belongs to exactly one Business
-#: Account, so this is a genuine collision, not a race worth retrying — and a
-#: delivery that arrives on the legacy bare webhook path is resolved by that
-#: number alone, so a duplicate would misroute one workspace's messages into
-#: the other's (see migration 0010).
-_TAKEN_DETAIL = (
-    "that WhatsApp business number is already connected to another BlissWork "
-    "workspace — disconnect it there first"
-)
-
-
-def _translate_account_taken(exc: IntegrityError) -> HTTPException:
-    if "uq_whatsapp_account_global" in str(getattr(exc, "orig", exc)):
-        return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_TAKEN_DETAIL)
-    raise exc
-
-
 async def _upsert_connection(
     db,
     *,
@@ -219,12 +161,10 @@ async def _upsert_connection(
     # Re-connecting the SAME external account refreshes the token in place
     # (partial-unique index on non-null blind index).
     #
-    # NOTE the conflict target is per-ORG, while 0010 adds a GLOBAL unique index
-    # on a WhatsApp number. A second workspace claiming a number the first one
-    # already has therefore misses this ON CONFLICT (different org_id) and
-    # violates that index instead — see the IntegrityError handling in the
-    # caller. Both behaviours are wanted: same org re-connects in place, another
-    # org is refused.
+    # The conflict target is per-ORG, so two workspaces may legitimately connect
+    # the same Slack team or mailbox. 0010 added a GLOBAL unique index for the
+    # one case where that is not true of the world — a WhatsApp business number —
+    # and that index is now unreachable along with the provider itself.
     res = await db.execute(
         text(
             """
@@ -386,71 +326,14 @@ async def connect_start(
             ) from exc
         display_label = str(info.get("team") or spec.label)
         external_account_id = info.get("team_id")
-    elif provider == "whatsapp":
-        # BUSINESS ACCOUNTS ONLY, and checked against Meta rather than assumed.
-        # The Cloud API already puts personal accounts out of reach, but nothing
-        # here previously distinguished a fully onboarded business from a number
-        # still sitting in Meta's test state — both connected identically, and
-        # only the second one silently failed later.
-        pnid = str(body.get("phoneNumberId", "")).strip()
-        waba_id = str(body.get("wabaId", "")).strip()
-        try:
-            biz = await whatsapp.check_business_account(primary_val, waba_id, pnid)
-        except whatsapp.NotABusinessAccount as exc:
-            # The credentials are fine; the ACCOUNT doesn't qualify. Saying
-            # "WhatsApp rejected the credentials" here would send the admin
-            # hunting for a typo in a token that is perfectly good.
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
-        except whatsapp.WhatsAppPermissionError as exc:
-            # Overwhelmingly the first failure of a real setup: sending needs
-            # whatsapp_business_messaging, reading the account needs
-            # whatsapp_business_management, and people grant only the first.
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
-        except whatsapp.WhatsAppError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"WhatsApp rejected the credentials: {exc}",
-            )
-        except Exception as exc:  # network/timeout
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="couldn't reach WhatsApp to validate the credentials",
-            ) from exc
-        display_label = (
-            biz.display_phone_number or biz.verified_name or biz.business_name or spec.label
-        )
-        # The business number (phone_number_id) is the connection's external account.
-        external_account_id = pnid
-
-    # WhatsApp lands as 'pending', not 'connected'. The checks above prove the
-    # account is a real, approved business and that the token can read it — they
-    # say nothing about whether the inbound webhook is wired, and a connection
-    # that reads Connected while receiving nothing is worse than one that admits
-    # it isn't ready. That last step is proven by Meta's own webhook verification
-    # request (routes/webhooks.py::verify_webhook), which needs no phone number
-    # from anybody. Until it lands, the connection is invisible to outbound
-    # forwards (internal_send filters on status = 'connected').
-    initial_status = "pending" if provider == "whatsapp" else "connected"
+    # Every remaining provider is connected the moment its credentials check
+    # out. WhatsApp was the only one that landed 'pending' — it needed Meta's
+    # webhook handshake to prove the inbound path worked before it could claim
+    # to be ready — and nothing creates a pending row now.
+    initial_status = "connected"
 
     async with session() as db:
         await set_org_context(db, principal.org_id)  # FIRST — RLS + org_keys
-
-        if provider == "whatsapp":
-            # Meta's GET handshake echoes hub.challenge only when hub.verify_token
-            # matches. We GENERATE that token rather than asking the user to invent
-            # one: it is a shared secret, and a user-chosen one is reliably weak
-            # (the company name, "blisswork"). The UI shows it next to the webhook
-            # URL for pasting into the Meta dashboard.
-            #
-            # REUSE the existing one when re-connecting. metadata_enc is a single
-            # blob, so unlike webhook_token it can't be COALESCEd in the upsert —
-            # and minting a fresh token here would silently break a webhook the
-            # user already registered, at exactly the moment they're re-pasting a
-            # rejected access token.
-            creds["verifyToken"] = (
-                await _existing_meta_field(db, principal.org_id, provider, external_account_id, "verifyToken")
-                or secrets.token_urlsafe(24)
-            )
 
         try:
             row = await _upsert_connection(
@@ -468,11 +351,16 @@ async def connect_start(
                 scopes=list(spec.default_scopes),
                 webhook_token=secrets.token_urlsafe(32),
             )
-        except IntegrityError as exc:
+        except IntegrityError:
+            # The only bespoke translation here was for uq_whatsapp_account_global
+            # (two workspaces claiming one business number). That index is partial
+            # on provider = 'whatsapp', and WhatsApp can no longer be connected, so
+            # it is unreachable — but the rollback still matters: leaving the
+            # session dirty would fail every later statement on it.
             await db.rollback()
-            raise _translate_account_taken(exc) from exc
+            raise
         await db.commit()
-        return ConnectStartOut(connection=_row_to_out(row, creds.get("verifyToken")))
+        return ConnectStartOut(connection=_row_to_out(row))
 
 
 @router.delete("/integrations/{conn_id}")

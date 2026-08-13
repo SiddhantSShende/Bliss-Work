@@ -37,90 +37,6 @@ replace.
 
 ---
 
-## WhatsApp (Business Cloud API)
-
-**WhatsApp Business accounts only.** You need a WhatsApp Business Account (WABA)
-with a number Meta has verified. A personal WhatsApp account cannot be connected —
-not as a policy we apply on top, but because the Cloud API this integration is
-built on has no concept of one.
-
-You supply four values and one person does this once for the whole workspace.
-They come from **two** Meta consoles — three from the app dashboard, the token
-from Business Settings. Meta still requires a developer app for Cloud API; there
-is no way to obtain a Phone number ID without one.
-
-1. [Meta App Dashboard](https://developers.facebook.com/apps) → create an app
-   with the **WhatsApp** use case.
-2. In that app, **WhatsApp → API Setup** → copy the **WhatsApp Business Account
-   ID** and, just below it, the **Phone number ID** of your business number.
-3. [Meta Business Settings](https://business.facebook.com/latest/settings) →
-   **System users** → create one, assign it your WhatsApp Business Account, and
-   generate a token with **both** `whatsapp_business_messaging` (to send) and
-   `whatsapp_business_management` (so we can check the account). Tokens are
-   minted here, **not** in the app dashboard — this is the step people lose the
-   most time to.
-4. Back in the app dashboard: **App settings → Basic** → copy the **App Secret**.
-5. In BlissWork: **Connected accounts → WhatsApp → Connect**, paste all four.
-6. The connection shows a **webhook URL** and a **verify token** — we generate the
-   verify token because a hand-picked one is reliably weak.
-7. In Meta: **WhatsApp → Configuration → Webhook → Edit**, paste both, subscribe
-   to the `messages` field. Saving it is the last step.
-
-> **What we check, and why you might be rejected.** Having Cloud API credentials
-> proves a number exists, not that a business does — an unverified number or one
-> still in Meta's test state would otherwise connect exactly like a fully
-> onboarded one, and only fail later. Before storing anything we ask Meta four
-> things, and refuse if any of them disagrees:
->
-> | Rejected when | What to do |
-> |---|---|
-> | The Business Account isn't **approved** by Meta | Finish Meta's business review |
-> | The number hasn't completed **verification** | Verify the number in Meta |
-> | It's an **on-premise** number, not Cloud API | Only Cloud API numbers work here |
-> | The number isn't **on that Business Account** | Check you copied both IDs from the same account |
->
-> If your token is missing `whatsapp_business_management` we say so explicitly
-> rather than blaming the credentials — that one catches almost everybody first
-> time, because sending needs only the *messaging* permission.
-
-> **Why the connection starts as Pending.** The checks above prove the account is
-> real; nothing about a credential can prove Meta can reach *you*. So the
-> connection stays **Pending** until Meta's own webhook verification request
-> arrives — which happens the instant you save the webhook URL in step 7. That
-> request is the confirmation; there is nothing to type, and BlissWork updates
-> itself when it lands. A pending connection is invisible to the forwarding path,
-> so nothing is silently dropped into a dead integration.
->
-> Re-pasting credentials later does **not** un-confirm a working connection: your
-> webhook URL is unchanged, so what that handshake proved is still true.
-
-> **Mentions on WhatsApp are opt-in.** The Cloud API exposes no mention markup at
-> all, so there is nothing to detect. A connection can opt in to treating any
-> inbound 1:1 message as tagging the number's owner; otherwise WhatsApp produces
-> no mentions.
-
-<details>
-<summary><b>Operators: the deployment-wide webhook fallback</b></summary>
-
-Every connection above gets its **own** webhook URL, which is what lets each
-workspace verify deliveries against its own app secret. Two server settings exist
-as a fallback for setups registered against the bare `/ext/whatsapp/webhook` path
-before per-connection URLs existed:
-
-| Setting | What it does |
-|---|---|
-| `WHATSAPP_VERIFY_TOKEN` | Answers Meta's `hub.challenge` handshake on the bare path |
-| `WHATSAPP_APP_SECRET` | Verifies `X-Hub-Signature-256` when a delivery carries no per-connection secret |
-
-Leave both unset unless you have such a setup. On that path a delivery is
-resolved by `phone_number_id` alone, which is why migration `0010` makes a
-WhatsApp number globally unique across workspaces — without it, two workspaces
-claiming one number would receive each other's messages.
-
-</details>
-
----
-
 ## Gmail
 
 Gmail, Outlook and Teams need a **workspace app** first — one per vendor, set up
@@ -201,8 +117,6 @@ rather than disconnecting everyone the moment an admin clicks Remove.
 | Client secret, access + refresh tokens, signing secrets | Encrypted at rest (per-org AES-256-GCM envelope). Never returned to any client. |
 | Client ID | Encrypted at rest; **readable** in the UI — it isn't secret (it travels in the authorize URL your browser follows). |
 | Webhook token | Plaintext — it must be looked up on an unauthenticated path before any org context exists. It authenticates nothing on its own. |
-| WhatsApp verify token | Encrypted at rest; readable by its own workspace, because the admin has to paste it into Meta and can't re-derive it. |
-| WhatsApp Business Account ID, Phone number ID | Encrypted at rest, like every other connection field. Neither is secret; both are needed to re-check the account. |
 
 ## Troubleshooting
 

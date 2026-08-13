@@ -30,7 +30,7 @@ from .config import settings
 from .crypto import cryptor
 
 #: provider → vendor. Providers absent from this map do not use OAuth at all
-#: (slack and whatsapp are token-paste).
+#: (slack is token-paste).
 _VENDOR_FOR: dict[str, str] = {
     "gmail": "google",
     "outlook": "microsoft",

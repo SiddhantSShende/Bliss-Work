@@ -1,13 +1,14 @@
 /**
- * Connected accounts — setup guides, and WhatsApp as a Business-only connection.
+ * Connected accounts — the provider cards, the setup guides, and the credentials
+ * dialog.
  *
- * WhatsApp is Business-accounts-only: the workspace supplies four credentials
- * and the connection is confirmed by Meta calling our webhook. The behaviour
- * worth pinning is what a refactor could quietly reintroduce or lose — no
- * personal phone number anywhere, all four credentials sent as credentials, one
- * ordinary enabled Connect button like every other provider, and a pending
- * connection that explains itself instead of offering an in-app action that
- * cannot finish the job.
+ * This file used to be almost entirely about WhatsApp, which was a Business-only
+ * connection needing four Meta credentials. That integration was removed:
+ * forwarding to WhatsApp is now a wa.me deep link from the chat's Forward
+ * button, which needs no connection at all. What is left here is the generic
+ * behaviour every remaining provider shares, plus a guard that the removal
+ * actually holds — a half-removed provider (a card with no backend, or a
+ * backend with no card) is the failure mode worth pinning.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
@@ -31,7 +32,12 @@ vi.mock("sonner", () => ({
 
 import { ConnectedAccounts } from "./ConnectedAccounts";
 
-const pendingConn: IntegrationConnectionDTO = {
+/** The four providers that remain, in card order. */
+const PROVIDER_COUNT = 4;
+
+/** A row left behind by the removed WhatsApp integration. Nothing creates a
+ *  pending connection any more, but rows that predate the removal are real. */
+const staleP:  IntegrationConnectionDTO = {
   id: "conn-1",
   provider: "whatsapp",
   status: "pending",
@@ -39,7 +45,6 @@ const pendingConn: IntegrationConnectionDTO = {
   displayLabel: "+15550009999",
   scopes: [],
   webhookUrl: "https://bliss.example/ext/whatsapp/webhook/tok",
-  webhookVerifyToken: "vtok",
   createdAt: new Date(0).toISOString(),
   updatedAt: new Date(0).toISOString(),
 };
@@ -53,10 +58,10 @@ function renderIt() {
   );
 }
 
-/** Open the WhatsApp credentials dialog. PROVIDERS order: slack, whatsapp, … */
-async function openWhatsApp(user: ReturnType<typeof userEvent.setup>) {
+/** Open the Slack credentials dialog. Card order: slack, gmail, outlook, teams. */
+async function openSlack(user: ReturnType<typeof userEvent.setup>) {
   const buttons = await screen.findAllByRole("button", { name: /^Connect$/ });
-  await user.click(buttons[1]!);
+  await user.click(buttons[0]!);
   return screen.getByRole("dialog");
 }
 
@@ -65,151 +70,107 @@ beforeEach(() => {
   api.integrations.mockResolvedValue([]);
 });
 
-describe("setup guides", () => {
-  it("keeps the steps collapsed until asked for", async () => {
+describe("WhatsApp is gone", () => {
+  it("offers no WhatsApp card, guide, or credential fields", async () => {
     renderIt();
-    const toggles = await screen.findAllByRole("button", { name: /setup guide/i });
-    expect(toggles.length).toBeGreaterThanOrEqual(5);
-    expect(toggles[0]).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByText(/add the WhatsApp product/i)).not.toBeInTheDocument();
+    await screen.findAllByRole("button", { name: /^Connect$/ });
+
+    // The specific thing that sent us here: an admin opening Integrations and
+    // still being asked for a Meta system-user token.
+    expect(screen.queryByText(/WhatsApp/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/System-user token/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/WhatsApp Business Account ID/i)).not.toBeInTheDocument();
   });
 
-  it("leads the WhatsApp guide with the business-only requirement", async () => {
+  it("still lists a pre-existing WhatsApp connection instead of hiding it", async () => {
+    // Removing the provider must not make rows already in the database vanish
+    // from the UI — that would leave an org unable to disconnect one.
+    api.integrations.mockResolvedValue([staleP]);
+    renderIt();
+
+    // Surfaced under "No longer supported" rather than under a provider card,
+    // because there is no card any more — and an invisible row is one the org
+    // can never delete.
+    expect(await screen.findByText(/No longer supported/i)).toBeInTheDocument();
+    expect(screen.getByText(/\+15550009999/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /disconnect/i })).toBeInTheDocument();
+    // And it must not advertise a setup that can no longer be completed.
+    expect(screen.queryByText(/Paste the webhook URL and verify token/i)).not.toBeInTheDocument();
+  });
+});
+
+describe("provider cards", () => {
+  it("offers one enabled Connect per provider and no second entry point", async () => {
+    renderIt();
+    const connects = await screen.findAllByRole("button", { name: /^Connect$/ });
+    expect(connects).toHaveLength(PROVIDER_COUNT);
+    connects.forEach((b) => expect(b).toBeEnabled());
+    expect(screen.queryByRole("button", { name: /connect manually/i })).not.toBeInTheDocument();
+  });
+
+  it("keeps the setup guides collapsed until asked for", async () => {
+    renderIt();
+    const toggles = await screen.findAllByRole("button", { name: /setup guide/i });
+    expect(toggles).toHaveLength(PROVIDER_COUNT);
+    expect(toggles[0]).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("opens a guide with console links that leave the app safely", async () => {
     const user = userEvent.setup();
     renderIt();
     const toggles = await screen.findAllByRole("button", { name: /setup guide/i });
-    await user.click(toggles[1]!);
+    await user.click(toggles[0]!);
 
-    // The restriction has to be the FIRST thing read, not a footnote — someone
-    // with a personal account should stop before collecting four credentials.
-    const steps = screen.getAllByRole("listitem").map((li) => li.textContent ?? "");
-    expect(steps[0]).toMatch(/Business accounts only/i);
-    expect(steps[0]).toMatch(/personal WhatsApp account can't be connected/i);
-    // Both permissions, because granting only the messaging one is the usual
-    // first failure and the guide is where it gets prevented.
-    expect(steps.join(" ")).toMatch(/whatsapp_business_management/);
-
-    // Two consoles, because the setup genuinely spans both: the IDs and app
-    // secret come from the app dashboard, the access token from Business
-    // Settings. Sending someone to the wrong one is the biggest time sink here.
-    const appDash = screen.getByRole("link", { name: /Meta App Dashboard/i });
-    expect(appDash).toHaveAttribute("href", "https://developers.facebook.com/apps");
-    const bizSettings = screen.getByRole("link", { name: /Meta Business Settings/i });
-    expect(bizSettings).toHaveAttribute("href", "https://business.facebook.com/latest/settings");
-    for (const link of [appDash, bizSettings]) {
+    expect(screen.getAllByRole("listitem").length).toBeGreaterThan(0);
+    for (const link of screen.getAllByRole("link")) {
       expect(link).toHaveAttribute("target", "_blank");
       expect(link).toHaveAttribute("rel", expect.stringContaining("noopener"));
     }
   });
 });
 
-describe("WhatsApp connect", () => {
-  it("asks for four credentials and no phone number", async () => {
+describe("the credentials dialog", () => {
+  it("sends exactly the declared fields, and nothing else", async () => {
     const user = userEvent.setup();
+    api.connectIntegration.mockResolvedValue({
+      connection: { ...staleP, provider: "slack", status: "connected" },
+    });
     renderIt();
-    const dialog = await openWhatsApp(user);
+    const dialog = await openSlack(user);
 
-    within(dialog).getByLabelText(/System-user token/i);
-    within(dialog).getByLabelText(/WhatsApp Business Account ID/i);
-    within(dialog).getByLabelText(/Phone number ID/i);
-    within(dialog).getByLabelText(/App secret/i);
-
-    // The personal-number and template fields are gone for good.
-    expect(within(dialog).queryByLabelText(/Your WhatsApp number/i)).not.toBeInTheDocument();
-    expect(within(dialog).queryByLabelText(/template/i)).not.toBeInTheDocument();
-    expect(within(dialog).queryByLabelText(/Confirmation code/i)).not.toBeInTheDocument();
-  });
-
-  it("sends all four as credentials in one step", async () => {
-    const user = userEvent.setup();
-    api.connectIntegration.mockResolvedValue({ connection: { ...pendingConn } });
-    renderIt();
-    const dialog = await openWhatsApp(user);
-
-    await user.type(within(dialog).getByLabelText(/System-user token/i), "EAAG-token");
-    await user.type(within(dialog).getByLabelText(/WhatsApp Business Account ID/i), "WABA-1");
-    await user.type(within(dialog).getByLabelText(/Phone number ID/i), "PNID-1");
-    await user.type(within(dialog).getByLabelText(/App secret/i), "app-secret");
+    await user.type(within(dialog).getByLabelText(/Bot token/i), "xoxb-1");
+    await user.type(within(dialog).getByLabelText(/Signing secret/i), "sig-1");
     await user.click(within(dialog).getByRole("button", { name: /^Connect$/ }));
 
     await waitFor(() =>
-      expect(api.connectIntegration).toHaveBeenCalledWith("whatsapp", {
-        accessToken: "EAAG-token",
-        wabaId: "WABA-1",
-        phoneNumberId: "PNID-1",
-        appSecret: "app-secret",
+      expect(api.connectIntegration).toHaveBeenCalledWith("slack", {
+        botToken: "xoxb-1",
+        signingSecret: "sig-1",
       }),
     );
   });
 
-  it("cannot be submitted without the Business Account ID", async () => {
+  it("cannot be submitted with a field left blank", async () => {
     const user = userEvent.setup();
     renderIt();
-    const dialog = await openWhatsApp(user);
+    const dialog = await openSlack(user);
 
-    await user.type(within(dialog).getByLabelText(/System-user token/i), "t");
-    await user.type(within(dialog).getByLabelText(/Phone number ID/i), "p");
-    await user.type(within(dialog).getByLabelText(/App secret/i), "s");
-    // Without it the server has nothing to check membership against, so the
-    // gate would be unenforceable — don't let the request leave.
+    await user.type(within(dialog).getByLabelText(/Bot token/i), "xoxb-1");
     expect(within(dialog).getByRole("button", { name: /^Connect$/ })).toBeDisabled();
   });
 
   it("shows the server's rejection reason rather than a generic failure", async () => {
     const user = userEvent.setup();
     const { ApiError } = await import("@taskboard/shared");
-    api.connectIntegration.mockRejectedValue(
-      new ApiError(400, "that business number hasn't completed Meta's verification yet"),
-    );
+    api.connectIntegration.mockRejectedValue(new ApiError(400, "Slack rejected the token: bad_auth"));
     renderIt();
-    const dialog = await openWhatsApp(user);
+    const dialog = await openSlack(user);
 
-    await user.type(within(dialog).getByLabelText(/System-user token/i), "t");
-    await user.type(within(dialog).getByLabelText(/WhatsApp Business Account ID/i), "w");
-    await user.type(within(dialog).getByLabelText(/Phone number ID/i), "p");
-    await user.type(within(dialog).getByLabelText(/App secret/i), "s");
+    await user.type(within(dialog).getByLabelText(/Bot token/i), "t");
+    await user.type(within(dialog).getByLabelText(/Signing secret/i), "s");
     await user.click(within(dialog).getByRole("button", { name: /^Connect$/ }));
 
     // Which check failed is the only actionable part of the response.
-    expect(await screen.findByText(/hasn't completed Meta's verification/i)).toBeInTheDocument();
-  });
-});
-
-describe("a connection waiting on Meta", () => {
-  it("says what is outstanding and offers no in-app action", async () => {
-    api.integrations.mockResolvedValue([pendingConn]);
-    renderIt();
-
-    expect(await screen.findByText(/Waiting for Meta/i)).toBeInTheDocument();
-    expect(
-      screen.getByText(/Paste the webhook URL and verify token below into Meta/i),
-    ).toBeInTheDocument();
-    // The remaining step happens in Meta's dashboard; a button here would imply
-    // otherwise. (The old flow had "Confirm number".)
-    expect(screen.queryByRole("button", { name: /confirm/i })).not.toBeInTheDocument();
-  });
-
-  it("shows the webhook setup expanded, since pasting it IS the last step", async () => {
-    api.integrations.mockResolvedValue([pendingConn]);
-    renderIt();
-    expect(await screen.findByText(pendingConn.webhookUrl!)).toBeInTheDocument();
-    expect(screen.getByText("vtok")).toBeInTheDocument();
-  });
-});
-
-describe("the WhatsApp card looks like every other provider", () => {
-  it("offers one enabled Connect and no second entry point", async () => {
-    renderIt();
-    // WhatsApp briefly had a greyed-out primary button with the working path
-    // demoted to an 11px link underneath. A provider whose card looks different
-    // from the others was a symptom, not a feature.
-    const connects = await screen.findAllByRole("button", { name: /^Connect$/ });
-    expect(connects).toHaveLength(5); // one per provider
-    connects.forEach((b) => expect(b).toBeEnabled());
-
-    expect(screen.queryByRole("button", { name: /connect manually/i })).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: /Connect WhatsApp Business/i }),
-    ).not.toBeInTheDocument();
+    expect(await screen.findByText(/bad_auth/i)).toBeInTheDocument();
   });
 });

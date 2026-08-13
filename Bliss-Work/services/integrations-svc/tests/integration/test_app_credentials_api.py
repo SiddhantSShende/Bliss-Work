@@ -317,7 +317,7 @@ async def test_webhook_token_resolves_exactly_one_connection(db_app):
         assert await _conn_by_token(db, "slack", "nope") is None
         # …and the token is scoped by provider, so it can't be replayed against
         # a different provider's handler.
-        assert await _conn_by_token(db, "whatsapp", "token-org-a") is None
+        assert await _conn_by_token(db, "gmail", "token-org-a") is None
         # No token at all → no connection (the bare legacy path).
         assert await _conn_by_token(db, "slack", None) is None
         assert await _conn_by_token(db, "slack", "") is None
@@ -331,4 +331,4 @@ async def test_webhook_tokens_are_globally_unique(db_app):
     # The lookup happens with NO org context, so the token alone must identify
     # one row — a duplicate across orgs would make resolution ambiguous.
     with pytest.raises((sqlalchemy.exc.IntegrityError, asyncpg.UniqueViolationError)):
-        await _make_connection(OTHER_ORG, "whatsapp", "collide", "T-2")
+        await _make_connection(OTHER_ORG, "gmail", "collide", "T-2")

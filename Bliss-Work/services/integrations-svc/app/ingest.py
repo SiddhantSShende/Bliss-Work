@@ -2,7 +2,7 @@
 
 Every way a message can arrive goes through `ingest_one`:
 
-  * the public webhook receiver          (Slack, WhatsApp)   — routes/webhooks.py
+  * the public webhook receiver          (Slack)             — routes/webhooks.py
   * the push receivers / polling worker  (Gmail, Outlook, Teams)
 
 so mention detection, at-rest encryption, webhook dedup and the live events are

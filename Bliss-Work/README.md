@@ -4,13 +4,15 @@ Team collaboration platform, shipped as a web app and an Electron desktop app
 from one shared React codebase:
 
 - **Messaging** — 1:1 DMs (reply / ignore / block), **channels**, a unified
-  people-centric inbox, typing indicators and live presence.
+  people-centric inbox, typing indicators and live presence. Any message can be
+  forwarded to a **WhatsApp** contact via a `wa.me` deep link — no WhatsApp
+  Business account needed — and the origin chat records where it went.
 - **Tasks** — assign → acknowledge → complete, with a timeline, allocator
   review, and **.xlsx export**. Desktop pins assigned tasks to the desktop as
   sticky notes that sit behind every app until you show the desktop.
 - **Calls & file transfer** — WebRTC audio/video plus peer-to-peer file
   transfer (streamed to disk on desktop, coturn for NAT traversal).
-- **External integrations** — connect Slack, WhatsApp, Gmail, Outlook and Teams
+- **External integrations** — connect Slack, Gmail, Outlook and Teams
   with **your own** OAuth apps. The Hub surfaces only messages that *tagged you*,
   each with Claim (→ a task assigned to you) and Ignore.
 - **Members & activity** — org admins change roles, suspend and remove members,
@@ -120,7 +122,7 @@ and publish with `bash scripts/publish-desktop.sh <dir>`.
 | Doc | What it covers |
 |---|---|
 | [`docs/DEPLOY.md`](docs/DEPLOY.md) | The CI/CD pipeline, required secrets, manual deploy + rollback |
-| [`docs/INTEGRATIONS-SETUP.md`](docs/INTEGRATIONS-SETUP.md) | Connecting Slack / WhatsApp / Gmail / Outlook / Teams with your own apps |
+| [`docs/INTEGRATIONS-SETUP.md`](docs/INTEGRATIONS-SETUP.md) | Connecting Slack / Gmail / Outlook / Teams with your own apps |
 | [`docs/OPERATIONS.md`](docs/OPERATIONS.md) | Backups, key rotation, WAF rollout |
 | [`docs/TELEMETRY.md`](docs/TELEMETRY.md) | What the activity record collects, retention, the nightly jobs |
 | [`apps/extension/README.md`](apps/extension/README.md) | The browser extension: what it records, how it pairs, how to ship it |

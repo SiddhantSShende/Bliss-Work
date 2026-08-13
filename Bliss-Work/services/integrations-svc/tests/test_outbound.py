@@ -137,14 +137,6 @@ async def test_teams_posts_to_the_chat(crypt, monkeypatch):
     assert res.kind == "message"
 
 
-async def test_whatsapp_needs_its_phone_number_id(crypt, monkeypatch):
-    crypt(meta='{"phoneNumberId": ""}')
-    with pytest.raises(outbound.OutboundUnsupported):
-        await outbound.send_via_connection(
-            None, "org", _Row("whatsapp", metadata_enc=b"META"), target="+1555", text="hi"
-        )
-
-
 async def test_unknown_provider_is_unsupported(crypt):
     crypt()
     with pytest.raises(outbound.OutboundUnsupported):

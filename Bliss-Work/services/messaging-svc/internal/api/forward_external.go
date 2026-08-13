@@ -24,11 +24,15 @@ var integrationsInternalBase = func() string {
 	return "http://integrations-svc:8005"
 }()
 
-// allowedExternalPlatforms mirrors the message_forwards.platform CHECK (minus the
-// internal 'blisswork'), so a bogus provider from the integrations response can't
-// violate the constraint.
+// allowedExternalPlatforms is the set of providers integrations-svc may name in
+// a send response, so a bogus value can't violate the message_forwards.platform
+// CHECK. It is a SUBSET of that CHECK, not a mirror of it: 'blisswork' is the
+// internal relay, and 'whatsapp' is reachable only through the deep-link route
+// (forward_link.go), never through a connected account — the WhatsApp Business
+// integration was removed. The CHECK itself still permits 'whatsapp' and must,
+// or deep-link forwards would fail to insert.
 var allowedExternalPlatforms = map[string]struct{}{
-	"whatsapp": {}, "slack": {}, "teams": {}, "gmail": {}, "outlook": {},
+	"slack": {}, "teams": {}, "gmail": {}, "outlook": {},
 }
 
 type extSendResp struct {

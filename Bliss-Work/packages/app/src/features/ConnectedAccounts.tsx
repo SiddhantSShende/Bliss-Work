@@ -2,7 +2,7 @@
  * Connected accounts — connect/disconnect external platforms.
  *
  * Credentials are sent to integrations-svc and stored ENCRYPTED at rest; tokens
- * are never returned to the client. Token-paste providers (Slack, WhatsApp)
+ * are never returned to the client. Token-paste providers (Slack)
  * collect their credentials in a dialog; OAuth providers (Gmail, Outlook,
  * Teams) redirect through the provider's consent screen.
  *
@@ -72,27 +72,6 @@ export const PROVIDERS: ProviderMeta[] = [
     ],
   },
   {
-    id: "whatsapp",
-    label: "WhatsApp",
-    blurb:
-      "WhatsApp Business Cloud API. For WhatsApp Business accounts only — the number must be verified with Meta.",
-    kind: "token",
-    icon: <MessageCircle size={18} />,
-    // All four come off Meta's WhatsApp → API Setup page, in this order. The
-    // Business Account ID isn't decoration: it's what lets the server prove the
-    // number actually belongs to an approved business rather than just existing.
-    fields: [
-      { key: "accessToken", label: "System-user token" },
-      {
-        key: "wabaId",
-        label: "WhatsApp Business Account ID",
-        hint: "Shown directly above the Phone number ID on Meta's API Setup page.",
-      },
-      { key: "phoneNumberId", label: "Phone number ID" },
-      { key: "appSecret", label: "App secret" },
-    ],
-  },
-  {
     id: "gmail",
     label: "Gmail",
     blurb: "Connect your Google account to send & read email from Bliss-Work.",
@@ -133,6 +112,14 @@ export function ConnectedAccounts() {
   });
 
   const byProvider = (id: string) => connections.filter((c) => c.provider === id);
+  // Connections whose provider no longer exists — WhatsApp, after its Business
+  // integration was removed. The cards are driven by PROVIDERS, so without this
+  // an org that had one would keep a row it could see no trace of and had no
+  // way to delete. It is inert (no credentials are used, no webhook is served);
+  // all it needs is a way out.
+  const orphaned = connections.filter(
+    (c) => c.status !== "revoked" && !PROVIDERS.some((p) => p.id === c.provider),
+  );
 
   const disconnect = useMutation({
     mutationFn: (id: string) => api.disconnectIntegration(id),
@@ -220,9 +207,9 @@ export function ConnectedAccounts() {
                 <div className="mt-0.5 text-xs text-muted">{p.blurb}</div>
                 <SetupGuide providerId={p.id} />
                 {conns
-                  // Pending connections are shown too — a WhatsApp connection
-                  // spends its whole setup in that state, and hiding it left
-                  // the user with a Connect button that appeared to do nothing.
+                  // Pending connections are shown too. Nothing creates one now
+                  // that WhatsApp is gone, but rows predating its removal are
+                  // still real and must not silently disappear from the list.
                   .filter((c) => c.status !== "revoked")
                   .map((c) => (
                     <div key={c.id} className="mt-1">
@@ -238,19 +225,15 @@ export function ConnectedAccounts() {
                         </button>
                       </div>
                       {c.status === "pending" && (
-                        // No button here on purpose: the remaining step happens
-                        // in Meta's dashboard, and offering an in-app action
-                        // would imply there is something left to do here.
+                        // Left over from the WhatsApp integration, which was the
+                        // only thing that ever produced a pending row. There is
+                        // no step left to offer, so the row says what it is
+                        // rather than pointing at a dashboard we no longer use.
                         <p className="mt-1 text-[11px] text-warning">
-                          Paste the webhook URL and verify token below into Meta (WhatsApp →
-                          Configuration → Webhook → Edit) and subscribe to <code>messages</code>.
-                          This page updates itself the moment Meta calls.
+                          This connection never finished setting up and can't be completed —
+                          disconnect it.
                         </p>
                       )}
-                      {/* While pending, pasting the webhook URL into Meta is THE
-                          remaining step — and answering the request it triggers
-                          is what confirms the connection — so it isn't collapsed
-                          reference detail at this moment. */}
                       <WebhookSetup connection={c} defaultOpen={c.status === "pending"} />
                     </div>
                   ))}
@@ -268,6 +251,32 @@ export function ConnectedAccounts() {
             </div>
           );
         })}
+        {orphaned.length > 0 && (
+          <div className="glass rounded-2xl p-4">
+            <div className="text-sm font-semibold text-fg">No longer supported</div>
+            <p className="mt-0.5 text-xs text-muted">
+              These integrations have been removed. The connections below do nothing and can
+              be disconnected.
+            </p>
+            {orphaned.map((c) => (
+              <div
+                key={c.id}
+                className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-muted"
+              >
+                <span className="truncate">
+                  {c.provider} — {c.displayLabel || c.id}
+                </span>
+                <button
+                  className="text-danger hover:underline"
+                  disabled={disconnect.isPending}
+                  onClick={() => disconnect.mutate(c.id)}
+                >
+                  Disconnect
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
       <ConnectTokenDialog
         provider={dialogProvider}
@@ -354,9 +363,6 @@ function WebhookSetup({
       {open && (
         <div className="mt-1.5 space-y-2 rounded-xl bg-surface-2/60 p-2.5">
           <CopyLine label="Webhook URL" value={connection.webhookUrl} />
-          {connection.webhookVerifyToken && (
-            <CopyLine label="Verify token" value={connection.webhookVerifyToken} />
-          )}
           <p className="text-[10px] text-muted">
             Paste these into the provider's dashboard. Deliveries are still verified by the
             provider's signature — this URL only identifies which connection they belong to.
@@ -409,10 +415,9 @@ function FieldInput({
   onChange: (v: string) => void;
 } & Omit<React.ComponentProps<typeof Input>, "value" | "onChange">) {
   // The hint is DESCRIBED-BY, not part of the label. Nesting it inside <label>
-  // folds it into the field's accessible name, so a screen reader announces
-  // "WhatsApp Business Account ID Shown directly above the Phone number ID on
-  // Meta's API Setup page" as the name of the box — and two fields whose hints
-  // mention each other stop being tellable apart at all.
+  // folds it into the field's accessible name, so a screen reader announces the
+  // whole hint as the name of the box — and two fields whose hints mention each
+  // other stop being tellable apart at all.
   const hintId = field.hint ? `field-hint-${field.key}` : undefined;
   return (
     <div>
@@ -440,11 +445,6 @@ function FieldInput({
 
 /**
  * The credentials dialog. One step for every token-paste provider.
- *
- * It briefly had a second and third step for WhatsApp, to collect an admin's own
- * phone number and a confirmation code. That went away with the move to
- * Business-accounts-only: a WhatsApp connection is now confirmed by Meta's own
- * webhook verification request, which involves nobody's handset.
  */
 function ConnectTokenDialog({
   provider,
@@ -460,8 +460,8 @@ function ConnectTokenDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Reset whenever the dialog opens on a different provider, so a failed Slack
-  // attempt can't leave its error sitting above WhatsApp's fields.
+  // Reset whenever the dialog opens on a different provider, so a failed
+  // attempt can't leave its error sitting above the next provider's fields.
   useEffect(() => {
     if (!provider) return;
     setValues({});
@@ -481,15 +481,7 @@ function ConnectTokenDialog({
       // Only the declared fields, so stray dialog state can never be persisted.
       const creds = Object.fromEntries(fields.map((f) => [f.key, values[f.key]?.trim() ?? ""]));
       const res = await api.connectIntegration(provider.id, creds);
-      // WhatsApp comes back `pending` — it still needs Meta to call our webhook.
-      // Saying "connected" here would be a lie the card immediately contradicts.
-      if (res.connection?.status === "pending") {
-        toast("Almost there", {
-          description: "Paste the webhook URL into Meta to finish connecting.",
-        });
-      } else {
-        toast.success(`${provider.label} connected`);
-      }
+      toast.success(`${provider.label} connected`);
       onConnected();
     } catch (err) {
       // The server's messages here are written for the admin — which business
@@ -539,7 +531,7 @@ function ConnectTokenDialog({
   );
 }
 
-/** Server messages here are written for the user (bad code, cooldown, WhatsApp's
+/** Server messages here are written for the user (bad code, cooldown, a
  *  own rejection text), so show them rather than a generic failure. */
 function messageOf(err: unknown, fallback: string): string {
   return err instanceof ApiError && err.message ? err.message : fallback;

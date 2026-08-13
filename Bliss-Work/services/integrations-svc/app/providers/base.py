@@ -3,7 +3,7 @@
 Each provider declares how a user connects it (token-paste vs OAuth), which
 credential fields to collect, and — in later phases — how to verify inbound
 webhooks and send outbound messages. Phase 1 wires the token-paste connect flow
-(Slack, WhatsApp) end-to-end with encrypted-at-rest credential storage; OAuth
+(Slack) end-to-end with encrypted-at-rest credential storage; OAuth
 providers (Gmail, Outlook, Teams) are declared here and connect once their app
 credentials + flows land.
 """
@@ -57,23 +57,14 @@ PROVIDERS: dict[str, ProviderSpec] = {
         default_scopes=("chat:write", "channels:read", "users:read", "im:history"),
         receives_webhooks=True,
     ),
-    "whatsapp": ProviderSpec(
-        name="whatsapp",
-        label="WhatsApp",
-        auth_kind="token_paste",
-        primary_field="accessToken",
-        # Business accounts only. The WABA id is what makes that enforceable —
-        # without it we could confirm a number is verified but not whose it is,
-        # and the check would be bypassable by pairing any approved account with
-        # an unrelated number. Ordered as Meta's own API Setup page shows them.
-        fields=(
-            ProviderField("accessToken", "System-user token"),
-            ProviderField("wabaId", "WhatsApp Business Account ID", secret=False),
-            ProviderField("phoneNumberId", "Phone number ID", secret=False),
-            ProviderField("appSecret", "App secret"),
-        ),
-        receives_webhooks=True,
-    ),
+    # WhatsApp was here. It required a Meta Business account (system-user token,
+    # WABA id, phone number id, app secret), which most orgs do not have and
+    # cannot easily get, so in practice nobody could connect it. Forwarding to
+    # WhatsApp is now a wa.me deep link from the chat's Forward button — no
+    # credentials, works from the user's own WhatsApp — see messaging-svc's
+    # forward-link route. Removed deliberately, not lost: the deep link does NOT
+    # cover the inbound half this connection used to do (webhook -> Hub mentions),
+    # so WhatsApp messages that tag you no longer reach the Hub.
     "gmail": ProviderSpec(
         name="gmail",
         label="Gmail",
