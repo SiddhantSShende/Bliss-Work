@@ -224,6 +224,40 @@ jobs:
         working-directory: services/${{ matrix.service }}
         run: go test -race -count=1 ./...
 
+  # ws-gateway presence against a REAL Redis.
+  #
+  # Split from the matrix above because it needs a service container and only
+  # one service uses it. The tests skip themselves when REDIS_TEST_URL is unset,
+  # so the matrix job stays a pure unit run — but presence correctness lives in
+  # Redis semantics (ZADD's added-count, exclusive score bounds, TTLs), and a
+  # fake would test this package's assumptions rather than Redis's behaviour.
+  # Those assumptions are exactly what changed when presence stopped being a SET
+  # and started expiring, which is the bug that had users showing online for
+  # days after their gateway was killed.
+  test-go-integration:
+    name: Test (Go · ws-gateway presence vs Redis)
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: services/ws-gateway/go.sum
+      - name: go test -race (integration)
+        working-directory: services/ws-gateway
+        env:
+          REDIS_TEST_URL: redis://127.0.0.1:6379/0
+        run: go test -race -count=1 ./internal/store/ -run Integration -v
+
   test-js:
     name: Test (JS/TS · vitest)
     runs-on: ubuntu-latest
