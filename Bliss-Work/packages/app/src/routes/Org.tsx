@@ -13,10 +13,12 @@ import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
 import { useSwitchOrg } from "../features/OrgSwitcher";
+import { useGoBack } from "../lib/useGoBack";
 
 export function Org() {
   const { api } = useRuntime();
   const nav = useNavigate();
+  const goBack = useGoBack();
   const user = useSession((s) => s.user);
   const switchOrg = useSwitchOrg();
   const [busy, setBusy] = useState<string | null>(null);
@@ -41,6 +43,7 @@ export function Org() {
       <PageHeader
         title="Organizations"
         subtitle="Switch between the workspaces you belong to, or manage the current one."
+        onBack={goBack}
       />
       <div className="min-h-0 flex-1 overflow-auto p-6">
         <div className="mx-auto max-w-xl space-y-6">

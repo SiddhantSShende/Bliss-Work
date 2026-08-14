@@ -7,6 +7,7 @@ import type { MemberDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
+import { relativeTime } from "../lib/relativeTime";
 import { Tabs, type TabSpec } from "../features/Tabs";
 import { ExportActivityDialog } from "../features/ExportActivityDialog";
 import { MemberAdmin } from "../features/member/MemberAdmin";
@@ -50,10 +51,24 @@ export function MemberDetail() {
     queryKey: qk.directory,
     queryFn: () => api.directory(),
   });
-  const { data: online = [] } = useQuery({
-    queryKey: qk.presence,
-    queryFn: () => api.presence(),
-    refetchInterval: 20_000,
+  // Last seen, NOT presence.
+  //
+  // This pane used to read the gateway's /presence set and render a green dot
+  // plus "Online". Two things were wrong with that. An open socket is not a
+  // person — a laptop left open all night reports online — and the presence set
+  // itself could be stale, because a gateway that is killed rather than shut
+  // down never runs the cleanup that removes its connections. So a member could
+  // show as online days after they last touched the machine.
+  //
+  // The activity roster answers the question the screen is actually asking. It
+  // is the SAME query key the members list uses, so arriving from that list is
+  // a cache hit rather than a second request. Admin-only, by the server's
+  // design; see lastSeen below for what the other cases show.
+  const { data: activity = [] } = useQuery({
+    queryKey: qk.activityRoster,
+    queryFn: () => api.memberActivity(),
+    enabled: isAdmin,
+    refetchInterval: 60_000,
   });
   const { data: conversations = [] } = useQuery({
     queryKey: qk.conversations,
@@ -125,7 +140,25 @@ export function MemberDetail() {
       : []),
     ...(isAdmin ? ([{ key: "admin", label: "Admin" }, { key: "security", label: "Security" }] as TabSpec<TabKey>[]) : []),
   ];
-  const isOnline = online.includes(member.id);
+  /**
+   * What to show on the Last seen row, or null to omit it entirely.
+   *
+   * Three cases, and the third is the interesting one:
+   *   - Looking at yourself: you are demonstrably here.
+   *   - Admin looking at anyone: the roster has a real timestamp.
+   *   - Member looking at someone else: NO endpoint exposes another member's
+   *     last-seen to a non-admin, and inventing one to fill this row would
+   *     hand every member a presence oracle. Omitting it is the answer, and it
+   *     matches hiding admins' status in the members list.
+   */
+  const lastSeen: string | null = isSelf
+    ? "Now"
+    : isAdmin
+      ? (() => {
+          const seen = activity.find((a) => a.userId === member.id)?.lastSeenAt;
+          return seen ? relativeTime(seen) : "No recent activity";
+        })()
+      : null;
 
   return (
     <div className="flex h-full flex-col">
@@ -141,7 +174,8 @@ export function MemberDetail() {
         >
           <ChevronLeft size={20} />
         </button>
-        <Avatar name={member.displayName} size="lg" online={member.status === "active" ? isOnline : undefined} />
+        {/* No `online` prop, so no presence dot — see lastSeen above. */}
+        <Avatar name={member.displayName} size="lg" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="truncate font-semibold text-fg">{member.displayName}</span>
@@ -184,7 +218,7 @@ export function MemberDetail() {
             <Row label="Username" value={`@${member.username}`} />
             <Row label="Role" value={member.roles.includes("org_admin") ? "Admin" : "Member"} />
             <Row label="Status" value={member.status} />
-            <Row label="Presence" value={isOnline ? "Online" : "Offline"} />
+            {lastSeen && <Row label="Last seen" value={lastSeen} />}
             <Row label="Email verified" value={member.emailVerified ? "Yes" : "Not yet"} />
             {member.createdAt && <Row label="Joined" value={new Date(member.createdAt).toLocaleDateString()} />}
             {member.removedAt && <Row label="Removed" value={new Date(member.removedAt).toLocaleString()} />}

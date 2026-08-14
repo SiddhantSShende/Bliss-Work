@@ -15,12 +15,14 @@ import { qk } from "../lib/queryBridge";
 import { useSession } from "../store/session";
 import { matchUser, rankUsers } from "../lib/matchUser";
 import { SearchResults, type SearchGroup } from "../features/SearchResults";
+import { useGoBack } from "../lib/useGoBack";
 
 const bucket = (s: string) =>
   s === "IGNORED" ? "ignored" : s === "COMPLETED" || s === "LEFT" ? "completed" : "allocated";
 
 export function Search() {
   const { api } = useRuntime();
+  const goBack = useGoBack();
   const me = useSession((s) => s.user)!;
   const [params] = useSearchParams();
   const q = (params.get("q") ?? "").trim();
@@ -81,7 +83,7 @@ export function Search() {
 
   return (
     <div className="flex h-full flex-col">
-      <PageHeader title="Search" subtitle={q ? `Results for “${q}”` : undefined} />
+      <PageHeader title="Search" subtitle={q ? `Results for “${q}”` : undefined} onBack={goBack} />
       <div className="min-h-0 flex-1 overflow-auto p-5">
         {!q ? (
           <EmptyState icon={<SearchIcon size={24} />} title="Search BlissWork" hint="Find people, channels, chats, and tasks." />

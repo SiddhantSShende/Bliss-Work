@@ -8,6 +8,7 @@ import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
 import { matchUser, rankUsers } from "../lib/matchUser";
+import { relativeTime } from "../lib/relativeTime";
 import { ListHeader, rowClass } from "../features/ListPane";
 import { ActivityNotice } from "../features/ActivityNotice";
 
@@ -42,6 +43,30 @@ export function MembersList() {
   const activityById = new Map(activity.map((a) => [a.userId, a]));
   const convByPeer = new Map(conversations.map((c: ConversationDTO) => [c.peerId, c.id] as [string, string]));
   const results = rankUsers(users.filter((u) => u.id !== me.id && matchUser(u, q)), q);
+
+  /**
+   * Admins' presence is hidden from ordinary members.
+   *
+   * Client-side because the roles are already here (the directory query above
+   * carries them) and neither service that could enforce it knows who is an
+   * admin: telemetry-svc deliberately stores no roles, and the gateway's
+   * /presence only knows the CALLER's. Worth being clear that this is therefore
+   * a UI convention, not a control — /presence still returns admin ids to any
+   * authenticated member who calls it directly.
+   *
+   * Admins still see each other, or they could not tell who is around to cover.
+   */
+  const hideStatusFor = (u: UserDTO) => !isAdmin && u.roles.includes("org_admin");
+
+  // Your own row, pinned above the search results.
+  //
+  // The list filters you out — messaging yourself is meaningless — but that
+  // also removed the only route to your own activity record, so an admin could
+  // read every colleague's and not their own. MemberDetail already handles the
+  // self case (isSelf, the "me" subject id, the self banner); it just had no
+  // way in. Hidden while searching unless you actually match the query.
+  const meUser = users.find((u) => u.id === me.id);
+  const showSelfRow = !!meUser && (!q.trim() || matchUser(meUser, q));
 
   // Opens the chat without saying anything. This used to post "👋 Hi {name}!"
   // because sending was the only way to create a conversation row.
@@ -85,7 +110,19 @@ export function MembersList() {
         </div>
       </div>
       <div className="min-h-0 flex-1 space-y-0.5 overflow-auto p-2">
-        {results.length === 0 ? (
+        {showSelfRow && meUser && (
+          <button
+            onClick={() => nav(`/app/members/${me.id}`)}
+            className={`w-full ${rowClass(me.id === userId)} text-left`}
+          >
+            <Avatar name={meUser.displayName} />
+            <div className="min-w-0 flex-1">
+              <div className="truncate font-medium text-fg">{meUser.displayName} (you)</div>
+              <div className="truncate text-sm text-muted">Your activity and sessions</div>
+            </div>
+          </button>
+        )}
+        {results.length === 0 && !showSelfRow ? (
           <EmptyState icon={<Users size={22} />} title="No teammates found" />
         ) : (
           results.map((u) => (
@@ -94,11 +131,22 @@ export function MembersList() {
                 onClick={() => nav(`/app/members/${u.id}`)}
                 className="flex min-w-0 flex-1 items-center gap-3 text-left"
               >
-                <Avatar name={u.displayName} online={onlineSet.has(u.id)} />
+                {/* `undefined`, not `false`: Avatar renders NO dot for
+                    undefined and a grey "offline" dot for false, and a grey dot
+                    still discloses that we are tracking them. */}
+                <Avatar
+                  name={u.displayName}
+                  online={hideStatusFor(u) ? undefined : onlineSet.has(u.id)}
+                />
                 <div className="min-w-0 flex-1">
                   <div className="truncate font-medium text-fg">{u.displayName}</div>
                   <div className="truncate text-sm text-muted">
-                    {statusLine(u.username, onlineSet.has(u.id), activityById.get(u.id))}
+                    {statusLine(
+                      u.username,
+                      onlineSet.has(u.id),
+                      activityById.get(u.id),
+                      hideStatusFor(u),
+                    )}
                   </div>
                 </div>
               </button>
@@ -127,12 +175,19 @@ export function MembersList() {
  * reason it exists — a laptop left open overnight is "online" to the socket and
  * idle to anyone who cares. Members without the admin roster fall back to the
  * plain online/@username line they have always seen.
+ *
+ * `hideStatus` collapses all of it to the handle. That is not a new visual
+ * state: it is exactly what a member already sees for anyone the activity
+ * roster does not cover, so hiding an admin's status makes their row
+ * indistinguishable from an ordinary one rather than conspicuously redacted.
  */
 function statusLine(
   username: string,
   socketOpen: boolean,
   activity: MemberActivityDTO | undefined,
+  hideStatus = false,
 ): string {
+  if (hideStatus) return `@${username}`;
   if (!activity) return socketOpen ? "Online" : `@${username}`;
   if (activity.state === "online") return "Online";
   if (activity.state === "idle") return "Idle";
@@ -140,11 +195,3 @@ function statusLine(
   return `Last seen ${relativeTime(activity.lastSeenAt)}`;
 }
 
-function relativeTime(iso: string): string {
-  const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60_000));
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.round(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.round(hours / 24);
-  return days === 1 ? "yesterday" : `${days}d ago`;
-}

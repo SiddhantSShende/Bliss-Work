@@ -8,10 +8,12 @@ import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
 import { Field } from "./Onboarding";
 import { InviteList } from "../features/InviteList";
+import { useGoBack } from "../lib/useGoBack";
 
 export function InvitePage() {
   const { api } = useRuntime();
   const qc = useQueryClient();
+  const goBack = useGoBack();
   const isAdmin = useSession((s) => s.user?.roles.includes("org_admin") ?? false);
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<"member" | "org_admin">("member");
@@ -41,7 +43,7 @@ export function InvitePage() {
   if (!isAdmin)
     return (
       <div className="flex h-full flex-col">
-        <PageHeader title="Invite teammates" />
+        <PageHeader title="Invite teammates" onBack={goBack} />
         <div className="flex min-h-0 flex-1 items-center justify-center">
           <EmptyState icon={<ShieldAlert size={24} />} title="Admins only" hint="Ask an organization admin to invite new teammates." />
         </div>
@@ -55,7 +57,11 @@ export function InvitePage() {
 
   return (
     <div className="flex h-full flex-col">
-      <PageHeader title="Invite teammates" subtitle="Send an email invitation to join your workspace." />
+      <PageHeader
+        title="Invite teammates"
+        subtitle="Send an email invitation to join your workspace."
+        onBack={goBack}
+      />
       <div className="min-h-0 flex-1 overflow-auto p-6">
         <div className="mx-auto max-w-2xl space-y-8">
           <form onSubmit={submit} className="glass rounded-2xl p-5">

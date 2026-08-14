@@ -24,10 +24,12 @@ import { ConnectedAccounts } from "../features/ConnectedAccounts";
 import { HubMentions } from "../features/HubMentions";
 import { MyHandles } from "../features/MyHandles";
 import { ForwardingActivity } from "../features/ForwardingActivity";
+import { useGoBack } from "../lib/useGoBack";
 
 export function Integrations() {
   const qc = useQueryClient();
   const { config } = useRuntime();
+  const goBack = useGoBack();
 
   // Shared by both return paths: tell the user, then refresh what changed.
   // useCallback keeps it stable so the effects below can depend on it honestly
@@ -65,6 +67,7 @@ export function Integrations() {
       <PageHeader
         title="External Integrations"
         subtitle="Connect other platforms, catch the messages that tag you, and track where your messages travel."
+        onBack={goBack}
       />
       <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
         <div className="mx-auto max-w-2xl space-y-8 pb-8">
