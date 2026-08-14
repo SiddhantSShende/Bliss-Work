@@ -167,6 +167,45 @@ services:
     readyPath: /readyz
     readOnlyRootFilesystem: true
 
+  # telemetry-svc and integrations-svc were missing from this chart entirely —
+  # no Deployment, Service, HPA, PDB, NetworkPolicy or ingress path. A Helm
+  # deploy therefore ran the product with no activity record and no external
+  # integrations at all, while the compose deployment had both. Every template
+  # here ranges over .Values.services, so adding them is values-only.
+  telemetry-svc:
+    image: telemetry-svc
+    port: 8006
+    http: true
+    replicas: 2
+    hpa:
+      enabled: true
+      min: 2
+      max: 6
+      cpu: 70
+    resources:
+      requests: { cpu: 50m, memory: 128Mi }
+      limits: { cpu: 500m, memory: 512Mi }
+    healthPath: /healthz
+    readyPath: /readyz
+    readOnlyRootFilesystem: true
+
+  integrations-svc:
+    image: integrations-svc
+    port: 8005
+    http: true
+    replicas: 2
+    hpa:
+      enabled: true
+      min: 2
+      max: 4
+      cpu: 70
+    resources:
+      requests: { cpu: 50m, memory: 128Mi }
+      limits: { cpu: 500m, memory: 512Mi }
+    healthPath: /healthz
+    readyPath: /readyz
+    readOnlyRootFilesystem: true
+
   email-worker:
     image: email-worker
     # No HTTP port: pure Kafka consumer. No Service / Ingress / HPA / PDB / probes.
@@ -257,6 +296,8 @@ env:
   NOTIFICATION_DATABASE_URL: "postgres://taskboard:CHANGE_ME@postgres:5432/notificationdb?sslmode=verify-full&sslrootcert=/etc/ssl/db/ca.crt"
   MESSAGING_DATABASE_URL: "postgres://taskboard:CHANGE_ME@postgres:5432/messagingdb?sslmode=verify-full&sslrootcert=/etc/ssl/db/ca.crt"
   EMAIL_DATABASE_URL: "postgres://taskboard:CHANGE_ME@postgres:5432/emaildb?sslmode=verify-full&sslrootcert=/etc/ssl/db/ca.crt"
+  TELEMETRY_DATABASE_URL: "postgresql://taskboard:CHANGE_ME@postgres:5432/telemetrydb?sslmode=verify-full&sslrootcert=/etc/ssl/db/ca.crt"
+  INTEGRATIONS_DATABASE_URL: "postgresql://taskboard:CHANGE_ME@postgres:5432/integrationsdb?sslmode=verify-full&sslrootcert=/etc/ssl/db/ca.crt"
   # Managed Redis with a publicly-trusted cert verifies out of the box via
   # rediss:// (TLS). Self-signed Redis CAs are NOT validated by ws-gateway's
   # go-redis client — see docs/OPERATIONS.md §7.
@@ -300,13 +341,28 @@ ingress:
     enabled: true
     secretName: taskboard-tls
   annotations: {}
-  # Per-path routing on a single host. ws-gateway gets the websocket prefix.
+  # Per-path routing on a single host. A LIST per service — several routes are
+  # not under the service's own /api prefix, and when this was one string each
+  # they were simply unreachable on Kubernetes:
+  #   /presence, /turn-credentials  — the SPA polls presence every 20s and
+  #                                   WebRTC calls cannot start without TURN
+  #                                   credentials.
+  #   /.well-known/jwks.json        — the stable public path any external
+  #                                   verifier uses.
+  #   /ext                          — inbound provider webhooks and OAuth
+  #                                   callbacks; an integration cannot complete
+  #                                   without it.
+  # Mirrors infra/caddy/Caddyfile, which has always routed all of these. Keep
+  # the two in step: a route that exists in only one deployment is a bug that
+  # appears when you migrate.
   paths:
-    auth-svc: /api/auth
-    task-svc: /api/tasks
-    notification-svc: /api/notifications
-    messaging-svc: /api/messaging
-    ws-gateway: /ws
+    auth-svc: [/api/auth, /.well-known/jwks.json]
+    task-svc: [/api/tasks]
+    notification-svc: [/api/notifications]
+    messaging-svc: [/api/messaging]
+    telemetry-svc: [/api/telemetry]
+    integrations-svc: [/api/integrations, /ext]
+    ws-gateway: [/ws, /presence, /turn-credentials]
   # Long timeout for the ws-gateway upgrade — see ingress.yaml comments.
   websocketTimeoutSeconds: 3600
 

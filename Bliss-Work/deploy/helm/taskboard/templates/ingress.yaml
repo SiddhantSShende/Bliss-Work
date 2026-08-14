@@ -41,9 +41,20 @@ spec:
     - host: {{ .Values.ingress.host | quote }}
       http:
         paths:
-          {{- range $name, $path := .Values.ingress.paths }}
+          {{- /*
+            A LIST of paths per service, not one.
+            This used to be a single string per service, which quietly capped
+            the routable surface at one prefix each — so /presence and
+            /turn-credentials (ws-gateway) and /.well-known/jwks.json (auth-svc)
+            had no route at all. A Kubernetes deploy therefore had no online
+            presence, no WebRTC calls, and no externally-reachable JWKS, while
+            the Caddy deployment routed all three. A plain string is still
+            accepted so an existing values override keeps working.
+          */}}
+          {{- range $name, $paths := .Values.ingress.paths }}
           {{- $svc := index $root.Values.services $name }}
           {{- if and $svc $svc.http $svc.port }}
+          {{- range $path := (ternary $paths (list $paths) (kindIs "slice" $paths)) }}
           - path: {{ $path }}
             pathType: Prefix
             backend:
@@ -51,6 +62,7 @@ spec:
                 name: {{ $name }}
                 port:
                   number: {{ $svc.port }}
+          {{- end }}
           {{- end }}
           {{- end }}
 {{- end }}

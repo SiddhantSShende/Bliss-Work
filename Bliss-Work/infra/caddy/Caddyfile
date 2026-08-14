@@ -14,6 +14,33 @@
 	# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
 }
 
+# ── Upstream health checking ─────────────────────────────────────────────────
+#
+# Imported by every reverse_proxy below. Two things it buys, and the first
+# matters even though this deployment runs one container per service:
+#
+#   1. FAST EJECTION. Without a health check Caddy keeps handing requests to a
+#      wedged upstream and returns 502 for as long as it stays wedged. With one,
+#      the upstream is taken out of rotation within ~5s of going unhealthy and
+#      put back within ~5s of recovering, so a container restart is a brief
+#      blip rather than a wall of 502s.
+#   2. REAL LOAD BALANCING the moment there is more than one upstream. Add
+#      addresses to a reverse_proxy line and least_conn distributes across the
+#      healthy ones — with no health checks it would happily balance onto a dead
+#      one. Kubernetes is where multi-replica actually happens (deploy/helm),
+#      but the shape belongs here too so the two deployments do not disagree.
+#
+# /readyz rather than /healthz: readiness is "can serve traffic" (dependencies
+# reachable), liveness is only "process is alive". Every service exposes both.
+(upstream) {
+	lb_policy least_conn
+	health_uri /readyz
+	health_interval 5s
+	health_timeout 2s
+	# How long a failing upstream stays ejected before it is retried.
+	fail_duration 30s
+}
+
 {$DOMAIN} {
 	encode zstd gzip
 
@@ -46,7 +73,9 @@
 	# source order and matches before the catch-all.
 	@ws path /ws /ws/*
 	handle @ws {
-		reverse_proxy ws-gateway:8080
+		reverse_proxy ws-gateway:8080 {
+			import upstream
+		}
 	}
 
 	# Desktop app installers → nginx static file server (served from our own VPS,
@@ -60,13 +89,19 @@
 
 	# REST APIs. Strip the public /api/<svc> prefix when proxying upstream.
 	handle_path /api/auth/* {
-		reverse_proxy auth-svc:8001
+		reverse_proxy auth-svc:8001 {
+			import upstream
+		}
 	}
 	handle_path /api/tasks/* {
-		reverse_proxy task-svc:8002
+		reverse_proxy task-svc:8002 {
+			import upstream
+		}
 	}
 	handle_path /api/notifications/* {
-		reverse_proxy notification-svc:8003
+		reverse_proxy notification-svc:8003 {
+			import upstream
+		}
 	}
 	# Chat attachments (upload and the signed /media/* download) ride this same
 	# prefix. Caddyfile.waf needs a SEPARATE, earlier @media block for them —
@@ -74,29 +109,41 @@
 	# a 100 MB upload at the edge. This file has no WAF, so one handler suffices;
 	# the asymmetry between the two files is deliberate, not drift.
 	handle_path /api/messaging/* {
-		reverse_proxy messaging-svc:8004
+		reverse_proxy messaging-svc:8004 {
+			import upstream
+		}
 	}
 	handle_path /api/integrations/* {
-		reverse_proxy integrations-svc:8005
+		reverse_proxy integrations-svc:8005 {
+			import upstream
+		}
 	}
 	handle_path /api/telemetry/* {
-		reverse_proxy telemetry-svc:8006
+		reverse_proxy telemetry-svc:8006 {
+			import upstream
+		}
 	}
 	# Public inbound webhooks + OAuth callbacks for external integrations. NOT under
 	# /internal/ (which is 404'd), and provider-signature authenticated upstream.
 	handle /ext/* {
-		reverse_proxy integrations-svc:8005
+		reverse_proxy integrations-svc:8005 {
+			import upstream
+		}
 	}
 
 	# JWKS must be reachable at a stable public path for any external verifier.
 	handle /.well-known/jwks.json {
-		reverse_proxy auth-svc:8001
+		reverse_proxy auth-svc:8001 {
+			import upstream
+		}
 	}
 
 	# TURN credentials for WebRTC calls → ws-gateway.
 	@turn path /turn-credentials
 	handle @turn {
-		reverse_proxy ws-gateway:8080
+		reverse_proxy ws-gateway:8080 {
+			import upstream
+		}
 	}
 
 	# Presence (online-user set) HTTP endpoint → ws-gateway. Polled by the SPA
@@ -104,7 +151,9 @@
 	# returns HTML, breaking online-status. JWT-authed in the handler.
 	@presence path /presence
 	handle @presence {
-		reverse_proxy ws-gateway:8080
+		reverse_proxy ws-gateway:8080 {
+			import upstream
+		}
 	}
 
 	# Static SPA assets are served by nginx on the private network.

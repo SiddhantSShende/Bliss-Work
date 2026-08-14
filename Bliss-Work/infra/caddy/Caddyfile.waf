@@ -40,6 +40,18 @@
 	# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
 }
 
+# ── Upstream health checking ─────────────────────────────────────────────────
+# Identical to the non-WAF Caddyfile — see the long note there for why. Kept in
+# both files rather than shared, because Caddy has no include mechanism across
+# configs and the two are selected by which one is bind-mounted.
+(upstream) {
+	lb_policy least_conn
+	health_uri /readyz
+	health_interval 5s
+	health_timeout 2s
+	fail_duration 30s
+}
+
 {$DOMAIN} {
 	encode zstd gzip
 
@@ -51,7 +63,9 @@
 		#    so /ws is handled and the route stops before the WAF can wrap (and
 		#    corrupt) the 101 Switching Protocols response.
 		@ws path /ws /ws/*
-		reverse_proxy @ws ws-gateway:8080
+		reverse_proxy @ws ws-gateway:8080 {
+			import upstream
+		}
 
 		# 1b) Desktop app installers → nginx static file server. Placed BEFORE
 		#     coraza_waf (and terminal) so the WAF never buffers/inspects a
@@ -83,7 +97,9 @@
 		@media path /api/messaging/api/v1/attachments /api/messaging/media/*
 		handle @media {
 			uri strip_prefix /api/messaging
-			reverse_proxy messaging-svc:8004
+			reverse_proxy messaging-svc:8004 {
+				import upstream
+			}
 		}
 
 		# 2) OWASP-CRS WAF for every remaining (non-WS) request. load_owasp_crs
@@ -130,19 +146,29 @@
 
 		# 5) REST APIs. Strip the public /api/<svc> prefix when proxying upstream.
 		handle_path /api/auth/* {
-			reverse_proxy auth-svc:8001
+			reverse_proxy auth-svc:8001 {
+				import upstream
+			}
 		}
 		handle_path /api/tasks/* {
-			reverse_proxy task-svc:8002
+			reverse_proxy task-svc:8002 {
+				import upstream
+			}
 		}
 		handle_path /api/notifications/* {
-			reverse_proxy notification-svc:8003
+			reverse_proxy notification-svc:8003 {
+				import upstream
+			}
 		}
 		handle_path /api/messaging/* {
-			reverse_proxy messaging-svc:8004
+			reverse_proxy messaging-svc:8004 {
+				import upstream
+			}
 		}
 		handle_path /api/integrations/* {
-			reverse_proxy integrations-svc:8005
+			reverse_proxy integrations-svc:8005 {
+				import upstream
+			}
 		}
 		# Member activity record. The beacon (POST /api/telemetry/beacon) is the
 		# highest-frequency JSON POST in the product — a batch per client every
@@ -152,7 +178,9 @@
 		# infra/caddy/coraza/rules/99-tuning.conf rather than lowering the
 		# paranoia level globally.
 		handle_path /api/telemetry/* {
-			reverse_proxy telemetry-svc:8006
+			reverse_proxy telemetry-svc:8006 {
+				import upstream
+			}
 		}
 		# Public inbound webhooks + OAuth callbacks for external integrations. NOT
 		# under /internal/ (404'd) and provider-signature authenticated upstream.
@@ -160,23 +188,31 @@
 		# on /ext/*, add a scoped ctl:ruleRemoveById exclusion in
 		# infra/caddy/coraza/rules/*.conf keyed on REQUEST_URI "^/ext/".
 		handle /ext/* {
-			reverse_proxy integrations-svc:8005
+			reverse_proxy integrations-svc:8005 {
+				import upstream
+			}
 		}
 
 		# 6) JWKS at a stable public path for any external verifier.
 		handle /.well-known/jwks.json {
-			reverse_proxy auth-svc:8001
+			reverse_proxy auth-svc:8001 {
+				import upstream
+			}
 		}
 
 		# TURN credentials (short-lived HMAC) for WebRTC calls → ws-gateway.
 		@turn path /turn-credentials
-		reverse_proxy @turn ws-gateway:8080
+		reverse_proxy @turn ws-gateway:8080 {
+			import upstream
+		}
 
 		# Presence (online-user set) HTTP endpoint → ws-gateway. Polled by the SPA
 		# every 20s; without this it falls to the SPA catch-all below and returns
 		# HTML, breaking online-status. Terminal, JWT-authed in the handler.
 		@presence path /presence
-		reverse_proxy @presence ws-gateway:8080
+		reverse_proxy @presence ws-gateway:8080 {
+			import upstream
+		}
 
 		# 7) Everything else → the SPA served by nginx on the private network.
 		#    CSP is set HERE (terminal SPA branch of the route), NOT in the global

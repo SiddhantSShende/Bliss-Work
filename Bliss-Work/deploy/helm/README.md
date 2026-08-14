@@ -1,16 +1,28 @@
 # Task-Board Helm chart
 
-Cloud-agnostic Helm chart that deploys the six Task-Board application services to
-any conformant Kubernetes cluster (EKS / GKE / AKS / on-prem / kind):
+Cloud-agnostic Helm chart that deploys the eight Task-Board application services
+to any conformant Kubernetes cluster (EKS / GKE / AKS / on-prem / kind):
 
 | Service            | Lang        | Port | HTTP | Notes                                          |
 | ------------------ | ----------- | ---- | ---- | ---------------------------------------------- |
 | `auth-svc`         | FastAPI     | 8001 | yes  | issues JWTs, publishes JWKS, mounts signing keys |
 | `task-svc`         | FastAPI     | 8002 | yes  |                                                |
 | `notification-svc` | Go          | 8003 | yes  |                                                |
-| `messaging-svc`    | Go          | 8004 | yes  |                                                |
-| `ws-gateway`       | Go          | 8080 | yes  | WebSocket fan-out; sticky sessions             |
+| `messaging-svc`    | Go          | 8004 | yes  | **pinned to 1 replica** — attachments are on a local disk; see values.yaml |
+| `integrations-svc` | FastAPI     | 8005 | yes  | external providers; also serves `/ext` webhooks + OAuth callbacks |
+| `telemetry-svc`    | FastAPI     | 8006 | yes  | activity record                                |
+| `ws-gateway`       | Go          | 8080 | yes  | WebSocket fan-out, presence, TURN credentials  |
 | `email-worker`     | FastAPI     | —    | no   | pure Kafka consumer; no Service/Ingress/HPA/PDB |
+
+Also scheduled: three maintenance `CronJob`s (attachment GC, telemetry rollup,
+telemetry prune) — the Kubernetes equivalent of `infra/systemd/*.timer`. Their
+ordering matters; see the note above `cronJobs:` in `values.yaml`.
+
+Ingress routes are a **list** per service, because several are not under the
+service's own `/api` prefix: `/presence` and `/turn-credentials` (ws-gateway),
+`/.well-known/jwks.json` (auth-svc) and `/ext` (integrations-svc). Keep them in
+step with `infra/caddy/Caddyfile` — a route that exists in only one of the two
+deployments is a bug that surfaces on migration.
 
 Chart path: `deploy/helm/taskboard`.
 
