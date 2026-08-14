@@ -2,6 +2,7 @@ import { shell, type BrowserWindow, type WebContents } from "electron";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { safeExternalUrl } from "../shared/external-url";
+import { applyContentProtection, watchCaptureKeys } from "./screenshot-guard";
 
 /**
  * Per-window security hardening, applied to EVERY BrowserWindow the app opens.
@@ -85,6 +86,11 @@ function isOwnContent(url: string): boolean {
 }
 
 export function hardenWebContents(wc: WebContents, label: string): void {
+  // 0. Capture-key interception. Lives here for the same reason as the rest:
+  //    every window renders workspace content, and a guard applied per-creation
+  //    -path is a guard someone forgets on the fourth one.
+  watchCaptureKeys(wc, label);
+
   // 1. window.open / target="_blank" → the user's browser, never a child window.
   wc.setWindowOpenHandler(({ url }) => {
     openExternalSafely(url, `${label}:window-open`);
@@ -111,4 +117,7 @@ export function hardenWebContents(wc: WebContents, label: string): void {
 /** Convenience wrapper for a whole window. */
 export function hardenWindow(win: BrowserWindow, label: string): void {
   hardenWebContents(win.webContents, label);
+  // Exclude the window from OS screen capture. Honoured on Windows and macOS;
+  // a no-op on Linux/X11 — see screenshot-guard.ts for what that means.
+  applyContentProtection(win, label);
 }

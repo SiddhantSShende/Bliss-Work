@@ -216,6 +216,23 @@ function onSuspend(): void {
   void flush();
 }
 
+/**
+ * Record a detected screenshot attempt.
+ *
+ * Flushed immediately rather than batched, for the same reason as onSuspend:
+ * an attempt to capture protected content is the kind of event that is worth
+ * nothing if it arrives after the machine is gone.
+ *
+ * No-op without consent, like every other push here. That is the deliberate
+ * trade — a user who declined the activity agent still SEES the warning, we
+ * just do not write a monitoring record about someone who declined monitoring.
+ */
+export function recordScreenshotAttempt(): void {
+  if (!isActive()) return;
+  push({ action: "screenshot.attempted", category: "system", occurredAt: stamp() });
+  void flush();
+}
+
 /** Start sampling. Idempotent — safe to call whenever consent changes. */
 export function start(base: string): void {
   telemetryBase = base;

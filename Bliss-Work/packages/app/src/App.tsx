@@ -15,6 +15,7 @@ import { MessageSquare, Hash, Users } from "lucide-react";
 import { EmptyState } from "@taskboard/ui";
 import { ErrorBoundary, RouteErrorBoundary } from "./features/ErrorBoundary";
 import { BrowserStickies } from "./features/BrowserStickies";
+import { ScreenshotNotice } from "./features/ScreenshotNotice";
 import { Onboarding } from "./routes/Onboarding";
 import { Login } from "./routes/Login";
 import { InviteAccept } from "./routes/InviteAccept";
@@ -125,6 +126,10 @@ export function App({ config }: { config: PlatformConfig }) {
             </Router>
             </FileTransferProvider>
             <Toaster position="bottom-right" richColors closeButton />
+            {/* Renders nothing; turns a main-process screenshot detection into
+                a toast. Inert on web. Must sit inside RuntimeProvider (it reads
+                the platform config) and alongside the Toaster it drives. */}
+            <ScreenshotNotice />
           </RuntimeProvider>
         </ThemeProvider>
       </QueryClientProvider>

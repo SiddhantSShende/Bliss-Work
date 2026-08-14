@@ -158,6 +158,10 @@ export interface PlatformConfig {
    *  fix. Absent on web, where the browser owns the provider and the question
    *  is not ours to answer. */
   hasPreciseLocation?: () => Promise<boolean>;
+  /** Present only in Electron: the app detected and refused a screenshot
+   *  attempt. Returns an unsubscribe fn. Absent on web, where a page cannot
+   *  observe the OS's capture keys at all. */
+  onScreenshotBlocked?: (cb: () => void) => () => void;
   /** Present only in Electron: the OAuth flow returning through the
    *  `taskboard://oauth` deep link. Mirrors the ?connected=/?error= query the
    *  web build reads off its own URL. Returns an unsubscribe fn. */

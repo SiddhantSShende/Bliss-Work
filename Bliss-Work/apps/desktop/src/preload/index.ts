@@ -68,6 +68,14 @@ const api = {
    *  sharing still works but resolves to a city-level IP fix. */
   hasPreciseLocation: (): Promise<boolean> => ipcRenderer.invoke("geo:precise"),
 
+  /** Emitted when the app detects and refuses a screenshot attempt. Carries no
+   *  payload — the message is fixed, and the source is main's to log. */
+  onScreenshotBlocked: (cb: () => void) => {
+    const handler = () => cb();
+    ipcRenderer.on("security:screenshot-blocked", handler);
+    return () => ipcRenderer.removeListener("security:screenshot-blocked", handler);
+  },
+
   /** Emitted when an OAuth flow returns via taskboard://oauth?connected=… */
   onOAuthReturn: (cb: (r: { connected?: string; error?: string }) => void) => {
     const handler = (_: unknown, r: { connected?: string; error?: string }) => cb(r);

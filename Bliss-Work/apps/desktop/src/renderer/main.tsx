@@ -20,6 +20,7 @@ declare global {
       onInviteDeepLink: (cb: (token: string) => void) => () => void;
       openExternal: (url: string) => void;
       hasPreciseLocation: () => Promise<boolean>;
+      onScreenshotBlocked: (cb: () => void) => () => void;
       onOAuthReturn: (cb: (r: { connected?: string; error?: string }) => void) => () => void;
       appVersion: () => Promise<string>;
       checkForUpdates: () => Promise<{
@@ -88,6 +89,7 @@ const config: PlatformConfig = {
   // and return through the taskboard://oauth deep link.
   openExternal: (url) => bridge.openExternal(url),
   hasPreciseLocation: () => bridge.hasPreciseLocation(),
+  onScreenshotBlocked: (cb) => bridge.onScreenshotBlocked(cb),
   onOAuthReturn: (cb) => bridge.onOAuthReturn(cb),
   appVersion: () => bridge.appVersion(),
   checkForUpdates: () => bridge.checkForUpdates(),

@@ -87,3 +87,48 @@ Scope: all HTTP/WS endpoints, authz/IDOR (RLS is the backstop), the encryption
 boundary, secret handling, and the desktop/Electron IPC surface. Provide a
 staging env with seeded multi-org data so cross-org isolation (RLS) can be
 exercised. CI SAST/DAST findings should be triaged before an external test.
+
+## 8. Screenshot protection — what it does and does not do
+
+The desktop app tries to stop screenshots of workspace content. Read this
+before repeating the claim to a customer, because the honest scope is narrower
+than the feature name suggests.
+
+**There is no server-side control, and there cannot be.** A screenshot is taken
+by the operating system's compositor from pixels that have already been
+decrypted and drawn on the user's own machine. A backend cannot see the
+framebuffer, cannot see the keyboard, and cannot un-render pixels. Any claim
+that screenshots are "blocked at the backend" is false.
+
+What the app actually does, in `apps/desktop/src/main/screenshot-guard.ts`:
+
+| Control | Windows | macOS | Linux/X11 |
+|---|---|---|---|
+| `setContentProtection(true)` — window excluded from capture | Yes (`WDA_EXCLUDEFROMCAPTURE`) | Yes (`NSWindowSharingNone`) | **No — documented no-op** |
+| `PrintScreen` intercepted while we hold focus | Yes | n/a | Yes |
+| macOS `Cmd+Shift+3/4/5` intercepted | n/a | Detected, **not prevented** (OS-reserved chords) | n/a |
+| Warning toast to the user | Yes | Yes | Yes |
+| `screenshot.attempted` recorded in the activity record | Yes | Yes | Yes |
+
+Applied through `hardenWindow` so every window creation path — main window,
+task sticky notes, pinned chat windows — gets it without anyone remembering to.
+
+**Not covered.** Win+Shift+S and the Snipping Tool; `gnome-screenshot`,
+Flameshot, Spectacle, ShareX and every other third-party capture tool; screen
+recording started before the window opened; a virtual machine or capture card;
+and a phone camera pointed at the monitor. The Linux row above matters in
+practice: the AppImage and `.deb` are the builds produced natively by this repo.
+
+**Two consequences to plan for.**
+
+1. Content protection blacks the window out in *all* capture, including
+   legitimate screen shares. Demoing BlissWork over Zoom, Teams or Meet shows a
+   black rectangle, and so does a support call. This is currently always-on.
+2. `screenshot.attempted` is recorded only for users who consented to the
+   activity agent and paired a device (`main/activity-state.ts`). Everyone else
+   sees the warning but generates no record — deliberate, so the product never
+   writes monitoring data about someone who declined monitoring.
+
+Treat this as **deterrence, detection and an audit trail**, not prevention. For
+content that genuinely must not leave a screen, the control has to be "do not
+put it on that screen", not "ask the OS nicely".

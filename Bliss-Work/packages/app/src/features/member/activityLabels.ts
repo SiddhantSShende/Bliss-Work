@@ -33,6 +33,12 @@ const ACTIONS: Record<string, string> = {
   "idle.start": "Went idle",
   "idle.end": "Became active",
   heartbeat: "Active",
+  // Desktop-agent system events. These have been emitted since the agent
+  // shipped but had no entries here, so they rendered as raw machine verbs.
+  "screen.locked": "Locked their screen",
+  "screen.unlocked": "Unlocked their screen",
+  "system.suspended": "Put the machine to sleep",
+  "screenshot.attempted": "Attempted a screenshot",
 };
 
 const SURFACES: Record<string, string> = {

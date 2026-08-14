@@ -20,6 +20,7 @@ import { buildAppMenu } from "./menu";
 import { registerFileSink } from "./file-sink";
 import { checkForUpdatesNow, initAutoUpdate } from "./updater";
 import { installLocationProviderKey, hasPreciseLocationProvider } from "./geo-key";
+import { initScreenshotGuard } from "./screenshot-guard";
 import { resolveEndpoints } from "../shared/endpoints";
 import { findDeepLink, parseDeepLink } from "../shared/deeplink";
 import { openExternalSafely } from "./harden";
@@ -111,6 +112,14 @@ if (!app.requestSingleInstanceLock()) {
     bootstrap();
     // Check for a newer release + auto-update (packaged non-Store builds only).
     initAutoUpdate();
+    // Screenshot deterrence. Content protection itself is applied per-window by
+    // hardenWindow; this wires the focus-scoped capture-key registration and
+    // routes a detected attempt to the renderer's toast. Read the header of
+    // screenshot-guard.ts before treating this as a guarantee — it is not one
+    // on Linux, and it is not one against a phone camera anywhere.
+    initScreenshotGuard(() => {
+      mainWindow?.webContents.send("security:screenshot-blocked");
+    });
   });
 }
 
