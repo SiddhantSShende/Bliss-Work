@@ -56,7 +56,8 @@ class Settings(BaseSettings):
         default="redis://redis:6379/0",
         validation_alias=AliasChoices("REDIS_URL", "redis_url"),
     )
-    # Recipient is considered "offline" when SCARD presence:user:<id> == 0 AND
+    # Recipient is considered "offline" when presence:u:<id> holds no entry with
+    # a recent heartbeat (see app/presence.py for the shape) AND
     # event.occurredAt is older than this many seconds (avoids spamming users
     # who legitimately just signed off between the message landing and the
     # consumer reading it).

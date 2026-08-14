@@ -68,16 +68,18 @@ func main() {
 	}
 	pc()
 
-	// Clear stale presence left by the previous (now-dead) gateway instance so
-	// users don't show "online" without a live socket. Safe: this restart dropped
-	// every socket, and reconnecting clients rebuild presence within seconds.
-	purgeCtx, pgc := context.WithTimeout(rootCtx, 5*time.Second)
-	if n, err := st.PurgePresence(purgeCtx); err != nil {
-		log.Warn("presence purge failed at startup", "err", err)
-	} else if n > 0 {
-		log.Info("purged stale presence at startup", "keys", n)
-	}
-	pgc()
+	// No startup presence purge.
+	//
+	// There used to be one here, deleting every `presence:*` key, because
+	// presence entries were removed only by a deferred call on the socket's
+	// goroutine and a crashed node therefore left its users online forever.
+	// That sweep was global, so it only worked while there was exactly one
+	// gateway — a second replica booting would have logged out everyone
+	// connected to the first, which is why the gateway could not be scaled.
+	//
+	// Presence now ages out on its own (see internal/store: heartbeat-scored
+	// ZSETs, reaped on read), so there is nothing stale to clear and nothing
+	// global to clear it with.
 
 	verifier, err := auth.NewVerifier(rootCtx, cfg.JWKSURL, cfg.JWTIssuer)
 	if err != nil {

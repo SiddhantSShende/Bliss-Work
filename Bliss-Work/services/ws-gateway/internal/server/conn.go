@@ -79,13 +79,14 @@ func (s *Server) serveConn(parent context.Context, ws *websocket.Conn, claims *a
 		s.log.Info("ws disconnected", "user", claims.UserID, "conn", connID)
 	}()
 
-	go s.writeLoop(ctx, cancel, ws, conn)
+	go s.writeLoop(ctx, cancel, ws, conn, claims.OrgID)
 	s.readLoop(ctx, ws, conn, sess)
 }
 
-// writeLoop drains the send channel, writes a periodic ping, and tears the
-// connection down on a slow/full client.
-func (s *Server) writeLoop(ctx context.Context, cancel context.CancelFunc, ws *websocket.Conn, conn *hub.Conn) {
+// writeLoop drains the send channel, writes a periodic ping, refreshes this
+// connection's presence heartbeat, and tears the connection down on a
+// slow/full client.
+func (s *Server) writeLoop(ctx context.Context, cancel context.CancelFunc, ws *websocket.Conn, conn *hub.Conn, orgID string) {
 	ticker := time.NewTicker(pingInterval)
 	defer ticker.Stop()
 	defer cancel()
@@ -114,6 +115,22 @@ func (s *Server) writeLoop(ctx context.Context, cancel context.CancelFunc, ws *w
 				s.log.Debug("ws ping failed", "err", err)
 				return
 			}
+			// Presence is scored by the last time we heard from a connection and
+			// is reaped on read, so a live socket has to say so periodically or
+			// it ages out from under itself. This ticker already runs at exactly
+			// the right cadence, which is why the heartbeat rides it instead of
+			// owning a goroutine and timer per connection.
+			//
+			// A failure here is not fatal to the socket: the entry simply keeps
+			// its previous score and, if Redis stays unreachable past the stale
+			// window, the user is reported offline while still connected. That is
+			// the correct way to be wrong — the alternative is reporting people
+			// online because we cannot tell.
+			tctx, tc := context.WithTimeout(ctx, pingTimeout)
+			if err := s.store.TouchPresence(tctx, orgID, conn.UserID, s.nodeID, conn.ConnID); err != nil {
+				s.log.Warn("presence heartbeat failed", "err", err, "user", conn.UserID)
+			}
+			tc()
 		}
 	}
 }

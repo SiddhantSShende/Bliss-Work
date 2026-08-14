@@ -8,9 +8,13 @@ the existing BroadcastChannel), because "Alice was online" is one fact, not five
 Why heartbeats are the source of truth for online/offline, rather than the
 gateway's presence:
 
-  * ws-gateway's presence is ephemeral Redis and its PurgePresence() deletes
-    every key at startup while publishing nothing — so a gateway restart would
-    leave every user who was online at that moment recorded as online forever.
+  * ws-gateway's presence is ephemeral Redis, scoped to "is a socket open"
+    rather than "is someone at the keyboard" — a laptop left open all night is
+    present to the gateway and idle to anyone who cares. (It used to be worse:
+    a startup sweep deleted every presence key while publishing nothing, so a
+    gateway restart left everyone then-online recorded as online forever. The
+    keys now expire on their own, but the semantics are still the wrong ones
+    for this service.)
   * Redis pub/sub is at-most-once. A transition lost while this service is
     restarting is lost permanently, and the row it should have closed stays open.
 

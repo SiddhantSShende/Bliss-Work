@@ -10,7 +10,7 @@ assignment and offset commit are independent). For every relayable event:
      returns no rows and we skip; if a 'pending' row exists (prior worker
      crashed mid-flight), the reaper retries it later.
   3. Lookup recipient e-mail + username via auth-svc's internal API.
-  4. Check presence: SCARD presence:user:<userId> == 0 AND event.occurredAt
+  4. Check presence: no fresh entry in presence:u:<userId> AND event.occurredAt
      is older than offline_threshold_seconds. The "older than X seconds"
      check uses event.occurredAt (NOT now()) so post-rebalance re-reads of
      messages the user has ALREADY seen via WS do not produce spam.

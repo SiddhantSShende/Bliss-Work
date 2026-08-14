@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -71,90 +72,173 @@ func (s *Store) Ping(ctx context.Context) error {
 // Close releases the underlying client.
 func (s *Store) Close() error { return s.rdb.Close() }
 
-func presenceKey(userID string) string  { return "presence:user:" + userID }
-func orgPresenceKey(orgID string) string { return "presence:org:" + orgID }
+// ── Presence ─────────────────────────────────────────────────────────────────
+//
+// Presence is EXPIRING, and both keys are sorted sets scored by the moment we
+// last heard from the connection.
+//
+// The obvious implementation — SADD on connect, SREM on disconnect — was what
+// this used to be, and it is wrong in one specific and very common case. The
+// removal lives in a deferred call on the socket's goroutine, so a graceful
+// close runs it and a SIGKILL, an OOM kill, a container replacement or a node
+// partition runs nothing at all. The dead node's `nodeId:connId` entries then
+// sit in Redis forever, the user's connection set never reaches zero, and they
+// are reported online indefinitely. The old mitigation was a startup sweep of
+// every `presence:*` key, which worked precisely because there was only ever
+// one gateway: a second replica starting up would have logged out everybody
+// connected to the first.
+//
+// Scoring by last-heartbeat fixes both. A stale entry ages out on its own, so
+// no cleanup path has to survive a crash, and there is nothing global to sweep,
+// so N replicas are fine. The heartbeat rides the ping the connection loop
+// already sends every 20s — no extra goroutine, no extra timer.
+//
+// The reads REAP before they answer. That is what makes it self-healing: the
+// clients poll /presence every 20s and every socket asks for a snapshot on
+// hello, so a crashed node's ghosts are cleared by ordinary traffic within one
+// poll rather than by a background job that also has to be kept alive.
+
+const (
+	// presenceStaleAfter is how long an entry may go untouched before it is
+	// treated as dead. Three missed 20s heartbeats plus slack — the same
+	// three-missed-beats reasoning telemetry-svc uses for its session timeout.
+	// Too tight and a GC pause marks a live user offline; too loose and a
+	// crashed node's users linger.
+	presenceStaleAfter = 70 * time.Second
+
+	// presenceTTL bounds the keys themselves, so an org that goes quiet leaves
+	// nothing behind. Comfortably longer than the stale window: expiring a key
+	// that still has live members would drop presence for connected users.
+	presenceTTL = 10 * time.Minute
+)
+
+// Key prefixes are deliberately NOT the old `presence:user:` / `presence:org:`.
+//
+// These keys change type from SET to ZSET, and SADD against an existing ZSET
+// fails with WRONGTYPE. Renaming means that during a rolling deploy the old and
+// new pods write disjoint keyspaces and neither errors; the old keys are simply
+// abandoned and expire from irrelevance. The cost is one rollout during which
+// presence is split across two views, which is acceptable — presence is
+// ephemeral by design and every client gets an authoritative snapshot on its
+// next hello.
+func presenceKey(userID string) string   { return "presence:u:" + userID }
+func orgPresenceKey(orgID string) string { return "presence:o:" + orgID }
 func outboxKey(userID string) string     { return "outbox:user:" + userID }
 
-// AddPresence records that a connection (nodeId:connId) is live for userID.
+func nowMs() int64 { return time.Now().UnixMilli() }
+
+// staleBefore is the score below which an entry is considered dead.
+func staleBefore() float64 { return float64(time.Now().Add(-presenceStaleAfter).UnixMilli()) }
+
+// AddPresence records that a connection (nodeId:connId) is live for userID, and
+// stamps it with the current time.
 func (s *Store) AddPresence(ctx context.Context, userID, nodeID, connID string) error {
-	return s.rdb.SAdd(ctx, presenceKey(userID), nodeID+":"+connID).Err()
+	pipe := s.rdb.TxPipeline()
+	pipe.ZAdd(ctx, presenceKey(userID), redis.Z{Score: float64(nowMs()), Member: nodeID + ":" + connID})
+	pipe.Expire(ctx, presenceKey(userID), presenceTTL)
+	_, err := pipe.Exec(ctx)
+	return err
+}
+
+// TouchPresence refreshes the heartbeat for one live connection.
+//
+// Called from the connection loop's existing ping ticker. Both keys are
+// refreshed: the org set's score is what OnlineUserIDs reaps against, so a user
+// whose only signal was the connection-level key would age out of the org view
+// while still connected.
+func (s *Store) TouchPresence(ctx context.Context, orgID, userID, nodeID, connID string) error {
+	now := float64(nowMs())
+	pipe := s.rdb.TxPipeline()
+	pipe.ZAdd(ctx, presenceKey(userID), redis.Z{Score: now, Member: nodeID + ":" + connID})
+	pipe.Expire(ctx, presenceKey(userID), presenceTTL)
+	pipe.ZAdd(ctx, orgPresenceKey(orgID), redis.Z{Score: now, Member: userID})
+	pipe.Expire(ctx, orgPresenceKey(orgID), presenceTTL)
+	_, err := pipe.Exec(ctx)
+	return err
 }
 
 // RemovePresence clears a connection's presence entry.
 func (s *Store) RemovePresence(ctx context.Context, userID, nodeID, connID string) error {
-	return s.rdb.SRem(ctx, presenceKey(userID), nodeID+":"+connID).Err()
+	return s.rdb.ZRem(ctx, presenceKey(userID), nodeID+":"+connID).Err()
 }
 
 // AddOrgPresence marks userID as online within its org (idempotent). It returns
 // becameOnline=true only on the transition from absent→present (the user's FIRST
 // live connection across all nodes), so the caller can broadcast a single
 // presence.online event instead of one per socket/tab.
+//
+// Reaps first: if the user's previous entry is stale (they were on a node that
+// died), this IS a fresh transition and the caller should announce it. Without
+// the reap, ZAdd would report "already present" and no presence.online would go
+// out — the user would be online in Redis and invisible to everyone's UI.
 func (s *Store) AddOrgPresence(ctx context.Context, orgID, userID string) (becameOnline bool, err error) {
-	n, err := s.rdb.SAdd(ctx, orgPresenceKey(orgID), userID).Result()
-	return n > 0, err
+	key := orgPresenceKey(orgID)
+	pipe := s.rdb.TxPipeline()
+	pipe.ZRemRangeByScore(ctx, key, "-inf", fmt.Sprintf("(%f", staleBefore()))
+	added := pipe.ZAdd(ctx, key, redis.Z{Score: float64(nowMs()), Member: userID})
+	pipe.Expire(ctx, key, presenceTTL)
+	if _, err := pipe.Exec(ctx); err != nil {
+		return false, err
+	}
+	return added.Val() > 0, nil
 }
 
 // RemoveOrgPresenceIfLast drops userID from the org's online set only when the
 // user has no remaining live connections (across all nodes). It returns
 // becameOffline=true only on the present→absent transition (the user's LAST
 // connection closed), so the caller can broadcast a single presence.offline.
+//
+// Evicts stale connection entries before counting. A user whose second tab is
+// on a node that crashed must still go offline when they close the first.
 func (s *Store) RemoveOrgPresenceIfLast(ctx context.Context, orgID, userID string) (becameOffline bool, err error) {
-	n, err := s.rdb.SCard(ctx, presenceKey(userID)).Result()
+	if err := s.rdb.ZRemRangeByScore(ctx, presenceKey(userID), "-inf", fmt.Sprintf("(%f", staleBefore())).Err(); err != nil {
+		return false, err
+	}
+	n, err := s.rdb.ZCard(ctx, presenceKey(userID)).Result()
 	if err != nil {
 		return false, err
 	}
 	if n > 0 {
 		return false, nil
 	}
-	removed, err := s.rdb.SRem(ctx, orgPresenceKey(orgID), userID).Result()
+	removed, err := s.rdb.ZRem(ctx, orgPresenceKey(orgID), userID).Result()
 	return removed > 0, err
 }
 
 // OnlineUserIDs returns the user IDs currently connected within an org.
+//
+// Reap-then-read. This is the self-healing property the whole design rests on:
+// /presence is polled every 20s by every client and consulted on every hello,
+// so a dead node's ghosts are cleared by traffic that was going to happen
+// anyway, with no background job to own or monitor.
 func (s *Store) OnlineUserIDs(ctx context.Context, orgID string) ([]string, error) {
-	return s.rdb.SMembers(ctx, orgPresenceKey(orgID)).Result()
-}
-
-// PurgePresence deletes every presence:* key. Called ONCE at startup.
-//
-// Presence entries are keyed nodeId:connId and are removed on graceful socket
-// close — but a crash / SIGKILL / container replacement removes nothing, so a
-// restarted gateway leaves the previous node's entries orphaned in Redis, and
-// those users show "online" forever (this is exactly the stale-presence bug).
-//
-// A gateway restart drops EVERY socket, so at startup any presence in Redis is
-// necessarily from a now-dead node; deleting it all is safe and reconnecting
-// clients rebuild it within seconds (they re-add on `hello`, and the 20s client
-// poll reconciles). NOTE: assumes a SINGLE gateway node (this deployment). With
-// multiple live nodes this would wipe their presence too — replace with a
-// node-registry-scoped purge before scaling the gateway horizontally.
-func (s *Store) PurgePresence(ctx context.Context) (int, error) {
-	var cursor uint64
-	total := 0
-	for {
-		keys, next, err := s.rdb.Scan(ctx, cursor, "presence:*", 256).Result()
-		if err != nil {
-			return total, err
-		}
-		if len(keys) > 0 {
-			if err := s.rdb.Del(ctx, keys...).Err(); err != nil {
-				return total, err
-			}
-			total += len(keys)
-		}
-		cursor = next
-		if cursor == 0 {
-			return total, nil
-		}
+	key := orgPresenceKey(orgID)
+	cutoff := staleBefore()
+	pipe := s.rdb.TxPipeline()
+	pipe.ZRemRangeByScore(ctx, key, "-inf", fmt.Sprintf("(%f", cutoff))
+	fresh := pipe.ZRangeByScore(ctx, key, &redis.ZRangeBy{Min: fmt.Sprintf("%f", cutoff), Max: "+inf"})
+	if _, err := pipe.Exec(ctx); err != nil {
+		return nil, err
 	}
+	return fresh.Val(), nil
 }
 
 // IsOnlineInOrg reports whether userID is currently present in orgID's online
 // set. Used to confine RTC signaling to same-org peers: a destination that is
 // not in the sender's org online set (cross-org, or offline) is treated as
 // unreachable, so the gateway never forwards a frame across an org boundary.
+//
+// Checks freshness rather than mere membership — routing a call frame to a
+// peer whose node died is exactly the case this must refuse.
 func (s *Store) IsOnlineInOrg(ctx context.Context, orgID, userID string) (bool, error) {
-	return s.rdb.SIsMember(ctx, orgPresenceKey(orgID), userID).Result()
+	score, err := s.rdb.ZScore(ctx, orgPresenceKey(orgID), userID).Result()
+	if errors.Is(err, redis.Nil) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return score >= staleBefore(), nil
 }
 
 // AppendOutbox adds a raw event to a user's replay ZSET, scored by occurredAt
