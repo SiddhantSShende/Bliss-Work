@@ -428,6 +428,21 @@ cronJobs:
       requests: { cpu: 100m, memory: 128Mi }
       limits: { cpu: 1000m, memory: 512Mi }
 
+  # LAST, and the most destructive job in the system: it erases an organization
+  # across seven databases and a blob volume. Runs after everything else so the
+  # most recent backup predates the deletion — a mistake should be recoverable
+  # FROM the backup, not faithfully recorded BY it.
+  org-purge:
+    enabled: true
+    image: auth-svc
+    schedule: "0 5 * * *"
+    timeZone: "Etc/UTC"
+    command: ["python", "-m", "app.jobs.purge_orgs"]
+    readOnlyRootFilesystem: true
+    resources:
+      requests: { cpu: 100m, memory: 128Mi }
+      limits: { cpu: 500m, memory: 512Mi }
+
 # NOT scheduled here, deliberately: blisswork-backup and blisswork-media-disk.
 # Both are about the HOST — a pg_dump of a container-local Postgres and a check
 # on the media volume's free space. On Kubernetes with a managed database and

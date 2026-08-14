@@ -93,6 +93,8 @@ export const qk = {
   integrations: ["integrations"] as const,
   /** Organizations the signed-in identity belongs to (org switcher). */
   myOrgs: ["myOrgs"] as const,
+  /** The current org plus any pending deletion (admin-only). */
+  org: ["org"] as const,
   /** Unified hub activity timeline (inbound + outbound external messages).
    *  Audit surface — the Hub renders `mentions` instead. */
   integrationActivity: ["integrationActivity"] as const,

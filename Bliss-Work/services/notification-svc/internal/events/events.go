@@ -7,6 +7,9 @@ const (
 	// TopicNotificationDLQ receives malformed (unparseable) messages so a poison
 	// pill cannot block its partition. Mirrors the notification.events.v1 stream.
 	TopicNotificationDLQ = "notification.events.v1.dlq"
+	// TopicAuth is read for org.deleted only. Notifications carry task titles
+	// and message previews, so an erased workspace has to take them with it.
+	TopicAuth = "auth.events"
 )
 
 // Event type discriminants.
@@ -16,6 +19,7 @@ const (
 	TypeTaskIgnored         = "task.ignored"
 	TypeTaskLeft            = "task.left"
 	TypeNotificationCreated = "notification.created"
+	TypeOrgDeleted          = "org.deleted"
 )
 
 // Notification kinds.

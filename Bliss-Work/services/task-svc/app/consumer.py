@@ -16,6 +16,7 @@ from .crypto import cryptor
 from .db import session, set_bypass_rls
 from .events import AUTH_TOPIC
 from .logging_setup import log
+from .org_purge import purge_org
 from .routes.helpers import enqueue_outbox, resolve_username
 from .tracing import extract_context
 
@@ -193,6 +194,15 @@ class TaskSvcConsumer:
             await self._handle_membership_changed(event, active=event_type == "user.reactivated")
         elif event_type == "channel.member.joined":
             await self._handle_channel_member_joined(event)
+        elif event_type == "org.deleted":
+            # The whole workspace is gone. Crypto-shred has already made the
+            # encrypted columns unreadable; this removes the rows, which is the
+            # part a shred cannot do. Not dedup-claimed on purpose — the purge
+            # empties consumed_events for this org, so a claim would delete
+            # itself. The purge is idempotent instead.
+            org_id = event.get("orgId")
+            if org_id:
+                await purge_org(str(org_id))
         # All other events on these topics are intentionally ignored.
 
     async def _handle_user_created(self, event: dict) -> None:

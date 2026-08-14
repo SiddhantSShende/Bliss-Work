@@ -10,7 +10,11 @@ export const Topics = {
   Task: "task.events.v1", // key = taskId
   Notification: "notification.events.v1", // key = recipientId
   Integration: "integration.events.v1", // key = recipientId (external-integration hub activity)
-  Auth: "auth.events", // key = userId
+  // key = userId, EXCEPT the org.* lifecycle events, which are keyed by orgId.
+  // They are about the workspace rather than any one person, and keying them by
+  // org is what keeps a delete ordered against that org's other auth events on
+  // the same partition.
+  Auth: "auth.events",
 } as const;
 export type TopicName = (typeof Topics)[keyof typeof Topics];
 
@@ -51,6 +55,9 @@ export const EventType = {
   UserSessionStarted: "user.session.started",
   UserSessionEnded: "user.session.ended",
   UserOrgSwitched: "user.org_switched",
+  OrgDeleteRequested: "org.delete_requested",
+  OrgDeleteCancelled: "org.delete_cancelled",
+  OrgDeleted: "org.deleted",
   InviteCreated: "invite.created",
   PasswordResetRequested: "password.reset.requested",
   EmailVerificationRequested: "email.verification.requested",
@@ -482,6 +489,50 @@ export const UserRemoved = z.object({
 });
 
 /**
+ * Organization lifecycle. INTERNAL-ONLY — every service that stores org-scoped
+ * data consumes `org.deleted`; the gateway's default branch never pushes
+ * `org.*` to a browser.
+ *
+ * Keyed by orgId on `auth.events`, unlike every other event on that topic. They
+ * are about the workspace, not a person, and the key is what keeps a delete
+ * ordered against that org's other auth events.
+ *
+ * The pair before the delete exist so the destruction is observable while it is
+ * still reversible: an operator watching the stream sees the request and the
+ * countdown, not just the aftermath.
+ */
+export const OrgDeleteRequested = z.object({
+  type: z.literal(EventType.OrgDeleteRequested),
+  ...envelope,
+  /** The admin who asked. Never absent — this action has no system trigger. */
+  actorId: z.string().uuid(),
+  /** When the grace period expires and the purge becomes eligible to run. */
+  purgeAfter: z.string(),
+});
+
+export const OrgDeleteCancelled = z.object({
+  type: z.literal(EventType.OrgDeleteCancelled),
+  ...envelope,
+  actorId: z.string().uuid(),
+});
+
+/**
+ * The org's data is gone from auth-svc and its encryption key has been
+ * destroyed. Every consumer must purge its own org-scoped rows.
+ *
+ * Consumers must be idempotent and must tolerate arriving late or twice: the
+ * crypto-shred already happened, so a consumer that is down for an hour finds
+ * unreadable ciphertext rather than readable data, and re-running a purge over
+ * nothing is a no-op.
+ */
+export const OrgDeleted = z.object({
+  type: z.literal(EventType.OrgDeleted),
+  ...envelope,
+  /** Kept for the audit trail; the org row itself no longer exists. */
+  slug: z.string().optional(),
+});
+
+/**
  * Session lifecycle, emitted by auth-svc in the same transaction that issues or
  * revokes the session. INTERNAL-ONLY — consumed by telemetry-svc to anchor the
  * activity timeline; the gateway's default branch never pushes `user.*`.
@@ -613,6 +664,9 @@ export const DomainEvent = z.discriminatedUnion("type", [
   UserSessionStarted,
   UserSessionEnded,
   UserOrgSwitched,
+  OrgDeleteRequested,
+  OrgDeleteCancelled,
+  OrgDeleted,
   InviteCreated,
   PasswordResetRequested,
   EmailVerificationRequested,
@@ -654,6 +708,9 @@ export type UserRemoved = z.infer<typeof UserRemoved>;
 export type UserSessionStarted = z.infer<typeof UserSessionStarted>;
 export type UserSessionEnded = z.infer<typeof UserSessionEnded>;
 export type UserOrgSwitched = z.infer<typeof UserOrgSwitched>;
+export type OrgDeleteRequested = z.infer<typeof OrgDeleteRequested>;
+export type OrgDeleteCancelled = z.infer<typeof OrgDeleteCancelled>;
+export type OrgDeleted = z.infer<typeof OrgDeleted>;
 export type InviteCreated = z.infer<typeof InviteCreated>;
 export type PasswordResetRequested = z.infer<typeof PasswordResetRequested>;
 export type EmailVerificationRequested = z.infer<typeof EmailVerificationRequested>;

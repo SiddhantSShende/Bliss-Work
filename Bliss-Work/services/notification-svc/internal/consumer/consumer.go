@@ -34,13 +34,18 @@ type Consumer struct {
 	log    *slog.Logger
 }
 
-// New constructs a Consumer subscribed to task.events.v1 under group
-// "notification-svc".
+// New constructs a Consumer subscribed to task.events.v1 and auth.events under
+// group "notification-svc".
+//
+// auth.events is read for exactly one message type, org.deleted: notifications
+// carry task titles and message previews, so an erased workspace has to take
+// them with it. GroupTopics rather than a second reader — one consumer group
+// covering both topics keeps offset management and rebalancing in one place.
 func New(pool *pgxpool.Pool, brokers []string, log *slog.Logger) *Consumer {
 	r := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:        brokers,
 		GroupID:        "notification-svc",
-		Topic:          events.TopicTask,
+		GroupTopics:    []string{events.TopicTask, events.TopicAuth},
 		MinBytes:       1,
 		MaxBytes:       10e6,
 		CommitInterval: 0, // commit synchronously after successful handling
@@ -146,6 +151,13 @@ func (c *Consumer) handle(ctx context.Context, value []byte) error {
 		return errMalformed
 	}
 
+	// The workspace is gone; its notifications go with it. Handled before the
+	// task switch because it arrives on a different topic and shares none of
+	// the task-event shape beyond the envelope.
+	if ev.Type == events.TypeOrgDeleted {
+		return c.purgeOrg(ctx, ev.OrgID)
+	}
+
 	var kind, text string
 	switch ev.Type {
 	case events.TypeTaskAcknowledged:
@@ -239,5 +251,23 @@ func (c *Consumer) handle(ctx context.Context, value []byte) error {
 	}
 	c.log.Info("notification created from task event",
 		"type", ev.Type, "notificationId", notifID.String(), "recipientId", recipientID)
+	return nil
+}
+
+// purgeOrg deletes every notification belonging to a deleted organization.
+//
+// Idempotent, and deliberately not dedup-guarded: re-running it over an org
+// that is already gone deletes nothing, which is a cheaper guarantee than
+// tracking whether we have seen the event before.
+func (c *Consumer) purgeOrg(ctx context.Context, orgID string) error {
+	if orgID == "" {
+		c.log.Warn("org.deleted with no orgId")
+		return nil
+	}
+	tag, err := c.pool.Exec(ctx, `DELETE FROM notifications WHERE org_id = $1`, orgID)
+	if err != nil {
+		return err
+	}
+	c.log.Warn("org purged", "orgId", orgID, "notifications", tag.RowsAffected())
 	return nil
 }

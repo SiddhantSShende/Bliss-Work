@@ -12,6 +12,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/task-board/messaging-svc/internal/blob"
 	"github.com/task-board/messaging-svc/internal/events"
 	"github.com/task-board/messaging-svc/internal/store"
 	"github.com/task-board/messaging-svc/internal/tracing"
@@ -34,15 +35,20 @@ func startConsumeSpan(ctx context.Context, m kafka.Message) (context.Context, tr
 	)
 }
 
-// AuthConsumer consumes auth.events and maintains the user_projection.
+// AuthConsumer consumes auth.events, maintains the user_projection, and erases
+// an organization's data when it is deleted.
 type AuthConsumer struct {
 	store *store.Store
+	// blobs is needed for org deletion and nothing else. Attachment BYTES live
+	// on disk rather than in Postgres and are not application-encrypted, so
+	// neither the database purge nor the crypto-shred reaches them.
+	blobs *blob.Store
 	log   *slog.Logger
 	r     *kafka.Reader
 }
 
 // NewAuthConsumer builds a reader bound to the "messaging-svc" consumer group.
-func NewAuthConsumer(st *store.Store, brokers []string, log *slog.Logger) *AuthConsumer {
+func NewAuthConsumer(st *store.Store, blobs *blob.Store, brokers []string, log *slog.Logger) *AuthConsumer {
 	r := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:        brokers,
 		GroupID:        "messaging-svc",
@@ -51,7 +57,7 @@ func NewAuthConsumer(st *store.Store, brokers []string, log *slog.Logger) *AuthC
 		MaxBytes:       10e6,
 		CommitInterval: time.Second,
 	})
-	return &AuthConsumer{store: st, log: log, r: r}
+	return &AuthConsumer{store: st, blobs: blobs, log: log, r: r}
 }
 
 // Run consumes until ctx is cancelled.
@@ -81,6 +87,15 @@ func (c *AuthConsumer) handle(ctx context.Context, value []byte) {
 		c.log.Error("auth consumer bad json", "err", err)
 		return
 	}
+	// Org deletion is handled before the dedup claim below, deliberately: the
+	// purge empties consumed_events for this org, so a claim would delete
+	// itself and a redelivery would look new. PurgeOrg is idempotent instead,
+	// which is the property that actually matters.
+	if head.Type == events.TypeOrgDeleted {
+		c.purgeOrg(ctx, value)
+		return
+	}
+
 	switch head.Type {
 	case events.TypeUserCreated, events.TypeUserDeactivated,
 		events.TypeUserReactivated, events.TypeUserRemoved:
@@ -125,4 +140,34 @@ func (c *AuthConsumer) handle(ctx context.Context, value []byte) {
 		return
 	}
 	c.log.Info("user_projection upserted", "userId", evt.UserID, "username", evt.Username)
+}
+
+// purgeOrg erases one organization: its rows, then its attachment bytes.
+//
+// Rows first. If the process dies between the two the blobs are orphaned but
+// unreachable — no row references them and the crypto-shred already made every
+// encrypted column unreadable — and the next redelivery finishes the job. The
+// other order would leave rows pointing at files that are already gone, which
+// renders as broken attachments rather than as an absent workspace.
+func (c *AuthConsumer) purgeOrg(ctx context.Context, value []byte) {
+	var evt struct {
+		OrgID string `json:"orgId"`
+	}
+	if err := json.Unmarshal(value, &evt); err != nil || evt.OrgID == "" {
+		c.log.Error("auth consumer decode org.deleted", "err", err)
+		return
+	}
+
+	deleted, err := c.store.PurgeOrg(ctx, evt.OrgID)
+	if err != nil {
+		c.log.Error("org purge failed", "orgId", evt.OrgID, "err", err)
+		return
+	}
+	if err := c.blobs.RemoveOrg(evt.OrgID); err != nil {
+		// Loud, and NOT fatal to the rows we already removed. Leftover bytes on
+		// a disk are a cleanup task; a half-purged database is a correctness
+		// problem. The retry comes with the next redelivery.
+		c.log.Error("org blob purge failed", "orgId", evt.OrgID, "err", err)
+	}
+	c.log.Warn("org purged", "orgId", evt.OrgID, "rows", deleted)
 }

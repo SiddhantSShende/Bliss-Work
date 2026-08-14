@@ -14,6 +14,7 @@ import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
 import { useSwitchOrg } from "../features/OrgSwitcher";
 import { useGoBack } from "../lib/useGoBack";
+import { DeleteOrgSection } from "../features/DeleteOrgSection";
 
 export function Org() {
   const { api } = useRuntime();
@@ -109,6 +110,12 @@ export function Org() {
               </Button>
             </div>
           </section>
+
+          {/* Admin-only, and last on the page for the obvious reason. Renders
+              nothing for a member: the endpoint behind it is admin-gated, so
+              showing the control to someone who cannot use it is just a 403
+              waiting to happen. */}
+          {user?.roles.includes("org_admin") && <DeleteOrgSection />}
         </div>
       </div>
     </div>

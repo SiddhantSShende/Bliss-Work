@@ -32,6 +32,7 @@ from .db import session, set_bypass_rls
 from .event_map import MAPPINGS, preview_of
 from .ingest import ActivityRow, clamp_occurred_at, insert_events
 from .logging_setup import log
+from .org_purge import purge_org
 from .tracing import extract_context
 
 _tracer = trace.get_tracer(__name__)
@@ -161,6 +162,21 @@ class TelemetryConsumer:
         # they are no longer part of.
         if event.get("type") in ("user.removed", "user.deactivated"):
             await self._revoke_agent_tokens(event, str(event_id))
+            return
+
+        # The whole workspace is gone. Deleting the org's rows here is the half
+        # that crypto-shred cannot do: the encrypted columns are already
+        # unreadable, but the ids, timestamps and counts are not encrypted and
+        # would otherwise remain indefinitely.
+        #
+        # Deliberately NOT dedup-claimed. `_claim` writes to consumed_events,
+        # which this purge is about to empty for the org — so a claim would be
+        # deleted by its own handler and a redelivery would look new. The purge
+        # is idempotent, which is the property that actually matters here.
+        if event.get("type") == "org.deleted":
+            org_id = event.get("orgId")
+            if org_id:
+                await purge_org(str(org_id))
             return
 
         row = to_activity_row(event)

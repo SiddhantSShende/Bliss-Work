@@ -24,6 +24,9 @@ const (
 	TypeUserDeactivated       = "user.deactivated"
 	TypeUserReactivated       = "user.reactivated"
 	TypeUserRemoved           = "user.removed"
+	// TypeOrgDeleted is keyed by orgId rather than userId — see the topic note
+	// in packages/shared/src/types/events.ts.
+	TypeOrgDeleted = "org.deleted"
 	TypeChannelMessageCreated = "channel.message.created"
 	TypeChannelMemberJoined   = "channel.member.joined"
 	TypeChannelMemberRemoved  = "channel.member.removed"

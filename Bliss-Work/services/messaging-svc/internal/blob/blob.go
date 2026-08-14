@@ -105,6 +105,25 @@ func (s *Store) blobPath(orgID, sha string) (string, error) {
 	return filepath.Join(s.root, "blobs", orgID, sha[0:2], sha[2:4], sha), nil
 }
 
+// RemoveOrg deletes every blob belonging to one organization.
+//
+// This is the payoff for sharding the tree by org: "delete everything for org
+// X" is a single subtree removal rather than a walk. It exists for org
+// deletion, where it is the ONLY thing that reaches the attachment bytes —
+// crypto-shred does nothing for them, because blob contents are not
+// application-encrypted (filesystem permissions are load-bearing here).
+//
+// The orgID is parsed as a UUID before it touches a path, for the same reason
+// blobPath does it: this turns caller input into an os.RemoveAll target, and
+// that is not a place to trust a string. A missing directory is success — the
+// org may simply never have had an attachment.
+func (s *Store) RemoveOrg(orgID string) error {
+	if _, err := uuid.Parse(orgID); err != nil {
+		return ErrBadKey
+	}
+	return os.RemoveAll(filepath.Join(s.root, "blobs", orgID))
+}
+
 // RelPath is the stored storage_path — relative to the root, so the root can be
 // remounted elsewhere without rewriting the database.
 func (s *Store) RelPath(orgID, sha string) (string, error) {

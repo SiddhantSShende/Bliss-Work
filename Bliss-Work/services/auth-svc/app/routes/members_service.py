@@ -239,7 +239,40 @@ async def set_status_tx(
         target=user_id,
         meta={"from": member.status, "to": new_status},
     )
+    await _note_if_orphaned(conn, principal)
     return await load_member(conn, principal.org_id, user_id)
+
+
+async def _note_if_orphaned(conn: AsyncConnection, principal) -> None:
+    """Record — and only record — that an org has no active members left.
+
+    A DETECTOR, not an actor. The QA report asked for the org to be deleted
+    automatically at this point; routes/org_lifecycle.py explains at length why
+    that is the wrong shape, the short version being that removal is reversible
+    and destruction is not.
+
+    In practice `would_orphan_org` means this is nearly unreachable: the last
+    admin can neither remove themselves nor be removed. It can still happen —
+    an org whose only members are non-admins, all removed by an admin who was
+    then suspended by another — and when it does, someone should be able to see
+    it in the audit trail rather than discover it as a support ticket.
+    """
+    remaining = (
+        await conn.execute(
+            text("SELECT count(*) FROM users WHERE org_id = :org AND status = 'active'"),
+            {"org": principal.org_id},
+        )
+    ).scalar_one()
+    if remaining:
+        return
+    await service.write_audit(
+        conn,
+        org_id=principal.org_id,
+        actor_id=principal.user_id,
+        action="org.orphaned",
+        target=principal.org_id,
+        meta={"activeMembers": 0},
+    )
 
 
 async def _emit(conn: AsyncConnection, principal, event_type: str, user_id: str, **extra) -> None:

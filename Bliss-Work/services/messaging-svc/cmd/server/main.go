@@ -125,7 +125,7 @@ func main() {
 	poller := kafka.NewOutboxPoller(st, cfg.KafkaBrokers, log)
 	go poller.Run(rootCtx)
 
-	consumer := kafka.NewAuthConsumer(st, cfg.KafkaBrokers, log)
+	consumer := kafka.NewAuthConsumer(st, blobs, cfg.KafkaBrokers, log)
 	go consumer.Run(rootCtx)
 
 	// Phase 2: project task.events.v1 into inbox_items so the unified inbox

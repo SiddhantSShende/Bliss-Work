@@ -1,0 +1,20 @@
+[Unit]
+Description=Daily BlissWork organization purge
+
+[Timer]
+# 05:00 — LAST of the nightly jobs, after the 02:30 backup, the 03:00 attachment
+# GC and the 04:30 telemetry prune. This is the most destructive job in the
+# system: it erases an organization across seven databases and a blob volume.
+# The backup ordering is load-bearing — the most recent dump must predate the
+# deletion, so a mistake is recoverable from it rather than faithfully recorded
+# by it.
+OnCalendar=*-*-* 05:00:00 UTC
+RandomizedDelaySec=300
+# If the host was off, run on the next boot rather than skipping. A pending
+# erasure request is an obligation with a deadline attached, not a chore that
+# can wait for the next convenient window.
+Persistent=true
+Unit=blisswork-org-purge.service
+
+[Install]
+WantedBy=timers.target

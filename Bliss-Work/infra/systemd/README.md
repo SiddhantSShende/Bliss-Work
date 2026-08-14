@@ -189,3 +189,44 @@ and compares sizes. rsync exiting 0 is not proof the bytes landed.
   manager too — without it the dumps are unrecoverable, by design. Copying it to
   the *backup target* would defeat the encryption, so put it somewhere else
   entirely.
+
+## blisswork-org-purge.{service,timer}
+
+Destroys organizations whose deletion grace period has elapsed, via
+`scripts/purge-orgs.sh` → `python -m app.jobs.purge_orgs` inside `auth-svc`.
+Daily at **05:00 UTC**, `Persistent=true`.
+
+**This is the most destructive job on the host.** It erases an organization
+across seven databases and the blob volume. Two properties are load-bearing:
+
+- **It runs last.** After the 02:30 backup, the 03:00 attachment GC and the
+  04:30 telemetry prune. The backup ordering is the point — if a deletion was
+  requested in error and nobody cancelled it in time, the most recent dump
+  predates the loss rather than faithfully recording it.
+- **Failure is loud.** Non-zero exit turns the unit red and it should stay red
+  until someone looks. A swallowed failure here is indistinguishable from
+  "nothing was due", and the difference is whether an erasure request was
+  actually honoured.
+
+Only the auth-svc half runs here: the crypto-shred (deleting the org's
+`org_keys` row, which makes every encrypted column in every service unreadable
+in O(1)) and the auth-side row deletion. The other services erase themselves on
+the `org.deleted` event this emits. That asynchrony is deliberate — the
+guarantee is the shred, which does not depend on any consumer being up.
+
+```bash
+sudo cp infra/systemd/blisswork-org-purge.* /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now blisswork-org-purge.timer
+
+systemctl list-timers blisswork-org-purge.timer
+sudo journalctl -u blisswork-org-purge.service
+
+# See what WOULD be purged, without deleting anything:
+PURGE_DRY_RUN=1 bash scripts/purge-orgs.sh
+```
+
+| Env | Default | Meaning |
+| --- | --- | --- |
+| `PURGE_DRY_RUN` | unset | Report the due orgs and delete nothing. |
+| `ORG_DELETE_GRACE_DAYS` | `7` | Read by auth-svc when a deletion is REQUESTED, not by this job — changing it does not move an already-scheduled purge. |

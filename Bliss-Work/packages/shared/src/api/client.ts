@@ -40,6 +40,7 @@ import {
   type ThreadOrigin,
   NotificationDTO,
   OrgMembershipDTO,
+  OrgLifecycleDTO,
   ReviewResponse,
   SentTaskDTO,
   StickyTaskDTO,
@@ -404,6 +405,34 @@ export class ApiClient {
   /** Organizations the signed-in identity belongs to (for the switcher). */
   myOrgs() {
     return this.req(this.cfg.authBase, "/auth/orgs/mine", {}, z.array(OrgMembershipDTO));
+  }
+  /** The current org plus any pending deletion. Admin-only. */
+  org() {
+    return this.req(this.cfg.authBase, "/auth/org", {}, OrgLifecycleDTO);
+  }
+  /**
+   * Schedule this organization for destruction after a grace period.
+   *
+   * `slug` must equal the org's own slug — typed confirmation, enforced
+   * server-side. Every session in the org is revoked immediately, so the caller
+   * is signing themselves out too.
+   */
+  requestOrgDelete(slug: string) {
+    return this.req(
+      this.cfg.authBase,
+      "/auth/org/delete",
+      { method: "POST", body: JSON.stringify({ slug }) },
+      OrgLifecycleDTO,
+    );
+  }
+  /** Call off a scheduled deletion. Valid until the purge job runs. */
+  cancelOrgDelete() {
+    return this.req(
+      this.cfg.authBase,
+      "/auth/org/delete/cancel",
+      { method: "POST" },
+      OrgLifecycleDTO,
+    );
   }
   /** Switch the active organization — returns a fresh session (new access token +
    *  org-scoped user) for the caller's membership in `orgId`. */

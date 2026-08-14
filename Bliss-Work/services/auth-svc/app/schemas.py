@@ -157,3 +157,30 @@ class AuditPage(BaseModel):
 
     entries: list[AuditEntryDTO]
     nextCursor: int | None = None
+
+
+class DeleteOrgRequest(BaseModel):
+    """Typed confirmation for org deletion — must equal the org's slug.
+
+    A boolean flag would be trivially satisfied by a mis-scripted client or a
+    stray click; echoing the name is the standard friction for an action with no
+    undo, and it makes the intent unambiguous in the audit trail.
+    """
+
+    slug: str
+
+
+class OrgLifecycleDTO(BaseModel):
+    """The org plus any pending deletion, for the countdown banner.
+
+    All three timestamps are nullable and mean different things:
+    `deleteRequestedAt` = someone asked, `purgeAfter` = when it stops being
+    reversible, `deletedAt` = it already happened.
+    """
+
+    id: str
+    name: str
+    slug: str | None = None
+    deleteRequestedAt: str | None = None
+    purgeAfter: str | None = None
+    deletedAt: str | None = None

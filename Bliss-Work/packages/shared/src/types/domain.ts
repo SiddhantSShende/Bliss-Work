@@ -220,6 +220,23 @@ export const OrgMembershipDTO = z.object({
 });
 export type OrgMembershipDTO = z.infer<typeof OrgMembershipDTO>;
 
+/**
+ * The current organization plus any pending deletion.
+ *
+ * Three nullable timestamps that mean different things and must not be
+ * collapsed: `deleteRequestedAt` = someone asked, `purgeAfter` = the moment it
+ * stops being reversible, `deletedAt` = it already happened.
+ */
+export const OrgLifecycleDTO = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  slug: z.string().nullish(),
+  deleteRequestedAt: z.string().nullish(),
+  purgeAfter: z.string().nullish(),
+  deletedAt: z.string().nullish(),
+});
+export type OrgLifecycleDTO = z.infer<typeof OrgLifecycleDTO>;
+
 export const SessionDTO = z.object({
   accessToken: z.string(),
   user: UserDTO,

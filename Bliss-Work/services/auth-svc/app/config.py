@@ -50,6 +50,13 @@ class Settings(BaseSettings):
     lockout_minutes: int = 15
     require_email_verification: bool = False
 
+    # How long a requested org deletion stays cancellable before the purge job
+    # will act on it. Long enough that a mistake is caught by a human coming
+    # back on Monday, and long enough that at least one nightly backup was taken
+    # while the data still existed — the purge is scheduled after the backup for
+    # exactly that reason. Lowering this below one day removes both properties.
+    org_delete_grace_days: int = 7
+
     # Redis for distributed rate limiting (honest across pods). Empty = in-process
     # fallback (per-pod, fails open). slowapi_storage_uri overrides redis_url for
     # the slowapi limiter specifically; usually set both to the same redis:// URL.

@@ -110,6 +110,9 @@ claim.
 | Data classification | Secret / PII / User content / Metadata tiers + protection per tier | [`SECURITY.md`](./SECURITY.md) §2 |
 | Subject access / export | records retrievable by `user_id`/`org_id`; server decrypts on read | [`SECURITY.md`](./SECURITY.md) §4; `crypto.py::decrypt` |
 | Right-to-erasure (crypto-shred) | delete the org's `org_keys` row → all `*_enc` columns unreadable in O(1) | [`SECURITY.md`](./SECURITY.md) §4; `org_keys` + `crypto.py` (no DEK ⇒ `CryptoError`) |
+| Org erasure is self-service, delayed and reversible | admin-initiated with typed slug confirmation, a configurable grace period and a cancel path; the purge is a scheduled job ordered after the nightly backup, never an HTTP request | `services/auth-svc/app/routes/org_lifecycle.py`, `app/jobs/purge_orgs.py`, `infra/systemd/blisswork-org-purge.timer` |
+| Org erasure reaches every store | crypto-shred first (immediate, consumer-independent), then `org.deleted` fans out to task/messaging/notification/telemetry/integrations; messaging also removes attachment BYTES, which are not application-encrypted | `internal/kafka/consumer.go::purgeOrg`, `internal/blob/blob.go::RemoveOrg`, each service's `org_purge` module |
+| Erasure survives its own audit trail | `audit_log` is inside the org's RLS scope and is destroyed with it, so a tombstone outside that boundary records the deletion | `deleted_orgs` table (`migrations/0009_org_deletion.sql`, never purged) + the `org.*` Kafka events |
 | Per-user erasure | null/overwrite that user's `*_enc` columns | [`SECURITY.md`](./SECURITY.md) §4 |
 | Retention | policy-driven; expired data crypto-shredded rather than bulk-deleted | [`SECURITY.md`](./SECURITY.md) §4 |
 | Behavioural telemetry: purpose + retention | 90-day raw activity, daily rollups retained; day-partitioned so expiry is a `DROP TABLE` | [`TELEMETRY.md`](./TELEMETRY.md) §1, §3; `services/telemetry-svc/migrations/0001_init.sql` |

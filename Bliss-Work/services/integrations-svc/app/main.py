@@ -19,6 +19,7 @@ from .db import dispose_engine, get_engine, init_engine, run_migrations
 from .errors import register_exception_handlers
 from .logging_setup import configure_logging, log
 from .middleware import BodySizeLimitMiddleware, RequestIDMiddleware, SecurityHeadersMiddleware
+from .org_consumer import consumer as org_consumer
 from .outbox import poller
 from .rate_limit import limiter, rate_limit_handler
 from .push_worker import worker as push_worker
@@ -48,10 +49,15 @@ async def lifespan(app: FastAPI):
     # Renew Gmail/Graph push subscriptions (they expire silently) and reconcile
     # anything push dropped — both vendors deliver best-effort.
     await push_worker.start()
+    # The one thing this service consumes: org.deleted. It holds OAuth refresh
+    # tokens against Gmail/Outlook/Teams/Slack, so a deleted workspace has to
+    # reach them. See app/org_consumer.py.
+    await org_consumer.start()
     log.info("integrations_svc_started", port=settings.port)
     try:
         yield
     finally:
+        await org_consumer.stop()
         await push_worker.stop()
         await refresh_worker.stop()
         await poller.stop()
