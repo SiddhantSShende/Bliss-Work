@@ -230,3 +230,50 @@ ends with the tail of each unhealthy service's output — start there.
 **`Cannot fast-forward to origin/main`.** The host has commits `origin/main` does
 not. Someone committed on the box. Resolve by hand — the script will not rewrite
 history under a live build context.
+
+## Notes for the next deploy
+
+Specific to the change set that added expiring presence, org deletion and chat
+pagination. Delete this section once it has shipped.
+
+**Two new migrations apply themselves on boot.** `auth-svc` runs
+`run_migrations()` and `messaging-svc` runs `store.Migrate()` at startup, so
+`0009_org_deletion.sql` and `0014_message_features.sql` land when the containers
+come up — there is no separate migrate step to remember, and no separate step to
+forget. Both are idempotent (`IF NOT EXISTS` throughout) and additive: new
+columns and tables only, nothing dropped or rewritten, so a rollback to the
+previous image leaves them harmless rather than broken.
+
+**The gateway's Redis presence keys are renamed** (`presence:user:` →
+`presence:u:`, `presence:org:` → `presence:o:`) because they change type from
+SET to ZSET, and `SADD` against a ZSET is a `WRONGTYPE` error rather than a
+graceful failure. Two consequences:
+
+- `ws-gateway` and `email-worker` must move together. `email-worker` reads that
+  key directly to decide whether an unread message becomes an email; deploying
+  it alone would make every recipient look offline and mail out notifications
+  for messages people had already read. `scripts/deploy-prod.sh` does a single
+  `compose up -d`, so this is already satisfied — but do not hand-restart one of
+  the two on its own.
+- Presence is empty for the first ~20 seconds after the gateway restarts, then
+  rebuilds from client polls and reconnect snapshots. Expected, and the same
+  behaviour any gateway restart has always had.
+
+The old keys are abandoned rather than migrated. They carry no TTL (that was the
+bug), so clear them once after the deploy has settled:
+
+```bash
+sudo docker compose -f docker-compose.prod.yml exec redis \
+  redis-cli --scan --pattern 'presence:user:*' | xargs -r redis-cli DEL
+sudo docker compose -f docker-compose.prod.yml exec redis \
+  redis-cli --scan --pattern 'presence:org:*'  | xargs -r redis-cli DEL
+```
+
+**Postgres restarts.** The capacity settings (`max_connections`,
+`shared_buffers`, …) are `-c` flags on the postgres container's command, so
+applying them recreates the container — a brief outage for every service, not a
+reload. Do it in the same window as the rest, not as a follow-up.
+
+**Nothing here requires a desktop release.** The desktop fixes are real but ship
+on their own cadence through `release.yml`; the backend deploy does not depend
+on them and clients on the current build keep working.
