@@ -19,6 +19,7 @@ import { trayIcon } from "./assets";
 import { buildAppMenu } from "./menu";
 import { registerFileSink } from "./file-sink";
 import { checkForUpdatesNow, initAutoUpdate } from "./updater";
+import { installLocationProviderKey, hasPreciseLocationProvider } from "./geo-key";
 import { resolveEndpoints } from "../shared/endpoints";
 import { findDeepLink, parseDeepLink } from "../shared/deeplink";
 import { openExternalSafely } from "./harden";
@@ -67,6 +68,13 @@ process.on("unhandledRejection", (reason) => console.error("[main] unhandledReje
 // against, and a call that rings silently is a real bug. Must be set before
 // `ready` — Chromium reads its command line during startup.
 app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
+
+// Same timing rule as the switch above, for the same reason: Chromium reads the
+// geolocation API key while it builds its network context during startup, so
+// installing it inside `whenReady` is a silent no-op. Without a key the network
+// locator is dead and `getCurrentPosition` can only fall back to an OS locator —
+// which Linux does not have. See geo-key.ts.
+installLocationProviderKey();
 
 // Single-instance: focus existing + forward deep-link.
 if (!app.requestSingleInstanceLock()) {
@@ -390,6 +398,12 @@ ipcMain.on("shell:open-external", (_e, raw: unknown) => {
 ipcMain.handle("app:version", () => app.getVersion());
 
 ipcMain.handle("app:check-updates", () => checkForUpdatesNow());
+
+// Whether this build can get a PRECISE fix. False still shares a location — the
+// server's IP lookup answers — it just means the pin will be city-level, and
+// saying so up front beats letting the user watch a ten-second timeout and
+// guess. See geo-key.ts.
+ipcMain.handle("geo:precise", () => hasPreciseLocationProvider());
 
 // The auth channels carry credentials, so they are the one IPC group that must
 // not accept traffic from any window that happens to have a preload. Only the

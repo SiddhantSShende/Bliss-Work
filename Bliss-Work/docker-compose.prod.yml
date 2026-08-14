@@ -124,6 +124,12 @@ services:
       # see scripts/next-desktop-version.mjs for why package.json can't be the
       # source of truth. Set explicitly for a minor/major bump.
       DESKTOP_VERSION: "${DESKTOP_VERSION:-}"
+      # Baked into the main bundle so Chromium's network location provider
+      # works. OPTIONAL: without it, sharing a location falls back to the
+      # server's city-level IP lookup instead of a precise fix. Restrict the key
+      # to the Geolocation API and put a quota on it — it ships inside the
+      # installer. See apps/desktop/src/main/geo-key.ts.
+      TB_GOOGLE_API_KEY: "${TB_GOOGLE_API_KEY:-}"
     volumes:
       - ./:/workspace
       # Separate from web_node_modules: this image runs a different Node major,

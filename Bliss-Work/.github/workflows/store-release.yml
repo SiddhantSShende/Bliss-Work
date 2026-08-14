@@ -75,6 +75,9 @@ jobs:
         run: npm ci
 
       - name: Build desktop bundle
+        env:
+          # See release.yml — same build-time bake, same optional semantics.
+          TB_GOOGLE_API_KEY: ${{ secrets.TB_GOOGLE_API_KEY }}
         run: npm run build -w @taskboard/desktop
 
       - name: Package .appx

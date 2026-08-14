@@ -151,6 +151,13 @@ export interface PlatformConfig {
    *  so the authorize URL must leave the app entirely. Absent on web, where a
    *  same-tab redirect works and is what users expect. */
   openExternal?: (url: string) => void;
+  /** Present only in Electron: whether this build can resolve a PRECISE
+   *  location. Chromium's network locator needs a Google API key Electron does
+   *  not ship (see main/geo-key.ts), and Linux has no OS locator to fall back
+   *  on — so a keyless build can only ever return the server's city-level IP
+   *  fix. Absent on web, where the browser owns the provider and the question
+   *  is not ours to answer. */
+  hasPreciseLocation?: () => Promise<boolean>;
   /** Present only in Electron: the OAuth flow returning through the
    *  `taskboard://oauth` deep link. Mirrors the ?connected=/?error= query the
    *  web build reads off its own URL. Returns an unsubscribe fn. */

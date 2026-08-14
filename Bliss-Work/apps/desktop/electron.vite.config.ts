@@ -71,6 +71,14 @@ function cspPlugin(isProd: boolean, env: Record<string, string | undefined>) {
 
 export default defineConfig({
   main: {
+    // Baked into the bundle so a packaged app launched from the Dock or Start
+    // menu — which inherits no shell environment — still has it. geo-key.ts
+    // still prefers process.env.TB_GOOGLE_API_KEY at runtime when one is set.
+    // Absent is a supported configuration: location sharing then falls back to
+    // the server's IP lookup instead of a precise fix.
+    define: {
+      __TB_GOOGLE_API_KEY__: JSON.stringify(process.env.TB_GOOGLE_API_KEY ?? ""),
+    },
     build: {
       rollupOptions: {
         // `ws` does `require("bufferutil"/"utf-8-validate")` (optional native

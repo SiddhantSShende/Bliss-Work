@@ -64,6 +64,10 @@ const api = {
    *  re-validates the scheme — never trust the renderer with a shell call. */
   openExternal: (url: string) => ipcRenderer.send("shell:open-external", url),
 
+  /** Whether this build can resolve a PRECISE location. False means location
+   *  sharing still works but resolves to a city-level IP fix. */
+  hasPreciseLocation: (): Promise<boolean> => ipcRenderer.invoke("geo:precise"),
+
   /** Emitted when an OAuth flow returns via taskboard://oauth?connected=… */
   onOAuthReturn: (cb: (r: { connected?: string; error?: string }) => void) => {
     const handler = (_: unknown, r: { connected?: string; error?: string }) => cb(r);

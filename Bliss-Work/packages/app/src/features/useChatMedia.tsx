@@ -76,7 +76,7 @@ export interface ChatMediaOptions {
 
 export function useChatMedia(opts: ChatMediaOptions) {
   const { scope, scopeId, meId, send, p2pFallback } = opts;
-  const { api } = useRuntime();
+  const { api, config } = useRuntime();
   const ft = useFileTransfers();
 
   const fileInput = useRef<HTMLInputElement>(null);
@@ -329,6 +329,12 @@ export function useChatMedia(opts: ChatMediaOptions) {
      * it is approximate; the large accuracy makes the bubble say so too.
      */
     const fallback = async (reason: string) => {
+      // Ask the host WHY precision was unavailable before blaming the device.
+      // A desktop build with no geolocation API key cannot get a precise fix on
+      // any machine, and telling that user to check their location services
+      // sends them to fix something that was never broken. Absent on web (and
+      // on older desktop builds), where the browser owns the provider.
+      const precise = (await config.hasPreciseLocation?.()) ?? true;
       const coarse = await api.whereami();
       toast.dismiss(pending);
       if (!coarse) {
@@ -337,7 +343,9 @@ export function useChatMedia(opts: ChatMediaOptions) {
       }
       await sendLocation(coarse);
       toast("Shared an approximate location", {
-        description: "Your device couldn't get a precise fix, so this is based on your network.",
+        description: precise
+          ? "Your device couldn't get a precise fix, so this is based on your network."
+          : "This build has no precise location provider, so this is based on your network.",
       });
     };
 
@@ -373,7 +381,7 @@ export function useChatMedia(opts: ChatMediaOptions) {
       },
       { enableHighAccuracy: true, timeout: 10_000, maximumAge: 60_000 },
     );
-  }, [api, sendLocation]);
+  }, [api, config, sendLocation]);
 
   // ── rendering ─────────────────────────────────────────────────────────────
 

@@ -202,6 +202,13 @@ jobs:
         run: node scripts/set-desktop-version.mjs "${{ needs.version.outputs.version }}"
 
       - name: Build desktop bundle
+        env:
+          # Baked into the main bundle at build time (electron.vite.config.ts),
+          # because a packaged app launched from the Dock or Start menu inherits
+          # no shell environment. Optional: an empty value ships a build whose
+          # location sharing falls back to the server's IP lookup rather than a
+          # precise fix. See apps/desktop/src/main/geo-key.ts.
+          TB_GOOGLE_API_KEY: ${{ secrets.TB_GOOGLE_API_KEY }}
         run: npm run build -w @taskboard/desktop
 
       - name: Package installers (mac signed + notarized here)

@@ -19,6 +19,7 @@ declare global {
       onTokenRequest: (cb: () => void) => () => void;
       onInviteDeepLink: (cb: (token: string) => void) => () => void;
       openExternal: (url: string) => void;
+      hasPreciseLocation: () => Promise<boolean>;
       onOAuthReturn: (cb: (r: { connected?: string; error?: string }) => void) => () => void;
       appVersion: () => Promise<string>;
       checkForUpdates: () => Promise<{
@@ -86,6 +87,7 @@ const config: PlatformConfig = {
   // OAuth has to run in the system browser (Google blocks embedded webviews)
   // and return through the taskboard://oauth deep link.
   openExternal: (url) => bridge.openExternal(url),
+  hasPreciseLocation: () => bridge.hasPreciseLocation(),
   onOAuthReturn: (cb) => bridge.onOAuthReturn(cb),
   appVersion: () => bridge.appVersion(),
   checkForUpdates: () => bridge.checkForUpdates(),

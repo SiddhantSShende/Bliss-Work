@@ -52,6 +52,9 @@ jobs:
 
       - name: Build .appx package
         working-directory: apps/desktop
+        env:
+          # See release.yml — same build-time bake, same optional semantics.
+          TB_GOOGLE_API_KEY: ${{ secrets.TB_GOOGLE_API_KEY }}
         run: npm run package:store
 
       - name: Upload .appx
