@@ -86,9 +86,13 @@ func (s *Server) setReaction(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-// listConversationReactions serves GET /api/v1/conversations/{id}/reactions —
-// every reaction in the conversation, in one query, so the bubbles and their
-// chips render together instead of the chips popping in a beat later.
+// listConversationReactions serves
+// GET /api/v1/conversations/{id}/reactions?beforeSeq=&limit= — the reactions for
+// one page of messages, in one query, so the bubbles and their chips render
+// together instead of the chips popping in a beat later.
+//
+// Pass the SAME beforeSeq and limit used for the matching /messages call; the
+// window is what keeps this bounded.
 func (s *Server) listConversationReactions(w http.ResponseWriter, r *http.Request) {
 	claims, _ := auth.FromContext(r.Context())
 	convID := chi.URLParam(r, "id")
@@ -96,7 +100,8 @@ func (s *Server) listConversationReactions(w http.ResponseWriter, r *http.Reques
 		writeErr(w, http.StatusBadRequest, "invalid conversation id")
 		return
 	}
-	out, err := s.store.ReactionsForConversation(r.Context(), claims.OrgID, claims.UserID, convID)
+	beforeSeq, limit := pageParams(r, DefaultMessagePageSize, MaxMessagePageSize)
+	out, err := s.store.ReactionsForConversation(r.Context(), claims.OrgID, claims.UserID, convID, beforeSeq, limit)
 	if err != nil {
 		s.mapErr(w, err)
 		return

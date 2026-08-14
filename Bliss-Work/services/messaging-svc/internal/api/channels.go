@@ -115,6 +115,11 @@ func (s *Server) listChannels(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, chans)
 }
 
+// listChannelMessages serves GET /api/v1/channels/{id}/messages?beforeSeq=&limit=.
+//
+// Same keyset contract as the conversation endpoint. This one mattered more:
+// a conversation's history was re-read by two people, a channel's by every
+// member on every open.
 func (s *Server) listChannelMessages(w http.ResponseWriter, r *http.Request) {
 	claims, _ := auth.FromContext(r.Context())
 	channelID := chi.URLParam(r, "id")
@@ -122,7 +127,8 @@ func (s *Server) listChannelMessages(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid channel id")
 		return
 	}
-	msgs, err := s.store.ChannelMessages(r.Context(), claims.OrgID, channelID, claims.UserID)
+	beforeSeq, limit := pageParams(r, DefaultMessagePageSize, MaxMessagePageSize)
+	msgs, err := s.store.ChannelMessages(r.Context(), claims.OrgID, channelID, claims.UserID, beforeSeq, limit)
 	if err != nil {
 		s.mapErr(w, err)
 		return

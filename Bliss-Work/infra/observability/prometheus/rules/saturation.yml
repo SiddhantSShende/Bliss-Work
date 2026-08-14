@@ -1,0 +1,171 @@
+# Saturation alerts — the ceilings this deployment hits first.
+#
+# security.yml watches for things going WRONG (5xx bursts, credential stuffing).
+# This file watches for things RUNNING OUT, which is a different failure shape:
+# it arrives gradually, it is invisible in logs until the moment it isn't, and by
+# then the symptom (blanket 500s, dropped sockets) looks nothing like the cause.
+#
+# Every threshold here corresponds to a specific known limit in this deployment,
+# named in the annotation so whoever gets paged does not have to go find it.
+groups:
+  - name: saturation-postgres
+    rules:
+      # max_connections=200 (docker-compose.prod.yml). The services are
+      # configured for 68 pooled connections in total, so crossing 60% means
+      # something is leaking or a pool was resized without doing the arithmetic.
+      - alert: PostgresConnectionsHigh
+        expr: sum(pg_stat_activity_count) / min(pg_settings_max_connections) > 0.6
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Postgres connections above 60% of max_connections"
+          description: >-
+            {{ $value | humanizePercentage }} of max_connections in use. Total
+            configured pool capacity is 68 (see services/*/app/db.py and the two
+            pgx pools); sustained use above that means a pool grew or a
+            connection is being held open. Exhaustion presents as
+            `FATAL: sorry, too many clients already` across several services at
+            once, not as queueing, because each service owns its own database.
+
+      - alert: PostgresConnectionsCritical
+        expr: sum(pg_stat_activity_count) / min(pg_settings_max_connections) > 0.85
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "Postgres connections above 85% of max_connections"
+          description: "Connection exhaustion is imminent and will surface as blanket 5xx."
+
+      # Below ~99% on a working set that fits in shared_buffers means the cache
+      # is being thrashed — usually an unbounded query reading a whole table.
+      - alert: PostgresCacheHitRatioLow
+        expr: >-
+          sum(rate(pg_stat_database_blks_hit[10m]))
+          / (sum(rate(pg_stat_database_blks_hit[10m])) + sum(rate(pg_stat_database_blks_read[10m])))
+          < 0.95
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: "Postgres buffer cache hit ratio below 95%"
+          description: >-
+            Sustained disk reads. Either the working set has outgrown
+            shared_buffers (1536MB) or a query is scanning something it should be
+            seeking. Check pg_stat_statements for a new sequential scan.
+
+      # Dead tuples accumulating faster than autovacuum clears them is the
+      # signature of write amplification — the exact failure MarkRead's missing
+      # lower bound used to produce on message_delivery.
+      - alert: PostgresDeadTuplesHigh
+        expr: pg_stat_user_tables_n_dead_tup > 5000000
+        for: 30m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $labels.relname }} has over 5M dead tuples"
+          description: >-
+            Autovacuum is not keeping up on {{ $labels.datname }}.{{ $labels.relname }}.
+            Look for a query rewriting rows that have not changed.
+
+  - name: saturation-redis
+    rules:
+      # maxmemory is 400mb with policy noeviction, so hitting the ceiling fails
+      # writes loudly rather than silently evicting replay data. That is the
+      # intended behaviour, but it still means clients stop getting catch-up.
+      - alert: RedisMemoryHigh
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.75
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Redis above 75% of maxmemory"
+          description: >-
+            {{ $value | humanizePercentage }} of the 400mb ceiling. The replay
+            outbox is trimmed to maxReplayHard per user, so growth past this
+            usually means connection count grew, not that a key is unbounded.
+
+      - alert: RedisMemoryCritical
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.9
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "Redis above 90% of maxmemory"
+          description: >-
+            With maxmemory-policy noeviction, writes are about to start failing.
+            Replay, presence and RTC signaling all degrade together.
+
+      # noeviction means rejected writes, which is the loud failure we chose.
+      - alert: RedisRejectingWrites
+        expr: rate(redis_rejected_connections_total[5m]) > 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "Redis is rejecting connections"
+
+  - name: saturation-kafka
+    rules:
+      # Lag that grows monotonically means a consumer cannot keep up. The outbox
+      # publishers are the usual cause; they send one message per round trip.
+      - alert: KafkaConsumerLagHigh
+        expr: sum by (consumergroup, topic) (kafka_consumergroup_lag) > 10000
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Consumer group {{ $labels.consumergroup }} lagging on {{ $labels.topic }}"
+          description: >-
+            {{ $value }} messages behind. Delivery, read receipts and
+            notifications are all falling behind real time.
+
+      - alert: KafkaConsumerLagGrowing
+        expr: sum by (consumergroup) (delta(kafka_consumergroup_lag[30m])) > 50000
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "{{ $labels.consumergroup }} lag is growing without bound"
+          description: "The consumer is slower than the producer; this does not recover on its own."
+
+  - name: saturation-containers
+    rules:
+      # CFS throttling is the one that hides: the container is not at 100% CPU,
+      # it is being stopped mid-slice, so latency climbs while utilisation looks
+      # fine. Caddy at 0.5 CPU running the WAF is the usual first hit.
+      - alert: ContainerCPUThrottled
+        expr: >-
+          rate(container_cpu_cfs_throttled_periods_total[5m])
+          / rate(container_cpu_cfs_periods_total[5m]) > 0.25
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $labels.name }} CPU-throttled over 25% of periods"
+          description: >-
+            Raise the cpus limit or reduce the work. Throttling shows up as
+            latency, not as high utilisation, so it is easy to misread.
+
+      - alert: ContainerMemoryNearLimit
+        expr: container_memory_working_set_bytes / container_spec_memory_limit_bytes > 0.9
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "{{ $labels.name }} within 10% of its memory limit"
+          description: >-
+            The cgroup OOM killer is next. For ws-gateway this drops every
+            socket on the node at once and the fleet reconnects into a cold pod.
+
+      - alert: ContainerOOMKilled
+        expr: increase(container_oom_events_total[15m]) > 0
+        labels: { severity: critical }
+        annotations:
+          summary: "{{ $labels.name }} was OOM-killed"
+
+  - name: saturation-host
+    rules:
+      # pgdata, kafkadata, redisdata, media blobs and container logs all share
+      # /dev/sda1. Disk-full here is a total outage, not a degraded upload path,
+      # because Postgres stops accepting writes.
+      - alert: HostDiskFillingUp
+        expr: >-
+          (container_fs_usage_bytes{device=~".*sda.*"}
+           / container_fs_limit_bytes{device=~".*sda.*"}) > 0.8
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: "Root volume above 80%"
+          description: >-
+            Postgres, Kafka, Redis, media blobs and container logs share this
+            volume. Check log rotation first — it is the usual growth.

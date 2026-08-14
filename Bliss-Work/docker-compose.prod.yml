@@ -291,6 +291,39 @@ services:
       - ssl_ca_file=/etc/postgres/certs/ca.crt
       - -c
       - ssl_min_protocol_version=TLSv1.2
+      # ── Capacity ──────────────────────────────────────────────────────────
+      # Everything below was previously stock. Stock means max_connections=100
+      # (97 after superuser_reserved_connections), and the services are
+      # configured for 68 pooled connections — with the OLD pool sizes it was
+      # 121, i.e. a burst that filled overflow on three services at once hit
+      # `FATAL: sorry, too many clients already`. Because each service owns its
+      # own database there is no shared arbiter, so it surfaced as blanket 500s
+      # across several services simultaneously rather than as queueing.
+      #
+      # 200 leaves real headroom over the 68 the pools can now demand, without
+      # pretending 200 backends would be healthy on 8 cores — that is what the
+      # reduced pool sizes are for (see services/*/app/db.py and store.go).
+      - -c
+      - max_connections=200
+      # 25% of the 6144M limit below. Stock was 128MB.
+      - -c
+      - shared_buffers=1536MB
+      # Honest now: cgroup v2 charges page cache against memory.max, so with a
+      # 6144M limit and 1536MB of shared_buffers there really is ~4GB of cache
+      # to plan against. Stock left this at 4GB while the container was capped
+      # at 1536M total, which under-costed index scans on uncached tables.
+      - -c
+      - effective_cache_size=4GB
+      - -c
+      - work_mem=16MB
+      - -c
+      - maintenance_work_mem=512MB
+      # SSD-backed volume: random reads are nowhere near 4x the cost of
+      # sequential, and the stock 4.0 pushes the planner toward seq scans.
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - max_wal_size=4GB
     environment:
       # Superuser is used ONLY for init (creating per-service DBs + least-priv
       # roles). Application services connect as their own per-service users —
@@ -335,7 +368,14 @@ services:
       retries: 20
     deploy:
       resources:
-        limits: { cpus: "2.00", memory: 1536M }
+        # Raised from 1536M. cgroup v2 charges the page cache against this
+        # limit, so the old ceiling had to cover shared_buffers, ~100 backends
+        # at 5-10MB each, AND the page cache for seven databases — on a 22 GiB
+        # host with 12 GiB sitting idle. The reservation keeps a co-located
+        # image build or a runaway service from squeezing the one process whose
+        # cache-hit ratio decides every other service's latency.
+        limits: { cpus: "2.00", memory: 6144M }
+        reservations: { cpus: "1.00", memory: 2048M }
     networks: [taskboard]
 
   redis:
@@ -363,6 +403,22 @@ services:
       - "yes"
       - --requirepass
       - ${REDIS_PASSWORD}
+      # ── Memory ceiling ────────────────────────────────────────────────────
+      # Without maxmemory Redis does not degrade under pressure, it gets
+      # OOM-killed by the cgroup — taking replay, presence and RTC signaling
+      # with it, and dropping every socket in the deployment at once. 400mb
+      # against the 512M limit below leaves headroom for the AOF buffer and
+      # the copy-on-write fork during a rewrite.
+      #
+      # noeviction is deliberate. This instance is the source of truth for the
+      # per-user replay outbox, so evicting a key silently loses catch-up data
+      # for whichever user Redis happened to pick. Failing the write loudly is
+      # recoverable — the event is still durable in Kafka and Postgres — and it
+      # surfaces as an alert instead of as users quietly missing messages.
+      - --maxmemory
+      - 400mb
+      - --maxmemory-policy
+      - noeviction
       # ── Opt-in TLS (managed-CA / post-code-follow-up only) ──
       # - --tls-port
       # - "6379"
@@ -667,6 +723,71 @@ services:
     deploy:
       resources:
         limits: { cpus: "0.50", memory: 512M }
+
+  # ── Infrastructure exporters ────────────────────────────────────────────────
+  #
+  # Services export their own /metrics, but every ceiling this deployment
+  # actually hits first belongs to something that exports nothing: Postgres
+  # connection exhaustion, Redis hitting maxmemory, Kafka consumer lag, and
+  # cgroup CPU throttling / OOM-kills. Without these four, the saturation alerts
+  # in prometheus/rules/saturation.yml have nothing to fire on.
+  #
+  # All are read-only and stay on the private network — none publish a port.
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.16.0
+    restart: unless-stopped
+    environment:
+      # Superuser DSN: pg_stat_activity must be visible across ALL seven
+      # databases, and a per-service role only sees its own.
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/postgres?sslmode=require"
+      PG_EXPORTER_AUTO_DISCOVER_DATABASES: "true"
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [taskboard]
+    deploy:
+      resources:
+        limits: { cpus: "0.25", memory: 128M }
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.67.0
+    restart: unless-stopped
+    environment:
+      REDIS_ADDR: "redis://redis:6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    depends_on:
+      redis: { condition: service_healthy }
+    networks: [taskboard]
+    deploy:
+      resources:
+        limits: { cpus: "0.25", memory: 128M }
+
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:v1.8.0
+    restart: unless-stopped
+    command: ["--kafka.server=kafka:9092"]
+    depends_on:
+      kafka: { condition: service_healthy }
+    networks: [taskboard]
+    deploy:
+      resources:
+        limits: { cpus: "0.25", memory: 128M }
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    restart: unless-stopped
+    # Read-only host mounts: this reports on containers, it never changes them.
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    devices:
+      - /dev/kmsg
+    networks: [taskboard]
+    deploy:
+      resources:
+        limits: { cpus: "0.50", memory: 256M }
 
   alertmanager:
     image: prom/alertmanager:v0.27.0

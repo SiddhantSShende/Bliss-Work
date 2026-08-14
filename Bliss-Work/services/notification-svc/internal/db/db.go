@@ -20,7 +20,11 @@ func Connect(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse pgx config: %w", err)
 	}
-	poolCfg.MaxConns = 25
+	// 10, down from 25. This service is a Kafka consumer plus an outbox poller,
+	// neither of which needs 25 concurrent backends — and it was the single
+	// largest contributor to a platform-wide pool total of 121 against a
+	// Postgres that allowed 97. See auth-svc/app/db.py for the full arithmetic.
+	poolCfg.MaxConns = 10
 	poolCfg.MinConns = 2
 	poolCfg.MaxConnLifetime = 30 * time.Minute
 	poolCfg.MaxConnIdleTime = 5 * time.Minute

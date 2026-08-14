@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useLayoutEffect, useMemo, useRef } from "react";
 import { motion } from "framer-motion";
 import { MessageSquare, Ban, PhoneMissed, Forward } from "lucide-react";
 import { Avatar } from "@taskboard/ui";
@@ -91,6 +91,9 @@ export function ChatThread({
   onRemoveAttachment,
   uploading,
   overlay,
+  onLoadOlder,
+  loadingOlder = false,
+  hasOlder = false,
 }: {
   messages: ThreadMessage[];
   meId: string;
@@ -143,27 +146,82 @@ export function ChatThread({
   /** Message shown in place of the composer when `disabled` (e.g. "You blocked
    *  this user"). */
   notice?: string;
+  /** Fetch the previous page of history. Called when the reader nears the top. */
+  onLoadOlder?: () => void;
+  /** True while an older page is in flight — suppresses repeat triggers. */
+  loadingOlder?: boolean;
+  /** False once the server returns a short page, i.e. we hold the whole history. */
+  hasOlder?: boolean;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
 
-  // Index for resolving a reply's quoted message. Client-side because a DM's
-  // message list loads in full — the server would have to decrypt and ship a
-  // preview per message otherwise, for something the page already holds.
+  // Index for resolving a reply's quoted message, over the pages currently
+  // held. A quote whose target predates the loaded window renders via the
+  // message's own replyTo* fields instead.
   const byId = useMemo(() => new Map(messages.map((m) => [m.id, m])), [messages]);
 
-  // Scroll the message list to the bottom on new messages. We scroll the
-  // container DIRECTLY rather than calling endRef.scrollIntoView(): the latter
-  // walks up and scrolls EVERY scrollable ancestor — including the
-  // overflow-hidden app shell (still scrollable programmatically) — which
-  // shoved the whole UI up and pushed the top navbar off-screen.
-  useEffect(() => {
+  // Scroll management, doing two jobs that fight each other.
+  //
+  // Appending (a new message arrived) should pin the reader to the bottom.
+  // PREPENDING (an older page loaded) must not: the container grows upward, so
+  // leaving scrollTop alone visibly throws the reader backwards, and the old
+  // scroll-to-bottom-on-length-change would have yanked them to the newest
+  // message mid-scroll. Distinguishing the two by comparing the first and last
+  // ids is what makes back-pagination usable.
+  //
+  // We scroll the container DIRECTLY rather than calling endRef.scrollIntoView():
+  // the latter walks up and scrolls EVERY scrollable ancestor — including the
+  // overflow-hidden app shell (still scrollable programmatically) — which shoved
+  // the whole UI up and pushed the top navbar off-screen.
+  //
+  // useLayoutEffect, not useEffect: the correction must land in the same frame
+  // as the taller list, or the jump is visible.
+  const prevRef = useRef<{ firstId?: string; lastId?: string; height: number }>({ height: 0 });
+  useLayoutEffect(() => {
     const el = listRef.current;
-    if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-  }, [messages.length]);
+    if (!el) return;
+    const firstId = messages[0]?.id;
+    const lastId = messages[messages.length - 1]?.id;
+    const prev = prevRef.current;
+    const prepended = !!prev.firstId && firstId !== prev.firstId && lastId === prev.lastId;
+
+    if (prepended) {
+      el.scrollTop += el.scrollHeight - prev.height;
+    } else if (lastId !== prev.lastId) {
+      // No smooth scroll on first paint — the thread should already be at the
+      // bottom when it appears, not animate there.
+      el.scrollTo({ top: el.scrollHeight, behavior: prev.lastId ? "smooth" : "auto" });
+    }
+    prevRef.current = { firstId, lastId, height: el.scrollHeight };
+  }, [messages]);
+
+  const handleScroll = () => {
+    const el = listRef.current;
+    if (!el || !onLoadOlder || !hasOlder || loadingOlder) return;
+    if (el.scrollTop < 120) onLoadOlder();
+  };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" {...dropzone}>
-      <div ref={listRef} className="min-h-0 flex-1 space-y-1 overflow-auto p-5">
+      <div
+        ref={listRef}
+        onScroll={handleScroll}
+        className="min-h-0 flex-1 space-y-1 overflow-auto p-5"
+      >
+        {/* History marker. Sits above the first bubble so the reader can tell
+            "there is more, fetching it" from "this is where it started". */}
+        {messages.length > 0 && (hasOlder || loadingOlder) && (
+          <div className="flex justify-center py-2">
+            <button
+              type="button"
+              onClick={onLoadOlder}
+              disabled={loadingOlder}
+              className="rounded-full px-3 py-1 text-[11px] font-medium text-muted transition-colors hover:text-accent disabled:opacity-60"
+            >
+              {loadingOlder ? "Loading earlier messages…" : "Load earlier messages"}
+            </button>
+          </div>
+        )}
         {messages.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-muted">
             <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent-soft text-accent">

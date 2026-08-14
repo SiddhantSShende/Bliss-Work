@@ -573,6 +573,11 @@ func (s *Server) listConversations(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, convs)
 }
 
+// listMessages serves GET /api/v1/conversations/{id}/messages?beforeSeq=&limit=.
+//
+// Returns one page ascending by seq. Omitting beforeSeq gives the newest page;
+// pass the lowest seq you hold to walk backwards through history. A short page
+// (fewer rows than limit) means you have reached the beginning.
 func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) {
 	claims, _ := auth.FromContext(r.Context())
 	convID := chi.URLParam(r, "id")
@@ -580,7 +585,8 @@ func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid conversation id")
 		return
 	}
-	msgs, err := s.store.ListMessages(r.Context(), claims.OrgID, claims.UserID, convID)
+	beforeSeq, limit := pageParams(r, DefaultMessagePageSize, MaxMessagePageSize)
+	msgs, err := s.store.ListMessages(r.Context(), claims.OrgID, claims.UserID, convID, beforeSeq, limit)
 	if err != nil {
 		s.mapErr(w, err)
 		return

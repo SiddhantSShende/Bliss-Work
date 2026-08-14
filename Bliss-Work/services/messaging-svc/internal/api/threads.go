@@ -3,7 +3,6 @@ package api
 import (
 	"encoding/json"
 	"net/http"
-	"strconv"
 
 	"github.com/go-chi/chi/v5"
 
@@ -47,18 +46,7 @@ func (s *Server) listThreadMessages(w http.ResponseWriter, r *http.Request) {
 		writeErrR(w, r, http.StatusBadRequest, "invalid thread id")
 		return
 	}
-	beforeSeq := int64(0)
-	if v := r.URL.Query().Get("beforeSeq"); v != "" {
-		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n >= 0 {
-			beforeSeq = n
-		}
-	}
-	limit := DefaultThreadPageSize
-	if v := r.URL.Query().Get("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= MaxThreadPageSize {
-			limit = n
-		}
-	}
+	beforeSeq, limit := pageParams(r, DefaultThreadPageSize, MaxThreadPageSize)
 	msgs, err := s.store.ListThreadMessages(r.Context(), claims.OrgID, claims.UserID, threadID, beforeSeq, limit)
 	if err != nil {
 		s.mapErr(w, err)

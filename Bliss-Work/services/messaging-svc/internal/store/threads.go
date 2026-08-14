@@ -190,10 +190,17 @@ func (s *Store) IgnoreThread(ctx context.Context, orgID, callerID, threadID stri
 
 	// Mirror into the inbox_items projection so the unified inbox query
 	// excludes the row immediately (avoids one-cycle of stale UI).
+	//
+	// owner_user_id is NOT optional here: inbox_items is HASH-partitioned on it
+	// (0003_threads_inbox.sql), so a predicate without it prunes nothing and
+	// sequential-scans all 64 partitions — plus per-row RLS — to touch the two
+	// rows this thread actually has. Both owners are already in scope.
 	if _, err = tx.Exec(ctx, `
 		UPDATE inbox_items
 		SET hidden_for_owner = true, updated_at = now()
-		WHERE item_kind = 'THREAD' AND ref_id = $1`, threadID); err != nil {
+		WHERE owner_user_id = ANY($2::uuid[])
+		  AND item_kind = 'THREAD' AND ref_id = $1`,
+		threadID, []string{senderID, recipientID}); err != nil {
 		return err
 	}
 

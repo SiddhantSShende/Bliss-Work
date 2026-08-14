@@ -96,6 +96,17 @@ function uuid(): string {
   return (globalThis.crypto as Crypto).randomUUID();
 }
 
+/**
+ * Default page size for conversation and channel history.
+ *
+ * Chat history used to arrive in one unbounded response: opening a conversation
+ * fetched every message it had ever held, decrypted row by row on the server and
+ * rendered in full by the client. 50 is the server's default and 100 its hard
+ * cap (see messaging-svc internal/api/pagination.go) — asking for more than the
+ * cap does not fail, it silently returns the default.
+ */
+export const MESSAGE_PAGE_SIZE = 50;
+
 export class ApiClient {
   constructor(private readonly cfg: ApiConfig) {}
 
@@ -502,10 +513,22 @@ export class ApiClient {
       z.object({ conversationId: z.string() }),
     );
   }
-  messages(conversationId: string) {
+  /**
+   * One page of conversation history, ascending by seq.
+   *
+   * Omit beforeSeq for the newest page; pass the lowest seq you already hold to
+   * walk backwards. A short page (fewer than `limit` rows) means you have
+   * reached the start of the conversation.
+   *
+   * This used to fetch the entire history on every open — see MESSAGE_PAGE_SIZE.
+   */
+  messages(conversationId: string, beforeSeq?: number, limit = MESSAGE_PAGE_SIZE) {
+    const qs = new URLSearchParams();
+    if (typeof beforeSeq === "number") qs.set("beforeSeq", String(beforeSeq));
+    qs.set("limit", String(limit));
     return this.req(
       this.cfg.messagingBase,
-      `/api/v1/conversations/${conversationId}/messages`,
+      `/api/v1/conversations/${conversationId}/messages?${qs.toString()}`,
       {},
       z.array(MessageDTO),
     );
@@ -905,11 +928,22 @@ export class ApiClient {
       z.array(ReactionDTO),
     );
   }
-  /** Every reaction in a conversation, so bubbles and chips render together. */
-  conversationReactions(conversationId: string) {
+  /**
+   * Reactions for ONE PAGE of a conversation, so bubbles and chips render
+   * together. Pass the same beforeSeq/limit used for the matching messages()
+   * call — the window is what keeps this bounded.
+   */
+  conversationReactions(
+    conversationId: string,
+    beforeSeq?: number,
+    limit = MESSAGE_PAGE_SIZE,
+  ) {
+    const qs = new URLSearchParams();
+    if (typeof beforeSeq === "number") qs.set("beforeSeq", String(beforeSeq));
+    qs.set("limit", String(limit));
     return this.req(
       this.cfg.messagingBase,
-      `/api/v1/conversations/${conversationId}/reactions`,
+      `/api/v1/conversations/${conversationId}/reactions?${qs.toString()}`,
       {},
       z.array(ReactionDTO),
     );
@@ -1289,10 +1323,16 @@ export class ApiClient {
       method: "POST",
     });
   }
-  channelMessages(channelId: string) {
+  /**
+   * One page of channel history, ascending by seq. Same contract as messages().
+   */
+  channelMessages(channelId: string, beforeSeq?: number, limit = MESSAGE_PAGE_SIZE) {
+    const qs = new URLSearchParams();
+    if (typeof beforeSeq === "number") qs.set("beforeSeq", String(beforeSeq));
+    qs.set("limit", String(limit));
     return this.req(
       this.cfg.messagingBase,
-      `/api/v1/channels/${channelId}/messages`,
+      `/api/v1/channels/${channelId}/messages?${qs.toString()}`,
       {},
       z.array(ChannelMessageDTO),
     );

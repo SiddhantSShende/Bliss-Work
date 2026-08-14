@@ -21,8 +21,11 @@ def init_engine() -> AsyncEngine:
             settings.sqlalchemy_url,
             echo=False,
             pool_pre_ping=True,
-            pool_size=10,
-            max_overflow=10,
+            # 5+5, not 10+10 — see the note in auth-svc/app/db.py. The pools
+            # across all services previously summed to 121 possible backends
+            # against a Postgres allowing 97; they now sum to 68 against 200.
+            pool_size=5,
+            max_overflow=5,
             pool_recycle=1800,  # recycle pooled conns every 30 min (avoid stale)
             connect_args=settings.sqlalchemy_connect_args,
         )

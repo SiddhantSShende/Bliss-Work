@@ -121,9 +121,22 @@ func (s *Store) ListChannels(ctx context.Context, orgID, callerID string) ([]Cha
 	return out, nil
 }
 
-// ChannelMessages returns a channel's messages ascending by seq, resolving sender
-// usernames. The caller must be a member.
-func (s *Store) ChannelMessages(ctx context.Context, orgID, channelID, callerID string) ([]ChannelMessageDTO, error) {
+// ChannelMessages returns one page of a channel's messages, ascending by seq,
+// resolving sender usernames. The caller must be a member.
+//
+// beforeSeq is an exclusive upper bound (0 = start from the newest), served as a
+// keyset walk by idx_channel_messages_channel_seq.
+//
+// Channels were the worse half of the unbounded-read problem: a conversation's
+// full history is paid by two people, but a channel's is paid by every member,
+// on every open, forever.
+func (s *Store) ChannelMessages(
+	ctx context.Context, orgID, channelID, callerID string,
+	beforeSeq int64, limit int,
+) ([]ChannelMessageDTO, error) {
+	limit = clampMessagePage(limit)
+	beforeSeq = beforeSeqOrNewest(beforeSeq)
+
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return nil, err
@@ -147,7 +160,9 @@ func (s *Store) ChannelMessages(ctx context.Context, orgID, channelID, callerID 
 		        m.body, m.body_enc, m.created_at, m.kind
 		 FROM channel_messages m
 		 LEFT JOIN user_projection up ON up.user_id = m.sender_id
-		 WHERE m.channel_id = $1 ORDER BY m.seq ASC`, channelID)
+		 WHERE m.channel_id = $1 AND m.seq < $2
+		 ORDER BY m.seq DESC
+		 LIMIT $3`, channelID, beforeSeq, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -176,6 +191,9 @@ func (s *Store) ChannelMessages(ctx context.Context, orgID, channelID, callerID 
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	// Selected newest-first so the index could serve the LIMIT; the wire format
+	// is oldest-first.
+	reverseRaw(raws)
 
 	out := []ChannelMessageDTO{}
 	for _, r := range raws {

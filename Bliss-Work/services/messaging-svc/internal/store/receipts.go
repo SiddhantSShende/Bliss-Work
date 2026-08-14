@@ -121,14 +121,27 @@ func (s *Store) MarkRead(ctx context.Context, orgID, callerID, convID string, up
 		peer = low
 	}
 
-	ct, err := tx.Exec(ctx,
-		`UPDATE conversation_members SET last_read_seq = GREATEST(last_read_seq, $3)
-		 WHERE conversation_id = $1 AND user_id = $2`, convID, callerID, upToSeq)
+	// Read the caller's frontier BEFORE advancing it: the delivery stamp at the
+	// bottom of this function only has to touch messages above it. FOR UPDATE
+	// serialises concurrent MarkReads on the same membership, so two racing
+	// calls cannot each compute a window from the same stale frontier.
+	var prevReadSeq int64
+	err = tx.QueryRow(ctx,
+		`SELECT last_read_seq FROM conversation_members
+		 WHERE conversation_id = $1 AND user_id = $2 FOR UPDATE`,
+		convID, callerID).Scan(&prevReadSeq)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrForbidden
+	}
 	if err != nil {
 		return err
 	}
-	if ct.RowsAffected() == 0 {
-		return ErrForbidden
+
+	if _, err = tx.Exec(ctx,
+		`UPDATE conversation_members SET last_read_seq = GREATEST(last_read_seq, $3)
+		 WHERE conversation_id = $1 AND user_id = $2`,
+		convID, callerID, upToSeq); err != nil {
+		return err
 	}
 
 	// Advance per-thread last_read_seq for every thread the caller is a
@@ -158,20 +171,38 @@ func (s *Store) MarkRead(ctx context.Context, orgID, callerID, convID string, up
 		return err
 	}
 
-	// Stamp delivery+read for every message in this conversation up through
-	// upToSeq from the peer. INSERT … ON CONFLICT keeps the read_at fresh.
+	// Stamp delivery+read for peer messages in the half-open window
+	// (prevReadSeq, upToSeq].
+	//
+	// The lower bound is what keeps this linear. Without it every read event —
+	// and this fires on every message sent or received in an open chat, not
+	// just on chat open — rewrote a row for every message ever sent in the
+	// conversation, making total write work quadratic in message count and
+	// leaving N dead tuples behind each pass for autovacuum to chase.
+	//
+	// Skipping everything at or below the old frontier is safe because MarkRead
+	// and MarkReadThread are the only writers of read_at, and each stamps the
+	// entire window it advances the frontier across.
+	//
+	// The ON CONFLICT guard covers the remaining overlap: a message already
+	// delivered (receipts.go MarkDelivered stamps delivered_at independently)
+	// but not yet read still needs its read_at, while a row that is already
+	// complete is left alone instead of being rewritten to the same values.
 	if _, err = tx.Exec(ctx, `
 		INSERT INTO message_delivery (message_id, recipient_id, delivered_at, read_at)
 		SELECT m.id, $2, COALESCE(md.delivered_at, now()), now()
 		FROM messages m
 		LEFT JOIN message_delivery md
 		  ON md.message_id = m.id AND md.recipient_id = $2
-		WHERE m.conversation_id = $1 AND m.sender_id <> $2 AND m.seq <= $3
+		WHERE m.conversation_id = $1 AND m.sender_id <> $2
+		  AND m.seq > $4 AND m.seq <= $3
 		ON CONFLICT (message_id, recipient_id)
 		DO UPDATE SET
 		    read_at      = COALESCE(message_delivery.read_at, EXCLUDED.read_at),
-		    delivered_at = COALESCE(message_delivery.delivered_at, EXCLUDED.delivered_at)`,
-		convID, callerID, upToSeq); err != nil {
+		    delivered_at = COALESCE(message_delivery.delivered_at, EXCLUDED.delivered_at)
+		WHERE message_delivery.read_at IS NULL
+		   OR message_delivery.delivered_at IS NULL`,
+		convID, callerID, upToSeq, prevReadSeq); err != nil {
 		return err
 	}
 
@@ -225,6 +256,20 @@ func (s *Store) MarkReadThread(ctx context.Context, orgID, callerID, threadID st
 		peer = recipientID
 	}
 
+	// Frontier first, then advance — see the note in MarkRead. Same quadratic
+	// write amplification, same fix, scoped to the thread's own frontier.
+	var prevReadSeq int64
+	err = tx.QueryRow(ctx, `
+		SELECT last_read_seq FROM thread_members
+		WHERE thread_id = $1 AND user_id = $2 FOR UPDATE`,
+		threadID, callerID).Scan(&prevReadSeq)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrForbidden
+	}
+	if err != nil {
+		return err
+	}
+
 	if _, err = tx.Exec(ctx, `
 		UPDATE thread_members
 		SET last_read_seq = GREATEST(last_read_seq, $3)
@@ -237,19 +282,22 @@ func (s *Store) MarkReadThread(ctx context.Context, orgID, callerID, threadID st
 		return err
 	}
 
-	// Stamp message_delivery rows for messages from peer up to upToSeq.
+	// Stamp message_delivery for peer messages in (prevReadSeq, upToSeq].
 	if _, err = tx.Exec(ctx, `
 		INSERT INTO message_delivery (message_id, recipient_id, delivered_at, read_at)
 		SELECT m.id, $2, COALESCE(md.delivered_at, now()), now()
 		FROM messages m
 		LEFT JOIN message_delivery md
 		  ON md.message_id = m.id AND md.recipient_id = $2
-		WHERE m.thread_id = $1 AND m.sender_id <> $2 AND m.seq <= $3
+		WHERE m.thread_id = $1 AND m.sender_id <> $2
+		  AND m.seq > $4 AND m.seq <= $3
 		ON CONFLICT (message_id, recipient_id)
 		DO UPDATE SET
 		    read_at      = COALESCE(message_delivery.read_at, EXCLUDED.read_at),
-		    delivered_at = COALESCE(message_delivery.delivered_at, EXCLUDED.delivered_at)`,
-		threadID, callerID, upToSeq); err != nil {
+		    delivered_at = COALESCE(message_delivery.delivered_at, EXCLUDED.delivered_at)
+		WHERE message_delivery.read_at IS NULL
+		   OR message_delivery.delivered_at IS NULL`,
+		threadID, callerID, upToSeq, prevReadSeq); err != nil {
 		return err
 	}
 
@@ -270,9 +318,66 @@ func (s *Store) MarkReadThread(ctx context.Context, orgID, callerID, threadID st
 	return tx.Commit(ctx)
 }
 
-// ListMessages returns messages of a conversation ascending by seq. Caller must
-// be a member. Now scans the wider tuple including thread/parent/root fields.
-func (s *Store) ListMessages(ctx context.Context, orgID, callerID, convID string) ([]MessageDTO, error) {
+// Page sizes for the conversation and channel history endpoints.
+//
+// maxMessagePage is a HARD server-side ceiling, not a suggestion: limit arrives
+// from the client, and a limit the client can raise without bound is the same
+// unbounded read this pagination replaced.
+const (
+	defaultMessagePage = 50
+	maxMessagePage     = 100
+)
+
+// clampMessagePage resolves a client-supplied limit to a safe page size.
+func clampMessagePage(limit int) int {
+	if limit <= 0 {
+		return defaultMessagePage
+	}
+	if limit > maxMessagePage {
+		return maxMessagePage
+	}
+	return limit
+}
+
+// beforeSeqOrNewest turns the "0 means newest" wire convention into a sentinel
+// the keyset predicate can compare against directly. Matches ListThreadMessages.
+func beforeSeqOrNewest(beforeSeq int64) int64 {
+	if beforeSeq <= 0 {
+		return 1<<62 - 1
+	}
+	return beforeSeq
+}
+
+// reverseRaw flips a DESC-ordered buffer into the ASC order callers render in.
+func reverseRaw[T any](rows []T) {
+	for i, j := 0, len(rows)-1; i < j; i, j = i+1, j-1 {
+		rows[i], rows[j] = rows[j], rows[i]
+	}
+}
+
+// ListMessages returns one page of a conversation's messages, ascending by seq.
+// Caller must be a member.
+//
+// beforeSeq is an exclusive upper bound (0 = start from the newest), so paging
+// backwards through history is a keyset walk served by idx_messages_conv_seq
+// rather than an OFFSET that re-reads everything it skips.
+//
+// This used to have no LIMIT and no cursor at all: opening any conversation
+// fetched its ENTIRE history — every row heap-visited, every body AES-GCM
+// decrypted one at a time, the whole set buffered into this slice and
+// marshalled into a single response body, all while holding one of the pool's
+// ten connections. A conversation was therefore a bomb with a timer set by how
+// much its participants liked each other.
+//
+// The query orders DESC to let the index serve the LIMIT, then the page is
+// reversed before decryption so the returned slice keeps its ascending contract.
+func (s *Store) ListMessages(
+	ctx context.Context, orgID, callerID, convID string,
+	beforeSeq int64, limit int,
+) ([]MessageDTO, error) {
+	limit = clampMessagePage(limit)
+	beforeSeq = beforeSeqOrNewest(beforeSeq)
+
 	out := []MessageDTO{}
 	// RLS: membership read, message read, and per-row decrypt all under app.org_id.
 	err := s.withOrg(ctx, orgID, func(tx pgx.Tx) error {
@@ -293,14 +398,15 @@ func (s *Store) ListMessages(ctx context.Context, orgID, callerID, convID string
 		rows, err := tx.Query(ctx, `
 			SELECT`+messageColumns+`
 			FROM messages m`+messageDeliveryJoin+`
-			WHERE m.conversation_id = $1
+			WHERE m.conversation_id = $1 AND m.seq < $3
 			  AND (m.sender_id <> $2 OR m.sender_dismissed_at IS NULL)
 			  -- "Delete for me": one reader's decision, invisible to the other.
 			  AND NOT EXISTS (
 			      SELECT 1 FROM message_hides h
 			      WHERE h.message_id = m.id AND h.user_id = $2
 			  )
-			ORDER BY m.seq ASC`, convID, callerID)
+			ORDER BY m.seq DESC
+			LIMIT $4`, convID, callerID, beforeSeq, limit)
 		if err != nil {
 			return err
 		}
@@ -318,6 +424,9 @@ func (s *Store) ListMessages(ctx context.Context, orgID, callerID, convID string
 		if err := rows.Err(); err != nil {
 			return err
 		}
+		// Selected newest-first so the index could serve the LIMIT; callers and
+		// the wire format both expect oldest-first.
+		reverseRaw(raws)
 		for _, r := range raws {
 			m, derr := s.decryptMessage(ctx, tx, orgID, r)
 			if derr != nil {

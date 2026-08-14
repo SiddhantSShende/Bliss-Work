@@ -100,13 +100,27 @@ func (s *Store) DeleteMessageForAll(ctx context.Context, orgID, callerID, messag
 		return err
 	}
 
+	// Resolved before the projection write rather than after: the event needs
+	// the members anyway, and the inbox_items UPDATE below needs them as its
+	// partition key.
+	members, err := conversationMemberIDs(ctx, tx, convID)
+	if err != nil {
+		return err
+	}
+
 	// The Inbox preview quotes the body, so a mail thread whose latest message
 	// was just deleted would keep showing the deleted text in the feed.
+	//
+	// owner_user_id is NOT optional here: inbox_items is HASH-partitioned on it
+	// (0003_threads_inbox.sql), so a predicate without it prunes nothing and
+	// sequential-scans all 64 partitions to touch at most two rows.
 	if threadID != nil {
 		if _, err = tx.Exec(ctx, `
 			UPDATE inbox_items
 			SET preview = '', preview_enc = NULL, updated_at = now()
-			WHERE item_kind = 'THREAD' AND ref_id = $1`, *threadID); err != nil {
+			WHERE owner_user_id = ANY($2::uuid[])
+			  AND item_kind = 'THREAD' AND ref_id = $1`,
+			*threadID, members); err != nil {
 			return err
 		}
 	}
@@ -119,16 +133,11 @@ func (s *Store) DeleteMessageForAll(ctx context.Context, orgID, callerID, messag
 		ConversationID: convID,
 		MessageID:      messageID,
 		DeletedBy:      callerID,
-		Members:        []string{},
+		Members:        members,
 	}
 	if threadID != nil {
 		evt.ThreadID = threadID
 	}
-	members, err := conversationMemberIDs(ctx, tx, convID)
-	if err != nil {
-		return err
-	}
-	evt.Members = members
 	if err := insertOutbox(ctx, tx, convID, evt); err != nil {
 		return err
 	}
@@ -266,10 +275,22 @@ func reactionsFor(ctx context.Context, tx pgx.Tx, messageIDs []string, callerID 
 	return out, rows.Err()
 }
 
-// ReactionsForConversation tallies every reaction in a conversation the caller
-// belongs to, so the message list and its reactions arrive together instead of
-// the bubbles rendering first and the chips popping in afterwards.
-func (s *Store) ReactionsForConversation(ctx context.Context, orgID, callerID, convID string) ([]ReactionDTO, error) {
+// ReactionsForConversation tallies reactions for ONE PAGE of a conversation the
+// caller belongs to, so the message list and its reactions arrive together
+// instead of the bubbles rendering first and the chips popping in afterwards.
+//
+// Takes the same (beforeSeq, limit) window as ListMessages and must be called
+// with the same values: it previously tallied every reaction in the whole
+// conversation, which quietly reintroduced an unbounded read on the side of a
+// paginated one — the client rendered 50 bubbles while downloading reaction
+// tallies for all fifty thousand.
+func (s *Store) ReactionsForConversation(
+	ctx context.Context, orgID, callerID, convID string,
+	beforeSeq int64, limit int,
+) ([]ReactionDTO, error) {
+	limit = clampMessagePage(limit)
+	beforeSeq = beforeSeqOrNewest(beforeSeq)
+
 	var out []ReactionDTO
 	err := s.withOrg(ctx, orgID, func(tx pgx.Tx) error {
 		var present int
@@ -282,14 +303,23 @@ func (s *Store) ReactionsForConversation(ctx context.Context, orgID, callerID, c
 		if err != nil {
 			return err
 		}
+		// The CTE resolves the same page of message ids ListMessages would
+		// return for this window, so the join can only tally reactions the
+		// client is actually about to render.
 		rows, err := tx.Query(ctx, `
+			WITH page AS (
+			    SELECT m.id
+			    FROM messages m
+			    WHERE m.conversation_id = $1 AND m.seq < $3
+			    ORDER BY m.seq DESC
+			    LIMIT $4
+			)
 			SELECT r.message_id, r.emoji, count(*)::int, bool_or(r.user_id = $2) AS mine
 			FROM message_reactions r
-			JOIN messages m ON m.id = r.message_id
-			WHERE m.conversation_id = $1
+			JOIN page p ON p.id = r.message_id
 			GROUP BY r.message_id, r.emoji
 			ORDER BY r.message_id, count(*) DESC, r.emoji ASC`,
-			convID, callerID)
+			convID, callerID, beforeSeq, limit)
 		if err != nil {
 			return err
 		}

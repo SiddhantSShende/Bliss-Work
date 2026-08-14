@@ -56,3 +56,43 @@ scrape_configs:
     metrics_path: /metrics
     static_configs:
       - targets: ["ws-gateway:8080"]
+
+  - job_name: integrations-svc
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["integrations-svc:8005"]
+
+  - job_name: telemetry-svc
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["telemetry-svc:8006"]
+
+  # NOT SCRAPED: email-worker. It is a Kafka consumer with no HTTP listener and
+  # no Prometheus client, so there is nothing to scrape — adding a job here would
+  # only produce a permanently-down target. Giving it a metrics endpoint is a
+  # code change to the service, tracked separately; until then its health is
+  # visible only through its consumer lag (kafka-exporter, below) and its logs.
+
+  # ── Infrastructure exporters ────────────────────────────────────────────────
+  #
+  # The four things that actually saturate first are the four that had no
+  # instrumentation at all: every ceiling in this system announces itself as
+  # connection exhaustion, Redis memory pressure, consumer lag or CPU throttling,
+  # and none of that is visible from a service's own /metrics.
+  - job_name: postgres
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+
+  - job_name: redis
+    static_configs:
+      - targets: ["redis-exporter:9121"]
+
+  - job_name: kafka
+    static_configs:
+      - targets: ["kafka-exporter:9308"]
+
+  # Per-container CPU/memory, which is how cgroup throttling and OOM-kills are
+  # caught before a user reports them.
+  - job_name: cadvisor
+    static_configs:
+      - targets: ["cadvisor:8080"]

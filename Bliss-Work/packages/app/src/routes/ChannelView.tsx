@@ -9,6 +9,7 @@ import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
 import { ChatThread } from "../features/ChatThread";
+import { useOlderMessages } from "../lib/useOlderMessages";
 import { ChannelMembersSheet } from "../features/ChannelMembersSheet";
 import { ForwardDialog } from "../features/ForwardDialog";
 import { useChatMedia } from "../features/useChatMedia";
@@ -35,11 +36,20 @@ export function ChannelView() {
   const { data: channels = [] } = useQuery({ queryKey: qk.channels, queryFn: () => api.channels() });
   const channel = channels.find((c: ChannelDTO) => c.id === channelId);
 
+  // Newest page only; older pages are prepended into the same flat array so
+  // the websocket patches and optimistic sends below are unaffected.
   const { data: messages = [] } = useQuery({
     queryKey: qk.channelMessages(channelId),
     queryFn: () => api.channelMessages(channelId),
     enabled: !!channelId,
   });
+
+  const { loadOlder, loadingOlder, hasOlder } = useOlderMessages(
+    qk.channelMessages(channelId),
+    channelId,
+    messages,
+    (beforeSeq, limit) => api.channelMessages(channelId, beforeSeq, limit),
+  );
 
   const leave = useMutation({
     mutationFn: () => api.leaveChannel(channelId),
@@ -171,6 +181,9 @@ export function ChannelView() {
           body: m.body, at: m.createdAt, kind: m.kind, pending: m.id.startsWith("temp:"),
         }))}
         meId={me.id}
+        onLoadOlder={loadOlder}
+        loadingOlder={loadingOlder}
+        hasOlder={hasOlder}
         // flushStaged, not send.mutate: Send must emit the attachment tray as
         // well as the text, and must tolerate an empty text (attachments only).
         onSend={(t) => media.flushStaged(t)}

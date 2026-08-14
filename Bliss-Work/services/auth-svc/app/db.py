@@ -15,8 +15,16 @@ from .logging_config import log
 
 engine: AsyncEngine = create_async_engine(
     settings.sqlalchemy_url,
-    pool_size=10,
-    max_overflow=10,
+    # 5+5, not 10+10. Across the four Python services, notification-svc,
+    # messaging-svc and email-worker the old sizes summed to 121 possible
+    # backends against a Postgres allowing 97 — so a burst that filled overflow
+    # on three services at once produced `FATAL: sorry, too many clients
+    # already`, and with a database per service there is no shared arbiter to
+    # make that queue instead of fail. The sum is now 68 against max_connections
+    # 200 (see docker-compose.prod.yml), which is also far closer to what 8
+    # cores can actually run concurrently.
+    pool_size=5,
+    max_overflow=5,
     pool_pre_ping=True,
     pool_recycle=1800,  # recycle pooled connections every 30 min so a DB restart
     # / maintenance window can't hand back a dead connection.

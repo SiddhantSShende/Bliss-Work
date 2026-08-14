@@ -32,7 +32,23 @@ func New(ctx context.Context, dbURL string, cryptor *crypto.Cryptor) (*Store, er
 	if cryptor == nil {
 		return nil, errors.New("store.New: cryptor is required")
 	}
-	pool, err := pgxpool.New(ctx, dbURL)
+	// Pin the pool explicitly. pgxpool.New defaults MaxConns to
+	// max(4, runtime.NumCPU()), which silently couples this service's share of
+	// a finite Postgres connection budget to whatever hardware it lands on —
+	// the same pool on a 32-core host would quietly claim 32 backends. This is
+	// the busiest service in the platform, so it gets the largest single share;
+	// see auth-svc/app/db.py for the platform-wide arithmetic.
+	poolCfg, err := pgxpool.ParseConfig(dbURL)
+	if err != nil {
+		return nil, err
+	}
+	poolCfg.MaxConns = 10
+	poolCfg.MinConns = 2
+	poolCfg.MaxConnLifetime = 30 * time.Minute
+	poolCfg.MaxConnIdleTime = 5 * time.Minute
+	poolCfg.HealthCheckPeriod = time.Minute
+
+	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
 		return nil, err
 	}

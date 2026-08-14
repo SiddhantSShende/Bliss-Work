@@ -242,11 +242,25 @@ func (s *Store) IsOnlineInOrg(ctx context.Context, orgID, userID string) (bool, 
 }
 
 // AppendOutbox adds a raw event to a user's replay ZSET, scored by occurredAt
-// epoch-milliseconds, and refreshes the 7-day TTL.
+// epoch-milliseconds, trims the key to the deepest replay any client can ask
+// for, and refreshes the 7-day TTL.
+//
+// The trim is not an optimisation, it is the only thing bounding this key.
+// Expire below is refreshed on every append, which makes the TTL seven days of
+// INACTIVITY rather than a rolling seven-day window — so an active user's key
+// was previously bounded by nothing at all, and one message into an N-member
+// channel is stored N times, once per recipient. Redis is also the source of
+// truth for replay, so it is the thing that dies first when this grows.
+//
+// Cutting at maxReplayHard is lossless with respect to observable behaviour:
+// Replay never returns more than maxReplayHard entries (see Replay), so
+// anything below the cut is data no client could ever receive.
 func (s *Store) AppendOutbox(ctx context.Context, userID string, scoreMs int64, raw []byte) error {
+	key := outboxKey(userID)
 	pipe := s.rdb.TxPipeline()
-	pipe.ZAdd(ctx, outboxKey(userID), redis.Z{Score: float64(scoreMs), Member: raw})
-	pipe.Expire(ctx, outboxKey(userID), outboxTTL)
+	pipe.ZAdd(ctx, key, redis.Z{Score: float64(scoreMs), Member: raw})
+	pipe.ZRemRangeByRank(ctx, key, 0, -(maxReplayHard + 1))
+	pipe.Expire(ctx, key, outboxTTL)
 	_, err := pipe.Exec(ctx)
 	return err
 }

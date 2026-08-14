@@ -14,6 +14,7 @@ import { ForwardDialog } from "../features/ForwardDialog";
 import { useChatMedia } from "../features/useChatMedia";
 import { useChatTyping } from "../lib/useChatTyping";
 import { useCall } from "../lib/useCall";
+import { useOlderMessages } from "../lib/useOlderMessages";
 
 export function DMView() {
   const { conversationId = "" } = useParams();
@@ -28,11 +29,37 @@ export function DMView() {
   const { data: online = [] } = useQuery({ queryKey: qk.presence, queryFn: () => api.presence(), refetchInterval: 20_000 });
   const isOnline = !!conv && online.includes(conv.peerId);
 
+  // Newest page only. Older pages are prepended into this same flat array by
+  // useOlderMessages, so every optimistic update and websocket patch below
+  // keeps working against one cache shape.
   const { data: messages = [] } = useQuery({
     queryKey: qk.messages(conversationId),
     queryFn: () => api.messages(conversationId),
     enabled: !!conversationId,
   });
+
+  const { loadOlder, loadingOlder, hasOlder } = useOlderMessages(
+    qk.messages(conversationId),
+    conversationId,
+    messages,
+    (beforeSeq, limit) => api.messages(conversationId, beforeSeq, limit),
+    // Reactions are windowed by the same cursor, so an older page needs its own
+    // tallies fetched and merged — otherwise those bubbles render chip-less.
+    (beforeSeq, limit) => {
+      api
+        .conversationReactions(conversationId, beforeSeq, limit)
+        .then((older) => {
+          if (older.length === 0) return;
+          qc.setQueryData<ReactionDTO[]>(qk.reactions(conversationId), (prev) => {
+            const held = new Set((prev ?? []).map((r) => `${r.messageId}|${r.emoji}`));
+            return [...(prev ?? []), ...older.filter((r) => !held.has(`${r.messageId}|${r.emoji}`))];
+          });
+        })
+        .catch(() => {
+          /* Chips are decoration; a failed tally must not break paging. */
+        });
+    },
+  );
 
   const { peerTyping, onType, stop: stopTyping } = useChatTyping(conversationId, conv?.peerId);
   const call = useCall();
@@ -252,6 +279,9 @@ export function DMView() {
           reactions: reactionsByMessage.get(m.id),
         }))}
         meId={me.id}
+        onLoadOlder={loadOlder}
+        loadingOlder={loadingOlder}
+        hasOlder={hasOlder}
         // flushStaged, not reply.mutate: Send must emit the attachment tray as
         // well as the text, and must tolerate an empty text (attachments only).
         onSend={(t) => { media.flushStaged(t); stopTyping(); }}
