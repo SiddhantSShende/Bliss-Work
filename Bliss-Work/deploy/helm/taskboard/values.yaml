@@ -540,12 +540,31 @@ networkPolicy:
       ports: [587, 465, 25]
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PgBouncer — optional in-cluster connection pooler (transaction pooling) in
-# front of an external Postgres. Off by default; enable to cap the connection
-# count managed Postgres sees from autoscaled stateless pods.
+# PgBouncer — in-cluster connection pooler (transaction pooling) in front of an
+# external Postgres. ON, because the autoscaling above makes it necessary rather
+# than optional: with every HTTP service scaling to 4-12 pods and each holding
+# its own pgx/SQLAlchemy pool, the connection count Postgres sees is the product
+# of pods × pool size, and a managed instance's `max_connections` is a hard wall
+# long before CPU is.
+#
+# This codebase is already transaction-pooling-safe, which is the part that is
+# usually the blocker and is easy to break later:
+#
+#   * Every org-scoped query sets `app.org_id` with
+#     `set_config(..., is_local => true)` — TRANSACTION-scoped, so it cannot
+#     leak onto the next client to borrow that server connection.
+#   * Every advisory lock is `pg_advisory_xact_lock` /
+#     `pg_try_advisory_xact_lock`, never the session-level variant, which under
+#     transaction pooling would be taken on one backend and released on another
+#     (which is to say, never).
+#
+# Anything added later that relies on session state — a session-level advisory
+# lock, `SET` without LOCAL, a prepared statement held across transactions,
+# LISTEN/NOTIFY, or a temp table — breaks silently and intermittently under this
+# pool mode. Keep the two rules above.
 # ─────────────────────────────────────────────────────────────────────────────
 pgbouncer:
-  enabled: false
+  enabled: true
   image: bitnami/pgbouncer:1.23.1
   replicas: 2
   port: 6432

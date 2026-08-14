@@ -32,6 +32,21 @@ for i in $(seq 1 60); do
   sleep 2
 done
 
+# min.insync.replicas — the half of durability that acks=all does not give you.
+#
+# Every producer in this system already sets acks=all (the two Go writers use
+# kafka.RequireAll; the three Python pollers pass acks="all"). On its own that
+# means "wait for all IN-SYNC replicas" — and if two of three replicas are down,
+# the sole survivor is the entire ISR, so the write is acknowledged and then
+# lost with that broker. min.insync.replicas=2 makes the broker REJECT the write
+# instead, which the producers surface as a retryable error and the outbox
+# retries. Refusing to accept data you cannot keep beats accepting it.
+#
+# Set to RF-1 (so 2 for RF=3): tolerates one broker down while still requiring a
+# real quorum. Left at 1 for a single-broker dev cluster, where any higher value
+# would make every produce fail.
+MIN_ISR="${MIN_INSYNC_REPLICAS:-$(( RF > 1 ? RF - 1 : 1 ))}"
+
 create() {
   local name="$1"
   # Optional 2nd arg overrides the partition count for this topic.
@@ -40,8 +55,9 @@ create() {
     --create --if-not-exists \
     --topic "${name}" \
     --partitions "${parts}" \
-    --replication-factor "${RF}"
-  echo "  topic ready: ${name} (partitions=${parts}, rf=${RF})"
+    --replication-factor "${RF}" \
+    --config "min.insync.replicas=${MIN_ISR}"
+  echo "  topic ready: ${name} (partitions=${parts}, rf=${RF}, min.isr=${MIN_ISR})"
 }
 
 create "messaging.events.v1"

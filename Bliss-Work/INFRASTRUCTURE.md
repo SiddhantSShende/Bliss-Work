@@ -154,3 +154,74 @@ If you have to do this in stages (you will):
 4. **Postgres sharding** — the biggest lift, plan for a multi-quarter project.
 5. **Kafka multi-cluster** — only when you have multi-region traffic.
 6. **ws-gateway sticky-session** — needed once you have >1 pod serving WS.
+
+---
+
+## Status: what has actually landed
+
+Written down because "the roadmap says X" and "X is done" are different claims,
+and this document previously only made the first one.
+
+### Done
+
+- **Multi-replica safety.** Four outbox pollers now claim rows with
+  `FOR UPDATE SKIP LOCKED` (the two Go ones inside a real transaction, without
+  which the clause is decorative); the telemetry session sweeper takes a
+  transaction-scoped advisory lock; telemetry's rate limiter uses Redis instead
+  of counting per-pod. These were correctness bugs, not optimisations — running
+  two replicas before them multiplied Kafka volume and raced `published_at`.
+- **ws-gateway presence expires.** Heartbeat-scored ZSETs reaped on read,
+  replacing SADD/SREM plus a startup sweep of every `presence:*` key. That sweep
+  was the single hardest blocker to a second gateway pod: it would have logged
+  out everyone connected to the first.
+- **Health-checked edge.** Both Caddyfiles probe `/readyz` and eject a wedged
+  upstream in ~5s instead of returning 502s until someone notices. Multi-upstream
+  `least_conn` is configured and takes effect as soon as there is more than one.
+- **Helm chart completed.** telemetry-svc and integrations-svc were missing
+  entirely; `/presence`, `/turn-credentials` and the JWKS path had no ingress
+  route at all, so a Kubernetes deploy had no presence and no WebRTC calls.
+  Maintenance CronJobs added — the rollup, prune and attachment GC simply never
+  ran on Kubernetes, silently.
+- **Observability in production.** The OTEL collector, Prometheus, Alertmanager,
+  Tempo, Loki and Grafana existed only under a dev compose profile. Production
+  ran with no metrics, no traces and no alerting.
+- **PgBouncer on by default.** Safe here because every org-scope GUC is
+  `set_config(..., is_local => true)` and every advisory lock is `_xact_`-scoped.
+  Keep it that way; session-level state breaks silently under transaction pooling.
+- **CDN-ready cache headers.** `/assets/` (content-hashed) is a year and
+  immutable; unhashed public files stay short.
+- **Kafka `min.insync.replicas`.** Every producer already used `acks=all`, which
+  on its own still acknowledges against a lone surviving replica. Now derived
+  from RF, so RF=3 requires a real quorum.
+
+### Not done, and what each needs from you
+
+- **Object storage for attachments.** This is the one thing still pinning
+  messaging-svc to a single replica (`values.yaml` says so, out loud). The seam
+  is already the right shape — `internal/blob` exposes
+  `WriteStream`/`Open`/`Remove`/`RelPath`/`RemoveOrg` and nothing outside it
+  touches the filesystem — so this is a second implementation behind an
+  interface, not a rewrite. It needs a bucket, credentials, a region, and a
+  one-time migration of the existing `media_blobs` volume; `storage_path` is
+  stored relative to the root precisely so the root can move.
+- **Postgres read replicas.** The heavy readers (`timeline.py`,
+  `analytics.py::_summary_for`, messaging thread lists) all tolerate ~1s lag.
+  Needs a replica endpoint and a second read-only pool per service.
+- **Kafka off the bundled broker.** Still RF=1 on one container, which loses
+  in-flight events on restart — the most urgent durability gap in the system.
+  `create-topics.sh` is already env-driven; this needs a managed 3-broker
+  cluster. Note the in-tree clients read only `KAFKA_BROKERS`, so SASL_SSL is a
+  code change at five call sites.
+- **Postgres sharding.** Unchanged: the actual wall, a multi-quarter project,
+  and every table already carries `org_id`, which is the hard part done.
+
+### The honest ceiling
+
+None of the above reaches a billion daily actives, and no amount of
+configuration will. That is roughly 10-30M concurrent sockets and sustained
+writes north of a million a second; this stack has one Postgres, one Kafka
+broker, one region and no object storage. What the work above buys is a
+genuinely horizontally scalable stateless tier behind a health-checked load
+balancer, with the multi-replica correctness bugs gone — order of magnitude
+10⁴-10⁵ DAU on well-sized managed infrastructure. Everything past that is the
+roadmap in this document, in the order given, with SRE ownership attached.
