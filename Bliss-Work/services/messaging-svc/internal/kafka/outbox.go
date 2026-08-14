@@ -52,13 +52,10 @@ func (p *OutboxPoller) Run(ctx context.Context) {
 }
 
 func (p *OutboxPoller) drain(ctx context.Context) {
-	rows, err := p.store.FetchUnpublished(ctx, 100)
-	if err != nil {
-		p.log.Error("outbox fetch failed", "err", err)
-		return
-	}
 	tracer := otel.Tracer("kafka")
-	for _, r := range rows {
+	// The store owns the transaction so the claim can hold its row locks across
+	// the produce; this callback is just "put one row on the wire".
+	err := p.store.DrainUnpublished(ctx, 100, func(r store.OutboxRow) error {
 		msg := kafka.Message{
 			Topic: r.Topic,
 			Key:   []byte(r.Key),
@@ -78,12 +75,14 @@ func (p *OutboxPoller) drain(ctx context.Context) {
 		otel.GetTextMapPropagator().Inject(spanCtx, tracing.NewKafkaHeaderCarrier(&msg.Headers))
 		span.End()
 		if err := p.writer.WriteMessages(ctx, msg); err != nil {
+			// Stops the drain; rows already produced stay marked, the rest are
+			// retried next tick. Order is preserved.
 			p.log.Error("outbox publish failed", "topic", r.Topic, "id", r.ID, "err", err)
-			return // retry remaining rows next tick (preserve order)
+			return err
 		}
-		if err := p.store.MarkPublished(ctx, r.ID); err != nil {
-			p.log.Error("outbox mark published failed", "id", r.ID, "err", err)
-			return
-		}
+		return nil
+	})
+	if err != nil {
+		p.log.Error("outbox drain failed", "err", err)
 	}
 }

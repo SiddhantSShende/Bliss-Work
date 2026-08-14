@@ -1,0 +1,102 @@
+{{/*
+One CronJob per entry in .Values.cronJobs.
+
+WHY THIS EXISTS
+---------------
+On the single-box deployment these jobs are systemd timers (infra/systemd/),
+where systemd itself is the singleton scheduler. This chart had no equivalent,
+so on Kubernetes the nightly rollup, the retention prune and the attachment GC
+simply never ran — silently, because nothing reports a job that was never
+scheduled.
+
+That is worse than it sounds for the telemetry pair specifically. The prune
+REFUSES to drop a day that was never rolled up (app/jobs/prune.py), so a missing
+rollup does not lose data, it wedges the prune — and the first symptom is a disk
+filling months later.
+
+The container image, command and env come from the SAME ConfigMap and Secret the
+long-running services use, so a job can never drift out of sync with the service
+whose data it maintains. That mirrors the systemd units, which deliberately
+carry no configuration of their own.
+
+concurrencyPolicy: Forbid on every job. These are maintenance passes over shared
+tables; two at once is contention at best. A run that overshoots its window
+should be skipped, not doubled.
+
+Failures must be LOUD. `backoffLimit: 0` plus a retained failed pod means a bad
+run stays visible to an operator and to any alerting watching
+kube_job_status_failed, rather than being retried into silence. The prune is
+fail-loud by design and this preserves that.
+*/}}
+{{- $root := . -}}
+{{- range $name, $job := .Values.cronJobs }}
+{{- if $job.enabled }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "taskboard.svcLabels" (dict "root" $root "svc" $name) | nindent 4 }}
+spec:
+  schedule: {{ $job.schedule | quote }}
+  timeZone: {{ $job.timeZone | default "Etc/UTC" | quote }}
+  concurrencyPolicy: Forbid
+  # Without this a controller outage long enough to miss a window leaves the job
+  # permanently "too old to start" and it never runs again.
+  startingDeadlineSeconds: {{ $job.startingDeadlineSeconds | default 3600 }}
+  successfulJobsHistoryLimit: {{ $job.successfulJobsHistoryLimit | default 3 }}
+  # Keep more failures than successes: a failed run's logs are the only record
+  # of why, and these run nightly, so a short history can age out before anyone
+  # looks on Monday.
+  failedJobsHistoryLimit: {{ $job.failedJobsHistoryLimit | default 5 }}
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: {{ $job.activeDeadlineSeconds | default 3600 }}
+      template:
+        metadata:
+          labels:
+            {{- include "taskboard.svcLabels" (dict "root" $root "svc" $name) | nindent 12 }}
+          annotations:
+            checksum/config: {{ include (print $root.Template.BasePath "/configmap.yaml") $root | sha256sum }}
+            {{- if not $root.Values.existingSecret }}
+            checksum/secret: {{ include (print $root.Template.BasePath "/secret.yaml") $root | sha256sum }}
+            {{- end }}
+        spec:
+          restartPolicy: Never
+          {{- with $root.Values.global.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            {{- toYaml $root.Values.podSecurityContext | nindent 12 }}
+          containers:
+            - name: {{ $name }}
+              image: {{ include "taskboard.image" (dict "root" $root "image" $job.image) }}
+              imagePullPolicy: {{ $root.Values.global.imagePullPolicy }}
+              command:
+                {{- toYaml $job.command | nindent 16 }}
+              envFrom:
+                - configMapRef:
+                    name: {{ include "taskboard.configMapName" $root }}
+                - secretRef:
+                    name: {{ include "taskboard.secretName" $root }}
+              {{- with $job.resources }}
+              resources:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
+              # Inlined to match deployment.yaml rather than templated from
+              # values: a job pod and a service pod must be locked down the
+              # same way, and one shared literal is easier to audit than a
+              # values key that could be overridden for jobs alone.
+              securityContext:
+                allowPrivilegeEscalation: false
+                privileged: false
+                runAsNonRoot: true
+                readOnlyRootFilesystem: {{ $job.readOnlyRootFilesystem | default false }}
+                capabilities:
+                  drop:
+                    - ALL
+{{- end }}
+{{- end }}

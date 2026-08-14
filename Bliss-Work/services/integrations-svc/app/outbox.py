@@ -130,8 +130,13 @@ class OutboxPoller:
             rows = (
                 await db.execute(
                     text(
+                        # FOR UPDATE SKIP LOCKED so a second replica claims a
+                        # different batch rather than racing this one. See the
+                        # note in task-svc/app/outbox.py — same poller, same
+                        # reasoning, same 100-row batch bound.
                         "SELECT id, topic, kafka_key, payload FROM outbox "
-                        "WHERE published_at IS NULL ORDER BY created_at LIMIT 100"
+                        "WHERE published_at IS NULL ORDER BY created_at LIMIT 100 "
+                        "FOR UPDATE SKIP LOCKED"
                     )
                 )
             ).all()

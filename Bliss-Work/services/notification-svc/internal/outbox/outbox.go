@@ -76,12 +76,33 @@ func (p *Publisher) tick(ctx context.Context) {
 }
 
 func (p *Publisher) publishBatch(ctx context.Context) error {
-	rows, err := p.pool.Query(ctx,
+	// One transaction spanning the claim, the produce and the mark.
+	//
+	// The claim needs FOR UPDATE SKIP LOCKED so a second replica takes a
+	// DIFFERENT batch — otherwise every replica reads the same 100 rows and
+	// produces all of them. Consumers dedup on eventId so nothing corrupts, but
+	// Kafka volume and consumed_events writes multiply by replica count, and
+	// this is the highest-fan-out topic in the product.
+	//
+	// The transaction is what makes the lock mean anything. This used to run on
+	// p.pool directly, where each statement is its own implicit transaction and
+	// the row locks would be released the moment the cursor closed — the clause
+	// would have looked right and done nothing.
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	// Rollback is the correct outcome for every early return below: nothing has
+	// been marked published, so the next tick retries. A no-op after Commit.
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	rows, err := tx.Query(ctx,
 		`SELECT id, topic, kafka_key, payload
 		   FROM outbox
 		  WHERE published_at IS NULL
 		  ORDER BY created_at
-		  LIMIT 100`)
+		  LIMIT 100
+		  FOR UPDATE SKIP LOCKED`)
 	if err != nil {
 		return err
 	}
@@ -136,12 +157,18 @@ func (p *Publisher) publishBatch(ctx context.Context) error {
 	for i, r := range batch {
 		ids[i] = r.id
 	}
-	// Post-publish bookkeeping. If this UPDATE fails the rows have already been
-	// produced, so a later tick will re-produce them — a rare at-least-once dup,
-	// which is acceptable. Log and continue rather than crash or report failure.
-	if _, err := p.pool.Exec(ctx,
+	// Post-publish bookkeeping. If this fails the rows have already been
+	// produced, so the rollback leaves them unpublished and a later tick
+	// re-produces them — a rare at-least-once dup, which is acceptable and is
+	// what consumers' eventId dedup is for. Log and continue rather than crash.
+	if _, err := tx.Exec(ctx,
 		`UPDATE outbox SET published_at = now() WHERE id = ANY($1)`, ids); err != nil {
 		p.log.Error("outbox mark-published failed after produce (rows may be re-sent)", "error", err, "count", len(batch))
+		return nil
+	}
+	// Commit also releases the row locks. Same at-least-once story if it fails.
+	if err := tx.Commit(ctx); err != nil {
+		p.log.Error("outbox commit failed after produce (rows may be re-sent)", "error", err, "count", len(batch))
 		return nil
 	}
 	p.log.Info("published outbox rows", "count", len(batch))

@@ -37,6 +37,12 @@ from .crypto import cryptor
 from .db import session, set_bypass_rls
 from .logging_setup import log
 
+# Advisory-lock key for the session sweeper. An arbitrary constant; it only has
+# to be stable across replicas and distinct from any other advisory lock this
+# database takes. Postgres advisory locks share one keyspace per database, and
+# telemetrydb is this service's alone, so a single literal is sufficient.
+_SWEEP_LOCK = 0x7E1E_5E55
+
 # Ordered longest-first so "Edge" is not reported as "Chrome" (its UA contains
 # both) and "Chrome" is not reported as "Safari" (ditto). Deliberately coarse:
 # the goal is a label an admin can read ("Chrome · Windows"), not a fingerprint.
@@ -225,6 +231,28 @@ class Sweeper:
         async with session() as db:
             # Spans every org by definition, so it runs under bypass.
             await set_bypass_rls(db)
+
+            # One sweeper at a time across the whole deployment.
+            #
+            # This loop is started unconditionally by every process, so N
+            # replicas means N full scans of the open-session set every minute,
+            # all contending on the same rows. The sweep is idempotent, so it
+            # was never incorrect — just N times the work for one time the
+            # result, on the table the ingest path is also writing to.
+            #
+            # try_ rather than plain advisory lock: a replica that loses the
+            # race should skip this tick and try again in a minute, not queue up
+            # behind the winner and then redo work that is already done.
+            #
+            # XACT-scoped, not session-scoped. A session-level lock leaks across
+            # a pooled connection's next use and, under PgBouncer in transaction
+            # mode, would be acquired on one backend and released on another —
+            # which is to say, never released.
+            got = await db.scalar(text("SELECT pg_try_advisory_xact_lock(:k)"), {"k": _SWEEP_LOCK})
+            if not got:
+                await db.rollback()
+                return 0
+
             result = await db.execute(
                 text(
                     """

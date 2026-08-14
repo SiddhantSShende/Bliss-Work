@@ -5,13 +5,21 @@ can't take a whole service offline. email-worker is skipped: a single
 partition-bound consumer has no meaningful budget (raise its replicas first).
 
 NOTE: minAvailable as a percentage requires replicas >= 2 to ever permit an
-eviction (50% of 1 rounds up to 1, blocking drains). Every HTTP service here is
-provisioned with replicas/hpa.min >= 2.
+eviction (50% of 1 rounds up to 1, blocking drains).
+
+That is why single-replica services are SKIPPED rather than given a budget.
+A PDB over one pod is not a weak guarantee, it is a permanently blocked node
+drain — cluster upgrades hang on it and the cause is not obvious from the
+outside. Anything pinned to one replica is already accepting downtime on
+disruption by definition; messaging-svc is the current case (local attachment
+storage — see the note in values.yaml).
 */}}
 {{- if .Values.pdb.enabled }}
 {{- $root := . -}}
 {{- range $name, $svc := .Values.services }}
-{{- if and $svc.http $svc.port }}
+{{- $floor := $svc.replicas | default 1 }}
+{{- if and $svc.hpa $svc.hpa.enabled }}{{ $floor = $svc.hpa.min | default $floor }}{{ end }}
+{{- if and $svc.http $svc.port (ge (int $floor) 2) }}
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget

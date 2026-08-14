@@ -35,6 +35,14 @@ class Settings(BaseSettings):
 
     internal_token: str = Field(default="", validation_alias="TB_INTERNAL_TOKEN")
 
+    # Redis for distributed rate limiting (honest across pods). Empty = in-process
+    # fallback (per-pod, fails open). slowapi_storage_uri overrides redis_url for
+    # the slowapi limiter specifically; usually set both to the same redis:// URL.
+    # Mirrors auth-svc/app/config.py — see app/rate_limit.py for why it matters
+    # here in particular: ingest is the highest-QPS surface in the product.
+    redis_url: str = ""
+    slowapi_storage_uri: str = ""
+
     # ── Retention & session semantics ───────────────────────────────────────────
     # 90 days of raw events, daily rollups kept forever. `raw_retention_days`
     # drives BOTH the prune job and how far ahead partitions are pre-created, so

@@ -117,15 +117,28 @@ services:
     readyPath: /readyz
     readOnlyRootFilesystem: true
 
+  # PINNED TO ONE REPLICA, and it is not an oversight.
+  #
+  # messaging-svc stores attachment bytes on a LOCAL filesystem
+  # (internal/blob/blob.go — "this deployment has no S3/MinIO"), and this chart
+  # mounts no volume for them. Two replicas therefore have two empty, unshared
+  # disks: pod A accepts an upload, pod B serves the download and 404s it, and
+  # which one you get is per-request. This used to say `replicas: 2` with an
+  # HPA up to 8, which declares a data-loss-shaped configuration.
+  #
+  # The real fix is object storage behind the existing blob.Store seam — the
+  # interface is already the right shape for it. Until that lands, one replica
+  # is the honest setting. Do NOT raise it to get throughput; raise it after
+  # the blobs move.
   messaging-svc:
     image: messaging-svc
     port: 8004
     http: true
-    replicas: 2
+    replicas: 1
     hpa:
-      enabled: true
-      min: 2
-      max: 8
+      enabled: false
+      min: 1
+      max: 1
       cpu: 70
     resources:
       requests: { cpu: 50m, memory: 64Mi }
@@ -304,6 +317,67 @@ ingress:
 pdb:
   enabled: true
   minAvailable: "50%"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Scheduled maintenance jobs.
+#
+# The Kubernetes equivalent of infra/systemd/*.timer. Without these a Helm
+# deployment runs no rollup, no retention prune and no attachment GC at all —
+# and nothing reports the absence, because a job that was never scheduled
+# produces no failure.
+#
+# ORDERING IS LOAD-BEARING and matches the systemd units exactly:
+#   02:30  backup        (not here — see the note at the bottom)
+#   03:00  attachment GC
+#   04:00  telemetry rollup
+#   04:30  telemetry prune
+# The prune runs last because it DELETES, and it refuses to drop a day the
+# rollup has not yet aggregated — so rollup must precede it, and the backup
+# must precede both, so the newest dump predates any deletion.
+#
+# Times are explicit UTC rather than inherited from the cluster, so the order
+# above survives a node in another timezone.
+# ─────────────────────────────────────────────────────────────────────────────
+cronJobs:
+  gc-attachments:
+    enabled: true
+    image: messaging-svc
+    schedule: "0 3 * * *"
+    timeZone: "Etc/UTC"
+    command: ["/app/gc-attachments"]
+    readOnlyRootFilesystem: true
+    resources:
+      requests: { cpu: 50m, memory: 64Mi }
+      limits: { cpu: 500m, memory: 256Mi }
+
+  telemetry-rollup:
+    enabled: true
+    image: telemetry-svc
+    schedule: "0 4 * * *"
+    timeZone: "Etc/UTC"
+    command: ["python", "-m", "app.jobs.rollup"]
+    readOnlyRootFilesystem: true
+    resources:
+      requests: { cpu: 100m, memory: 128Mi }
+      limits: { cpu: 1000m, memory: 512Mi }
+
+  telemetry-prune:
+    enabled: true
+    image: telemetry-svc
+    schedule: "30 4 * * *"
+    timeZone: "Etc/UTC"
+    command: ["python", "-m", "app.jobs.prune"]
+    readOnlyRootFilesystem: true
+    resources:
+      requests: { cpu: 100m, memory: 128Mi }
+      limits: { cpu: 1000m, memory: 512Mi }
+
+# NOT scheduled here, deliberately: blisswork-backup and blisswork-media-disk.
+# Both are about the HOST — a pg_dump of a container-local Postgres and a check
+# on the media volume's free space. On Kubernetes with a managed database and
+# object storage neither has a meaningful in-cluster equivalent; backups belong
+# to the database provider and disk alerting to the monitoring stack. Listing
+# them as disabled CronJobs would imply they merely need switching on.
 
 # ─────────────────────────────────────────────────────────────────────────────
 # NetworkPolicy — per-service least-privilege.

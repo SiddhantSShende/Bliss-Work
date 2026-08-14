@@ -101,29 +101,71 @@ type OutboxRow struct {
 	Payload []byte
 }
 
-// FetchUnpublished returns up to limit unpublished outbox rows in insertion order.
-func (s *Store) FetchUnpublished(ctx context.Context, limit int) ([]OutboxRow, error) {
-	rows, err := s.pool.Query(ctx,
-		`SELECT id, topic, kafka_key, payload FROM outbox
-		 WHERE published_at IS NULL ORDER BY created_at LIMIT $1`, limit)
+// DrainUnpublished claims up to limit unpublished rows and hands each to
+// publish, in insertion order, marking the ones that succeed.
+//
+// Claim and mark share ONE transaction, which is what lets `FOR UPDATE SKIP
+// LOCKED` do its job: a second replica takes a different batch instead of
+// re-publishing this one. (The previous shape — a bare pool Query followed by
+// per-row Exec — could not be fixed by adding the clause alone, because outside
+// an explicit transaction each statement commits on its own and the row locks
+// would be gone before the first message was produced.)
+//
+// `publish` returning an error stops the drain. Everything already published IS
+// still marked, because the transaction commits the successful prefix: order is
+// preserved and the remaining rows are retried on the next tick, which is the
+// behaviour this poller has always had.
+func (s *Store) DrainUnpublished(ctx context.Context, limit int, publish func(OutboxRow) error) error {
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	defer rows.Close()
+	defer func() { _ = tx.Rollback(ctx) }()
 
-	var out []OutboxRow
+	rows, err := tx.Query(ctx,
+		`SELECT id, topic, kafka_key, payload FROM outbox
+		 WHERE published_at IS NULL ORDER BY created_at LIMIT $1
+		 FOR UPDATE SKIP LOCKED`, limit)
+	if err != nil {
+		return err
+	}
+	// Buffer before publishing: a Kafka write while this cursor is open would
+	// hit "conn busy" on the same transaction.
+	var batch []OutboxRow
 	for rows.Next() {
 		var r OutboxRow
 		if err := rows.Scan(&r.ID, &r.Topic, &r.Key, &r.Payload); err != nil {
-			return nil, err
+			rows.Close()
+			return err
 		}
-		out = append(out, r)
+		batch = append(batch, r)
 	}
-	return out, rows.Err()
-}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(batch) == 0 {
+		return nil
+	}
 
-// MarkPublished stamps published_at on the given outbox row.
-func (s *Store) MarkPublished(ctx context.Context, id string) error {
-	_, err := s.pool.Exec(ctx, `UPDATE outbox SET published_at = now() WHERE id = $1`, id)
-	return err
+	var published []string
+	var publishErr error
+	for _, r := range batch {
+		if err := publish(r); err != nil {
+			publishErr = err
+			break
+		}
+		published = append(published, r.ID)
+	}
+
+	if len(published) > 0 {
+		if _, err := tx.Exec(ctx,
+			`UPDATE outbox SET published_at = now() WHERE id = ANY($1)`, published); err != nil {
+			return err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
+	}
+	return publishErr
 }

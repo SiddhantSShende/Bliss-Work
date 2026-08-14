@@ -130,8 +130,20 @@ class OutboxPoller:
             rows = (
                 await db.execute(
                     text(
+                        # FOR UPDATE SKIP LOCKED so a second replica claims a
+                        # DIFFERENT batch instead of the same one. Without it,
+                        # every replica reads the same 100 rows and publishes
+                        # them all: consumers dedup on eventId so nothing breaks,
+                        # but Kafka volume and consumed_events writes multiply by
+                        # replica count, and the published_at updates race.
+                        #
+                        # The locks are held across send_and_wait below, so a
+                        # slow broker holds this batch for its duration. That is
+                        # the accepted trade (auth-svc's poller has always made
+                        # it) and it is why the batch stays at 100.
                         "SELECT id, topic, kafka_key, payload FROM outbox "
-                        "WHERE published_at IS NULL ORDER BY created_at LIMIT 100"
+                        "WHERE published_at IS NULL ORDER BY created_at LIMIT 100 "
+                        "FOR UPDATE SKIP LOCKED"
                     )
                 )
             ).all()
