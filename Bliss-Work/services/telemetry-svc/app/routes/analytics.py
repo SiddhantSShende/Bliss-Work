@@ -8,7 +8,7 @@ rollup, because the prune job refuses to drop a day that was never rolled up.
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy import text
@@ -52,18 +52,33 @@ async def org_summary(
     start, end = _range(from_, to)
     async with session() as db:
         await set_org_context(db, principal.org_id)
-        user_ids = [
-            str(r.user_id)
-            for r in (
-                await db.execute(
-                    text(
-                        "SELECT DISTINCT user_id FROM activity_daily "
-                        "WHERE org_id = :org AND day BETWEEN :s AND :e"
-                    ),
-                    {"org": principal.org_id, "s": start, "e": end},
-                )
-            ).all()
-        ]
+        # activity_daily alone is not the member set.
+        #
+        # Only the nightly rollup writes that table, so anyone whose activity is
+        # entirely from TODAY has no row in it yet and was missing from this
+        # grid altogether — a brand-new workspace showed nobody on its first
+        # day, and an admin who was idle yesterday could not find themselves.
+        # _summary_for already tops up today's live numbers, but it only ran for
+        # users this query had already found, so the gap was self-perpetuating.
+        #
+        # Union today's live sources in, and only when the requested range
+        # actually reaches today (the same condition _summary_for uses before
+        # bothering with the live top-up).
+        today = _today()
+        sql = (
+            "SELECT DISTINCT user_id FROM activity_daily "
+            "WHERE org_id = :org AND day BETWEEN :s AND :e"
+        )
+        params: dict[str, object] = {"org": principal.org_id, "s": start, "e": end}
+        if start <= today <= end:
+            sql += (
+                " UNION SELECT DISTINCT user_id FROM user_sessions"
+                " WHERE org_id = :org AND started_at >= :today_start"
+                " UNION SELECT DISTINCT user_id FROM activity_events"
+                " WHERE org_id = :org AND occurred_at >= :today_start"
+            )
+            params["today_start"] = datetime.combine(today, time.min, tzinfo=timezone.utc)
+        user_ids = [str(r.user_id) for r in (await db.execute(text(sql), params)).all()]
         members = [
             await _summary_for(db, principal.org_id, uid, start, end, with_detail=False)
             for uid in user_ids

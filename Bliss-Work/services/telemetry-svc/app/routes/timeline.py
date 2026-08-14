@@ -61,7 +61,10 @@ async def roster(principal: Principal = Depends(require_principal)) -> list[Memb
                 {
                     "org": principal.org_id,
                     "today": _start_of_today(),
-                    "week": _now() - timedelta(days=7),
+                    # Was a hardcoded 7. Same number, but now the SAME number as
+                    # every other visibility bound, so changing the policy is
+                    # one edit rather than a hunt.
+                    "week": _visible_floor(),
                 },
             )
         ).all()
@@ -119,6 +122,9 @@ async def timeline(
                            target_kind, target_id, duration_ms, detail_enc
                       FROM activity_events
                      WHERE org_id = :org AND user_id = :uid
+                       -- Only the visible window is browsable; older events are
+                       -- retained but not served here. See _visible_floor.
+                       AND occurred_at >= :floor
                        -- CAST every nullable parameter: on the first page both
                        -- cursor values are NULL, and asyncpg cannot infer a type
                        -- for a parameter that only ever appears against NULL —
@@ -135,6 +141,7 @@ async def timeline(
                     "cur_at": before[0] if before else None,
                     "cur_id": before[1] if before else None,
                     "category": category, "lim": limit + 1,
+                    "floor": _visible_floor(),
                 },
             )
         ).all()
@@ -190,6 +197,8 @@ async def sessions_for(
                            ended_at, end_reason, active_ms, idle_ms, ip_prefix
                       FROM user_sessions
                      WHERE org_id = :org AND user_id = :uid
+                       -- Same visibility window as the timeline. See _visible_floor.
+                       AND started_at >= :floor
                        AND (CAST(:cur_at AS timestamptz) IS NULL
                             OR (started_at, id) < (CAST(:cur_at AS timestamptz), CAST(:cur_id AS uuid)))
                      ORDER BY started_at DESC, id DESC
@@ -201,6 +210,7 @@ async def sessions_for(
                     "cur_at": before[0] if before else None,
                     "cur_id": before[1] if before else None,
                     "lim": limit + 1,
+                    "floor": _visible_floor(),
                 },
             )
         ).all()
@@ -251,8 +261,14 @@ async def _detail(db, org_id: str, blob) -> dict[str, str] | None:
 async def _last_auth_actions(db, org_id: str) -> dict[str, tuple[datetime | None, datetime | None]]:
     """Most recent login and logout per member, from the server-observed rows.
 
-    Bounded to the retention window and to `category = 'auth'`, which the
-    (org_id, user_id, occurred_at DESC) index serves directly.
+    Bounded to the VISIBLE window (not the 90-day retention window) and to
+    `category = 'auth'`, which the (org_id, user_id, occurred_at DESC) index
+    serves directly.
+
+    The window matters for consistency, not just for policy: this feeds the
+    roster's last-login column, which sits beside a timeline that now stops at
+    seven days. Reading the retention window here would report an 89-day-old
+    sign-in next to a list that claims to hold everything.
     """
     rows = (
         await db.execute(
@@ -267,7 +283,7 @@ async def _last_auth_actions(db, org_id: str) -> dict[str, tuple[datetime | None
                  GROUP BY user_id
                 """
             ),
-            {"org": org_id, "days": settings.raw_retention_days},
+            {"org": org_id, "days": settings.visible_window_days},
         )
     ).all()
     return {str(r.user_id): (r.last_login, r.last_logout) for r in rows}
@@ -281,6 +297,24 @@ def _now() -> datetime:
 
 def _start_of_today() -> datetime:
     return _now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _visible_floor() -> datetime:
+    """The oldest moment the per-event detail views may show.
+
+    The timeline and the session list are the intrusive surfaces — a
+    minute-by-minute record of one named person — and they were the only
+    endpoints here with NO time bound at all: cursor and limit only, so "Load
+    older" walked back through the full 90-day retention horizon.
+
+    Clamping here rather than in the client is the point. A frontend-only limit
+    is a suggestion, and it would have left the same data one curl away.
+
+    Note the pagination falls out for free: once the query is floored, the
+    keyset walk simply runs out of rows and `next_cursor` goes null at the
+    boundary, so the "Load older" buttons disappear on their own.
+    """
+    return _now() - timedelta(days=settings.visible_window_days)
 
 
 def _state(has_open_session: bool, last_seen: datetime | None) -> str:

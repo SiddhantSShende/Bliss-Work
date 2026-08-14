@@ -41,9 +41,15 @@ export function MyActivity() {
           </li>
           <li>The browser and device you sign in from, and a rough location from your IP.</li>
         </ul>
+        {/* Two different windows, and conflating them would be a lie in one
+            direction or the other. Seven days is what anyone can BROWSE; ninety
+            is how long the detail is KEPT. Saying only "kept for 90 days" now
+            reads as though all of it were on this screen; saying only "7 days"
+            would imply the rest had been deleted, and it has not been. */}
         <p className="leading-relaxed">
-          Your workspace admins can see this record. Detailed activity is kept for 90 days;
-          daily totals are kept longer so long-range reports still work.
+          Your workspace admins can see this record. The last 7 days are shown here. Detailed
+          activity is kept for 90 days and daily totals for longer — both are used for reports and
+          are available on request, but are not browsable in the app.
         </p>
       </section>
 

@@ -42,6 +42,20 @@ class Settings(BaseSettings):
     raw_retention_days: int = 90
     partition_days_ahead: int = 30
 
+    # How far back the per-event detail surfaces may be BROWSED. Distinct from
+    # raw_retention_days, and deliberately much shorter: the timeline and the
+    # session list are the intrusive views — a minute-by-minute record of one
+    # named person — and there is no operational reason to scroll a quarter of
+    # them. Aggregates (summary, org summary, export) are NOT bounded by this;
+    # they answer "how has this workload trended", which needs the longer arc.
+    #
+    # Retention is unchanged. Nothing here deletes anything; the data stays in
+    # the database for reports and for lawful requests, it just is not
+    # browsable in the app. Enforced server-side by CLAMPING rather than
+    # rejecting, so an old client asking for more silently gets the window
+    # instead of an error.
+    visible_window_days: int = 7
+
     # A client heartbeats every 60s while visible. Three missed beats (plus a
     # little slack for a slow network) is the point at which we call a session
     # over — the timeout is what resolves a killed tab or a closed laptop lid,

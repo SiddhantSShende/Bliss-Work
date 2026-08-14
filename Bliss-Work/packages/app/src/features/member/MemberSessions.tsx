@@ -50,12 +50,17 @@ export function MemberSessions({ userId }: { userId: string }) {
   return (
     <div className="space-y-1">
       {sessions.map((s) => <Row key={s.id} session={s} />)}
-      {hasNextPage && (
+      {hasNextPage ? (
         <div className="pt-2 text-center">
           <Button variant="ghost" size="sm" loading={isFetchingNextPage} onClick={() => fetchNextPage()}>
             Load older
           </Button>
         </div>
+      ) : (
+        // Same visibility window as the timeline — see the note there.
+        <p className="pt-2 text-center text-xs text-muted">
+          Showing the last 7 days. Older sessions are retained but not browsable here.
+        </p>
       )}
     </div>
   );

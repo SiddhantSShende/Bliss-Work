@@ -56,7 +56,22 @@ list and a permanent entry in Settings. That is a deliberate product decision,
 not decoration: monitoring people without telling them is unlawful in much of
 the world and corrosive everywhere else.
 
-## 3. Retention
+## 3. Retention — and the separate question of visibility
+
+Two different windows. Confusing them is the easiest mistake to make here.
+
+**Visibility (`TELEMETRY_VISIBLE_WINDOW_DAYS`, default 7)** is how far back the
+per-event detail can be *browsed*: the member timeline and the session list.
+Those are the intrusive surfaces — a minute-by-minute record of one named
+person — and there is no operational reason to scroll a quarter of them. It is
+enforced server-side by clamping the query, not by the range picker, so the
+limit holds for anything talking to the API. It deletes nothing.
+
+Aggregates are deliberately **not** bounded by it. `/telemetry/summary`,
+`/telemetry/org/summary` and the export answer "how has this workload trended",
+which needs the longer arc, and they expose totals rather than a play-by-play.
+
+**Retention** is how long the data is *kept*:
 
 - **Raw events: 90 days** (`TELEMETRY_RAW_RETENTION_DAYS`). `activity_events` is
   partitioned by day, so expiry is a `DROP TABLE` rather than a multi-million-row

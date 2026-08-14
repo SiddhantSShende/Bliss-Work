@@ -113,6 +113,7 @@ claim.
 | Per-user erasure | null/overwrite that user's `*_enc` columns | [`SECURITY.md`](./SECURITY.md) §4 |
 | Retention | policy-driven; expired data crypto-shredded rather than bulk-deleted | [`SECURITY.md`](./SECURITY.md) §4 |
 | Behavioural telemetry: purpose + retention | 90-day raw activity, daily rollups retained; day-partitioned so expiry is a `DROP TABLE` | [`TELEMETRY.md`](./TELEMETRY.md) §1, §3; `services/telemetry-svc/migrations/0001_init.sql` |
+| Behavioural telemetry: data minimisation in use | per-event detail (timeline, sessions) is browsable for 7 days only, clamped server-side; longer windows serve aggregates, not a play-by-play | [`TELEMETRY.md`](./TELEMETRY.md) §3; `services/telemetry-svc/app/routes/timeline.py::_visible_floor` |
 | Behavioural telemetry: access control | a member reads only their own record; anyone else's requires org_admin | `services/telemetry-svc/app/routes/subject.py::resolve_subject` (+ its dedicated test suite) |
 | Behavioural telemetry: transparency | in-product notice + self-service view of one's own record | `packages/app/src/features/ActivityNotice.tsx`, `packages/app/src/routes/MyActivity.tsx` |
 | Behavioural telemetry: data minimisation | no window titles, no full-URL aggregates, message previews truncated + encrypted, no names/emails stored | [`TELEMETRY.md`](./TELEMETRY.md) §1; `services/telemetry-svc/app/event_map.py::preview_of` |

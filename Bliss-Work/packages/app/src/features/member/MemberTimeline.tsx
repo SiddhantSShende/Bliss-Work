@@ -69,12 +69,20 @@ export function MemberTimeline({ userId }: { userId: string }) {
               </ol>
             </section>
           ))}
-          {hasNextPage && (
+          {hasNextPage ? (
             <div className="pt-1 text-center">
               <Button variant="ghost" size="sm" loading={isFetchingNextPage} onClick={() => fetchNextPage()}>
                 Load older
               </Button>
             </div>
+          ) : (
+            // The server floors this query at the visibility window, so paging
+            // simply runs out rather than reaching the end of the record. Say
+            // which of the two happened — a list that just stops looks like
+            // everything older is gone, and it is not.
+            <p className="pt-2 text-center text-xs text-muted">
+              Showing the last 7 days. Older activity is retained but not browsable here.
+            </p>
           )}
         </div>
       )}
