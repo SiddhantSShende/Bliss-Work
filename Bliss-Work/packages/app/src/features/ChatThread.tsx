@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import { motion } from "framer-motion";
-import { MessageSquare, Ban, PhoneMissed } from "lucide-react";
+import { MessageSquare, Ban, PhoneMissed, Forward } from "lucide-react";
 import { Avatar } from "@taskboard/ui";
 import { clock, groupMessages } from "../lib/chatFormat";
 import type { MessageDTO, ReactionDTO } from "@taskboard/shared";
