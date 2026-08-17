@@ -2,7 +2,7 @@
  *  server→client WS frames; Go/Python structs mirror it. Conventions: `orgId`
  *  tenant, `eventId` (UUIDv7) dedup, discrete per-transition types, JSON. */
 import { z } from "zod";
-import { MessageKindWire, ThreadOrigin } from "./domain";
+import { CallShareSource, MessageKindWire, ThreadOrigin } from "./domain";
 
 // ── Kafka topics ────────────────────────────────────────────────────────────
 export const Topics = {
@@ -58,6 +58,28 @@ export const EventType = {
   OrgDeleteRequested: "org.delete_requested",
   OrgDeleteCancelled: "org.delete_cancelled",
   OrgDeleted: "org.deleted",
+  // ── Calls ──────────────────────────────────────────────────────────────
+  // All of these route by `members`, the recipient list messaging-svc computed.
+  // That list may legitimately span ORGS for a meeting joined by link, which is
+  // why the gateway routes these purely by recipient id and never by org.
+  CallScheduled: "call.scheduled",
+  CallRing: "call.ring",
+  CallParticipantAdded: "call.participant_added",
+  CallEnded: "call.ended",
+  /** The waiting room is over. Sent to the WHOLE roster, because it means two
+   *  things at once: everyone parked in the lobby is now admitted and should
+   *  enter, and everyone who has not opened it yet now can. */
+  CallStarted: "call.started",
+  /** Somebody is in the lobby. The one call event whose `members` is NOT the
+   *  roster — it goes only to the people who could start the call. Not a
+   *  request for approval: there is nothing to approve, and starting the call
+   *  admits everyone waiting at once. */
+  CallWaiting: "call.waiting",
+  /** Screen sharing started or stopped. `actorId` is the sharer, and is what
+   *  tells every other client that a share exists without handing them
+   *  anything to stop it with — the stop control is the sharer's alone. */
+  CallShareStarted: "call.screenshare_started",
+  CallShareStopped: "call.screenshare_stopped",
   InviteCreated: "invite.created",
   PasswordResetRequested: "password.reset.requested",
   EmailVerificationRequested: "email.verification.requested",
@@ -114,7 +136,7 @@ export const ConversationIgnored = z.object({
   conversationId: z.string().uuid(),
   ignoredBy: z.string().uuid(),
   /** Both members of the 1:1 thread — the gateway pushes to BOTH. */
-  members: z.array(z.string().uuid()).length(2),
+  members: z.array(z.string().uuid()).length(2).optional(),
   atSeq: z.number().int().nonnegative(),
   /** When the ignore was scoped to a specific thread (post-Inbox migration). */
   threadId: z.string().uuid().optional(),
@@ -127,7 +149,7 @@ export const ConversationBlocked = z.object({
   /** Who blocked. The other member renders "You have been blocked". */
   blockedBy: z.string().uuid(),
   /** Both members of the 1:1 — the gateway pushes to BOTH. */
-  members: z.array(z.string().uuid()).length(2),
+  members: z.array(z.string().uuid()).length(2).optional(),
 });
 
 export const ConversationUnblocked = z.object({
@@ -135,7 +157,7 @@ export const ConversationUnblocked = z.object({
   ...envelope,
   conversationId: z.string().uuid(),
   unblockedBy: z.string().uuid(),
-  members: z.array(z.string().uuid()).length(2),
+  members: z.array(z.string().uuid()).length(2).optional(),
 });
 
 export const MessageRead = z.object({
@@ -208,7 +230,7 @@ export const MessageDeleted = z.object({
   threadId: z.string().uuid().optional(),
   messageId: z.string().uuid(),
   deletedBy: z.string().uuid(),
-  members: z.array(z.string().uuid()),
+  members: z.array(z.string().uuid()).optional(),
 });
 
 /**
@@ -223,7 +245,7 @@ export const MessageReaction = z.object({
   conversationId: z.string().uuid(),
   messageId: z.string().uuid(),
   actorId: z.string().uuid(),
-  members: z.array(z.string().uuid()),
+  members: z.array(z.string().uuid()).optional(),
 });
 
 export const MessageForwarded = z.object({
@@ -280,8 +302,15 @@ export const ChannelMessageCreated = z.object({
    */
   senderDisplayName: z.string().optional(),
   body: z.string(),
-  /** All channel members — the gateway pushes to each. */
-  members: z.array(z.string().uuid()),
+  /**
+   * All channel members — the gateway pushes to each, then DROPS this field.
+   *
+   * Optional because it is absent on delivery, not because a producer may omit
+   * it: messaging-svc always sends it, and routing depends on it. A client must
+   * never read it. Sizing a UI off this array would work in a two-person
+   * channel and silently show nothing in a real one.
+   */
+  members: z.array(z.string().uuid()).optional(),
 });
 
 /**
@@ -296,7 +325,7 @@ const channelModeration = {
   channelId: z.string().uuid(),
   userId: z.string().uuid(),
   actorId: z.string().uuid().optional(),
-  members: z.array(z.string().uuid()),
+  members: z.array(z.string().uuid()).optional(),
 };
 
 export const ChannelMemberRemoved = z.object({
@@ -599,7 +628,87 @@ export const EmailVerificationRequested = z.object({
 // ── Discriminated unions ─────────────────────────────────────────────────────
 
 /** Everything the WS gateway can push to a client. */
+
+// ── Calls ────────────────────────────────────────────────────────────────────
+
+/**
+ * One envelope for every call notification, because the gateway routes all four
+ * identically — to `members`.
+ *
+ * These are NOTIFICATIONS ONLY. Media goes to the SFU over its own connection
+ * and never touches this path, so nothing here carries SDP or ICE. That split
+ * is what lets a meeting notify a participant in another organisation while the
+ * rtc.* signaling frames keep refusing to cross an org boundary at all.
+ */
+/** Fields every call notification carries. Split out so the four discriminants
+ *  below stay literal — z.discriminatedUnion needs a literal to switch on. */
+const callFields = {
+  ...envelope,
+  callId: z.string().uuid(),
+  kind: z.enum(["DIRECT", "CHANNEL", "MEETING"]),
+  channelId: z.string().uuid().optional(),
+  title: z.string().optional(),
+  media: z.enum(["audio", "video"]).optional(),
+  status: z.enum(["SCHEDULED", "LIVE", "ENDED", "CANCELLED"]).optional(),
+  scheduledAt: z.string().optional(),
+  /** Whoever caused it: the organiser, the person who added someone, the host
+   *  who ended or started it, the person who arrived in the lobby, or the one
+   *  who started sharing their screen. */
+  actorId: z.string().uuid().optional(),
+  /** What is being shared, on the screen-share events only. */
+  shareSource: CallShareSource.optional(),
+  /** Who should RECEIVE this. Usually the roster — and it may span ORGS for a
+   *  meeting joined by link — but not always: call.waiting goes only to the
+   *  people who could start the call. */
+  members: z.array(z.string().uuid()).optional(),
+};
+
+export const CallScheduled = z.object({ type: z.literal(EventType.CallScheduled), ...callFields });
+export const CallRing = z.object({ type: z.literal(EventType.CallRing), ...callFields });
+export const CallParticipantAdded = z.object({
+  type: z.literal(EventType.CallParticipantAdded),
+  ...callFields,
+});
+export const CallEnded = z.object({ type: z.literal(EventType.CallEnded), ...callFields });
+export const CallStarted = z.object({ type: z.literal(EventType.CallStarted), ...callFields });
+export const CallWaiting = z.object({ type: z.literal(EventType.CallWaiting), ...callFields });
+export const CallShareStarted = z.object({
+  type: z.literal(EventType.CallShareStarted),
+  ...callFields,
+});
+export const CallShareStopped = z.object({
+  type: z.literal(EventType.CallShareStopped),
+  ...callFields,
+});
+
+export type CallScheduled = z.infer<typeof CallScheduled>;
+export type CallRing = z.infer<typeof CallRing>;
+export type CallParticipantAdded = z.infer<typeof CallParticipantAdded>;
+export type CallEnded = z.infer<typeof CallEnded>;
+export type CallStarted = z.infer<typeof CallStarted>;
+export type CallWaiting = z.infer<typeof CallWaiting>;
+export type CallShareStarted = z.infer<typeof CallShareStarted>;
+export type CallShareStopped = z.infer<typeof CallShareStopped>;
+/** Any of them, for handlers that treat them uniformly. */
+export type CallLifecycle =
+  | CallScheduled
+  | CallRing
+  | CallParticipantAdded
+  | CallEnded
+  | CallStarted
+  | CallWaiting
+  | CallShareStarted
+  | CallShareStopped;
+
 export const ServerEvent = z.discriminatedUnion("type", [
+  CallScheduled,
+  CallRing,
+  CallParticipantAdded,
+  CallEnded,
+  CallStarted,
+  CallWaiting,
+  CallShareStarted,
+  CallShareStopped,
   MessageCreated,
   ConversationIgnored,
   ConversationBlocked,
@@ -632,6 +741,10 @@ export type ServerEvent = z.infer<typeof ServerEvent>;
 
 /** Every domain event on the bus (superset of ServerEvent + internal-only). */
 export const DomainEvent = z.discriminatedUnion("type", [
+  CallScheduled,
+  CallRing,
+  CallParticipantAdded,
+  CallEnded,
   MessageCreated,
   ConversationIgnored,
   ConversationBlocked,
@@ -895,18 +1008,45 @@ export const CALL_CONTROL_TYPES = new Set<string>([
 /**
  * Routing helper — given a domain event, which user IDs should receive it over
  * their live socket? The gateway uses this in consume-all-and-filter mode.
+ *
+ * ── Call this on a BUS event, never on a delivered one ──────────────────────
+ * `members` is routing metadata: producers put it on the event so this function
+ * can answer the question, and the gateway STRIPS it once it has (see
+ * ws-gateway/internal/contract/payload.go). It is therefore present on the bus
+ * and absent by the time a frame reaches a client — which is why the field is
+ * `.optional()` on every schema below, and why every read here tolerates its
+ * absence.
+ *
+ * The strip is not tidiness. messaging-svc ships a channel's full roster inside
+ * the event, and the gateway stores one copy per recipient, so an N-member
+ * channel cost O(N²) bytes of Redis per message until the field was removed
+ * before persistence.
+ *
+ * An event that has already been stripped routes to nobody, which is correct:
+ * it has been routed. The empty list is the honest answer, not a fallback.
  */
 export function recipientsOf(e: DomainEvent): string[] {
   switch (e.type) {
     case EventType.MessageCreated:
       return [e.recipientId, e.senderId];
     case EventType.ConversationIgnored:
-      return e.members;
+      return e.members ?? [];
+    case EventType.CallScheduled:
+    case EventType.CallRing:
+    case EventType.CallParticipantAdded:
+    case EventType.CallEnded:
+      // The roster messaging-svc computed. This is the ONE routing case whose
+      // recipients may belong to a different org than the event — a meeting
+      // joined by link spans orgs — and it needs no special handling precisely
+      // because routing here has never consulted an org.
+      //
+      // Must stay in lockstep with ws-gateway/internal/contract/contract.go.
+      return e.members ?? [];
     case EventType.ConversationBlocked:
     case EventType.ConversationUnblocked:
       // Both members: the blocked peer flips their composer banner live, and
       // the blocker's other devices stay in sync.
-      return e.members;
+      return e.members ?? [];
     case EventType.MessageRead:
       return [e.recipientId];
     case EventType.MessageDelivered:
@@ -921,7 +1061,7 @@ export function recipientsOf(e: DomainEvent): string[] {
       // recipient only learns about at their next refetch is one they may well
       // have screenshotted first, and a reaction nobody sees arrive is not a
       // reaction.
-      return e.members;
+      return e.members ?? [];
     case EventType.MessageForwarded:
       // C receives the forward (internal only), B's other devices sync, and —
       // the whole point — the ORIGINAL author learns B→C. forwardedTo is absent
@@ -930,7 +1070,7 @@ export function recipientsOf(e: DomainEvent): string[] {
         (x): x is string => !!x,
       );
     case EventType.ChannelMessageCreated:
-      return e.members;
+      return e.members ?? [];
     case EventType.ChannelMemberRemoved:
     case EventType.ChannelRoleChanged:
     case EventType.ChannelBlocked:
@@ -938,7 +1078,7 @@ export function recipientsOf(e: DomainEvent): string[] {
       // Surviving members refresh the roster; the affected user is appended
       // because they are no longer IN it and would otherwise be left looking at
       // a channel they can no longer post to.
-      return [...e.members, e.userId];
+      return [...(e.members ?? []), e.userId];
     case EventType.TaskAssigned:
       return [e.assigneeId];
     case EventType.TaskAcknowledged:

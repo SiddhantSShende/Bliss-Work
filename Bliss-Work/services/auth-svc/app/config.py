@@ -94,6 +94,14 @@ class Settings(BaseSettings):
     argon2_memory_kib: int = 0
     argon2_parallelism: int = 0
 
+    # How many reverse-proxy hops sit in front of this service. Every per-IP
+    # control counts this many entries in from the RIGHT of X-Forwarded-For, so
+    # it must equal the number of proxies that APPEND to that header before us.
+    # 1 = the Caddy edge, which is the only thing that can reach these services.
+    # See app/net.py — setting this too high starts trusting client-supplied
+    # entries, which is how a per-IP limiter becomes bypassable.
+    trusted_proxy_hops: int = 1
+
     # Misc
     log_level: str = "info"
 

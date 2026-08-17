@@ -44,6 +44,7 @@ from .presence import Presence
 from .resilience import CircuitBreaker, CircuitOpenError, retry_async
 from .templates import render_new_message_email, render_new_task_email
 from .tracing import extract_context, inject_headers
+from .kafka_security import kafka_security_kwargs
 
 _log = structlog.get_logger("relay")
 
@@ -125,6 +126,8 @@ class RelayConsumer:
             self._settings.messaging_topic,
             self._settings.task_topic,
             bootstrap_servers=self._settings.kafka_brokers,
+            # TLS/SASL when KAFKA_SECURITY_PROTOCOL asks for it; empty otherwise.
+            **kafka_security_kwargs(),
             group_id=self._settings.relay_consumer_group,
             # Manual commit: the offset only advances AFTER _mark_sent, so it
             # can never commit mid-SMTP-send.
@@ -134,6 +137,8 @@ class RelayConsumer:
         )
         self._producer = AIOKafkaProducer(
             bootstrap_servers=self._settings.kafka_brokers,
+            # TLS/SASL when KAFKA_SECURITY_PROTOCOL asks for it; empty otherwise.
+            **kafka_security_kwargs(),
         )
         reaper = asyncio.create_task(self._reaper_loop())
 

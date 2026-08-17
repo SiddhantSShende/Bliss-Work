@@ -5,8 +5,8 @@
 // ZSET, NOT produced to Kafka, NOT subject to consume-all-and-filter. They
 // fly directly from sender to recipient via:
 //
-//   * Local Hub.Fanout when both peers are on the same node.
-//   * Redis pub/sub on rtc:user:<recipientId> when they're not. Each gateway
+//   - Local Hub.Fanout when both peers are on the same node.
+//   - Redis pub/sub on rtc:user:<recipientId> when they're not. Each gateway
 //     node PSUBSCRIBE'd at boot funnels remote frames back into local Fanout.
 //
 // fromUserId is STAMPED by the gateway from the verified JWT claims; clients

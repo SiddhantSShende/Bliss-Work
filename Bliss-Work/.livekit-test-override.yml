@@ -1,0 +1,18 @@
+# Test-only override: gives the dev messaging-svc an SFU to mint room tokens
+# against, plus a single-node livekit-server on the same network so a room
+# token can actually be redeemed. Not part of the repo; passed with -f.
+services:
+  livekit:
+    image: livekit/livekit-server:v1.8.0
+    restart: unless-stopped
+    command: ["--dev", "--bind", "0.0.0.0"]
+    environment:
+      LIVEKIT_KEYS: "devkey: devsecretdevsecretdevsecretdevsecret32"
+    ports:
+      - "127.0.0.1:7880:7880"
+
+  messaging-svc:
+    environment:
+      LIVEKIT_API_KEY: devkey
+      LIVEKIT_API_SECRET: devsecretdevsecretdevsecretdevsecret32
+      LIVEKIT_URL: ws://127.0.0.1:7880

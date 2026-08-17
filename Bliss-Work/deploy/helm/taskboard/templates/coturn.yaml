@@ -1,0 +1,114 @@
+{{/*
+coturn — the TURN relay for WebRTC calls that cannot traverse NAT directly.
+
+WHY THIS FILE EXISTS. It did not, and the failure it caused is unusually quiet.
+ws-gateway's /turn-credentials endpoint answers 200 whether or not a relay is
+configured: with no TURN_SECRET it simply returns STUN-only ICE servers. So
+calls between peers that can reach each other directly keep working, nothing
+logs an error, no status code changes — and the 10-20% of users behind a
+symmetric NAT silently fail to connect. The gateway now counts this
+(ws_turn_credentials_total{turn="unavailable"}) precisely because nothing else
+would show it.
+
+WHY hostNetwork. A relay allocates one UDP port per session from a contiguous
+range, and it has to advertise addresses clients can actually reach. Both are
+what host networking is for; the same reasoning as the SFU next door.
+
+⚠️ THE RELAY RANGE IS THE CAPACITY. One port per allocation means the width of
+`relayPortRange` is very nearly the number of concurrent relayed sessions this
+fleet can carry. The compose deployment shipped 41 ports — about twenty calls —
+which is the kind of ceiling that presents as a load-dependent minority of
+broken calls rather than an outage.
+*/}}
+{{- if .Values.coturn.enabled }}
+{{- $root := . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: coturn
+  labels:
+    {{- include "taskboard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: coturn
+spec:
+  replicas: {{ .Values.coturn.replicas }}
+  selector:
+    matchLabels:
+      {{- include "taskboard.svcSelectorLabels" (dict "root" $root "svc" "coturn") | nindent 6 }}
+      app.kubernetes.io/component: coturn
+  template:
+    metadata:
+      labels:
+        {{- include "taskboard.svcSelectorLabels" (dict "root" $root "svc" "coturn") | nindent 8 }}
+        app.kubernetes.io/component: coturn
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- with .Values.coturn.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.coturn.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      # One relay per node — they would otherwise collide on the host's
+      # listening port and relay range.
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  {{- include "taskboard.svcSelectorLabels" (dict "root" $root "svc" "coturn") | nindent 18 }}
+                  app.kubernetes.io/component: coturn
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: coturn
+          image: {{ .Values.coturn.image }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          # --use-auth-secret is the coturn REST API: ws-gateway mints a
+          # short-lived username/credential pair from the SAME static secret
+          # (HMAC-SHA1 over "<expiry>:<userId>"), so the secret itself never
+          # reaches a client. The two MUST match or every relay auth fails.
+          #
+          # The denied-peer ranges are not optional hardening. Without them an
+          # open relay will happily forward traffic to RFC1918 addresses, which
+          # turns it into a way to reach the cluster's internal network from
+          # the public internet.
+          command:
+            - turnserver
+          args:
+            - -n
+            - --log-file=stdout
+            - --no-cli
+            - --no-tlsv1
+            - --no-tlsv1_1
+            - --listening-port={{ .Values.coturn.listeningPort }}
+            - --min-port={{ .Values.coturn.relayPortRange.start }}
+            - --max-port={{ .Values.coturn.relayPortRange.end }}
+            - --realm=$(TURN_REALM)
+            - --use-auth-secret
+            - --static-auth-secret=$(TURN_SECRET)
+            - --fingerprint
+            - --no-multicast-peers
+            - --denied-peer-ip=127.0.0.0-127.255.255.255
+            - --denied-peer-ip=10.0.0.0-10.255.255.255
+            - --denied-peer-ip=172.16.0.0-172.31.255.255
+            - --denied-peer-ip=192.168.0.0-192.168.255.255
+          env:
+            - name: TURN_REALM
+              value: {{ .Values.coturn.realm | default .Values.ingress.host | quote }}
+            - name: TURN_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "taskboard.secretName" . }}
+                  key: TURN_SECRET
+          ports:
+            - name: turn
+              containerPort: {{ .Values.coturn.listeningPort }}
+              protocol: UDP
+            - name: turn-tcp
+              containerPort: {{ .Values.coturn.listeningPort }}
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.coturn.resources | nindent 12 }}
+{{- end }}

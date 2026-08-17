@@ -10,6 +10,11 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" \
     -o /out/notification-svc ./cmd/server
+# Event-table retention, run as a cron/one-shot. notification.events.v1 is the
+# highest-fan-out topic in the product — one outbox row per notification per
+# recipient — so this table grew fastest and had no bound at all.
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" \
+    -o /out/prune-event-tables ./cmd/prune-event-tables
 
 # ── Runtime stage ─────────────────────────────────────────────────────────
 FROM alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
@@ -20,6 +25,7 @@ RUN adduser -D -u 10001 app
 
 WORKDIR /app
 COPY --from=build /out/notification-svc /app/notification-svc
+COPY --from=build /out/prune-event-tables /app/prune-event-tables
 RUN chown -R app:app /app
 
 USER app

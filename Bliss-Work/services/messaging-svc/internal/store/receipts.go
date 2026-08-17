@@ -339,6 +339,41 @@ func clampMessagePage(limit int) int {
 	return limit
 }
 
+// Page sizes for the open-channel directory (Browse).
+//
+// A separate pair from the message ones because the population is different in
+// kind. A message page is a slice of one conversation's history; a directory
+// page is a slice of EVERY open channel in the organisation, which is bounded
+// by how large the org is and by nothing else. The rows are also dearer than
+// they look — each carries a LATERAL lookup of its last message and is then
+// decrypted individually — so the ceiling is lower than a raw row count would
+// suggest.
+const (
+	defaultChannelPage = 50
+	maxChannelPage     = 200
+)
+
+// clampChannelPage resolves a client-supplied directory page size.
+func clampChannelPage(limit int) int {
+	if limit <= 0 {
+		return defaultChannelPage
+	}
+	if limit > maxChannelPage {
+		return maxChannelPage
+	}
+	return limit
+}
+
+// clampOffset floors a client-supplied offset at zero. There is deliberately no
+// ceiling: a caller paging honestly through a large directory has a legitimately
+// large offset, and the page size is what bounds the work either way.
+func clampOffset(offset int) int {
+	if offset < 0 {
+		return 0
+	}
+	return offset
+}
+
 // beforeSeqOrNewest turns the "0 means newest" wire convention into a sentinel
 // the keyset predicate can compare against directly. Matches ListThreadMessages.
 func beforeSeqOrNewest(beforeSeq int64) int64 {

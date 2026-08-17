@@ -10,7 +10,7 @@ import httpx
 import jwt
 import structlog
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Request, status
 
 from ..config import settings
 from ..logging_config import log
@@ -27,6 +27,11 @@ _JWKS_ATTEMPTS = 3
 # get_key() fails fast for the cooldown instead of each request blocking on the
 # per-attempt timeout (the cascade we're guarding against).
 _jwks_breaker = CircuitBreaker(fail_max=5, reset_timeout=30.0, name="jwks")
+
+# Minimum gap between refreshes forced by an UNKNOWN kid. `kid` is an
+# unauthenticated caller-chosen string, so without this a flood of random kids
+# is a flood of JWKS fetches. See _JwksCache.get_key.
+_KID_MISS_COOLDOWN = 10.0
 
 
 def _current_request_id() -> str | None:
@@ -47,6 +52,8 @@ class _JwksCache:
     def __init__(self) -> None:
         self._keys: dict[str, Ed25519PublicKey] = {}
         self._fetched_at: float = 0.0
+        # When an unknown-kid miss last forced a refresh. See get_key.
+        self._last_kid_miss_refresh: float = -_KID_MISS_COOLDOWN
         # Serializes refreshes so a cache expiry under concurrent load triggers a
         # SINGLE fetch, not one per in-flight request (thundering herd on the
         # JWKS endpoint).
@@ -119,24 +126,47 @@ class _JwksCache:
             await self._refresh_if_stale()
         key = self._keys.get(kid)
         if key is None:
-            # kid not present (key rotation): force one refresh under the lock,
-            # re-checking so concurrent callers don't each refetch.
-            async with self._lock:
-                if kid not in self._keys:
-                    await self._refresh()
-            key = self._keys.get(kid)
+            # kid not present. Legitimately this means a key rotation we have
+            # not seen yet, and one forced refresh is the right answer.
+            #
+            # It is also attacker-reachable: a `kid` is an unauthenticated,
+            # caller-chosen string, so a flood of random kids would otherwise
+            # be a flood of JWKS refetches — an amplifier pointed at our own
+            # keystore, and now reachable BEFORE the global rate limiter
+            # because PrincipalMiddleware verifies ahead of it. So a forced
+            # refresh is allowed at most once per _KID_MISS_COOLDOWN across the
+            # process; outside that window an unknown kid is simply unknown.
+            #
+            # This costs a rotation nothing: publish the new key before minting
+            # tokens with it (the overlapping-JWKS procedure in
+            # docs/KEY-ROTATION.md), and the TTL refresh above picks it up.
+            # Worst case a token minted under a brand-new kid is rejected for
+            # up to the cooldown, and the client retries.
+            if (now - self._last_kid_miss_refresh) >= _KID_MISS_COOLDOWN:
+                async with self._lock:
+                    # Re-check inside the lock so concurrent callers that queued
+                    # behind one refresh do not each trigger another.
+                    if kid not in self._keys and (
+                        time.monotonic() - self._last_kid_miss_refresh
+                    ) >= _KID_MISS_COOLDOWN:
+                        self._last_kid_miss_refresh = time.monotonic()
+                        await self._refresh()
+                key = self._keys.get(kid)
         return key
 
 
 _jwks_cache = _JwksCache()
 
 
-async def get_principal(
-    authorization: str | None = Header(default=None),
-) -> Principal:
+async def verify_bearer(authorization: str | None) -> Principal:
     """Verify the Bearer JWT; derive identity from VERIFIED claims only.
 
     Never trusts x-org-id / x-user-id headers. Forged/missing token -> 401.
+
+    Split out of the FastAPI dependency so PrincipalMiddleware can call it
+    before the rate limiter runs (see app/middleware.py). The middleware caches
+    the result on request.state and `get_principal` below reuses it, so a
+    request that reaches an authenticated route verifies its token exactly once.
     """
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "missing bearer token")
@@ -174,6 +204,25 @@ async def get_principal(
         roles=list(claims.get("roles", [])),
         username=claims.get("username", ""),
     )
+
+
+async def get_principal(
+    request: Request,
+    authorization: str | None = Header(default=None),
+) -> Principal:
+    """The dependency routes depend on. Reuses PrincipalMiddleware's result.
+
+    The middleware runs on every request and swallows every failure, so a
+    principal on request.state means "this token verified"; its absence means
+    either no token or a bad one, and re-running verify_bearer here is what
+    turns that into the correct 401 (or 503) with the canonical error envelope.
+    Authorization decisions stay here, in the dependency — the middleware only
+    ever caches an answer.
+    """
+    cached = getattr(request.state, "principal", None)
+    if isinstance(cached, Principal):
+        return cached
+    return await verify_bearer(authorization)
 
 
 def require_org_admin(principal: Principal = Depends(get_principal)) -> Principal:

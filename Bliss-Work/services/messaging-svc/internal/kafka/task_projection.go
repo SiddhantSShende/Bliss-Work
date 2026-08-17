@@ -10,6 +10,7 @@ import (
 	"github.com/segmentio/kafka-go"
 
 	"github.com/task-board/messaging-svc/internal/events"
+	"github.com/task-board/messaging-svc/internal/kafkaauth"
 	"github.com/task-board/messaging-svc/internal/store"
 )
 
@@ -46,6 +47,9 @@ func NewTaskProjectionConsumer(st *store.Store, brokers []string, log *slog.Logg
 		MinBytes:       1,
 		MaxBytes:       10e6,
 		CommitInterval: time.Second,
+		// nil unless KAFKA_SECURITY_PROTOCOL asks for TLS/SASL, which is
+		// exactly what ReaderConfig wants for an unauthenticated broker.
+		Dialer: kafkaauth.Dialer(),
 	})
 	return &TaskProjectionConsumer{store: st, log: log, r: r}
 }

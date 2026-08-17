@@ -11,6 +11,7 @@ import (
 	"github.com/task-board/ws-gateway/internal/auth"
 	"github.com/task-board/ws-gateway/internal/hub"
 	"github.com/task-board/ws-gateway/internal/signal"
+	"github.com/task-board/ws-gateway/internal/store"
 )
 
 const (
@@ -86,9 +87,24 @@ func (s *Server) serveConn(parent context.Context, ws *websocket.Conn, claims *a
 // writeLoop drains the send channel, writes a periodic ping, refreshes this
 // connection's presence heartbeat, and tears the connection down on a
 // slow/full client.
+//
+// ── Two tickers, deliberately ────────────────────────────────────────────────
+//
+// The presence heartbeat used to ride the ping ticker, which had one number
+// doing two unrelated jobs. A ping detects a dead TCP connection and wants to
+// be frequent; a presence write keeps a Redis entry fresh and wants to be as
+// rare as the staleness window allows. Tied together at 20s, presence became
+// the single largest source of Redis traffic in the platform — one 4-command
+// write per socket per 20 seconds, before anyone sends a message.
+//
+// Separated, each is sized for its own job: pings stay at 20s, the heartbeat
+// moves to 45s inside a 120s stale window, and the write rate more than halves
+// without changing how fast a dead socket is noticed.
 func (s *Server) writeLoop(ctx context.Context, cancel context.CancelFunc, ws *websocket.Conn, conn *hub.Conn, orgID string) {
-	ticker := time.NewTicker(pingInterval)
-	defer ticker.Stop()
+	pingTicker := time.NewTicker(pingInterval)
+	defer pingTicker.Stop()
+	beatTicker := time.NewTicker(store.PresenceHeartbeatInterval)
+	defer beatTicker.Stop()
 	defer cancel()
 
 	for {
@@ -107,7 +123,7 @@ func (s *Server) writeLoop(ctx context.Context, cancel context.CancelFunc, ws *w
 				s.log.Debug("ws write failed", "err", err)
 				return
 			}
-		case <-ticker.C:
+		case <-pingTicker.C:
 			pctx, pc := context.WithTimeout(ctx, pingTimeout)
 			err := ws.Ping(pctx)
 			pc()
@@ -115,17 +131,16 @@ func (s *Server) writeLoop(ctx context.Context, cancel context.CancelFunc, ws *w
 				s.log.Debug("ws ping failed", "err", err)
 				return
 			}
-			// Presence is scored by the last time we heard from a connection and
-			// is reaped on read, so a live socket has to say so periodically or
-			// it ages out from under itself. This ticker already runs at exactly
-			// the right cadence, which is why the heartbeat rides it instead of
-			// owning a goroutine and timer per connection.
+		case <-beatTicker.C:
+			// Presence is scored by the last time we heard from a connection
+			// and is reaped on read, so a live socket has to say so
+			// periodically or it ages out from under itself.
 			//
 			// A failure here is not fatal to the socket: the entry simply keeps
 			// its previous score and, if Redis stays unreachable past the stale
-			// window, the user is reported offline while still connected. That is
-			// the correct way to be wrong — the alternative is reporting people
-			// online because we cannot tell.
+			// window, the user is reported offline while still connected. That
+			// is the correct way to be wrong — the alternative is reporting
+			// people online because we cannot tell.
 			tctx, tc := context.WithTimeout(ctx, pingTimeout)
 			if err := s.store.TouchPresence(tctx, orgID, conn.UserID, s.nodeID, conn.ConnID); err != nil {
 				s.log.Warn("presence heartbeat failed", "err", err, "user", conn.UserID)

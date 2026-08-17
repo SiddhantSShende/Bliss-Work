@@ -88,10 +88,12 @@ async def request_delete(
 
     Three guards, and each earns its place:
 
-    `require_live_admin` re-reads the role from the DATABASE. The JWT claim is
-    minted for ~15 minutes and survives a demotion, which is tolerable for
-    ordinary reads and not tolerable for the single most consequential endpoint
-    in the product.
+    `require_live_admin` re-reads the role from the DATABASE. The JWT claim
+    survives a demotion for a full JWT_ACCESS_TTL_SECONDS — an hour, since that
+    was raised from 900 to 3600 to cut auth-svc's refresh write rate — which is
+    tolerable for ordinary reads and not tolerable for the single most
+    consequential endpoint in the product. Raising the TTL made this guard
+    matter four times as much, not less.
 
     The body must echo the org's slug. Typed confirmation is friction on
     purpose; an action with no undo after the grace period should not be one

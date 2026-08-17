@@ -68,4 +68,79 @@ export default defineConfig(({ mode }) => ({
   define: {
     __WS_URL__: JSON.stringify(process.env.VITE_WS_URL ?? "ws://localhost:8080/ws"),
   },
+  build: {
+    rollupOptions: {
+      output: {
+        /**
+         * Vendor chunking.
+         *
+         * ── What this is and is not for ─────────────────────────────────────
+         * This does NOT make the bundle smaller — route splitting in
+         * App.tsx does that, and it is the change that matters. This decides
+         * how the remaining third-party code is GROUPED, and the reason to
+         * care is caching across deploys.
+         *
+         * Left alone, Rollup folds every dependency into whichever chunk first
+         * reaches it, so application code and library code share a file and any
+         * change to our own source invalidates React, the router and the query
+         * client along with it. Since we deploy far more often than we bump a
+         * dependency, that means returning users re-download ~400 KB of
+         * unchanged library code on every release.
+         *
+         * ── Why these groups ────────────────────────────────────────────────
+         * Split by CHANGE RATE and by who needs them, not by size:
+         *
+         *   react   react + react-dom + react-router. Needed before first
+         *           paint on every route, changes a few times a year. The
+         *           single most cache-worthy thing in the build.
+         *   query   @tanstack/react-query. Same argument, separate because it
+         *           moves on its own schedule.
+         *   charts  framer-motion and the charting deps. Only the analytics
+         *           and activity routes need them, and those are already lazy —
+         *           naming the group keeps them from being duplicated into
+         *           each of those route chunks.
+         *
+         * Deliberately NOT listed: livekit-client and exceljs. Both are
+         * already behind dynamic imports (features/CallRoomLazy and the Excel
+         * export), and adding them here would drag them back into the static
+         * graph — manualChunks decides placement, it cannot defer loading. A
+         * dynamic import is the only thing that does.
+         */
+        manualChunks(id: string) {
+          if (!id.includes("node_modules")) return;
+          if (/[\\/]node_modules[\\/](react|react-dom|react-router|react-router-dom|scheduler)[\\/]/.test(id)) {
+            return "react";
+          }
+          if (id.includes("@tanstack")) return "query";
+          if (id.includes("framer-motion")) return "charts";
+          return;
+        },
+      },
+    },
+    /**
+     * The warning threshold, lowered from Rollup's 500 kB default.
+     *
+     * Set from the EAGER path, which is what a first-time visitor actually
+     * waits for: `index` (~239 kB), `react` (~234 kB) and `query` (~47 kB).
+     * 350 kB sits above all three, so a regression in any of them — a heavy
+     * dependency pulled back into the static graph, a route that loses its
+     * lazy boundary — trips this immediately.
+     *
+     * TWO chunks exceed it on purpose, and always will:
+     *
+     *   CallRoom  ~538 kB  livekit-client, behind features/CallRoomLazy
+     *   exceljs   ~940 kB  behind the Export Tasks dynamic import
+     *
+     * Both are loaded on demand and are not on anyone's critical path, so
+     * their size is a cost we have chosen rather than a defect.
+     *
+     * That makes the warning countable rather than noisy: two entries in that
+     * list is the expected state, and a THIRD is the signal. Rollup cannot
+     * distinguish an eager chunk from a lazy one, so this is the closest thing
+     * to a meaningful budget the tool offers — and it is worth having, because
+     * the 1.45 MB entry chunk that prompted all of this never tripped the
+     * default in a way anybody acted on.
+     */
+    chunkSizeWarningLimit: 350,
+  },
 }));

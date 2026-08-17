@@ -190,6 +190,45 @@ and compares sizes. rsync exiting 0 is not proof the bytes landed.
   the *backup target* would defeat the encryption, so put it somewhere else
   entirely.
 
+## blisswork-refresh-token-prune.{service,timer}
+
+Deletes refresh-token rows past their expiry, via
+`scripts/refresh-token-prune.sh` → `python -m app.jobs.prune_refresh_tokens`
+inside `auth-svc`. **Hourly** at **:17 UTC**, `Persistent=true`.
+
+**Hourly, unlike everything else here, and that is the point.** The other jobs
+clear data that accumulates with USE. `refresh_tokens` gains a row every time an
+access token expires — for every logged-in session, whether or not anyone
+touched the product — because refresh ROTATES: a new row in, the old one
+revoked. Until this job existed, nothing ever deleted either. Nightly would
+leave the table that the login path depends on at its largest for most of the
+day.
+
+**It deletes on EXPIRY, not on `revoked`.** A revoked row is evidence rather
+than litter: replaying a rotated-away token finds it, sees it revoked, and tears
+down the whole family — that is the theft detection. Deleting revoked rows early
+would make an identical replay read as an unknown token, still refused but no
+longer recognised as theft, leaving the rest of the attacker's family working.
+Past `expires_at` the replay is refused anyway, so the row has nothing left to
+prove. There is also a 24h grace past expiry, purely so a session that failed
+moments ago is still visible to an investigation.
+
+Batched — 10k rows per transaction with a commit and a short sleep between them.
+A single `DELETE` on a table this size would hold locks for minutes on the table
+serving every login; bounded batches compete for milliseconds instead. If a run
+hits its batch ceiling it logs `refresh_prune_hit_batch_ceiling` and the next
+run continues, so a long-neglected backlog drains over several hours rather than
+in one long transaction.
+
+```
+sudo cp infra/systemd/blisswork-refresh-token-prune.* /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now blisswork-refresh-token-prune.timer
+
+PRUNE_DRY_RUN=1 bash scripts/refresh-token-prune.sh   # count only, delete nothing
+sudo journalctl -u blisswork-refresh-token-prune.service
+```
+
 ## blisswork-org-purge.{service,timer}
 
 Destroys organizations whose deletion grace period has elapsed, via

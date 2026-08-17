@@ -91,11 +91,11 @@ func (s *Server) staticMap(w http.ResponseWriter, r *http.Request) {
 		s.mapsCfg.Provider, zoom, staticMapWidth, staticMapHeight, latS, lngS)))
 	key := hex.EncodeToString(sum[:])
 
-	if f, fi, err := s.blobs.CacheGet("maps", key); err == nil {
+	if f, err := s.blobs.CacheGet("maps", key); err == nil {
 		defer f.Close()
 		w.Header().Set("Content-Type", "image/png")
 		w.Header().Set("Cache-Control", staticMapTTL)
-		http.ServeContent(w, r, "", fi.ModTime(), f)
+		http.ServeContent(w, r, "", f.ModTime(), f)
 		return
 	}
 
@@ -109,7 +109,7 @@ func (s *Server) staticMap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	f, fi, err := s.blobs.CacheGet("maps", key)
+	f, err := s.blobs.CacheGet("maps", key)
 	if err != nil {
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -117,7 +117,7 @@ func (s *Server) staticMap(w http.ResponseWriter, r *http.Request) {
 	defer f.Close()
 	w.Header().Set("Content-Type", "image/png")
 	w.Header().Set("Cache-Control", staticMapTTL)
-	http.ServeContent(w, r, "", fi.ModTime(), f)
+	http.ServeContent(w, r, "", f.ModTime(), f)
 }
 
 // fetchStaticMap pulls one tile from the configured provider and caches it.

@@ -20,17 +20,34 @@ consumer_mod = pytest.importorskip(
 
 
 class _FakeConsumer:
-    """Stands in for AIOKafkaConsumer. Yields ``messages``, then ends the loop."""
+    """Stands in for AIOKafkaConsumer.
+
+    Models ``getmany``, not ``async for``: the consumer loop fetches in batches
+    so that it can pay ONE offset commit per fetch rather than one per message
+    (see the batch-sizing note in app/consumer.py).
+
+    ``getmany`` hands over every message on the first call and returns nothing
+    afterwards, which is how a real fetch behaves once a partition is drained.
+    Because a drained fetch is not a signal to stop — the real loop just waits
+    for more — the test says when the stream is finished via ``on_drained``.
+    Without that the loop would spin forever waiting for messages that a fake
+    is never going to produce.
+    """
 
     instances: list["_FakeConsumer"] = []
 
-    def __init__(self, fail_times: int = 0, messages=None, raise_mid_loop=False) -> None:
+    def __init__(
+        self, fail_times: int = 0, messages=None, raise_mid_loop=False, on_drained=None
+    ) -> None:
         self.fail_times = fail_times
         self.messages = list(messages or [])
         self.raise_mid_loop = raise_mid_loop
+        self.on_drained = on_drained
         self.started = False
         self.stopped = False
         self.committed = 0
+        self.seeks: list[tuple[object, int]] = []
+        self._served = False
         _FakeConsumer.instances.append(self)
 
     async def start(self) -> None:
@@ -44,14 +61,18 @@ class _FakeConsumer:
     async def commit(self) -> None:
         self.committed += 1
 
-    def __aiter__(self):
-        return self._iter()
+    def seek(self, partition, offset) -> None:
+        self.seeks.append((partition, offset))
 
-    async def _iter(self):
-        for msg in self.messages:
-            yield msg
+    async def getmany(self, timeout_ms=0, max_records=None):
         if self.raise_mid_loop:
             raise OSError("connection lost mid-loop")
+        if self._served or not self.messages:
+            if self.on_drained is not None:
+                self.on_drained()
+            return {}
+        self._served = True
+        return {"tp": list(self.messages)}
 
 
 @pytest.fixture(autouse=True)
@@ -115,8 +136,12 @@ async def test_run_reconnects_after_a_mid_loop_failure(monkeypatch):
 
     def _build(self):
         calls["n"] += 1
-        # First consumer dies mid-loop; the second shuts the runner down.
-        return _FakeConsumer(raise_mid_loop=calls["n"] == 1)
+        # First consumer dies mid-loop; the second drains and shuts the runner
+        # down — `self` here is the TaskSvcConsumer, so draining can end its
+        # batch loop the same way a real shutdown would.
+        return _FakeConsumer(
+            raise_mid_loop=calls["n"] == 1, on_drained=self._stop.set
+        )
 
     monkeypatch.setattr(consumer_mod.TaskSvcConsumer, "_build_consumer", _build)
     c = consumer_mod.TaskSvcConsumer()

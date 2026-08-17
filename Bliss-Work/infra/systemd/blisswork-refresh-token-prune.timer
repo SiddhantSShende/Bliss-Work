@@ -1,0 +1,21 @@
+[Unit]
+Description=Hourly BlissWork refresh-token prune
+
+[Timer]
+# HOURLY, unlike every other maintenance timer here, and for a reason worth
+# stating: the other jobs clear data that accumulates with USE, while
+# refresh_tokens gains a row every time an access token expires — for every
+# logged-in session, whether or not anyone touched the product. Nightly would
+# leave the table carrying the login path at its largest for most of the day.
+#
+# :17 keeps it clear of every nightly job's start. Each run deletes in bounded
+# batches, so it is short even when the backlog is not.
+OnCalendar=*-*-* *:17:00 UTC
+RandomizedDelaySec=120
+# If the host was off, run on the next boot rather than skipping — expired rows
+# would otherwise keep accumulating until the next successful run.
+Persistent=true
+Unit=blisswork-refresh-token-prune.service
+
+[Install]
+WantedBy=timers.target

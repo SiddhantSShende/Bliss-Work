@@ -1,0 +1,106 @@
+import { useState } from "react";
+import { CalendarClock, ChevronDown, Link, Phone, Video } from "lucide-react";
+import { Button, cn } from "@taskboard/ui";
+
+/**
+ * The single call control in a chat header.
+ *
+ * A voice button and a video button sitting side by side spent two slots of a
+ * header that also has to fit a name, a presence line, Block and Ignore — and
+ * they only covered two of the four ways a call actually starts. One control
+ * with a menu costs one slot and holds all four.
+ *
+ * Layout follows the navbar's GetAppButton dropdown (trigger + click-away
+ * backdrop + absolutely-positioned panel) so the two menus in the app behave
+ * the same way.
+ */
+export function CallMenu({
+  onVoiceCall,
+  onVideoCall,
+  onSendLink,
+  onSchedule,
+  busy = false,
+}: {
+  onVoiceCall: () => void;
+  onVideoCall: () => void;
+  /** Mint a join link and send it into this conversation. */
+  onSendLink: () => void;
+  /** Open the scheduler for a call later on. */
+  onSchedule: () => void;
+  /** A link is being minted — the menu stays usable, that one row does not. */
+  busy?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+
+  /** Every row closes the menu first: all four either navigate away, open a
+   *  dialog, or fire a request, and none of them wants the panel left behind. */
+  const pick = (run: () => void) => () => {
+    setOpen(false);
+    run();
+  };
+
+  return (
+    <div className="relative">
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => setOpen((v) => !v)}
+        title="Call"
+        aria-label="Call"
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        <Phone size={15} />
+        <ChevronDown size={14} className={cn("transition-transform", open && "rotate-180")} />
+      </Button>
+      {open && (
+        <>
+          {/* click-away backdrop */}
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} aria-hidden />
+          <div
+            role="menu"
+            className="absolute right-0 z-50 mt-1.5 w-56 overflow-hidden rounded-xl border border-border bg-surface p-1 shadow-card"
+          >
+            <Item icon={<Phone size={15} />} label="Voice Call" onClick={pick(onVoiceCall)} />
+            <Item icon={<Video size={15} />} label="Video Call" onClick={pick(onVideoCall)} />
+            <Item
+              icon={<Link size={15} />}
+              label="Send Call Link"
+              onClick={pick(onSendLink)}
+              disabled={busy}
+            />
+            <Item
+              icon={<CalendarClock size={15} />}
+              label="Schedule Call"
+              onClick={pick(onSchedule)}
+            />
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function Item({
+  icon,
+  label,
+  onClick,
+  disabled,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      role="menuitem"
+      onClick={onClick}
+      disabled={disabled}
+      className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-fg transition-colors hover:bg-surface-2 disabled:pointer-events-none disabled:opacity-55"
+    >
+      <span className="text-muted">{icon}</span>
+      <span className="font-medium">{label}</span>
+    </button>
+  );
+}

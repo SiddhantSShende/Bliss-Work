@@ -12,21 +12,21 @@ const (
 
 // Event type discriminants. Strings must match packages/shared/src/types/events.ts.
 const (
-	TypeMessageCreated        = "message.created"
-	TypeConversationIgnored   = "conversation.ignored"
-	TypeMessageRead           = "message.read"
-	TypeMessageDelivered      = "message.delivered"
-	TypeMessageDismissed      = "message.dismissed"
-	TypeMessageDeleted        = "message.deleted"
-	TypeMessageReaction       = "message.reaction"
-	TypeMessageForwarded      = "message.forwarded"
-	TypeUserCreated           = "user.created"
-	TypeUserDeactivated       = "user.deactivated"
-	TypeUserReactivated       = "user.reactivated"
-	TypeUserRemoved           = "user.removed"
+	TypeMessageCreated      = "message.created"
+	TypeConversationIgnored = "conversation.ignored"
+	TypeMessageRead         = "message.read"
+	TypeMessageDelivered    = "message.delivered"
+	TypeMessageDismissed    = "message.dismissed"
+	TypeMessageDeleted      = "message.deleted"
+	TypeMessageReaction     = "message.reaction"
+	TypeMessageForwarded    = "message.forwarded"
+	TypeUserCreated         = "user.created"
+	TypeUserDeactivated     = "user.deactivated"
+	TypeUserReactivated     = "user.reactivated"
+	TypeUserRemoved         = "user.removed"
 	// TypeOrgDeleted is keyed by orgId rather than userId — see the topic note
 	// in packages/shared/src/types/events.ts.
-	TypeOrgDeleted = "org.deleted"
+	TypeOrgDeleted            = "org.deleted"
 	TypeChannelMessageCreated = "channel.message.created"
 	TypeChannelMemberJoined   = "channel.member.joined"
 	TypeChannelMemberRemoved  = "channel.member.removed"
@@ -35,6 +35,27 @@ const (
 	TypeChannelUnblocked      = "channel.unblocked"
 	TypeConversationBlocked   = "conversation.blocked"
 	TypeConversationUnblocked = "conversation.unblocked"
+
+	// Call lifecycle. All of these route by `members`, which is what lets a
+	// cross-org meeting notify a participant in another org without the
+	// gateway needing to know that is what happened.
+	TypeCallScheduled        = "call.scheduled"
+	TypeCallRing             = "call.ring"
+	TypeCallParticipantAdded = "call.participant_added"
+	TypeCallEnded            = "call.ended"
+	// TypeCallStarted is the end of the waiting room. Addressed to the whole
+	// roster, because it means two different things at once depending on where
+	// the recipient is: everyone parked in the lobby is now admitted and should
+	// enter, and everyone who has not opened it yet now can.
+	TypeCallStarted = "call.started"
+	// TypeCallWaiting says somebody is in the lobby. Addressed ONLY to the
+	// people who could start the call — it is what tells an organiser their
+	// meeting has an audience waiting on it. Not an approval request: there is
+	// nothing to approve, and starting the call admits everyone at once.
+	TypeCallWaiting = "call.waiting"
+	// Screen sharing. ActorID is the sharer; ShareSource says what they picked.
+	TypeCallShareStarted = "call.screenshare_started"
+	TypeCallShareStopped = "call.screenshare_stopped"
 )
 
 // MessageCreated is emitted when a new message is appended to a conversation.
@@ -308,4 +329,42 @@ type ChannelMembershipChanged struct {
 	UserID     string   `json:"userId"`
 	ActorID    string   `json:"actorId,omitempty"`
 	Members    []string `json:"members"`
+}
+
+// CallLifecycle carries every call notification: scheduled, ring,
+// participant_added, ended, started, waiting, and the two screen-share ones.
+//
+// One struct for all of them because the gateway routes them identically —
+// `Members` is the recipient list and RecipientsOf returns it verbatim. That
+// routing is what makes a CROSS-ORG meeting work without special-casing anything
+// in the gateway: the roster of a meeting simply contains a user from another
+// org, and the Kafka fan-out path has never cared which org a recipient belongs
+// to. The same-org rule lives on the RTC signaling path, which these do not use.
+//
+// `Members` is a RECIPIENT list rather than a roster, and the distinction earns
+// its keep on call.waiting: that one goes to the handful of people who could
+// start the call, not to everyone in it. The producer decides who should hear
+// each event; the gateway delivers to whoever is named.
+type CallLifecycle struct {
+	Type       string `json:"type"`
+	EventID    string `json:"eventId"`
+	OrgID      string `json:"orgId"`
+	OccurredAt string `json:"occurredAt"`
+	CallID     string `json:"callId"`
+	Kind       string `json:"kind"`
+	ChannelID  string `json:"channelId,omitempty"`
+	Title      string `json:"title,omitempty"`
+	Media      string `json:"media,omitempty"`
+	Status     string `json:"status,omitempty"`
+	// ScheduledAt is absent for "meet now".
+	ScheduledAt string `json:"scheduledAt,omitempty"`
+	// ActorID is who caused this — the organiser, the person who added someone,
+	// the host who ended or started it, the person who arrived in the lobby, or
+	// the one who started sharing their screen.
+	ActorID string `json:"actorId,omitempty"`
+	// ShareSource is SCREEN, WINDOW or TAB, on the screen-share events only.
+	ShareSource string `json:"shareSource,omitempty"`
+	// Members is who should RECEIVE this, which is usually but not always the
+	// roster — call.waiting goes only to the people who could start the call.
+	Members []string `json:"members"`
 }

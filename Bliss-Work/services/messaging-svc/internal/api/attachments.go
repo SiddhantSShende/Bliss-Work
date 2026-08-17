@@ -316,7 +316,7 @@ func (s *Server) downloadMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	f, fi, err := s.blobs.Open(att.OrgID, att.SHA256)
+	f, err := s.blobs.Open(att.OrgID, att.SHA256)
 	if err != nil {
 		s.log.Error("media blob missing", "attachment_id", id, "sha256", att.SHA256,
 			"request_id", mw.RequestIDFromContext(r.Context()))
@@ -358,5 +358,5 @@ func (s *Server) downloadMedia(w http.ResponseWriter, r *http.Request) {
 
 	// ServeContent gives us Range/206 (video scrubbing), If-None-Match and
 	// If-Modified-Since for free.
-	http.ServeContent(w, r, "", fi.ModTime(), f)
+	http.ServeContent(w, r, "", f.ModTime(), f)
 }

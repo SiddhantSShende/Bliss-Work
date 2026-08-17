@@ -101,3 +101,48 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         for k, v in SECURITY_HEADERS.items():
             response.headers.setdefault(k, v)
         return response
+
+
+class PrincipalMiddleware(BaseHTTPMiddleware):
+    """Verify the bearer token once, before anything needs to know who it is.
+
+    ── Why this is middleware and not (only) a dependency ───────────────────
+    The rate limiter buckets by user when it can and by IP otherwise, and it
+    runs in SlowAPIMiddleware.dispatch() — which is strictly BEFORE FastAPI
+    resolves any dependency. The limiter's `user:` branch therefore read a
+    `request.state.principal` that nothing had ever assigned, so every request,
+    authenticated or not, fell through to the IP bucket.
+
+    Verifying here fixes the ordering and costs nothing net: `get_principal`
+    reuses what this stores, so the token is verified once per request rather
+    than twice.
+
+    ── It must never reject ─────────────────────────────────────────────────
+    A missing, malformed or expired token leaves `request.state.principal`
+    unset and the request continues. Authorization stays entirely with
+    `get_principal`, which produces the canonical 401 with the right error
+    envelope on routes that require it — and public routes (login, JWKS,
+    health) keep working, which they would not if this refused anything.
+    Swallowing includes JWKS failures: a degraded keystore must not turn every
+    unauthenticated request into a 503.
+    """
+
+    async def dispatch(
+        self,
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        auth = request.headers.get("authorization")
+        if auth and auth.lower().startswith("bearer "):
+            # Imported lazily: auth_dep pulls in httpx and the JWKS cache, and
+            # importing it at module scope would make this module a dependency
+            # of the security package that imports it back.
+            from .security.auth_dep import verify_bearer
+
+            try:
+                request.state.principal = await verify_bearer(auth)
+            except Exception:  # noqa: BLE001 — identity is best-effort here
+                request.state.principal = None
+        else:
+            request.state.principal = None
+        return await call_next(request)

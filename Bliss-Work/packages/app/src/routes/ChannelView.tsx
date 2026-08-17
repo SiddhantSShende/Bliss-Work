@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Hash, Users, ChevronLeft, LogOut, Lock } from "lucide-react";
+import { Hash, Users, ChevronLeft, LogOut, Lock, Video } from "lucide-react";
 import { toast } from "sonner";
 import { EmptyState } from "@taskboard/ui";
-import type { ChannelDTO, ChannelMessageDTO } from "@taskboard/shared";
+import type { CallDTO, ChannelDTO, ChannelMessageDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
@@ -13,6 +13,8 @@ import { useOlderMessages } from "../lib/useOlderMessages";
 import { ChannelMembersSheet } from "../features/ChannelMembersSheet";
 import { ForwardDialog } from "../features/ForwardDialog";
 import { useChatMedia } from "../features/useChatMedia";
+import { ScheduleCallDialog } from "../features/ScheduleCallDialog";
+import { CallRoom } from "../features/CallRoomLazy";
 
 export function ChannelView() {
   const { channelId = "" } = useParams();
@@ -31,6 +33,10 @@ export function ChannelView() {
   useEffect(() => {
     setRosterOpen(false);
     setForwardMsg(null);
+    setScheduleOpen(false);
+    // Leaving the route must not leave you silently in the previous
+    // channel's call — CallRoom disconnects on unmount.
+    setActiveCall(null);
   }, [channelId]);
 
   const { data: channels = [] } = useQuery({ queryKey: qk.channels, queryFn: () => api.channels() });
@@ -43,6 +49,11 @@ export function ChannelView() {
     queryFn: () => api.channelMessages(channelId),
     enabled: !!channelId,
   });
+
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  // The call currently open in this view. Held here rather than routed so
+  // leaving a call returns you to the conversation you were already in.
+  const [activeCall, setActiveCall] = useState<CallDTO | null>(null);
 
   const { loadOlder, loadingOlder, hasOlder } = useOlderMessages(
     qk.channelMessages(channelId),
@@ -119,6 +130,13 @@ export function ChannelView() {
       </div>
     );
 
+  // A live call takes over the pane. Showing a video grid and a message list in
+  // the same column makes both unusable at this width, and the messages are one
+  // click away again the moment the call ends.
+  if (activeCall) {
+    return <CallRoom call={activeCall} onClose={() => setActiveCall(null)} />;
+  }
+
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center justify-between border-b border-border/70 bg-surface/60 px-5 py-3 backdrop-blur">
@@ -145,6 +163,17 @@ export function ChannelView() {
           )}
         </div>
         <div className="flex shrink-0 items-center gap-3">
+          {/* Channel calls are members-only by construction — there is no
+              invite control anywhere in this view because the channel IS the
+              guest list, and the server refuses to mint a link for one. */}
+          <button
+            onClick={() => setScheduleOpen(true)}
+            title="Start or schedule a call"
+            aria-label="Start or schedule a channel call"
+            className="flex items-center gap-1.5 rounded-lg px-1.5 py-1 text-sm text-muted transition-colors hover:bg-surface-2 hover:text-fg"
+          >
+            <Video size={15} />
+          </button>
           {/* The member count has always been here as plain text. It is the
               obvious place to look for "who else is in this channel", so it is
               now the button that answers that — and, for a manager, the way in
@@ -212,6 +241,16 @@ export function ChannelView() {
         preview={forwardMsg?.body}
         scope="channel"
       />
+      {scheduleOpen && (
+        <ScheduleCallDialog
+          scope={{ kind: "channel", channelId }}
+          onClose={() => setScheduleOpen(false)}
+          onStarted={(call) => {
+            setScheduleOpen(false);
+            setActiveCall(call);
+          }}
+        />
+      )}
     </div>
   );
 }

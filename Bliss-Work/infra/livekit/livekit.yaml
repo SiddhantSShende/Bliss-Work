@@ -1,0 +1,73 @@
+# LiveKit SFU configuration.
+#
+# This is the media plane for group calls. Signaling and call lifecycle stay in
+# ws-gateway; only the audio/video streams come here. messaging-svc mints the
+# room tokens (internal/livekit/token.go) after checking the caller against the
+# database, so LiveKit itself never talks to Postgres and holds no authorization
+# state of its own — the token IS the grant.
+#
+# ── Why an SFU rather than peer-to-peer ──────────────────────────────────────
+# A full mesh makes every client encode and upload N-1 copies of its camera.
+# That is the client's uplink, not the server's, and it is what makes mesh calls
+# fall apart at around 5 people. Here each client publishes once and subscribes
+# to what it needs, so per-client cost is flat as the room grows.
+
+port: 7880
+
+rtc:
+  # The UDP range media actually flows over. Must be published on the host and
+  # open in the firewall, or calls connect and then carry no media — the most
+  # confusing failure mode this service has.
+  port_range_start: 50000
+  port_range_end: 50200
+  # TCP fallback for clients behind UDP-blocking networks (corporate proxies,
+  # some hotel and airline wifi). Without it those users see a black tile.
+  tcp_port: 7881
+  # Behind NAT, LiveKit must advertise the address clients can actually reach
+  # rather than the address it sees on its own interface, so it discovers the
+  # public one at startup (via STUN / cloud metadata). On a VPS whose public IP
+  # is on the NIC directly this is a no-op; leaving it on costs nothing and is
+  # what makes the same config work behind a cloud NAT.
+  use_external_ip: true
+
+# ── Single-node, deliberately ────────────────────────────────────────────────
+# Redis is what makes LiveKit multi-node: participants in one room may land on
+# different SFU instances and still see each other. It is OFF here because the
+# compose deployment CANNOT reach one — livekit runs with host networking (see
+# docker-compose.prod.yml) so it is not on the `taskboard` bridge and cannot
+# resolve `redis`, and that Redis publishes no host port, on purpose.
+#
+# Do not "fix" this by adding a redis block pointing at `redis:6379`. It will not
+# resolve, and LiveKit fails at startup rather than silently degrading. A second
+# SFU node needs a Redis reachable from the host network first — which means
+# publishing it behind a source-IP allowlist, the way infra/host/db-allowlist.sh
+# already does for Postgres.
+#
+# One node is not a small ceiling: room:max_participants below is 100, and the
+# CPU limit in compose carries a few hundred concurrent streams.
+
+# Keys are supplied via the LIVEKIT_KEYS environment variable rather than this
+# file, so the secret never lands on disk in the image or the repo.
+
+logging:
+  level: info
+  # JSON so the log ships into the same pipeline as every other service.
+  json: true
+
+# Room defaults.
+room:
+  # Rooms are created implicitly when the first token-bearing participant joins,
+  # because messaging-svc has already decided the room may exist — requiring an
+  # explicit create call would mean a second place that can disagree about it.
+  auto_create: true
+  # Reap an empty room quickly. A call whose participants have all left should
+  # not hold SFU resources; the database row is the durable record, not this.
+  empty_timeout: 120
+  # Hard ceiling per room. Well above the meeting sizes this product supports,
+  # low enough that a runaway loop cannot exhaust a node.
+  max_participants: 100
+
+# TURN. coturn already runs on this host for the legacy 1:1 path; LiveKit's
+# embedded TURN is left OFF so the two do not fight over ports 3478/5349.
+turn:
+  enabled: false

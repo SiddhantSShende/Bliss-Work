@@ -27,10 +27,10 @@ from ..security.auth_dep import Principal, get_principal
 from ..security.origin import enforce_origin
 from ..security.passwords import (
     PASSWORD_POLICY_MESSAGE,
-    dummy_verify,
-    hash_password,
+    dummy_verify_async,
+    hash_password_async,
     password_meets_policy,
-    verify_password,
+    verify_password_async,
 )
 from . import session_events
 from .account_service import create_email_verification_tx
@@ -113,7 +113,7 @@ async def create_org(body: CreateOrgRequest, response: Response) -> SessionDTO:
             )
         ).first()
         if existing_ident is not None:
-            if not verify_password(existing_ident.password_hash, body.password):
+            if not await verify_password_async(existing_ident.password_hash, body.password):
                 raise HTTPException(status.HTTP_409_CONFLICT, "that email is already registered")
             identity_id = str(existing_ident.id)
             ph = existing_ident.password_hash
@@ -121,7 +121,7 @@ async def create_org(body: CreateOrgRequest, response: Response) -> SessionDTO:
             new_identity = False
         else:
             identity_id = service.new_uuid()
-            ph = hash_password(body.password)
+            ph = await hash_password_async(body.password)
             await conn.execute(
                 text(
                     "INSERT INTO identities (id, email_bidx, password_hash, email_verified) "
@@ -210,7 +210,7 @@ async def login(body: LoginRequest, response: Response) -> SessionDTO:
         ident = await service.identity_by_bidx(conn, cryptor().blind_index(str(body.email)))
 
         if ident is None:
-            dummy_verify()  # equalize timing on unknown email; nothing to write
+            await dummy_verify_async()  # equalize timing on unknown email; nothing to write
             raise generic
 
         if ident.locked_until is not None and ident.locked_until > now:
@@ -223,7 +223,7 @@ async def login(body: LoginRequest, response: Response) -> SessionDTO:
                 headers={"Retry-After": str(retry)},
             )
 
-        if not verify_password(ident.password_hash, body.password):
+        if not await verify_password_async(ident.password_hash, body.password):
             locked_secs = await _register_failed_login(conn, ident)
             # Recorded in the same transaction as the counter increment, so the
             # audit trail and the lockout state can never disagree about how many
@@ -476,9 +476,24 @@ async def update_me(
     return dto
 
 
+# A ceiling on one directory page, and the reason it is high rather than small.
+#
+# This endpoint had NO bound at all: it returned every member of the org and did
+# two queries per member to build them. The obvious fix — a modest default page
+# — would silently truncate for every existing client, none of which paginates,
+# and a people list quietly missing colleagues is a worse bug than a slow one.
+#
+# So the page is generous enough that no real organisation notices it today,
+# while the batched query underneath means even a full page is two round trips
+# rather than ten thousand. Clients that outgrow it pass `offset`.
+MAX_DIRECTORY_PAGE = 5000
+
+
 @router.get("/directory", response_model=list[UserDTO])
 async def directory(
     includeInactive: bool = False,
+    limit: int = MAX_DIRECTORY_PAGE,
+    offset: int = 0,
     principal: Principal = Depends(get_principal),
 ) -> list[UserDTO]:
     """Everyone in the caller's org. Suspended and removed members are excluded
@@ -488,26 +503,21 @@ async def directory(
     email of a departed colleague must still resolve for the member-admin screen
     and for historical exports — the tasks .xlsx joins names from this endpoint,
     and a task allocated by someone who has since left must not export blank.
+
+    Paged. `limit` is clamped to MAX_DIRECTORY_PAGE — see the note there for why
+    the ceiling is high rather than small.
     """
     show_all = includeInactive and "org_admin" in principal.roles
     async with engine.connect() as conn:
         # Lists users in the caller's org and decrypts each via org_keys (RLS).
         await service.set_org_guc(conn, principal.org_id)
-        rows = (
-            await conn.execute(
-                text(
-                    "SELECT id FROM users WHERE org_id = :org "
-                    "AND (CAST(:all AS boolean) OR status = 'active') ORDER BY username"
-                ),
-                {"org": principal.org_id, "all": show_all},
-            )
-        ).all()
-        out: list[UserDTO] = []
-        for r in rows:
-            dto = await service.user_dto(conn, str(r.id))
-            if dto is not None:
-                out.append(dto)
-    return out
+        return await service.user_dtos_for_org(
+            conn,
+            principal.org_id,
+            include_inactive=show_all,
+            limit=min(max(limit, 1), MAX_DIRECTORY_PAGE),
+            offset=max(offset, 0),
+        )
 
 
 @router.get("/users/{user_id}", response_model=UserDTO)

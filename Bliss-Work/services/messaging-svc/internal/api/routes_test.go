@@ -39,6 +39,7 @@ func testRouter(t *testing.T) http.Handler {
 		nil, // signer
 		config.MediaConfig{MaxBytes: 100 << 20},
 		config.MapsConfig{},
+		nil, // livekit — unconfigured, which is what these route tests want
 	)
 	return srv.Router("http://localhost:5173")
 }
@@ -93,6 +94,24 @@ var cappedRoutes = map[string]string{
 	"DELETE /api/v1/messages/{id}/reactions/{emoji}": "small",
 	"POST /api/v1/inbox/items/{kind}/{refId}/ignore": "small",
 	"POST /api/v1/inbox/items/{kind}/{refId}/read":   "small",
+
+	// Calls. Every one of these sits inside the same /api/v1 small-body group,
+	// so the cap is inherited. The bodies are a title, a timestamp and at most
+	// maxMeetingInvitees uuids — the invitee cap is enforced in the handler as
+	// well, because 1 MiB of uuids is still 25k INSERTs.
+	"POST /api/v1/channels/{id}/calls":             "small",
+	"POST /api/v1/meetings":                        "small",
+	"POST /api/v1/calls/direct":                    "small",
+	"POST /api/v1/calls/join":                      "small",
+	"POST /api/v1/calls/{id}/invites":              "small",
+	"DELETE /api/v1/calls/{id}/invites/{inviteId}": "small",
+	"POST /api/v1/calls/{id}/participants":         "small",
+	"POST /api/v1/calls/{id}/token":                "small",
+	"POST /api/v1/calls/{id}/start":                "small",
+	"POST /api/v1/calls/{id}/share":                "small",
+	"POST /api/v1/calls/{id}/share/stop":           "small",
+	"POST /api/v1/calls/{id}/leave":                "small",
+	"POST /api/v1/calls/{id}/end":                  "small",
 
 	// The single large-body route. Capped in the handler, not by a group.
 	"POST /api/v1/attachments": "large",

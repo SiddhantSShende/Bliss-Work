@@ -1,8 +1,9 @@
 import { useNavigate } from "react-router-dom";
-import { Inbox, MessageSquare, ListTodo, Hash, Users, Plug, Building2 } from "lucide-react";
+import { Inbox, Calendar, MessageSquare, ListTodo, Hash, Users, Plug, Building2 } from "lucide-react";
 
 const ITEMS = [
   { key: "inbox", label: "Inbox", icon: Inbox, to: "/app/inbox" },
+  { key: "meetings", label: "Meetings", icon: Calendar, to: "/app/meetings" },
   { key: "chats", label: "Chats", icon: MessageSquare, to: "/app/chats" },
   { key: "tasks", label: "Tasks", icon: ListTodo, to: "/app/tasks/allocated" },
   { key: "channels", label: "Channels", icon: Hash, to: "/app/channels" },

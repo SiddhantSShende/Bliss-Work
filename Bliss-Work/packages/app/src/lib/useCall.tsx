@@ -22,6 +22,28 @@ export interface CallState {
   camOn: boolean;
   localStream?: MediaStream;
   remoteStream?: MediaStream;
+  /** Our own screen capture, while we are sharing one. */
+  screenStream?: MediaStream;
+  /** We are sharing our screen. Only ever true for the sharer, which is what
+   *  makes the Stop control the sharer's alone — the API has no way to stop
+   *  anyone else's share either. */
+  sharing: boolean;
+  /** The peer is sharing theirs. */
+  peerSharing: boolean;
+  /** The peer's camera is on. */
+  peerCamOn: boolean;
+  /** The peer's video slot is carrying pictures — their camera or their screen.
+   *  Distinct from the two flags above, which are what their controls say; this
+   *  is what has actually arrived. */
+  remoteVideo: boolean;
+  /** When the media connected, for the in-call timer. */
+  connectedAt?: number;
+  /** The persistent call row backing this ring, once it has been created. Its
+   *  absence is why Add People and Share Screen can be unavailable. */
+  recordId?: string;
+  /** Set once the call has been widened past two people and handed to the SFU.
+   *  The peer connection is closed at that point and the room owns the media. */
+  roomCallId?: string;
 }
 
 export interface CallApi extends CallState {
@@ -33,6 +55,13 @@ export interface CallApi extends CallState {
   hangup: () => void;
   toggleMic: () => void;
   toggleCam: () => void;
+  /** Start or stop sharing this screen. */
+  toggleShare: () => void;
+  /** Pull more people in. Rejects with a message worth showing when the call
+   *  cannot be widened — the room is what carries three or more people, so a
+   *  deployment without an SFU adds nobody rather than adding someone who
+   *  could never be heard. */
+  addPeople: (userIds: string[]) => Promise<void>;
 }
 
 const CallCtx = createContext<CallApi | null>(null);
@@ -45,7 +74,15 @@ const STUN_FALLBACK: RTCConfiguration = {
   bundlePolicy: "max-bundle",
 };
 
-const IDLE: CallState = { status: "idle", micOn: true, camOn: true };
+const IDLE: CallState = {
+  status: "idle",
+  micOn: true,
+  camOn: true,
+  sharing: false,
+  peerSharing: false,
+  peerCamOn: false,
+  remoteVideo: false,
+};
 
 export function CallProvider({ children }: { children: React.ReactNode }) {
   const { rtc, api } = useRuntime();
@@ -55,6 +92,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const sessionRef = useRef<CallSession | null>(null);
   const ringTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const incomingRef = useRef<{ callId: string; peerId: string; media: CallMedia } | null>(null);
+  /** The call row backing this ring. Held in a ref as well as in state because
+   *  the session callbacks below are stable and still have to reach it. */
+  const recordRef = useRef<string | undefined>(undefined);
   // Mirror the live call id/status into refs so the (stable) onControl handler
   // can read them without re-subscribing on every state change.
   const stateRef = useRef(state);
@@ -67,16 +107,43 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const teardown = useCallback((status: CallStatus, reason?: string) => {
-    clearRing();
-    sessionRef.current?.close(reason ?? "ended");
-    sessionRef.current = null;
-    incomingRef.current = null;
-    setState((s) => ({ ...IDLE, status, endedReason: reason, peerName: s.peerName }));
-    if (status === "ended") {
-      setTimeout(() => setState((s) => (s.status === "ended" ? IDLE : s)), 2500);
-    }
-  }, []);
+  /** Close the call row this ring was backed by.
+   *
+   *  endCall first because the caller is its HOST and that is what marks the
+   *  row ENDED — left LIVE, every 1:1 call anyone ever placed would sit in the
+   *  Meetings "Live" list forever. The callee is not a host and gets a 403, so
+   *  they record their own departure instead. Both are best-effort: the call is
+   *  over on screen either way, and a stuck row is not worth an error toast.
+   *
+   *  `leaveOnly` is the case where the call was widened and handed to the room:
+   *  ending it there would throw everyone else out because the person who
+   *  placed the original 1:1 call happens to be its host, which is not what
+   *  leaving a group call means. */
+  const closeRecord = useCallback(
+    (callId: string, leaveOnly: boolean) => {
+      if (leaveOnly) void api.leaveCall(callId).catch(() => {});
+      else void api.endCall(callId).catch(() => api.leaveCall(callId).catch(() => {}));
+      void qc.invalidateQueries({ queryKey: qk.calls });
+    },
+    [api, qc],
+  );
+
+  const teardown = useCallback(
+    (status: CallStatus, reason?: string) => {
+      clearRing();
+      sessionRef.current?.close(reason ?? "ended");
+      sessionRef.current = null;
+      incomingRef.current = null;
+      const record = recordRef.current;
+      recordRef.current = undefined;
+      if (record) closeRecord(record, !!stateRef.current.roomCallId);
+      setState((s) => ({ ...IDLE, status, endedReason: reason, peerName: s.peerName }));
+      if (status === "ended") {
+        setTimeout(() => setState((s) => (s.status === "ended" ? IDLE : s)), 2500);
+      }
+    },
+    [closeRecord],
+  );
 
   /** Record a call nobody picked up, so it survives in the conversation instead
    *  of vanishing with the overlay. Written by the CALLER only — both sides read
@@ -137,8 +204,40 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     return STUN_FALLBACK;
   }, [api]);
 
+  /** Hand this call over to the SFU room and close the peer connection.
+   *
+   *  Peer-to-peer carries exactly two people: with three, every client uploads
+   *  a copy of its camera to every other one. So the moment a call is widened
+   *  it stops being peer-to-peer — both ends move to the room, and the person
+   *  who was just added joins the same room from their side. */
+  const enterRoom = useCallback((roomCallId: string) => {
+    clearRing();
+    // Detach BEFORE closing: onClosed only tears the call down when the session
+    // it is reporting is still the live one, and this is a hand-over rather
+    // than a hang-up.
+    const s = sessionRef.current;
+    sessionRef.current = null;
+    s?.close("moved to the room");
+    recordRef.current = roomCallId;
+    setState((st) => ({
+      ...IDLE,
+      status: "in-call",
+      callId: st.callId,
+      peerId: st.peerId,
+      peerName: st.peerName,
+      media: st.media,
+      connectedAt: st.connectedAt ?? Date.now(),
+      recordId: roomCallId,
+      roomCallId,
+    }));
+  }, []);
+
   const newSession = useCallback(
     (callId: string, peerId: string, media: CallMedia, cfg: RTCConfiguration) => {
+      /** Give the peer the id of the call row, which only our side knows. */
+      const pushRecord = () => {
+        if (recordRef.current) s.send({ t: "record", callId: recordRef.current });
+      };
       const s: CallSession = new CallSession({
         callId,
         peerId,
@@ -147,7 +246,37 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         sendFrame: (f) => rtc.sendFrame(f),
         onRemoteStream: (stream) => setState((st) => ({ ...st, remoteStream: stream })),
         onConnected: () =>
-          setState((st) => ({ ...st, status: "in-call", localStream: s.localStream, remoteStream: s.remoteStream })),
+          setState((st) => ({
+            ...st,
+            status: "in-call",
+            connectedAt: st.connectedAt ?? Date.now(),
+            localStream: s.localStream,
+            remoteStream: s.remoteStream,
+          })),
+        onMetaOpen: pushRecord,
+        onRemoteVideo: (live) => setState((st) => ({ ...st, remoteVideo: live })),
+        onPeerMessage: (msg) => {
+          switch (msg.t) {
+            case "state":
+              setState((st) => ({ ...st, peerCamOn: msg.cam, peerSharing: msg.sharing }));
+              break;
+            case "record":
+              // Whoever placed the call owns the row; adopt it unless we
+              // somehow have one already.
+              if (!recordRef.current) {
+                recordRef.current = msg.callId;
+                setState((st) => ({ ...st, recordId: msg.callId }));
+              }
+              break;
+            case "room":
+              enterRoom(msg.callId);
+              break;
+          }
+        },
+        onShareEnded: () => {
+          setState((st) => ({ ...st, sharing: false, screenStream: undefined }));
+          if (recordRef.current) void api.stopScreenShare(recordRef.current).catch(() => {});
+        },
         onClosed: (reason) => {
           if (sessionRef.current === s) teardown("ended", reason);
         },
@@ -155,7 +284,40 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       sessionRef.current = s;
       return s;
     },
-    [rtc, teardown],
+    [api, enterRoom, rtc, teardown],
+  );
+
+  /**
+   * Back this ring with a persistent call row.
+   *
+   * Add People and Share Screen are both requests against `/api/v1/calls/{id}`,
+   * and a ring on its own has no id to put there — the callId in the signaling
+   * frames is invented by the caller and known to nobody but the two ends. So
+   * the caller creates the row, and tells the callee its id over the call's own
+   * metadata channel (see pushRecord).
+   *
+   * Deliberately NOT awaited by invite(): the ring is the thing the user asked
+   * for and it must not wait on an HTTP round trip, nor fail if this does. What
+   * degrades without a row is those two controls, which say so.
+   */
+  const backWithRecord = useCallback(
+    async (peerId: string, media: CallMedia, ringId: string) => {
+      try {
+        const row = await api.startDirectCall(peerId, media);
+        if (stateRef.current.callId !== ringId) {
+          // Declined, cancelled or rung out while we were creating it. Leaving
+          // it LIVE would put a call nobody is on in the Meetings list.
+          void api.endCall(row.id).catch(() => {});
+          return;
+        }
+        recordRef.current = row.id;
+        setState((s) => (s.callId === ringId ? { ...s, recordId: row.id } : s));
+        sessionRef.current?.send({ t: "record", callId: row.id });
+      } catch {
+        /* the call still works; the two controls that need a row report it */
+      }
+    },
+    [api],
   );
 
   const invite = useCallback(
@@ -164,6 +326,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       const callId = crypto.randomUUID();
       setState({ ...IDLE, status: "outgoing", callId, peerId, peerName, media, camOn: media === "video" });
       rtc.sendFrame({ type: "call.invite", toUserId: peerId, callId, media });
+      recordRef.current = undefined;
+      void backWithRecord(peerId, media, callId);
       clearRing();
       ringTimer.current = setTimeout(() => {
         rtc.sendFrame({ type: "call.cancel", toUserId: peerId, callId });
@@ -171,7 +335,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         teardown("ended", "No answer");
       }, RING_TIMEOUT_MS);
     },
-    [me, rtc, teardown, recordMissedCall],
+    [me, rtc, teardown, recordMissedCall, backWithRecord],
   );
 
   const accept = useCallback(() => {
@@ -216,10 +380,72 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     const on = sessionRef.current?.toggleMic();
     setState((s) => ({ ...s, micOn: on ?? s.micOn }));
   }, []);
+  /** Camera on/off — including the first "on" of a call that started as voice,
+   *  which has to acquire a track and can be refused at the permission prompt
+   *  rather than just flipping `enabled` on one we already hold. */
   const toggleCam = useCallback(() => {
-    const on = sessionRef.current?.toggleCam();
-    setState((s) => ({ ...s, camOn: on ?? s.camOn }));
+    const s = sessionRef.current;
+    if (!s) return;
+    void s
+      .setCam()
+      .then((on) => setState((st) => ({ ...st, camOn: on })))
+      .catch(() =>
+        toast("Camera unavailable", { description: "Check this app's camera permission." }),
+      );
   }, []);
+
+  const toggleShare = useCallback(() => {
+    const s = sessionRef.current;
+    if (!s) return;
+    const record = recordRef.current;
+    void (async () => {
+      if (s.sharing) {
+        await s.stopShare();
+        setState((st) => ({ ...st, sharing: false, screenStream: undefined }));
+        if (record) await api.stopScreenShare(record).catch(() => {});
+        return;
+      }
+      let surface: string;
+      try {
+        surface = await s.startShare();
+      } catch (e) {
+        // Dismissing the picker is a normal thing to do, and not worth a toast.
+        // Anything else is.
+        if (!(e instanceof DOMException) || e.name !== "NotAllowedError") {
+          toast.error("Couldn't share your screen");
+        }
+        return;
+      }
+      setState((st) => ({ ...st, sharing: true, screenStream: s.screenStream }));
+      // Tell the server what is on screen. The picture is already on its way
+      // over the peer connection — this is the room's record of who is sharing
+      // and what they picked, which is what someone arriving later reads.
+      if (record) {
+        await api.startScreenShare(record, surface as "monitor" | "window" | "browser").catch(() => {});
+      }
+    })();
+  }, [api]);
+
+  const addPeople = useCallback(
+    async (userIds: string[]) => {
+      const record = recordRef.current;
+      const s = sessionRef.current;
+      if (!record || !s) throw new Error("This call can't have people added to it.");
+      if (userIds.length === 0) return;
+      // Prove the room is reachable BEFORE adding anybody: peer-to-peer carries
+      // two people, so on a deployment with no SFU the honest outcome is to add
+      // nobody, rather than to add someone into a room the other two can never
+      // move to.
+      await api.callToken(record);
+      for (const id of userIds) await api.addCallParticipant(record, id);
+      // Take the peer across, then move ourselves. Whoever was added is rung by
+      // the server and joins the same room from their side.
+      s.send({ t: "room", callId: record });
+      enterRoom(record);
+      void qc.invalidateQueries({ queryKey: qk.calls });
+    },
+    [api, enterRoom, qc],
+  );
 
   // Inbound call + media signaling. Stable subscription (reads live state via
   // stateRef), so it isn't torn down/re-created on every state transition.
@@ -333,8 +559,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => primeCallNotifications(), []);
 
   const value = useMemo<CallApi>(
-    () => ({ ...state, invite, accept, decline, hangup, toggleMic, toggleCam }),
-    [state, invite, accept, decline, hangup, toggleMic, toggleCam],
+    () => ({ ...state, invite, accept, decline, hangup, toggleMic, toggleCam, toggleShare, addPeople }),
+    [state, invite, accept, decline, hangup, toggleMic, toggleCam, toggleShare, addPeople],
   );
   return <CallCtx.Provider value={value}>{children}</CallCtx.Provider>;
 }

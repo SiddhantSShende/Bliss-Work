@@ -64,6 +64,18 @@ spec:
         - name: {{ $name }}
           image: {{ include "taskboard.image" (dict "root" $root "image" $svc.image) }}
           imagePullPolicy: {{ $root.Values.global.imagePullPolicy }}
+          {{- with $svc.command }}
+          # Overrides the image ENTRYPOINT. Used where one image carries more
+          # than one binary — ws-gateway and delivery-svc are built from the
+          # same module because they share the routing contract, the Redis
+          # store and the metrics, and shipping two images to gain nothing
+          # would be worse than selecting the binary here.
+          command: {{ toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $svc.extraEnv }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           {{- if and $svc.http $svc.port }}
           ports:
             - name: http

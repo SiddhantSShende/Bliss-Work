@@ -12,20 +12,20 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
+
+from .net import rate_limit_key
 
 from .config import settings
 
 
-def _user_or_ip(request: Request) -> str:
-    principal = getattr(request.state, "principal", None)
-    if principal is not None and getattr(principal, "user_id", None):
-        return f"user:{principal.user_id}"
-    return f"ip:{get_remote_address(request)}"
+# NOTE: slowapi.util.get_remote_address is deliberately NOT used here. It
+# returns request.client.host, which behind our edge is Caddy's address on
+# every request — see app/net.py. Reintroducing it silently turns the
+# per-caller budget below into a single global one.
 
 
 limiter = Limiter(
-    key_func=_user_or_ip,
+    key_func=rate_limit_key,
     default_limits=["600/minute"],  # global per-key safety net
     headers_enabled=True,
     # Redis storage makes the limit honest across pods. Without it slowapi uses

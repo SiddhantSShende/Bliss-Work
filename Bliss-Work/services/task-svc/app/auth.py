@@ -8,7 +8,7 @@ import httpx
 import jwt
 import structlog
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, HTTPException, Header, Request, status
 
 from .config import settings
 from .logging_setup import log
@@ -120,7 +120,14 @@ class _JwksCache:
 jwks_cache = _JwksCache()
 
 
-async def require_principal(authorization: str | None = Header(default=None)) -> Principal:
+async def verify_bearer(authorization: str | None) -> Principal:
+    """Verify the Bearer JWT; identity comes from VERIFIED claims only.
+
+    Split out of the dependency so PrincipalMiddleware can call it before
+    the rate limiter runs (see app/middleware.py). The middleware caches
+    the result on request.state and require_principal below reuses it, so a
+    request that reaches an authed route verifies its token exactly once.
+    """
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="missing bearer token")
     token = authorization.split(" ", 1)[1].strip()
@@ -161,7 +168,26 @@ async def require_principal(authorization: str | None = Header(default=None)) ->
     )
 
 
+async def require_principal(
+    request: Request,
+    authorization: str | None = Header(default=None),
+) -> Principal:
+    """The dependency routes depend on. Reuses PrincipalMiddleware's result.
+
+    The middleware runs on every request and swallows every failure, so a
+    principal on request.state means "this token verified"; its absence means
+    either no token or a bad one, and re-running verify_bearer here is what
+    turns that into the correct 401 with the canonical error envelope.
+    Authorization decisions stay here — the middleware only caches an answer.
+    """
+    cached = getattr(request.state, "principal", None)
+    if isinstance(cached, Principal):
+        return cached
+    return await verify_bearer(authorization)
+
+
 PrincipalDep = Depends(require_principal)
+
 
 
 def require_org_admin(principal: Principal = PrincipalDep) -> Principal:

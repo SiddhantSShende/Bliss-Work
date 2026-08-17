@@ -20,9 +20,9 @@ from ..schemas import AcceptInviteRequest, CreateInviteRequest, SessionDTO
 from ..security.auth_dep import Principal
 from ..security.passwords import (
     PASSWORD_POLICY_MESSAGE,
-    hash_password,
+    hash_password_async,
     password_meets_policy,
-    verify_password,
+    verify_password_async,
 )
 
 INVITE_TTL = timedelta(hours=72)
@@ -150,7 +150,7 @@ async def accept_invite_tx(
         )
     ).first()
     if existing_ident is not None:
-        if not verify_password(existing_ident.password_hash, body.password):
+        if not await verify_password_async(existing_ident.password_hash, body.password):
             raise HTTPException(
                 status.HTTP_401_UNAUTHORIZED,
                 "that email already has an account — use your existing password to join",
@@ -159,7 +159,7 @@ async def accept_invite_tx(
         ph = existing_ident.password_hash
     else:
         identity_id = service.new_uuid()
-        ph = hash_password(body.password)
+        ph = await hash_password_async(body.password)
         await conn.execute(
             text(
                 "INSERT INTO identities (id, email_bidx, password_hash, email_verified) "

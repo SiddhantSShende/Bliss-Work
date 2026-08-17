@@ -28,6 +28,27 @@ class FakePC {
   onconnectionstatechange: (() => void) | null = null;
   createAnswerCalls = 0;
   addedTracks = 0;
+  ondatachannel: ((e: unknown) => void) | null = null;
+  /** Every transceiver added, so a test can assert the video slot is reserved
+   *  even on an audio call — that is what lets the camera and screen share be
+   *  turned on later without a second offer. */
+  transceivers: { kind: unknown; direction?: string; sender: { replaceTrack: (t: unknown) => Promise<void> } }[] = [];
+  dataChannels: string[] = [];
+
+  addTransceiver(kind: unknown, init?: { direction?: string }) {
+    const tx = {
+      kind,
+      direction: init?.direction,
+      sender: { replaceTrack: async () => {} },
+    };
+    this.transceivers.push(tx);
+    return tx;
+  }
+
+  createDataChannel(label: string) {
+    this.dataChannels.push(label);
+    return { readyState: "connecting", send: () => {}, onopen: null, onmessage: null };
+  }
 
   async setRemoteDescription(d: { type: string }): Promise<void> {
     await tick();
@@ -126,7 +147,12 @@ beforeEach(() => {
   getUserMedia = vi.fn(async () => {
     await tick();
     await tick();
-    return { getTracks: () => [{ kind: "audio", stop: vi.fn(), enabled: true }] };
+    const audio = { kind: "audio", stop: vi.fn(), enabled: true };
+    return {
+      getTracks: () => [audio],
+      getAudioTracks: () => [audio],
+      getVideoTracks: () => [],
+    };
   });
   vi.stubGlobal("navigator", { mediaDevices: { getUserMedia } });
 });
@@ -216,5 +242,34 @@ describe("microphone capture", () => {
     await session.onOffer("offer-sdp");
     const constraints = getUserMedia.mock.calls[0]?.[0] as MediaStreamConstraints;
     expect(constraints.video).toBe(false);
+  });
+});
+
+describe("the video slot on a voice call", () => {
+  // The in-call controls offer Video and Share Screen on every call, including
+  // one that started as audio. Both are replaceTrack() onto a sender that has
+  // to exist already — this session does not renegotiate, so a video m-line
+  // that was never offered can never be filled.
+  it("is reserved sendrecv even though no camera was captured", async () => {
+    const { session } = makeSession();
+    await session.onOffer("offer-sdp");
+    const video = pc.transceivers.filter((t) => t.kind === "video");
+    expect(video).toHaveLength(1);
+    expect(video[0]?.direction).toBe("sendrecv");
+  });
+
+  it("is reserved before the remote offer is applied", async () => {
+    // Order matters: a transceiver created BY an offer comes out recvonly, and
+    // a recvonly sender transmits nothing however many tracks are replaced in.
+    const { session } = makeSession();
+    await session.onOffer("offer-sdp");
+    expect(pc.transceivers).toHaveLength(1);
+    expect(pc.signalingState).toBe("stable");
+  });
+
+  it("gives the caller a metadata channel described by its own offer", async () => {
+    const { session } = makeSession();
+    await session.startCaller();
+    expect(pc.dataChannels).toEqual(["call-meta"]);
   });
 });

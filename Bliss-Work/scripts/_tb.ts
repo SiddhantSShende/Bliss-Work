@@ -92,7 +92,7 @@ export async function createOrgOrLogin(
 ): Promise<Session> {
   void slug;
   try {
-    return await login(email);
+    return await loginExisting(email);
   } catch {
     return api<Session>(BASE.auth, "/auth/orgs", {
       body: { orgName, email, password: PASSWORD, displayName },
@@ -112,7 +112,7 @@ export async function inviteAndAccept(
   displayName: string,
 ): Promise<Session> {
   try {
-    return await login(email);
+    return await loginExisting(email);
   } catch {
     await api(BASE.auth, "/auth/invites", { token: admin.accessToken, body: { email, role: "member" } });
     const token = await inviteTokenFor(email);
@@ -120,4 +120,28 @@ export async function inviteAndAccept(
       body: { token, username, displayName, password: PASSWORD },
     });
   }
+}
+
+/**
+ * Log in, treating only a 401 as "this account does not exist".
+ *
+ * The plain `login` above throws on any non-2xx, and its callers read a throw as
+ * "not created yet" — so a rate-limited or briefly-unavailable auth-svc made a
+ * script mint a SECOND invite for a member who already existed, and then fail
+ * redeeming a stale token from the Mailpit backlog. Retrying the transient
+ * statuses keeps that path for the case it was written for.
+ */
+export async function loginExisting(email: string, tries = 3): Promise<Session> {
+  let last: unknown;
+  for (let i = 0; i < tries; i++) {
+    try {
+      return await login(email);
+    } catch (e) {
+      last = e;
+      // 401 is a real answer: no such account, or the password differs.
+      if (/→ 401/.test(String(e))) break;
+      await sleep(1000 * (i + 1));
+    }
+  }
+  throw last;
 }

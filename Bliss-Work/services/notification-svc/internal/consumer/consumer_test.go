@@ -21,8 +21,7 @@ func mustMarshal(t *testing.T, v any) []byte {
 }
 
 // newTestConsumer builds a Consumer with a NIL pool and no kafka wiring. This is
-// only safe for handle() inputs that return BEFORE the first DB access
-// (c.pool.Begin). For those inputs the nil pool is never dereferenced. A logger
+// only safe for handle() inputs that return BEFORE the first DB access. A logger
 // is required because handle() logs on the early-return paths.
 func newTestConsumer() *Consumer {
 	return &Consumer{
@@ -31,25 +30,30 @@ func newTestConsumer() *Consumer {
 	}
 }
 
-// callHandle invokes handle and reports whether it reached the DB. The only DB
-// access in handle() is c.pool.Begin on a nil pool, which nil-derefs and panics.
-// So a recovered panic means "routing classified this event as something that
-// gets persisted" (acknowledged/completed with a valid eventId); no panic means
-// the call returned a Go error before any DB use.
+// callHandle invokes handle and reports whether it reached the DB.
+//
+// handle now projects onto a transaction OWNED BY THE CALLER (the batch), so
+// the probe is a nil pgx.Tx rather than a nil pool: the first DB access is
+// tx.Exec, and calling a method on a nil interface panics. A recovered panic
+// therefore still means "routing classified this event as something that gets
+// persisted" (acknowledged/completed with a valid eventId), and no panic still
+// means the call returned before any DB use.
 func callHandle(c *Consumer, value []byte) (err error, reachedDB bool) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			reachedDB = true
 		}
 	}()
-	err = c.handle(context.Background(), value)
+	err = c.handle(context.Background(), nil, value)
 	return err, false
 }
 
 // TestHandle_MalformedPayload_ReturnsErrMalformed covers the poison-pill
 // classification: unparseable JSON must map to errMalformed (the only error that
 // routes to the DLQ + commit) and must do so before touching the DB. errMalformed
-// is the contract runOnce switches on, so this guards the dead-letter path.
+// is the contract runBatch switches on, so this guards the dead-letter path —
+// and, since batching, it is also what keeps ONE poison message from failing the
+// whole batch rather than being skipped out of it.
 func TestHandle_MalformedPayload_ReturnsErrMalformed(t *testing.T) {
 	c := newTestConsumer()
 
@@ -88,7 +92,7 @@ func TestHandle_EventTypeRouting(t *testing.T) {
 	c := newTestConsumer()
 
 	// validEventID is a well-formed UUID so uuid.Parse succeeds and the
-	// acknowledged/completed paths fall through to c.pool.Begin (the DB).
+	// acknowledged/completed paths fall through to the first DB access.
 	const validEventID = "11111111-1111-1111-1111-111111111111"
 
 	cases := []struct {
@@ -132,7 +136,7 @@ func TestHandle_EventTypeRouting(t *testing.T) {
 
 // TestHandle_InvalidEventID_IgnoredBeforeDB covers the guard between routing and
 // persistence: an acknowledged/completed event whose eventId is not a UUID is
-// skipped (returns nil) BEFORE c.pool.Begin, so a single bad id cannot wedge the
+// skipped (returns nil) BEFORE any DB access, so a single bad id cannot wedge the
 // partition. This is why the routing test above must use a valid UUID to reach
 // the DB.
 func TestHandle_InvalidEventID_IgnoredBeforeDB(t *testing.T) {

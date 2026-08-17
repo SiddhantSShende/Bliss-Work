@@ -837,3 +837,146 @@ export function actionsFor(status: AssigneeStatus): TaskAction[] {
       return [];
   }
 }
+
+// ── Calls ────────────────────────────────────────────────────────────────────
+
+/** How a call decides who may be in it. The three differ in exactly one way —
+ *  where the roster comes from — and everything else follows from that.
+ *
+ *  - `CHANNEL`  the roster IS the channel's membership. There is no invite link
+ *               and no way to mint one; being in the channel is the invitation,
+ *               and leaving it removes the seat.
+ *  - `MEETING`  an explicit roster, which is what makes a link meaningful. A
+ *               link may be redeemed by any registered BlissWork user, INCLUDING
+ *               one in another organisation.
+ *  - `DIRECT`   the ad-hoc 1:1 call, which any participant may widen with
+ *               another member of their OWN org. */
+export const CallKind = z.enum(["DIRECT", "CHANNEL", "MEETING"]);
+export type CallKind = z.infer<typeof CallKind>;
+
+export const CallStatus = z.enum(["SCHEDULED", "LIVE", "ENDED", "CANCELLED"]);
+export type CallStatus = z.infer<typeof CallStatus>;
+
+export const CallParticipantDTO = z.object({
+  userId: z.string().uuid(),
+  orgId: z.string().uuid(),
+  role: z.enum(["HOST", "PARTICIPANT"]),
+  username: z.string().default(""),
+  joinedAt: z.string().nullish(),
+  leftAt: z.string().nullish(),
+  /** Set while this participant is held in the waiting room, and cleared the
+   *  moment the call starts. Non-null is a THIRD state, distinct from both "in
+   *  the room" (joinedAt set) and "has not turned up" (neither set): they are
+   *  here, and the call has not been opened yet. */
+  waitingSince: z.string().nullish(),
+  /** True when this participant belongs to a different org than the call —
+   *  i.e. they joined a meeting by link. Surfaced in the UI so nobody is
+   *  surprised by who is in the room. */
+  external: z.boolean().default(false),
+});
+export type CallParticipantDTO = z.infer<typeof CallParticipantDTO>;
+
+/** What a screen share is showing.
+ *
+ *  These are the server's names. A browser reports the same three things as
+ *  `displaySurface` = "monitor" | "window" | "browser", and the API accepts
+ *  either spelling, so a client can forward what getDisplayMedia gave it
+ *  without translating. */
+export const CallShareSource = z.enum(["SCREEN", "WINDOW", "TAB"]);
+export type CallShareSource = z.infer<typeof CallShareSource>;
+
+/** One live screen share.
+ *
+ *  The share is COORDINATION, not media — the picture itself travels to the SFU
+ *  on the same connection as everyone's camera. This is how the room agrees on
+ *  who is sharing and what they picked, so a participant who joins mid-share is
+ *  told about it rather than inferring it from whichever tracks turn up. */
+export const CallShareDTO = z.object({
+  id: z.string().uuid(),
+  callId: z.string().uuid(),
+  /** The sharer, and — because there is no endpoint that stops anyone else's
+   *  share — the only person whose UI should offer to stop this one. */
+  userId: z.string().uuid(),
+  source: CallShareSource,
+  startedAt: z.string(),
+});
+export type CallShareDTO = z.infer<typeof CallShareDTO>;
+
+export const CallDTO = z.object({
+  id: z.string().uuid(),
+  orgId: z.string().uuid(),
+  kind: CallKind,
+  channelId: z.string().uuid().nullish(),
+  title: z.string().default(""),
+  media: z.enum(["audio", "video"]).default("video"),
+  createdBy: z.string().uuid(),
+  /** Absent for "meet now". */
+  scheduledAt: z.string().nullish(),
+  startedAt: z.string().nullish(),
+  /** Who opened it, which is not always who scheduled it — an org admin or a
+   *  channel owner can start a call the organiser is late for. */
+  startedBy: z.string().uuid().nullish(),
+  endedAt: z.string().nullish(),
+  status: CallStatus,
+  createdAt: z.string(),
+  participants: z.array(CallParticipantDTO).default([]),
+  /** What is on screen right now. Present on every read, so opening a call
+   *  already tells you a share is in progress. */
+  activeShares: z.array(CallShareDTO).default([]),
+});
+export type CallDTO = z.infer<typeof CallDTO>;
+
+/** Returned ONCE, when the link is minted. The server stores only a SHA-256 of
+ *  the token, so this value cannot be recovered afterwards — if it is lost, mint
+ *  another and revoke this one. */
+export const CallInviteDTO = z.object({
+  id: z.string().uuid(),
+  callId: z.string().uuid(),
+  token: z.string(),
+  expiresAt: z.string(),
+  maxUses: z.number().int().nullish(),
+});
+export type CallInviteDTO = z.infer<typeof CallInviteDTO>;
+
+/** Everything needed to open the SFU room. Short-lived by design: access is
+ *  re-decided from the database on every refresh, so losing channel membership
+ *  actually ends the call rather than waiting for a long-lived token to lapse. */
+export const CallTokenDTO = z.object({
+  state: z.literal("JOINED"),
+  url: z.string(),
+  token: z.string(),
+  room: z.string(),
+  identity: z.string(),
+  expiresAt: z.string(),
+  role: z.enum(["HOST", "PARTICIPANT"]),
+});
+export type CallTokenDTO = z.infer<typeof CallTokenDTO>;
+
+/** The waiting room: you belong in this call, and it has not started.
+ *
+ *  Note what is NOT in here — a token. That absence is the whole enforcement:
+ *  a client that skips the lobby screen and tries to open the room anyway has
+ *  nothing to open it with. The lobby is a fact about what the server issued,
+ *  not a screen the client is trusted to render.
+ *
+ *  Nobody is being reviewed while they wait. There is no admit or deny; the
+ *  call starting lets in everyone at once. */
+export const CallWaitingDTO = z.object({
+  state: z.literal("WAITING"),
+  callId: z.string().uuid(),
+  status: CallStatus,
+  /** Whether THIS caller is one of the people who could end the wait — the
+   *  organiser, an org admin, or an owner/admin of the channel. It is answered
+   *  server-side because a client cannot see the org and channel roles it would
+   *  need to work it out, and it is what turns the same lobby screen into a
+   *  "Start meeting" button for one person and "waiting for the host" for
+   *  everyone else. */
+  canStart: z.boolean(),
+});
+export type CallWaitingDTO = z.infer<typeof CallWaitingDTO>;
+
+/** What POST /calls/{id}/token answers: a room token (200), or the waiting room
+ *  (202). Discriminate on `state` — the status code says the same thing, but the
+ *  field survives being passed around after the response is gone. */
+export const CallJoinDTO = z.discriminatedUnion("state", [CallTokenDTO, CallWaitingDTO]);
+export type CallJoinDTO = z.infer<typeof CallJoinDTO>;

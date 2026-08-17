@@ -9,13 +9,15 @@ import { qk } from "../lib/queryBridge";
 import { displayNameOf } from "../lib/userLabel";
 import { ListHeader, rowClass, relTime } from "../features/ListPane";
 import { NewChatDialog } from "../features/NewChatDialog";
+import { usePresence } from "../lib/usePresence";
 
 export function ChatsList() {
   const { api } = useRuntime();
   const [newOpen, setNewOpen] = useState(false);
   const { data: conversations = [] } = useQuery({ queryKey: qk.conversations, queryFn: () => api.conversations() });
-  const { data: online = [] } = useQuery({ queryKey: qk.presence, queryFn: () => api.presence(), refetchInterval: 20_000 });
-  const onlineSet = new Set(online);
+  // Presence for the peers on screen, not for the whole organisation — see
+  // lib/usePresence. This list is bounded by how many chats a person has.
+  const onlineSet = usePresence(conversations.map((c: ConversationDTO) => c.peerId));
 
   return (
     <>

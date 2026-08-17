@@ -2,6 +2,64 @@ package store
 
 import "testing"
 
+// The open-channel directory lists every open channel in the ORGANISATION, so
+// its size is set by how large the customer is. That makes the ceiling here the
+// one that matters most: a limit the client can raise without bound is the same
+// unbounded read the paging was added to remove.
+func TestClampChannelPage(t *testing.T) {
+	cases := []struct {
+		in, want int
+	}{
+		{0, defaultChannelPage},
+		{-1, defaultChannelPage},
+		{-9999, defaultChannelPage},
+		{1, 1},
+		{50, 50},
+		{maxChannelPage, maxChannelPage},
+		{maxChannelPage + 1, maxChannelPage},
+		{1 << 30, maxChannelPage},
+	}
+	for _, tc := range cases {
+		if got := clampChannelPage(tc.in); got != tc.want {
+			t.Errorf("clampChannelPage(%d) = %d, want %d", tc.in, got, tc.want)
+		}
+	}
+}
+
+// A negative OFFSET is the interesting one: Postgres rejects it outright, so an
+// unfloored value turns a browse request into a 500 rather than a page.
+func TestClampOffset(t *testing.T) {
+	cases := []struct {
+		in, want int
+	}{
+		{-1, 0},
+		{-9999, 0},
+		{0, 0},
+		{50, 50},
+		// No ceiling on purpose: someone paging honestly through a large
+		// directory has a legitimately large offset, and the page size bounds
+		// the work either way.
+		{1 << 30, 1 << 30},
+	}
+	for _, tc := range cases {
+		if got := clampOffset(tc.in); got != tc.want {
+			t.Errorf("clampOffset(%d) = %d, want %d", tc.in, got, tc.want)
+		}
+	}
+}
+
+// The directory page must not be larger than a message page by accident — the
+// rows are dearer, since each carries a LATERAL last-message lookup and is then
+// decrypted individually.
+func TestChannelPageDefaultsAreSane(t *testing.T) {
+	if defaultChannelPage > maxChannelPage {
+		t.Errorf("default %d exceeds max %d", defaultChannelPage, maxChannelPage)
+	}
+	if defaultChannelPage <= 0 {
+		t.Error("a default page of zero or less would return nothing")
+	}
+}
+
 // clampMessagePage is the store-side ceiling. It exists separately from the
 // HTTP layer's clamp because the store is reachable from more than one caller,
 // and the invariant it protects — that a history read is always bounded — must

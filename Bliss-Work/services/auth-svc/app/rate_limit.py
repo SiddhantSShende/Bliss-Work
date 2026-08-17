@@ -7,6 +7,24 @@ production this is layered with an edge WAF (see INFRASTRUCTURE.md).
 The limiter is in-process by default (slowapi's MemoryStore). For multi-pod
 deployment, point slowapi at Redis via SLOWAPI_STORAGE_URI; this still fails
 open if Redis is unreachable.
+
+── Every bucket here was one global bucket ──────────────────────────────────
+The keys below are only as good as the identity they are keyed on, and both
+identities were broken:
+
+  * The IP came from `slowapi.util.get_remote_address` — i.e. the immediate
+    peer — which behind our edge is Caddy on every request in the world. So
+    "10 logins per minute per IP" was enforced as ten logins per minute for the
+    entire platform, and being Redis-backed it did not even vary per pod.
+
+  * The user came from `request.state.principal`, which NOTHING assigned: the
+    auth dependency takes a Header and runs long after SlowAPIMiddleware has
+    already picked a key. So the `user:` branch was dead code and authenticated
+    traffic fell into the (single, global) IP bucket too.
+
+Both now go through app/net.py, and PrincipalMiddleware fills request.state
+before the limiter runs. The budgets below were always sized as per-caller
+numbers; they are finally enforced as per-caller numbers.
 """
 from __future__ import annotations
 
@@ -16,25 +34,19 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from .config import settings
 from .logging_config import log
+from .net import client_ip, rate_limit_key
 
-
-def _user_or_ip(request: Request) -> str:
-    """Bucket key: authed user if we have one, else source IP. Falls back to
-    IP when the request hasn't been verified yet (e.g. /login itself)."""
-    # The auth dependency stores the principal on request.state when run.
-    principal = getattr(request.state, "principal", None)
-    if principal is not None and getattr(principal, "user_id", None):
-        return f"user:{principal.user_id}"
-    return f"ip:{get_remote_address(request)}"
-
+# NOTE: slowapi.util.get_remote_address is deliberately NOT used anywhere in
+# this service. It returns request.client.host, which behind our edge is Caddy's
+# address on every request — see app/net.py for the full argument. Reintroducing
+# it silently turns every per-IP budget below into a single global one.
 
 limiter = Limiter(
-    key_func=_user_or_ip,
+    key_func=rate_limit_key,
     # default_limits applies to EVERY route via SlowAPIMiddleware. We use it
     # because the route-level @limiter.limit decorator breaks FastAPI body
     # parsing in services that use `from __future__ import annotations`
@@ -127,7 +139,7 @@ class SensitiveRateLimitMiddleware(BaseHTTPMiddleware):
         if rule is None:
             return await call_next(request)
         limit, window = rule
-        ip = get_remote_address(request)
+        ip = client_ip(request)
         allowed, retry_after = await self._check(request.method, request.url.path, ip, limit, window)
         if not allowed:
             rid = request.headers.get("x-request-id") or ""

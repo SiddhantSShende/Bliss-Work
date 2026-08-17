@@ -22,7 +22,11 @@ import (
 	"github.com/task-board/ws-gateway/internal/auth"
 	"github.com/task-board/ws-gateway/internal/delivery"
 	"github.com/task-board/ws-gateway/internal/hub"
+	// Aliased: this package's request middleware is itself called `metrics`
+	// (see metrics.go), so the bare package name would collide with it.
+	wsmetrics "github.com/task-board/ws-gateway/internal/metrics"
 	"github.com/task-board/ws-gateway/internal/presence"
+	"github.com/task-board/ws-gateway/internal/push"
 	"github.com/task-board/ws-gateway/internal/signal"
 	"github.com/task-board/ws-gateway/internal/store"
 )
@@ -52,6 +56,10 @@ type Config struct {
 	// Connection caps enforced at upgrade time (see hub.Add). 0 = unlimited.
 	MaxConnections  int
 	MaxConnsPerUser int
+	// InternalToken authorizes the routed-delivery push endpoint (see push.go).
+	// Empty disables the endpoint entirely — it answers 401 to everything —
+	// which is the correct posture for a deployment not using routed delivery.
+	InternalToken string
 }
 
 // New constructs a Server. dispatcher / sig may be nil in tests; in production
@@ -106,7 +114,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/readyz", s.handleReadyz)
 	mux.HandleFunc("/ws", s.handleWS)
 	mux.HandleFunc("/presence", s.handlePresence)
+	// The bounded form: "are these N users online" rather than "who in my org
+	// is online". Additive — /presence stays until clients have moved.
+	mux.HandleFunc("/presence/query", s.handlePresenceQuery)
 	mux.HandleFunc("/turn-credentials", s.handleTurnCredentials)
+	// Routed fan-out delivery, authorized by the shared internal token rather
+	// than a user JWT. MUST NOT be reachable from the public edge — the
+	// Caddyfile only proxies the browser-facing routes, and this is not one.
+	mux.HandleFunc(push.Path, s.handlePush)
 	mux.Handle("/metrics", promhttp.Handler())
 	return requestID(securityHeaders(recoverer(s.log)(s.cors(metrics(mux)))))
 }
@@ -154,6 +169,64 @@ func (s *Server) handlePresence(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(ids)
 }
 
+// maxPresenceQuery bounds one presence query. Generous next to a screenful of
+// avatars and finite, so this cannot become a way to make the gateway issue an
+// unbounded pipeline on an unauthenticated-adjacent path.
+const maxPresenceQuery = 500
+
+// handlePresenceQuery answers "which of THESE users are online".
+//
+// The bounded counterpart to /presence, and the one clients should move to.
+// /presence returns every online member of the caller's org, which means one
+// Redis key whose size and read rate scale with the organisation — and that is
+// the one part of the keyspace sharding cannot help, because a key lives on one
+// node no matter how many nodes exist.
+//
+// This reads per-user keys instead, which are hash-tagged by user id and shard
+// evenly, and its cost scales with what the client is actually displaying.
+//
+// POST rather than GET because the user list is the request, and a few hundred
+// ids do not belong in a query string.
+func (s *Server) handlePresenceQuery(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	claims, err := s.verifier.Verify(r.Context(), extractToken(r))
+	if err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var body struct {
+		UserIDs []string `json:"userIds"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	if len(body.UserIDs) > maxPresenceQuery {
+		http.Error(w, "too many userIds", http.StatusBadRequest)
+		return
+	}
+
+	online, err := s.store.OnlineAmong(r.Context(), body.UserIDs)
+	if err != nil {
+		s.log.Error("presence query failed", "err", err, "org", claims.OrgID)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	// NOTE: the answer is not filtered by the caller's org. Presence for a user
+	// id you already hold is not a disclosure — you had to know the id to ask —
+	// and filtering would mean a per-user org lookup, which is precisely the
+	// cross-key read this endpoint exists to avoid. The org-scoped view is
+	// still /presence.
+	if online == nil {
+		online = []string{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(online)
+}
+
 // TURN REST config (coturn use-auth-secret). The static secret never leaves the
 // server; clients get a short-lived username/password derived from it. STUN/TURN
 // URLs are injected from the environment so the same binary runs anywhere.
@@ -197,6 +270,18 @@ func (s *Server) handleTurnCredentials(w http.ResponseWriter, r *http.Request) {
 	if len(stunURLs) > 0 {
 		servers = append(servers, iceServer{URLs: stunURLs})
 	}
+	// Whether a relay was actually on offer, not just whether the request
+	// succeeded. With no TURN secret or URL this endpoint still answers 200 —
+	// with STUN only — and every client behind a symmetric NAT then fails to
+	// connect while the API looks perfectly healthy. Counting the two cases
+	// apart is what makes that visible; `turn="unavailable"` climbing means
+	// calls are failing for a reason no error rate will show.
+	turnState := wsmetrics.TurnUnavailable
+	if turnSecret != "" && len(turnURLs) > 0 {
+		turnState = wsmetrics.TurnOffered
+	}
+	wsmetrics.TurnCredentialsTotal.WithLabelValues(turnState).Inc()
+
 	if turnSecret != "" && len(turnURLs) > 0 {
 		// coturn REST: username = "<expiryUnix>:<userId>", credential =
 		// base64(HMAC-SHA1(secret, username)).

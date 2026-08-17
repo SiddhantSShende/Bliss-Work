@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"runtime"
 	"strconv"
 	"testing"
 )
@@ -108,4 +109,53 @@ func TestCloseIsIdempotent(t *testing.T) {
 	default:
 		t.Fatal("Done should be closed after Close()")
 	}
+}
+
+// A connection's memory cost is a capacity decision, not an implementation
+// detail, so it is asserted rather than assumed.
+//
+// WS_MAX_CONNECTIONS is a memory budget expressed as a socket count, and the
+// deployment memory limits are sized from the number below (see the comment on
+// sendChanCap, values.yaml and docker-compose.prod.yml). Raising sendChanCap
+// silently re-prices every socket: at 512 a connection cost 12 KB of eagerly
+// allocated channel ring before a single event arrived, the pod ran out of
+// memory near 13k sockets against a 50,000 cap, and the cap therefore never
+// fired — the kernel killed the process instead of the gateway refusing the
+// connection.
+//
+// The bound here is deliberately loose. It is not measuring an exact figure, it
+// is catching a change of ORDER — which is what a jump back to 512 would be.
+func TestConnectionMemoryCostStaysWithinTheDeploymentBudget(t *testing.T) {
+	const (
+		sample     = 20_000
+		maxPerConn = 4096 // bytes; ~2.5× the expected ~1.6 KB
+	)
+
+	// Settle the heap before measuring so unrelated allocation from earlier
+	// tests is not attributed to the connections below.
+	conns := make([]*Conn, 0, sample)
+	runtime.GC()
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+
+	for i := 0; i < sample; i++ {
+		conns = append(conns, NewConn("u", "c"))
+	}
+
+	runtime.ReadMemStats(&after)
+	// Keep conns reachable across the measurement; without this the compiler
+	// and GC are both free to reclaim them before ReadMemStats runs.
+	runtime.KeepAlive(conns)
+
+	grew := after.HeapAlloc - before.HeapAlloc
+	perConn := grew / sample
+	if perConn > maxPerConn {
+		t.Fatalf("a connection now costs ~%d bytes (%d for %d conns), over the %d-byte budget.\n\n"+
+			"This is what the deployment memory limits are sized from. If the increase is "+
+			"intended, raise ws-gateway's memory limit in deploy/helm/taskboard/values.yaml AND "+
+			"docker-compose.prod.yml in the same change, or WS_MAX_CONNECTIONS becomes a cap the "+
+			"pod is OOM-killed before it can reach.",
+			perConn, grew, sample, maxPerConn)
+	}
+	t.Logf("per-connection heap: ~%d bytes (sendChanCap=%d)", perConn, sendChanCap)
 }

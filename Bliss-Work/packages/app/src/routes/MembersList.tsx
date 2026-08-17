@@ -11,6 +11,7 @@ import { matchUser, rankUsers } from "../lib/matchUser";
 import { relativeTime } from "../lib/relativeTime";
 import { ListHeader, rowClass } from "../features/ListPane";
 import { ActivityNotice } from "../features/ActivityNotice";
+import { usePresence } from "../lib/usePresence";
 
 /** Org directory: every teammate, searchable. The row opens their profile;
  *  the chat icon keeps the one-click "start a DM" this list has always been the
@@ -27,7 +28,6 @@ export function MembersList() {
 
   const { data: users = [] } = useQuery({ queryKey: qk.directory, queryFn: () => api.directory() });
   const { data: conversations = [] } = useQuery({ queryKey: qk.conversations, queryFn: () => api.conversations() });
-  const { data: online = [] } = useQuery({ queryKey: qk.presence, queryFn: () => api.presence(), refetchInterval: 20_000 });
   // Admins additionally get idle-vs-online and a last-seen time, which raw
   // presence cannot answer: a socket stays open while someone is away from the
   // keyboard, so presence alone reports "online" for an empty chair.
@@ -39,7 +39,16 @@ export function MembersList() {
     refetchInterval: 60_000,
   });
 
-  const onlineSet = new Set(online);
+  // Keyed on the loaded directory rather than on `results` below, which is
+  // re-derived on every keystroke of the search box — a query key that changed
+  // per keystroke would fire a presence request per keystroke.
+  //
+  // This is the one screen whose list genuinely tracks the size of the
+  // organisation, and that is fine now in a way it was not before: usePresence
+  // chunks into per-user reads that shard evenly, instead of every screen
+  // re-reading one org-wide sorted set on a 20-second timer. See
+  // lib/usePresence.
+  const onlineSet = usePresence(users.map((u) => u.id));
   const activityById = new Map(activity.map((a) => [a.userId, a]));
   const convByPeer = new Map(conversations.map((c: ConversationDTO) => [c.peerId, c.id] as [string, string]));
   const results = rankUsers(users.filter((u) => u.id !== me.id && matchUser(u, q)), q);

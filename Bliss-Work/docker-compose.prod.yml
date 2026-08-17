@@ -209,6 +209,13 @@ services:
       # user reports.
       DOMAIN: ${DOMAIN:?DOMAIN must be set in .env (the caddy edge reads it via interpolation, not .env.prod)}
       ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL must be set in .env (the caddy edge reads it via interpolation, not .env.prod)}
+    # The ONLY upstream Caddy reaches by something other than a compose service
+    # name. livekit runs with host networking (it needs a 200-port contiguous UDP
+    # range), so it is not on the `taskboard` bridge and has no DNS name here —
+    # the /livekit route in the Caddyfile proxies to host.docker.internal:7880
+    # instead, which this line is what makes resolvable.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./infra/caddy/Caddyfile.waf:/etc/caddy/Caddyfile:ro  # WAF variant (Coraza, DetectionOnly)
       - ./infra/caddy/coraza:/etc/caddy/coraza:ro            # WAF engine config + CRS tuning
@@ -250,13 +257,31 @@ services:
   # TURN_SECRET, so coturn and the gateway never need to talk to each other. The
   # denied-peer-ip ranges stop a client from relaying to RFC1918 internal hosts
   # (TURN SSRF). Open on the host firewall: 3478/udp+tcp and 49160-49200/udp.
+  # ── coturn (TURN relay) ─────────────────────────────────────────────────────
+  #
+  # ⚠️ THE RELAY PORT RANGE IS THE CAPACITY. coturn allocates ONE UDP port per
+  # relay session, so the width of --min-port..--max-port is very nearly the
+  # number of concurrent relayed calls this host can carry.
+  #
+  # It was 49160-49200 — 41 ports, roughly twenty calls, for the whole platform.
+  # That ceiling is unusually hard to diagnose from the outside: only the
+  # 10-20% of calls that cannot traverse NAT directly need a relay, so
+  # exhausting it presents as a load-dependent minority of calls that connect
+  # and then carry no media, while every other call works and nothing errors.
+  #
+  # 30000-49999 is ~20k ports. The real ceiling above that is bandwidth, not
+  # port space, and the answer there is a coturn fleet behind DNS or anycast —
+  # or managed TURN, which is a reasonable thing not to own.
+  #
+  # ⚠️ The range must be OPEN ON THE HOST (infra/host/harden-host.sh) or relays
+  # fail silently for exactly the users who need them most.
   coturn:
     image: coturn/coturn:4.6-alpine@sha256:e2bca2f79a4269d7240de5872ab60a9305013ad37296d2acf14f9510874346be
     restart: unless-stopped
     network_mode: host
     command: >-
       -n --log-file=stdout --no-cli --no-tlsv1 --no-tlsv1_1
-      --listening-port=3478 --min-port=49160 --max-port=49200
+      --listening-port=3478 --min-port=30000 --max-port=49999
       --realm=${DOMAIN} --use-auth-secret --static-auth-secret=${TURN_SECRET}
       --fingerprint --no-multicast-peers
       --denied-peer-ip=127.0.0.0-127.255.255.255
@@ -266,6 +291,64 @@ services:
     deploy:
       resources:
         limits: { cpus: "0.50", memory: 128M }
+
+  # ── LiveKit SFU ─────────────────────────────────────────────────────────────
+  #
+  # The media plane for GROUP calls (channel calls and meetings). 1:1 calls
+  # still use the peer-to-peer path through coturn above; this exists because
+  # peer-to-peer does not survive a third participant — every client would have
+  # to encode and upload a stream per peer.
+  #
+  # Only the control plane knows about authorization: messaging-svc mints a
+  # short-lived, room-scoped token after checking the caller against Postgres,
+  # and LiveKit trusts that token. LIVEKIT_API_SECRET is therefore a credential
+  # of the same weight as a database password — anyone holding it can mint
+  # themselves into any room.
+  #
+  # ⚠️ The UDP range MUST be reachable from clients. If 50000-50200/udp is
+  # blocked, calls connect, show participants, and carry no audio or video —
+  # which looks like an application bug and is not one. host networking is used
+  # for exactly this reason: publishing 200 UDP ports through the bridge costs a
+  # userland proxy process per port. infra/host/harden-host.sh opens the range.
+  #
+  # HOST NETWORKING HAS TWO CONSEQUENCES worth stating, because both have a
+  # matching line elsewhere that must move with this one:
+  #
+  #   * This container is NOT on the `taskboard` bridge, so it cannot resolve
+  #     any compose service name — `redis`, `postgres`, none of them. That is
+  #     why infra/livekit/livekit.yaml runs single-node with its redis block
+  #     off: pointing it at `redis:6379` would resolve to nothing.
+  #   * Its 7880 signaling port listens on every host interface, NOT just
+  #     loopback — it has to, or Caddy could not reach it from the bridge. ufw
+  #     therefore has to keep 7880 closed to the public (harden-host.sh does not
+  #     open it), and the only public door to it is the TLS-terminated
+  #     /livekit route in the Caddyfile.
+  livekit:
+    image: livekit/livekit-server:v1.8.0
+    restart: unless-stopped
+    network_mode: host
+    command: ["--config", "/etc/livekit/livekit.yaml"]
+    environment:
+      # key: secret, the format LiveKit expects. Kept in the environment rather
+      # than the mounted config so the secret is not in the repo or the image.
+      #
+      # These two arrive by compose INTERPOLATION, like ${TURN_SECRET} on coturn
+      # above — which reads `.env`, NOT the `env_file: .env.prod` that the
+      # application services inherit. Bring the stack up with BOTH files
+      # (`--env-file .env --env-file .env.prod`) or this resolves to ": " and
+      # livekit-server refuses to start. messaging-svc reads its own copy of
+      # LIVEKIT_* from .env.prod, so a mismatch here disables only the SFU.
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}"
+    volumes:
+      - ./infra/livekit/livekit.yaml:/etc/livekit/livekit.yaml:ro
+    deploy:
+      resources:
+        # An SFU is CPU-bound on packet forwarding, not on transcoding — it does
+        # not decode media. 2 cores carries a few hundred concurrent streams;
+        # past that the honest fix is more SFU nodes, not a bigger limit — and
+        # that step also needs a Redis the SFU can actually reach (see above).
+        limits: { cpus: "2.00", memory: 1024M }
+        reservations: { cpus: "0.50", memory: 256M }
 
   # ── Infrastructure ──────────────────────────────────────────────────────────
   postgres:
@@ -406,17 +489,53 @@ services:
       # ── Memory ceiling ────────────────────────────────────────────────────
       # Without maxmemory Redis does not degrade under pressure, it gets
       # OOM-killed by the cgroup — taking replay, presence and RTC signaling
-      # with it, and dropping every socket in the deployment at once. 400mb
-      # against the 512M limit below leaves headroom for the AOF buffer and
-      # the copy-on-write fork during a rewrite.
+      # with it, and dropping every socket in the deployment at once.
       #
       # noeviction is deliberate. This instance is the source of truth for the
       # per-user replay outbox, so evicting a key silently loses catch-up data
       # for whichever user Redis happened to pick. Failing the write loudly is
       # recoverable — the event is still durable in Kafka and Postgres — and it
       # surfaces as an alert instead of as users quietly missing messages.
+      #
+      # ── Why 4gb and not 400mb ─────────────────────────────────────────────
+      # SIZE THIS FROM THE OUTBOX, NOT FROM THE CONTAINER. The replay outbox
+      # stores FULL EVENT COPIES, one per recipient, trimmed at maxReplayHard
+      # (2000) on a 7-day TTL that is REFRESHED ON EVERY APPEND. So the resident
+      # population is everyone active in the last week, not everyone online now
+      # — a distinction worth about two orders of magnitude.
+      #
+      # A message.created event is ~500 B of JSON, and a ZSET member costs
+      # ~700 B all-in once the sds header, skiplist node and dict entry are
+      # counted. At 50 events/day that is ~245 KB per user per week, so 400mb
+      # held roughly 1,500 weekly actives — a few hundred if any of them reached
+      # the trim cap. The gateway's WS_MAX_CONNECTIONS=25000 was therefore
+      # advertising a capacity the datastore could not survive by ~100x.
+      #
+      # This matters more than it looks because noeviction applies to the WHOLE
+      # KEYSPACE. When the outbox fills the instance, presence ZADDs, the node
+      # registry and the shared rate-limit buckets start failing too — so the
+      # symptom is not "some users lose catch-up history", it is a presence
+      # outage and a replay outage in the same instant.
+      #
+      # 2gb is ~8k weekly actives at the same assumptions — a 5x lift, and as
+      # far as THIS HOST goes. The compose file already declares ~19 GiB of
+      # memory limits on a 22 GiB box, and Postgres (6144M) and Redis are the
+      # two that genuinely grow into theirs: Postgres because cgroup v2 charges
+      # the page cache against the limit, Redis because the dataset is the
+      # limit. Taking Redis to 4gb+ oversubscribes the host rather than the
+      # ceiling, and the failure mode moves from "Redis refuses a write" to
+      # "the kernel picks a victim", which is strictly worse.
+      #
+      # PAST 8k WEEKLY ACTIVES, RAISING THIS NUMBER IS THE WRONG MOVE. The next
+      # step is Redis off-host — managed ElastiCache/Upstash, or the cluster
+      # client that internal/store already supports via a comma-separated
+      # REDIS_URL. That is a provisioning decision, not a config one.
+      #
+      # Re-derive rather than copying: the honest input is `redis-cli INFO
+      # memory` plus ZCARD on a few live outbox keys, because the 500 B event
+      # figure is the assumption most likely to be wrong.
       - --maxmemory
-      - 400mb
+      - 2gb
       - --maxmemory-policy
       - noeviction
       # ── Opt-in TLS (managed-CA / post-code-follow-up only) ──
@@ -442,7 +561,22 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
     deploy:
       resources:
-        limits: { cpus: "0.50", memory: 512M }
+        # MOVES WITH --maxmemory ABOVE. The limit has to cover the dataset, the
+        # AOF rewrite buffer, and the copy-on-write fork during a BGREWRITEAOF,
+        # which in the worst case duplicates dirty pages. 3G against a 2gb
+        # dataset is ~50% headroom for that fork; giving Redis exactly its
+        # maxmemory means the cgroup kills it mid-rewrite, which is the failure
+        # the ceiling exists to prevent.
+        #
+        # CPU raised from 0.50 for a separate reason. Redis is single-threaded
+        # for command execution, so this is a share of ONE core, and presence
+        # heartbeats are the largest Redis workload in the platform by design:
+        # at a 45s beat with two ZADDs plus amortized EXPIREs, 1M sockets is
+        # ~55k ops/sec. Half a core does perhaps 40k total. At today's scale
+        # presence is only ~1.4k ops/sec so this is not yet binding — it is
+        # raised now so the tier is not the thing that caps the next 10x.
+        limits: { cpus: "2.00", memory: 3G }
+        reservations: { cpus: "0.50", memory: 1G }
     networks: [taskboard]
 
   # ── Kafka ─────────────────────────────────────────────────────────────────
@@ -672,7 +806,73 @@ services:
       retries: 20
     deploy:
       resources:
-        limits: { cpus: "1.00", memory: 384M }
+        # SIZE THIS WITH WS_MAX_CONNECTIONS, NOT INDEPENDENTLY.
+        #
+        # A websocket costs 64 KiB here. That is MEASURED, not added up from a
+        # parts list: a freshly restarted gateway holding 4,000 idle sockets sat
+        # at 268.5 MB VmRSS against a 21.1 MB baseline — 64,864 bytes marginal
+        # per socket — with go_memstats_sys_bytes tracking RSS almost exactly.
+        # Reproduce with loadtest/ws-step.sh.
+        #
+        # The earlier figure here was ~40 KB, reasoned from the parts a socket
+        # was believed to allocate. The parts list was incomplete: the gateway
+        # runs 3.02 goroutines per connection, not two. Anything derived from
+        # 40 KB was ~1.6x optimistic.
+        #
+        #   1 GiB - 21 MiB baseline = 1003 MiB, less 20% GC headroom = 802 MiB,
+        #   / 64 KiB = ~12,800 sockets -> WS_MAX_CONNECTIONS=12000
+        #
+        # These two numbers are a pair: raising the cap without raising this
+        # makes the cap unreachable, and the container is OOM-killed instead of
+        # cleanly refusing the connection — which is the entire point of having
+        # a cap. It was previously 384M against a 50,000 default (~6,000 real
+        # capacity, a cap 8x out of reach).
+        limits: { cpus: "1.00", memory: 1G }
+
+  # ── delivery-svc (routed fan-out) ───────────────────────────────────────────
+  #
+  # OFF BY DEFAULT: this service only does anything once ws-gateway is switched
+  # to WS_FANOUT_MODE=routed, and running it alongside the broadcast path is
+  # harmless but pointless. Start it with:
+  #
+  #   docker compose --profile routed up -d delivery-svc
+  #
+  # WHAT IT REPLACES. Each gateway pod subscribes to Kafka under a group id
+  # unique to itself, so every pod receives every event on every fan-out topic
+  # and discards the ones addressed to users it does not hold. Kafka egress and
+  # replay-outbox writes therefore scale with POD COUNT rather than with
+  # traffic. This reads the stream ONCE under a shared consumer group, computes
+  # each event's recipients once, writes the outbox once, and pushes each
+  # gateway only its own users.
+  #
+  # MIGRATION. Delivery is idempotent end to end — the outbox write is a ZADD of
+  # the same member and clients dedupe on eventId — so this can run while the
+  # gateways are still broadcasting. Watch ws_push_sent_total climb and
+  # ws:fanout_discarded:ratio fall, then flip gateways to routed one at a time.
+  # There is no flag day and no coordinated restart.
+  #
+  # Same image as ws-gateway, different entrypoint: one module, one domain.
+  delivery-svc:
+    <<: *svc-defaults
+    profiles: [routed]
+    build: ./services/ws-gateway
+    image: task-board/ws-gateway:${IMAGE_TAG:-latest}
+    entrypoint: ["/usr/local/bin/delivery-svc"]
+    depends_on:
+      redis: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
+    healthcheck:
+      # Overrides the image's default probe, which targets the gateway's 8080.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8090/readyz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    deploy:
+      resources:
+        # Holds no sockets — it is a Kafka consumer and an HTTP client, so it is
+        # sized for throughput rather than for connection count. Scale it by
+        # replica up to the partition count of the fan-out topics.
+        limits: { cpus: "1.00", memory: 256M }
 
   # The web SPA is built in the `web-builder` service and served by nginx.
   # Caddy stays in front for TLS termination and request routing. The Electron

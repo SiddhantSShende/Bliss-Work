@@ -43,4 +43,20 @@ EXPOSE 8001
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD ["python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8001/readyz').status==200 else 1)"]
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001"]
+# ── Trusting the reverse proxy ───────────────────────────────────────────────
+# FORWARDED_ALLOW_IPS tells uvicorn which immediate peers may set X-Forwarded-*.
+# Its default is 127.0.0.1, and our edge (Caddy) is a SEPARATE CONTAINER on the
+# bridge network — so by default uvicorn never rewrote `request.client`, and
+# every request in the world looked like it came from Caddy's address.
+#
+# Private ranges are the right value here because these services publish NO
+# ports: the only thing that can open a connection to them is something already
+# inside the compose network / cluster. It is NOT `*`, which would let any
+# direct caller forge the header if the service were ever exposed.
+#
+# The application-layer controls no longer depend on this — app/net.py parses
+# X-Forwarded-For itself with an explicit hop count — but it keeps
+# `request.client.host` honest for logs, telemetry and anything added later.
+ENV FORWARDED_ALLOW_IPS=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.1
+
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port 8001 --proxy-headers --forwarded-allow-ips \"$FORWARDED_ALLOW_IPS\""]

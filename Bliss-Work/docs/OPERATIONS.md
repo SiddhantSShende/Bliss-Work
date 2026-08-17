@@ -263,17 +263,31 @@ KAFKA_SASL_USERNAME=…   KAFKA_SASL_PASSWORD=…
 KAFKA_SSL_CA_LOCATION=/etc/ssl/kafka/ca.crt
 ```
 
-> **HONEST STATUS / code follow-up.** The in-tree Kafka clients —
-> `aiokafka` in the Python services (`task-svc`, `email-worker`, etc.) and
-> `segmentio/kafka-go` in `ws-gateway` — currently read **only** `KAFKA_BROKERS`.
-> They do **not** yet pass `security.protocol` / `sasl.*` / TLS through to the
-> client. Enabling SASL_SSL end-to-end therefore needs a small per-client change
-> (aiokafka: `security_protocol="SASL_SSL", sasl_mechanism=…, ssl_context=…`;
-> kafka-go: a `Dialer`/`Transport` with `SASLMechanism` + `TLS`). The broker
-> recipe and the `KAFKA_SECURITY_*` env contract above (also stubbed in
-> `.env.prod.example` and the Helm `values.yaml`) are shipped so the wiring is
-> ready when that change lands. Until then keep the bundled broker on the
-> **private compose network only** (it is never published off-host).
+> **STATUS: wired.** Every Kafka client in the platform reads the variables
+> above — all 17 of them, across 8 services, which is rather more than the
+> "five call sites" an earlier note estimated:
+>
+> * **Go** (`messaging-svc`, `ws-gateway`, `notification-svc`) via
+>   `internal/kafkaauth`, which builds a `Dialer` for every `kafka.NewReader`
+>   and a `Transport` for every `kafka.Writer`.
+> * **Python** (`auth-svc`, `task-svc`, `integrations-svc`, `telemetry-svc`,
+>   `email-worker`) via `app/kafka_security.py`, whose `kafka_security_kwargs()`
+>   is splatted into every `AIOKafkaProducer` / `AIOKafkaConsumer`.
+>
+> Leaving `KAFKA_SECURITY_PROTOCOL` unset keeps everything on PLAINTEXT, so the
+> bundled broker is unaffected. Setting it to a SASL value **without**
+> credentials is a startup error rather than a silent fallback — a client that
+> quietly reverted to plaintext would be a deployment that believes it is
+> authenticated and is not. Each service logs its resolved protocol at boot.
+>
+> `KAFKA_SASL_MECHANISM` accepts `PLAIN`, `SCRAM-SHA-256` and `SCRAM-SHA-512`
+> and defaults to `PLAIN`. **MSK IAM auth is not supported** — it needs a
+> separate signer and the AWS credential chain; use SCRAM-SHA-512 on MSK.
+> `KAFKA_SSL_CA_LOCATION` is only needed for a private CA; the system roots are
+> used when it is unset.
+>
+> Until you actually move off it, keep the bundled broker on the **private
+> compose network only** (it is never published off-host).
 
 ---
 
@@ -318,9 +332,17 @@ sudo ufw enable
 sudo ufw status verbose
 ```
 
-That leaves **22, 80, 443 (+ 3478 and 49160-49200 for coturn)** reachable — plus
-**5432**, which is host-published for DB admin access and gated separately; see
-below.
+That leaves **22, 80, 443 (+ 3478 and 49160-49200 for coturn, and 50000-50200/udp
+plus 7881/tcp for the LiveKit SFU)** reachable — plus **5432**, which is
+host-published for DB admin access and gated separately; see below.
+
+`infra/host/harden-host.sh` installs all of these. The two media ranges are not
+optional if you run calls, and they fail in a way that does not look like a
+firewall problem: with the UDP range closed, a call **connects, shows every
+participant, and carries no audio or video**. The TCP port is the fallback for
+clients on networks that block UDP outright. LiveKit's signaling port (7880) is
+deliberately *not* opened — its only public door is the TLS-terminated
+`/livekit` route through Caddy.
 
 ### Direct Postgres access (5432)
 

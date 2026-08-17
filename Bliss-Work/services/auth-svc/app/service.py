@@ -132,6 +132,87 @@ async def user_dto(conn: AsyncConnection, user_id: str) -> UserDTO | None:
     )
 
 
+async def user_dtos_for_org(
+    conn: AsyncConnection,
+    org_id: str,
+    *,
+    include_inactive: bool = False,
+    limit: int,
+    offset: int = 0,
+) -> list[UserDTO]:
+    """The org's members, in TWO queries regardless of how many there are.
+
+    Replaces a loop of `user_dto()` calls. That loop was 2N+1 round trips for an
+    N-member org — one to list the ids, then a user row and a roles lookup for
+    every id — on an endpoint the SPA calls to resolve names for the people
+    list, the mention picker and incoming calls. At a few dozen colleagues that
+    is invisible; at twenty thousand it is forty thousand queries to draw a
+    sidebar.
+
+    Two queries instead: the members, then every role for those members in one
+    `= ANY(...)`. Decryption stays per-row because it must — each value is
+    separately AES-GCM sealed — but the org's key is cached after the first use,
+    so it is CPU and not another round trip.
+    """
+    rows = (
+        await conn.execute(
+            text(
+                """
+                SELECT u.id, u.org_id, u.username, u.display_name_enc,
+                       u.email_enc, u.email_verified, o.plan, o.name AS org_name
+                FROM users u
+                JOIN orgs o ON o.id = u.org_id
+                WHERE u.org_id = :org
+                  AND (CAST(:all AS boolean) OR u.status = 'active')
+                ORDER BY u.username
+                LIMIT :lim OFFSET :off
+                """
+            ),
+            {"org": org_id, "all": include_inactive, "lim": limit, "off": offset},
+        )
+    ).all()
+    if not rows:
+        return []
+
+    user_ids = [str(r.id) for r in rows]
+    role_rows = (
+        await conn.execute(
+            text(
+                """
+                SELECT ur.user_id, r.name
+                FROM user_roles ur
+                JOIN roles r ON r.id = ur.role_id
+                WHERE ur.user_id = ANY(CAST(:uids AS uuid[]))
+                ORDER BY ur.user_id, r.name
+                """
+            ),
+            {"uids": user_ids},
+        )
+    ).all()
+    roles_by_user: dict[str, list[str]] = {}
+    for rr in role_rows:
+        roles_by_user.setdefault(str(rr.user_id), []).append(rr.name)
+
+    c = cryptor()
+    out: list[UserDTO] = []
+    for r in rows:
+        row_org = str(r.org_id)
+        out.append(
+            UserDTO(
+                id=str(r.id),
+                orgId=row_org,
+                orgName=r.org_name or "",
+                username=r.username,
+                displayName=(await c.decrypt(conn, row_org, r.display_name_enc)) or "",
+                email=(await c.decrypt(conn, row_org, r.email_enc)) or "",
+                roles=roles_by_user.get(str(r.id), []),  # type: ignore[arg-type]
+                emailVerified=bool(r.email_verified),
+                plan=r.plan or "free",
+            )
+        )
+    return out
+
+
 async def update_display_name(
     conn: AsyncConnection, org_id: str, user_id: str, display_name: str
 ) -> None:
@@ -147,9 +228,17 @@ async def issue_refresh_token(
     *,
     user_id: str,
     family_id: str,
-) -> str:
-    """Create a refresh-token row and return the raw opaque secret."""
+) -> tuple[str, str]:
+    """Create a refresh-token row; return (raw opaque secret, row id).
+
+    The id is returned rather than looked up afterwards. Rotation needs it to
+    set `rotated_to` on the token being replaced, and it used to recover it with
+    a second `SELECT ... WHERE token_hash = :h` — re-reading a row this function
+    had just written, whose id it had just generated. That is one round trip per
+    refresh, on the single most frequently executed write path in the platform.
+    """
     raw = new_refresh_secret()
+    token_id = new_uuid()
     expires_at = datetime.now(timezone.utc) + timedelta(
         seconds=settings.jwt_refresh_ttl_seconds
     )
@@ -161,14 +250,14 @@ async def issue_refresh_token(
             """
         ),
         {
-            "id": new_uuid(),
+            "id": token_id,
             "uid": user_id,
             "hash": sha256_bytes(raw),
             "fam": family_id,
             "exp": expires_at,
         },
     )
-    return raw
+    return raw, token_id
 
 
 async def build_session(
@@ -182,7 +271,7 @@ async def build_session(
         user_id=dto.id, org_id=dto.orgId, roles=list(dto.roles), username=dto.username, plan=dto.plan
     )
     family_id = new_uuid()
-    raw_refresh = await issue_refresh_token(conn, user_id=user_id, family_id=family_id)
+    raw_refresh, _ = await issue_refresh_token(conn, user_id=user_id, family_id=family_id)
     return SessionDTO(accessToken=token, user=dto, expiresIn=ttl), raw_refresh
 
 
@@ -299,20 +388,12 @@ async def rotate_refresh_token(
         )
 
     # Issue the next family member, then point the old token at it + revoke it.
-    new_raw = await issue_refresh_token(conn, user_id=user_id, family_id=family_id)
-    new_row = (
-        await conn.execute(
-            text(
-                "SELECT id FROM refresh_tokens WHERE token_hash = :h"
-            ),
-            {"h": sha256_bytes(new_raw)},
-        )
-    ).first()
+    new_raw, new_id = await issue_refresh_token(conn, user_id=user_id, family_id=family_id)
     await conn.execute(
         text(
             "UPDATE refresh_tokens SET rotated_to = :to, revoked = true WHERE id = :id"
         ),
-        {"to": str(new_row.id), "id": str(row.id)},
+        {"to": new_id, "id": str(row.id)},
     )
 
     dto = await user_dto(conn, user_id)

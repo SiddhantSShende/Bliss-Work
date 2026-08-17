@@ -10,12 +10,27 @@ import (
 
 // Config holds all runtime configuration, sourced exclusively from the environment.
 type Config struct {
-	Port         string
-	DatabaseURL  string
-	KafkaBrokers []string
-	JWKSURL      string
-	JWTIssuer    string
-	WebOrigin    string
+	Port        string
+	DatabaseURL string
+	// DatabaseReplicaURL is an OPTIONAL read-only endpoint. When set, the
+	// store opens a second, smaller pool and a deliberately-chosen set of
+	// lag-tolerant reads is routed to it (see store.withReplicaOrg). Empty
+	// means every read goes to the primary, exactly as before.
+	DatabaseReplicaURL string
+	KafkaBrokers       []string
+	JWKSURL            string
+	JWTIssuer          string
+	WebOrigin          string
+
+	// RedisURL is OPTIONAL and, when set, makes rate limiting fleet-wide: every
+	// pod draws a caller's tokens from one bucket instead of keeping its own.
+	// Without it the limiter is per-pod, which means a caller's real allowance
+	// is the configured one times the replica count.
+	//
+	// One URL, or several comma-separated for a cluster — the same spelling
+	// ws-gateway's REDIS_URL accepts. Losing Redis degrades the limiter to
+	// per-pod; it never fails a request.
+	RedisURL string
 
 	// At-rest column encryption (envelope: per-org DEK wrapped by a KEK).
 	// Names + dev defaults mirror auth-svc/app/config.py so a passphrase yields
@@ -27,6 +42,19 @@ type Config struct {
 
 	// Static map thumbnails for shared locations. Entirely optional.
 	Maps MapsConfig
+
+	// The SFU that carries group call media. Optional: leave all three unset
+	// and group calls report "not configured" rather than failing obscurely.
+	LiveKit LiveKitConfig
+}
+
+// LiveKitConfig points at the SFU and holds the secret its room tokens are
+// signed with. The secret never leaves this service — tokens are minted here,
+// per call, after the caller's access has been checked against the database.
+type LiveKitConfig struct {
+	APIKey    string // LIVEKIT_API_KEY
+	APISecret string // LIVEKIT_API_SECRET — signs room tokens; treat as a credential
+	URL       string // LIVEKIT_URL — public wss:// endpoint the browser dials
 }
 
 // MediaConfig configures persisted chat attachments.
@@ -37,6 +65,29 @@ type MediaConfig struct {
 	URLSecret     string        // MEDIA_URL_SECRET — HMAC key for download URLs
 	URLTTL        time.Duration // MEDIA_URL_TTL_SECONDS — download link lifetime
 	UploadTTL     time.Duration // MEDIA_UPLOAD_TTL_SECONDS — uncommitted blob lifetime
+
+	// Backend selects where the bytes actually live: "fs" (default) or "s3".
+	//
+	// Defaulting to fs is deliberate. Local disk is what pins this service to a
+	// single replica — two pods do not share a volume, so one accepts an upload
+	// and the other 404s the download — but flipping the default would silently
+	// point an existing deployment at an empty bucket and 404 every attachment
+	// ever uploaded. Moving is an explicit act with a migration attached; see
+	// scripts/migrate-blobs-to-s3.sh.
+	Backend string // MEDIA_BACKEND
+	S3      S3Config
+}
+
+// S3Config addresses any S3-compatible object store (MinIO, S3, R2, Spaces).
+// Ignored unless MEDIA_BACKEND=s3.
+type S3Config struct {
+	Endpoint  string // MEDIA_S3_ENDPOINT — host:port, no scheme
+	Bucket    string // MEDIA_S3_BUCKET
+	AccessKey string // MEDIA_S3_ACCESS_KEY
+	SecretKey string // MEDIA_S3_SECRET_KEY
+	Region    string // MEDIA_S3_REGION
+	UseSSL    bool   // MEDIA_S3_USE_SSL — false only for an in-cluster MinIO
+	Prefix    string // MEDIA_S3_PREFIX — lets one bucket hold several environments
 }
 
 // MapsConfig configures the server-side static map proxy. An empty APIKey
@@ -65,11 +116,13 @@ type DataConfig struct {
 // Load reads configuration from environment variables, applying sane local defaults.
 func Load() (*Config, error) {
 	c := &Config{
-		Port:        getenv("MESSAGING_PORT", "8004"),
-		DatabaseURL: os.Getenv("MESSAGING_DATABASE_URL"),
-		JWKSURL:     os.Getenv("JWKS_URL"),
-		JWTIssuer:   getenv("JWT_ISSUER", "task-board"),
-		WebOrigin:   getenv("WEB_ORIGIN", "http://localhost:5173"),
+		Port:               getenv("MESSAGING_PORT", "8004"),
+		DatabaseURL:        os.Getenv("MESSAGING_DATABASE_URL"),
+		DatabaseReplicaURL: os.Getenv("MESSAGING_DATABASE_REPLICA_URL"),
+		RedisURL:           os.Getenv("REDIS_URL"),
+		JWKSURL:            os.Getenv("JWKS_URL"),
+		JWTIssuer:          getenv("JWT_ISSUER", "task-board"),
+		WebOrigin:          getenv("WEB_ORIGIN", "http://localhost:5173"),
 		Data: DataConfig{
 			KEKProvider:       getenv("DATA_KEK_PROVIDER", "dev"),
 			MasterPassphrase:  getenv("DATA_MASTER_PASSPHRASE", "dev-master-passphrase-change-me"),
@@ -88,10 +141,25 @@ func Load() (*Config, error) {
 			URLSecret:     os.Getenv("MEDIA_URL_SECRET"),
 			URLTTL:        time.Duration(getenvInt("MEDIA_URL_TTL_SECONDS", 600)) * time.Second,
 			UploadTTL:     time.Duration(getenvInt("MEDIA_UPLOAD_TTL_SECONDS", 86400)) * time.Second,
+			Backend:       strings.ToLower(strings.TrimSpace(getenv("MEDIA_BACKEND", "fs"))),
+			S3: S3Config{
+				Endpoint:  os.Getenv("MEDIA_S3_ENDPOINT"),
+				Bucket:    os.Getenv("MEDIA_S3_BUCKET"),
+				AccessKey: os.Getenv("MEDIA_S3_ACCESS_KEY"),
+				SecretKey: os.Getenv("MEDIA_S3_SECRET_KEY"),
+				Region:    getenv("MEDIA_S3_REGION", "us-east-1"),
+				UseSSL:    getenvBool("MEDIA_S3_USE_SSL", true),
+				Prefix:    os.Getenv("MEDIA_S3_PREFIX"),
+			},
 		},
 		Maps: MapsConfig{
 			Provider: getenv("MAPS_STATIC_PROVIDER", "geoapify"),
 			APIKey:   os.Getenv("MAPS_STATIC_API_KEY"),
+		},
+		LiveKit: LiveKitConfig{
+			APIKey:    os.Getenv("LIVEKIT_API_KEY"),
+			APISecret: os.Getenv("LIVEKIT_API_SECRET"),
+			URL:       os.Getenv("LIVEKIT_URL"),
 		},
 	}
 
@@ -122,6 +190,26 @@ func Load() (*Config, error) {
 	if c.Media.MaxBytes <= 0 {
 		return nil, fmt.Errorf("MEDIA_MAX_BYTES must be positive")
 	}
+	// Fail closed on the backend. A typo like MEDIA_BACKEND=S3-compatible must
+	// not quietly fall through to local disk: the operator would believe they
+	// had moved to object storage, scale to two replicas on the strength of it,
+	// and get attachments that 404 on roughly half of all requests.
+	switch c.Media.Backend {
+	case "fs":
+	case "s3":
+		for k, v := range map[string]string{
+			"MEDIA_S3_ENDPOINT":   c.Media.S3.Endpoint,
+			"MEDIA_S3_BUCKET":     c.Media.S3.Bucket,
+			"MEDIA_S3_ACCESS_KEY": c.Media.S3.AccessKey,
+			"MEDIA_S3_SECRET_KEY": c.Media.S3.SecretKey,
+		} {
+			if strings.TrimSpace(v) == "" {
+				return nil, fmt.Errorf("%s is required when MEDIA_BACKEND=s3", k)
+			}
+		}
+	default:
+		return nil, fmt.Errorf("MEDIA_BACKEND must be \"fs\" or \"s3\", got %q", c.Media.Backend)
+	}
 	return c, nil
 }
 
@@ -148,4 +236,20 @@ func getenvFloat(key string, def float64) float64 {
 		}
 	}
 	return def
+}
+
+// getenvBool parses the usual spellings of yes and no. An unset or unparseable
+// value falls back to def rather than to false: MEDIA_S3_USE_SSL defaults to
+// TRUE, and a typo silently downgrading a production connection to plaintext is
+// exactly the failure this avoids.
+func getenvBool(key string, def bool) bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
+	switch v {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return def
+	}
 }

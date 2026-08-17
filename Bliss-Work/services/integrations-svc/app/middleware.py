@@ -83,3 +83,45 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         for k, v in SECURITY_HEADERS.items():
             response.headers.setdefault(k, v)
         return response
+
+
+class PrincipalMiddleware(BaseHTTPMiddleware):
+    """Verify the bearer token once, before anything needs to know who it is.
+
+    ── Why this is middleware and not (only) a dependency ───────────────────
+    The rate limiter buckets by user when it can and by IP otherwise, and it
+    runs in SlowAPIMiddleware.dispatch() — which is strictly BEFORE FastAPI
+    resolves any dependency. The limiter's `user:` branch therefore read a
+    `request.state.principal` that nothing had ever assigned, so every request,
+    authenticated or not, fell through to the IP bucket — and that bucket was
+    itself global (see app/net.py).
+
+    Verifying here fixes the ordering and costs nothing net: `require_principal`
+    reuses what this stores, so a token is verified once per request, not twice.
+
+    ── It must never reject ─────────────────────────────────────────────────
+    A missing, malformed or expired token leaves `request.state.principal`
+    unset and the request continues. Authorization stays entirely with
+    `require_principal`, which produces the canonical 401 with the right error
+    envelope on routes that need it — and public routes (health, metrics) keep
+    working, which they would not if this refused anything.
+    """
+
+    async def dispatch(
+        self,
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        auth = request.headers.get("authorization")
+        if auth and auth.lower().startswith("bearer "):
+            # Lazy import: auth.py pulls in httpx and the JWKS cache, and
+            # importing it at module scope would create a cycle.
+            from .auth import verify_bearer
+
+            try:
+                request.state.principal = await verify_bearer(auth)
+            except Exception:  # noqa: BLE001 — identity is best-effort here
+                request.state.principal = None
+        else:
+            request.state.principal = None
+        return await call_next(request)

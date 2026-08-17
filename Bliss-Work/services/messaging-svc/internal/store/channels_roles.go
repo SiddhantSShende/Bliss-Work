@@ -44,9 +44,15 @@ func channelRole(ctx context.Context, tx pgx.Tx, channelID, userID string) (stri
 // Read from the token rather than from a table because messaging-svc has no
 // copy of the org's role assignments — auth-svc owns them, and mirroring them
 // here would be a second source of truth that goes stale. The documented cost is
-// that a demotion takes effect at the target's next token refresh (~15 min);
-// that is acceptable for channel moderation, where the worst case is one extra
-// kick, and is the same trade every other service in this stack makes.
+// that a demotion takes effect at the target's next token refresh — which is
+// JWT_ACCESS_TTL_SECONDS, raised from 900 to 3600 to cut auth-svc's refresh
+// write rate, so the window is now about an hour rather than fifteen minutes.
+//
+// Still acceptable HERE, where the worst case is one extra kick from a channel,
+// and it is the same trade every other service in this stack makes. It is not
+// acceptable everywhere: the endpoints where an hour of stale authority would
+// matter re-read the role from the database instead (see auth-svc's
+// require_live_admin on org deletion).
 func isOrgAdmin(claimRoles []string) bool {
 	for _, r := range claimRoles {
 		if r == "org_admin" {

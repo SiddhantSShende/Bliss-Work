@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en" class="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      DEV-ONLY PREVIEW of the in-call controls. Not part of the production
+      bundle: Vite builds `index.html` and nothing else, so this page exists
+      only under `npm run web`. Delete it freely.
+
+      It exists because the in-call surface is otherwise reachable only with the
+      whole stack up, two signed-in accounts, and one of them ringing the other.
+      The components here are the real ones — same code, same styles — driven by
+      local state instead of a peer connection.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob: mediastream:; connect-src 'self' http://localhost:* ws://localhost:*; object-src 'none'; base-uri 'self'; form-action 'self'"
+    />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>BlissWork — call UI preview</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/call-preview.tsx"></script>
+  </body>
+</html>

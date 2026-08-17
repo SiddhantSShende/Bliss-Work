@@ -19,6 +19,14 @@ class Settings(BaseSettings):
     jwt_issuer: str = "task-board"
 
     web_origin: str = "http://localhost:5173"
+    # How many reverse-proxy hops sit in front of this service. Every per-IP
+    # control counts this many entries in from the RIGHT of X-Forwarded-For, so
+    # it must equal the number of proxies that APPEND to that header before us.
+    # 1 = the Caddy edge, the only thing that can reach this service (it
+    # publishes no ports). See app/net.py — too HIGH starts trusting
+    # client-supplied entries, which is how a per-IP limiter becomes bypassable.
+    trusted_proxy_hops: int = 1
+
     log_level: str = "info"
 
     port: int = 8002

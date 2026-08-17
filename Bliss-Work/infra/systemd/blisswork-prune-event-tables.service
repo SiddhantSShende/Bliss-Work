@@ -1,0 +1,16 @@
+[Unit]
+Description=BlissWork event-table retention (outbox, dedup and idempotency rows)
+Documentation=file:///home/ubuntu/BlissWork/Bliss-Work/infra/systemd/README.md
+After=snap.docker.dockerd.service
+Requires=snap.docker.dockerd.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/BlissWork/Bliss-Work
+Environment=PATH=/snap/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/home/ubuntu/BlissWork/Bliss-Work/scripts/prune-event-tables.sh
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

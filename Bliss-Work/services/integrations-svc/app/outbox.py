@@ -12,7 +12,15 @@ from sqlalchemy import text
 from .config import settings
 from .db import session, set_bypass_rls
 from .logging_setup import log
+from .outbox_dlq import (
+    MAX_PUBLISH_ATTEMPTS,
+    MAX_PUBLISH_BYTES,
+    payload_bytes,
+    quarantine_oversize,
+    record_publish_failure,
+)
 from .tracing import inject_headers
+from .kafka_security import kafka_security_kwargs
 
 _tracer = trace.get_tracer(__name__)
 
@@ -53,6 +61,8 @@ class OutboxPoller:
             return self._producer
         producer = AIOKafkaProducer(
             bootstrap_servers=settings.kafka_brokers,
+            # TLS/SASL when KAFKA_SECURITY_PROTOCOL asks for it; empty otherwise.
+            **kafka_security_kwargs(),
             enable_idempotence=True,
             acks="all",
             value_serializer=lambda v: json.dumps(v).encode("utf-8"),
@@ -135,7 +145,8 @@ class OutboxPoller:
                         # note in task-svc/app/outbox.py — same poller, same
                         # reasoning, same 100-row batch bound.
                         "SELECT id, topic, kafka_key, payload FROM outbox "
-                        "WHERE published_at IS NULL ORDER BY created_at LIMIT 100 "
+                        "WHERE published_at IS NULL AND dead_lettered_at IS NULL "
+                        "ORDER BY created_at LIMIT 100 "
                         "FOR UPDATE SKIP LOCKED"
                     )
                 )
@@ -144,9 +155,29 @@ class OutboxPoller:
             if not rows:
                 return 0
 
+            # Split before producing. An oversized row is knowable from its
+            # length, so there is no reason to discover it from a failed round
+            # trip — and a producer that refuses one message refuses the request
+            # it travelled in, so an unfiltered row blocks healthy rows too.
+            oversize = [r for r in rows if payload_bytes(r.payload) > MAX_PUBLISH_BYTES]
+            if oversize:
+                await quarantine_oversize(db, [str(r.id) for r in oversize])
+                await db.commit()
+                # ERROR, not warning: these are events a user's action produced
+                # that no consumer will ever see, and nothing else reports it.
+                log.error(
+                    "outbox_dead_lettered_oversize",
+                    count=len(oversize),
+                    limit_bytes=MAX_PUBLISH_BYTES,
+                    detail="events accepted but never published",
+                )
+            oversize_ids = {r.id for r in oversize}
+            rows = [r for r in rows if r.id not in oversize_ids]
+
             published_ids: list[str] = []
-            send_failed = False
-            for row in rows:
+            send_failed: BaseException | None = None
+            failed_ids: list[str] = []
+            for idx, row in enumerate(rows):
                 payload = row.payload
                 if isinstance(payload, str):
                     payload = json.loads(payload)
@@ -163,12 +194,13 @@ class OutboxPoller:
                             key=row.kafka_key,
                             headers=inject_headers(),
                         )
-                except Exception:  # noqa: BLE001 — publish failure must not lose the row
+                except Exception as exc:  # noqa: BLE001 — classified below
                     # Do NOT mark this row published — leave published_at NULL so
                     # it's retried on the next drain. Stop draining the rest of
                     # the batch in order to preserve per-key ordering.
                     log.exception("outbox_publish_failed", outbox_id=str(row.id))
-                    send_failed = True
+                    send_failed = exc
+                    failed_ids = [str(r.id) for r in rows[idx:]]
                     break
                 # Only record as published AFTER a successful send_and_wait.
                 published_ids.append(str(row.id))
@@ -181,11 +213,30 @@ class OutboxPoller:
                 await db.commit()
                 log.info("outbox_published", count=len(published_ids))
 
-            if send_failed:
-                # Surface to _run so it applies exponential backoff before the
-                # next attempt; the already-published rows above are durable.
-                raise RuntimeError("outbox publish failed; backing off")
+        if send_failed is None:
             return len(published_ids)
+
+        # A SEPARATE session, deliberately. The attempt counter has to COMMIT
+        # even though the failed rows stay unpublished; writing it on the block
+        # above would tie it to that transaction, and on any path where that
+        # rolls back the counter would vanish — leaving the row retrying forever
+        # with a permanently zero attempt count, which is the exact bug this
+        # replaces. See app/outbox_dlq.py.
+        async with session() as db:
+            await set_bypass_rls(db)
+            quarantined = await record_publish_failure(db, failed_ids, send_failed)
+            await db.commit()
+        if quarantined:
+            log.error(
+                "outbox_dead_lettered_after_retries",
+                count=quarantined,
+                attempts=MAX_PUBLISH_ATTEMPTS,
+                error=str(send_failed)[:200],
+                detail="events accepted but never published",
+            )
+        # Surface to _run so it applies exponential backoff before the next
+        # attempt; the already-published rows above are durable.
+        raise RuntimeError("outbox publish failed; backing off") from send_failed
 
 
 poller = OutboxPoller()

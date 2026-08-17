@@ -67,6 +67,31 @@
 			import upstream
 		}
 
+		# 1a) Group-call media signaling → the LiveKit SFU. This is a WebSocket
+		#     upgrade too, so it sits BESIDE /ws and BEFORE coraza_waf for exactly
+		#     the same reason: the WAF's response wrapper eats the
+		#     101 Switching Protocols line and the socket dies on connect.
+		#
+		#     Two things differ from every other proxy in this file:
+		#
+		#       * The upstream is host.docker.internal, not a service name. livekit
+		#         runs with host networking for its UDP media range, so it is not on
+		#         the compose bridge and has no DNS name here. The compose `caddy`
+		#         service maps that name via extra_hosts: host-gateway.
+		#       * NO `import upstream`. That snippet health-checks /readyz, which
+		#         LiveKit does not serve — every check would fail, Caddy would mark
+		#         the only upstream down, and the route would 502 while the SFU was
+		#         perfectly healthy.
+		#
+		#     The prefix is stripped because LiveKit serves at /rtc, not
+		#     /livekit/rtc; LIVEKIT_URL (wss://$DOMAIN/livekit) is what the client
+		#     is handed, and the two must agree.
+		@livekit path /livekit /livekit/*
+		handle @livekit {
+			uri strip_prefix /livekit
+			reverse_proxy host.docker.internal:7880
+		}
+
 		# 1b) Desktop app installers → nginx static file server. Placed BEFORE
 		#     coraza_waf (and terminal) so the WAF never buffers/inspects a
 		#     100 MB+ binary installer — same rationale as the WAF-less marketing

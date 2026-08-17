@@ -1,8 +1,16 @@
 {{/*
 One HorizontalPodAutoscaler per HTTP service that opts in (hpa.enabled). CPU is
-the portable, always-available signal. For latency-sensitive services prefer a
-custom p99 metric (see the commented `metrics` entry below) — that needs the
-Prometheus Adapter (or a cloud custom-metrics adapter) installed.
+the portable, always-available signal, and every service scales on it.
+
+A service may ALSO declare `hpa.podMetric: {name, averageValue}` to scale on a
+custom Pods metric. That needs the Prometheus Adapter (or a cloud custom-metrics
+adapter) registered with custom.metrics.k8s.io, which is why it is opt-in.
+
+It is worth the setup for ws-gateway in particular: a websocket costs memory and
+two goroutines for as long as it is open and almost no CPU while idle, so CPU
+utilisation is close to uncorrelated with how full a pod actually is. The
+gateway exports `ws_connections` (a GaugeFunc reading the live hub count at
+scrape time) for exactly this.
 */}}
 {{- $root := . -}}
 {{- range $name, $svc := .Values.services }}
@@ -28,20 +36,26 @@ spec:
         target:
           type: Utilization
           averageUtilization: {{ $svc.hpa.cpu }}
-    # ── Custom p99-latency scaling (requires Prometheus Adapter) ──────────────
-    # Expose a recording rule like `http_request_p99_seconds{service="..."}` and
-    # register it with the custom.metrics.k8s.io API, then scale on it:
-    #
-    # - type: Pods
-    #   pods:
-    #     metric:
-    #       name: http_request_p99_seconds
-    #     target:
-    #       type: AverageValue
-    #       averageValue: "250m"   # scale out when p99 > 250ms
-    #
-    # For ws-gateway, an "active_ws_connections" Pods metric (target ~8000/pod)
-    # tracks the connection-bound load far better than CPU.
+{{/* `with` first so the nil case never reaches a field lookup: every other
+     service omits podMetric entirely, and `and a a.enabled` would evaluate the
+     second operand on a nil map under any template engine that does not
+     short-circuit. Nested, this is safe regardless. */}}
+{{- with $svc.hpa.podMetric }}
+{{- if .enabled }}
+    # ── Custom Pods metric (requires the Prometheus Adapter) ──────────────────
+    # Listed ALONGSIDE cpu, not instead of it: an HPA scales on whichever metric
+    # asks for the most replicas, so CPU stays a floor. That matters here — if
+    # the adapter is uninstalled or the metric stops reporting, the autoscaler
+    # falls back to CPU rather than freezing at its current replica count.
+    - type: Pods
+      pods:
+        metric:
+          name: {{ .name }}
+        target:
+          type: AverageValue
+          averageValue: {{ .averageValue | quote }}
+{{- end }}
+{{- end }}
   behavior:
     scaleUp:
       stabilizationWindowSeconds: 30

@@ -33,8 +33,8 @@ func TestParseCoord(t *testing.T) {
 		{"", 90},
 		{"91", 90}, {"-91", 90}, {"181", 180}, {"-181", 180},
 		{"abc", 90},
-		{"NaN", 90},   // would format into the URL as "NaN"
-		{"Inf", 90},   // and as "+Inf"
+		{"NaN", 90}, // would format into the URL as "NaN"
+		{"Inf", 90}, // and as "+Inf"
 		{"-Inf", 90},
 		{"1e400", 90}, // overflows to +Inf
 		{"12.34,56", 90},

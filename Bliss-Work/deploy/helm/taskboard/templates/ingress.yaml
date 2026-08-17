@@ -65,4 +65,27 @@ spec:
           {{- end }}
           {{- end }}
           {{- end }}
+          {{- if .Values.livekit.enabled }}
+          {{- /*
+            The SFU's signalling path, routed separately because livekit is not
+            a `services` entry — it needs host networking and a UDP range that
+            the generic Deployment template cannot express, so it has its own
+            manifest and therefore its own route here.
+
+            SIGNALLING ONLY. Media goes directly to the node's host UDP ports
+            and never passes through the Ingress; routing this path is what lets
+            a browser negotiate the session, not what carries the call.
+
+            This is a WebSocket upgrade, so it depends on the same raised
+            proxy-read-timeout as /ws — which is set per-Ingress above and
+            therefore already applies.
+          */}}
+          - path: /livekit
+            pathType: Prefix
+            backend:
+              service:
+                name: livekit
+                port:
+                  number: {{ .Values.livekit.signalPort }}
+          {{- end }}
 {{- end }}

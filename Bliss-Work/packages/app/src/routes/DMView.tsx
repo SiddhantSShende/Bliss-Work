@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { X, MessageSquare, ChevronLeft, Phone, Video, Ban } from "lucide-react";
+import { X, MessageSquare, ChevronLeft, Ban } from "lucide-react";
 import { toast } from "sonner";
 import { Avatar, Button, EmptyState } from "@taskboard/ui";
 import type { ConversationDTO, MessageDTO, ReactionDTO } from "@taskboard/shared";
@@ -9,12 +9,15 @@ import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
 import { displayNameOf } from "../lib/userLabel";
+import { CallMenu } from "../features/CallMenu";
+import { ScheduleCallDialog } from "../features/ScheduleCallDialog";
 import { ChatThread } from "../features/ChatThread";
 import { ForwardDialog } from "../features/ForwardDialog";
 import { useChatMedia } from "../features/useChatMedia";
 import { useChatTyping } from "../lib/useChatTyping";
 import { useCall } from "../lib/useCall";
 import { useOlderMessages } from "../lib/useOlderMessages";
+import { usePresence } from "../lib/usePresence";
 
 export function DMView() {
   const { conversationId = "" } = useParams();
@@ -26,8 +29,10 @@ export function DMView() {
   const { data: conversations = [] } = useQuery({ queryKey: qk.conversations, queryFn: () => api.conversations() });
   const conv = conversations.find((c: ConversationDTO) => c.id === conversationId);
 
-  const { data: online = [] } = useQuery({ queryKey: qk.presence, queryFn: () => api.presence(), refetchInterval: 20_000 });
-  const isOnline = !!conv && online.includes(conv.peerId);
+  // One person. This screen used to poll the entire organisation's online set
+  // every 20 seconds to light a single dot — see lib/usePresence.
+  const onlineSet = usePresence(conv ? [conv.peerId] : []);
+  const isOnline = !!conv && onlineSet.has(conv.peerId);
 
   // Newest page only. Older pages are prepended into this same flat array by
   // useOlderMessages, so every optimistic update and websocket patch below
@@ -67,12 +72,16 @@ export function DMView() {
   // The message currently being forwarded (null = dialog closed). Forwarding is
   // available to every org member (each org supplies its own provider credentials).
   const [forwardMsg, setForwardMsg] = useState<{ id: string; body: string } | null>(null);
+  // "Schedule Call" from the header's call menu.
+  const [scheduleOpen, setScheduleOpen] = useState(false);
 
   // Same route-reuse trap as ChannelView's members sheet: navigating to another
   // conversation keeps this component mounted, so an open Forward dialog would
-  // follow the user into the next chat still holding the old message id.
+  // follow the user into the next chat still holding the old message id. The
+  // scheduler is scoped to a peer and has exactly the same problem.
   useEffect(() => {
     setForwardMsg(null);
+    setScheduleOpen(false);
   }, [conversationId]);
 
   useEffect(() => {
@@ -187,6 +196,39 @@ export function DMView() {
       toast.error("Couldn't update block", { description: "Please try again." }),
   });
 
+  /**
+   * "Send Call Link" — a joinable link, delivered into the chat.
+   *
+   * A link only means anything on a MEETING: a channel call's roster is the
+   * channel and a direct call's is the two of you, and the server refuses to
+   * mint one for either. So this creates a meeting with the peer already on the
+   * roster (they see it under Meetings too, not only as a URL), takes the token
+   * — which is returned exactly once — and posts it as an ordinary message.
+   *
+   * Omitting scheduledAt makes it live immediately, which is the point: the
+   * link is useful the moment it lands.
+   */
+  const sendLink = useMutation({
+    mutationFn: async () => {
+      if (!conv) throw new Error("no conversation");
+      const call = await api.scheduleMeeting({
+        title: `Call with ${displayNameOf(conv)}`,
+        media: "video",
+        inviteeIds: [conv.peerId],
+      });
+      const invite = await api.createCallInvite(call.id);
+      return `${window.location.origin}/join?t=${encodeURIComponent(invite.token)}`;
+    },
+    onSuccess: (link) => {
+      reply.mutate({ body: `Join my call: ${link}` });
+      void qc.invalidateQueries({ queryKey: qk.calls });
+      toast.success("Call link sent", {
+        description: "The call is open now — join it from Meetings whenever you're ready.",
+      });
+    },
+    onError: () => toast.error("Couldn't create a call link"),
+  });
+
   // Declared before the early return below so the hook order never changes
   // when a conversation is briefly missing mid-navigation.
   //
@@ -213,13 +255,18 @@ export function DMView() {
   const isBlocked = conv.blockedByMe || conv.blockedByPeer;
   // Never render peerUsername directly — it is the email local-part.
   const peerName = displayNameOf(conv);
+  /** A block in either direction rules out every entry in the call menu, not
+   *  just ringing — so all four routes through it say the same thing. */
+  const blockedNotice = () => {
+    toast("Can't start call", {
+      description: conv.blockedByMe
+        ? "Unblock this user to call them."
+        : "You can't call this user.",
+    });
+  };
   const startCall = (media: "audio" | "video") => {
     if (isBlocked) {
-      toast("Can't start call", {
-        description: conv.blockedByMe
-          ? "Unblock this user to call them."
-          : "You can't call this user.",
-      });
+      blockedNotice();
       return;
     }
     if (!isOnline) {
@@ -229,6 +276,22 @@ export function DMView() {
       return;
     }
     call.invite(conv.peerId, peerName, media);
+  };
+  // A link and a diary entry are both asynchronous, so unlike ringing they do
+  // not need the peer to be online right now.
+  const sendCallLink = () => {
+    if (isBlocked) {
+      blockedNotice();
+      return;
+    }
+    sendLink.mutate();
+  };
+  const scheduleCall = () => {
+    if (isBlocked) {
+      blockedNotice();
+      return;
+    }
+    setScheduleOpen(true);
   };
 
   return (
@@ -251,12 +314,13 @@ export function DMView() {
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          <Button variant="ghost" size="sm" onClick={() => startCall("audio")} title="Voice call">
-            <Phone size={15} />
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => startCall("video")} title="Video call">
-            <Video size={15} />
-          </Button>
+          <CallMenu
+            onVoiceCall={() => startCall("audio")}
+            onVideoCall={() => startCall("video")}
+            onSendLink={sendCallLink}
+            onSchedule={scheduleCall}
+            busy={sendLink.isPending}
+          />
           <Button
             variant="ghost"
             size="sm"
@@ -325,6 +389,12 @@ export function DMView() {
         sourceMessageId={forwardMsg?.id ?? null}
         preview={forwardMsg?.body}
       />
+      {scheduleOpen && (
+        <ScheduleCallDialog
+          scope={{ kind: "direct", peerId: conv.peerId, peerName }}
+          onClose={() => setScheduleOpen(false)}
+        />
+      )}
     </div>
   );
 }

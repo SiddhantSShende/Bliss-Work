@@ -37,6 +37,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -56,7 +57,7 @@ var shaRe = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 // Store is a handle on the blob root. Safe for concurrent use: every mutation
 // goes through create-temp + rename, and the directory creation is idempotent.
-type Store struct {
+type FSStore struct {
 	root string
 }
 
@@ -64,7 +65,7 @@ type Store struct {
 // rather than on the first user upload. Directories are 0700 — the bytes are
 // not application-layer encrypted (see the package docs on streaming/Range), so
 // filesystem permissions are load-bearing.
-func New(root string) (*Store, error) {
+func NewFS(root string) (*FSStore, error) {
 	if strings.TrimSpace(root) == "" {
 		return nil, errors.New("blob: root is required")
 	}
@@ -87,15 +88,15 @@ func New(root string) (*Store, error) {
 	_ = probe.Close()
 	_ = os.Remove(name)
 
-	return &Store{root: abs}, nil
+	return &FSStore{root: abs}, nil
 }
 
 // Root returns the absolute blob root (used by operational tooling).
-func (s *Store) Root() string { return s.root }
+func (s *FSStore) Root() string { return s.root }
 
 // blobPath validates and joins. This is the one place caller input becomes a
 // filesystem path, so both components are checked here and nowhere else.
-func (s *Store) blobPath(orgID, sha string) (string, error) {
+func (s *FSStore) blobPath(orgID, sha string) (string, error) {
 	if _, err := uuid.Parse(orgID); err != nil {
 		return "", ErrBadKey
 	}
@@ -117,7 +118,7 @@ func (s *Store) blobPath(orgID, sha string) (string, error) {
 // blobPath does it: this turns caller input into an os.RemoveAll target, and
 // that is not a place to trust a string. A missing directory is success — the
 // org may simply never have had an attachment.
-func (s *Store) RemoveOrg(orgID string) error {
+func (s *FSStore) RemoveOrg(orgID string) error {
 	if _, err := uuid.Parse(orgID); err != nil {
 		return ErrBadKey
 	}
@@ -126,7 +127,7 @@ func (s *Store) RemoveOrg(orgID string) error {
 
 // RelPath is the stored storage_path — relative to the root, so the root can be
 // remounted elsewhere without rewriting the database.
-func (s *Store) RelPath(orgID, sha string) (string, error) {
+func (s *FSStore) RelPath(orgID, sha string) (string, error) {
 	abs, err := s.blobPath(orgID, sha)
 	if err != nil {
 		return "", err
@@ -148,7 +149,7 @@ func (s *Store) RelPath(orgID, sha string) (string, error) {
 // If a blob with the same content already exists for this org, the spool is
 // discarded and the existing path is reused — an idempotent re-upload and a
 // genuine duplicate cost one write and then zero.
-func (s *Store) WriteStream(orgID string, r io.Reader, max int64) (sha string, n int64, err error) {
+func (s *FSStore) WriteStream(orgID string, r io.Reader, max int64) (sha string, n int64, err error) {
 	if _, perr := uuid.Parse(orgID); perr != nil {
 		return "", 0, ErrBadKey
 	}
@@ -209,29 +210,46 @@ func (s *Store) WriteStream(orgID string, r io.Reader, max int64) (sha string, n
 	return sha, n, nil
 }
 
-// Open returns the blob for reading along with its FileInfo, which the download
-// handler feeds to http.ServeContent for Range/If-Modified-Since support. The
-// caller owns closing the file.
-func (s *Store) Open(orgID, sha string) (*os.File, os.FileInfo, error) {
+// Open returns the blob for reading, seekable so the download handler can hand
+// it to http.ServeContent for Range/If-Modified-Since support. The caller owns
+// closing it.
+func (s *FSStore) Open(orgID, sha string) (Reader, error) {
 	p, err := s.blobPath(orgID, sha)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	f, err := os.Open(p)
+	return openFile(p)
+}
+
+// fsReader adapts an *os.File to Reader. The size and mod time are captured at
+// open rather than read lazily: ServeContent asks for both while streaming, and
+// a Stat per call on a hot download path is a syscall for something that cannot
+// change (blobs are content-addressed and never rewritten).
+type fsReader struct {
+	*os.File
+	size    int64
+	modTime time.Time
+}
+
+func (r *fsReader) Size() int64        { return r.size }
+func (r *fsReader) ModTime() time.Time { return r.modTime }
+
+func openFile(p string) (Reader, error) {
+	f, err := os.Open(p) //nolint:gosec // G304: p comes from blobPath/cachePath, both validated
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	fi, err := f.Stat()
 	if err != nil {
 		_ = f.Close()
-		return nil, nil, err
+		return nil, err
 	}
-	return f, fi, nil
+	return &fsReader{File: f, size: fi.Size(), modTime: fi.ModTime()}, nil
 }
 
 // Remove deletes a blob. A missing file is not an error: the reaper races with
 // nothing in particular, and "already gone" is the desired end state.
-func (s *Store) Remove(orgID, sha string) error {
+func (s *FSStore) Remove(orgID, sha string) error {
 	p, err := s.blobPath(orgID, sha)
 	if err != nil {
 		return err
@@ -250,33 +268,37 @@ func (s *Store) Remove(orgID, sha string) error {
 
 var cacheKeyRe = regexp.MustCompile(`^[0-9a-f]{16,64}$`)
 
-func (s *Store) cachePath(kind, key string) (string, error) {
-	if kind != "maps" || !cacheKeyRe.MatchString(key) {
+// cacheKindRe is an ALLOWLIST of derived-content namespaces, not a sanitiser.
+//
+// This used to be a literal `kind != "maps"`, which silently broke the reverse-
+// geocode cache the moment it was added: geocode.go asks for kind "geocode",
+// got ErrBadKey on every get AND every put, and — because both call sites treat
+// a cache miss as normal and ignore the error — degraded to calling the
+// geocoding provider on every single shared location, billed per request, with
+// nothing in any log to say so.
+//
+// Anchored and character-restricted so a kind can never contribute a path
+// separator or a "..". Adding a namespace is deliberately a code change.
+var cacheKindRe = regexp.MustCompile(`^(maps|geocode)$`)
+
+func (s *FSStore) cachePath(kind, key string) (string, error) {
+	if !cacheKindRe.MatchString(kind) || !cacheKeyRe.MatchString(key) {
 		return "", ErrBadKey
 	}
-	return filepath.Join(s.root, kind, key[0:2], key), nil
+	return filepath.Join(s.root, "maps", kind, key[0:2], key), nil
 }
 
 // CacheGet returns a cached derived asset, or an error if absent.
-func (s *Store) CacheGet(kind, key string) (*os.File, os.FileInfo, error) {
+func (s *FSStore) CacheGet(kind, key string) (Reader, error) {
 	p, err := s.cachePath(kind, key)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	f, err := os.Open(p)
-	if err != nil {
-		return nil, nil, err
-	}
-	fi, err := f.Stat()
-	if err != nil {
-		_ = f.Close()
-		return nil, nil, err
-	}
-	return f, fi, nil
+	return openFile(p)
 }
 
 // CachePut stores a derived asset under key, capped at max bytes.
-func (s *Store) CachePut(kind, key string, r io.Reader, max int64) error {
+func (s *FSStore) CachePut(kind, key string, r io.Reader, max int64) error {
 	p, err := s.cachePath(kind, key)
 	if err != nil {
 		return err

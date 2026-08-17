@@ -14,9 +14,9 @@ import (
 
 const testOrg = "018f0000-0000-7000-8000-0000000000aa"
 
-func newTestStore(t *testing.T) *Store {
+func newTestStore(t *testing.T) *FSStore {
 	t.Helper()
-	s, err := New(t.TempDir())
+	s, err := NewFS(t.TempDir())
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -39,13 +39,13 @@ func TestWriteStream_ContentAddress(t *testing.T) {
 		t.Errorf("n = %d, want %d", n, len(payload))
 	}
 
-	f, fi, err := s.Open(testOrg, sha)
+	f, err := s.Open(testOrg, sha)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 	defer f.Close()
-	if fi.Size() != int64(len(payload)) {
-		t.Errorf("stored size = %d", fi.Size())
+	if f.Size() != int64(len(payload)) {
+		t.Errorf("stored size = %d", f.Size())
 	}
 	got, _ := io.ReadAll(f)
 	if !bytes.Equal(got, payload) {
@@ -113,7 +113,7 @@ func TestWriteStream_DedupesIdenticalContent(t *testing.T) {
 	if entries, _ := os.ReadDir(filepath.Join(s.Root(), "tmp")); len(entries) != 0 {
 		t.Errorf("dedupe left %d spool file(s)", len(entries))
 	}
-	f, _, err := s.Open(testOrg, sha2)
+	f, err := s.Open(testOrg, sha2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestWriteStream_OrgsAreIsolated(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Not visible to the other org before it uploads.
-	if _, _, err := s.Open(otherOrg, sha); err == nil {
+	if _, err := s.Open(otherOrg, sha); err == nil {
 		t.Fatal("org B could read org A's blob by content address")
 	}
 	if _, _, err := s.WriteStream(otherOrg, bytes.NewReader(payload), 1024); err != nil {
@@ -142,7 +142,7 @@ func TestWriteStream_OrgsAreIsolated(t *testing.T) {
 	if err := s.Remove(testOrg, sha); err != nil {
 		t.Fatal(err)
 	}
-	if f, _, err := s.Open(otherOrg, sha); err != nil {
+	if f, err := s.Open(otherOrg, sha); err != nil {
 		t.Fatal("removing org A's blob destroyed org B's copy")
 	} else {
 		f.Close()
@@ -158,15 +158,15 @@ func TestPathTraversalRejected(t *testing.T) {
 		"../../../etc/passwd",
 		"..",
 		"/etc/passwd",
-		strings.Repeat("g", 64), // right length, not hex
-		strings.Repeat("a", 63), // too short
-		strings.Repeat("a", 65), // too long
+		strings.Repeat("g", 64),                  // right length, not hex
+		strings.Repeat("a", 63),                  // too short
+		strings.Repeat("a", 65),                  // too long
 		strings.ToUpper(strings.Repeat("a", 64)), // uppercase hex
 		"",
 		"a/b",
 	}
 	for _, sha := range badShas {
-		if _, _, err := s.Open(testOrg, sha); !errors.Is(err, ErrBadKey) {
+		if _, err := s.Open(testOrg, sha); !errors.Is(err, ErrBadKey) {
 			t.Errorf("Open(sha=%q) err = %v, want ErrBadKey", sha, err)
 		}
 		if _, err := s.RelPath(testOrg, sha); !errors.Is(err, ErrBadKey) {
@@ -180,7 +180,7 @@ func TestPathTraversalRejected(t *testing.T) {
 	validSha := strings.Repeat("a", 64)
 	badOrgs := []string{"../../etc", "..", "", "not-a-uuid", "/absolute", "org/../../x"}
 	for _, org := range badOrgs {
-		if _, _, err := s.Open(org, validSha); !errors.Is(err, ErrBadKey) {
+		if _, err := s.Open(org, validSha); !errors.Is(err, ErrBadKey) {
 			t.Errorf("Open(org=%q) err = %v, want ErrBadKey", org, err)
 		}
 		if _, _, err := s.WriteStream(org, bytes.NewReader([]byte("x")), 16); !errors.Is(err, ErrBadKey) {
@@ -222,28 +222,28 @@ func TestCache_RoundTripAndKeyValidation(t *testing.T) {
 	if err := s.CachePut("maps", key, bytes.NewReader([]byte("PNGDATA")), 1024); err != nil {
 		t.Fatalf("CachePut: %v", err)
 	}
-	f, fi, err := s.CacheGet("maps", key)
+	f, err := s.CacheGet("maps", key)
 	if err != nil {
 		t.Fatalf("CacheGet: %v", err)
 	}
 	defer f.Close()
-	if fi.Size() != 7 {
-		t.Errorf("cached size = %d, want 7", fi.Size())
+	if f.Size() != 7 {
+		t.Errorf("cached size = %d, want 7", f.Size())
 	}
 
 	for _, bad := range []string{"../../etc/passwd", "", "zz", strings.Repeat("z", 32)} {
-		if _, _, err := s.CacheGet("maps", bad); !errors.Is(err, ErrBadKey) && err == nil {
+		if _, err := s.CacheGet("maps", bad); !errors.Is(err, ErrBadKey) && err == nil {
 			t.Errorf("CacheGet(%q) unexpectedly succeeded", bad)
 		}
 	}
 	// Only the maps namespace exists; anything else is a programming error.
-	if _, _, err := s.CacheGet("blobs", key); !errors.Is(err, ErrBadKey) {
+	if _, err := s.CacheGet("blobs", key); !errors.Is(err, ErrBadKey) {
 		t.Errorf("CacheGet with a non-cache kind err = %v, want ErrBadKey", err)
 	}
 }
 
 func TestNew_RejectsEmptyRoot(t *testing.T) {
-	if _, err := New("   "); err == nil {
+	if _, err := NewFS("   "); err == nil {
 		t.Fatal("New accepted an empty root")
 	}
 }

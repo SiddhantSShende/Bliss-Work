@@ -69,7 +69,28 @@ ufw allow 443/udp  comment 'HTTP/3 QUIC (Caddy)'
 # Comment these out if you are NOT running the coturn service.
 ufw allow 3478/udp comment 'TURN/STUN (coturn)'
 ufw allow 3478/tcp comment 'TURN over TCP (coturn)'
-ufw allow 49160:49200/udp comment 'TURN relay range (coturn)'
+# MUST match --min-port/--max-port in docker-compose.prod.yml's coturn command.
+# coturn allocates one UDP port per relay session, so this range IS the
+# concurrent relayed-call capacity of the host — it was 49160:49200, which is
+# 41 ports and about twenty calls for the entire platform. A range narrower
+# than coturn's own leaves it handing out ports the firewall drops, which
+# presents as calls that connect and carry no media, for only the minority of
+# users who actually need a relay.
+ufw allow 30000:49999/udp comment 'TURN relay range (coturn)'
+# Group-call media (LiveKit SFU, host-networked). Comment these out if you are
+# NOT running the livekit service.
+#
+# ⚠️ These rules are not optional decoration. If the UDP range is closed, a group
+# call CONNECTS, shows every participant, and carries no audio or video — the
+# most confusing failure this stack has, because it looks exactly like an
+# application bug. The TCP fallback is what rescues clients on networks that
+# block UDP outright (corporate proxies, some hotel and airline wifi).
+ufw allow 50000:50200/udp comment 'SFU media range (livekit)'
+ufw allow 7881/tcp comment 'SFU media TCP fallback (livekit)'
+# DELIBERATELY NOT OPENED: 7880, LiveKit's signaling/HTTP port. Host networking
+# makes it listen on every interface, but the public door to it is the
+# TLS-terminated /livekit route through Caddy. Opening 7880 here would publish
+# an unencrypted second entrance to the same service.
 # `ufw --force enable` is idempotent: re-running just reloads the ruleset.
 ufw --force enable
 ufw reload

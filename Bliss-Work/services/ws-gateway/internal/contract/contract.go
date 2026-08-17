@@ -29,7 +29,7 @@ type Event struct {
 	// The person a channel moderation event was ABOUT. They are usually no
 	// longer in `Members` — that is precisely why it has to be carried
 	// separately, or the removed member never learns they were removed.
-	UserID          string   `json:"userId"`
+	UserID string `json:"userId"`
 
 	// Forward tracking
 	ForwardedBy  string `json:"forwardedBy"`
@@ -93,6 +93,27 @@ func (e *Event) RecipientsOf() []string {
 		// The mentioned user only — the connection owner already got the
 		// activity event, and a mention is personal to whoever was tagged.
 		return dedupe([]string{e.RecipientID})
+	case "call.scheduled", "call.ring", "call.participant_added", "call.ended",
+		"call.started", "call.waiting",
+		"call.screenshare_started", "call.screenshare_stopped":
+		// Whoever messaging-svc addressed it to, computed server-side.
+		//
+		// Usually the roster, but not always: call.waiting goes only to the
+		// people who could start the call, and nothing here needs to know that
+		// — this path delivers to the ids the producer chose, which is exactly
+		// why one case can serve events with quite different audiences.
+		//
+		// This is the one routing case where a recipient may belong to a
+		// DIFFERENT ORG than the event: a meeting can be joined by link across
+		// orgs, so its roster legitimately spans them. Nothing special is needed
+		// here because this path has never filtered by org — it delivers to the
+		// user ids the producer computed, and messaging-svc is the component
+		// that decided who belongs.
+		//
+		// Note this is NOT the rtc.* signaling path, which still refuses to
+		// forward across an org boundary (see internal/signal). Media now goes
+		// to the SFU rather than peer-to-peer, so these are notifications only.
+		return dedupe(e.Members)
 	default:
 		// user.created / invite.created and anything unknown are internal-only.
 		return nil

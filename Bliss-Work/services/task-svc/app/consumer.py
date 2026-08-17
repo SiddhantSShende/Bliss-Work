@@ -19,6 +19,7 @@ from .logging_setup import log
 from .org_purge import purge_org
 from .routes.helpers import enqueue_outbox, resolve_username
 from .tracing import extract_context
+from .kafka_security import kafka_security_kwargs
 
 _tracer = trace.get_tracer(__name__)
 
@@ -31,6 +32,38 @@ _MAX_STR = 255
 # Kafka reconnect backoff: doubles from _RECONNECT_BASE up to _RECONNECT_MAX.
 _RECONNECT_BASE = 1.0
 _RECONNECT_MAX = 30.0
+
+# ── Batch sizing ─────────────────────────────────────────────────────────────
+#
+# What this fixes is the OFFSET COMMIT, not the database work, and the
+# distinction is why this consumer is batched differently from telemetry-svc's.
+#
+# This consumer subscribes to messaging.events.v1 — the highest-volume topic in
+# the platform — but acts on exactly one event type from it
+# (`channel.member.joined`). The old loop committed the offset after EVERY
+# message, synchronously, including the overwhelming majority it had just
+# decided to ignore. That is a network round trip to the group coordinator per
+# event, to record that nothing happened.
+#
+# So the fix here is to fetch and acknowledge in batches while leaving the
+# handlers exactly as they were: each still owns its own session, its own dedup
+# claim and its own commit. They are heterogeneous and rare — a user projection
+# upsert, a retroactive task fan-out, an org purge — and merging them into one
+# transaction would buy nothing (they almost never co-occur) while making a
+# failure in one able to roll back another.
+#
+# Error semantics are therefore UNCHANGED from the per-message version: a
+# failing handler is logged and skipped, exactly as before. Because each handler
+# still commits independently, a failure costs one event here — not the batch —
+# so batching introduces no regression that would need a seek-back to undo.
+# telemetry-svc merges its transactions and does need one; see the note there.
+_MAX_BATCH_SIZE = 200
+
+# How long to wait for a batch to fill once at least one message has arrived.
+# A latency budget: a lone `channel.member.joined` still fans out within this
+# much of arriving, which is far below anything a person waiting for a task to
+# appear could notice.
+_BATCH_LINGER_MS = 250
 
 
 def _clean_str(value, max_len: int = _MAX_STR) -> str:
@@ -97,6 +130,8 @@ class TaskSvcConsumer:
             AUTH_TOPIC,
             MESSAGING_TOPIC,
             bootstrap_servers=settings.kafka_brokers,
+            # TLS/SASL when KAFKA_SECURITY_PROTOCOL asks for it; empty otherwise.
+            **kafka_security_kwargs(),
             group_id=_GROUP_ID,
             # Manual commit only after the handler (incl. its DB commit)
             # succeeds, so a crash mid-handle redelivers instead of silently
@@ -156,19 +191,48 @@ class TaskSvcConsumer:
 
     async def _consume_loop(self, consumer: AIOKafkaConsumer) -> None:
         try:
-            async for msg in consumer:
+            while not self._stop.is_set():
+                batches = await consumer.getmany(
+                    timeout_ms=_BATCH_LINGER_MS, max_records=_MAX_BATCH_SIZE
+                )
+                if not batches:
+                    continue
+                await self._process_batch(batches)
                 if self._stop.is_set():
                     break
+                # One offset commit for the whole fetch, after every handler in
+                # it has finished (and committed its own transaction). This is
+                # the round trip the batching exists to amortize.
+                await consumer.commit()
+        except asyncio.CancelledError:
+            pass
+
+    async def _process_batch(self, batches: dict) -> None:
+        """Run every message in one fetch through its handler.
+
+        Each handler owns its own session, dedup claim and commit, so this is
+        deliberately just a loop — the batching is in the fetch and the offset
+        commit around it, not in the database work.
+        """
+        for _tp, messages in batches.items():
+            for msg in messages:
+                if self._stop.is_set():
+                    return
                 try:
                     # CONSUMER span continuing the producer's trace via the
-                    # traceparent header. No-op when tracing is disabled.
+                    # traceparent header. Per message rather than per batch: a
+                    # batch is an implementation detail of this consumer, and
+                    # the trace belongs to the event.
                     ctx = extract_context(msg.headers)
                     with _tracer.start_as_current_span(
                         f"{msg.topic} process", context=ctx, kind=SpanKind.CONSUMER
                     ):
                         await self._handle(msg.value)
                 except Exception:  # noqa: BLE001 — never kill the consumer loop
-                    # Do NOT commit: leave the offset so this event redelivers.
+                    # Logged and skipped, exactly as before this loop batched.
+                    # The handler's own transaction rolled back, so nothing
+                    # half-written survives; the event is dedup-claimed, so a
+                    # redelivery after a restart re-runs it cleanly.
                     event = msg.value if isinstance(msg.value, dict) else {}
                     log.exception(
                         "event_handle_error",
@@ -177,10 +241,6 @@ class TaskSvcConsumer:
                         event_id=event.get("eventId"),
                     )
                     continue
-                # Handler (and its DB commit) succeeded — advance the offset.
-                await consumer.commit()
-        except asyncio.CancelledError:
-            pass
 
     async def _handle(self, event: dict) -> None:
         # Malformed / non-whitelisted events fall through to a safe skip; the

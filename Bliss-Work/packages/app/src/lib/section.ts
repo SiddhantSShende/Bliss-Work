@@ -19,10 +19,19 @@ export type Surface =
   | "profile"
   | "settings"
   | "integrations"
+  | "meetings"
   | "org";
 
 const LIST_SECTIONS: ListSection[] = ["inbox", "tasks", "channels", "members", "chats"];
-const UTILITY: Surface[] = ["search", "invite", "profile", "settings", "integrations", "org"];
+const UTILITY: Surface[] = [
+  "search",
+  "invite",
+  "profile",
+  "settings",
+  "integrations",
+  "meetings",
+  "org",
+];
 
 /**
  * The list-pane section, or null for a full-width utility page.
@@ -35,11 +44,12 @@ export function listSectionOf(pathname: string): ListSection | null {
 }
 
 /**
- * The rail item to highlight. Integrations and Org are rail entries but render
- * full-width, so they highlight without opening a list pane.
+ * The rail item to highlight. Meetings, Integrations and Org are rail entries
+ * but render full-width, so they highlight without opening a list pane.
  */
 export function railSectionOf(pathname: string): string | null {
   if (pathname.startsWith("/app/integrations")) return "integrations";
+  if (pathname.startsWith("/app/meetings")) return "meetings";
   if (pathname.startsWith("/app/org")) return "org";
   return listSectionOf(pathname);
 }

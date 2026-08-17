@@ -32,6 +32,7 @@ from .templates import (
     render_password_reset_email,
 )
 from .tracing import extract_context, inject_headers, setup_tracing
+from .kafka_security import kafka_security_kwargs
 
 INVITE_CREATED = "invite.created"
 PASSWORD_RESET_REQUESTED = "password.reset.requested"
@@ -85,6 +86,8 @@ class EmailWorker:
             consumer = AIOKafkaConsumer(
                 self._settings.auth_topic,
                 bootstrap_servers=self._settings.kafka_brokers,
+                # TLS/SASL when KAFKA_SECURITY_PROTOCOL asks for it; empty otherwise.
+                **kafka_security_kwargs(),
                 group_id=self._settings.consumer_group,
                 # Manual commit: the offset only advances AFTER a successful
                 # send + dedup-row write (see _consume_loop).
@@ -94,6 +97,8 @@ class EmailWorker:
             )
             producer = AIOKafkaProducer(
                 bootstrap_servers=self._settings.kafka_brokers,
+                # TLS/SASL when KAFKA_SECURITY_PROTOCOL asks for it; empty otherwise.
+                **kafka_security_kwargs(),
             )
             try:
                 await consumer.start()

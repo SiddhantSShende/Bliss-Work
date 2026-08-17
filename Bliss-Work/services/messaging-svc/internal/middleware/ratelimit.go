@@ -1,4 +1,4 @@
-// ratelimit.go: in-process token-bucket rate limiter for messaging-svc.
+// ratelimit.go: token-bucket rate limiter for messaging-svc.
 //
 // Design notes:
 //   - Per-IP bucket (RealIP middleware must run first) caps anonymous abuse.
@@ -6,15 +6,26 @@
 //     abuse; one of the two will dominate depending on traffic shape.
 //   - The bucket store is sharded with LRU eviction so a sustained attack
 //     can't OOM us by minting unique keys.
-//   - In-process (not Redis-backed) on purpose: at 1B DAU you'd front this
-//     with an edge WAF + Redis Cluster (see INFRASTRUCTURE.md). Keeping it
-//     in-process here means no failure mode where a Redis outage 500s every
-//     request — fail-open is implicit because the limiter never sees Redis.
+//   - Buckets live in Redis when REDIS_URL is set, so the limit is one budget
+//     across the fleet rather than one per pod, and fall back to the in-process
+//     shards here whenever Redis cannot answer. See ratelimit_shared.go.
+//
+// This file used to argue for in-process buckets ONLY, on the grounds that a
+// limiter which never sees Redis has no way to turn a Redis outage into a 500.
+// The reasoning was sound and the conclusion was not: per-pod buckets mean a
+// caller's real allowance is the configured one multiplied by the replica count,
+// so the limit stopped meaning anything at exactly the scale it was written for.
+// The availability argument is preserved instead of discarded — every Redis
+// failure degrades to these buckets rather than failing the request, so the
+// worst case is the behaviour this file used to have on purpose.
 package middleware
 
 import (
+	"context"
 	"net"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -61,6 +72,12 @@ type shard struct {
 type Limiter struct {
 	Limits Limits
 	shards [numShards]shard
+
+	// shared is the fleet-wide bucket store. Nil means single-pod behaviour:
+	// the in-process shards below are the whole limiter, exactly as before.
+	// See ratelimit_shared.go for why it can only ever ADD accuracy and never
+	// take away availability.
+	shared *SharedStore
 }
 
 // NewLimiter constructs a Limiter with the given Limits (use DefaultLimits if
@@ -74,6 +91,18 @@ func NewLimiter(l Limits) *Limiter {
 	return out
 }
 
+// WithShared makes the limiter fleet-wide, drawing every caller's tokens from
+// one bucket in Redis instead of one per pod. A nil store leaves it per-pod.
+func (l *Limiter) WithShared(s *SharedStore) *Limiter {
+	l.shared = s
+	return l
+}
+
+// Shared reports whether fleet-wide limiting is active, for a startup log. The
+// difference is invisible from outside until someone counts requests, so it is
+// worth saying out loud which one is running.
+func (l *Limiter) Shared() bool { return l != nil && l.shared != nil }
+
 func (l *Limiter) shardFor(key string) *shard {
 	var h uint32 = 2166136261
 	for i := 0; i < len(key); i++ {
@@ -83,9 +112,12 @@ func (l *Limiter) shardFor(key string) *shard {
 	return &l.shards[h%numShards]
 }
 
-// Allow records one event and returns whether it's permitted by the bucket
-// keyed at `key`. perMin is the steady-state rate; the burst is set to the
-// rate so a quiet caller can emit ~one minute of traffic at once.
+// Allow records one event against the in-process bucket keyed at `key`. perMin
+// is the steady-state rate; the burst is set to the rate so a quiet caller can
+// emit ~one minute of traffic at once.
+//
+// This is the per-pod path. Prefer AllowCtx, which consults the shared bucket
+// first when one is configured and falls back to here when it cannot.
 func (l *Limiter) Allow(key string, perMin int) bool {
 	s := l.shardFor(key)
 	s.mu.Lock()
@@ -93,23 +125,80 @@ func (l *Limiter) Allow(key string, perMin int) bool {
 	now := time.Now()
 	b, ok := s.m[key]
 	if !ok {
-		// Evict eagerly if we've hit cap (cheap LRU-ish: drop the oldest).
 		if len(s.m) >= maxPerShard {
-			var oldestKey string
-			var oldestAt time.Time
-			for k, v := range s.m {
-				if oldestKey == "" || v.touchedAt.Before(oldestAt) {
-					oldestKey = k
-					oldestAt = v.touchedAt
-				}
-			}
-			delete(s.m, oldestKey)
+			evictOne(s.m, now)
 		}
 		b = &bucket{lim: rate.NewLimiter(rate.Every(time.Minute/time.Duration(perMin)), perMin)}
 		s.m[key] = b
 	}
 	b.touchedAt = now
 	return b.lim.Allow()
+}
+
+// AllowCtx is Allow, consulting the fleet-wide bucket first.
+//
+// The fallback is the whole safety argument. Redis unreachable, slow, erroring
+// or simply not configured all land in the same place: the in-process bucket
+// that was the entire limiter before this existed. There is no path here that
+// turns a Redis problem into a refused request.
+//
+// Note what is NOT done: the in-process bucket is not also debited on the shared
+// path. Charging both would mean a single pod's local budget silently capping a
+// caller below the fleet-wide limit they were granted, which is the per-pod bug
+// this replaces wearing a different hat.
+func (l *Limiter) AllowCtx(ctx context.Context, key string, perMin int) bool {
+	if allowed, ok := l.shared.allow(ctx, key, perMin); ok {
+		return allowed
+	}
+	return l.Allow(key, perMin)
+}
+
+// evictSample is how many entries a full shard inspects to pick a victim.
+//
+// ── Why sampling rather than "drop the oldest" ───────────────────────────────
+// This used to scan the WHOLE shard — all 1,024 entries — under the shard mutex,
+// on every request that minted a new key once the shard was full. That is an
+// amplifier pointed at the exact traffic the limiter exists to stop: an
+// IP-rotating flood mints a new key per request BY CONSTRUCTION, so each request
+// paid a full map walk while holding a lock every other request on that shard
+// was waiting for. The control got more expensive precisely as the attack got
+// worse.
+//
+// Sampling a few entries and evicting the oldest of those is the standard trade
+// (it is what Redis does for its own LRU): O(1) instead of O(shard), and the
+// victim is only approximately the oldest — which costs nothing here, because
+// the map is a bounded cache of token buckets and evicting a slightly-newer one
+// just means that caller starts with a full bucket. The eviction is not a
+// security boundary; the shared Redis bucket is.
+//
+// 8 samples make it very likely the victim is in the older part of the shard,
+// and Go's map iteration order is randomised per range, so the sample is
+// genuinely spread rather than always hitting the same slots.
+const evictSample = 8
+
+// evictOne removes approximately the least-recently-used entry.
+//
+// Prefers anything already past bucketTTL: those are dead regardless, so
+// dropping one costs nothing at all and leaves the live entries alone.
+func evictOne(m map[string]*bucket, now time.Time) {
+	var victim string
+	var victimAt time.Time
+	seen := 0
+	for k, v := range m {
+		if now.Sub(v.touchedAt) > bucketTTL {
+			delete(m, k) // already expired — the free win
+			return
+		}
+		if victim == "" || v.touchedAt.Before(victimAt) {
+			victim, victimAt = k, v.touchedAt
+		}
+		if seen++; seen >= evictSample {
+			break
+		}
+	}
+	if victim != "" {
+		delete(m, victim)
+	}
 }
 
 func (l *Limiter) sweepLoop() {
@@ -146,20 +235,80 @@ func (l *Limiter) sweep(now time.Time) {
 // whose entire job is stopping anonymous floods before JWT verification. That is
 // the vulnerability behind RealIP's deprecation (GHSA-3fxj-6jh8-hvhx).
 //
-// TRUST MODEL: exactly one proxy hop (our Caddy edge) sits in front of this
-// service, and nothing else can reach it — it is not published outside the
-// compose network. If a second trusted proxy is ever added, this must skip that
-// many entries from the right instead of one.
-// ClientIP is clientIP for callers outside this package. Same trust model:
-// only the rightmost X-Forwarded-For entry — the one our own edge observed —
-// may be believed.
+// TRUST MODEL: TRUSTED_PROXY_HOPS proxies sit in front of this service, and
+// only the entry THEY observed may be believed.
+//
+// ── Why this is configurable now ─────────────────────────────────────────────
+// This used to hardcode "skip exactly one entry from the right", with a comment
+// saying that if a second trusted proxy were ever added, someone must come back
+// and change the number. That is a latent failure with no error and no knob: a
+// topology change — a load balancer in front of Caddy, an ingress that
+// OVERWRITES rather than appends, a direct internal caller — silently turns the
+// outermost anti-flood defence off, and nothing reports it.
+//
+// A load test made the shape concrete against a directly-reachable service:
+// 500 requests from one source with no header → 212 rate-limited; 500 identical
+// requests with a varying X-Forwarded-For → 0 rate-limited. Through Caddy this
+// is safe, because Caddy APPENDS the address it observed, so the rightmost
+// entry is Caddy's observation rather than the client's claim. Reachable
+// directly, the client's claim is the only entry and it wins.
+//
+// The four Python services already take this as `TRUSTED_PROXY_HOPS` (see
+// auth-svc/app/net.py), and the asymmetry was the actual defect: the same
+// question answered two different ways in one platform, one of them with a
+// number that cannot be changed without a code edit. This is deliberately the
+// SAME semantics — count in from the right, fall back to the peer — so the two
+// halves cannot drift.
+//
+// Setting it too HIGH is the dangerous direction: it starts believing entries a
+// client supplied. Too low narrows the bucket to a proxy, which throttles
+// everyone together — bad, but not a bypass.
+
+// trustedProxyHops is how many proxies append to X-Forwarded-For before us.
+// Read once at startup; TRUSTED_PROXY_HOPS=0 disables header parsing entirely
+// and keys on the direct peer, which is correct for a service exposed with no
+// proxy at all.
+var trustedProxyHops = func() int {
+	v := strings.TrimSpace(os.Getenv("TRUSTED_PROXY_HOPS"))
+	if v == "" {
+		return 1 // the Caddy edge — the deployed topology
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 {
+		return 1
+	}
+	return n
+}()
+
+// SetTrustedProxyHops overrides the hop count. FOR TESTS ONLY — production
+// reads the environment once at startup, because a limiter whose trust model
+// can change at runtime is a limiter whose trust model can be changed.
+func SetTrustedProxyHops(n int) { trustedProxyHops = n }
+
+// ClientIP is clientIP for callers outside this package. Same trust model.
 func ClientIP(r *http.Request) string { return clientIP(r) }
 
 func clientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		parts := strings.Split(xff, ",")
-		if ip := strings.TrimSpace(parts[len(parts)-1]); ip != "" {
-			return ip
+	if trustedProxyHops > 0 {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			// Index from the RIGHT: entries are appended by each proxy, so the
+			// leftmost is whatever the client claimed and only the rightmost
+			// hops were actually observed by infrastructure we run.
+			parts := make([]string, 0, 4)
+			for _, p := range strings.Split(xff, ",") {
+				if p = strings.TrimSpace(p); p != "" {
+					parts = append(parts, p)
+				}
+			}
+			// Fewer entries than hops means the request did not traverse the
+			// topology we expect. Falling back to the peer is the fail-SAFE
+			// direction: it narrows the bucket rather than widening it to
+			// something the caller chose.
+			if len(parts) >= trustedProxyHops {
+				if ip := parts[len(parts)-trustedProxyHops]; ip != "" {
+					return ip
+				}
+			}
 		}
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
@@ -175,7 +324,7 @@ func clientIP(r *http.Request) string {
 func (l *Limiter) PerIPMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ip := clientIP(r)
-		if !l.Allow("ip:"+ip, l.Limits.IPPerMinute) {
+		if !l.AllowCtx(r.Context(), "ip:"+ip, l.Limits.IPPerMinute) {
 			writeRateLimited(w, r, l.Limits.IPPerMinute)
 			return
 		}
@@ -202,7 +351,7 @@ func (l *Limiter) PerUserMiddleware(userExtractor func(*http.Request) string) fu
 				key = "user:" + uid + ":w"
 				budget = l.Limits.UserWritesPerMin
 			}
-			if !l.Allow(key, budget) {
+			if !l.AllowCtx(r.Context(), key, budget) {
 				writeRateLimited(w, r, budget)
 				return
 			}

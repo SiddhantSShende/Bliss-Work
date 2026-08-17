@@ -18,6 +18,7 @@ import (
 	"github.com/task-board/messaging-svc/internal/auth"
 	"github.com/task-board/messaging-svc/internal/blob"
 	"github.com/task-board/messaging-svc/internal/config"
+	"github.com/task-board/messaging-svc/internal/livekit"
 	"github.com/task-board/messaging-svc/internal/media"
 	mw "github.com/task-board/messaging-svc/internal/middleware"
 	"github.com/task-board/messaging-svc/internal/store"
@@ -37,10 +38,15 @@ type Server struct {
 
 	// Attachment plumbing: the on-disk blob store, the HMAC signer for
 	// download URLs, and their configuration.
-	blobs    *blob.Store
+	blobs    blob.Store
 	signer   *media.Signer
 	mediaCfg config.MediaConfig
 	mapsCfg  config.MapsConfig
+
+	// Mints the short-lived room tokens that authorize group call media. Never
+	// nil — an unconfigured Minter reports itself and every call token request
+	// fails with a clear 503 rather than a nil dereference.
+	livekit *livekit.Minter
 }
 
 // NewServer constructs an API server.
@@ -48,11 +54,17 @@ func NewServer(
 	st *store.Store,
 	v *auth.Verifier,
 	log *slog.Logger,
-	blobs *blob.Store,
+	blobs blob.Store,
 	signer *media.Signer,
 	mediaCfg config.MediaConfig,
 	mapsCfg config.MapsConfig,
+	lk *livekit.Minter,
 ) *Server {
+	if lk == nil {
+		// A zero Minter is the honest "no SFU here" state and answers
+		// Configured() false, which the token handler turns into a 503.
+		lk = &livekit.Minter{}
+	}
 	return &Server{
 		store:    st,
 		verifier: v,
@@ -62,8 +74,24 @@ func NewServer(
 		signer:   signer,
 		mediaCfg: mediaCfg,
 		mapsCfg:  mapsCfg,
+		livekit:  lk,
 	}
 }
+
+// WithSharedRateLimits makes rate limiting fleet-wide, drawing every caller's
+// tokens from one Redis bucket rather than one per pod.
+//
+// A method rather than another constructor parameter because it is genuinely
+// optional: without it the limiter behaves exactly as it always has, and every
+// existing caller — including the tests — keeps working untouched.
+func (s *Server) WithSharedRateLimits(store *mw.SharedStore) *Server {
+	s.limiter.WithShared(store)
+	return s
+}
+
+// RateLimitsAreShared reports whether the limiter is fleet-wide, for a startup
+// log line.
+func (s *Server) RateLimitsAreShared() bool { return s.limiter.Shared() }
 
 // Router builds the chi router with CORS, health, and the authed API group.
 func (s *Server) Router(webOrigin string) http.Handler {
@@ -194,6 +222,43 @@ func (s *Server) Router(webOrigin string) http.Handler {
 			r.Delete("/messages/{id}/reactions/{emoji}", s.setReaction)
 			r.Post("/users/{id}/block", s.block)
 			r.Delete("/users/{id}/block", s.unblock)
+
+			// ── Calls ────────────────────────────────────────────────────
+			// Channel calls: scheduled, members-only, and deliberately with
+			// no invite route — being in the channel IS the invitation.
+			r.Post("/channels/{id}/calls", s.scheduleChannelCall)
+			r.Get("/channels/{id}/calls", s.listChannelCalls)
+
+			// Meetings: an explicit roster, so a link means something.
+			r.Post("/meetings", s.scheduleMeeting)
+			r.Post("/calls/{id}/invites", s.createCallInvite)
+			r.Delete("/calls/{id}/invites/{inviteId}", s.revokeCallInvite)
+			// The ONE cross-org door in this service. Not under /calls/{id}
+			// on purpose: the caller cannot name a call they cannot yet see,
+			// so the token in the body is the whole request.
+			r.Post("/calls/join", s.joinCallByToken)
+
+			r.Post("/calls/direct", s.startDirectCall)
+			r.Get("/calls", s.listMyCalls)
+			r.Get("/calls/{id}", s.getCall)
+			r.Post("/calls/{id}/participants", s.addCallParticipant)
+			// POST, not GET: this mints a short-lived credential for the SFU
+			// and re-decides access from the database every time, so it must
+			// never be cached or prefetched. Answers 202 with the waiting
+			// room, and no token, for a call that has not started.
+			r.Post("/calls/{id}/token", s.callToken)
+			// Opens a scheduled call and admits everyone waiting on it. The
+			// authority to do this is narrow (host / org admin / channel
+			// owner or admin) and is what the waiting room waits for.
+			r.Post("/calls/{id}/start", s.startCall)
+			// Screen sharing. The stop route takes no target — it can only
+			// ever stop the CALLER's own share, which is how "the stop
+			// control belongs to the sharer" is enforced rather than merely
+			// rendered.
+			r.Post("/calls/{id}/share", s.startScreenShare)
+			r.Post("/calls/{id}/share/stop", s.stopScreenShare)
+			r.Post("/calls/{id}/leave", s.leaveCall)
+			r.Post("/calls/{id}/end", s.endCall)
 
 			// Attachment metadata routes — small JSON, so they stay behind the
 			// 1 MiB cap (and, at the edge, behind the WAF) unlike the upload.
@@ -372,6 +437,55 @@ func validUUID(s string) bool {
 	return err == nil
 }
 
+// MaxMessageBodyBytes bounds a single chat message.
+//
+// ── Why a message needs a size at all ────────────────────────────────────────
+// This used to be unbounded: every send site checked `body == ""` and nothing
+// else, so the only ceiling was smallBody (1 MiB) on the whole request. A body
+// is not just stored — it is copied into an outbox row, published as a Kafka
+// message, and then written into the replay ZSET of EVERY recipient. So one
+// number decided the size of four different things, and it was a megabyte.
+//
+// Three failures came out of that, and they are all the same root cause:
+//
+//   - Kafka rejects a message over ~1 MiB. The producer fails the whole write
+//     BEFORE sending anything, the outbox marks nothing published, and the next
+//     tick re-claims the same head-of-queue row — forever. One message could
+//     permanently stop every event in the platform. (The poller now quarantines
+//     such a row rather than retrying it, but not producing one is the fix.)
+//   - The replay outbox stores the full event per recipient against a Redis
+//     with `noeviction`, so a large body times a large channel could fill the
+//     instance — taking presence, the node registry and the shared rate-limit
+//     buckets down with it.
+//   - Every copy is durable: the outbox row, the Kafka log and 7 days of Redis.
+//
+// ── Why 8 KiB ────────────────────────────────────────────────────────────────
+// Sized from what a chat message IS, not from what a request can carry. Slack
+// caps a message at 4,000 characters; 8 KiB is comfortably above that even for
+// multi-byte scripts, and it makes the worst case arithmetic knowable: a
+// 10,000-member channel message costs ~90 MB of Redis rather than ~10 GB, and
+// no single event can approach the broker limit.
+//
+// Counted in BYTES, not runes, because bytes are what Kafka, Postgres and Redis
+// actually pay for — a rune limit would let a message of astral-plane
+// characters cost four times its stated size.
+//
+// Attachments are the answer for anything larger, and they already exist: they
+// stream to object storage and travel as a reference rather than as an event
+// payload.
+const MaxMessageBodyBytes = 8 << 10
+
+// validMessageBody reports whether a body is present and within the cap.
+// Every send path must use this — see maxbody_test.go, which enumerates the
+// routes and fails when a new one forgets.
+func validMessageBody(s string) bool {
+	return s != "" && len(s) <= MaxMessageBodyBytes
+}
+
+// errBodyTooLong is the shared 400 for an over-cap body. One message, so the
+// client can show the same thing wherever the send came from.
+const errBodyTooLong = "message body exceeds 8192 bytes"
+
 // ── handlers ──────────────────────────────────────────────────────────────────
 
 type sendReq struct {
@@ -431,6 +545,10 @@ func (s *Server) sendMessage(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "recipientId, body, clientMsgId required")
 		return
 	}
+	if !validMessageBody(req.Body) {
+		writeErr(w, http.StatusBadRequest, errBodyTooLong)
+		return
+	}
 	if req.Kind != "" && !store.ValidMessageKind(req.Kind) {
 		writeErr(w, http.StatusBadRequest, "unknown message kind")
 		return
@@ -476,6 +594,10 @@ func (s *Server) reply(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Body == "" || !validUUID(req.ClientMsgID) {
 		writeErr(w, http.StatusBadRequest, "body, clientMsgId required")
+		return
+	}
+	if !validMessageBody(req.Body) {
+		writeErr(w, http.StatusBadRequest, errBodyTooLong)
 		return
 	}
 	if req.ReplyToID != "" && !validUUID(req.ReplyToID) {

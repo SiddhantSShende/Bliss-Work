@@ -1,0 +1,228 @@
+# ws-gateway: fan-out efficiency, connection capacity, and the media path.
+#
+# saturation.yml watches for things RUNNING OUT. This file watches the gateway's
+# own behaviour, and it exists because the gateway had two metrics — request
+# count and request duration — neither of which says anything about the thing
+# that actually governs whether the real-time tier scales.
+#
+# The recording rules come first and are the more important half. They are not
+# alerts because the condition they measure is not a fault, it is the current
+# architecture: every pod subscribes to Kafka under its own consumer group, so
+# every pod receives every event and discards what is not addressed to one of
+# its sockets. Alerting on that would page somebody every minute of every day
+# for a design decision. Recording it makes the cost visible, gives it history,
+# and makes "did the routing change work" a question with an answer.
+groups:
+  - name: ws-gateway-fanout
+    interval: 30s
+    rules:
+      # THE AMPLIFICATION RATIO. The share of a pod's fan-out work done on
+      # behalf of users it does not serve.
+      #
+      # With N pods and users spread evenly this tends to (N-1)/N — so it gets
+      # WORSE as the fleet grows, which is the opposite of what adding capacity
+      # is meant to do. At 3 pods expect ~0.67; at 12, ~0.92.
+      #
+      # This is the number that should collapse toward 0 when delivery is
+      # routed to the pod holding the socket instead of broadcast to all of
+      # them. Watch it across that change; it is the whole point of it.
+      - record: ws:fanout_discarded:ratio
+        expr: >-
+          sum(rate(ws_fanout_discarded_total[5m]))
+          / clamp_min(sum(rate(ws_fanout_recipients_total[5m])), 1)
+
+      # Same thing per pod, for spotting an unbalanced load balancer: one pod
+      # holding far more sockets than its peers shows up here as a markedly
+      # lower ratio than the others.
+      - record: ws:fanout_discarded:ratio_by_instance
+        expr: >-
+          sum by (instance) (rate(ws_fanout_discarded_total[5m]))
+          / clamp_min(sum by (instance) (rate(ws_fanout_recipients_total[5m])), 1)
+
+      # Replay-outbox writes per second across the fleet. Every pod writes the
+      # outbox for every recipient, so this is the true Redis write load AND
+      # roughly N times the load the product actually requires. Size the Redis
+      # tier from this, and expect it to fall by the pod count when fan-out is
+      # routed rather than broadcast.
+      - record: ws:outbox_writes:rate
+        expr: sum(rate(ws_fanout_outbox_writes_total[5m]))
+
+      # Redis operations per second by what they are FOR. Presence should
+      # dominate by a wide margin — every socket writes on every ping interval —
+      # and confirming that is what tells you which tier to shard first.
+      - record: ws:redis_ops:rate_by_purpose
+        expr: sum by (purpose) (rate(ws_redis_ops_total[5m]))
+
+  - name: ws-gateway-cross-node
+    interval: 30s
+    rules:
+      # The share of RTC signalling and presence recipients that had to be
+      # reached on another pod. Low is good and mostly reflects the load
+      # balancer's userId affinity putting both parties of a call on one pod.
+      #
+      # Recorded rather than alerted for the same reason as the ratio above: it
+      # measures the shape of the fleet, not a fault.
+      - record: ws:node_fanout_remote:ratio
+        expr: >-
+          sum(rate(ws_node_fanout_recipients_total{where="remote"}[5m]))
+          / clamp_min(sum(rate(ws_node_fanout_recipients_total[5m])), 1)
+
+      # Signalling route cache hit ratio, per cache.
+      #
+      # Every rtc.* frame asks whether the destination is a same-org online peer
+      # and what address reaches their node, and ICE candidates trickle — so one
+      # call setup asks both questions dozens of times within a few seconds. The
+      # caches collapse that to one lookup each. This should sit high; if it
+      # falls, the Redis load they removed is back, and ws:redis_ops:rate_by_
+      # purpose will show it arriving as `presence` and `nodes`.
+      - record: ws:route_cache:hit_ratio
+        expr: >-
+          sum by (cache) (rate(ws_route_cache_total{result="hit"}[5m]))
+          / clamp_min(sum by (cache) (rate(ws_route_cache_total[5m])), 1)
+
+      # THE SILENT MISCONFIGURATION. WS_ADVERTISE_ADDR unset on a multi-pod
+      # fleet means no pod registers an address, so every recipient who is not
+      # on the sending pod is unroutable: calls between users on different pods
+      # never connect and avatars never flip. Nothing else moves — no error
+      # rate, no failed request, no log line at the point of failure — because
+      # from each pod's own perspective it delivered to everyone it could see.
+      #
+      # Some unroutable recipients are ordinary (someone closed their laptop
+      # between the presence read and the send), so this keys on the RATIO
+      # against everyone routed, not on the raw count. Above half, the routing
+      # table is not describing reality.
+      - alert: WSGatewayCrossNodeDeliveryUnroutable
+        expr: >-
+          sum(rate(ws_node_fanout_unroutable_total[10m]))
+          / clamp_min(sum(rate(ws_node_fanout_recipients_total[10m]))
+                      + sum(rate(ws_node_fanout_unroutable_total[10m])), 1) > 0.5
+        for: 15m
+        labels: { severity: critical }
+        annotations:
+          summary: "Most cross-node RTC/presence recipients cannot be routed to"
+          description: >-
+            More than half of all signalling and presence recipients are
+            reachable neither locally nor on any registered gateway node. On a
+            multi-pod fleet the usual cause is WS_ADVERTISE_ADDR being unset, so
+            no pod registers itself — calls between users on different pods fail
+            to connect and presence never propagates, with nothing else showing
+            an error. Check that every ws-gateway pod sets WS_ADVERTISE_ADDR to
+            an address its peers can reach.
+
+      # Peers that are registered but not answering. Distinct from the above:
+      # there the routing table is empty, here it points somewhere that does not
+      # respond — a NetworkPolicy blocking pod-to-pod traffic on the gateway
+      # port, or an advertised address that resolves but is not reachable.
+      - alert: WSGatewayCrossNodePushFailing
+        expr: >-
+          sum(rate(ws_node_fanout_requests_total{result="error"}[5m]))
+          / clamp_min(sum(rate(ws_node_fanout_requests_total[5m])), 1) > 0.1
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Gateway-to-gateway pushes are failing"
+          description: >-
+            Over 10% of pushes to peer gateways are erroring. Signalling frames
+            and presence transitions to users on those pods are being lost —
+            neither is replayed, so a call setup that hits this simply fails.
+            Check pod-to-pod connectivity on the gateway port and that
+            TB_INTERNAL_TOKEN matches across the fleet.
+
+  - name: ws-gateway-capacity
+    rules:
+      # A refusal at the NODE cap means the fleet is full: every pod is at
+      # WS_MAX_CONNECTIONS and the next client gets a 1013. This is a capacity
+      # page, not a bug — the fix is more pods, or a higher cap and the memory
+      # to back it (the two are a pair; see values.yaml).
+      - alert: WSGatewayRefusingConnectionsAtNodeCap
+        expr: sum(rate(ws_connections_rejected_total{reason="node"}[5m])) > 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "ws-gateway is refusing websockets because pods are full"
+          description: >-
+            Sockets are being refused with 1013 at the per-node cap. Raise
+            replicas, or raise WS_MAX_CONNECTIONS **and** the pod memory limit
+            together — a cap the memory limit cannot reach is one the pod is
+            OOM-killed before it can enforce.
+
+      # The other cap means something entirely different: one client opening
+      # sockets in a loop. Capacity is fine and adding pods will not help.
+      - alert: WSGatewayPerUserCapHit
+        expr: sum(rate(ws_connections_rejected_total{reason="per_user"}[5m])) > 1
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Clients are hitting the per-user socket cap"
+          description: >-
+            Sustained refusals at WS_MAX_CONNS_PER_USER. This is a client
+            reconnect loop or a tab leak, not a capacity problem — the fleet
+            has room. Look for a client that reconnects without backing off.
+
+      # Shedding is not data loss: the event is in the replay outbox and comes
+      # back on reconnect. Sustained shedding IS the signal that sendChanCap is
+      # too small for real traffic, which is the assumption to re-check after
+      # it was reduced from 512 to 64.
+      - alert: WSGatewaySheddingSlowConsumers
+        expr: sum(rate(ws_connections_shed_total[5m])) > 1
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "ws-gateway is dropping sockets for full send buffers"
+          description: >-
+            Connections are being shed faster than one every few seconds. Check
+            ws_send_buffer_depth: if the p99 sits near sendChanCap (64) the
+            buffer is too small for real bursts rather than the clients being
+            slow. Lossless either way — the outbox replays on reconnect — but it
+            costs a reconnect per shed.
+
+      - alert: WSGatewayOutboxWriteErrors
+        expr: sum(rate(ws_fanout_outbox_writes_total{result="error"}[5m])) > 0
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "Replay-outbox writes to Redis are failing"
+          description: >-
+            Events are being fanned out to live sockets but not persisted for
+            replay, so anyone who reconnects loses the gap. Usually Redis at its
+            maxmemory ceiling with noeviction — check RedisMemoryCritical.
+
+      # Presence and replay share one Redis. Splitting latency by purpose is
+      # what distinguishes "Redis is slow" from "the presence keys are hot".
+      - alert: WSGatewayRedisSlow
+        expr: >-
+          histogram_quantile(0.99,
+            sum by (le, purpose) (rate(ws_redis_op_duration_seconds_bucket[5m]))) > 0.05
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "ws-gateway Redis p99 above 50ms for {{ $labels.purpose }}"
+          description: >-
+            Presence writes ride the ping ticker on every socket, so latency
+            here scales with connection count. If purpose="presence" is the slow
+            one, that tier is the first candidate for its own Redis.
+
+  - name: ws-gateway-media
+    rules:
+      # THE QUIET ONE. When no TURN secret or URL is configured,
+      # /turn-credentials still answers 200 — with STUN only — and every client
+      # behind a symmetric NAT then fails to connect while the API looks
+      # perfectly healthy. No error rate moves. No log line fires.
+      #
+      # This is not hypothetical: the Helm chart shipped no coturn and no
+      # TURN_SECRET at all until Stage 5 added them, so every Kubernetes
+      # deployment was in exactly this state and 10-20% of calls failed for a
+      # reason nothing else reported. The manifests exist now; the alert stays,
+      # because the failure is silent whenever the secret is missing.
+      - alert: WSGatewayTurnUnavailable
+        expr: sum(rate(ws_turn_credentials_total{turn="unavailable"}[15m])) > 0
+        for: 15m
+        labels: { severity: critical }
+        annotations:
+          summary: "ICE credentials are being issued with no TURN relay"
+          description: >-
+            Clients are being handed STUN-only ICE servers because TURN_SECRET
+            or TURN_URLS is unset. Calls between peers that can traverse NAT
+            directly still work, which is why this does not show up as an error
+            rate — but everyone behind a symmetric NAT is failing to connect.
+            Check that coturn is deployed and TURN_SECRET/TURN_URLS are set.

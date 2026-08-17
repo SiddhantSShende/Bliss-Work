@@ -29,19 +29,68 @@ import (
 	"github.com/task-board/messaging-svc/internal/events"
 )
 
-// ListOpenChannels returns every OPEN channel in the org the caller is NOT
-// currently a member of. Locked channels are excluded — they only appear via
-// invite. Results are ordered by recent activity so the most lively channels
+// ListOpenChannels returns one page of the OPEN channels in the org the caller
+// is NOT currently a member of. Locked channels are excluded — they only appear
+// via invite. Results are ordered by recent activity so the most lively channels
 // surface first.
-func (s *Store) ListOpenChannels(ctx context.Context, orgID, callerID string) ([]ChannelDTO, error) {
+//
+// PAGED, and this is the endpoint that most needed it. Its population is every
+// open channel in the organisation rather than just the caller's own, so it grew
+// with the org and was bounded by nothing: an org with fifty thousand channels
+// returned fifty thousand rows, each with a LATERAL lookup of its last message,
+// each then decrypted individually in Go. The sibling ListChannels is left
+// unpaged deliberately — it returns the caller's OWN memberships, which the
+// sidebar needs in full and which a person bounds by joining a human number of
+// channels.
+//
+// limit is clamped to maxChannelPage and offset floored at zero, in the store
+// rather than only at the HTTP layer, because the ceiling has to hold for every
+// caller and not just the one that came through a URL.
+func (s *Store) ListOpenChannels(
+	ctx context.Context, orgID, callerID string, limit, offset int,
+) ([]ChannelDTO, error) {
+	limit = clampChannelPage(limit)
+	offset = clampOffset(offset)
 	out := []ChannelDTO{}
 	// RLS: channel listing + per-row last-message decrypt run under app.org_id.
 	err := s.withOrg(ctx, orgID, func(tx pgx.Tx) error {
+		// Member counts are aggregated ONCE for the whole result, not once per
+		// row — the same fix as ListChannels, and this is the more exposed of
+		// the two: Browse considers every open channel in the org rather than
+		// just the caller's, so the correlated `(SELECT count(*) ...)` it used
+		// to carry ran a SubPlan for each of them on every page load.
+		//
+		// `candidates` names the eligible set once, so the aggregate and the
+		// outer join are both restricted to it. Computing counts before
+		// filtering would count members of every channel in the org to answer a
+		// question about the few the caller can actually join.
 		rows, err := tx.Query(ctx, `
+			WITH candidates AS (
+			    SELECT c.id
+			    FROM channels c
+			    WHERE c.org_id = $1
+			      AND c.is_locked = false
+			      AND NOT EXISTS (
+			          SELECT 1 FROM channel_members cm
+			          WHERE cm.channel_id = c.id AND cm.user_id = $2
+			      )
+			      -- Hide channels the caller is blocked from, so Browse never
+			      -- shows a Join button that is guaranteed to 403.
+			      AND NOT EXISTS (
+			          SELECT 1 FROM channel_blocks cb
+			          WHERE cb.channel_id = c.id AND cb.user_id = $2
+			      )
+			),
+			counts AS (
+			    SELECT cm.channel_id, count(*) AS n
+			    FROM channel_members cm
+			    JOIN candidates ON candidates.id = cm.channel_id
+			    GROUP BY cm.channel_id
+			)
 			SELECT
 			    c.id,
 			    c.name,
-			    (SELECT count(*) FROM channel_members cm2 WHERE cm2.channel_id = c.id) AS member_count,
+			    COALESCE(counts.n, 0) AS member_count,
 			    lm.body,
 			    lm.body_enc,
 			    c.last_msg_at,
@@ -49,25 +98,20 @@ func (s *Store) ListOpenChannels(ctx context.Context, orgID, callerID string) ([
 			    c.created_by,
 			    NULL::text AS my_role   -- not a member by definition of this view
 			FROM channels c
+			JOIN candidates ON candidates.id = c.id
+			LEFT JOIN counts ON counts.channel_id = c.id
 			LEFT JOIN LATERAL (
 			    SELECT body, body_enc FROM channel_messages m
 			    WHERE m.channel_id = c.id
 			    ORDER BY m.seq DESC LIMIT 1
 			) lm ON true
-			WHERE c.org_id = $1
-			  AND c.is_locked = false
-			  AND NOT EXISTS (
-			      SELECT 1 FROM channel_members cm
-			      WHERE cm.channel_id = c.id AND cm.user_id = $2
-			  )
-			  -- Hide channels the caller is blocked from, so Browse never shows
-			  -- a Join button that is guaranteed to 403.
-			  AND NOT EXISTS (
-			      SELECT 1 FROM channel_blocks cb
-			      WHERE cb.channel_id = c.id AND cb.user_id = $2
-			  )
-			ORDER BY c.last_msg_at DESC NULLS LAST, c.created_at DESC`,
-			orgID, callerID)
+			-- c.id breaks ties so the ordering is TOTAL. Without it two channels
+			-- with the same last_msg_at and created_at could come back in either
+			-- order between pages, which is how a paged reader silently skips a
+			-- row and sees another twice.
+			ORDER BY c.last_msg_at DESC NULLS LAST, c.created_at DESC, c.id DESC
+			LIMIT $3 OFFSET $4`,
+			orgID, callerID, limit, offset)
 		if err != nil {
 			return err
 		}

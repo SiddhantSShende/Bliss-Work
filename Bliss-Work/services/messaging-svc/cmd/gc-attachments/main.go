@@ -78,9 +78,24 @@ func main() {
 	}
 	defer st.Close()
 
-	blobs, err := blob.New(cfg.Media.Root)
+	// Same backend the server uses — the reaper must delete from wherever the
+	// bytes actually are, and a GC pointed at an empty disk while the uploads
+	// live in a bucket would report "nothing to reclaim" forever.
+	blobs, err := blob.Open(ctx, blob.Options{
+		Backend: cfg.Media.Backend,
+		Root:    cfg.Media.Root,
+		S3: blob.S3Config{
+			Endpoint:  cfg.Media.S3.Endpoint,
+			Bucket:    cfg.Media.S3.Bucket,
+			AccessKey: cfg.Media.S3.AccessKey,
+			SecretKey: cfg.Media.S3.SecretKey,
+			Region:    cfg.Media.S3.Region,
+			UseSSL:    cfg.Media.S3.UseSSL,
+			Prefix:    cfg.Media.S3.Prefix,
+		},
+	})
 	if err != nil {
-		log.Error("blob store init failed", "err", err, "root", cfg.Media.Root)
+		log.Error("blob store init failed", "err", err, "backend", cfg.Media.Backend)
 		os.Exit(1)
 	}
 

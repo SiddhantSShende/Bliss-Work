@@ -154,7 +154,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [auth-svc, task-svc, email-worker, integrations-svc]
+        # telemetry-svc was MISSING from this list. Its unit suite existed and
+        # had never run in CI once — so every change to it merged on the
+        # strength of whoever remembered to run pytest locally, and ruff was the
+        # only automated check it got. A test that does not run is not a test.
+        #
+        # Keep this in step with the directories under services/ that have a
+        # pytest.ini; the pip-audit matrix below carries the same obligation.
+        service: [auth-svc, task-svc, telemetry-svc, email-worker, integrations-svc]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
@@ -257,6 +264,41 @@ jobs:
         env:
           REDIS_TEST_URL: redis://127.0.0.1:6379/0
         run: go test -race -count=1 ./internal/store/ -run Integration -v
+
+  # messaging-svc's object-store backend against a real S3 API.
+  #
+  # Same reasoning as the Redis job: what this code depends on is the SERVER's
+  # behaviour — that a seek becomes a ranged GET, that a server-side copy commits
+  # a content-addressed key, that a prefix delete erases exactly one org. A stub
+  # would assert our beliefs about S3 rather than S3.
+  test-go-s3:
+    name: Test (Go · messaging-svc blobs vs MinIO)
+    runs-on: ubuntu-latest
+    services:
+      minio:
+        image: bitnami/minio:latest
+        ports: ["9000:9000"]
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+          MINIO_DEFAULT_BUCKETS: blisswork-test
+        options: >-
+          --health-cmd "curl -sf http://localhost:9000/minio/health/live"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: services/messaging-svc/go.sum
+      - name: go test -race (object store)
+        working-directory: services/messaging-svc
+        env:
+          S3_TEST_ENDPOINT: 127.0.0.1:9000
+          S3_TEST_BUCKET: blisswork-test
+        run: go test -race -count=1 ./internal/blob/ -run S3Integration -v
 
   test-js:
     name: Test (JS/TS · vitest)
@@ -377,7 +419,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [auth-svc, task-svc, email-worker, integrations-svc]
+        # telemetry-svc omitted here too, so its dependencies were never audited
+        # for known vulnerabilities. It carries the same FastAPI/SQLAlchemy/
+        # aiokafka stack as its siblings, so it was exposed to every advisory
+        # they were — with nothing watching.
+        service: [auth-svc, task-svc, telemetry-svc, email-worker, integrations-svc]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5

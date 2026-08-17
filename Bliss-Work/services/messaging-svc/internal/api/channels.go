@@ -43,9 +43,15 @@ func (s *Server) createChannel(w http.ResponseWriter, r *http.Request) {
 // listOpenChannels serves GET /api/v1/channels/open — the directory of open
 // channels in the caller's org they could join right now (and aren't already
 // in). UI surface: a Browse Channels view in the sidebar.
+//
+// Paged via ?limit=&offset=. The population is every open channel in the
+// organisation, so this is one of the few reads whose size is set by how big
+// the customer is; an unpaged version returned all of them and decrypted each
+// one. Both parameters are clamped again in the store — see ListOpenChannels.
 func (s *Server) listOpenChannels(w http.ResponseWriter, r *http.Request) {
 	claims, _ := auth.FromContext(r.Context())
-	chans, err := s.store.ListOpenChannels(r.Context(), claims.OrgID, claims.UserID)
+	limit, offset := pageOffsetParams(r, DefaultChannelPageSize, MaxChannelPageSize)
+	chans, err := s.store.ListOpenChannels(r.Context(), claims.OrgID, claims.UserID, limit, offset)
 	if err != nil {
 		s.mapErr(w, err)
 		return
@@ -155,6 +161,10 @@ func (s *Server) sendChannelMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Body == "" || !validUUID(req.ClientMsgID) {
 		writeErr(w, http.StatusBadRequest, "body, clientMsgId required")
+		return
+	}
+	if !validMessageBody(req.Body) {
+		writeErr(w, http.StatusBadRequest, errBodyTooLong)
 		return
 	}
 	res, err := s.store.SendChannelMessage(r.Context(), claims.OrgID, channelID, claims.UserID, req.Body, req.ClientMsgID)

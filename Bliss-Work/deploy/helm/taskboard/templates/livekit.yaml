@@ -1,0 +1,193 @@
+{{/*
+LiveKit SFU — the media plane for group calls.
+
+WHY THIS FILE EXISTS. It did not, and the omission was not cosmetic: with no
+LiveKit Deployment and no LIVEKIT_* configuration, messaging-svc's token minter
+reports itself unconfigured and POST /calls/{id}/token answers
+503 "calling is not configured on this deployment". A Kubernetes install had no
+group calls at all, while the compose deployment had them — the same class of
+gap the chart previously had for telemetry-svc and integrations-svc.
+
+WHY IT IS NOT A `services` ENTRY. Every other workload is rendered from the
+generic loop in deployment.yaml, which assumes an HTTP service on the pod
+network with one container port. The SFU needs host networking and a contiguous
+UDP range, neither of which that template can express, so it gets its own.
+
+WHY hostNetwork. Media flows over a range of UDP ports (default 50000-50200).
+Publishing 200 ports through the pod network means 200 hostPort entries and a
+userland proxy per port; host networking is how every LiveKit deployment does
+this. The consequence to remember is that the pod then shares the node's port
+space, so only ONE SFU pod can run per node — which is why this is a DaemonSet-
+shaped concern and replicas are bounded by node count.
+
+⚠️ THE UDP RANGE MUST BE REACHABLE. If 50000-50200/udp is blocked by a security
+group or a network policy, calls connect, list participants, and carry no audio
+or video. It reads exactly like an application bug and is not one.
+*/}}
+{{- if .Values.livekit.enabled }}
+{{- $root := . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: livekit-config
+  labels:
+    {{- include "taskboard.labels" . | nindent 4 }}
+data:
+  livekit.yaml: |
+    port: {{ .Values.livekit.signalPort }}
+    rtc:
+      port_range_start: {{ .Values.livekit.udpPortRange.start }}
+      port_range_end: {{ .Values.livekit.udpPortRange.end }}
+      # TCP fallback for clients behind UDP-blocking networks (corporate
+      # proxies, some hotel and airline wifi). Without it those users see a
+      # black tile rather than a failed call.
+      tcp_port: {{ .Values.livekit.tcpPort }}
+      use_external_ip: {{ .Values.livekit.useExternalIP }}
+    {{- if .Values.livekit.redis.enabled }}
+    # ── Multi-node ───────────────────────────────────────────────────────────
+    # Redis is what makes LiveKit multi-node: participants in one room may land
+    # on different SFU instances and still see each other, because the nodes
+    # coordinate room ownership through it.
+    #
+    # This is OFF in the compose deployment for a specific reason that does NOT
+    # apply here — there, the SFU runs with host networking on the Docker bridge
+    # and cannot resolve the `redis` service name. In Kubernetes a hostNetwork
+    # pod still reaches a ClusterIP Service, so the constraint disappears and
+    # multi-node is simply a matter of pointing at Redis.
+    redis:
+      address: {{ .Values.livekit.redis.address | quote }}
+      {{- with .Values.livekit.redis.db }}
+      db: {{ . }}
+      {{- end }}
+    {{- end }}
+    logging:
+      level: {{ .Values.livekit.logLevel }}
+      json: true
+    room:
+      # Rooms are created implicitly when the first token-bearing participant
+      # joins, because messaging-svc has already decided the room may exist —
+      # requiring an explicit create call would be a second place that can
+      # disagree about it.
+      auto_create: true
+      empty_timeout: {{ .Values.livekit.emptyTimeoutSeconds }}
+      max_participants: {{ .Values.livekit.maxParticipants }}
+    turn:
+      # coturn already runs for the 1:1 path (see coturn.yaml); LiveKit's
+      # embedded TURN stays off so the two do not fight over 3478/5349.
+      enabled: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: livekit
+  labels:
+    {{- include "taskboard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: livekit
+spec:
+  # Bounded by node count, not by load: hostNetwork means one SFU per node.
+  replicas: {{ .Values.livekit.replicas }}
+  selector:
+    matchLabels:
+      {{- include "taskboard.svcSelectorLabels" (dict "root" $root "svc" "livekit") | nindent 6 }}
+      app.kubernetes.io/component: livekit
+  template:
+    metadata:
+      labels:
+        {{- include "taskboard.svcSelectorLabels" (dict "root" $root "svc" "livekit") | nindent 8 }}
+        app.kubernetes.io/component: livekit
+      annotations:
+        # Roll the pods when the config changes; without this a values edit
+        # leaves the old ConfigMap mounted until something else forces a restart.
+        #
+        # Hashes the VALUES, not the rendered file. The usual recipe —
+        # `include (print $.Template.BasePath "/livekit.yaml")` — works only
+        # when the ConfigMap lives in a different file from the Deployment. Here
+        # they share one, so including it would re-render this annotation, which
+        # includes it again: infinite recursion at template time.
+        checksum/config: {{ toYaml .Values.livekit | sha256sum }}
+    spec:
+      hostNetwork: true
+      # Required with hostNetwork, or the pod resolves cluster DNS against the
+      # node's resolver and cannot reach the Redis Service by name — which is
+      # precisely what multi-node mode depends on.
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- with .Values.livekit.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.livekit.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      # One SFU per node: they would otherwise collide on the host UDP range,
+      # and the second pod would fail to bind in a way that looks like a crash
+      # loop rather than a scheduling conflict.
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  {{- include "taskboard.svcSelectorLabels" (dict "root" $root "svc" "livekit") | nindent 18 }}
+                  app.kubernetes.io/component: livekit
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: livekit
+          image: {{ .Values.livekit.image }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          args: ["--config", "/etc/livekit/livekit.yaml"]
+          env:
+            # key: secret, the format LiveKit expects. Kept in the environment
+            # rather than the mounted config so the secret is not in a
+            # ConfigMap, which is not a secret store.
+            #
+            # LIVEKIT_API_SECRET can mint anyone into any room, so it is a
+            # credential of database weight. messaging-svc holds the same pair
+            # and is the only thing that decides who may have a token.
+            - name: LIVEKIT_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "taskboard.secretName" . }}
+                  key: LIVEKIT_KEYS
+          ports:
+            - name: signal
+              containerPort: {{ .Values.livekit.signalPort }}
+              protocol: TCP
+            - name: rtc-tcp
+              containerPort: {{ .Values.livekit.tcpPort }}
+              protocol: TCP
+          volumeMounts:
+            - name: config
+              mountPath: /etc/livekit
+              readOnly: true
+          resources:
+            {{- toYaml .Values.livekit.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /
+              port: {{ .Values.livekit.signalPort }}
+            initialDelaySeconds: 10
+            periodSeconds: 30
+      volumes:
+        - name: config
+          configMap:
+            name: livekit-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: livekit
+  labels:
+    {{- include "taskboard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: livekit
+spec:
+  # Signalling only. Media never passes through this Service — it goes directly
+  # to the node's host ports, which is the entire reason for hostNetwork.
+  selector:
+    {{- include "taskboard.svcSelectorLabels" (dict "root" $root "svc" "livekit") | nindent 4 }}
+    app.kubernetes.io/component: livekit
+  ports:
+    - name: signal
+      port: {{ .Values.livekit.signalPort }}
+      targetPort: {{ .Values.livekit.signalPort }}
+      protocol: TCP
+{{- end }}

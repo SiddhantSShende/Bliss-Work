@@ -77,20 +77,42 @@ func (s *Store) ListChannels(ctx context.Context, orgID, callerID string) ([]Cha
 	out := []ChannelDTO{}
 	// RLS: channel listing + per-row last-message decrypt run under app.org_id.
 	err := s.withOrg(ctx, orgID, func(tx pgx.Tx) error {
+		// The member count is aggregated ONCE for the whole result, not once per
+		// row. It used to be a correlated subquery in the select list —
+		// `(SELECT count(*) ... WHERE cm2.channel_id = c.id)` — which Postgres
+		// runs as a SubPlan per output row: a user in fifty channels of ten
+		// thousand members each counted half a million index entries every time
+		// they loaded the channel list.
+		//
+		// `mine` is materialised first so both the aggregate and the outer join
+		// are restricted to the caller's own channels; without that the count
+		// CTE would aggregate every membership in the org to answer a question
+		// about a handful of channels.
 		rows, err := tx.Query(ctx, `
+			WITH mine AS (
+			    SELECT channel_id, role
+			    FROM channel_members
+			    WHERE user_id = $2
+			),
+			counts AS (
+			    SELECT cm.channel_id, count(*) AS n
+			    FROM channel_members cm
+			    JOIN mine ON mine.channel_id = cm.channel_id
+			    GROUP BY cm.channel_id
+			)
 			SELECT
 			    c.id,
 			    c.name,
-			    (SELECT count(*) FROM channel_members cm2 WHERE cm2.channel_id = c.id) AS member_count,
+			    COALESCE(counts.n, 0) AS member_count,
 			    lm.body,
 			    lm.body_enc,
 			    c.last_msg_at,
 			    c.is_locked,
 			    c.created_by,
-			    cm.role
+			    mine.role
 			FROM channels c
-			JOIN channel_members cm
-			    ON cm.channel_id = c.id AND cm.user_id = $2
+			JOIN mine ON mine.channel_id = c.id
+			LEFT JOIN counts ON counts.channel_id = c.id
 			LEFT JOIN LATERAL (
 			    SELECT body, body_enc FROM channel_messages m
 			    WHERE m.channel_id = c.id

@@ -1,0 +1,19 @@
+[Unit]
+Description=Nightly BlissWork event-table retention
+
+[Timer]
+# 02:05, which puts it BEFORE the backup (blisswork-backup) deliberately: the
+# dump should capture the pruned table, not carry years of spent outbox rows
+# into every archive and every restore.
+#
+# Well clear of org-purge at 05:00, which is the destructive job and must run
+# after the most recent backup rather than before it.
+OnCalendar=*-*-* 02:05:00 UTC
+RandomizedDelaySec=300
+# If the host was off, run on the next boot rather than skipping — these tables
+# only ever grow, so a missed night is never made up on its own.
+Persistent=true
+Unit=blisswork-prune-event-tables.service
+
+[Install]
+WantedBy=timers.target

@@ -168,7 +168,7 @@ func writeLabel(w http.ResponseWriter, label string) {
 
 // cachedLabel reads a previously resolved label out of the blob cache.
 func (s *Server) cachedLabel(key string) (string, bool) {
-	f, _, err := s.blobs.CacheGet("geocode", key)
+	f, err := s.blobs.CacheGet("geocode", key)
 	if err != nil {
 		return "", false
 	}

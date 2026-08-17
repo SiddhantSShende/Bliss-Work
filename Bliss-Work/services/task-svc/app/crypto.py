@@ -52,7 +52,16 @@ class CryptoError(Exception):
 
 # ── KEK providers ────────────────────────────────────────────────────────────
 class KEKProvider(Protocol):
-    """Wraps/unwraps a per-org DEK. ``version`` lets the KEK itself rotate."""
+    """Wraps/unwraps a per-org DEK. ``version`` lets the KEK itself rotate.
+
+    ``blocking`` declares whether wrap/unwrap perform NETWORK I/O. It exists so
+    the Cryptor can push a provider that does off the event loop — see
+    ``Cryptor._wrap``/``_unwrap``. Getting it wrong in the False direction
+    stalls every request the pod is serving; in the True direction it costs a
+    pointless thread hop, so the safe default for a new provider is True.
+    """
+
+    blocking: bool
 
     def wrap(self, org_id: str, dek: bytes) -> tuple[bytes, int]: ...
     def unwrap(self, org_id: str, wrapped: bytes, version: int) -> bytes: ...
@@ -64,6 +73,10 @@ class DevKEKProvider:
     The wrapped DEK is ``nonce(12) || AES-256-GCM(dek)`` under the master KEK, with
     AAD = org_id. NOT for production — prod uses KMSKEKProvider.
     """
+
+    # Pure CPU: an AES-GCM operation on 32 bytes, measured in microseconds. It
+    # would cost more to hand to a thread than to run inline.
+    blocking = False
 
     def __init__(self, passphrase: str, salt: bytes, version: int = 1) -> None:
         if not passphrase or len(salt) < 16:
@@ -98,9 +111,14 @@ class KMSKEKProvider:
     ``aws-kms``/``gcp-kms`` raise NotImplemented until wired.
 
     The wrapped DEK we store is Vault's self-describing ``vault:vN:...`` ciphertext
-    string, so a Vault-side KEK rotation is transparent on decrypt. The HTTP call
-    is blocking, but the per-org DEK cache means it runs only on a cache miss /
-    rotation, not per query.
+    string, so a Vault-side KEK rotation is transparent on decrypt.
+
+    The HTTP call is synchronous, and the per-org DEK cache means it runs only on
+    a cache miss / rotation rather than per query — but "rare" is not "safe" on a
+    single-worker event loop. A pod serving many orgs misses regularly, and a
+    Vault that is merely SLOW then blocks the loop for up to the timeout on each
+    miss, stalling every unrelated request the pod is handling. That is why
+    ``blocking`` is set and the Cryptor dispatches these to a thread.
     """
 
     def __init__(
@@ -126,15 +144,52 @@ class KMSKEKProvider:
         self._token = vault_token
         self._version = version
 
-    def _transit(self, op: str, payload: dict) -> dict:
-        import httpx  # lazy: only imported when KMS is actually selected
+    # Network I/O. The Cryptor runs wrap/unwrap on a worker thread because of
+    # this flag; see Cryptor._unwrap for why that matters more than it looks.
+    blocking = True
 
+    def _client(self):
+        """One pooled client for the process, built on first use.
+
+        `httpx.post` (the module-level helper) opens a NEW connection, does a
+        TLS handshake and closes it, every single call. Against Vault that is
+        an extra round trip plus a handshake on the path that a DEK cache miss
+        already makes a user wait for. A shared Client keeps the connection
+        alive between calls.
+
+        Built lazily and cached on the instance: importing httpx at module
+        scope would load it for every deployment, and only the KMS path needs
+        it. `httpx.Client` is thread-safe, which is the precondition for
+        handing it to `asyncio.to_thread` from several requests at once.
+        """
+        client = getattr(self, "_http", None)
+        if client is None:
+            import httpx  # lazy: only imported when KMS is actually selected
+
+            client = httpx.Client(
+                timeout=5.0,
+                # Small: this is only touched on a DEK cache miss, and an
+                # unbounded pool against a KEK service is a way to turn a Vault
+                # slowdown into a connection storm.
+                limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
+            )
+            self._http = client
+        return client
+
+    def _transit(self, op: str, payload: dict) -> dict:
+        """One Vault Transit call. SYNCHRONOUS BY DESIGN — see the class note.
+
+        This must only ever be reached from a worker thread (Cryptor dispatches
+        via asyncio.to_thread when `blocking` is set). Calling it directly from
+        a coroutine blocks the event loop for up to the 5s timeout, which on a
+        one-worker uvicorn stalls every other in-flight request on the pod —
+        turning a slow Vault into a total outage of unrelated traffic.
+        """
         try:
-            resp = httpx.post(
+            resp = self._client().post(
                 f"{self._addr}/v1/transit/{op}/{self._key}",
                 json=payload,
                 headers={"X-Vault-Token": self._token},
-                timeout=5.0,
             )
             resp.raise_for_status()
             return resp.json()["data"]
@@ -170,6 +225,35 @@ class Cryptor:
     def blind_index(self, value: str) -> bytes:
         norm = value.strip().lower().encode("utf-8")
         return hmac.new(self._bidx_key, norm, hashlib.sha256).digest()
+
+    # ── Keeping KEK I/O off the event loop ───────────────────────────────────
+    #
+    # These services run ONE uvicorn worker, so there is one event loop per pod.
+    # A synchronous HTTP call from a coroutine does not merely make that request
+    # slow — it stalls every other in-flight request on the pod: health probes,
+    # token refreshes, unrelated reads, all of them queued behind a Vault round
+    # trip. If Vault is slow rather than down, each DEK cache miss blocks for up
+    # to the 5s timeout, which is enough to make a pod serve nothing at all. A
+    # degraded dependency becomes a total outage of unrelated traffic.
+    #
+    # `asyncio.to_thread` is the same tool the Argon2 hashing already uses, for
+    # the same reason and with the same shape. The dispatch is conditional on
+    # the provider declaring `blocking`, so the dev provider — a microsecond of
+    # AES-GCM — stays inline rather than paying a thread hop it does not need.
+    #
+    # LATENT UNTIL KMS IS TURNED ON: DATA_KEK_PROVIDER defaults to `dev`, so
+    # this path does not run today. It is fixed now precisely because it would
+    # otherwise be discovered by enabling KMS in production.
+
+    async def _wrap(self, org_id: str, dek: bytes) -> tuple[bytes, int]:
+        if getattr(self._kek, "blocking", True):
+            return await asyncio.to_thread(self._kek.wrap, org_id, dek)
+        return self._kek.wrap(org_id, dek)
+
+    async def _unwrap(self, org_id: str, wrapped: bytes, version: int) -> bytes:
+        if getattr(self._kek, "blocking", True):
+            return await asyncio.to_thread(self._kek.unwrap, org_id, wrapped, version)
+        return self._kek.unwrap(org_id, wrapped, version)
 
     async def encrypt(self, conn: AsyncConnection, org_id: str, plaintext: str | None) -> bytes | None:
         if plaintext is None:
@@ -227,7 +311,7 @@ class Cryptor:
                 dek, version = await self._generate_dek(conn, org_id)
             else:
                 version = int(row.key_version)
-                dek = self._kek.unwrap(org_id, bytes(row.wrapped_dek), version)
+                dek = await self._unwrap(org_id, bytes(row.wrapped_dek), version)
             expiry = time.monotonic() + self._ttl
             self._current[org_id] = (dek, version, expiry)
             self._dek_cache[(org_id, version)] = (dek, expiry)
@@ -246,14 +330,14 @@ class Cryptor:
         ).first()
         if row is None:
             raise CryptoError(f"no DEK for org {org_id} version {version} (crypto-shredded?)")
-        dek = self._kek.unwrap(org_id, bytes(row.wrapped_dek), version)
+        dek = await self._unwrap(org_id, bytes(row.wrapped_dek), version)
         self._dek_cache[(org_id, version)] = (dek, time.monotonic() + self._ttl)
         return dek
 
     async def _generate_dek(self, conn: AsyncConnection, org_id: str) -> tuple[bytes, int]:
         dek = os.urandom(32)
         version = 1
-        wrapped, _kek_ver = self._kek.wrap(org_id, dek)
+        wrapped, _kek_ver = await self._wrap(org_id, dek)
         await conn.execute(
             text(
                 "INSERT INTO org_keys (org_id, key_version, wrapped_dek) "
@@ -270,7 +354,7 @@ class Cryptor:
         ).first()
         if row is None:
             return dek, version  # our INSERT is in-flight in this same tx
-        return self._kek.unwrap(org_id, bytes(row.wrapped_dek), int(row.key_version)), int(row.key_version)
+        return await self._unwrap(org_id, bytes(row.wrapped_dek), int(row.key_version)), int(row.key_version)
 
     async def rotate_dek(self, conn: AsyncConnection, org_id: str) -> tuple[int, int]:
         """Rotate the org's DEK: create a new generation and retire the current one.
@@ -296,7 +380,7 @@ class Cryptor:
             old_version = int(cur.key_version) if cur is not None else 0
             new_version = int(max_v) + 1
             new_dek = os.urandom(32)
-            wrapped, _ = self._kek.wrap(org_id, new_dek)
+            wrapped, _ = await self._wrap(org_id, new_dek)
             await conn.execute(
                 text(
                     "INSERT INTO org_keys (org_id, key_version, wrapped_dek) VALUES (:o, :v, :w)"

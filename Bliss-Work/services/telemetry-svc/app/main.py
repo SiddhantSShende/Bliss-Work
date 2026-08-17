@@ -17,7 +17,7 @@ from .crypto import init_cryptor
 from .db import dispose_engine, get_engine, init_engine, run_migrations
 from .errors import register_exception_handlers
 from .logging_setup import configure_logging, log
-from .middleware import BodySizeLimitMiddleware, RequestIDMiddleware, SecurityHeadersMiddleware
+from .middleware import BodySizeLimitMiddleware, PrincipalMiddleware, RequestIDMiddleware, SecurityHeadersMiddleware
 from .rate_limit import limiter, rate_limit_handler
 from .routes.agent import router as agent_router
 from .routes.analytics import router as analytics_router
@@ -65,6 +65,10 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
 
 app.add_middleware(SlowAPIMiddleware)
+# Verifies the bearer token and caches the Principal on request.state, so
+# SlowAPI (added above, therefore INNER, therefore running after this) can
+# bucket by user instead of falling through to IP for every caller.
+app.add_middleware(PrincipalMiddleware)
 app.add_middleware(RequestIDMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(BodySizeLimitMiddleware)

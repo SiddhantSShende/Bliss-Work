@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { NavLink } from "react-router-dom";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Plus, Hash, Lock, Globe, LogIn, Compass } from "lucide-react";
 import { Button, EmptyState } from "@taskboard/ui";
@@ -25,6 +25,10 @@ import { CreateChannelDialog } from "../features/CreateChannelDialog";
  */
 type Tab = "mine" | "browse";
 
+/** Browse page size. Matches the server's default so the first page is one
+ *  request, and stays well under its max of 200. */
+const OPEN_PAGE = 50;
+
 export function ChannelsList() {
   const { api } = useRuntime();
   const qc = useQueryClient();
@@ -35,11 +39,26 @@ export function ChannelsList() {
     queryKey: qk.channels,
     queryFn: () => api.channels(),
   });
-  const { data: open = [] } = useQuery({
+  // Browse lists every open channel in the ORG, so it is paged — the directory
+  // grows with the customer, and an org with thousands of channels would
+  // otherwise fetch and render all of them to show the first screenful.
+  //
+  // A short page means the end of the directory: the server clamps the limit and
+  // returns fewer rows than asked for only when it has run out.
+  const {
+    data: openPages,
+    fetchNextPage: fetchMoreOpen,
+    hasNextPage: hasMoreOpen,
+    isFetchingNextPage: fetchingMoreOpen,
+  } = useInfiniteQuery({
     queryKey: qk.openChannels,
-    queryFn: () => api.openChannels(),
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) => api.openChannels({ limit: OPEN_PAGE, offset: pageParam }),
+    getNextPageParam: (last, all) =>
+      last.length < OPEN_PAGE ? undefined : all.length * OPEN_PAGE,
     enabled: tab === "browse",
   });
+  const open: ChannelDTO[] = openPages?.pages.flat() ?? [];
 
   const joinMut = useMutation({
     mutationFn: (channelId: string) => api.joinChannel(channelId),
@@ -91,14 +110,28 @@ export function ChannelsList() {
             hint="Open channels created by your teammates will show up here."
           />
         ) : (
-          open.map((c) => (
-            <OpenChannelRow
-              key={c.id}
-              channel={c}
-              onJoin={() => joinMut.mutate(c.id)}
-              joining={joinMut.isPending && joinMut.variables === c.id}
-            />
-          ))
+          <>
+            {open.map((c) => (
+              <OpenChannelRow
+                key={c.id}
+                channel={c}
+                onJoin={() => joinMut.mutate(c.id)}
+                joining={joinMut.isPending && joinMut.variables === c.id}
+              />
+            ))}
+            {hasMoreOpen && (
+              <div className="px-3 py-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  loading={fetchingMoreOpen}
+                  onClick={() => void fetchMoreOpen()}
+                >
+                  Load more
+                </Button>
+              </div>
+            )}
+          </>
         )}
       </div>
       <CreateChannelDialog open={newOpen} onClose={() => setNewOpen(false)} />

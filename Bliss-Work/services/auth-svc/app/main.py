@@ -17,7 +17,12 @@ from .db import engine, run_migrations
 from .errors import register_exception_handlers
 from .events.poller import OutboxPoller
 from .logging_config import configure_logging, log
-from .middleware import BodySizeLimitMiddleware, RequestIDMiddleware, SecurityHeadersMiddleware
+from .middleware import (
+    BodySizeLimitMiddleware,
+    PrincipalMiddleware,
+    RequestIDMiddleware,
+    SecurityHeadersMiddleware,
+)
 from .rate_limit import SensitiveRateLimitMiddleware, limiter, rate_limit_handler
 from .routes import auth as auth_routes
 from .routes import email_verify as email_verify_routes
@@ -87,6 +92,13 @@ app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
 # even on 429/500 responses), then security headers, then request-id (innermost
 # so it tags structlog before any handler runs and is visible to nested logs).
 app.add_middleware(SlowAPIMiddleware)
+# Verifies the bearer token and caches the Principal on request.state, so
+# SlowAPI (added above, therefore INNER, therefore runs after this) can bucket
+# by user instead of falling through to IP for everyone. Deliberately placed
+# INSIDE SensitiveRateLimitMiddleware: the tight per-IP budgets on the
+# credential endpoints must be spent before we do any signature work, or the
+# limiter stops protecting the thing it is in front of.
+app.add_middleware(PrincipalMiddleware)
 # Tight per-IP limits on login/orgs/refresh (runs just outside SlowAPI, after
 # RequestID so its 429 carries the request id).
 app.add_middleware(SensitiveRateLimitMiddleware)

@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/task-board/messaging-svc/internal/events"
+	"github.com/task-board/messaging-svc/internal/readcache"
 )
 
 // CreateChannel creates a group channel owned by creator and seeds its members.
@@ -74,31 +75,105 @@ func (s *Store) AddChannelMembers(ctx context.Context, orgID, channelID, callerI
 	if err := requireChannelMember(ctx, tx, orgID, channelID, callerID); err != nil {
 		return err
 	}
-	for _, uid := range dedupeMembers("", memberIDs) {
-		// Re-adding a blocked user would silently undo a moderation decision.
-		// 403 rather than skipping, so the caller learns why.
-		if blocked, err := isBlocked(ctx, tx, channelID, uid); err != nil {
+
+	ids := dedupeMembers("", memberIDs)
+	if len(ids) == 0 {
+		return tx.Commit(ctx)
+	}
+
+	// ── Set-based, not row-by-row ────────────────────────────────────────────
+	//
+	// This used to loop, and each iteration cost four round trips: a block
+	// check, an existence check, the insert, and an outbox insert for the ones
+	// that were new. Adding a department to a channel — 500 people — was
+	// therefore ~2,000 sequential statements inside ONE transaction, holding
+	// its locks and its snapshot open for the whole time.
+	//
+	// That is expensive twice over. The latency is the obvious half; the half
+	// that matters at scale is that a long-lived transaction holds back the
+	// xmin horizon, so autovacuum cannot reclaim dead tuples anywhere in the
+	// database while it runs. A bulk membership change became a vacuum stall.
+	//
+	// Every step below is one statement over the whole list, so the cost is
+	// four round trips total rather than four per member.
+
+	// 1. Blocks. Re-adding a blocked user would silently undo a moderation
+	//    decision, so this is 403 for the whole request rather than skipping
+	//    the individual — the caller asked for something it may not have, and
+	//    partially honouring it would be worse than refusing.
+	var blockedCount int
+	if err := tx.QueryRow(ctx,
+		`SELECT count(*) FROM channel_blocks WHERE channel_id = $1 AND user_id = ANY($2)`,
+		channelID, ids).Scan(&blockedCount); err != nil {
+		return err
+	}
+	if blockedCount > 0 {
+		return ErrForbidden
+	}
+
+	// 2. Insert, and let Postgres tell us which rows were actually new.
+	//    RETURNING on an ON CONFLICT DO NOTHING yields ONLY the inserted rows,
+	//    which is exactly the "was this a new member" answer the old existence
+	//    check was making a separate query for — and it is race-free, where two
+	//    concurrent adds of the same person could both have read "not a member"
+	//    and both emitted a joined event.
+	rows, err := tx.Query(ctx,
+		`INSERT INTO channel_members (channel_id, org_id, user_id)
+		 SELECT $1, $2, unnest($3::uuid[])
+		 ON CONFLICT (channel_id, user_id) DO NOTHING
+		 RETURNING user_id::text`,
+		channelID, orgID, ids)
+	if err != nil {
+		return err
+	}
+	var added []string
+	for rows.Next() {
+		var uid string
+		if err := rows.Scan(&uid); err != nil {
+			rows.Close()
 			return err
-		} else if blocked {
-			return ErrForbidden
 		}
-		var alreadyMember bool
-		err := tx.QueryRow(ctx,
-			`SELECT EXISTS (SELECT 1 FROM channel_members WHERE channel_id = $1 AND user_id = $2)`,
-			channelID, uid).Scan(&alreadyMember)
-		if err != nil {
-			return err
-		}
-		if err := s.insertChannelMember(ctx, tx, channelID, orgID, uid); err != nil {
-			return err
-		}
-		if !alreadyMember {
-			if err := emitChannelMemberJoined(ctx, tx, orgID, channelID, uid); err != nil {
-				return err
-			}
-		}
+		added = append(added, uid)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(added) == 0 {
+		return tx.Commit(ctx) // everyone was already a member; nothing to announce
+	}
+
+	// 3. Names for the new members, in one lookup rather than one each.
+	names, err := usernames(ctx, tx, added)
+	if err != nil {
+		return err
+	}
+
+	// 4. One outbox row per genuinely-new member, inserted together. The events
+	//    stay individual — each names one person, and a consumer that had to
+	//    unpack a batch would be a contract change for no benefit — but they no
+	//    longer cost a round trip each.
+	if err := insertOutboxBatch(ctx, tx, channelID, memberJoinedEvents(orgID, channelID, added, names)); err != nil {
+		return err
 	}
 	return tx.Commit(ctx)
+}
+
+// memberJoinedEvents builds one ChannelMemberJoined per newly-added member.
+func memberJoinedEvents(orgID, channelID string, userIDs []string, names map[string]string) []any {
+	out := make([]any, 0, len(userIDs))
+	for _, uid := range userIDs {
+		out = append(out, events.ChannelMemberJoined{
+			Type:       events.TypeChannelMemberJoined,
+			EventID:    uuid.Must(uuid.NewV7()).String(),
+			OrgID:      orgID,
+			OccurredAt: nowISO(),
+			ChannelID:  channelID,
+			UserID:     uid,
+			Username:   names[uid],
+		})
+	}
+	return out
 }
 
 // SendChannelMessage appends a message to a channel. Caller must be a member.
@@ -177,7 +252,7 @@ func (s *Store) SendChannelMessage(ctx context.Context, orgID, channelID, sender
 	// renders the same as one that came back from a refetch. Sending only the
 	// username made a live message flip from "Jane Okafor" to "j.okafor" until
 	// the next fetch.
-	senderName, senderDisplay, err := userNames(ctx, tx, senderID)
+	senderName, senderDisplay, err := s.cachedUserNames(ctx, tx, orgID, senderID)
 	if err != nil {
 		return nil, err
 	}
@@ -261,6 +336,58 @@ func channelMemberIDs(ctx context.Context, tx pgx.Tx, channelID string) ([]strin
 	return out, rows.Err()
 }
 
+// cachedUserName is a user_projection row as it is cached.
+//
+// A named struct rather than a tuple because it is serialised into Redis and
+// survives across deploys: a field added later is decoded as its zero value by
+// an older pod, and an unknown field is ignored by a newer one. A JSON array
+// would break on both.
+type cachedUserName struct {
+	Username    string `json:"u"`
+	DisplayName string `json:"d"`
+}
+
+// cachedUserNames is userNames, served from the read cache when it can be.
+//
+// ── Why this path in particular ──────────────────────────────────────────────
+// This is the hottest user_projection read in the service: every channel
+// message send resolves its sender's names to stamp them onto the outbox event,
+// so it runs once per message on the platform's busiest write path. The row is
+// two short strings and changes only when somebody is renamed.
+//
+// ── The org id is a security parameter, not a convenience ────────────────────
+// `user_projection` is RLS-protected (0007_rls.sql) and org-scoped, so the
+// database's answer depends on WHO IS ASKING — a caller in another org gets no
+// row. The cache key therefore has to carry the org, or a value cached for one
+// organisation would be served to another. See readcache.UserKey.
+//
+// orgID here is the caller's verified org from the JWT, the same value already
+// used to set the transaction's `app.org_id` GUC — so the cache is keyed on
+// exactly the thing that scoped the query it is caching.
+//
+// A miss, a timeout or an unreachable Redis all fall through to the query,
+// which is what would have happened without a cache at all.
+func (s *Store) cachedUserNames(
+	ctx context.Context, tx pgx.Tx, orgID, userID string,
+) (uname, display string, err error) {
+	key := readcache.UserKey(orgID, userID)
+	if hit, ok := readcache.GetJSON[cachedUserName](ctx, s.cache, key); ok {
+		return hit.Username, hit.DisplayName, nil
+	}
+	uname, display, err = userNames(ctx, tx, userID)
+	if err != nil {
+		return "", "", err
+	}
+	// A user with no projection row yields ("", ""), and that IS cached: an
+	// unknown user is the steady state for a member whose user.created event
+	// has not been consumed yet, and not caching it would send every message
+	// they touch to the database. The TTL bounds how long that lasts, and the
+	// consumer invalidates the moment the row arrives.
+	readcache.SetJSON(ctx, s.cache, key,
+		cachedUserName{Username: uname, DisplayName: display}, readcache.UserTTL)
+	return uname, display, nil
+}
+
 // userNames resolves both projected names for a user; either may be empty if
 // unknown. Callers that render a person should prefer displayName and fall back
 // to username, which is only the EMAIL LOCAL-PART (see auth-svc signup).
@@ -272,6 +399,35 @@ func userNames(ctx context.Context, tx pgx.Tx, userID string) (uname, display st
 		return "", "", nil
 	}
 	return uname, display, err
+}
+
+// usernames resolves many projected usernames in one round trip.
+//
+// The batch form of `username`, and it exists for the same reason
+// AddChannelMembers is now set-based: resolving a name per member turned a bulk
+// membership change into one query per person. Users with no projection row are
+// simply absent from the map, and callers read a missing key as "" — the same
+// answer `username` gives for an unknown user.
+func usernames(ctx context.Context, tx pgx.Tx, userIDs []string) (map[string]string, error) {
+	out := make(map[string]string, len(userIDs))
+	if len(userIDs) == 0 {
+		return out, nil
+	}
+	rows, err := tx.Query(ctx,
+		`SELECT user_id::text, COALESCE(username, '')
+		   FROM user_projection WHERE user_id = ANY($1)`, userIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, name string
+		if err := rows.Scan(&id, &name); err != nil {
+			return nil, err
+		}
+		out[id] = name
+	}
+	return out, rows.Err()
 }
 
 // username resolves a user_projection username, empty if unknown.

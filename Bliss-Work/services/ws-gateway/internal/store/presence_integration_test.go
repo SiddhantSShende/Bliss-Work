@@ -51,9 +51,9 @@ func cleanup(t *testing.T, s *Store, orgID string, userIDs ...string) {
 	t.Helper()
 	t.Cleanup(func() {
 		ctx := context.Background()
-		keys := []string{orgPresenceKey(orgID)}
+		keys := []string{s.orgPresenceKey(orgID)}
 		for _, u := range userIDs {
-			keys = append(keys, presenceKey(u))
+			keys = append(keys, s.presenceKey(u))
 		}
 		_ = s.rdb.Del(ctx, keys...).Err()
 	})
@@ -121,10 +121,10 @@ func TestIntegrationStalePresenceIsReapedOnRead(t *testing.T) {
 	stale := float64(time.Now().Add(-2 * presenceStaleAfter).UnixMilli())
 	// Exactly what a crashed node leaves behind: present in both keys, last
 	// heartbeat well in the past, and nothing that will ever remove it.
-	if err := s.rdb.ZAdd(ctx, presenceKey(user), redis.Z{Score: stale, Member: "dead-node:conn-x"}).Err(); err != nil {
+	if err := s.rdb.ZAdd(ctx, s.presenceKey(user), redis.Z{Score: stale, Member: "dead-node:conn-x"}).Err(); err != nil {
 		t.Fatalf("seed user key: %v", err)
 	}
-	if err := s.rdb.ZAdd(ctx, orgPresenceKey(org), redis.Z{Score: stale, Member: user}).Err(); err != nil {
+	if err := s.rdb.ZAdd(ctx, s.orgPresenceKey(org), redis.Z{Score: stale, Member: user}).Err(); err != nil {
 		t.Fatalf("seed org key: %v", err)
 	}
 
@@ -137,7 +137,7 @@ func TestIntegrationStalePresenceIsReapedOnRead(t *testing.T) {
 	}
 
 	// Reaped, not merely filtered — the next reader must not have to re-do it.
-	n, err := s.rdb.ZCard(ctx, orgPresenceKey(org)).Result()
+	n, err := s.rdb.ZCard(ctx, s.orgPresenceKey(org)).Result()
 	if err != nil || n != 0 {
 		t.Fatalf("org key still holds %d member(s) (err %v), want 0", n, err)
 	}
@@ -159,7 +159,7 @@ func TestIntegrationReconnectAfterNodeDeathReAnnounces(t *testing.T) {
 	cleanup(t, s, org, user)
 
 	stale := float64(time.Now().Add(-2 * presenceStaleAfter).UnixMilli())
-	if err := s.rdb.ZAdd(ctx, orgPresenceKey(org), redis.Z{Score: stale, Member: user}).Err(); err != nil {
+	if err := s.rdb.ZAdd(ctx, s.orgPresenceKey(org), redis.Z{Score: stale, Member: user}).Err(); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 
@@ -180,10 +180,10 @@ func TestIntegrationTouchKeepsAConnectionFresh(t *testing.T) {
 	cleanup(t, s, org, user)
 
 	stale := float64(time.Now().Add(-2 * presenceStaleAfter).UnixMilli())
-	if err := s.rdb.ZAdd(ctx, presenceKey(user), redis.Z{Score: stale, Member: "node-1:conn-a"}).Err(); err != nil {
+	if err := s.rdb.ZAdd(ctx, s.presenceKey(user), redis.Z{Score: stale, Member: "node-1:conn-a"}).Err(); err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
-	if err := s.rdb.ZAdd(ctx, orgPresenceKey(org), redis.Z{Score: stale, Member: user}).Err(); err != nil {
+	if err := s.rdb.ZAdd(ctx, s.orgPresenceKey(org), redis.Z{Score: stale, Member: user}).Err(); err != nil {
 		t.Fatalf("seed org: %v", err)
 	}
 
@@ -197,7 +197,7 @@ func TestIntegrationTouchKeepsAConnectionFresh(t *testing.T) {
 	}
 	// Both keys must be refreshed. Touching only the connection key would let a
 	// connected user age out of the org view, which is the view /presence reads.
-	if score, err := s.rdb.ZScore(ctx, orgPresenceKey(org), user).Result(); err != nil || score <= stale {
+	if score, err := s.rdb.ZScore(ctx, s.orgPresenceKey(org), user).Result(); err != nil || score <= stale {
 		t.Fatalf("org score not refreshed: %v (err %v)", score, err)
 	}
 }
@@ -220,7 +220,7 @@ func TestIntegrationPresenceKeysExpire(t *testing.T) {
 		t.Fatalf("TouchPresence: %v", err)
 	}
 
-	for name, key := range map[string]string{"user": presenceKey(user), "org": orgPresenceKey(org)} {
+	for name, key := range map[string]string{"user": s.presenceKey(user), "org": s.orgPresenceKey(org)} {
 		ttl, err := s.rdb.TTL(ctx, key).Result()
 		if err != nil {
 			t.Fatalf("TTL %s: %v", name, err)

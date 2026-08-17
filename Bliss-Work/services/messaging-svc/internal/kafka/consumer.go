@@ -14,6 +14,7 @@ import (
 
 	"github.com/task-board/messaging-svc/internal/blob"
 	"github.com/task-board/messaging-svc/internal/events"
+	"github.com/task-board/messaging-svc/internal/kafkaauth"
 	"github.com/task-board/messaging-svc/internal/store"
 	"github.com/task-board/messaging-svc/internal/tracing"
 )
@@ -42,13 +43,13 @@ type AuthConsumer struct {
 	// blobs is needed for org deletion and nothing else. Attachment BYTES live
 	// on disk rather than in Postgres and are not application-encrypted, so
 	// neither the database purge nor the crypto-shred reaches them.
-	blobs *blob.Store
+	blobs blob.Store
 	log   *slog.Logger
 	r     *kafka.Reader
 }
 
 // NewAuthConsumer builds a reader bound to the "messaging-svc" consumer group.
-func NewAuthConsumer(st *store.Store, blobs *blob.Store, brokers []string, log *slog.Logger) *AuthConsumer {
+func NewAuthConsumer(st *store.Store, blobs blob.Store, brokers []string, log *slog.Logger) *AuthConsumer {
 	r := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:        brokers,
 		GroupID:        "messaging-svc",
@@ -56,6 +57,9 @@ func NewAuthConsumer(st *store.Store, blobs *blob.Store, brokers []string, log *
 		MinBytes:       1,
 		MaxBytes:       10e6,
 		CommitInterval: time.Second,
+		// nil unless KAFKA_SECURITY_PROTOCOL asks for TLS/SASL, which is
+		// exactly what ReaderConfig wants for an unauthenticated broker.
+		Dialer: kafkaauth.Dialer(),
 	})
 	return &AuthConsumer{store: st, blobs: blobs, log: log, r: r}
 }

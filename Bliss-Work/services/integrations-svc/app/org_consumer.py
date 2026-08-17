@@ -28,9 +28,24 @@ from sqlalchemy import text
 from .config import settings
 from .db import session, set_bypass_rls
 from .logging_setup import log
+from .kafka_security import kafka_security_kwargs
 
 _TOPIC = "auth.events"
 _GROUP_ID = "integrations-svc"
+
+# ── Batch sizing ─────────────────────────────────────────────────────────────
+#
+# The smallest of the three batched consumers, and honestly the one with least
+# to gain: auth.events is low-volume and this consumer acts on `org.deleted`
+# alone. It is batched anyway because the old loop paid a SYNCHRONOUS offset
+# commit per message to record that it had ignored one, and because three
+# consumers that fetch the same way are easier to reason about than two that do
+# and one that does not.
+#
+# The handler keeps its own session and commit; only the fetch and the
+# acknowledgement are batched.
+_MAX_BATCH_SIZE = 200
+_BATCH_LINGER_MS = 250
 
 # Ordered children-before-parents. provider_identities and provider_activity
 # reference a connection; oauth_states and connection_verifications are
@@ -95,18 +110,34 @@ class OrgLifecycleConsumer:
                 self._consumer = AIOKafkaConsumer(
                     _TOPIC,
                     bootstrap_servers=settings.kafka_brokers,
+                    # TLS/SASL when KAFKA_SECURITY_PROTOCOL asks for it; empty otherwise.
+                    **kafka_security_kwargs(),
                     group_id=_GROUP_ID,
                     enable_auto_commit=False,
                     auto_offset_reset="latest",
                 )
                 await self._consumer.start()
                 log.info("org_consumer_started", topic=_TOPIC, group=_GROUP_ID)
-                async for msg in self._consumer:
-                    if self._stop.is_set():
-                        break
-                    await self._handle(msg.value)
-                    # Commit after handling: an unhandled message redelivers,
-                    # which is safe because the handler is idempotent.
+                while not self._stop.is_set():
+                    batches = await self._consumer.getmany(
+                        timeout_ms=_BATCH_LINGER_MS, max_records=_MAX_BATCH_SIZE
+                    )
+                    if not batches:
+                        continue
+                    stopped = False
+                    for _tp, messages in batches.items():
+                        for msg in messages:
+                            if self._stop.is_set():
+                                stopped = True
+                                break
+                            await self._handle(msg.value)
+                        if stopped:
+                            break
+                    # Commit once per fetch, after handling. An uncommitted
+                    # message redelivers, which is safe because the handler is
+                    # idempotent — and that is also what makes batching safe
+                    # here: a throw anywhere in the fetch skips this commit, so
+                    # the whole batch is redelivered and re-purged harmlessly.
                     await self._consumer.commit()
             except asyncio.CancelledError:
                 return

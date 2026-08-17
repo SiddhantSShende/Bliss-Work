@@ -12,7 +12,7 @@ import (
 // non-null `online` array. A nil slice must serialize to [] (never null) so the
 // client's z.array(...) parse never rejects it.
 func TestSnapshotRaw(t *testing.T) {
-	b := New(nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	b := New(nil, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	raw, err := b.SnapshotRaw("org-1", nil)
 	if err != nil {
@@ -42,7 +42,7 @@ func TestSnapshotRaw(t *testing.T) {
 
 // TestSnapshotRawPreservesMembers ensures the online set round-trips intact.
 func TestSnapshotRawPreservesMembers(t *testing.T) {
-	b := New(nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	b := New(nil, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	raw, err := b.SnapshotRaw("org-1", []string{"u1", "u2"})
 	if err != nil {
 		t.Fatalf("SnapshotRaw error: %v", err)

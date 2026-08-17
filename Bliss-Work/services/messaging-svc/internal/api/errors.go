@@ -16,6 +16,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/task-board/messaging-svc/internal/livekit"
 	mw "github.com/task-board/messaging-svc/internal/middleware"
 	"github.com/task-board/messaging-svc/internal/store"
 )
@@ -102,6 +103,32 @@ func mapStoreError(err error) (int, ErrorCode, string) {
 			"a channel must keep an owner — transfer ownership first"
 	case errors.Is(err, store.ErrForbidden):
 		return http.StatusForbidden, CodeForbidden, "forbidden"
+	case errors.Is(err, store.ErrInviteInvalid):
+		// 404, not 403. A 403 would confirm the token names a real meeting,
+		// turning this endpoint into an oracle for guessing links; and the
+		// store deliberately collapses unknown/expired/revoked/spent into one
+		// error so the status cannot distinguish them either.
+		return http.StatusNotFound, CodeNotFound, "this invite link is no longer valid"
+	case errors.Is(err, store.ErrCallEnded):
+		return http.StatusConflict, CodeConflict, "this call has already ended"
+	case errors.Is(err, store.ErrCallNotStarted):
+		// 409, and pointedly not 403: the caller is entitled to be here, the
+		// call simply has not been opened yet. A 403 would read as "you are not
+		// allowed in this call", which is the opposite of what is true of
+		// someone sitting in its waiting room.
+		return http.StatusConflict, CodeConflict, "this call has not started yet"
+	case errors.Is(err, store.ErrNotSharing):
+		return http.StatusConflict, CodeConflict, "no screen share is in progress"
+	case errors.Is(err, store.ErrShareSourceInvalid):
+		return http.StatusBadRequest, CodeValidationError,
+			"source must be screen, window or tab"
+	case errors.Is(err, store.ErrNoInviteForKind):
+		// A channel call has no link by design — the channel IS the guest list.
+		return http.StatusBadRequest, CodeBadRequest,
+			"only meetings can be joined by link; a channel call is open to its channel members"
+	case errors.Is(err, livekit.ErrNotConfigured):
+		return http.StatusServiceUnavailable, CodeInternalError,
+			"calling is not configured on this deployment"
 	case errors.Is(err, store.ErrNotFound):
 		return http.StatusNotFound, CodeNotFound, "not found"
 	case errors.Is(err, store.ErrQuotaExceeded):

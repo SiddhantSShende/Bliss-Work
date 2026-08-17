@@ -42,6 +42,11 @@ export const qk = {
   /** Inputs for the "Available" bucket (open-task counts + admin-hidden set).
    *  POLLED, not pushed — see the note in useAvailability. */
   availability: ["tasks", "availability"] as const,
+  /** Calls the caller is expected at, including cross-org meetings. */
+  calls: ["calls"] as const,
+  call: (id: string) => ["calls", id] as const,
+  /** Calls scheduled or live in one channel. */
+  channelCalls: (channelId: string) => ["channelCalls", channelId] as const,
   directory: ["directory"] as const,
   /** Admin roster: every membership INCLUDING suspended/removed ones. Kept off
    *  the ["directory"] key so the admin screen's inactive rows can never leak
@@ -147,6 +152,90 @@ export function WsEventBridge() {
        */
       const live = !meta?.replayed;
       switch (e.type) {
+        // ── Calls ────────────────────────────────────────────────────────
+        // Notifications only — media rides the SFU, not this socket. All four
+        // land here for anyone on the roster, INCLUDING a participant in
+        // another org who joined a meeting by link.
+        case EventType.CallScheduled:
+        case EventType.CallParticipantAdded:
+        case EventType.CallEnded: {
+          void qc.invalidateQueries({ queryKey: qk.calls });
+          void qc.invalidateQueries({ queryKey: qk.call(e.callId) });
+          if (e.channelId) {
+            void qc.invalidateQueries({ queryKey: qk.channelCalls(e.channelId) });
+          }
+          // Only announce a scheduling someone ELSE did, and never from the
+          // reconnect replay — otherwise every launch re-toasts old meetings.
+          if (live && e.type === EventType.CallScheduled && e.actorId !== me) {
+            toast(e.title ? `Call scheduled: ${e.title}` : "A call was scheduled");
+          }
+          break;
+        }
+        // The host opened a call. Fanned out to the WHOLE roster on purpose —
+        // the people in its waiting room need to come in, and the people who
+        // have not opened it yet need to know it is under way. Without this the
+        // Meetings list went on showing a live meeting under "Upcoming", and
+        // its Join button went on asking the server to START a call that was
+        // already running, which comes back 403 for everyone but the organiser.
+        case EventType.CallStarted: {
+          void qc.invalidateQueries({ queryKey: qk.calls });
+          void qc.invalidateQueries({ queryKey: qk.call(e.callId) });
+          if (e.channelId) {
+            void qc.invalidateQueries({ queryKey: qk.channelCalls(e.channelId) });
+          }
+          // Worth interrupting for: it is starting NOW, and the toast is the
+          // only thing that reaches someone who is not looking at Meetings.
+          // Never from the reconnect replay — that would announce a meeting
+          // that started (and ended) hours ago.
+          if (live && e.actorId !== me) {
+            toast(e.title ? `${e.title} has started` : "A call has started", {
+              action: { label: "Join", onClick: () => navRef.current("/app/meetings") },
+              duration: 20_000,
+            });
+          }
+          break;
+        }
+        // Somebody is sitting in the waiting room. Addressed by the server to
+        // the people who could let them in and to nobody else, so this needs no
+        // recipient check of its own — but it IS pointless replayed, because the
+        // wait it describes is long over.
+        case EventType.CallWaiting: {
+          void qc.invalidateQueries({ queryKey: qk.call(e.callId) });
+          if (live && e.actorId !== me) {
+            toast(
+              e.title ? `Someone is waiting for ${e.title}` : "Someone is waiting for your call",
+              {
+                description: "They can't get in until you start it.",
+                action: { label: "Open", onClick: () => navRef.current("/app/meetings") },
+                duration: 20_000,
+              },
+            );
+          }
+          break;
+        }
+        case EventType.CallRing: {
+          void qc.invalidateQueries({ queryKey: qk.calls });
+          // A ring is only meaningful live. Replaying it would ring the user
+          // for a call that was answered or abandoned hours ago.
+          if (live && e.actorId !== me) {
+            // With somewhere to go: this is how someone pulled into a call in
+            // progress gets there, and "you were added to a call" with no way
+            // to join it is a dead end.
+            toast(e.title ? `Incoming call: ${e.title}` : "You were added to a call", {
+              action: { label: "Join", onClick: () => navRef.current("/app/meetings") },
+              duration: 20_000,
+            });
+          }
+          break;
+        }
+        // The room's record of who is sharing. The picture itself arrives on the
+        // media connection; this is what a client reads to know a share is in
+        // progress before any track of it turns up.
+        case EventType.CallShareStarted:
+        case EventType.CallShareStopped: {
+          void qc.invalidateQueries({ queryKey: qk.call(e.callId) });
+          break;
+        }
         case EventType.MessageCreated: {
           // Own messages are rendered optimistically by the open thread, so skip
           // the echo here to avoid a duplicate; still refresh the conversation list.

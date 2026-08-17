@@ -14,6 +14,14 @@ from ..config import settings
 from ..db import engine
 from ..logging_config import log
 from ..tracing import inject_headers
+from ..kafka_security import kafka_security_kwargs
+from .outbox_dlq import (
+    MAX_PUBLISH_ATTEMPTS,
+    MAX_PUBLISH_BYTES,
+    payload_bytes,
+    quarantine_oversize,
+    record_publish_failure,
+)
 
 _tracer = trace.get_tracer(__name__)
 
@@ -51,6 +59,8 @@ class OutboxPoller:
             return self._producer
         producer = AIOKafkaProducer(
             bootstrap_servers=settings.kafka_brokers,
+            # TLS/SASL when KAFKA_SECURITY_PROTOCOL asks for it; empty otherwise.
+            **kafka_security_kwargs(),
             enable_idempotence=True,
             acks="all",
         )
@@ -106,7 +116,24 @@ class OutboxPoller:
                 pass
 
     async def _drain_once(self) -> None:
+        """Publish one batch.
+
+        ── Why a publish failure is now classified ──────────────────────────
+        This used to let any send exception propagate out of the `engine.begin()`
+        block. The transaction rolled back, nothing was marked published, and the
+        next tick re-claimed the identical rows — correct for a broker blip and
+        fatal for a row the broker will never accept, because the claim is
+        `ORDER BY created_at` and that row is therefore at the head of the queue
+        on every tick, forever, with every event behind it.
+
+        Size is checked up front (deterministic, and a producer refuses the whole
+        batch over one oversized message); everything else gets an attempt
+        counter. See app/events/outbox_dlq.py.
+        """
         producer = await self._ensure_producer()
+        failed_ids: list[str] = []
+        failure: BaseException | None = None
+
         async with engine.begin() as conn:
             # Cross-org background worker: drains every org's events from the
             # shared `outbox`. outbox itself has no RLS, but set bypass so this
@@ -118,7 +145,7 @@ class OutboxPoller:
                         """
                         SELECT id, topic, kafka_key, payload
                         FROM outbox
-                        WHERE published_at IS NULL
+                        WHERE published_at IS NULL AND dead_lettered_at IS NULL
                         ORDER BY created_at
                         LIMIT :limit
                         FOR UPDATE SKIP LOCKED
@@ -131,31 +158,80 @@ class OutboxPoller:
             if not rows:
                 return
 
+            # Split before producing: an oversized row is knowable from its
+            # length, so there is no reason to discover it from a failed round
+            # trip — or to let it block the rows batched with it.
+            oversize = [r for r in rows if payload_bytes(r.payload) > MAX_PUBLISH_BYTES]
+            if oversize:
+                await quarantine_oversize(conn, [str(r.id) for r in oversize])
+                # ERROR, not warning: these are events a user's action produced
+                # that no consumer will ever see. Nothing else reports it.
+                log.error(
+                    "outbox_dead_lettered_oversize",
+                    count=len(oversize),
+                    limit_bytes=MAX_PUBLISH_BYTES,
+                    detail="events accepted but never published",
+                )
+            oversize_ids = {r.id for r in oversize}
+            sendable = [r for r in rows if r.id not in oversize_ids]
+
             published_ids: list[str] = []
-            for row in rows:
+            for row in sendable:
                 payload = row.payload
                 if isinstance(payload, (dict, list)):
                     value = json.dumps(payload).encode("utf-8")
                 else:
                     value = str(payload).encode("utf-8")
-                # PRODUCER span: inject the current trace context as W3C
-                # traceparent Kafka headers so the consumer continues the
-                # trace. No-op (global no-op tracer) when tracing is off.
-                with _tracer.start_as_current_span(
-                    f"{row.topic} send", kind=SpanKind.PRODUCER
-                ):
-                    await producer.send_and_wait(
-                        topic=row.topic,
-                        key=row.kafka_key.encode("utf-8"),
-                        value=value,
-                        headers=inject_headers(),
-                    )
+                try:
+                    # PRODUCER span: inject the current trace context as W3C
+                    # traceparent Kafka headers so the consumer continues the
+                    # trace. No-op (global no-op tracer) when tracing is off.
+                    with _tracer.start_as_current_span(
+                        f"{row.topic} send", kind=SpanKind.PRODUCER
+                    ):
+                        await producer.send_and_wait(
+                            topic=row.topic,
+                            key=row.kafka_key.encode("utf-8"),
+                            value=value,
+                            headers=inject_headers(),
+                        )
+                except Exception as exc:  # noqa: BLE001 — classified below
+                    # Stop at the first failure to preserve per-key ordering:
+                    # publishing row N+1 after N failed would deliver a thread's
+                    # events out of order. The prefix that DID succeed is still
+                    # marked below, so progress is never lost.
+                    failure = exc
+                    failed_ids = [str(r.id) for r in sendable[len(published_ids):]]
+                    break
                 published_ids.append(str(row.id))
 
-            await conn.execute(
-                text(
-                    "UPDATE outbox SET published_at = now() WHERE id = ANY(:ids)"
-                ),
-                {"ids": published_ids},
+            if published_ids:
+                await conn.execute(
+                    text(
+                        "UPDATE outbox SET published_at = now() WHERE id = ANY(:ids)"
+                    ),
+                    {"ids": published_ids},
+                )
+                log.info("outbox_published", count=len(published_ids))
+
+        if failure is None:
+            return
+
+        # A SEPARATE transaction, deliberately. The counter has to be committed
+        # even though the rows stay unpublished; recording it inside the block
+        # above would tie it to the same commit as the successful prefix, and on
+        # any path where that rolls back the counter would vanish — leaving the
+        # row retrying forever with a permanently zero attempt count.
+        async with engine.begin() as conn:
+            quarantined = await record_publish_failure(conn, failed_ids, failure)
+        if quarantined:
+            log.error(
+                "outbox_dead_lettered_after_retries",
+                count=quarantined,
+                attempts=MAX_PUBLISH_ATTEMPTS,
+                error=str(failure)[:200],
+                detail="events accepted but never published",
             )
-            log.info("outbox_published", count=len(published_ids))
+        # Re-raised so _run applies its existing backoff: the common cause is a
+        # broker that is down, and hammering it every 500 ms helps nobody.
+        raise failure

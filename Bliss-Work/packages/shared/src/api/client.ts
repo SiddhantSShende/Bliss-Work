@@ -14,6 +14,11 @@ import {
   ActivitySummaryDTO,
   AuditPage,
   AvailabilityDTO,
+  CallDTO,
+  CallInviteDTO,
+  CallJoinDTO,
+  CallShareDTO,
+  type CallShareSource,
   ChannelDTO,
   ChannelMemberDTO,
   type ChannelRole,
@@ -1302,10 +1307,25 @@ export class ApiClient {
   channels() {
     return this.req(this.cfg.messagingBase, "/api/v1/channels", {}, z.array(ChannelDTO));
   }
-  /** Directory of OPEN channels the caller isn't already a member of. Used
-   *  by the "Browse channels" view in the Channels sidebar. */
-  openChannels() {
-    return this.req(this.cfg.messagingBase, "/api/v1/channels/open", {}, z.array(ChannelDTO));
+  /** One page of the directory of OPEN channels the caller isn't already a
+   *  member of. Used by the "Browse channels" view in the Channels sidebar.
+   *
+   *  PAGED, and it has to be: this lists every open channel in the ORGANISATION,
+   *  not just the caller's, so its size is set by how big the customer is. The
+   *  server clamps `limit` (default 50, max 200) and returns fewer rows than
+   *  asked for only at the end of the directory — which is how the caller knows
+   *  to stop. */
+  openChannels(opts: { limit?: number; offset?: number } = {}) {
+    const q = new URLSearchParams();
+    if (opts.limit != null) q.set("limit", String(opts.limit));
+    if (opts.offset != null) q.set("offset", String(opts.offset));
+    const qs = q.toString();
+    return this.req(
+      this.cfg.messagingBase,
+      `/api/v1/channels/open${qs ? `?${qs}` : ""}`,
+      {},
+      z.array(ChannelDTO),
+    );
   }
   createChannel(body: { name: string; memberIds: string[]; isLocked?: boolean }) {
     return this.req(this.cfg.messagingBase, "/api/v1/channels", {
@@ -1364,8 +1384,46 @@ export class ApiClient {
   }
 
   // ── presence (ws-gateway HTTP) ────────────────────────────────────────────────
+
+  /**
+   * Every online member of the caller's organisation.
+   *
+   * PREFER `presenceOf` BELOW. This reads one Redis key per organisation, so
+   * both its size and its read rate scale with how large the customer is — and
+   * that is the one part of the keyspace sharding cannot relieve, because a key
+   * lives on one node however many nodes there are. Three screens polling it
+   * every 20 seconds meant a 10,000-seat org re-read a 10,000-member sorted set
+   * hundreds of times a second to render a few dozen avatars.
+   *
+   * Kept because the endpoint is still served and some callers (an admin-wide
+   * directory view) genuinely want the whole set.
+   */
   presence() {
     return this.req(this.cfg.presenceBase, "/presence", {}, z.array(z.string()));
+  }
+
+  /**
+   * Which of THESE people are online.
+   *
+   * The bounded counterpart to `presence`, and what every list view should use.
+   * It reads per-user keys, which are hash-tagged by user id and therefore
+   * shard evenly, so the cost scales with what is on screen rather than with
+   * the size of the organisation.
+   *
+   * POST because the id list IS the request; a few hundred ids do not belong in
+   * a query string. Returns the subset that is online, in no particular order.
+   */
+  presenceOf(userIds: string[]) {
+    // Nothing asked for, nothing to ask. Saves a round trip on every render
+    // that happens before its list has loaded — which, with react-query, is
+    // most first renders.
+    if (userIds.length === 0) return Promise.resolve([] as string[]);
+    return this.req(
+      this.cfg.presenceBase,
+      "/presence/query",
+      { method: "POST", body: JSON.stringify({ userIds }) },
+      z.array(z.string()),
+    );
   }
 
   // ── TURN/ICE credentials for WebRTC calls (ws-gateway HTTP) ───────────────────
@@ -1405,6 +1463,225 @@ export class ApiClient {
       method: "POST",
     });
   }
+
+  // ── Calls ──────────────────────────────────────────────────────────────
+  //
+  // Three shapes over one entity. The differences are entirely about where the
+  // roster comes from — see CallKind in types/domain.ts.
+
+  /** Schedule a call in a channel, or start one now by omitting scheduledAt.
+   *  Everyone in the channel is implicitly invited; there is no link. */
+  scheduleChannelCall(
+    channelId: string,
+    body: { title?: string; media?: "audio" | "video"; scheduledAt?: string },
+  ) {
+    return this.req(
+      this.cfg.messagingBase,
+      `/api/v1/channels/${channelId}/calls`,
+      { method: "POST", body: JSON.stringify(body) },
+      CallDTO,
+    );
+  }
+
+  /** Calls scheduled or live in a channel. */
+  channelCalls(channelId: string) {
+    return this.req(
+      this.cfg.messagingBase,
+      `/api/v1/channels/${channelId}/calls`,
+      {},
+      z.array(CallDTO),
+    );
+  }
+
+  /** Schedule a meeting. inviteeIds are same-org users placed on the roster up
+   *  front; anyone else — including people in other orgs — arrives by link. */
+  scheduleMeeting(body: {
+    title?: string;
+    media?: "audio" | "video";
+    scheduledAt?: string;
+    inviteeIds?: string[];
+  }) {
+    return this.req(
+      this.cfg.messagingBase,
+      "/api/v1/meetings",
+      { method: "POST", body: JSON.stringify(body) },
+      CallDTO,
+    );
+  }
+
+  /** Every call the caller is expected at, including meetings hosted by
+   *  another organisation. */
+  myCalls() {
+    return this.req(this.cfg.messagingBase, "/api/v1/calls", {}, z.array(CallDTO));
+  }
+
+  call(callId: string) {
+    return this.req(this.cfg.messagingBase, `/api/v1/calls/${callId}`, {}, CallDTO);
+  }
+
+  /** Back a 1:1 ring with a persistent call, so it can later be widened. */
+  startDirectCall(peerId: string, media: "audio" | "video" = "video") {
+    return this.req(
+      this.cfg.messagingBase,
+      "/api/v1/calls/direct",
+      { method: "POST", body: JSON.stringify({ peerId, media }) },
+      CallDTO,
+    );
+  }
+
+  /** Schedule a call in a one-to-one chat, the way a channel or a meeting can
+   *  already be scheduled. The peer must be in your org.
+   *
+   *  Like every other scheduled call it lands behind the waiting room: the peer
+   *  who opens it early waits until you start it. */
+  scheduleDirectCall(
+    peerId: string,
+    body: { scheduledAt: string; title?: string; media?: "audio" | "video" },
+  ) {
+    return this.req(
+      this.cfg.messagingBase,
+      "/api/v1/calls/direct",
+      { method: "POST", body: JSON.stringify({ peerId, ...body }) },
+      CallDTO,
+    );
+  }
+
+  /** Start a scheduled call, admitting everyone waiting on it in one go.
+   *
+   *  Restricted to the people who can open it: whoever scheduled it (and any
+   *  host they appointed), an org admin, or an owner/admin of the channel a
+   *  channel call belongs to. `canStart` on the waiting-room response says
+   *  whether the current user is one of them.
+   *
+   *  Idempotent — starting a call that is already live is not an error. */
+  startCall(callId: string) {
+    return this.req(
+      this.cfg.messagingBase,
+      `/api/v1/calls/${callId}/start`,
+      { method: "POST" },
+      CallDTO,
+    );
+  }
+
+  /** Announce that you have begun sharing your screen.
+   *
+   *  The picture itself goes to the SFU on the connection the room token already
+   *  authorised; this is what makes the ROOM agree on who is sharing and what
+   *  they picked, so someone joining mid-share is told rather than left to infer
+   *  it. Pass the browser's own `displaySurface` ("monitor" | "window" |
+   *  "browser") or the server's names — both are accepted. */
+  startScreenShare(callId: string, source: CallShareSource | "monitor" | "window" | "browser") {
+    return this.req(
+      this.cfg.messagingBase,
+      `/api/v1/calls/${callId}/share`,
+      { method: "POST", body: JSON.stringify({ source }) },
+      CallShareDTO,
+    );
+  }
+
+  /** Stop sharing YOUR screen.
+   *
+   *  There is deliberately no user argument, and no endpoint that takes one:
+   *  the stop control belongs to the person sharing, so no other participant
+   *  can construct a request that ends your share. Leaving or ending the call
+   *  stops it too. */
+  stopScreenShare(callId: string) {
+    return this.req<void>(this.cfg.messagingBase, `/api/v1/calls/${callId}/share/stop`, {
+      method: "POST",
+    });
+  }
+
+  /** Pull another member of YOUR org into a call already in progress. The
+   *  server refuses a user from a different org here — cross-org entry exists
+   *  only via a meeting link. */
+  addCallParticipant(callId: string, userId: string) {
+    return this.req(
+      this.cfg.messagingBase,
+      `/api/v1/calls/${callId}/participants`,
+      { method: "POST", body: JSON.stringify({ userId }) },
+      CallDTO,
+    );
+  }
+
+  /** Mint a meeting join link. MEETINGS ONLY — asking for one on a channel call
+   *  is a 400, because a channel call has no guest list to extend.
+   *
+   *  The returned token is shown once and never stored in recoverable form. */
+  createCallInvite(callId: string, opts?: { ttlSeconds?: number; maxUses?: number }) {
+    return this.req(
+      this.cfg.messagingBase,
+      `/api/v1/calls/${callId}/invites`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ttlSeconds: opts?.ttlSeconds,
+          maxUses: opts?.maxUses ?? null,
+        }),
+      },
+      CallInviteDTO,
+    );
+  }
+
+  revokeCallInvite(callId: string, inviteId: string) {
+    return this.req<void>(
+      this.cfg.messagingBase,
+      `/api/v1/calls/${callId}/invites/${inviteId}`,
+      { method: "DELETE" },
+    );
+  }
+
+  /** Redeem a meeting link. Works across organisations: the caller still has to
+   *  be a signed-in BlissWork user, but their org is irrelevant — holding a live
+   *  token is the whole grant. */
+  joinCallByToken(token: string) {
+    return this.req(
+      this.cfg.messagingBase,
+      "/api/v1/calls/join",
+      { method: "POST", body: JSON.stringify({ token }) },
+      CallDTO,
+    );
+  }
+
+  /** Ask to enter a call. POST, not GET: it mints a short-lived credential and
+   *  re-checks access every time, so it must never be cached.
+   *
+   *  TWO outcomes, discriminated by `state`:
+   *
+   *    JOINED   a room token. The call is under way.
+   *    WAITING  the waiting room, and no token, because the call has not been
+   *             started by anyone entitled to start it. Call it again when the
+   *             `call.started` event arrives over the websocket — that is what
+   *             normally ends the wait. A client in the lobby ALSO keeps a slow
+   *             timer, but only to cover a socket that is down: re-deciding
+   *             access is not free, and a large meeting waiting on a late host
+   *             is as many lobbies as there are people in it.
+   *
+   *  The absence of a token in the WAITING case is the actual enforcement, not
+   *  the lobby screen: there is nothing to open the room with until someone
+   *  starts the call. */
+  callToken(callId: string) {
+    return this.req(
+      this.cfg.messagingBase,
+      `/api/v1/calls/${callId}/token`,
+      { method: "POST" },
+      CallJoinDTO,
+    );
+  }
+
+  leaveCall(callId: string) {
+    return this.req<void>(this.cfg.messagingBase, `/api/v1/calls/${callId}/leave`, {
+      method: "POST",
+    });
+  }
+
+  /** End the call for everyone. Hosts only; also revokes every outstanding
+   *  join link, so a meeting that is over cannot be re-entered by an old link. */
+  endCall(callId: string) {
+    return this.req<void>(this.cfg.messagingBase, `/api/v1/calls/${callId}/end`, {
+      method: "POST",
+    });
+  }
+
 }
 
 export class ApiError extends Error {

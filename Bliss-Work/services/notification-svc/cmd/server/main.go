@@ -18,6 +18,7 @@ import (
 	"github.com/task-board/notification-svc/internal/consumer"
 	"github.com/task-board/notification-svc/internal/db"
 	"github.com/task-board/notification-svc/internal/httpapi"
+	"github.com/task-board/notification-svc/internal/kafkaauth"
 	"github.com/task-board/notification-svc/internal/outbox"
 	"github.com/task-board/notification-svc/internal/tracing"
 )
@@ -64,6 +65,16 @@ func main() {
 		logger.Error("jwks verifier init failed", "error", err)
 		os.Exit(1)
 	}
+
+	// Kafka connection security, resolved once and checked BEFORE any client is
+	// built. A protocol that names SASL with no credentials is a deployment
+	// mistake, and the failure it would otherwise produce — a consumer that
+	// never connects — reads as a broker outage rather than a config error.
+	if err := kafkaauth.Validate(); err != nil {
+		logger.Error("kafka security config invalid", "err", err)
+		os.Exit(1)
+	}
+	logger.Info("kafka security", "protocol", kafkaauth.Protocol())
 
 	// Background workers. Tracked via a WaitGroup so shutdown can wait for
 	// in-flight work to drain before the process exits.

@@ -189,7 +189,7 @@ func SanitizeFilename(s string) string {
 // ContentDisposition builds the header value.
 //
 // Two forms are emitted per RFC 6266/5987: a quoted ASCII `filename=` that every
-// client understands, and a percent-encoded `filename*=UTF-8''` that carries the
+// client understands, and a percent-encoded `filename*=UTF-8”` that carries the
 // real name for clients that support it. The ASCII fallback is transliterated
 // rather than dropped so a non-Latin name still downloads with *something*
 // readable.

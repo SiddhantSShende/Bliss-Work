@@ -1,4 +1,10 @@
-"""Token-verification security tests for ``app.security.auth_dep.get_principal``.
+"""Token-verification security tests for ``app.security.auth_dep.verify_bearer``.
+
+These target verify_bearer rather than the get_principal dependency, because
+verify_bearer IS the verification: get_principal is now a thin wrapper that
+reuses whatever PrincipalMiddleware already verified for this request and
+falls through to verify_bearer otherwise. Pointing the security assertions at
+the wrapper would test the cache lookup, not the signature check.
 
 The JWKS fetch is bypassed by monkeypatching the cache's get_key with a known
 Ed25519 public key, so these exercise the REAL decode/verify path (algorithm,
@@ -55,7 +61,7 @@ def _token(claims=None, *, kid=KID, key=None, alg="EdDSA"):
 
 
 async def _principal(token):
-    return await auth_dep.get_principal(authorization=f"Bearer {token}")
+    return await auth_dep.verify_bearer(f"Bearer {token}")
 
 
 @pytest.mark.asyncio
@@ -71,7 +77,7 @@ async def test_valid_token_yields_principal():
 )
 async def test_missing_or_malformed_bearer_rejected(header):
     with pytest.raises(HTTPException) as e:
-        await auth_dep.get_principal(authorization=header)
+        await auth_dep.verify_bearer(header)
     assert e.value.status_code == 401
 
 

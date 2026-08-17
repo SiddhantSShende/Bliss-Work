@@ -382,9 +382,15 @@ func (s *Store) ForwardExternalRecord(ctx context.Context, orgID, forwarderID, s
 // ordered by depth then time — the downstream tree the ORIGINAL author sees.
 // Only the root author may read it (it discloses who forwarded their message and
 // to whom). A message that was never forwarded returns an empty list.
+// Reads from the REPLICA. The forward tree is a historical record — every hop
+// a message took, opened from an activity screen — so a second of lag shows at
+// worst one fewer leaf on a tree the caller is browsing rather than acting on.
+// This is not a read-after-write path: nobody forwards a message and
+// immediately opens its tree to check, and if they did, the missing edge
+// appears on the next open.
 func (s *Store) ListForwards(ctx context.Context, orgID, callerID, rootMessageID string) ([]ForwardEdgeDTO, error) {
 	out := []ForwardEdgeDTO{}
-	err := s.withOrg(ctx, orgID, func(tx pgx.Tx) error {
+	err := s.withReplicaOrg(ctx, orgID, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx,
 			`SELECT id::text, root_message_id::text, root_author_id::text,
 			        parent_message_id::text, forwarded_message_id::text, forwarded_by::text,
@@ -467,9 +473,14 @@ type ForwardActivityDTO struct {
 // has been forwarded at least once, newest activity first. The root body is
 // decrypted for a preview (buffered-then-decrypt to respect the pgx "conn busy"
 // rule while a cursor is open).
+// Reads from the REPLICA, for the same reason as ListForwards: this is the
+// "what happened to things I wrote" screen, a historical digest rather than
+// anything the caller is about to act on. It is also one of the heavier reads
+// in the service — a join across both message tables — which is exactly the
+// shape worth moving off the primary.
 func (s *Store) ListMyForwardActivity(ctx context.Context, orgID, callerID string) ([]ForwardActivityDTO, error) {
 	out := []ForwardActivityDTO{}
-	err := s.withOrg(ctx, orgID, func(tx pgx.Tx) error {
+	err := s.withReplicaOrg(ctx, orgID, func(tx pgx.Tx) error {
 		// The root can live in either message table: a DM message, or — since
 		// deep-link forwarding — a channel message. Joining only `messages`
 		// would leave every channel-rooted row with a blank preview.

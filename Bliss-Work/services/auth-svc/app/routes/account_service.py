@@ -23,7 +23,7 @@ from ..crypto import cryptor
 from ..events.outbox import TOPIC_AUTH, build_event, enqueue_event
 from ..security.passwords import (
     PASSWORD_POLICY_MESSAGE,
-    hash_password,
+    hash_password_async,
     password_meets_policy,
 )
 from .invites_service import iso_z
@@ -179,7 +179,7 @@ async def reset_password_tx(conn: AsyncConnection, token: str, new_password: str
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, PASSWORD_POLICY_MESSAGE)
     await service.set_bypass_rls(conn)
     user_id, org_id = await _consume_token(conn, PURPOSE_RESET, token)
-    new_hash = hash_password(new_password)
+    new_hash = await hash_password_async(new_password)
     # Reset the SHARED credential (all memberships) + kill every session across orgs.
     iid = await service.identity_id_for_user(conn, user_id)
     if iid is not None:

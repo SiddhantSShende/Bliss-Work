@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu, powerMonitor, screen, session, Tray, utilityProcess, UtilityProcess } from "electron";
+import { app, BrowserWindow, desktopCapturer, ipcMain, Menu, powerMonitor, screen, session, Tray, utilityProcess, UtilityProcess } from "electron";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { StickyTaskDTO } from "@taskboard/shared";
@@ -109,6 +109,29 @@ if (!app.requestSingleInstanceLock()) {
     const allowed = new Set(["media", "geolocation"]);
     session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => cb(allowed.has(permission)));
     session.defaultSession.setPermissionCheckHandler((_wc, permission) => allowed.has(permission));
+
+    // Screen sharing in a call. getDisplayMedia() is REFUSED outright in
+    // Electron unless this handler exists — there is no Chromium picker in an
+    // app shell, so the choice of what to capture has to be made here.
+    //
+    // useSystemPicker hands that choice to the OS on macOS and Windows, which
+    // is the right answer wherever it is available: the user picks from the
+    // platform's own dialog, with its own thumbnails and its own idea of what
+    // an app is allowed to see. Where it is not available (Linux) Electron
+    // falls back to this callback, and the primary screen is what it gets —
+    // the in-call panel makes a running share impossible to miss, and its Stop
+    // button is one click away.
+    session.defaultSession.setDisplayMediaRequestHandler(
+      (_request, callback) => {
+        desktopCapturer
+          .getSources({ types: ["screen"] })
+          .then((sources) => callback(sources[0] ? { video: sources[0] } : {}))
+          // An empty stream is how this API says "cancelled", which the
+          // renderer already treats as a non-event rather than an error.
+          .catch(() => callback({}));
+      },
+      { useSystemPicker: true },
+    );
     bootstrap();
     // Check for a newer release + auto-update (packaged non-Store builds only).
     initAutoUpdate();

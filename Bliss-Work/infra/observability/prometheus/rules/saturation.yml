@@ -100,8 +100,14 @@ groups:
 
   - name: saturation-kafka
     rules:
-      # Lag that grows monotonically means a consumer cannot keep up. The outbox
-      # publishers are the usual cause; they send one message per round trip.
+      # Lag that grows monotonically means a consumer cannot keep up.
+      #
+      # The outbox publishers used to be the usual cause: messaging-svc sent one
+      # message per WriteMessages call, so every message waited out the
+      # producer's batch timeout and the poller was pinned near 20 events a
+      # second. It now hands the whole claimed batch over in one call, like
+      # notification-svc always did. If this fires now, suspect the CONSUMER
+      # rather than the producer.
       - alert: KafkaConsumerLagHigh
         expr: sum by (consumergroup, topic) (kafka_consumergroup_lag) > 10000
         for: 10m

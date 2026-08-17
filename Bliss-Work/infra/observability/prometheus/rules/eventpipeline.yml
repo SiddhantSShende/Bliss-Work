@@ -1,0 +1,122 @@
+# The event pipeline: the path by which anything a service does becomes visible
+# to the rest of the platform.
+#
+# ── Why this file exists ─────────────────────────────────────────────────────
+# The outbox was the least observable part of the system and the one with the
+# sharpest failure mode. A publish failure produced a log line; a publish
+# failure that could NEVER succeed produced the same log line every 500 ms,
+# forever, while every event behind it queued — because the claim is
+# `ORDER BY created_at`, so an unpublishable row sits at the head of the queue
+# and nothing gets past it.
+#
+# Nothing counted it and nothing alerted on it. The symptom users saw was
+# "messages stopped arriving", which points at the gateway, which was fine.
+#
+# The publisher now quarantines a row it cannot send rather than retrying it
+# indefinitely. That converts a total outage into silent, bounded data loss —
+# which is a large improvement and still needs to page somebody, because
+# "accepted from the user, never delivered to anyone" is invisible everywhere
+# else: the write succeeded, the API returned 201, and the delivery simply
+# never happens.
+groups:
+  - name: event-pipeline
+    rules:
+      # ── The one that matters ─────────────────────────────────────────────
+      #
+      # Any increase means events a user's action produced will never reach a
+      # consumer. There is no threshold worth tolerating and no rate worth
+      # smoothing: one is a bug, and the only question is which row and why.
+      #
+      # `increase(...) > 0` over 15m rather than an instantaneous `> 0` on the
+      # counter, so a restart (which resets the counter to zero and then
+      # replays nothing) does not re-fire for history already dealt with.
+      - alert: OutboxDeadLettered
+        expr: increase(messaging_outbox_dead_lettered_total[15m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Outbox rows quarantined as unpublishable ({{ $value | printf \"%.0f\" }} in 15m)"
+          description: >-
+            messaging-svc set aside outbox rows it cannot publish. These are events
+            that were accepted from a user and will never be delivered — silent
+            everywhere else, because the write succeeded and the API returned 201.
+            Inspect with:
+            SELECT id, topic, publish_attempts, publish_error, created_at
+            FROM outbox WHERE dead_lettered_at IS NOT NULL ORDER BY created_at DESC;
+            The usual cause is a payload over the broker's message limit. Once the
+            cause is fixed, replay by clearing dead_lettered_at.
+
+      # The standing backlog, read from the database at scrape time. Survives a
+      # process restart, which the counter above deliberately does not — the two
+      # answer different questions ("did this ever happen" vs "is it happening
+      # now") and both are needed.
+      #
+      # -1 is the sentinel for "the query failed", distinguishable from a
+      # genuine zero, and is excluded here so a database blip does not page.
+      - alert: OutboxDeadLetterBacklog
+        expr: messaging_outbox_dead_lettered > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $value | printf \"%.0f\" }} outbox rows are quarantined and undelivered"
+          description: >-
+            Rows have been sitting in the outbox dead-letter state for over ten
+            minutes. Each one is an event no consumer will ever see. They are kept
+            rather than deleted precisely so they can be diagnosed and replayed.
+
+      # ── The publisher stalling for an ORDINARY reason ────────────────────
+      #
+      # Quarantine handles the permanent case. This catches the transient one
+      # that has stopped being transient: the broker is unreachable, or the
+      # topic is missing, and nothing is draining. Distinct from the alert
+      # above because the rows are still publishable — the fix is the broker,
+      # not the payload.
+      - alert: OutboxNotDraining
+        expr: rate(messaging_outbox_published_total[10m]) == 0
+          and on() rate(messaging_http_requests_total{method="POST"}[10m]) > 0
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Outbox has published nothing for 15m while writes are still arriving"
+          description: >-
+            messaging-svc is accepting writes but producing no events, so every
+            message, notification and task event is queuing in Postgres. Check the
+            broker first (kafka_exporter), then the poller's logs for
+            outbox_publish_failed. Backlog:
+            SELECT count(*) FROM outbox WHERE published_at IS NULL
+            AND dead_lettered_at IS NULL;
+
+  # ── Rate limiting, after the identity fix ──────────────────────────────────
+  #
+  # Every per-IP control in the Python services used to key on the reverse
+  # proxy's address rather than the caller's, so all traffic on the platform
+  # shared one bucket. That is now fixed, and the fix has a failure mode worth
+  # watching: if TRUSTED_PROXY_HOPS is wrong for the deployment, the services
+  # either go back to one global bucket (too low, header absent) or start
+  # believing client-supplied entries (too high).
+  #
+  # A sustained 429 rate on the credential endpoints is the observable symptom
+  # of the first, and it is indistinguishable from a real credential-stuffing
+  # attack — which is the point. Both want a human.
+  - name: auth-rate-limits
+    rules:
+      - alert: AuthRateLimitingSaturated
+        expr: >-
+          sum(rate(http_requests_total{job="auth-svc",status="429"}[5m]))
+          > 0.5 * sum(rate(http_requests_total{job="auth-svc"}[5m]))
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Over half of auth-svc requests are being rate-limited"
+          description: >-
+            Either a credential-stuffing attack is in progress, or every caller is
+            sharing one bucket again. Check the second first, because it is a
+            configuration error and it looks exactly like the first: confirm the
+            edge sets X-Forwarded-For and that TRUSTED_PROXY_HOPS matches the
+            number of proxies in front of the service (1 for a bare Caddy edge).
+            A wrong value silently collapses every per-IP limit into a single
+            global one.

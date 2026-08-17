@@ -81,6 +81,10 @@ func (s *Server) replyToThread(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "body, clientMsgId required")
 		return
 	}
+	if !validMessageBody(req.Body) {
+		writeErr(w, http.StatusBadRequest, errBodyTooLong)
+		return
+	}
 	parent := ""
 	if req.ParentMessageID != nil {
 		if !validUUID(*req.ParentMessageID) {
