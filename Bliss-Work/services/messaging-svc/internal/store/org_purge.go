@@ -18,7 +18,6 @@ var orgPurgeTables = []string{
 	// Message-level children.
 	"message_reactions",
 	"message_hides",
-	"message_forwards",
 	"messages",
 	// Inbox and threads.
 	"inbox_items",

@@ -19,7 +19,6 @@ const (
 	TypeMessageDismissed    = "message.dismissed"
 	TypeMessageDeleted      = "message.deleted"
 	TypeMessageReaction     = "message.reaction"
-	TypeMessageForwarded    = "message.forwarded"
 	TypeUserCreated         = "user.created"
 	TypeUserDeactivated     = "user.deactivated"
 	TypeUserReactivated     = "user.reactivated"
@@ -207,50 +206,6 @@ type MessageReaction struct {
 	// Who toggled — used to skip the actor's own echo.
 	ActorID string   `json:"actorId"`
 	Members []string `json:"members"`
-}
-
-// MessageForwarded records one hop of internal-relay forward tracking. When B
-// forwards A's message to C, the message C actually receives rides its own
-// co-emitted MessageCreated (which owns delivery/read acks and the chat/inbox
-// UX). This event is the separate PROVENANCE signal whose purpose is to reach
-// the ORIGINAL author A. RootAuthorID is embedded so the gateway routes to A
-// without a DB lookup. Outbound-to-external forward (Platform != "blisswork"):
-// there is no clone, so ForwardedMessageID/ThreadID/Seq are empty and
-// ForwardedToExternal carries the external handle instead of ForwardedTo.
-//
-// Delivery/ForwardedToName/ChannelID were added for deep-link forwarding and are
-// omitempty, so producers and consumers from before it emit and read exactly the
-// JSON they did before.
-type MessageForwarded struct {
-	Type                string  `json:"type"`
-	EventID             string  `json:"eventId"`
-	OrgID               string  `json:"orgId"`
-	OccurredAt          string  `json:"occurredAt"`
-	ConversationID      string  `json:"conversationId"`
-	RootMessageID       string  `json:"rootMessageId"`
-	RootAuthorID        string  `json:"rootAuthorId"`
-	ParentMessageID     string  `json:"parentMessageId"`
-	ForwardedBy         string  `json:"forwardedBy"`
-	ForwardedTo         string  `json:"forwardedTo,omitempty"`
-	ForwardedToExternal string  `json:"forwardedToExternal,omitempty"`
-	Platform            string  `json:"platform"`
-	Depth               int     `json:"depth"`
-	BodyPreview         string  `json:"bodyPreview"`
-	ForwardedMessageID  string  `json:"forwardedMessageId,omitempty"`
-	ThreadID            *string `json:"threadId,omitempty"`
-	Seq                 int64   `json:"seq,omitempty"`
-	// Delivery is "confirmed" when a provider acknowledged the send, and
-	// "unconfirmed" for a deep link — we opened WhatsApp and lost sight of it.
-	// The original author is told which; presenting the two alike would make
-	// this event claim more than it knows.
-	Delivery string `json:"delivery,omitempty"`
-	// ForwardedToName is the captured contact's display name, so the author
-	// reads "forwarded to Jane Doe" rather than a bare number.
-	ForwardedToName string `json:"forwardedToName,omitempty"`
-	// ChannelID is set when the forwarded message lives in a channel rather
-	// than a 1:1 conversation. Routing is unaffected — this event still goes
-	// only to the forwarder and the original author, never the whole channel.
-	ChannelID string `json:"channelId,omitempty"`
 }
 
 // ChannelMessageCreated is emitted when a new message is appended to a group channel.

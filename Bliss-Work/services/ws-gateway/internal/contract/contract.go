@@ -31,11 +31,6 @@ type Event struct {
 	// separately, or the removed member never learns they were removed.
 	UserID string `json:"userId"`
 
-	// Forward tracking
-	ForwardedBy  string `json:"forwardedBy"`
-	ForwardedTo  string `json:"forwardedTo"`
-	RootAuthorID string `json:"rootAuthorId"`
-
 	// Task
 	AssigneeID string `json:"assigneeId"`
 }
@@ -75,11 +70,6 @@ func (e *Event) RecipientsOf() []string {
 		// may well have screenshotted first; a reaction nobody sees arrive is
 		// not a reaction.
 		return dedupe(e.Members)
-	case "message.forwarded":
-		// C receives the forward (internal only), B's other devices sync, and —
-		// the whole point — the ORIGINAL author learns B→C. ForwardedTo is empty
-		// for outbound-to-external forwards; dedupe drops the empty entry.
-		return dedupe([]string{e.ForwardedTo, e.ForwardedBy, e.RootAuthorID})
 	case "task.assigned":
 		return dedupe([]string{e.AssigneeID})
 	case "task.acknowledged", "task.completed", "task.ignored", "task.left", "task.reviewed":
@@ -129,7 +119,6 @@ var NoDeliveryAckFor = map[string]struct{}{
 	"message.dismissed":      {},
 	"message.deleted":        {},
 	"message.reaction":       {},
-	"message.forwarded":      {},
 	"conversation.ignored":   {},
 	"conversation.blocked":   {},
 	"conversation.unblocked": {},

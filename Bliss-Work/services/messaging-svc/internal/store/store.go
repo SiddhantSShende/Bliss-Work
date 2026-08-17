@@ -516,17 +516,10 @@ type ConversationDTO struct {
 const (
 	MessageKindText       = "text"
 	MessageKindCallMissed = "call_missed"
-	// MessageKindForwardExternal records that a message was handed off to an
-	// external app (currently a WhatsApp deep link). Deliberately NOT in
-	// ValidMessageKind: the pill names a recipient and shows a phone number, so
-	// a client able to post one directly could forge "Forwarded to IT Support
-	// (+1800…)" in someone else's thread. Only ForwardLinkRecord sets it.
-	MessageKindForwardExternal = "forward_external"
 )
 
 // ValidMessageKind reports whether a CLIENT-SUPPLIED kind is one we accept on
-// the send path. Server-derived kinds are set through appendOpts.kind and are
-// intentionally absent here — see MessageKindForwardExternal.
+// the send path. Server-derived kinds are set through appendOpts.kind.
 func ValidMessageKind(kind string) bool {
 	return kind == MessageKindText || kind == MessageKindCallMissed
 }

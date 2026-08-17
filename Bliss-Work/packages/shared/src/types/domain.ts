@@ -281,7 +281,7 @@ export type MessageStatus = z.infer<typeof MessageStatus>;
 export const ThreadOrigin = z.enum(["chat", "mail"]);
 export type ThreadOrigin = z.infer<typeof ThreadOrigin>;
 
-export const MessageKind = z.enum(["text", "call_missed", "forward_external"]);
+export const MessageKind = z.enum(["text", "call_missed"]);
 export type MessageKind = z.infer<typeof MessageKind>;
 
 /**
@@ -311,8 +311,8 @@ export const MessageDTO = z.object({
   senderId: z.string().uuid(),
   body: z.string(),
   createdAt: z.string(),
-  /** System entries (a missed call, a forward handed off to WhatsApp).
-   *  Absent = ordinary text. Wire-tolerant: see MessageKindWire. */
+  /** System entries (e.g. a missed call). Absent = ordinary text.
+   *  Wire-tolerant: see MessageKindWire. */
   kind: MessageKindWire.optional(),
   /** Set only on the sender's own bubbles. */
   status: MessageStatus.optional(),
@@ -339,49 +339,6 @@ export const ReactionDTO = z.object({
 });
 export type ReactionDTO = z.infer<typeof ReactionDTO>;
 export type MessageDTO = z.infer<typeof MessageDTO>;
-
-/**
- * One hop of a forward chain, returned by GET /messages/{id}/forwards. The
- * ORIGINAL author renders these as the downstream forward tree: who forwarded
- * their message, to whom, on which platform, and when. `parentMessageId` + `depth`
- * reconstruct the tree. `forwardedTo` is set for internal (Bliss-Work) recipients;
- * `forwardedToExternal` for outbound-to-external forwards.
- */
-export const ForwardEdgeDTO = z.object({
-  id: z.string().uuid(),
-  rootMessageId: z.string().uuid(),
-  rootAuthorId: z.string().uuid(),
-  parentMessageId: z.string().uuid(),
-  forwardedMessageId: z.string().uuid().nullable().optional(),
-  forwardedBy: z.string().uuid(),
-  forwardedTo: z.string().uuid().nullable().optional(),
-  forwardedToExternal: z.string().nullable().optional(),
-  platform: z.string(),
-  depth: z.number().int().positive(),
-  createdAt: z.string(),
-  /** "confirmed" — a provider acknowledged the send. "unconfirmed" — we opened a
-   *  wa.me deep link and cannot observe whether the user pressed send. Absent on
-   *  payloads from before deep-link forwarding, all of which were confirmed. */
-  delivery: z.enum(["confirmed", "unconfirmed"]).catch("confirmed").optional(),
-  /** The captured contact's display name, when one was captured. */
-  forwardedToName: z.string().nullable().optional(),
-  /** Set when the forwarded message lived in a channel rather than a DM. */
-  channelId: z.string().uuid().nullable().optional(),
-});
-export type ForwardEdgeDTO = z.infer<typeof ForwardEdgeDTO>;
-
-/** One of the caller's original messages that has been forwarded — the row shown
- *  in the "who forwarded my messages" feed. Expand a row to fetch its full tree
- *  (ForwardEdgeDTO[]) via GET /messages/{rootMessageId}/forwards. */
-export const ForwardActivityDTO = z.object({
-  rootMessageId: z.string().uuid(),
-  preview: z.string(),
-  forwardCount: z.number().int().nonnegative(),
-  lastForwardedAt: z.string(),
-  /** At least one hop of this message was a deep link we could not verify. */
-  hasUnconfirmed: z.boolean().optional(),
-});
-export type ForwardActivityDTO = z.infer<typeof ForwardActivityDTO>;
 
 // ── External Integrations ────────────────────────────────────────────────────
 export const IntegrationProvider = z.enum(["slack", "whatsapp", "gmail", "outlook", "teams"]);

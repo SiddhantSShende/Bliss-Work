@@ -174,6 +174,28 @@ func (s *Store) replyImpl(ctx context.Context, orgID, senderID, convID, parentMe
 		appendOpts{replyToID: replyToID})
 }
 
+// appendOpts carries optional context into appendMessage. The zero value is an
+// ordinary message — SendMessage/Reply pass it.
+type appendOpts struct {
+	// kind is the messages.kind value ("" → 'text'). System entries such as
+	// MessageKindCallMissed set it; it is never taken from raw client input.
+	kind string
+	// origin is the surface starting a NEW thread — ThreadOriginChat unless
+	// Compose asked for mail. Ignored on a reply, which inherits the thread's.
+	origin string
+	// replyToID quotes another message in the same conversation ("" → none).
+	replyToID string
+}
+
+// kindArg is the messages.kind value to insert — 'text' unless a system kind
+// was requested, so every existing call site keeps its current behavior.
+func (o appendOpts) kindArg() string {
+	if o.kind == "" {
+		return MessageKindText
+	}
+	return o.kind
+}
+
 // appendMessage allocates a seq, inserts the message (idempotent), creates or
 // joins the right thread, writes inbox_items rows for BOTH sender and
 // recipient in the same tx, and emits MessageCreated through the outbox.
@@ -285,11 +307,11 @@ func (s *Store) appendMessage(
 		`INSERT INTO messages
 		   (id, org_id, conversation_id, seq, sender_id, body, body_enc, client_msg_id,
 		    thread_id, parent_message_id, is_thread_root, server_acked_at,
-		    is_forward, forwarded_from_message_id, kind, reply_to_id)
-		 VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8, $9, $10, now(), $11, $12, $13, $14)`,
+		    kind, reply_to_id)
+		 VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8, $9, $10, now(), $11, $12)`,
 		msgID, orgID, convID, seq, senderID, bodyEnc, clientMsgID,
 		threadID, parentArg, isThreadRoot,
-		opts.isForwardMsg(), opts.forwardedFromArg(), opts.kindArg(), replyToArg)
+		opts.kindArg(), replyToArg)
 	if err != nil {
 		return nil, err
 	}
@@ -310,7 +332,6 @@ func (s *Store) appendMessage(
 	//
 	// Same tx, with a monotonic last_event_at guard. The sender's row never
 	// bumps unread (it is their own send); the recipient's gets +1.
-	// Also used by the forward-provenance event below, so it stays out here.
 	preview := truncatePreview(body)
 	if origin == ThreadOriginMail {
 		now := time.Now().UTC()
@@ -352,48 +373,6 @@ func (s *Store) appendMessage(
 	}
 	if err := insertOutbox(ctx, tx, convID, evt); err != nil {
 		return nil, err
-	}
-
-	// Forward provenance — recorded in the SAME tx as the clone, so A can never
-	// observe a forwarded message without its edge, and the ORIGINAL author is
-	// notified live. The clone above already emitted MessageCreated (which owns
-	// the recipient's chat/inbox/badges); this is the separate provenance signal.
-	if f := opts.forward; f != nil {
-		fwdPath := append(append([]string{}, f.path...), msgID) // root..this clone
-		if _, err := tx.Exec(ctx,
-			`INSERT INTO message_forwards
-			   (id, org_id, root_message_id, root_author_id, parent_message_id,
-			    forwarded_message_id, forwarded_by, forwarded_to, forwarded_to_external,
-			    platform, depth, path)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, $9, $10, $11::uuid[])`,
-			uuid.Must(uuid.NewV7()).String(), orgID, f.rootMessageID, f.rootAuthorID,
-			f.parentMessageID, msgID, f.forwardedBy, recipientID, f.platform, f.depth,
-			fwdPath); err != nil {
-			return nil, err
-		}
-
-		fThreadID := threadID
-		fwdEvt := events.MessageForwarded{
-			Type:               events.TypeMessageForwarded,
-			EventID:            uuid.Must(uuid.NewV7()).String(),
-			OrgID:              orgID,
-			OccurredAt:         nowISO(),
-			ConversationID:     convID,
-			RootMessageID:      f.rootMessageID,
-			RootAuthorID:       f.rootAuthorID,
-			ParentMessageID:    f.parentMessageID,
-			ForwardedBy:        f.forwardedBy,
-			ForwardedTo:        recipientID,
-			Platform:           f.platform,
-			Depth:              f.depth,
-			BodyPreview:        preview,
-			ForwardedMessageID: msgID,
-			ThreadID:           &fThreadID,
-			Seq:                seq,
-		}
-		if err := insertOutbox(ctx, tx, convID, fwdEvt); err != nil {
-			return nil, err
-		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {

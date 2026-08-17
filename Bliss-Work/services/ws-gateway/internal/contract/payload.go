@@ -46,8 +46,8 @@ var routingOnlyFields = []string{"members"}
 // ── Why a map round-trip rather than re-marshalling contract.Event ──────────
 //
 // Event is a PARTIAL view — it extracts only what routing needs, and every
-// other field in the payload (body, senderDisplayName, seq, the call and
-// forward-provenance fields) is absent from the struct. Re-marshalling it would
+// other field in the payload (body, senderDisplayName, seq, the call fields) is
+// absent from the struct. Re-marshalling it would
 // silently delete everything the client actually renders. Decoding to
 // json.RawMessage preserves every field verbatim, including ones added later by
 // a producer this binary has never been taught about.

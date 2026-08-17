@@ -11,7 +11,6 @@ import { qk } from "../lib/queryBridge";
 import { ChatThread } from "../features/ChatThread";
 import { useOlderMessages } from "../lib/useOlderMessages";
 import { ChannelMembersSheet } from "../features/ChannelMembersSheet";
-import { ForwardDialog } from "../features/ForwardDialog";
 import { useChatMedia } from "../features/useChatMedia";
 import { ScheduleCallDialog } from "../features/ScheduleCallDialog";
 import { CallRoom } from "../features/CallRoomLazy";
@@ -21,7 +20,6 @@ export function ChannelView() {
   const { api } = useRuntime();
   const qc = useQueryClient();
   const [rosterOpen, setRosterOpen] = useState(false);
-  const [forwardMsg, setForwardMsg] = useState<{ id: string; body: string } | null>(null);
   const me = useSession((s) => s.user)!;
   const nav = useNavigate();
 
@@ -32,7 +30,6 @@ export function ChannelView() {
   // into the next channel unless it is explicitly reset.
   useEffect(() => {
     setRosterOpen(false);
-    setForwardMsg(null);
     setScheduleOpen(false);
     // Leaving the route must not leave you silently in the previous
     // channel's call — CallRoom disconnects on unmount.
@@ -218,10 +215,6 @@ export function ChannelView() {
         onSend={(t) => media.flushStaged(t)}
         showSenderNames
         placeholder={`Message #${channel.name}…`}
-        onForward={(id) => {
-          const msg = messages.find((m: ChannelMessageDTO) => m.id === id);
-          setForwardMsg({ id, body: msg?.body ?? "" });
-        }}
         renderBody={media.renderBody}
         onAttach={media.onAttach}
         onShareLocation={media.onShareLocation}
@@ -234,13 +227,6 @@ export function ChannelView() {
         overlay={media.overlay}
       />
       <input {...media.fileInputProps} />
-      <ForwardDialog
-        open={!!forwardMsg}
-        onClose={() => setForwardMsg(null)}
-        sourceMessageId={forwardMsg?.id ?? null}
-        preview={forwardMsg?.body}
-        scope="channel"
-      />
       {scheduleOpen && (
         <ScheduleCallDialog
           scope={{ kind: "channel", channelId }}

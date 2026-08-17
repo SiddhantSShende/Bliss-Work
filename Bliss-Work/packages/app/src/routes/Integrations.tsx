@@ -1,12 +1,11 @@
 /**
  * External Integrations page.
  *
- * A shell over five independent sections:
+ * A shell over four independent sections:
  *   1. Workspace apps       — this org's own Google/Microsoft OAuth apps
  *   2. Connected accounts   — connect/disconnect external platforms
  *   3. Mentions             — messages that tagged you, with Claim / Ignore
  *   4. My handles           — what makes a mention "yours"
- *   5. Forwarding activity  — who forwarded messages you sent
  *
  * The only logic living here is the OAuth return trip, which arrives two ways:
  * as query params on the web (the callback 302s back into the SPA), or through
@@ -23,7 +22,6 @@ import { WorkspaceApps } from "../features/WorkspaceApps";
 import { ConnectedAccounts } from "../features/ConnectedAccounts";
 import { HubMentions } from "../features/HubMentions";
 import { MyHandles } from "../features/MyHandles";
-import { ForwardingActivity } from "../features/ForwardingActivity";
 import { useGoBack } from "../lib/useGoBack";
 
 export function Integrations() {
@@ -78,7 +76,6 @@ export function Integrations() {
           <ConnectedAccounts />
           <HubMentions />
           <MyHandles />
-          <ForwardingActivity />
         </div>
       </div>
     </div>

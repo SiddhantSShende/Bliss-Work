@@ -67,11 +67,11 @@ ON CONFLICT DO NOTHING;
 -- conversation list's last-message lookup has real rows to reach past.
 INSERT INTO messages
     (id, org_id, conversation_id, seq, sender_id, body, client_msg_id, created_at,
-     is_thread_root, body_enc, is_forward, kind)
+     is_thread_root, body_enc, kind)
 SELECT gen_random_uuid(), nc.org_id, nc.id, s,
        CASE WHEN s % 2 = 0 THEN nc.admin_id ELSE nc.peer_id END,
        NULL::text, gen_random_uuid(), now() - (s || ' minutes')::interval,
-       false, o.body_enc, false, 'text'
+       false, o.body_enc, 'text'
 FROM new_convos nc
 JOIN org_ref o USING (org_id),
 LATERAL generate_series(1, 60) s;

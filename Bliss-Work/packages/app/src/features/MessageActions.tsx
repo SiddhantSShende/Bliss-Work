@@ -1,16 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { CornerUpLeft, Forward, MoreHorizontal, SmilePlus, Trash2, EyeOff } from "lucide-react";
+import { CornerUpLeft, MoreHorizontal, SmilePlus, Trash2, EyeOff } from "lucide-react";
 import type { ReactionDTO } from "@taskboard/shared";
 import { EmojiGrid, QUICK_REACTIONS } from "./EmojiPicker";
 
 /**
  * The per-bubble action affordance.
  *
- * This replaced a lone hover "Forward" button. Everything else a message can
- * have done to it — reply, react, hide, delete — had no home at all, and adding
- * four more hover icons to a chat bubble is how a thread becomes unreadable. So
- * there is one quick reaction row (the six people actually send) and one
- * overflow menu.
+ * Everything a message can have done to it — reply, react, hide, delete — needs
+ * a home, and adding an icon per action to a chat bubble is how a thread becomes
+ * unreadable. So there is one quick reaction row (the six people actually send)
+ * and one overflow menu.
  *
  * "Delete for me" and "Delete for everyone" are deliberately worded in full
  * rather than collapsed into one "Delete": they do genuinely different things,
@@ -18,18 +17,13 @@ import { EmojiGrid, QUICK_REACTIONS } from "./EmojiPicker";
  */
 export function MessageActions({
   mine,
-  canForward,
   onReply,
-  onForward,
   onReact,
   onHide,
   onDeleteForAll,
 }: {
   mine: boolean;
-  /** Forward is offered per-surface; channels and threads differ. */
-  canForward: boolean;
   onReply?: () => void;
-  onForward?: () => void;
   onReact?: (emoji: string) => void;
   /** "Delete for me" — either party, any message. */
   onHide?: () => void;
@@ -117,11 +111,6 @@ export function MessageActions({
           {onReply && (
             <button role="menuitem" className={item} onClick={() => { onReply(); setMenu(false); }}>
               <CornerUpLeft size={13} className="text-muted" /> Reply
-            </button>
-          )}
-          {canForward && onForward && (
-            <button role="menuitem" className={item} onClick={() => { onForward(); setMenu(false); }}>
-              <Forward size={13} className="text-muted" /> Forward
             </button>
           )}
           {onHide && (

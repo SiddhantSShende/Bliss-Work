@@ -14,7 +14,6 @@ const ACTIONS: Record<string, string> = {
   "org.switched": "Switched workspace",
   "message.sent": "Sent a message",
   "channel.message.sent": "Posted in a channel",
-  "message.forwarded": "Forwarded a message",
   "conversation.ignored": "Ignored a conversation",
   "user.blocked": "Blocked someone",
   "user.unblocked": "Unblocked someone",

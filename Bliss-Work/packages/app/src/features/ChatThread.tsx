@@ -1,6 +1,6 @@
 import { useLayoutEffect, useMemo, useRef } from "react";
 import { motion } from "framer-motion";
-import { MessageSquare, Ban, PhoneMissed, Forward } from "lucide-react";
+import { MessageSquare, Ban, PhoneMissed } from "lucide-react";
 import { Avatar } from "@taskboard/ui";
 import { clock, groupMessages } from "../lib/chatFormat";
 import type { MessageDTO, ReactionDTO } from "@taskboard/shared";
@@ -17,9 +17,9 @@ export interface ThreadMessage {
   body: string;
   at?: string;
   pending?: boolean;
-  /** System entries (a missed call, a forward handed off to WhatsApp) render as
+  /** System entries (e.g. a missed call) render as
    *  a centered notice, not a bubble. */
-  kind?: "text" | "call_missed" | "forward_external";
+  kind?: "text" | "call_missed";
   /** Sender-side delivery state. Set only on the caller's own messages. */
   status?: MessageDTO["status"];
   /** The message this one quotes. Rendered as a strip above the body. */
@@ -74,7 +74,6 @@ export function ChatThread({
   placeholder = "Write a message…",
   disabled = false,
   notice,
-  onForward,
   onReply,
   onHide,
   onDeleteForAll,
@@ -98,8 +97,6 @@ export function ChatThread({
   messages: ThreadMessage[];
   meId: string;
   onSend: (text: string) => void;
-  /** When provided, each non-pending bubble offers "Forward". */
-  onForward?: (messageId: string) => void;
   /** Start a reply quoting this message. */
   onReply?: (messageId: string) => void;
   /** "Delete for me" — hides it for the caller only. */
@@ -242,35 +239,14 @@ export function ChatThread({
             );
 
             // A missed call is a fact about the conversation, not something
-            // either side said — centered, no bubble, no forward action. Both
-            // members see the same row; only the caller is told "no answer".
+            // either side said — centered, no bubble. Both members see the same
+            // row; only the caller is told "no answer".
             if (m.kind === "call_missed") {
               return (
                 <div key={m.id}>
                   {dayChip}
                   <SystemPill icon={<PhoneMissed size={12} className="text-red-500" />} at={m.at}>
                     {mine ? `${m.body} · no answer` : m.body}
-                  </SystemPill>
-                </div>
-              );
-            }
-
-            // Handing a message to WhatsApp is the same class of fact: it left
-            // the workspace. The body is authored server-side. The peer's copy
-            // carries the caveat, because at depth 1 the peer IS the original
-            // author — the person entitled to know we cannot actually confirm
-            // a deep-link send.
-            if (m.kind === "forward_external") {
-              return (
-                <div key={m.id}>
-                  {dayChip}
-                  <SystemPill
-                    icon={<Forward size={12} className="text-accent" />}
-                    at={m.at}
-                    title="BlissWork opened WhatsApp with the message prefilled. Whether it was sent isn't something we can observe."
-                  >
-                    {m.body}
-                    {!mine && <span className="text-amber-500">· not confirmed</span>}
                   </SystemPill>
                 </div>
               );
@@ -325,8 +301,6 @@ export function ChatThread({
                       {!m.pending && !m.deletedForAll && (
                         <MessageActions
                           mine={mine}
-                          canForward={!!onForward}
-                          onForward={onForward ? () => onForward(m.id) : undefined}
                           onReply={onReply ? () => onReply(m.id) : undefined}
                           onHide={onHide ? () => onHide(m.id) : undefined}
                           onDeleteForAll={onDeleteForAll ? () => onDeleteForAll(m.id) : undefined}

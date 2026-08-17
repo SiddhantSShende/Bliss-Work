@@ -88,12 +88,6 @@ export const qk = {
   inboxPeerFeed: (peerId: string) => ["inboxPeerFeed", peerId] as const,
   thread: (id: string) => ["thread", id] as const,
   threadMessages: (id: string) => ["threadMessages", id] as const,
-  /** Forward-tracking: the downstream forward tree of one original message. The
-   *  bare ["forwardActivity"] prefix is the "my originals that got forwarded" list. */
-  forwardActivity: (rootMessageId: string) => ["forwardActivity", rootMessageId] as const,
-  /** "Who forwarded my messages" feed. Kept under the ["forwardActivity"] prefix
-   *  so the message.forwarded handler's prefix-invalidation refreshes it too. */
-  forwardActivityFeed: ["forwardActivity", "feed"] as const,
   /** Connected external accounts (integrations-svc). */
   integrations: ["integrations"] as const,
   /** Organizations the signed-in identity belongs to (org switcher). */
@@ -365,42 +359,6 @@ export function WsEventBridge() {
           // own echo — the mutation already invalidated on success.
           if (e.actorId !== me) {
             void qc.invalidateQueries({ queryKey: qk.reactions(e.conversationId) });
-          }
-          break;
-        }
-        case EventType.MessageForwarded: {
-          // The message the recipient actually receives rides its own
-          // MessageCreated (handled above). This event exists ONLY to tell the
-          // ORIGINAL author their message was forwarded — so react solely when
-          // I am the root author and someone else did the forwarding.
-          if (e.rootAuthorId === me && e.forwardedBy !== me) {
-            const dir = qc.getQueryData<UserDTO[]>(qk.directory) ?? [];
-            const nameOf = (id?: string) =>
-              dir.find((u) => u.id === id)?.displayName ?? "someone";
-            const to = e.forwardedTo
-              ? nameOf(e.forwardedTo)
-              : e.forwardedToName || e.forwardedToExternal || "someone";
-            const via = e.platform === "blisswork" ? "" : ` via ${e.platform}`;
-            // A deep-link forward is unconfirmed by construction: we opened
-            // WhatsApp and stopped being able to see. Saying "was forwarded"
-            // would tell the author something we never observed, so the verb
-            // describes OUR action instead of a delivery.
-            const unconfirmed = e.delivery === "unconfirmed";
-            if (live) {
-              toast(
-                unconfirmed
-                  ? `Your message may have been forwarded to ${to}`
-                  : `Your message was forwarded to ${to}`,
-                {
-                  description: unconfirmed
-                    ? `${nameOf(e.forwardedBy)} opened WhatsApp with "${e.bodyPreview}" — delivery isn't confirmed.`
-                    : `${nameOf(e.forwardedBy)} forwarded "${e.bodyPreview}"${via}`,
-                },
-              );
-            }
-            // Refresh this original's tree + the "my forwarding activity" list.
-            void qc.invalidateQueries({ queryKey: qk.forwardActivity(e.rootMessageId) });
-            void qc.invalidateQueries({ queryKey: ["forwardActivity"] });
           }
           break;
         }

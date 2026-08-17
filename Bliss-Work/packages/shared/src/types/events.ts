@@ -29,7 +29,6 @@ export const EventType = {
   MessageDismissed: "message.dismissed",
   MessageDeleted: "message.deleted",
   MessageReaction: "message.reaction",
-  MessageForwarded: "message.forwarded",
   ChannelMessageCreated: "channel.message.created",
   ChannelMemberRemoved: "channel.member.removed",
   ChannelRoleChanged: "channel.member.role_changed",
@@ -204,21 +203,6 @@ export const MessageDismissed = z.object({
 });
 
 /**
- * MessageForwarded records one hop in Bliss-Work's internal-relay forward
- * tracking. When B forwards A's message to C, the message C actually receives
- * rides its OWN co-emitted MessageCreated (which owns the delivery/read acks and
- * the chat/inbox UX). This event is the separate PROVENANCE signal whose whole
- * purpose is to reach the ORIGINAL author A — so A learns "B forwarded my
- * message to C at <time> via <platform>". Routed to [forwardedTo, forwardedBy,
- * rootAuthorId]; `rootAuthorId` is embedded so the gateway routes to A with no
- * DB lookup (same trick as ConversationIgnored.members).
- *
- * Outbound-to-external forward (platform != 'blisswork'): there is no Bliss-Work
- * clone, so `forwardedMessageId`/`threadId`/`seq` are absent and `forwardedTo`
- * is replaced by `forwardedToExternal` (the external handle). Native re-forwards
- * downstream of an external platform are invisible to us and never appear here.
- */
-/**
  * MessageDeleted is "delete for everyone" — the message is a tombstone for BOTH
  * parties now. Routed to `members`, unlike MessageDismissed, which is the
  * sender-only inbox hide and changes nothing for the recipient.
@@ -246,45 +230,6 @@ export const MessageReaction = z.object({
   messageId: z.string().uuid(),
   actorId: z.string().uuid(),
   members: z.array(z.string().uuid()).optional(),
-});
-
-export const MessageForwarded = z.object({
-  type: z.literal(EventType.MessageForwarded),
-  ...envelope,
-  conversationId: z.string().uuid(),
-  /** A's original message — the root of the whole forward tree. */
-  rootMessageId: z.string().uuid(),
-  /** A — embedded so the gateway can route to the original author lookup-free. */
-  rootAuthorId: z.string().uuid(),
-  /** The upstream message that was forwarded (= rootMessageId on hop 1). */
-  parentMessageId: z.string().uuid(),
-  /** B — who performed the forward. */
-  forwardedBy: z.string().uuid(),
-  /** C — the Bliss-Work recipient (internal forward). Absent when external. */
-  forwardedTo: z.string().uuid().optional(),
-  /** External handle (phone/email/channel) when platform != 'blisswork'. */
-  forwardedToExternal: z.string().optional(),
-  platform: z.string(),
-  /** "confirmed" — the platform accepted it, or a real Bliss-Work clone exists.
-   *  "unconfirmed" — we opened a wa.me deep link and cannot observe whether the
-   *  user pressed send. Absent means confirmed: omitted on the wire so consumers
-   *  from before deep-link forwarding see byte-identical JSON. */
-  delivery: z.enum(["confirmed", "unconfirmed"]).catch("confirmed").optional(),
-  /** The captured contact's display name, so the author reads "forwarded to
-   *  Jane Doe" rather than a bare number. */
-  forwardedToName: z.string().optional(),
-  /** Set when the forwarded message lived in a channel rather than a DM.
-   *  Routing is unaffected — this event still reaches only the forwarder and
-   *  the original author, never the whole channel. */
-  channelId: z.string().uuid().optional(),
-  /** Hop number (1 = the author's message forwarded once). */
-  depth: z.number().int().positive(),
-  /** Truncated body so A's toast can show what was forwarded. */
-  bodyPreview: z.string(),
-  /** The cloned message delivered to C (internal forward only). */
-  forwardedMessageId: z.string().uuid().optional(),
-  threadId: z.string().uuid().optional(),
-  seq: z.number().int().nonnegative().optional(),
 });
 
 export const ChannelMessageCreated = z.object({
@@ -718,7 +663,6 @@ export const ServerEvent = z.discriminatedUnion("type", [
   MessageDismissed,
   MessageDeleted,
   MessageReaction,
-  MessageForwarded,
   ChannelMessageCreated,
   ChannelMemberRemoved,
   ChannelRoleChanged,
@@ -754,7 +698,6 @@ export const DomainEvent = z.discriminatedUnion("type", [
   MessageDismissed,
   MessageDeleted,
   MessageReaction,
-  MessageForwarded,
   ChannelMessageCreated,
   ChannelMemberRemoved,
   ChannelRoleChanged,
@@ -795,7 +738,6 @@ export type MessageDelivered = z.infer<typeof MessageDelivered>;
 export type MessageDismissed = z.infer<typeof MessageDismissed>;
 export type MessageDeleted = z.infer<typeof MessageDeleted>;
 export type MessageReaction = z.infer<typeof MessageReaction>;
-export type MessageForwarded = z.infer<typeof MessageForwarded>;
 export type ChannelMessageCreated = z.infer<typeof ChannelMessageCreated>;
 export type ChannelMemberRemoved = z.infer<typeof ChannelMemberRemoved>;
 export type ChannelRoleChanged = z.infer<typeof ChannelRoleChanged>;
@@ -1062,13 +1004,6 @@ export function recipientsOf(e: DomainEvent): string[] {
       // have screenshotted first, and a reaction nobody sees arrive is not a
       // reaction.
       return e.members ?? [];
-    case EventType.MessageForwarded:
-      // C receives the forward (internal only), B's other devices sync, and —
-      // the whole point — the ORIGINAL author learns B→C. forwardedTo is absent
-      // for outbound-to-external forwards, so drop falsy entries.
-      return [e.forwardedTo, e.forwardedBy, e.rootAuthorId].filter(
-        (x): x is string => !!x,
-      );
     case EventType.ChannelMessageCreated:
       return e.members ?? [];
     case EventType.ChannelMemberRemoved:
@@ -1123,9 +1058,6 @@ export const NO_DELIVERY_ACK_FOR = new Set<string>([
   // acking them would fan straight back into messaging-svc for nothing.
   EventType.MessageDeleted,
   EventType.MessageReaction,
-  // Provenance-only — the real message to C rides its own message.created, which
-  // owns delivery/read acks. Acking the forward event would double-count.
-  EventType.MessageForwarded,
   EventType.ConversationIgnored,
   EventType.ConversationBlocked,
   EventType.ConversationUnblocked,

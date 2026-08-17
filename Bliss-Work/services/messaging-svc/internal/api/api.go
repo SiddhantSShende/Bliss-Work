@@ -276,22 +276,6 @@ func (s *Server) Router(webOrigin string) http.Handler {
 			r.Get("/maps/reverse", s.reverseGeocode)
 			r.Get("/maps/whereami", s.whereami)
 
-			// Forward tracking is available to every org — each org brings its own
-			// third-party credentials, so it is NOT a Bliss-Work paid tier. Any
-			// authenticated org member may forward. Clone-to-another-user is idempotent
-			// via appendMessage's natural clientMsgId, so it stays out of the
-			// idempotency group.
-			r.Post("/messages/{id}/forward", s.forwardMessage)
-			r.Post("/messages/{id}/forward-external", s.forwardExternal)
-			// Deep link (wa.me): records the forward and writes the system
-			// entry, but sends nothing — the client opens WhatsApp itself.
-			// Needs no connected Business account, so unlike forward-external
-			// it is usable by every org. Idempotent on clientMsgId, so it too
-			// stays out of the idempotency group.
-			r.Post("/messages/{id}/forward-link", s.forwardLink)
-			r.Get("/messages/{id}/forwards", s.listForwards)
-			r.Get("/forwards/activity", s.listForwardActivity)
-
 			r.Post("/channels", s.createChannel)
 			r.Get("/channels", s.listChannels)
 			r.Get("/channels/open", s.listOpenChannels)
@@ -610,65 +594,6 @@ func (s *Server) reply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, res)
-}
-
-type forwardReq struct {
-	RecipientID string `json:"recipientId"`
-	ClientMsgID string `json:"clientMsgId"`
-}
-
-// forwardMessage forwards the message {id} to another Bliss-Work user, recording
-// provenance so the original author learns about it. Idempotent on clientMsgId.
-func (s *Server) forwardMessage(w http.ResponseWriter, r *http.Request) {
-	claims, _ := auth.FromContext(r.Context())
-	msgID := chi.URLParam(r, "id")
-	if !validUUID(msgID) {
-		writeErr(w, http.StatusBadRequest, "invalid message id")
-		return
-	}
-	var req forwardReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid body")
-		return
-	}
-	if !validUUID(req.RecipientID) || !validUUID(req.ClientMsgID) {
-		writeErr(w, http.StatusBadRequest, "recipientId, clientMsgId required")
-		return
-	}
-	res, err := s.store.ForwardMessage(r.Context(), claims.OrgID, claims.UserID, msgID, req.RecipientID, req.ClientMsgID)
-	if err != nil {
-		s.mapErr(w, err)
-		return
-	}
-	writeJSON(w, http.StatusCreated, res)
-}
-
-// listForwards returns the downstream forward tree of message {id}. Only the
-// original author may read it (the store enforces this).
-func (s *Server) listForwards(w http.ResponseWriter, r *http.Request) {
-	claims, _ := auth.FromContext(r.Context())
-	msgID := chi.URLParam(r, "id")
-	if !validUUID(msgID) {
-		writeErr(w, http.StatusBadRequest, "invalid message id")
-		return
-	}
-	edges, err := s.store.ListForwards(r.Context(), claims.OrgID, claims.UserID, msgID)
-	if err != nil {
-		s.mapErr(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, edges)
-}
-
-// listForwardActivity returns the caller's originals that have been forwarded.
-func (s *Server) listForwardActivity(w http.ResponseWriter, r *http.Request) {
-	claims, _ := auth.FromContext(r.Context())
-	items, err := s.store.ListMyForwardActivity(r.Context(), claims.OrgID, claims.UserID)
-	if err != nil {
-		s.mapErr(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, items)
 }
 
 func (s *Server) ignore(w http.ResponseWriter, r *http.Request) {

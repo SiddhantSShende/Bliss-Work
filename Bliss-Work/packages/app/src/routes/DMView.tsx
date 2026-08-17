@@ -12,7 +12,6 @@ import { displayNameOf } from "../lib/userLabel";
 import { CallMenu } from "../features/CallMenu";
 import { ScheduleCallDialog } from "../features/ScheduleCallDialog";
 import { ChatThread } from "../features/ChatThread";
-import { ForwardDialog } from "../features/ForwardDialog";
 import { useChatMedia } from "../features/useChatMedia";
 import { useChatTyping } from "../lib/useChatTyping";
 import { useCall } from "../lib/useCall";
@@ -69,18 +68,13 @@ export function DMView() {
   const { peerTyping, onType, stop: stopTyping } = useChatTyping(conversationId, conv?.peerId);
   const call = useCall();
 
-  // The message currently being forwarded (null = dialog closed). Forwarding is
-  // available to every org member (each org supplies its own provider credentials).
-  const [forwardMsg, setForwardMsg] = useState<{ id: string; body: string } | null>(null);
   // "Schedule Call" from the header's call menu.
   const [scheduleOpen, setScheduleOpen] = useState(false);
 
   // Same route-reuse trap as ChannelView's members sheet: navigating to another
-  // conversation keeps this component mounted, so an open Forward dialog would
-  // follow the user into the next chat still holding the old message id. The
-  // scheduler is scoped to a peer and has exactly the same problem.
+  // conversation keeps this component mounted, so the scheduler — which is
+  // scoped to a peer — would follow the user into the next chat.
   useEffect(() => {
-    setForwardMsg(null);
     setScheduleOpen(false);
   }, [conversationId]);
 
@@ -367,10 +361,6 @@ export function DMView() {
               ? "You have been blocked."
               : undefined
         }
-        onForward={(id) => {
-          const msg = messages.find((m) => m.id === id);
-          setForwardMsg({ id, body: msg?.body ?? "" });
-        }}
         renderBody={media.renderBody}
         onAttach={media.onAttach}
         onShareLocation={media.onShareLocation}
@@ -383,12 +373,6 @@ export function DMView() {
         overlay={media.overlay}
       />
       <input {...media.fileInputProps} />
-      <ForwardDialog
-        open={!!forwardMsg}
-        onClose={() => setForwardMsg(null)}
-        sourceMessageId={forwardMsg?.id ?? null}
-        preview={forwardMsg?.body}
-      />
       {scheduleOpen && (
         <ScheduleCallDialog
           scope={{ kind: "direct", peerId: conv.peerId, peerName }}
