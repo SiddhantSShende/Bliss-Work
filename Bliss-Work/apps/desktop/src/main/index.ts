@@ -1,4 +1,4 @@
-import { app, BrowserWindow, desktopCapturer, ipcMain, Menu, powerMonitor, screen, session, Tray, utilityProcess, UtilityProcess } from "electron";
+import { app, BrowserWindow, desktopCapturer, ipcMain, Menu, powerMonitor, screen, session, shell, Tray, utilityProcess, UtilityProcess } from "electron";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { StickyTaskDTO } from "@taskboard/shared";
@@ -20,8 +20,11 @@ import { buildAppMenu } from "./menu";
 import { registerFileSink } from "./file-sink";
 import { checkForUpdatesNow, initAutoUpdate } from "./updater";
 import { installLocationProviderKey, hasPreciseLocationProvider } from "./geo-key";
+import { locationSettingsUrl } from "../shared/location-settings";
 import { initScreenshotGuard } from "./screenshot-guard";
-import { resolveEndpoints } from "../shared/endpoints";
+import { initWindowStateGuard } from "./window-state-guard";
+import { popupFor, raise, shouldNotify, userIdFromToken, windowStateOf } from "./notifier";
+import { resolveEndpointsFromEnv } from "../shared/endpoints";
 import { findDeepLink, parseDeepLink } from "../shared/deeplink";
 import { openExternalSafely } from "./harden";
 
@@ -36,12 +39,15 @@ const here = fileURLToPath(new URL(".", import.meta.url));
 // Endpoint defaults live in src/shared/endpoints.ts — shared verbatim with the
 // renderer so the two processes can never disagree about which backend this
 // build talks to. TB_* env overrides win for custom deployments.
-const ENDPOINTS = resolveEndpoints(app.isPackaged, {
+const ENDPOINTS = resolveEndpointsFromEnv(app.isPackaged, {
   authBase: process.env.TB_AUTH_BASE,
   taskBase: process.env.TB_TASK_BASE,
   notificationBase: process.env.TB_NOTIFICATION_BASE,
   messagingBase: process.env.TB_MESSAGING_BASE,
   integrationsBase: process.env.TB_INTEGRATIONS_BASE,
+  // See the note in src/renderer/main.tsx: this key was missing from both
+  // override maps, making TB_TELEMETRY_BASE silently inert on desktop.
+  telemetryBase: process.env.TB_TELEMETRY_BASE,
   wsUrl: process.env.TB_WS_URL,
 });
 
@@ -53,6 +59,10 @@ let quitting = false;
 // crashing child doesn't spin-restart, reset once the child is healthy again.
 let wsRestarts = 0;
 let wsRestartTimer: NodeJS.Timeout | null = null;
+// The signed-in user id, kept in step with the renderer's access token. Read
+// ONLY to decide whether an incoming event is the user's own doing — see
+// notifier.userIdFromToken, which is explicit that this is not authentication.
+let sessionUserId: string | null = null;
 const sticky = new StickyManager();
 const chatSticky = new ChatStickyManager();
 
@@ -140,8 +150,16 @@ if (!app.requestSingleInstanceLock()) {
     // routes a detected attempt to the renderer's toast. Read the header of
     // screenshot-guard.ts before treating this as a guarantee — it is not one
     // on Linux, and it is not one against a phone camera anywhere.
-    initScreenshotGuard(() => {
-      mainWindow?.webContents.send("security:screenshot-blocked");
+    // Put the window back if the platform minimised or restored it down while
+    // the machine was locked or asleep. Nothing here does that on its own — see
+    // window-state-guard.ts for why it is a restoration rather than a
+    // prevention.
+    initWindowStateGuard(() => mainWindow);
+
+    initScreenshotGuard((chord, recorded) => {
+      // `recorded` travels with the notice so the renderer reports the attempt
+      // to the server only when main could not — see screenshot-guard.ts.
+      mainWindow?.webContents.send("security:screenshot-blocked", { chord, recorded });
     });
   });
 }
@@ -342,6 +360,11 @@ function startWsProcess() {
       switch (m.type) {
         case "event":
           mainWindow?.webContents.send("ws:event", m.event, { replayed: m.replayed === true });
+          // Live events only. The replayed burst is everything that happened
+          // while this client was offline, so popping one notification per item
+          // would bury the desktop on every reconnect — and the user has
+          // already been told about all of it by whatever device was awake.
+          if (m.replayed !== true) maybeNotify(m.event);
           break;
         case "sticky": {
           const live = m.tasks ?? [];
@@ -368,6 +391,20 @@ function startWsProcess() {
       }
     },
   );
+}
+
+/**
+ * Raise an OS notification for one live event, if it deserves one and the app
+ * is not already in front of the user.
+ *
+ * This is the whole of "notify me when the window is closed": the ws-process
+ * keeps running in the tray, so the events were always arriving — they just had
+ * nowhere visible to go. Clicking the popup brings the window back.
+ */
+function maybeNotify(event: unknown) {
+  if (!shouldNotify(windowStateOf(mainWindow))) return;
+  const popup = popupFor(event, sessionUserId);
+  if (popup) raise(popup, focusMain);
 }
 
 function quitApp() {
@@ -437,6 +474,24 @@ ipcMain.handle("app:check-updates", () => checkForUpdatesNow());
 // guess. See geo-key.ts.
 ipcMain.handle("geo:precise", () => hasPreciseLocationProvider());
 
+// Open the OS page where location access for desktop apps is granted.
+//
+// Takes NO argument. That is the whole security design: `shell.openExternal`
+// hands a URL to whichever app registered the scheme, and `ms-settings:` is in
+// the same Windows family as the handlers external-url.ts refuses to open. The
+// renderer cannot influence the string — it asks to open "the location settings
+// page", main decides what that is from a fixed per-platform map, and nothing
+// crosses the boundary. Adding a url parameter here would undo that; don't.
+//
+// Returns false where the platform has no such page (Linux), though the preload
+// omits the bridge method there so the renderer never offers the button.
+ipcMain.handle("geo:open-settings", async () => {
+  const url = locationSettingsUrl();
+  if (!url) return false;
+  await shell.openExternal(url);
+  return true;
+});
+
 // The auth channels carry credentials, so they are the one IPC group that must
 // not accept traffic from any window that happens to have a preload. Only the
 // main window ever holds a session; the sticky windows load different preloads
@@ -447,6 +502,9 @@ function fromMainWindow(e: { sender: Electron.WebContents }): boolean {
 
 ipcMain.on("auth:token", (e, token: string | null) => {
   if (!fromMainWindow(e)) return;
+  // Every token change comes through here (login, refresh, sign-out), which
+  // makes it the one place that always knows who is signed in.
+  sessionUserId = userIdFromToken(token);
   wsProc?.postMessage({ type: "token", token });
 });
 

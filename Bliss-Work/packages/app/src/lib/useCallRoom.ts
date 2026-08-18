@@ -90,6 +90,9 @@ export function useCallRoom(callId: string | null) {
    *  the server, because it turns on org and channel roles the client cannot
    *  see. Only meaningful while status is "waiting". */
   const [canStart, setCanStart] = useState(false);
+  /** The call is over — the host ended it or walked out. Latches, and the screen
+   *  showing this room is expected to close itself on it. */
+  const [ended, setEnded] = useState(false);
   const roomRef = useRef<Room | null>(null);
   /**
    * A join is in flight.
@@ -309,6 +312,42 @@ export function useCallRoom(callId: string | null) {
     joinRef.current = join;
   }, [join]);
 
+  /**
+   * The call ended under us — its host left, or ended it deliberately.
+   *
+   * This is the ONLY thing that gets a participant out of a room that is over.
+   * Their room token is still valid for minutes, the SFU keeps the room alive
+   * while anybody is in it, and the server does not kick anyone; without this
+   * they sit in a meeting nobody is hosting, looking at tiles of people whose
+   * clients did close it.
+   *
+   * Subscribed for the hook's whole life rather than only while connected: the
+   * event has to land for someone sitting in the lobby of a call that is
+   * cancelled before it ever starts, too.
+   */
+  useEffect(() => {
+    if (!callId) return;
+    return ws.on((e, meta) => {
+      if (e.type !== EventType.CallEnded || e.callId !== callId) return;
+      // NOT from the reconnect replay. The gateway replays up to 200 events on
+      // every connect, so without this a "this meeting ended" from hours ago
+      // would throw everyone out of the meeting they just joined — the same
+      // reason queryBridge gates its toasts on `live`.
+      if (meta?.replayed) return;
+      stopWaiting();
+      void roomRef.current?.disconnect();
+      // Record the departure exactly once, the same way hanging up does — the
+      // call being over is not a reason for the roster to keep showing everyone
+      // as still in it.
+      if (!leftRef.current) {
+        leftRef.current = true;
+        api.leaveCall(callId).catch(() => {});
+      }
+      setEnded(true);
+      toast("This meeting has ended");
+    });
+  }, [api, callId, stopWaiting, ws]);
+
   /** Start the call we are waiting for, admitting everyone else waiting on it
    *  at the same moment. Only does anything for the people the server named in
    *  `canStart`; everyone else gets a 403 and keeps waiting.
@@ -457,6 +496,7 @@ export function useCallRoom(callId: string | null) {
     sharing,
     connectedAt,
     canStart,
+    ended,
     join,
     start,
     leave,

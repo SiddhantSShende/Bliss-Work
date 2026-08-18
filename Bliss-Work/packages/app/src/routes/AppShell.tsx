@@ -7,6 +7,7 @@ import type { NotificationDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { qk, WsEventBridge } from "../lib/queryBridge";
+import { INBOX_KINDS } from "../lib/inboxKinds";
 import { listSectionOf, railSectionOf } from "../lib/section";
 import { TelemetryBridge } from "../lib/telemetry";
 import { CallProvider } from "../lib/useCall";
@@ -34,9 +35,14 @@ export function AppShell() {
   // Per-section alert counts for the left rail. Inbox shows the summed unread
   // across counterparties; Tasks surfaces unread task notifications so a new
   // ack/complete/ignore/left is visible without opening the bell.
+  //
+  // INBOX_KINDS, not everything: the badge has to count what the Inbox
+  // actually lists, or it points at rows the user cannot find there. Tasks
+  // already have their own badge beside it, so counting them here would also
+  // be counting them twice.
   const { data: inboxPeers = [] } = useQuery({
     queryKey: qk.inboxPeers,
-    queryFn: () => api.inboxPeers(),
+    queryFn: () => api.inboxPeers(INBOX_KINDS),
   });
   const inboxUnread = inboxPeers.reduce((sum, p) => sum + (p.unreadCount || 0), 0);
   const railBadges: Record<string, number> = { inbox: inboxUnread, tasks: unread };

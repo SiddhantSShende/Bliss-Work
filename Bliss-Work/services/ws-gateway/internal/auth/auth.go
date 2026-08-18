@@ -12,13 +12,32 @@ import (
 	"github.com/lestrrat-go/jwx/v2/jwt"
 )
 
+// Membership is one organization this person belongs to, and the user id they
+// hold in it.
+//
+// A person has a DIFFERENT users.id per organization — one identity, many
+// membership rows — which is why presence needs the pair rather than just an
+// org list: the org's online set is keyed by the member id, not by the person.
+type Membership struct {
+	OrgID  string
+	UserID string
+}
+
 // Claims holds the verified identity derived from a JWT.
 type Claims struct {
 	UserID   string
 	OrgID    string
 	Username string
 	Roles    []string
-	Expiry   time.Time
+	// Memberships is every active membership this identity holds, from the
+	// `memberships` claim. ALWAYS non-empty after Verify: a token minted before
+	// the claim existed (or by a path that could not resolve it) falls back to
+	// the single current membership, so callers never special-case its absence.
+	//
+	// Presence metadata, NOT authorization. Nothing here widens what the request
+	// may do — the org a request acts in is OrgID alone.
+	Memberships []Membership
+	Expiry      time.Time
 }
 
 // Verifier validates EdDSA JWTs against a cached JWKS.
@@ -91,8 +110,54 @@ func (v *Verifier) Verify(ctx context.Context, token string) (*Claims, error) {
 	if claims.UserID == "" || claims.OrgID == "" {
 		return nil, errors.New("token missing sub/org_id")
 	}
+
+	raw, _ := parsed.Get("memberships")
+	claims.Memberships = normalizeMemberships(raw, claims.OrgID, claims.UserID)
 	return claims, nil
 }
 
 // AlgEdDSA is exported so callers can assert the expected signing algorithm.
 var AlgEdDSA = jwa.EdDSA
+
+// normalizeMemberships turns the raw `memberships` claim into the list presence
+// iterates, and GUARANTEES the caller's current membership is in it.
+//
+// Split out of Verify so the guarantee is testable without minting a JWT — it is
+// the part with the interesting failure modes, and all of them are silent:
+//
+//   - Claim absent. Tokens minted before it existed stay valid for their full
+//     TTL, and must keep behaving exactly as they did: single-org presence.
+//   - Claim present but missing the current org. It is a snapshot from mint
+//     time, and this is the one membership we know first-hand from a verified
+//     `sub` + `org_id`. Presence for THIS session cannot depend on a snapshot.
+//   - Malformed entries. Anything half-formed is dropped rather than repaired:
+//     an entry with an empty user id would add a blank member to an org's online
+//     set, which surfaces as a ghost nobody can account for.
+//
+// Duplicates are dropped so a claim that already lists the current membership
+// does not make presence write it twice.
+func normalizeMemberships(raw interface{}, orgID, userID string) []Membership {
+	var out []Membership
+	seen := map[Membership]bool{}
+	add := func(m Membership) {
+		if m.OrgID == "" || m.UserID == "" || seen[m] {
+			return
+		}
+		seen[m] = true
+		out = append(out, m)
+	}
+
+	if arr, ok := raw.([]interface{}); ok {
+		for _, m := range arr {
+			obj, ok := m.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			org, _ := obj["o"].(string)
+			usr, _ := obj["u"].(string)
+			add(Membership{OrgID: org, UserID: usr})
+		}
+	}
+	add(Membership{OrgID: orgID, UserID: userID})
+	return out
+}

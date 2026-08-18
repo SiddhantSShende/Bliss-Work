@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
+import { hasLocationSettingsPage } from "../shared/location-settings";
 import type { ServerEvent, ClientFrame, ControlFrame, PinResult, WsEventMeta } from "@taskboard/shared";
 
 /**
@@ -68,10 +69,25 @@ const api = {
    *  sharing still works but resolves to a city-level IP fix. */
   hasPreciseLocation: (): Promise<boolean> => ipcRenderer.invoke("geo:precise"),
 
-  /** Emitted when the app detects and refuses a screenshot attempt. Carries no
-   *  payload — the message is fixed, and the source is main's to log. */
-  onScreenshotBlocked: (cb: () => void) => {
-    const handler = () => cb();
+  /** Open the OS page where location access for desktop apps is granted.
+   *
+   *  UNDEFINED on platforms that have no such page (Linux). Absent rather than
+   *  a no-op on purpose: the renderer treats this as a capability check and
+   *  renders no button at all, which is honest — a Linux desktop has no OS
+   *  location provider whose permission could be changed. Takes no argument;
+   *  main owns the URL (see shared/location-settings.ts). */
+  openLocationSettings: hasLocationSettingsPage()
+    ? (): Promise<boolean> => ipcRenderer.invoke("geo:open-settings")
+    : undefined,
+
+  /** Emitted when the app detects and refuses a screenshot attempt.
+   *
+   *  The message is fixed; the payload says WHAT was pressed and whether main
+   *  already wrote the attempt to the activity record. The renderer reports it
+   *  itself when main did not, so a user who declined the activity agent still
+   *  leaves a server-side trace of a refused capture. */
+  onScreenshotBlocked: (cb: (info: { chord: string; recorded: boolean }) => void) => {
+    const handler = (_: unknown, info: { chord: string; recorded: boolean }) => cb(info);
     ipcRenderer.on("security:screenshot-blocked", handler);
     return () => ipcRenderer.removeListener("security:screenshot-blocked", handler);
   },

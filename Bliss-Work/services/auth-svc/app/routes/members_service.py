@@ -1,8 +1,9 @@
-"""Transaction bodies for member administration (role, suspend, remove).
+"""Transaction bodies for member administration (role, suspend, remove, leave).
 
 Every function here assumes the caller has ALREADY scoped the transaction with
 `service.set_org_guc(conn, org_id)` — `users`, `user_roles` and `audit_log` are
-all RLS ENABLE+FORCE, so an unscoped call reads nothing and writes nothing.
+all RLS ENABLE+FORCE, so an unscoped call reads nothing and writes nothing. The
+sole exception is `leave_org_tx`, which is cross-org by nature and says so.
 
 Two invariants are enforced here rather than in the route layer, because both
 need to hold across the read-then-write window inside one transaction:
@@ -41,6 +42,25 @@ async def _lock_org_admins(conn: AsyncConnection, org_id: str) -> None:
     await conn.execute(
         text("SELECT pg_advisory_xact_lock(hashtext(:k)::bigint)"),
         {"k": f"org_admins:{org_id}"},
+    )
+
+
+async def _lock_identity(conn: AsyncConnection, identity_id: str) -> None:
+    """Serialize one identity's membership changes across ALL orgs.
+
+    `_lock_org_admins` is per-org and cannot cover this: somebody leaving orgs A
+    and B in two tabs takes two DIFFERENT org locks, so both transactions read
+    "two memberships, one of them will remain" and both commit — leaving an
+    identity with no membership at all. That is the single state the only-org
+    refusal exists to prevent, and the one nobody can undo from inside the
+    product, because a re-invite has to come from a member of some org.
+
+    Taken BEFORE the org lock wherever both are held, so the ordering that keeps
+    `_lock_org_admins` and the audit-chain lock deadlock-free extends to three.
+    """
+    await conn.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:k)::bigint)"),
+        {"k": f"identity:{identity_id}"},
     )
 
 
@@ -154,7 +174,9 @@ async def change_role_tx(conn: AsyncConnection, principal, user_id: str, role: s
     # which the client treats as terminal and turns into a clean re-login with
     # freshly minted claims.
     await service.revoke_all_user_tokens(conn, user_id)
-    await _emit(conn, principal, "user.role_changed", user_id, roles=[role])
+    await _emit(
+        conn, principal.org_id, principal.user_id, "user.role_changed", user_id, roles=[role]
+    )
     await service.write_audit(
         conn,
         org_id=principal.org_id,
@@ -166,32 +188,22 @@ async def change_role_tx(conn: AsyncConnection, principal, user_id: str, role: s
     return await load_member(conn, principal.org_id, user_id)
 
 
-async def set_status_tx(
-    conn: AsyncConnection, principal, user_id: str, new_status: str
-) -> MemberDTO:
-    """Suspend, reactivate, or remove. All three are the same shape: flip
-    `users.status`, kill every live session, emit, audit."""
-    await _lock_org_admins(conn, principal.org_id)
-    await require_live_admin(conn, principal)
-    member = await load_member(conn, principal.org_id, user_id)
-    if member.status == new_status:
-        return member  # idempotent
+async def _apply_status(
+    conn: AsyncConnection, org_id: str, user_id: str, new_status: str
+) -> None:
+    """Flip `users.status` and apply the side effects the new value implies.
 
-    if new_status != "active":
-        admins = await _active_admin_ids(conn, principal.org_id)
-        if would_orphan_org(admins, user_id):
-            raise HTTPException(
-                status.HTTP_409_CONFLICT,
-                "this is the last admin — promote someone else first",
-            )
-
+    Shared by an admin changing someone else's status and by a member leaving of
+    their own accord: what it means for a `users` row to become `removed` does
+    not depend on who asked for it.
+    """
     await conn.execute(
         text(
             "UPDATE users SET status = :s, "
             "removed_at = CASE WHEN :s = 'removed' THEN now() ELSE NULL END "
             "WHERE id = :id AND org_id = :org"
         ),
-        {"s": new_status, "id": user_id, "org": principal.org_id},
+        {"s": new_status, "id": user_id, "org": org_id},
     )
 
     if new_status == "removed":
@@ -220,17 +232,39 @@ async def set_status_tx(
                     "INSERT INTO user_roles (user_id, role_id, org_id) "
                     "VALUES (:uid, :rid, :org)"
                 ),
-                {"uid": user_id, "rid": rid, "org": principal.org_id},
+                {"uid": user_id, "rid": rid, "org": org_id},
             )
     else:
         await service.revoke_all_user_tokens(conn, user_id)
+
+
+async def set_status_tx(
+    conn: AsyncConnection, principal, user_id: str, new_status: str
+) -> MemberDTO:
+    """Suspend, reactivate, or remove. All three are the same shape: flip
+    `users.status`, kill every live session, emit, audit."""
+    await _lock_org_admins(conn, principal.org_id)
+    await require_live_admin(conn, principal)
+    member = await load_member(conn, principal.org_id, user_id)
+    if member.status == new_status:
+        return member  # idempotent
+
+    if new_status != "active":
+        admins = await _active_admin_ids(conn, principal.org_id)
+        if would_orphan_org(admins, user_id):
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "this is the last admin — promote someone else first",
+            )
+
+    await _apply_status(conn, principal.org_id, user_id, new_status)
 
     event, action = {
         "suspended": ("user.deactivated", "member.deactivated"),
         "removed": ("user.removed", "member.removed"),
         "active": ("user.reactivated", "member.reactivated"),
     }[new_status]
-    await _emit(conn, principal, event, user_id)
+    await _emit(conn, principal.org_id, principal.user_id, event, user_id)
     await service.write_audit(
         conn,
         org_id=principal.org_id,
@@ -239,11 +273,71 @@ async def set_status_tx(
         target=user_id,
         meta={"from": member.status, "to": new_status},
     )
-    await _note_if_orphaned(conn, principal)
+    await _note_if_orphaned(conn, principal.org_id, principal.user_id)
     return await load_member(conn, principal.org_id, user_id)
 
 
-async def _note_if_orphaned(conn: AsyncConnection, principal) -> None:
+async def leave_org_tx(conn: AsyncConnection, identity_id: str, org_id: str) -> str:
+    """Give up the caller's OWN membership in `org_id`, returning the users row
+    that was left. The self-service twin of `set_status_tx(..., "removed")`.
+
+    The one function in this module that expects `service.set_bypass_rls` rather
+    than `set_org_guc`, and it has to be: somebody can leave a workspace they are
+    not currently signed in to, and whether they may leave at all depends on the
+    memberships their identity holds in OTHER orgs. Every write below is still
+    confined to `org_id` by an explicit predicate.
+
+    Two refusals, each because the alternative strands somebody:
+
+      * the last active admin leaving would leave the workspace with nobody able
+        to administer it — the same invariant `set_status_tx` enforces, reached
+        from the other side;
+      * leaving the only remaining membership would leave the identity with
+        nowhere to sign in, and no in-product way back: an invitation has to come
+        from a member of some org, and there would no longer be one. Giving up
+        the last workspace is deleting it (routes/org_lifecycle.py) or deleting
+        the account, both of which say so plainly.
+    """
+    await _lock_identity(conn, identity_id)
+    await _lock_org_admins(conn, org_id)
+    memberships = await service.memberships_for_identity(conn, identity_id)
+    leaving = next((m for m in memberships if m["orgId"] == org_id), None)
+    if leaving is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "not a member of that organization"
+        )
+    if len(memberships) == 1:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "this is your only organization — you cannot leave it",
+        )
+
+    user_id = str(leaving["userId"])
+    admins = await _active_admin_ids(conn, org_id)
+    if would_orphan_org(admins, user_id):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "you are the last admin — promote someone else before leaving",
+        )
+
+    await _apply_status(conn, org_id, user_id, "removed")
+    # `user.removed`, not a new `user.left`: to every consumer of the projection
+    # this IS a removal, and a second event type would mean teaching each one to
+    # treat the two identically.
+    await _emit(conn, org_id, user_id, "user.removed", user_id)
+    await service.write_audit(
+        conn,
+        org_id=org_id,
+        actor_id=user_id,
+        action="member.left",
+        target=user_id,
+        meta={"from": "active", "to": "removed"},
+    )
+    await _note_if_orphaned(conn, org_id, user_id)
+    return user_id
+
+
+async def _note_if_orphaned(conn: AsyncConnection, org_id: str, actor_id: str) -> None:
     """Record — and only record — that an org has no active members left.
 
     A DETECTOR, not an actor. The QA report asked for the org to be deleted
@@ -252,7 +346,8 @@ async def _note_if_orphaned(conn: AsyncConnection, principal) -> None:
     and destruction is not.
 
     In practice `would_orphan_org` means this is nearly unreachable: the last
-    admin can neither remove themselves nor be removed. It can still happen —
+    admin can neither remove themselves, be removed, nor leave. It can still
+    happen —
     an org whose only members are non-admins, all removed by an admin who was
     then suspended by another — and when it does, someone should be able to see
     it in the audit trail rather than discover it as a support ticket.
@@ -260,22 +355,29 @@ async def _note_if_orphaned(conn: AsyncConnection, principal) -> None:
     remaining = (
         await conn.execute(
             text("SELECT count(*) FROM users WHERE org_id = :org AND status = 'active'"),
-            {"org": principal.org_id},
+            {"org": org_id},
         )
     ).scalar_one()
     if remaining:
         return
     await service.write_audit(
         conn,
-        org_id=principal.org_id,
-        actor_id=principal.user_id,
+        org_id=org_id,
+        actor_id=actor_id,
         action="org.orphaned",
-        target=principal.org_id,
+        target=org_id,
         meta={"activeMembers": 0},
     )
 
 
-async def _emit(conn: AsyncConnection, principal, event_type: str, user_id: str, **extra) -> None:
+async def _emit(
+    conn: AsyncConnection,
+    org_id: str,
+    actor_id: str,
+    event_type: str,
+    user_id: str,
+    **extra,
+) -> None:
     """Publish to `auth.events` from the same transaction as the state change.
 
     messaging-svc and task-svc keep `user_projection` mirrors that until now only
@@ -287,6 +389,6 @@ async def _emit(conn: AsyncConnection, principal, event_type: str, user_id: str,
         topic=TOPIC_AUTH,
         kafka_key=user_id,
         event=build_event(
-            event_type, principal.org_id, userId=user_id, actorId=principal.user_id, **extra
+            event_type, org_id, userId=user_id, actorId=actor_id, **extra
         ),
     )

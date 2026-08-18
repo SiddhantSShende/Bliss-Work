@@ -217,7 +217,7 @@ function onSuspend(): void {
 }
 
 /**
- * Record a detected screenshot attempt.
+ * Record a detected screenshot attempt. Returns whether it was recorded.
  *
  * Flushed immediately rather than batched, for the same reason as onSuspend:
  * an attempt to capture protected content is the kind of event that is worth
@@ -226,11 +226,17 @@ function onSuspend(): void {
  * No-op without consent, like every other push here. That is the deliberate
  * trade — a user who declined the activity agent still SEES the warning, we
  * just do not write a monitoring record about someone who declined monitoring.
+ *
+ * The RETURN VALUE is what keeps that trade from also losing the security
+ * record: false tells the renderer to report the attempt itself, through the
+ * ordinary session beacon every signed-in client already sends. So the attempt
+ * is recorded either way, and never twice.
  */
-export function recordScreenshotAttempt(): void {
-  if (!isActive()) return;
+export function recordScreenshotAttempt(): boolean {
+  if (!isActive()) return false;
   push({ action: "screenshot.attempted", category: "system", occurredAt: stamp() });
   void flush();
+  return true;
 }
 
 /** Start sampling. Idempotent — safe to call whenever consent changes. */

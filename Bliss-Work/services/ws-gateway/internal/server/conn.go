@@ -44,20 +44,36 @@ func (s *Server) serveConn(parent context.Context, ws *websocket.Conn, claims *a
 		return
 	}
 
-	// Register presence (local + redis: per-connection + org online set).
-	if err := s.store.AddPresence(ctx, claims.UserID, s.nodeID, connID); err != nil {
-		s.log.Error("add presence failed", "err", err)
+	// Register presence for EVERY organization this person belongs to, not just
+	// the one this socket is signed in to.
+	//
+	// One person, one presence: being at their desk is a fact about them, not
+	// about which workspace tab happens to be open. Before this, a member of two
+	// orgs working in A showed as offline to everyone in B — and would have,
+	// indefinitely, because nothing about them was going to change.
+	//
+	// The org's online set is keyed by the MEMBERSHIP user id, which differs per
+	// org for the same person, so each org gets its own id from the claim rather
+	// than claims.UserID. Verify guarantees the current membership is in the
+	// list, so the single-org case is just a loop of one.
+	for _, m := range claims.Memberships {
+		if err := s.store.AddPresence(ctx, m.UserID, s.nodeID, connID); err != nil {
+			s.log.Error("add presence failed", "err", err, "org", m.OrgID)
+		}
+		becameOnline, err := s.store.AddOrgPresence(ctx, m.OrgID, m.UserID)
+		if err != nil {
+			s.log.Error("add org presence failed", "err", err, "org", m.OrgID)
+		}
+		// Broadcast presence.online ONLY on the absent→present transition (first
+		// socket/tab), so org-mates flip the avatar live without one event per
+		// tab. Evaluated per org: opening a second tab in A is not a transition
+		// there, but it may well be the first signal B has seen.
+		if becameOnline && s.presence != nil {
+			s.presence.Online(ctx, m.OrgID, m.UserID)
+		}
 	}
-	becameOnline, err := s.store.AddOrgPresence(ctx, claims.OrgID, claims.UserID)
-	if err != nil {
-		s.log.Error("add org presence failed", "err", err)
-	}
-	// Broadcast presence.online ONLY on the absent→present transition (first
-	// socket/tab), so org-mates flip the avatar live without one event per tab.
-	if becameOnline && s.presence != nil {
-		s.presence.Online(ctx, claims.OrgID, claims.UserID)
-	}
-	s.log.Info("ws connected", "user", claims.UserID, "conn", connID, "org", claims.OrgID)
+	s.log.Info("ws connected", "user", claims.UserID, "conn", connID, "org", claims.OrgID,
+		"orgs", len(claims.Memberships))
 
 	defer func() {
 		conn.Close()
@@ -65,22 +81,27 @@ func (s *Server) serveConn(parent context.Context, ws *websocket.Conn, claims *a
 		// Use a fresh short-lived context for cleanup (parent may be done).
 		cleanupCtx, cc := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cc()
-		if err := s.store.RemovePresence(cleanupCtx, claims.UserID, s.nodeID, connID); err != nil {
-			s.log.Error("remove presence failed", "err", err)
-		}
-		becameOffline, err := s.store.RemoveOrgPresenceIfLast(cleanupCtx, claims.OrgID, claims.UserID)
-		if err != nil {
-			s.log.Error("remove org presence failed", "err", err)
-		}
-		// Broadcast presence.offline ONLY on the present→absent transition (last
-		// socket closed across all nodes).
-		if becameOffline && s.presence != nil {
-			s.presence.Offline(cleanupCtx, claims.OrgID, claims.UserID)
+		// Mirror of the connect loop: this socket's presence is withdrawn from
+		// every org it registered in, and each org decides independently whether
+		// that was the person's last connection.
+		for _, m := range claims.Memberships {
+			if err := s.store.RemovePresence(cleanupCtx, m.UserID, s.nodeID, connID); err != nil {
+				s.log.Error("remove presence failed", "err", err, "org", m.OrgID)
+			}
+			becameOffline, err := s.store.RemoveOrgPresenceIfLast(cleanupCtx, m.OrgID, m.UserID)
+			if err != nil {
+				s.log.Error("remove org presence failed", "err", err, "org", m.OrgID)
+			}
+			// Broadcast presence.offline ONLY on the present→absent transition
+			// (last socket closed across all nodes).
+			if becameOffline && s.presence != nil {
+				s.presence.Offline(cleanupCtx, m.OrgID, m.UserID)
+			}
 		}
 		s.log.Info("ws disconnected", "user", claims.UserID, "conn", connID)
 	}()
 
-	go s.writeLoop(ctx, cancel, ws, conn, claims.OrgID)
+	go s.writeLoop(ctx, cancel, ws, conn, claims.Memberships)
 	s.readLoop(ctx, ws, conn, sess)
 }
 
@@ -100,7 +121,7 @@ func (s *Server) serveConn(parent context.Context, ws *websocket.Conn, claims *a
 // Separated, each is sized for its own job: pings stay at 20s, the heartbeat
 // moves to 45s inside a 120s stale window, and the write rate more than halves
 // without changing how fast a dead socket is noticed.
-func (s *Server) writeLoop(ctx context.Context, cancel context.CancelFunc, ws *websocket.Conn, conn *hub.Conn, orgID string) {
+func (s *Server) writeLoop(ctx context.Context, cancel context.CancelFunc, ws *websocket.Conn, conn *hub.Conn, memberships []auth.Membership) {
 	pingTicker := time.NewTicker(pingInterval)
 	defer pingTicker.Stop()
 	beatTicker := time.NewTicker(store.PresenceHeartbeatInterval)
@@ -141,9 +162,16 @@ func (s *Server) writeLoop(ctx context.Context, cancel context.CancelFunc, ws *w
 			// window, the user is reported offline while still connected. That
 			// is the correct way to be wrong — the alternative is reporting
 			// people online because we cannot tell.
+			//
+			// Beaten for every organization this socket registered in, or the
+			// orgs the person is not currently looking at would age out of the
+			// stale window and show them offline while they are plainly
+			// connected — which is the bug this whole path exists to fix.
 			tctx, tc := context.WithTimeout(ctx, pingTimeout)
-			if err := s.store.TouchPresence(tctx, orgID, conn.UserID, s.nodeID, conn.ConnID); err != nil {
-				s.log.Warn("presence heartbeat failed", "err", err, "user", conn.UserID)
+			for _, m := range memberships {
+				if err := s.store.TouchPresence(tctx, m.OrgID, m.UserID, s.nodeID, conn.ConnID); err != nil {
+					s.log.Warn("presence heartbeat failed", "err", err, "user", m.UserID, "org", m.OrgID)
+				}
 			}
 			tc()
 		}

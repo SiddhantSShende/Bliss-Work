@@ -72,12 +72,23 @@ export function Avatar({
   name,
   size = "md",
   online,
+  status,
   className,
 }: {
   name: string;
   size?: keyof typeof avatarSizes;
-  /** undefined = no indicator; true = green dot; false = muted dot. */
+  /** undefined = no indicator; true = green dot; false = muted dot.
+   *  Superseded by `status` where a caller can distinguish Busy; kept because
+   *  most callers only ever know connected-or-not. */
   online?: boolean;
+  /**
+   * The three-state form. Takes precedence over `online` when both are given.
+   *
+   * "busy" is amber rather than a second shade of green because it has to be
+   * distinguishable at 8 pixels across, and at that size hue is the only
+   * channel that carries.
+   */
+  status?: "online" | "busy" | "offline";
   className?: string;
 }) {
   const initials = name
@@ -97,12 +108,21 @@ export function Avatar({
       >
         {initials || "?"}
       </div>
-      {online !== undefined && (
+      {(status ?? online) !== undefined && (
         <span
+          title={status === "busy" ? "On a call" : undefined}
           className={cn(
             "absolute -bottom-0 -right-0 rounded-full ring-2 ring-surface",
             dotSizes[size],
-            online ? "bg-success" : "bg-muted/50",
+            status
+              ? status === "busy"
+                ? "bg-warning"
+                : status === "online"
+                  ? "bg-success"
+                  : "bg-muted/50"
+              : online
+                ? "bg-success"
+                : "bg-muted/50",
           )}
         />
       )}

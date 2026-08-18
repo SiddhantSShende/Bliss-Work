@@ -241,6 +241,26 @@ func (s *Store) Migrate(ctx context.Context) error {
 		return fmt.Errorf("acquire migration lock: %w", err)
 	}
 
+	// Migrations run under BYPASS RLS, transaction-locally.
+	//
+	// Not cosmetic. `messaging_user` is a plain LOGIN role (no SUPERUSER, no
+	// BYPASSRLS) and every org table is ENABLE + *FORCE* ROW LEVEL SECURITY, so
+	// the policy applies to the table owner too. Without this, any DML inside a
+	// migration — a backfill, a repair, a one-shot correction — matches ZERO
+	// rows, because `app.org_id` is unset and the 0007 policy is fail-closed.
+	//
+	// It fails SILENTLY: `UPDATE 0` is a successful statement, so the migration
+	// commits, the ledger records it as applied, and the data is untouched.
+	// That is exactly how 0014_message_features.sql's one-shot "hide the
+	// pre-origin THREAD rows" backfill did nothing at all while marking itself
+	// done — see 0020_hide_chat_inbox_items.sql, which repairs it.
+	//
+	// DDL is unaffected either way; is_local=true keeps the bypass inside this
+	// transaction, so it can never leak onto the pooled connection afterwards.
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.bypass_rls', 'on', true)`); err != nil {
+		return fmt.Errorf("set migration rls bypass: %w", err)
+	}
+
 	// The ledger itself. Created inside the same lock and transaction as
 	// everything else, so two pods racing a first boot cannot both create it.
 	if _, err := tx.Exec(ctx, `
@@ -516,10 +536,17 @@ type ConversationDTO struct {
 const (
 	MessageKindText       = "text"
 	MessageKindCallMissed = "call_missed"
+	// MessageKindForwardExternal records that a message was handed off to an
+	// external app (currently a WhatsApp deep link). Deliberately NOT in
+	// ValidMessageKind: the pill names a recipient and shows a phone number, so
+	// a client able to post one directly could forge "Forwarded to IT Support
+	// (+1800…)" in someone else's thread. Only ForwardLinkRecord sets it.
+	MessageKindForwardExternal = "forward_external"
 )
 
 // ValidMessageKind reports whether a CLIENT-SUPPLIED kind is one we accept on
-// the send path. Server-derived kinds are set through appendOpts.kind.
+// the send path. Server-derived kinds are set through appendOpts.kind and are
+// intentionally absent here — see MessageKindForwardExternal.
 func ValidMessageKind(kind string) bool {
 	return kind == MessageKindText || kind == MessageKindCallMissed
 }
@@ -552,6 +579,10 @@ type MessageDTO struct {
 	// is empty and never leaves the server, so the client renders "this message
 	// was deleted" in place rather than showing a gap it can't explain.
 	DeletedForAll bool `json:"deletedForAll,omitempty"`
+	// IsForward marks a message delivered by forwarding someone else's. The
+	// client labels it, because content shown under the forwarder's name with
+	// no marker attributes it to them.
+	IsForward bool `json:"isForward,omitempty"`
 }
 
 // ChannelDTO mirrors the canonical ChannelDTO contract.
@@ -591,6 +622,13 @@ type ChannelMessageDTO struct {
 	// Kind mirrors MessageDTO.Kind — omitted for ordinary text so the wire
 	// shape of a normal channel message is unchanged.
 	Kind string `json:"kind,omitempty"`
+	// IsForward mirrors MessageDTO.IsForward.
+	IsForward bool `json:"isForward,omitempty"`
+	// DeletedForAll marks a tombstone. The body is empty on the wire when this
+	// is set — the server does not decrypt a deleted message (channels_read.go).
+	DeletedForAll bool `json:"deletedForAll,omitempty"`
+	// Pinned marks a message a moderator has pinned for the whole channel.
+	Pinned bool `json:"pinned,omitempty"`
 }
 
 // ChannelSendResult is returned to the API after a channel message send.

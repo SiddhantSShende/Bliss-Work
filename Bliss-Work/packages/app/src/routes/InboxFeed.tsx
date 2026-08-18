@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { InboxItemDTO, InboxPeerDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
+import { INBOX_KINDS } from "../lib/inboxKinds";
 import { flatInbox, useInboxPages } from "../lib/useCursorPagination";
 import { InboxRow } from "../features/InboxRow";
 
@@ -14,14 +15,14 @@ import { InboxRow } from "../features/InboxRow";
 const READ_ALL_SEQ = Number.MAX_SAFE_INTEGER;
 
 /**
- * Right (main) pane of /app/inbox. The unified feed of messages + tasks, newest
- * first, keyset-paginated. With a :peerId route param the feed is narrowed to
- * one counterparty (the People-sidebar drill-down); without it, everything.
+ * Right (main) pane of /app/inbox. The mailbox: emails newest first,
+ * keyset-paginated. With a :peerId route param the feed is narrowed to one
+ * counterparty (the People-sidebar drill-down); without it, everything.
  *
- * Rows carry inline actions: THREAD → Reply (drills into the thread) / Ignore;
- * TASK → Acknowledge (SENT) / Complete (ACKNOWLEDGED) / Ignore (SENT). The
- * canonical state transitions all run through task-svc / messaging-svc; the
- * WsEventBridge reconciles caches (and auto-pins on acknowledge).
+ * Rows carry inline actions: MAIL → Delete (removes it from YOUR Inbox only);
+ * THREAD → Reply (drills into the thread) / Ignore. The canonical state
+ * transitions all run through messaging-svc; the WsEventBridge reconciles
+ * caches.
  */
 export function InboxFeed() {
   const { peerId } = useParams<{ peerId?: string }>();
@@ -29,17 +30,8 @@ export function InboxFeed() {
   const qc = useQueryClient();
   const sentinel = useRef<HTMLDivElement>(null);
 
-  const q = useInboxPages(api, peerId);
-  // Both kinds are displayed now.
-  //
-  // This used to filter to TASK because every DM wrote a THREAD row and the
-  // Inbox would otherwise have been a second, worse copy of Chats. The server
-  // now only writes THREAD rows for MAIL-origin threads (migration 0014), so
-  // what arrives here is exactly what belongs: tasks, and threads someone
-  // started from Compose. Filtering them out again would hide the one surface
-  // Compose sends to.
-  const allItems = flatInbox(q.data);
-  const items = allItems;
+  const q = useInboxPages(api, peerId, INBOX_KINDS);
+  const items = flatInbox(q.data);
 
   // Mark-as-read on view: when the user opens a peer's feed, every unread
   // thread is sent a /threads/{id}/read request AND the People-list cache is
@@ -82,7 +74,7 @@ export function InboxFeed() {
     // Authoritative: hit /threads/{id}/read for each thread we haven't yet
     // marked. Best-effort — if a call fails the next People-list refetch
     // resurfaces the count and the user can re-open to retry.
-    const threads = allItems.filter(
+    const threads = items.filter(
       (it) =>
         it.itemKind === "THREAD" &&
         it.peerUserId === peerId &&
@@ -97,30 +89,35 @@ export function InboxFeed() {
       });
     });
 
-    // Same for TASK rows: they have no seq model, so hit the inbox mark-read
-    // endpoint (unread_count reset). The optimistic patch above already cleared
-    // the pills; this persists it so the next inboxPeers refetch doesn't
-    // resurrect the count.
-    const tasks = allItems.filter(
+    // MAIL rows have no seq model either, so they go through the inbox
+    // mark-read endpoint (which routes to the mail's own read_at). The
+    // optimistic patch above already cleared the pills; this persists it so the
+    // next inboxPeers refetch doesn't resurrect the count.
+    //
+    // Note this marks a mail read on OPENING THE PERSON, not on opening the
+    // mail — matching what the People pill claims, which is "this person has
+    // nothing new for you". Opening the mail itself also marks it read (see
+    // MailDetail); both are idempotent, so whichever happens first wins.
+    const mails = items.filter(
       (it) =>
-        it.itemKind === "TASK" &&
+        it.itemKind === "MAIL" &&
         it.peerUserId === peerId &&
         it.unreadCount > 0 &&
         !markedRef.current.has(it.refId),
     );
-    tasks.forEach((task) => {
-      markedRef.current.add(task.refId);
-      void api.readInboxItem("TASK", task.refId).catch(() => {
-        markedRef.current.delete(task.refId);
+    mails.forEach((mail) => {
+      markedRef.current.add(mail.refId);
+      void api.readInboxItem("MAIL", mail.refId).catch(() => {
+        markedRef.current.delete(mail.refId);
       });
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [peerId, allItems.length]);
+  }, [peerId, items.length]);
 
   // Heading label for a per-person feed — read from the People-list cache (cheap).
   const { data: peers = [] } = useQuery({
     queryKey: qk.inboxPeers,
-    queryFn: () => api.inboxPeers(),
+    queryFn: () => api.inboxPeers(INBOX_KINDS),
     enabled: !!peerId,
   });
   const peer = peerId ? peers.find((p) => p.peerId === peerId) : undefined;
@@ -167,6 +164,11 @@ export function InboxFeed() {
   const ignoreMut = useMutation({
     mutationFn: async ({ kind, refId }: { kind: string; refId: string }) => {
       if (kind === "THREAD") return api.ignoreThread(refId);
+      // MAIL is one-sided: it hides the row for THIS reader and leaves the
+      // sender's Sent copy — and every other recipient's — untouched. That is
+      // what "delete" means in a mail client, and it is not the same act as a
+      // thread ignore, which hides for both parties.
+      if (kind === "MAIL") return api.ignoreInboxItem("MAIL", refId);
       // TASK kind routes through the canonical task ignore so the state machine
       // + outbox both fire; the inbox projector updates inbox_items on its own.
       await api.taskAction(refId, "ignore");
@@ -194,16 +196,16 @@ export function InboxFeed() {
         </div>
         <div className="text-[11px] text-muted">
           {peerId
-            ? "Tasks and messages from this person — chats are in Chats"
-            : "Tasks and messages sent to you, newest first — chats are in Chats"}
+            ? "Email with this person — chats are in Chats, tasks are in Tasks"
+            : "Your email, newest first — chats are in Chats, tasks are in Tasks"}
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-auto p-2">
         {items.length === 0 && !q.isLoading && (
           <div className="px-4 py-8 text-center text-xs text-muted">
             {peerId
-              ? "Nothing here with this person yet."
-              : "Your inbox is empty. Tap + to start a thread or assign a task."}
+              ? "No email with this person yet."
+              : "Your inbox is empty. Choose New Mail to write one."}
           </div>
         )}
         {items.map((it) => {

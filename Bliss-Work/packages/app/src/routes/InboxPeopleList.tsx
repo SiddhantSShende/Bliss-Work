@@ -1,19 +1,24 @@
-import { useState } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Plus, Inbox as InboxIcon, Users } from "lucide-react";
+import { PenSquare, Inbox as InboxIcon, Users } from "lucide-react";
 import { Avatar, EmptyState } from "@taskboard/ui";
 import type { InboxPeerDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
+import { INBOX_KINDS } from "../lib/inboxKinds";
 import { ListHeader, rowClass } from "../features/ListPane";
 import { relative } from "../lib/chatFormat";
-import { ComposeDialog } from "../features/ComposeDialog";
 
 /**
  * Middle pane of /app/inbox — the People sidebar. Lists every counterparty the
- * user has exchanged messages/tasks with (newest activity first), plus an "All"
- * entry that shows the full feed. The Compose (+) button opens ComposeDialog.
+ * user has exchanged mail with (newest activity first), plus an "All" entry
+ * that shows the full feed.
+ *
+ * "New Mail" ROUTES rather than opening a dialog. Composing an email is not a
+ * two-field confirmation — it is To/Cc/Bcc, a subject, a body and attachments —
+ * and a modal that size covers the very list the user is addressing from. The
+ * composer takes the main pane, exactly where the mail being replaced would
+ * have been read.
  *
  * Selecting a person routes to /app/inbox/p/:peerId, which filters the right
  * pane (InboxFeed) to just that person's items.
@@ -21,9 +26,11 @@ import { ComposeDialog } from "../features/ComposeDialog";
 export function InboxPeopleList() {
   const { api } = useRuntime();
   const loc = useLocation();
-  const [composeOpen, setComposeOpen] = useState(false);
 
-  const { data: peers = [] } = useQuery({ queryKey: qk.inboxPeers, queryFn: () => api.inboxPeers() });
+  const { data: peers = [] } = useQuery({
+    queryKey: qk.inboxPeers,
+    queryFn: () => api.inboxPeers(INBOX_KINDS),
+  });
 
   // "All" is active both at the index route and the explicit /all route.
   const allActive = loc.pathname === "/app/inbox" || loc.pathname === "/app/inbox/all";
@@ -33,24 +40,24 @@ export function InboxPeopleList() {
       <ListHeader
         title="Inbox"
         action={
-          <button
-            onClick={() => setComposeOpen(true)}
-            title="Compose — message or task"
-            className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-brand-from to-brand-to text-accent-fg shadow-soft transition hover:brightness-105"
+          <Link
+            to="/app/inbox/compose"
+            title="New Mail — compose an email"
+            className="flex h-8 items-center gap-1.5 rounded-xl bg-gradient-to-br from-brand-from to-brand-to px-3 text-xs font-semibold text-accent-fg shadow-soft transition hover:brightness-105"
           >
-            <Plus size={16} />
-          </button>
+            <PenSquare size={14} /> New Mail
+          </Link>
         }
       />
       <div className="min-h-0 flex-1 space-y-0.5 overflow-auto p-2">
-        {/* "All" — every message & task across everyone. */}
+        {/* "All" — every email, across everyone. */}
         <Link to="/app/inbox/all" className={rowClass(allActive)}>
           <div className="flex h-9 w-9 items-center justify-center rounded-full bg-accent-soft text-accent">
             <InboxIcon size={16} />
           </div>
           <div className="min-w-0 flex-1">
             <span className="font-medium text-fg">All</span>
-            <div className="truncate text-xs text-muted">Every message &amp; task</div>
+            <div className="truncate text-xs text-muted">Every email you sent &amp; received</div>
           </div>
         </Link>
 
@@ -58,7 +65,7 @@ export function InboxPeopleList() {
           <EmptyState
             icon={<Users size={22} />}
             title="No conversations yet"
-            hint="Tap + to message someone or assign a task."
+            hint="Write your first email with New Mail."
           />
         ) : (
           peers.map((p: InboxPeerDTO) => {
@@ -96,7 +103,6 @@ export function InboxPeopleList() {
           })
         )}
       </div>
-      <ComposeDialog open={composeOpen} onClose={() => setComposeOpen(false)} />
     </>
   );
 }

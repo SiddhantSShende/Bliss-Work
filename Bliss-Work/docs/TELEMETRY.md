@@ -14,6 +14,7 @@ Owned by `telemetry-svc` (Python/FastAPI, port 8006, database `telemetrydb`).
 | Sign-in, sign-out, workspace switch | `auth.events`, emitted by auth-svc in the same transaction as the state change | **server-observed** |
 | Messages sent, tasks allocated / acknowledged / completed / reviewed, forwards, blocks | `messaging.events.v1`, `task.events.v1` | **server-observed** |
 | Section visited and dwell time, focus/blur, idle, heartbeat | client beacon (`POST /telemetry/beacon`) | self-reported |
+| Refused screen-capture attempts (`screenshot.attempted`, category `security`) | client beacon, from whichever host detected it | self-reported |
 | Foreground application name, OS idle, screen lock | desktop agent (`apps/desktop/src/main/activity-agent.ts`), opt-in per machine | self-reported |
 | Sites visited | browser extension (`apps/extension`), paired per browser | self-reported |
 

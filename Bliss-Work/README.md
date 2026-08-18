@@ -4,9 +4,7 @@ Team collaboration platform, shipped as a web app and an Electron desktop app
 from one shared React codebase:
 
 - **Messaging** — 1:1 DMs (reply / ignore / block), **channels**, a unified
-  people-centric inbox, typing indicators and live presence. Any message can be
-  forwarded to a **WhatsApp** contact via a `wa.me` deep link — no WhatsApp
-  Business account needed — and the origin chat records where it went.
+  people-centric inbox, typing indicators and live presence.
 - **Tasks** — assign → acknowledge → complete, with a timeline, allocator
   review, and **.xlsx export**. Desktop pins assigned tasks to the desktop as
   sticky notes that sit behind every app until you show the desktop.
@@ -20,6 +18,7 @@ from one shared React codebase:
   they worked on, with charts and **.xlsx export**. Every member can see their
   own record. Channels have owners and admins who can add, remove and block.
 - **Multi-org** — one login across several workspaces, with a top-bar switcher.
+  Members can leave a workspace themselves from the Org page.
 
 ## Architecture
 

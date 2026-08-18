@@ -129,6 +129,29 @@ func mapStoreError(err error) (int, ErrorCode, string) {
 	case errors.Is(err, livekit.ErrNotConfigured):
 		return http.StatusServiceUnavailable, CodeInternalError,
 			"calling is not configured on this deployment"
+	// ── Mail composition ────────────────────────────────────────────────
+	// Each of these names a specific field the composer can point at, which is
+	// the whole reason they are distinct errors rather than one "bad request":
+	// "could not send" is not an answer anyone can act on.
+	case errors.Is(err, store.ErrMailNoRecipients):
+		return http.StatusUnprocessableEntity, CodeValidationError,
+			"add at least one recipient"
+	case errors.Is(err, store.ErrMailTooManyAddrs):
+		return http.StatusUnprocessableEntity, CodeValidationError, err.Error()
+	case errors.Is(err, store.ErrMailSubjectTooLong),
+		errors.Is(err, store.ErrMailBodyTooLong):
+		return http.StatusUnprocessableEntity, CodeValidationError, err.Error()
+	case errors.Is(err, store.ErrMailInvalidAddress):
+		// err.Error() names the offending address so the composer can highlight
+		// that chip. Safe to echo: it is the caller's own input.
+		return http.StatusUnprocessableEntity, CodeValidationError, err.Error()
+	case errors.Is(err, store.ErrMailNoDeliverable):
+		return http.StatusUnprocessableEntity, CodeValidationError,
+			"none of these addresses could be delivered to"
+	case errors.Is(err, store.ErrMailAlreadySent):
+		// 409, not 400: the request was well-formed and the caller was entitled
+		// to make it — the mail has simply already left.
+		return http.StatusConflict, CodeConflict, "this mail has already been sent"
 	case errors.Is(err, store.ErrNotFound):
 		return http.StatusNotFound, CodeNotFound, "not found"
 	case errors.Is(err, store.ErrQuotaExceeded):

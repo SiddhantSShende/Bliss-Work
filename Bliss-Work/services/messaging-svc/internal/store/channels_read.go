@@ -177,14 +177,30 @@ func (s *Store) ChannelMessages(
 	rows, err := tx.Query(ctx,
 		// display_name alongside username: `username` is the email local-part, so
 		// on its own it renders "j.okafor" over every channel message.
+		//
+		// NOT EXISTS on message_hides drops the caller's "Delete for me" rows.
+		// A filter rather than a flag: a hidden message is one this reader has
+		// said they do not want to see, so shipping it with a boolean would put
+		// the body on their device for the client to be trusted to conceal.
+		//
+		// A message deleted for everyone is still SELECTED — it renders as a
+		// tombstone, and the body is dropped below rather than here, because
+		// `seq` ordering and the "this message was deleted" placeholder both
+		// need the row to survive.
 		`SELECT m.id, m.channel_id, m.seq, m.sender_id,
 		        COALESCE(up.username, ''), COALESCE(up.display_name, ''),
-		        m.body, m.body_enc, m.created_at, m.kind
+		        m.body, m.body_enc, m.created_at, m.kind, m.is_forward,
+		        m.deleted_for_all_at IS NOT NULL AS deleted_for_all,
+		        m.pinned_at IS NOT NULL AS pinned
 		 FROM channel_messages m
 		 LEFT JOIN user_projection up ON up.user_id = m.sender_id
 		 WHERE m.channel_id = $1 AND m.seq < $2
+		   AND NOT EXISTS (
+		       SELECT 1 FROM message_hides h
+		       WHERE h.message_id = m.id AND h.user_id = $4
+		   )
 		 ORDER BY m.seq DESC
-		 LIMIT $3`, channelID, beforeSeq, limit)
+		 LIMIT $3`, channelID, beforeSeq, limit, callerID)
 	if err != nil {
 		return nil, err
 	}
@@ -203,7 +219,8 @@ func (s *Store) ChannelMessages(
 		var r rawChMsg
 		if err := rows.Scan(&r.m.ID, &r.m.ChannelID, &r.m.Seq, &r.m.SenderID,
 			&r.m.SenderUsername, &r.m.SenderDisplayName,
-			&r.bodyTxt, &r.bodyEnc, &r.created, &r.kind); err != nil {
+			&r.bodyTxt, &r.bodyEnc, &r.created, &r.kind, &r.m.IsForward,
+			&r.m.DeletedForAll, &r.m.Pinned); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -220,6 +237,15 @@ func (s *Store) ChannelMessages(
 	out := []ChannelMessageDTO{}
 	for _, r := range raws {
 		m := r.m
+		// A tombstone never ships its body. Skipping the decrypt IS the point:
+		// "deleted" that still sends the text to every client and hides it in
+		// CSS is not deletion. Same rule as decryptMessage on the DM side.
+		if m.DeletedForAll {
+			m.Body = ""
+			m.CreatedAt = r.created.UTC().Format("2006-01-02T15:04:05.000Z")
+			out = append(out, m)
+			continue
+		}
 		// body_enc is the source of truth; legacy plaintext body is the fallback.
 		if r.bodyEnc != nil {
 			dec, derr := s.crypto.Decrypt(ctx, tx, orgID, r.bodyEnc)

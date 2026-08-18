@@ -42,7 +42,7 @@ from .config import Settings
 from .mailer import Mailer, is_valid_email
 from .presence import Presence
 from .resilience import CircuitBreaker, CircuitOpenError, retry_async
-from .templates import render_new_message_email, render_new_task_email
+from .templates import render_new_message_email, render_new_task_email, render_user_mail
 from .tracing import extract_context, inject_headers
 from .kafka_security import kafka_security_kwargs
 
@@ -58,6 +58,12 @@ _LOOKUP_ATTEMPTS = 3
 
 MESSAGE_CREATED = "message.created"
 TASK_ASSIGNED = "task.assigned"
+# One copy of a user's own email, bound for one address outside the workspace.
+# Unlike the two above this is not a NOTIFICATION about something that happened
+# in the app — it IS the thing the user sent, and the only way it reaches its
+# recipient. That difference drives every special case below: no presence gate,
+# no auth-svc lookup, and a template that does not dress it up.
+MAIL_OUTBOUND = "mail.outbound"
 
 # Events that arrive on the same topics but MUST NOT trigger a notification
 # (closing the delivered→ack→delivered loop, e.g.).
@@ -70,6 +76,10 @@ NO_RELAY_TYPES = {
     "task.completed",
     "task.ignored",
     "task.left",
+    # An in-app mail delivery needs no email ABOUT it: the recipient has a
+    # BlissWork account and the mail is already in their Inbox. Relaying one
+    # would send someone an email to tell them they have an email.
+    "mail.delivered",
 }
 
 # Limit how much message body lands inside a single email — keep things
@@ -225,12 +235,15 @@ class RelayConsumer:
         etype = event.get("type", "")
         if etype in NO_RELAY_TYPES:
             return True
-        if etype not in (MESSAGE_CREATED, TASK_ASSIGNED):
+        if etype not in (MESSAGE_CREATED, TASK_ASSIGNED, MAIL_OUTBOUND):
             return True
 
         event_id = event.get("eventId")
         if not event_id:
             return True
+
+        if etype == MAIL_OUTBOUND:
+            return await self._handle_outbound_mail(event, event_id)
 
         # Determine the recipient.
         recipient_id = (
@@ -286,6 +299,68 @@ class RelayConsumer:
         # Offset advances only AFTER _mark_sent completes.
         await self._mark_sent(event_id, recipient_id)
         self._failures.pop(str(event_id), None)
+        return True
+
+    async def _handle_outbound_mail(self, event: dict, event_id: str) -> bool:
+        """Put ONE copy of a user's own email on the wire.
+
+        Three things this path deliberately does NOT do, each of which the
+        notification path does:
+
+        * No presence gate. The offline check exists so we don't email someone
+          about something they are already watching happen. This mail has no
+          in-app copy for its recipient to be watching — they are outside the
+          workspace, and SMTP is the only way it reaches them at all.
+        * No auth-svc lookup. Both addresses are on the event, resolved by
+          messaging-svc at send time against the org directory.
+        * No notification template. See templates.render_user_mail.
+
+        Dedup still applies, keyed by (eventId, mailId): messaging-svc emits one
+        event per external addressee, so the pair is unique per copy and a
+        redelivered batch cannot send the same person the same mail twice.
+        """
+        envelope = str(event.get("envelope") or "")
+        mail_id = event.get("mailId")
+        if not mail_id:
+            _log.warning("relay_mail_missing_id", event_id=event_id)
+            return True
+        if not is_valid_email(envelope):
+            # Rejected by SMTP and retried forever otherwise. messaging-svc
+            # validates on the way in, so reaching here means a malformed
+            # producer, not a user typo — log loudly and drop the copy.
+            _log.warning("relay_mail_invalid_envelope", event_id=event_id, to=envelope)
+            return True
+
+        claimed = await self._claim(event_id, mail_id)
+        if not claimed and await self._is_sent(event_id, mail_id):
+            return True
+
+        sender_name = str(event.get("fromName") or "")
+        sender_address = str(event.get("fromAddress") or "")
+        text, html = render_user_mail(
+            body=str(event.get("bodyText") or ""),
+            sender_name=sender_name,
+            sender_address=sender_address,
+        )
+        try:
+            await self._mailer.send(
+                to=envelope,
+                subject=str(event.get("subject") or "(no subject)"),
+                text_body=text,
+                html_body=html,
+                from_name=sender_name,
+                # Only a real address is worth advertising as a reply target —
+                # a Reply-To nobody can reply to is worse than none.
+                reply_to=sender_address if is_valid_email(sender_address) else "",
+                display_to=[str(a) for a in (event.get("to") or [])],
+                display_cc=[str(a) for a in (event.get("cc") or [])],
+            )
+        except Exception as exc:  # noqa: BLE001 - poison-message handling below
+            return await self._on_failure(str(event_id), event, str(exc))
+
+        await self._mark_sent(event_id, mail_id)
+        self._failures.pop(str(event_id), None)
+        _log.info("relay_mail_sent", event_id=event_id, mail_id=mail_id)
         return True
 
     async def _on_failure(self, event_id: str, event: dict, error: str) -> bool:

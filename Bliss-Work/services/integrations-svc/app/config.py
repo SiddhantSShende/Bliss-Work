@@ -69,6 +69,13 @@ class Settings(BaseSettings):
     slack_signing_secret: str = ""
 
 
+    # Redis for distributed rate limiting (honest across replicas). Empty =
+    # in-process fallback (per-replica, fails open). slowapi_storage_uri
+    # overrides redis_url for the slowapi limiter specifically; usually set both
+    # to the same redis:// URL. Mirrors auth-svc/app/config.py.
+    redis_url: str = ""
+    slowapi_storage_uri: str = ""
+
     # ── At-rest column encryption (envelope: per-org DEK wrapped by a KEK) ──────
     # IDENTICAL field names + dev defaults to task-svc/auth-svc so the shared
     # Cryptor + key-rotation tooling work uniformly across services.

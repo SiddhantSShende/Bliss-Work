@@ -8,7 +8,7 @@ import { qk } from "../../lib/queryBridge";
 import { Tabs, type TabSpec } from "../Tabs";
 import { actionLabel, dayHeading, formatDuration, sourceLabel } from "./activityLabels";
 
-type Filter = "all" | "auth" | "engagement" | "navigation" | "app" | "site";
+type Filter = "all" | "auth" | "engagement" | "navigation" | "app" | "site" | "security";
 
 const FILTERS: TabSpec<Filter>[] = [
   { key: "all", label: "Everything" },
@@ -17,6 +17,11 @@ const FILTERS: TabSpec<Filter>[] = [
   { key: "auth", label: "Sign-ins" },
   { key: "app", label: "Apps" },
   { key: "site", label: "Sites" },
+  // Client-enforced controls the person ran into — today, refused screen
+  // captures. Self-reported by definition: a screenshot happens in the
+  // operating system, so this is what the app SAW and refused, not proof that
+  // nothing was captured.
+  { key: "security", label: "Security" },
 ];
 
 /**

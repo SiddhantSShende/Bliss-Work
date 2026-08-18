@@ -33,8 +33,11 @@ import {
   ProviderIdentityDTO,
   ReactionDTO,
   type Role,
+  InboxItemKind,
   InboxPageDTO,
   InboxPeerDTO,
+  MailDTO,
+  SendMailResultDTO,
   InviteDTO,
   MemberActivityDTO,
   MemberDTO,
@@ -458,6 +461,19 @@ export class ApiClient {
       SessionDTO,
     );
   }
+  /**
+   * Leave one of the caller's organizations. The membership is marked removed —
+   * re-invitable, never deleted — and every session it holds is revoked, so
+   * leaving the ACTIVE org means this client must switch to another one.
+   *
+   * Refused (409, with a message written for the user) when the caller is the
+   * org's last admin or when it is their only organization.
+   */
+  leaveOrg(orgId: string) {
+    return this.req<void>(this.cfg.authBase, `/auth/orgs/${orgId}/leave`, {
+      method: "POST",
+    });
+  }
 
   // ── password reset + email verification ─────────────────────────────────────
   /** Request a reset link. Always resolves the same way (generic 202) whether or
@@ -614,13 +630,23 @@ export class ApiClient {
   }
 
   // ── inbox + threads (post-Phase 3) ───────────────────────────────────────
-  /** Unified inbox feed: messages + tasks intermixed, newest first. When
-   *  peerId is given, only items with that counterparty are returned. */
-  inbox(cursor?: string, limit = 25, peerId?: string) {
+  /**
+   * Unified inbox feed: mail, message threads and tasks intermixed, newest
+   * first. When peerId is given, only items with that counterparty are
+   * returned.
+   *
+   * `kinds` narrows it to those item kinds, and belongs on the REQUEST rather
+   * than in a filter over the response: a page is a page of rows, so dropping
+   * kinds afterwards would leave a caller with a screenful of the wrong kind
+   * looking at an empty feed that still claims to have a next page. Omitted
+   * means every kind.
+   */
+  inbox(cursor?: string, limit = 25, peerId?: string, kinds?: InboxItemKind[]) {
     const qs = new URLSearchParams();
     if (cursor) qs.set("cursor", cursor);
     qs.set("limit", String(limit));
     if (peerId) qs.set("peerId", peerId);
+    if (kinds?.length) qs.set("kinds", kinds.join(","));
     return this.req(
       this.cfg.messagingBase,
       `/api/v1/inbox?${qs.toString()}`,
@@ -628,9 +654,21 @@ export class ApiClient {
       InboxPageDTO,
     );
   }
-  /** Distinct counterparties in the caller's inbox (People sidebar). */
-  inboxPeers() {
-    return this.req(this.cfg.messagingBase, "/api/v1/inbox/peers", {}, z.array(InboxPeerDTO));
+  /**
+   * Distinct counterparties in the caller's inbox (People sidebar).
+   *
+   * Pass the SAME `kinds` as the feed beside it: this is the badge over that
+   * list, and counting rows the list does not show produces a "3" the user
+   * cannot find.
+   */
+  inboxPeers(kinds?: InboxItemKind[]) {
+    const qs = kinds?.length ? `?kinds=${kinds.join(",")}` : "";
+    return this.req(
+      this.cfg.messagingBase,
+      `/api/v1/inbox/peers${qs}`,
+      {},
+      z.array(InboxPeerDTO),
+    );
   }
   thread(threadId: string) {
     return this.req(this.cfg.messagingBase, `/api/v1/threads/${threadId}`, {}, ThreadDTO);
@@ -668,6 +706,73 @@ export class ApiClient {
       z.object({ messageId: z.string(), seq: z.number() }),
     );
   }
+  // ── mail ─────────────────────────────────────────────────────────────────
+  //
+  // There is no `mailList()`. A mailbox listing is what `inbox()` already
+  // serves (rows with itemKind "MAIL"), keyset-paginated with unread rollups —
+  // a second parallel list would mean two pagination models over one feed.
+
+  /**
+   * Opens a draft and returns its id.
+   *
+   * Called when the composer OPENS, not on Send: an attachment upload has to be
+   * authorized against a destination that already exists, and this id is the
+   * `scopeId` those uploads use. Pair every call with `discardMailDraft` on
+   * cancel so an abandoned compose does not leave a row behind.
+   */
+  createMailDraft() {
+    return this.req(
+      this.cfg.messagingBase,
+      "/api/v1/mail/drafts",
+      { method: "POST" },
+      z.object({ mailId: z.string().uuid() }),
+    );
+  }
+  /** Discards an unsent draft and its attachments. Author-only, draft-only. */
+  discardMailDraft(mailId: string) {
+    return this.req<void>(this.cfg.messagingBase, `/api/v1/mail/drafts/${mailId}`, {
+      method: "DELETE",
+    });
+  }
+  /**
+   * Sends the draft. Addresses are validated and resolved against the org
+   * directory server-side: local ones are delivered in-app, the rest are queued
+   * for SMTP. A rejected address comes back as a 422 naming that address.
+   */
+  sendMail(
+    mailId: string,
+    mail: { to: string[]; cc?: string[]; bcc?: string[]; subject: string; bodyText: string },
+  ) {
+    return this.req(
+      this.cfg.messagingBase,
+      `/api/v1/mail/drafts/${mailId}/send`,
+      {
+        method: "POST",
+        // Send has no natural client-supplied id, so the idempotency key is
+        // what stops a double-tap on a slow connection fanning out twice.
+        headers: { "idempotency-key": uuid() },
+        body: JSON.stringify({
+          to: mail.to,
+          cc: mail.cc ?? [],
+          bcc: mail.bcc ?? [],
+          subject: mail.subject,
+          bodyText: mail.bodyText,
+        }),
+      },
+      SendMailResultDTO,
+    );
+  }
+  /** The complete email behind an Inbox row. */
+  mail(mailId: string) {
+    return this.req(this.cfg.messagingBase, `/api/v1/mail/${mailId}`, {}, MailDTO);
+  }
+  /** Stamps read_at and clears the row's unread badge. Idempotent. */
+  readMail(mailId: string) {
+    return this.req<void>(this.cfg.messagingBase, `/api/v1/mail/${mailId}/read`, {
+      method: "POST",
+    });
+  }
+
   // ── chat attachments ────────────────────────────────────────────────────────
 
   /**
@@ -951,12 +1056,152 @@ export class ApiClient {
       z.array(ReactionDTO),
     );
   }
+
+  // ── Channel message actions ──────────────────────────────────────────────
+  // The channel twins of the four methods above. Separate endpoints because
+  // channel messages live in their own table, and "delete for everyone" is open
+  // to channel moderators as well as the author — see
+  // services/messaging-svc/internal/store/channels_message_actions.go.
+
+  /** "Delete for me" in a channel. Invisible to everyone else. */
+  hideChannelMessage(messageId: string) {
+    return this.req<void>(
+      this.cfg.messagingBase,
+      `/api/v1/channel-messages/${messageId}/hide`,
+      { method: "POST", headers: { "idempotency-key": uuid() } },
+    );
+  }
+  /**
+   * "Delete for everyone" in a channel — a tombstone, like the DM version.
+   *
+   * Permitted to the AUTHOR or to anyone who moderates the channel (owner,
+   * channel admin, org_admin). The server is the authority; the UI only decides
+   * whether to offer the option.
+   */
+  deleteChannelMessageForAll(messageId: string) {
+    return this.req<void>(
+      this.cfg.messagingBase,
+      `/api/v1/channel-messages/${messageId}`,
+      { method: "DELETE", headers: { "idempotency-key": uuid() } },
+    );
+  }
+  /** Pin or unpin a message for the whole channel. Moderators only. */
+  setChannelMessagePin(messageId: string, on: boolean) {
+    return this.req<void>(
+      this.cfg.messagingBase,
+      `/api/v1/channel-messages/${messageId}/pin`,
+      { method: on ? "PUT" : "DELETE" },
+    );
+  }
+  /** Add or remove one emoji reaction on a channel message. Returns its tally. */
+  setChannelReaction(messageId: string, emoji: string, on: boolean) {
+    return this.req(
+      this.cfg.messagingBase,
+      `/api/v1/channel-messages/${messageId}/reactions/${encodeURIComponent(emoji)}`,
+      { method: on ? "PUT" : "DELETE" },
+      z.array(ReactionDTO),
+    );
+  }
+  /**
+   * Reactions for ONE PAGE of a channel. Pass the same beforeSeq/limit used for
+   * the matching channelMessages() call — the window is what keeps it bounded.
+   */
+  channelReactions(channelId: string, beforeSeq?: number, limit = MESSAGE_PAGE_SIZE) {
+    const qs = new URLSearchParams();
+    if (typeof beforeSeq === "number") qs.set("beforeSeq", String(beforeSeq));
+    qs.set("limit", String(limit));
+    return this.req(
+      this.cfg.messagingBase,
+      `/api/v1/channels/${channelId}/reactions?${qs.toString()}`,
+      {},
+      z.array(ReactionDTO),
+    );
+  }
   /** Sender-only soft-delete: hides this message from the sender's own inbox. */
   dismissMessage(messageId: string) {
     return this.req<void>(this.cfg.messagingBase, `/api/v1/messages/${messageId}/dismiss`, {
       method: "POST",
       headers: { "idempotency-key": uuid() },
     });
+  }
+  /** Record a forward the caller is about to make by opening a WhatsApp link,
+   *  and write the system entry into the origin chat.
+   *
+   *  This sends NOTHING and needs no connected WhatsApp Business account — the
+   *  caller opens https://wa.me/?text=… and the user sends from their own
+   *  WhatsApp. In exchange we cannot observe the outcome, so the recorded
+   *  forward is `unconfirmed` and every surface words it that way.
+   *
+   *  `targetPhone` is optional and normally omitted: with no number in the link,
+   *  WhatsApp shows its own contact chooser and the recipient is picked there,
+   *  where we cannot see it. Pass one only when the caller genuinely knows the
+   *  destination and deep-links straight to that chat.
+   *
+   *  The caller must build and open the wa.me URL itself: navigation has to
+   *  happen synchronously inside the click handler or a popup blocker eats it,
+   *  which rules out waiting on this response. Idempotent on clientMsgId. */
+  forwardMessageLink(messageId: string, targetPhone?: string, targetName?: string, clientMsgId?: string) {
+    return this.req(
+      this.cfg.messagingBase,
+      `/api/v1/messages/${messageId}/forward-link`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          channel: "whatsapp",
+          targetPhone: targetPhone ?? "",
+          targetName: targetName ?? "",
+          clientMsgId: clientMsgId ?? uuid(),
+        }),
+      },
+      z.object({
+        status: z.string(),
+        platform: z.string(),
+        delivery: z.string(),
+        /** Empty when the recipient was chosen inside WhatsApp. */
+        targetPhone: z.string(),
+        systemMessageId: z.string(),
+      }),
+    );
+  }
+  /** Forward a message to another chat or channel INSIDE this workspace.
+   *
+   *  The counterpart to forwardMessageLink, and the one that actually delivers:
+   *  the server writes the copy into the destination, RE-SCOPES any attachments
+   *  it carries so the recipient can open them, and records the provenance edge
+   *  in the same transaction. That re-scoping is why this cannot be done by
+   *  re-sending the body from here — an attachment id is authorized against the
+   *  conversation it was uploaded to, so a client-side copy would deliver files
+   *  the recipient is not allowed to fetch.
+   *
+   *  Idempotent on clientMsgId: a retry after a dropped connection re-uses the
+   *  message the first attempt wrote rather than delivering it twice. */
+  forwardMessage(
+    messageId: string,
+    target: { kind: "user" | "channel"; id: string },
+    clientMsgId?: string,
+  ) {
+    return this.req(
+      this.cfg.messagingBase,
+      `/api/v1/messages/${messageId}/forward`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          targetKind: target.kind,
+          targetId: target.id,
+          clientMsgId: clientMsgId ?? uuid(),
+        }),
+      },
+      z.object({
+        messageId: z.string(),
+        /** Set for a chat target — the conversation the copy landed in, which
+         *  may have been created by this call. */
+        conversationId: z.string().optional(),
+        /** Set for a channel target. */
+        channelId: z.string().optional(),
+        /** Always "confirmed" here: the copy is in the database. */
+        delivery: z.string(),
+      }),
+    );
   }
   // ── External Integrations (integrations-svc) ─────────────────────────────
   /** Connected external accounts for the caller/org. Never returns tokens. */
@@ -1113,15 +1358,32 @@ export class ApiClient {
       body: JSON.stringify({ upToSeq }),
     });
   }
-  /** Mark a unified-inbox row "seen" when it's opened. TASK rows have no seq
-   *  model, so this is the only path that clears their unread badge (THREAD is
-   *  routed server-side to the seq-based read). Idempotent + best-effort. */
-  readInboxItem(kind: "TASK" | "THREAD", refId: string) {
+  /** Mark a unified-inbox row "seen" when it's opened. TASK and MAIL rows have
+   *  no seq model, so this is the only path that clears their unread badge
+   *  (THREAD is routed server-side to the seq-based read; MAIL to the mail's own
+   *  read_at). Idempotent + best-effort. */
+  readInboxItem(kind: InboxItemKind, refId: string) {
     // Naturally idempotent (unread → 0); mirrors readThread which sends no key.
     return this.req<void>(
       this.cfg.messagingBase,
       `/api/v1/inbox/items/${kind}/${refId}/read`,
       { method: "POST" },
+    );
+  }
+  /**
+   * Hide one unified-inbox row for the CALLER.
+   *
+   * One-sided for MAIL — the sender's Sent copy and every other recipient's are
+   * untouched, which is what "delete" means in a mail client. THREAD has a
+   * two-sided ignore of its own (`ignoreThread`) and should use that; TASK must
+   * go through `taskAction(id, "ignore")` so the state machine actually runs,
+   * because this endpoint only hides the projection row.
+   */
+  ignoreInboxItem(kind: InboxItemKind, refId: string) {
+    return this.req<void>(
+      this.cfg.messagingBase,
+      `/api/v1/inbox/items/${kind}/${refId}/ignore`,
+      { method: "POST", headers: { "idempotency-key": uuid() } },
     );
   }
 
@@ -1330,6 +1592,25 @@ export class ApiClient {
    * POST because the id list IS the request; a few hundred ids do not belong in
    * a query string. Returns the subset that is online, in no particular order.
    */
+  /**
+   * Everyone in the org who is in a LIVE call right now.
+   *
+   * Merged with presence to render "Busy" rather than "Online" — being
+   * connected and being interruptible are different questions, and answering
+   * the second with the first is worse than saying nothing, because a colleague
+   * acts on it.
+   *
+   * Unbounded, unlike `presenceOf`: this scales with concurrent call
+   * participants rather than with the size of the organisation.
+   */
+  onCallUserIds() {
+    return this.req(
+      this.cfg.messagingBase,
+      "/api/v1/calls/on-call",
+      {},
+      z.array(z.string().uuid()),
+    );
+  }
   presenceOf(userIds: string[]) {
     // Nothing asked for, nothing to ask. Saves a round trip on every render
     // that happens before its list has loaded — which, with react-query, is

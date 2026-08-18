@@ -1,0 +1,634 @@
+// =============================================================================
+// BlissWork - build and deploy pipeline
+//
+// The flow:
+//   1. Someone pushes to `main` on GitHub
+//   2. Jenkins (BUILD VM) builds only the images that actually changed
+//   3. Jenkins pushes them to the REGISTRY VM
+//   4. Production pulls those images and restarts    <- optional, off by default
+//
+// Nothing gets compiled on the production server any more.
+//
+// Before this can run:
+//   - `main` must exist on GitHub (right now the repo only has VPS-Shristi)
+//   - Add a Jenkins credential `docker-registry` (username + password)
+//   - Add `prod-ssh` (SSH key) if you turn DEPLOY_TO_PROD on
+//   - The build agent needs docker + buildx. That's it, everything else runs
+//     inside containers.
+// =============================================================================
+
+
+// -----------------------------------------------------------------------------
+// The 10 images we build.
+//
+//   context    = folder docker builds from
+//   dockerfile = which Dockerfile to use
+//   paths      = if a file under these paths changed, rebuild this image
+//
+// Keeping all three together in one place means we can't forget an image.
+// (The old GitHub Actions workflow kept two separate lists and they drifted -
+//  telemetry-svc was missing from one of them for months.)
+// -----------------------------------------------------------------------------
+def IMAGES = [
+    'auth-svc': [
+        context   : 'services/auth-svc',
+        dockerfile: 'services/auth-svc/Dockerfile',
+        paths     : ['services/auth-svc/']
+    ],
+    'task-svc': [
+        context   : 'services/task-svc',
+        dockerfile: 'services/task-svc/Dockerfile',
+        paths     : ['services/task-svc/']
+    ],
+    'telemetry-svc': [
+        context   : 'services/telemetry-svc',
+        dockerfile: 'services/telemetry-svc/Dockerfile',
+        paths     : ['services/telemetry-svc/']
+    ],
+    'integrations-svc': [
+        context   : 'services/integrations-svc',
+        dockerfile: 'services/integrations-svc/Dockerfile',
+        paths     : ['services/integrations-svc/']
+    ],
+    'email-worker': [
+        context   : 'services/email-worker',
+        dockerfile: 'services/email-worker/Dockerfile',
+        paths     : ['services/email-worker/']
+    ],
+    'messaging-svc': [
+        context   : 'services/messaging-svc',
+        dockerfile: 'services/messaging-svc/Dockerfile',
+        paths     : ['services/messaging-svc/']
+    ],
+    'notification-svc': [
+        context   : 'services/notification-svc',
+        dockerfile: 'services/notification-svc/Dockerfile',
+        paths     : ['services/notification-svc/']
+    ],
+    // delivery-svc in compose uses this same image, just a different command.
+    // So there is nothing extra to build for it.
+    'ws-gateway': [
+        context   : 'services/ws-gateway',
+        dockerfile: 'services/ws-gateway/Dockerfile',
+        paths     : ['services/ws-gateway/']
+    ],
+    // Careful: the compose SERVICE is called `caddy`, but the IMAGE is
+    // `caddy-waf`. The name here must match the image, not the service.
+    'caddy-waf': [
+        context   : 'infra/caddy',
+        dockerfile: 'infra/caddy/Dockerfile',
+        paths     : ['infra/caddy/']
+    ],
+    // The website. This is the only one built from the repo ROOT, because
+    // apps/web imports code from packages/app, packages/shared and packages/ui.
+    'web': [
+        context   : '.',
+        dockerfile: 'apps/web/Dockerfile',
+        paths     : ['apps/web/', 'packages/', 'package.json',
+                     'package-lock.json', '.npmrc', '.dockerignore']
+    ]
+]
+
+// If any of these change, rebuild everything.
+// Short list on purpose - the services don't share any code with each other.
+def GLOBAL_PATHS = ['Jenkinsfile']
+
+// Filled in later by the pipeline.
+def changedImages = []
+
+
+pipeline {
+    agent any
+
+    parameters {
+        booleanParam(
+            name: 'BUILD_ALL',
+            defaultValue: false,
+            description: 'Build everything instead of only what changed.'
+        )
+        string(
+            name: 'BUILD_PARALLELISM',
+            defaultValue: '4',
+            description: 'How many images to build at the same time. Set this to roughly the number of CPU cores on the build VM.'
+        )
+        booleanParam(
+            name: 'SCAN_IMAGES',
+            defaultValue: true,
+            description: 'Run a Trivy security scan before pushing. Problems mark the build yellow but do not stop it.'
+        )
+        booleanParam(
+            name: 'DEPLOY_TO_PROD',
+            defaultValue: false,
+            description: 'Deploy to production after pushing. Leave off until you are confident in the pipeline.'
+        )
+    }
+
+    environment {
+        // ---- Registry VM ----
+        REGISTRY        = '192.168.30.118:5000'   // change this to your registry
+        REGISTRY_SCHEME = 'http'                  // 'http' or 'https'
+        NAMESPACE       = 'blisswork'
+
+        // ---- Only this branch is allowed to build and deploy ----
+        RELEASE_BRANCH  = 'main'
+
+        // ---- Production VM (only used if DEPLOY_TO_PROD is on) ----
+        PROD_HOST       = 'communication.rnrtechs.com'
+        PROD_REPO_DIR   = '/home/ubuntu/BlissWork/Bliss-Work'
+
+        // The website's API URLs get baked into the JavaScript at build time.
+        // So changing this gives you a DIFFERENT web image, not the same image
+        // pointed somewhere else.
+        WEB_DOMAIN      = 'communication.rnrtechs.com'
+
+        // ---- Docker ----
+        BUILDX_BUILDER  = 'blisswork'
+        DOCKER_BUILDKIT = '1'
+        // Stops buildx adding extra manifest entries that older registries reject.
+        BUILDX_NO_DEFAULT_ATTESTATIONS = '1'
+    }
+
+    options {
+        timestamps()
+        ansiColor('xterm')
+        disableConcurrentBuilds()          // one build at a time
+        buildDiscarder(logRotator(numToKeepStr: '30'))
+        timeout(time: 90, unit: 'MINUTES')
+    }
+
+    stages {
+
+        // ---------------------------------------------------------------------
+        // Free up disk space, but KEEP the build cache.
+        // ---------------------------------------------------------------------
+        stage('Cleanup Docker') {
+            steps {
+                sh '''
+                    echo "===== Docker cleanup ====="
+
+                    docker container prune -f || true
+                    docker image prune -f || true
+
+                    # Do NOT use "prune -af" here.
+                    # That wipes the build cache and every build starts from zero.
+                    # Instead just cap it at 20GB.
+                    docker buildx prune --builder "${BUILDX_BUILDER}" -f --keep-storage=20GB || \
+                    docker builder prune -f --keep-storage=20GB || true
+
+                    echo ""
+                    df -h
+                    docker system df || true
+                '''
+            }
+        }
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // Only main is allowed to publish images.
+        // ---------------------------------------------------------------------
+        stage('Validate Branch') {
+            steps {
+                script {
+                    def onReleaseBranch = sh(
+                        script: 'git branch -r --contains HEAD | grep -q "origin/$RELEASE_BRANCH"',
+                        returnStatus: true
+                    ) == 0
+
+                    if (!onReleaseBranch) {
+                        currentBuild.result = 'NOT_BUILT'
+                        error(
+                            "This commit is not on origin/${RELEASE_BRANCH}, so it is not allowed to publish.\n" +
+                            "If EVERY build fails here, check the branch actually exists:\n" +
+                            "    git ls-remote --heads origin"
+                        )
+                    }
+
+                    echo "OK - commit is on origin/${RELEASE_BRANCH}"
+                }
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // Quick sanity check that we are in the right repo.
+        // ---------------------------------------------------------------------
+        stage('Validate Repository') {
+            steps {
+                sh '''
+                    set -e
+                    test -f docker-compose.prod.yml
+                    test -f package.json
+                    test -d services
+                    test -d apps/web
+                    test -f .dockerignore
+                    test -f apps/web/Dockerfile
+                    echo "OK - repo looks right"
+                '''
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // Work out the tag for this build.
+        //
+        // We use the short git SHA (like "43da7d0") because:
+        //   - docker-compose.prod.yml expects ${IMAGE_TAG}
+        //   - deploy-prod.sh sets it the same way
+        //   - .deploy/last-good stores it for rollback
+        // Using BUILD_NUMBER instead would break all three.
+        // ---------------------------------------------------------------------
+        stage('Resolve Tag') {
+            steps {
+                script {
+                    env.IMAGE_TAG = sh(
+                        script: 'git rev-parse --short HEAD',
+                        returnStdout: true
+                    ).trim()
+
+                    currentBuild.displayName = "#${BUILD_NUMBER} - ${env.IMAGE_TAG}"
+                    echo "Tag for this build: ${env.IMAGE_TAG}"
+                }
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // Log in FIRST, before building.
+        // The build downloads its cache from the registry, so it needs access.
+        // ---------------------------------------------------------------------
+        stage('Docker Login Registry') {
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'docker-registry',
+                        usernameVariable: 'REGISTRY_USER',
+                        passwordVariable: 'REGISTRY_PASS'
+                    )
+                ]) {
+                    sh '''
+                        set -e
+                        echo "Logging in to ${REGISTRY}"
+                        echo "${REGISTRY_PASS}" | docker login "${REGISTRY}" \
+                            --username "${REGISTRY_USER}" --password-stdin
+                        echo "OK - logged in"
+                    '''
+                }
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // Set up buildx (BuildKit).
+        //
+        // We use the "docker-container" driver because the normal driver cannot
+        // save its cache to a registry - and that cache is the whole point.
+        // ---------------------------------------------------------------------
+        stage('Prepare Buildx') {
+            steps {
+                sh '''
+                    set -e
+                    echo "===== Buildx setup ====="
+
+                    # BuildKit runs inside its own container, so it does NOT see
+                    # the host's insecure-registry setting. If our registry is
+                    # plain HTTP we have to tell BuildKit separately, or the
+                    # cache upload fails with a TLS error.
+                    CONFIG_ARG=""
+                    if [ "${REGISTRY_SCHEME}" = "http" ]; then
+                        cat > buildkitd.toml <<EOF
+                        [registry."${REGISTRY}"]
+                        http = true
+                        insecure = true
+                        EOF
+                        CONFIG_ARG="--config buildkitd.toml"
+                        echo "Registry is plain HTTP - telling BuildKit that."
+                    fi
+
+                    # Create it once. Later builds reuse it.
+                    if ! docker buildx inspect "${BUILDX_BUILDER}" >/dev/null 2>&1; then
+                        docker buildx create \
+                            --name "${BUILDX_BUILDER}" \
+                            --driver docker-container \
+                            --driver-opt network=host \
+                            ${CONFIG_ARG} \
+                            --bootstrap
+                    fi
+
+                    docker buildx inspect "${BUILDX_BUILDER}"
+
+                    echo ""
+                    echo "Host insecure registries (needed for docker push):"
+                    docker info 2>/dev/null | grep -A5 "Insecure Registries" || echo "  none"
+                '''
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // Figure out which images need rebuilding.
+        // Compare against the last successful build, not the last commit.
+        // ---------------------------------------------------------------------
+        stage('Detect Changed Images') {
+            steps {
+                script {
+                    def allImages = []
+                    IMAGES.each { name, spec -> allImages << name }
+
+                    if (params.BUILD_ALL) {
+                        echo "BUILD_ALL is on - building everything."
+                        changedImages = allImages
+                    } else {
+                        def output = sh(
+                            script: '''
+                                if [ -n "$GIT_PREVIOUS_SUCCESSFUL_COMMIT" ]; then
+                                    git diff --name-only $GIT_PREVIOUS_SUCCESSFUL_COMMIT HEAD
+                                else
+                                    git diff-tree --no-commit-id --name-only -r HEAD
+                                fi
+                            ''',
+                            returnStdout: true
+                        ).trim()
+
+                        def changedFiles = output ? output.split("\n") : []
+                        echo "${changedFiles.size()} file(s) changed"
+
+                        // Did anything global change?
+                        boolean rebuildAll = changedFiles.any { file ->
+                            GLOBAL_PATHS.any { g -> file == g || file.startsWith(g) }
+                        }
+
+                        if (rebuildAll) {
+                            echo "A global file changed - building everything."
+                            changedImages = allImages
+                        } else {
+                            // Match each changed file against each image's paths.
+                            changedFiles.each { file ->
+                                IMAGES.each { name, spec ->
+                                    spec.paths.each { p ->
+                                        if (file == p || file.startsWith(p)) {
+                                            if (!changedImages.contains(name)) {
+                                                changedImages << name
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (changedImages.isEmpty()) {
+                        echo "Nothing to build. The rest of the pipeline will skip."
+                    }
+                    echo "Will build (${changedImages.size()}): ${changedImages}"
+                }
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // Build the images, a few at a time in parallel.
+        //
+        // Each image saves its cache to the registry and loads it back next
+        // time, so slow steps (pip install, go mod download, npm ci) only run
+        // when dependencies actually change.
+        // ---------------------------------------------------------------------
+        stage('Build Images') {
+            when { expression { return !changedImages.isEmpty() } }
+            steps {
+                script {
+                    int width = (params.BUILD_PARALLELISM ?: '4') as Integer
+                    if (width < 1) { width = 1 }
+
+                    def batches = changedImages.collate(width)
+
+                    batches.eachWithIndex { batch, i ->
+                        echo "----- Batch ${i + 1} of ${batches.size()}: ${batch} -----"
+
+                        def jobs = [:]
+
+                        batch.each { image ->
+                            jobs[image] = {
+                                def spec  = IMAGES[image]
+                                def cache = "${env.REGISTRY}/${env.NAMESPACE}/${image}:buildcache"
+
+                                // The website needs its API URLs and the commit
+                                // SHA baked in. Nothing else needs extra args.
+                                def extraArgs = (image == 'web')
+                                    ? "--build-arg VITE_BUILD_SHA=${env.IMAGE_TAG} --build-arg WEB_DOMAIN=${env.WEB_DOMAIN}"
+                                    : ""
+
+                                sh """
+                                    set -e
+                                    echo "Building ${image}  (context: ${spec.context})"
+
+                                    docker buildx build \
+                                        --builder "${env.BUILDX_BUILDER}" \
+                                        --file "${spec.dockerfile}" \
+                                        --tag "${image}:${env.IMAGE_TAG}" \
+                                        --cache-from type=registry,ref=${cache} \
+                                        --cache-to type=registry,ref=${cache},mode=max,image-manifest=true,oci-mediatypes=true \
+                                        --load \
+                                        ${extraArgs} \
+                                        "${spec.context}"
+
+                                    echo "Done: ${image}"
+                                """
+                            }
+                        }
+
+                        parallel jobs
+                    }
+                }
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // Security scan, before we push.
+        // Scanning here matters - it checks the image production will actually
+        // run. (The old GitHub workflow scanned an image it then threw away.)
+        // ---------------------------------------------------------------------
+        stage('Scan Images') {
+            when { expression { return params.SCAN_IMAGES && !changedImages.isEmpty() } }
+            steps {
+                script {
+                    def hasTrivy = sh(script: 'command -v trivy >/dev/null 2>&1',
+                                      returnStatus: true) == 0
+                    if (!hasTrivy) {
+                        echo "trivy is not installed on this agent - skipping the scan."
+                        return
+                    }
+
+                    def problems = []
+
+                    changedImages.each { image ->
+                        int rc = sh(
+                            script: """
+                                trivy image \
+                                    --scanners vuln \
+                                    --severity HIGH,CRITICAL \
+                                    --ignore-unfixed \
+                                    --exit-code 1 \
+                                    --no-progress \
+                                    "${image}:${env.IMAGE_TAG}"
+                            """,
+                            returnStatus: true
+                        )
+                        if (rc != 0) { problems << image }
+                    }
+
+                    if (problems.isEmpty()) {
+                        echo "Clean - nothing HIGH or CRITICAL with a fix available."
+                    } else {
+                        unstable("Vulnerabilities found in: ${problems.join(', ')}")
+                    }
+                }
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // Give each image its registry name, with 3 tags:
+        //   :<git-sha>   what production deploys
+        //   :b<number>   so you can find it from the Jenkins build
+        //   :latest      convenience
+        // ---------------------------------------------------------------------
+        stage('Tag Images') {
+            when { expression { return !changedImages.isEmpty() } }
+            steps {
+                script {
+                    changedImages.each { image ->
+                        sh """
+                            set -e
+                            docker tag ${image}:${env.IMAGE_TAG} ${env.REGISTRY}/${env.NAMESPACE}/${image}:${env.IMAGE_TAG}
+                            docker tag ${image}:${env.IMAGE_TAG} ${env.REGISTRY}/${env.NAMESPACE}/${image}:b${BUILD_NUMBER}
+                            docker tag ${image}:${env.IMAGE_TAG} ${env.REGISTRY}/${env.NAMESPACE}/${image}:latest
+                        """
+                    }
+                    echo "Tagged ${changedImages.size()} image(s)"
+                }
+            }
+        }
+
+        stage('Push Images') {
+            when { expression { return !changedImages.isEmpty() } }
+            steps {
+                script {
+                    def jobs = [:]
+
+                    changedImages.each { image ->
+                        jobs[image] = {
+                            sh """
+                                set -e
+                                docker push ${env.REGISTRY}/${env.NAMESPACE}/${image}:${env.IMAGE_TAG}
+                                docker push ${env.REGISTRY}/${env.NAMESPACE}/${image}:b${BUILD_NUMBER}
+                                docker push ${env.REGISTRY}/${env.NAMESPACE}/${image}:latest
+                            """
+                        }
+                    }
+
+                    parallel jobs
+                }
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // Ask the registry whether the tag really arrived.
+        // A push can "succeed" and still not be there.
+        // ---------------------------------------------------------------------
+        stage('Verify Registry') {
+            when { expression { return !changedImages.isEmpty() } }
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'docker-registry',
+                        usernameVariable: 'REGISTRY_USER',
+                        passwordVariable: 'REGISTRY_PASS'
+                    )
+                ]) {
+                    script {
+                        changedImages.each { image ->
+                            sh """
+                                set -e
+                                curl -fsSL -u "\${REGISTRY_USER}:\${REGISTRY_PASS}" \
+                                    ${env.REGISTRY_SCHEME}://${env.REGISTRY}/v2/${env.NAMESPACE}/${image}/tags/list \
+                                | grep -q '"${env.IMAGE_TAG}"'
+
+                                echo "Found in registry: ${image}:${env.IMAGE_TAG}"
+                            """
+                        }
+                    }
+                }
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // Deploy. Off by default.
+        //
+        // Passing REGISTRY tells deploy-prod.sh to PULL images instead of
+        // building them. The script then rolls the services, waits for all the
+        // healthchecks, opens the site in a real browser to check it works, and
+        // rolls back automatically if anything fails.
+        //
+        // The production host must already have run `docker login` for REGISTRY.
+        // ---------------------------------------------------------------------
+        stage('Deploy to Production') {
+            when { expression { return params.DEPLOY_TO_PROD && !changedImages.isEmpty() } }
+            steps {
+                withCredentials([
+                    sshUserPrivateKey(
+                        credentialsId: 'prod-ssh',
+                        keyFileVariable: 'SSH_KEY',
+                        usernameVariable: 'SSH_USER'
+                    )
+                ]) {
+                    sh '''
+                        set -e
+                        echo "Deploying ${IMAGE_TAG} to ${PROD_HOST}"
+
+                        ssh -T -i "${SSH_KEY}" -o StrictHostKeyChecking=yes \
+                            "${SSH_USER}@${PROD_HOST}" \
+                            "IMAGE_TAG='${IMAGE_TAG}' \
+                             REGISTRY='${REGISTRY}' \
+                             NAMESPACE='${NAMESPACE}' \
+                             bash '${PROD_REPO_DIR}/scripts/deploy-prod.sh'"
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "========================================"
+            echo " BUILD OK"
+            echo " Tag    : ${env.IMAGE_TAG}"
+            echo " Images : ${changedImages}"
+            echo "========================================"
+        }
+
+        unstable {
+            echo "========================================"
+            echo " BUILD YELLOW - images pushed, but the scan found something"
+            echo "========================================"
+        }
+
+        failure {
+            echo "========================================"
+            echo " BUILD FAILED"
+            echo "========================================"
+        }
+
+        always {
+            sh '''
+                docker logout "${REGISTRY}" || true
+
+                echo ""
+                echo "Disk usage:"
+                df -h
+                docker system df || true
+
+                echo ""
+                echo "Images on this agent:"
+                docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}" | head -40
+            '''
+        }
+    }
+}

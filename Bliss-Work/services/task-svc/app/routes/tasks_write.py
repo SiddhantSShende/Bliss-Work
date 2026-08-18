@@ -169,3 +169,85 @@ async def create_task(
             channel_id=channel_id,
         )
         return CreateTaskResponse(taskId=task_id)
+
+
+@router.delete("/internal/tasks/by-title/{title}")
+async def delete_task_by_title_internal(
+    title: str,
+    username: str | None = None,
+    internal_token: str | None = Header(default=None, alias="X-Internal-Token"),
+) -> dict:
+    """Internal admin endpoint: delete tasks by title using internal token.
+    
+    This endpoint is for internal service-to-service calls and admin operations.
+    Requires X-Internal-Token header matching the configured internal token.
+    
+    Deletes all tasks with the specified title. If username is provided,
+    only deletes tasks created by that username.
+    """
+    # Verify internal token
+    if not internal_token or internal_token != settings.internal_token:
+        raise HTTPException(status_code=403, detail="invalid internal token")
+
+    async with session() as db:
+        # Query all orgs that have tasks with this title
+        if username:
+            # Delete only tasks created by the specified username
+            result = await db.execute(
+                text(
+                    "DELETE FROM task_assignees "
+                    "WHERE task_id IN ("
+                    "  SELECT t.id FROM tasks t "
+                    "  JOIN user_projection u ON t.sender_id = u.user_id "
+                    "  WHERE u.username = :username AND t.title = :title"
+                    ")"
+                ),
+                {"username": username, "title": title},
+            )
+            assignees_deleted = result.rowcount
+
+            result = await db.execute(
+                text(
+                    "DELETE FROM tasks "
+                    "WHERE sender_id IN ("
+                    "  SELECT user_id FROM user_projection WHERE username = :username"
+                    ") AND title = :title "
+                    "RETURNING id"
+                ),
+                {"username": username, "title": title},
+            )
+            tasks_deleted = result.rowcount
+        else:
+            # Delete all tasks with this title (across all orgs/users)
+            result = await db.execute(
+                text(
+                    "DELETE FROM task_assignees "
+                    "WHERE task_id IN ("
+                    "  SELECT id FROM tasks WHERE title = :title"
+                    ")"
+                ),
+                {"title": title},
+            )
+            assignees_deleted = result.rowcount
+
+            result = await db.execute(
+                text("DELETE FROM tasks WHERE title = :title RETURNING id"),
+                {"title": title},
+            )
+            tasks_deleted = result.rowcount
+
+        await db.commit()
+        log.info(
+            "tasks_deleted_by_title",
+            title=title,
+            username=username,
+            tasks_count=tasks_deleted,
+            assignees_count=assignees_deleted,
+        )
+
+        return {
+            "deleted_tasks": tasks_deleted,
+            "deleted_assignees": assignees_deleted,
+            "title": title,
+            "username": username,
+        }

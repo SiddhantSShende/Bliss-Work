@@ -51,6 +51,25 @@ func (s *Server) deleteMessage(w http.ResponseWriter, r *http.Request) {
 // with skin-tone and ZWJ joiners (👨‍👩‍👧‍👦 is 25 bytes), far short of a message.
 const maxEmojiBytes = 64
 
+// validEmoji bounds and sanitizes a reaction value.
+//
+// Shared by the DM and channel reaction endpoints rather than duplicated: it is
+// the only thing standing between a URL path segment and a string rendered
+// verbatim into every member's chip row, and two copies of a check like that
+// drift. Rejects control characters and bidi overrides for that reason — a
+// newline or an RLO in a "reaction" is a display attack, not an emoji.
+func validEmoji(emoji string) bool {
+	if emoji == "" || len(emoji) > maxEmojiBytes || !utf8.ValidString(emoji) {
+		return false
+	}
+	for _, ru := range emoji {
+		if ru < 0x20 || (ru >= 0x7f && ru <= 0x9f) || (ru >= 0x202a && ru <= 0x202e) {
+			return false
+		}
+	}
+	return true
+}
+
 // setReaction serves PUT/DELETE /api/v1/messages/{id}/reactions/{emoji}.
 //
 // The emoji rides in the PATH rather than a body so the two directions are the
@@ -64,17 +83,9 @@ func (s *Server) setReaction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	emoji := chi.URLParam(r, "emoji")
-	if emoji == "" || len(emoji) > maxEmojiBytes || !utf8.ValidString(emoji) {
+	if !validEmoji(emoji) {
 		writeErr(w, http.StatusBadRequest, "invalid emoji")
 		return
-	}
-	// No control characters: the value is rendered verbatim in a chip, and a
-	// newline or a bidi override in it is a display attack, not a reaction.
-	for _, ru := range emoji {
-		if ru < 0x20 || (ru >= 0x7f && ru <= 0x9f) || (ru >= 0x202a && ru <= 0x202e) {
-			writeErr(w, http.StatusBadRequest, "invalid emoji")
-			return
-		}
 	}
 
 	on := r.Method == http.MethodPut

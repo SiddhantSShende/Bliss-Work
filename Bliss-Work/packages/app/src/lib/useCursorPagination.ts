@@ -8,20 +8,33 @@
  * re-flatten on every render.
  */
 import { useInfiniteQuery } from "@tanstack/react-query";
-import type { ApiClient, InboxItemDTO, InboxPageDTO, MessageDTO } from "@taskboard/shared";
+import type { ApiClient, InboxItemDTO, InboxItemKind, InboxPageDTO, MessageDTO } from "@taskboard/shared";
 import { qk } from "./queryBridge";
 import { mergeOlderMessages, oldestSeq } from "./threadPagination";
 
 /** Server default for thread history is 12 — see services/messaging-svc/internal/api/threads.go */
 export const THREAD_PAGE_SIZE = 12;
 
-/** 25 per page, default. When peerId is given, the feed is narrowed to that
- *  counterparty and cached under a separate key (`qk.inboxPeerFeed`) so the
- *  all-feed's optimistic patches are never disturbed. */
-export function useInboxPages(api: ApiClient, peerId?: string) {
+/**
+ * 25 per page, default. When peerId is given, the feed is narrowed to that
+ * counterparty and cached under a separate key (`qk.inboxPeerFeed`) so the
+ * all-feed's optimistic patches are never disturbed.
+ *
+ * `kinds` is passed to the SERVER rather than filtered out of the result,
+ * because a page is a page of rows: filtering afterwards would leave a user
+ * with a screenful of the excluded kind looking at an empty feed that still
+ * says there is more.
+ */
+export function useInboxPages(api: ApiClient, peerId?: string, kinds?: InboxItemKind[]) {
   return useInfiniteQuery({
+    // The key deliberately does NOT include `kinds`. It is not an oversight:
+    // lib/inboxPatch writes this cache with an EXACT-key setQueryData, so any
+    // suffix here would send every optimistic patch to a key nothing reads —
+    // silently, because a write to a missing key is not an error. The Inbox is
+    // the only caller and always asks for the same kinds, so there is one
+    // shape per key and nothing to disambiguate.
     queryKey: peerId ? qk.inboxPeerFeed(peerId) : qk.unifiedInbox,
-    queryFn: ({ pageParam }) => api.inbox(pageParam as string | undefined, 25, peerId),
+    queryFn: ({ pageParam }) => api.inbox(pageParam as string | undefined, 25, peerId, kinds),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last: InboxPageDTO) => last.nextCursor ?? undefined,
   });

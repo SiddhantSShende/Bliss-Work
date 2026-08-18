@@ -494,7 +494,7 @@ type rawMessage struct {
 const messageColumns = `
 	m.id, m.conversation_id, m.thread_id, m.parent_message_id, m.is_thread_root,
 	m.seq, m.sender_id, m.body, m.body_enc, m.created_at, m.sender_dismissed_at, m.kind,
-	m.reply_to_id, m.deleted_for_all_at,
+	m.reply_to_id, m.deleted_for_all_at, m.is_forward,
 	CASE
 	    WHEN md.read_at      IS NOT NULL THEN 'SEEN'
 	    WHEN md.delivered_at IS NOT NULL THEN 'DELIVERED'
@@ -523,13 +523,14 @@ func scanRawMessage(rows pgx.Rows) (rawMessage, error) {
 		senderDismissedAt *time.Time
 		replyToID         *string
 		deletedForAllAt   *time.Time
+		isForward         bool
 		status            string
 	)
 	var kind string
 	if err := rows.Scan(
 		&r.m.ID, &r.m.ConversationID, &threadID, &parentMsgID, &isThreadRoot,
 		&r.m.Seq, &r.m.SenderID, &bodyPlain, &bodyEnc, &created, &senderDismissedAt, &kind,
-		&replyToID, &deletedForAllAt, &status,
+		&replyToID, &deletedForAllAt, &isForward, &status,
 	); err != nil {
 		return rawMessage{}, err
 	}
@@ -538,6 +539,7 @@ func scanRawMessage(rows pgx.Rows) (rawMessage, error) {
 	}
 	r.m.Status = status
 	r.m.DeletedForAll = deletedForAllAt != nil
+	r.m.IsForward = isForward
 	// 'text' is the overwhelming majority; omit it so the wire shape for an
 	// ordinary message is byte-identical to what clients saw before.
 	if kind != MessageKindText {
@@ -564,8 +566,8 @@ func scanRawMessage(rows pgx.Rows) (rawMessage, error) {
 func (s *Store) decryptMessage(ctx context.Context, q crypto.Querier, orgID string, r rawMessage) (MessageDTO, error) {
 	m := r.m
 	// A message deleted for everyone travels as a TOMBSTONE: the row is still
-	// there (seq is the conversation's ordering key, and message_delivery and
-	// message_forwards reference the id), but the body never leaves the server.
+	// there (seq is the conversation's ordering key, and message_delivery
+	// references the id), but the body never leaves the server.
 	// Skipping the decrypt is the point — "deleted" that still ships the text
 	// to every client and merely hides it in CSS is not deletion.
 	if m.DeletedForAll {

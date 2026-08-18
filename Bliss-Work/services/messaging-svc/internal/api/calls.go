@@ -397,6 +397,24 @@ func (s *Server) getCall(w http.ResponseWriter, r *http.Request) {
 
 // listMyCalls serves GET /api/v1/calls — everything the caller is expected at,
 // including meetings hosted by another org.
+// onCallUsers serves GET /api/v1/calls/on-call — everyone in this org who is in
+// a live call right now.
+//
+// The client merges it with the presence set to render "Busy" instead of
+// "Online". Deliberately UNBOUNDED, unlike /presence/query: presence scales with
+// the size of the organisation, but this scales with concurrent call
+// participants, which is small by physics — nobody has ten thousand people in
+// calls at once, and if they do, the meeting is the problem.
+func (s *Server) onCallUsers(w http.ResponseWriter, r *http.Request) {
+	claims, _ := auth.FromContext(r.Context())
+	ids, err := s.store.OnCallUserIDs(r.Context(), claims.OrgID)
+	if err != nil {
+		s.mapErrR(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, ids)
+}
+
 func (s *Server) listMyCalls(w http.ResponseWriter, r *http.Request) {
 	claims, _ := auth.FromContext(r.Context())
 	_, limit := pageParams(r, DefaultMessagePageSize, MaxMessagePageSize)
@@ -624,6 +642,11 @@ func (s *Server) stopScreenShare(w http.ResponseWriter, r *http.Request) {
 
 // leaveCall serves POST /api/v1/calls/{id}/leave. Also serves as "give up
 // waiting" — someone who leaves the lobby is no longer in it.
+//
+// A HOST leaving ends the call, which is why this can emit `call.ended`: the
+// meeting belongs to whoever is hosting it, and the ways they actually leave —
+// the hang-up button, closing the tab, navigating away — all arrive here and
+// none of them press End. See store.LeaveCall.
 func (s *Server) leaveCall(w http.ResponseWriter, r *http.Request) {
 	claims, _ := auth.FromContext(r.Context())
 	callID := chi.URLParam(r, "id")
@@ -631,9 +654,19 @@ func (s *Server) leaveCall(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid call id")
 		return
 	}
-	wasSharing, err := s.store.MarkLeft(r.Context(), claims.OrgID, claims.UserID, callID)
+	wasSharing, ended, err := s.store.LeaveCall(r.Context(), claims.OrgID, claims.UserID, callID)
 	if err != nil {
 		s.mapErrR(w, r, err)
+		return
+	}
+	// The whole roster is told the call is over — that is what drops everyone
+	// else out of the room rather than leaving them in one nobody is hosting.
+	// Announced BEFORE the share notice is skipped: `call.ended` already says
+	// the room is gone, so a separate "their share stopped" is noise.
+	if ended != nil {
+		s.notifyCall(r.Context(), ended, events.TypeCallEnded, claims.UserID)
+		s.log.Info("call ended by host leaving", "call", callID, "by", claims.UserID)
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	// Walking out ends your share. The SFU will drop the track by itself, but
@@ -657,12 +690,18 @@ func (s *Server) endCall(w http.ResponseWriter, r *http.Request) {
 	// One call, and it is the one AFTER the end: EndCall returns the ended row,
 	// so the event carries status ENDED and a real endedAt. Reading the call
 	// first and announcing that instead described a call that was still live.
+	//
+	// Nil means this request did not end anything — the call was already over.
+	// Still a 204, because the caller asked for a state that holds; announcing
+	// it a second time would tell every client the same call ended twice.
 	c, err := s.store.EndCall(r.Context(), claims.OrgID, claims.UserID, callID)
 	if err != nil {
 		s.mapErrR(w, r, err)
 		return
 	}
-	s.notifyCall(r.Context(), c, events.TypeCallEnded, claims.UserID)
+	if c != nil {
+		s.notifyCall(r.Context(), c, events.TypeCallEnded, claims.UserID)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

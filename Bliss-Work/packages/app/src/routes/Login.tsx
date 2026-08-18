@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { Button, Input } from "@taskboard/ui";
+import { ApiError } from "@taskboard/shared";
 import { toast } from "sonner";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
@@ -24,8 +25,28 @@ export function Login() {
       setSession({ user: s.user, accessToken: s.accessToken });
       broadcastSession(s); // adopt this session in sibling tabs sitting on /login
       nav("/app");
-    } catch {
-      toast.error("Invalid email or password");
+    } catch (err) {
+      // A bare catch here used to report EVERY failure as bad credentials, which
+      // sent people to re-type a password that was never the problem: an
+      // unreachable auth-svc (the common one — a dev tunnel forwarding 5173 but
+      // not 8001), a CORS rejection and a 500 all look identical to fetch's
+      // caller. Only 401 is actually about the credentials.
+      if (err instanceof ApiError && err.status === 401) {
+        toast.error("Invalid email or password");
+      } else if (err instanceof ApiError && err.status === 429) {
+        toast.error("Too many attempts", {
+          description: "Wait a minute before trying again.",
+        });
+      } else if (err instanceof ApiError) {
+        toast.error("Sign-in failed", {
+          description: `The server returned ${err.status}. Your details were not the problem.`,
+        });
+      } else {
+        // fetch itself threw: DNS, connection refused, TLS, CORS preflight.
+        toast.error("Can't reach the server", {
+          description: "Check that the auth service is running and reachable from this browser.",
+        });
+      }
     } finally {
       setBusy(false);
     }

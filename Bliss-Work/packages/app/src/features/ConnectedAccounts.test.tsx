@@ -3,12 +3,10 @@
  * dialog.
  *
  * This file used to be almost entirely about WhatsApp, which was a Business-only
- * connection needing four Meta credentials. That integration was removed:
- * forwarding to WhatsApp is now a wa.me deep link from the chat's Forward
- * button, which needs no connection at all. What is left here is the generic
- * behaviour every remaining provider shares, plus a guard that the removal
- * actually holds — a half-removed provider (a card with no backend, or a
- * backend with no card) is the failure mode worth pinning.
+ * connection needing four Meta credentials. That integration was removed. What
+ * is left here is the generic behaviour every remaining provider shares, plus a
+ * guard that the removal actually holds — a half-removed provider (a card with
+ * no backend, or a backend with no card) is the failure mode worth pinning.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";

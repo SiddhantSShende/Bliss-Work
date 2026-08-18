@@ -10,6 +10,15 @@ const (
 	// TopicAuth is read for org.deleted only. Notifications carry task titles
 	// and message previews, so an erased workspace has to take them with it.
 	TopicAuth = "auth.events"
+	// TopicMessaging is read for channel.member.joined only — being added to a
+	// channel by someone else is a notification, and messaging-svc is the only
+	// service that knows it happened.
+	//
+	// This does mean the consumer group receives every chat message on the
+	// platform and discards almost all of it. That is the cost of the one event
+	// worth having, it is bounded by a `type` check before any database work,
+	// and task-svc already carries the same stream for the same event.
+	TopicMessaging = "messaging.events.v1"
 )
 
 // Event type discriminants.
@@ -20,6 +29,7 @@ const (
 	TypeTaskLeft            = "task.left"
 	TypeNotificationCreated = "notification.created"
 	TypeOrgDeleted          = "org.deleted"
+	TypeChannelMemberJoined = "channel.member.joined"
 )
 
 // Notification kinds.
@@ -28,6 +38,7 @@ const (
 	KindTaskCompleted    = "TASK_COMPLETED"
 	KindTaskIgnored      = "TASK_IGNORED"
 	KindTaskLeft         = "TASK_LEFT"
+	KindChannelAdded     = "CHANNEL_ADDED"
 )
 
 // TaskEvent is the shape consumed off task.events.v1. It is a superset that
@@ -43,6 +54,25 @@ type TaskEvent struct {
 	SenderID         string `json:"senderId"`
 	StatusVersion    int    `json:"statusVersion"`
 	AssigneeUsername string `json:"assigneeUsername"`
+}
+
+// ChannelMemberJoined is the shape consumed off messaging.events.v1.
+//
+// Only the added-by-someone-else case becomes a notification: ActorID is the
+// user who performed the add, so `ActorID == UserID` is an open-channel
+// self-join and is ignored. An EMPTY ActorID is a producer that predates the
+// field and is ignored too — a notification that might be telling someone about
+// their own click is worse than one that is missing, and the ambiguity resolves
+// itself as soon as messaging-svc is deployed.
+type ChannelMemberJoined struct {
+	Type        string `json:"type"`
+	EventID     string `json:"eventId"`
+	OrgID       string `json:"orgId"`
+	OccurredAt  string `json:"occurredAt"`
+	ChannelID   string `json:"channelId"`
+	ChannelName string `json:"channelName"`
+	UserID      string `json:"userId"`
+	ActorID     string `json:"actorId"`
 }
 
 // NotificationCreated is the event written to the outbox / produced to

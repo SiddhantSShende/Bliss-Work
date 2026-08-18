@@ -104,11 +104,16 @@ func main() {
 	// to cross — and silently breaks cross-node calls on a fleet. So it warns
 	// rather than failing: refusing to start would take down the single-node
 	// case, which is the common one and is correct as it stands.
-	pushClient := push.NewClient(cfg.InternalToken)
+	// The TRANSPORT, not the raw client: Fanout addresses nodes by node id and
+	// HTTPTransport is what turns one into a URL via the registry. Handing it the
+	// bare *push.Client used to compile — the signatures matched — and then posted
+	// every cross-node delivery to "<node-id>/internal/push", so RTC signalling and
+	// presence never crossed a pod boundary. See push.Client.SendTo.
+	pushTransport := push.NewHTTPTransport(push.NewClient(cfg.InternalToken), st)
 	var nodeFanout *push.Fanout
 	if cfg.AdvertiseAddr != "" {
 		startNodeRegistration(rootCtx, st, nodeID, cfg.AdvertiseAddr, log)
-		nodeFanout = push.NewFanout(st, h, pushClient, nodeID, log)
+		nodeFanout = push.NewFanout(st, h, pushTransport, nodeID, log)
 		log.Info("node registered for cross-node delivery", "advertise", cfg.AdvertiseAddr)
 	} else {
 		log.Warn("WS_ADVERTISE_ADDR is not set — this node is not reachable by others. " +

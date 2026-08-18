@@ -1,7 +1,17 @@
 import { useEffect, useRef, useState } from "react";
-import { CornerUpLeft, MoreHorizontal, SmilePlus, Trash2, EyeOff } from "lucide-react";
+import {
+  CornerUpLeft,
+  Forward,
+  MoreHorizontal,
+  Pin,
+  PinOff,
+  SmilePlus,
+  Trash2,
+  EyeOff,
+} from "lucide-react";
 import type { ReactionDTO } from "@taskboard/shared";
 import { EmojiGrid, QUICK_REACTIONS } from "./EmojiPicker";
+import { WhatsAppIcon } from "./WhatsAppIcon";
 
 /**
  * The per-bubble action affordance.
@@ -17,18 +27,69 @@ import { EmojiGrid, QUICK_REACTIONS } from "./EmojiPicker";
  */
 export function MessageActions({
   mine,
+  forwardHref,
   onReply,
+  onForwardTo,
+  onForward,
   onReact,
   onHide,
   onDeleteForAll,
+  canDeleteForAll,
+  pinned,
+  onTogglePin,
 }: {
   mine: boolean;
+  /**
+   * The wa.me URL this message forwards to, or undefined to hide the action
+   * (offered per-surface; channels and threads differ).
+   *
+   * A real href on a real anchor, NOT a scripted window.open: navigation has to
+   * be the browser's own response to the click or a popup blocker eats it, and
+   * in Electron an anchor routes through setWindowOpenHandler → safeExternalUrl
+   * → shell.openExternal, so the desktop app hands off to the system browser
+   * instead of opening a renderer window.
+   */
+  forwardHref?: string;
   onReply?: () => void;
+  /**
+   * Opens the in-workspace forward picker — another person's chat, or a
+   * channel.
+   *
+   * Listed FIRST of the two forward actions because it is the only one that
+   * delivers anything: the server writes the copy and re-scopes the files it
+   * carries, so a forwarded photo opens for the recipient. The WhatsApp entry
+   * below it hands the message to another app and can only record that it
+   * opened.
+   */
+  onForwardTo?: () => void;
+  /**
+   * Fired on the same click that navigates. It ARMS the record rather than
+   * writing it — useWhatsAppForward posts only once the user comes back, so a
+   * blocked popup or an instant bounce off the WhatsApp login wall leaves no
+   * trace in the thread.
+   */
+  onForward?: () => void;
   onReact?: (emoji: string) => void;
   /** "Delete for me" — either party, any message. */
   onHide?: () => void;
-  /** "Delete for everyone" — sender only; the server enforces it too. */
+  /** "Delete for everyone" — the server enforces who may, `canDeleteForAll`
+   *  only decides whether to offer it. */
   onDeleteForAll?: () => void;
+  /**
+   * Whether to offer "Delete for everyone". Defaults to `mine`, which is the
+   * DM rule: only the author may retract.
+   *
+   * A channel widens it — an owner, channel admin or org_admin may remove
+   * anyone's message, because a channel is a shared space and moderating it is
+   * the point. Passed in rather than derived here because this component has no
+   * idea which surface it is on, let alone what the caller's role in it is.
+   */
+  canDeleteForAll?: boolean;
+  /** Current pin state, so the entry reads "Pin" or "Unpin". */
+  pinned?: boolean;
+  /** Pin/unpin for everyone. Absent where pinning does not apply (DMs) or where
+   *  the caller may not moderate — the server enforces it either way. */
+  onTogglePin?: () => void;
 }) {
   const [menu, setMenu] = useState(false);
   const [emoji, setEmoji] = useState(false);
@@ -113,15 +174,58 @@ export function MessageActions({
               <CornerUpLeft size={13} className="text-muted" /> Reply
             </button>
           )}
+          {onForwardTo && (
+            <button
+              role="menuitem"
+              className={item}
+              onClick={() => { onForwardTo(); setMenu(false); }}
+            >
+              <Forward size={13} className="text-muted" /> Forward to chat or channel…
+            </button>
+          )}
+          {forwardHref && (
+            // An anchor, not a button — see forwardHref. onForward only arms the
+            // record on this click; nothing is posted until the user returns
+            // from WhatsApp, so nothing here can delay opening it.
+            <a
+              role="menuitem"
+              className={item}
+              href={forwardHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => { onForward?.(); setMenu(false); }}
+            >
+              <WhatsAppIcon size={13} className="text-[#25D366]" /> Forward to WhatsApp
+            </a>
+          )}
           {onHide && (
             <button role="menuitem" className={item} onClick={() => { onHide(); setMenu(false); }}>
               <EyeOff size={13} className="text-muted" /> Delete for me
             </button>
           )}
-          {/* Sender only. Hidden rather than disabled on someone else's message:
-              a greyed-out "Delete for everyone" on a message you didn't write
-              reads as a permission you might have, which you never will. */}
-          {mine && onDeleteForAll && (
+          {/* "Pin for everyone" — moderators only, so the caller simply does not
+              pass onTogglePin when they cannot. Above the destructive entries
+              because it is the one non-destructive thing in this group. */}
+          {onTogglePin && (
+            <button
+              role="menuitem"
+              className={item}
+              onClick={() => { onTogglePin(); setMenu(false); }}
+            >
+              {pinned ? (
+                <><PinOff size={13} className="text-muted" /> Unpin for everyone</>
+              ) : (
+                <><Pin size={13} className="text-muted" /> Pin for everyone</>
+              )}
+            </button>
+          )}
+          {/* Hidden rather than disabled where it does not apply: a greyed-out
+              "Delete for everyone" on a message you cannot delete reads as a
+              permission you might have, which you never will.
+
+              `canDeleteForAll ?? mine` keeps the DM rule (author only) as the
+              default and lets a channel widen it to its moderators. */}
+          {(canDeleteForAll ?? mine) && onDeleteForAll && (
             <button
               role="menuitem"
               className={`${item} text-danger hover:bg-danger/10`}

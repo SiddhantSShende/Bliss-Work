@@ -185,6 +185,17 @@ type appendOpts struct {
 	origin string
 	// replyToID quotes another message in the same conversation ("" → none).
 	replyToID string
+	// messageID lets a caller mint the id BEFORE the insert, for when something
+	// written earlier on the same transaction has to reference the row. A
+	// forward's provenance edge is exactly that, and it cannot be written
+	// afterwards because this function owns the COMMIT. "" → generated here.
+	messageID string
+	// isForward marks the row as a delivered copy of someone else's message.
+	// The reader's client labels it "Forwarded" rather than attributing the
+	// content — a forwarded photo that looked authored by the forwarder would
+	// misattribute it to them.
+	isForward     bool
+	forwardedFrom string
 }
 
 // kindArg is the messages.kind value to insert — 'text' unless a system kind
@@ -247,7 +258,10 @@ func (s *Store) appendMessage(
 		return nil, err
 	}
 
-	msgID := uuid.Must(uuid.NewV7()).String()
+	msgID := opts.messageID
+	if msgID == "" {
+		msgID = uuid.Must(uuid.NewV7()).String()
+	}
 
 	// Resolve thread & parent before INSERT so the row carries the right keys.
 	var (
@@ -303,15 +317,19 @@ func (s *Store) appendMessage(
 	if opts.replyToID != "" {
 		replyToArg = &opts.replyToID
 	}
+	var forwardedFromArg *string
+	if opts.forwardedFrom != "" {
+		forwardedFromArg = &opts.forwardedFrom
+	}
 	_, err = tx.Exec(ctx,
 		`INSERT INTO messages
 		   (id, org_id, conversation_id, seq, sender_id, body, body_enc, client_msg_id,
 		    thread_id, parent_message_id, is_thread_root, server_acked_at,
-		    kind, reply_to_id)
-		 VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8, $9, $10, now(), $11, $12)`,
+		    kind, reply_to_id, is_forward, forwarded_from_message_id)
+		 VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8, $9, $10, now(), $11, $12, $13, $14)`,
 		msgID, orgID, convID, seq, senderID, bodyEnc, clientMsgID,
 		threadID, parentArg, isThreadRoot,
-		opts.kindArg(), replyToArg)
+		opts.kindArg(), replyToArg, opts.isForward, forwardedFromArg)
 	if err != nil {
 		return nil, err
 	}
@@ -370,6 +388,7 @@ func (s *Store) appendMessage(
 		// writing above.
 		Origin:    origin,
 		ReplyToID: opts.replyToID,
+		IsForward: opts.isForward,
 	}
 	if err := insertOutbox(ctx, tx, convID, evt); err != nil {
 		return nil, err

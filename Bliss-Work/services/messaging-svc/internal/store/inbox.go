@@ -43,6 +43,19 @@ type InboxPeerDTO struct {
 	ItemCount   int64   `json:"itemCount"`
 }
 
+// kindFilterArg turns a caller's kind list into the SQL argument the two feed
+// queries take.
+//
+// nil, NOT an empty slice: both queries guard the predicate with
+// `$n::text[] IS NULL`, which is what makes "no filter" mean every kind. An
+// empty array would match nothing and silently blank the caller's inbox.
+func kindFilterArg(kinds []string) []string {
+	if len(kinds) == 0 {
+		return nil
+	}
+	return kinds
+}
+
 // upsertThreadInboxItem writes (or refreshes) the (owner, THREAD, threadId)
 // inbox_items row. Called once per side (sender + recipient) inside the same
 // tx as a message insert.
@@ -105,11 +118,17 @@ func ClearThreadUnread(ctx context.Context, tx pgx.Tx, ownerUserID, threadID str
 // When peerID is non-empty the feed is restricted to items whose counterparty
 // is that user (the People-sidebar drill-down); empty peerID returns everything.
 //
+// `kinds` restricts which item kinds come back; nil/empty means every kind. The
+// filter belongs HERE rather than in the caller because a page is a page of
+// ROWS, not of matches: the Inbox surface asks for MAIL and THREAD, and if it
+// dropped TASK rows after the fact, a user with a screenful of tasks would get
+// an empty-looking feed that still claims to have a next page.
+//
 // Items are filtered to (NOT hidden_for_owner AND NOT deleted_for_owner). Both
 // hidden and deleted are restored by a fresh write — Reply on an ignored thread
 // flips hidden_for_owner back to false in upsertThreadInboxItem.
 func (s *Store) ListInbox(
-	ctx context.Context, orgID, ownerUserID, peerID, cursor string, limit int,
+	ctx context.Context, orgID, ownerUserID, peerID, cursor string, limit int, kinds []string,
 ) (*InboxPageDTO, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 25
@@ -134,6 +153,7 @@ func (s *Store) ListInbox(
 	if peerID != "" {
 		peerArg = &peerID
 	}
+	kindArg := kindFilterArg(kinds)
 
 	// preview-raw holds one row's columns BEFORE decrypt so the cursor is drained
 	// before any Decrypt query runs on the same tx ("conn busy" otherwise).
@@ -161,6 +181,7 @@ func (s *Store) ListInbox(
 			  AND NOT i.hidden_for_owner
 			  AND NOT i.deleted_for_owner
 			  AND ($7::uuid IS NULL OR i.peer_user_id = $7::uuid)
+			  AND ($8::text[] IS NULL OR i.item_kind = ANY($8::text[]))
 			  AND (
 			      $3 = '' OR
 			      i.last_event_at < $4 OR
@@ -171,7 +192,7 @@ func (s *Store) ListInbox(
 			ownerUserID, orgID,
 			cursor, cursorTs, cursorRef,
 			limit+1,
-			peerArg,
+			peerArg, kindArg,
 		)
 		if err != nil {
 			return err
@@ -228,11 +249,17 @@ func (s *Store) ListInbox(
 // ListInboxPeers returns the distinct counterparties in the caller's visible
 // inbox, newest-activity first, with per-peer unread and item rollups. Powers
 // the People sidebar. Same visibility predicate as ListInbox; rows with a NULL
-// peer (none today) are excluded.
+// peer (mail from outside the org) are excluded, because there is nobody in the
+// directory to file them under.
+//
+// `kinds` must match whatever the feed beside it is showing. The badge counts
+// what the list contains, and a sidebar reading "3" over a pane showing nothing
+// is worse than no badge at all.
 func (s *Store) ListInboxPeers(
-	ctx context.Context, orgID, ownerUserID string,
+	ctx context.Context, orgID, ownerUserID string, kinds []string,
 ) ([]InboxPeerDTO, error) {
 	out := make([]InboxPeerDTO, 0, 16)
+	kindArg := kindFilterArg(kinds)
 	// RLS: aggregate read runs under app.org_id.
 	err := s.withOrg(ctx, orgID, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
@@ -250,9 +277,10 @@ func (s *Store) ListInboxPeers(
 			  AND NOT i.hidden_for_owner
 			  AND NOT i.deleted_for_owner
 			  AND i.peer_user_id IS NOT NULL
+			  AND ($3::text[] IS NULL OR i.item_kind = ANY($3::text[]))
 			GROUP BY i.peer_user_id, up.username, up.display_name
 			ORDER BY last_event_at DESC`,
-			ownerUserID, orgID,
+			ownerUserID, orgID, kindArg,
 		)
 		if err != nil {
 			return err

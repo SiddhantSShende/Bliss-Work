@@ -15,6 +15,7 @@ import { qk } from "../lib/queryBridge";
 import { useSwitchOrg } from "../features/OrgSwitcher";
 import { useGoBack } from "../lib/useGoBack";
 import { DeleteOrgSection } from "../features/DeleteOrgSection";
+import { LeaveOrgButton } from "../features/LeaveOrgButton";
 
 export function Org() {
   const { api } = useRuntime();
@@ -25,6 +26,10 @@ export function Org() {
   const [busy, setBusy] = useState<string | null>(null);
 
   const { data: orgs = [], isLoading } = useQuery({ queryKey: qk.myOrgs, queryFn: () => api.myOrgs() });
+
+  // Leaving your only organization is refused server-side — the identity would
+  // have nowhere left to sign in — so with one org there is nothing to offer.
+  const canLeave = orgs.length > 1;
 
   const doSwitch = async (orgId: string) => {
     if (orgId === user?.orgId) return;
@@ -67,9 +72,11 @@ export function Org() {
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 text-sm font-semibold text-fg">
-                          {o.orgName}
+                          {/* Truncates rather than pushing the actions off a
+                              narrow screen, now that there are two of them. */}
+                          <span className="truncate">{o.orgName}</span>
                           {active && (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-success-soft px-2 py-0.5 text-[10px] font-medium text-success">
+                            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-success-soft px-2 py-0.5 text-[10px] font-medium text-success">
                               <Check size={10} /> Current
                             </span>
                           )}
@@ -78,18 +85,21 @@ export function Org() {
                           {o.roles.includes("org_admin") ? "Admin" : "Member"}
                         </div>
                       </div>
-                      {active ? (
-                        <span className="text-xs text-muted">Active</span>
-                      ) : (
-                        <Button
-                          variant="subtle"
-                          size="sm"
-                          disabled={busy !== null}
-                          onClick={() => doSwitch(o.orgId)}
-                        >
-                          {busy === o.orgId ? "Switching…" : "Switch"}
-                        </Button>
-                      )}
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        {active ? (
+                          <span className="text-xs text-muted">Active</span>
+                        ) : (
+                          <Button
+                            variant="subtle"
+                            size="sm"
+                            disabled={busy !== null}
+                            onClick={() => doSwitch(o.orgId)}
+                          >
+                            {busy === o.orgId ? "Switching…" : "Switch"}
+                          </Button>
+                        )}
+                        {canLeave && <LeaveOrgButton org={o} disabled={busy !== null} />}
+                      </div>
                     </div>
                   );
                 })}

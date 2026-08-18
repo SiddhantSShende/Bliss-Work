@@ -59,11 +59,58 @@ function requireServiceUrls(mode: string): Plugin {
 
 // Web shell. Service base URLs are injected via Vite env (VITE_*) with
 // localhost defaults matching docker-compose port mappings.
+
+/**
+ * One proxied service: strip the /_svc/<name> prefix so the upstream sees the
+ * path it actually serves ("/_svc/auth/auth/login" → "/auth/login").
+ */
+function svc(target: string) {
+  return {
+    target,
+    changeOrigin: true,
+    rewrite: (p: string) => p.replace(/^\/_svc\/[^/]+/, ""),
+  };
+}
+
 export default defineConfig(({ mode }) => ({
   plugins: [react(), tailwindcss(), requireServiceUrls(mode)],
   server: {
     port: 5173,
     strictPort: true,
+    /**
+     * Dev-only reverse proxy, so the whole app is reachable through ONE port.
+     *
+     * The services bind 127.0.0.1 on the dev host. That is fine when the browser
+     * runs on that host, but for remote development (VS Code Remote-SSH, an ssh
+     * tunnel) it meant forwarding seven ports — and forwarding only 5173 gave the
+     * worst possible symptom: the page loads, every request fails, and the login
+     * screen blamed the user's password for it.
+     *
+     * Routing the APIs through the dev server makes them same-origin, so one
+     * forwarded port is enough. `server.proxy` applies to `vite dev` only and has
+     * no effect on a production build, where the real service URLs come from the
+     * VITE_*_BASE variables.
+     *
+     * Point the client at these prefixes by setting VITE_AUTH_BASE=/_svc/auth
+     * (and siblings) — see the localhost fallbacks in src/main.tsx.
+     */
+    proxy: {
+      "/_svc/auth": svc("http://127.0.0.1:8001"),
+      "/_svc/task": svc("http://127.0.0.1:8002"),
+      "/_svc/notif": svc("http://127.0.0.1:8003"),
+      "/_svc/msg": svc("http://127.0.0.1:8004"),
+      "/_svc/int": svc("http://127.0.0.1:8005"),
+      "/_svc/tel": svc("http://127.0.0.1:8006"),
+      // The gateway also serves plain HTTP alongside the socket: presence
+      // lookups and short-lived TURN credentials. `presenceBase` is derived
+      // from the WS URL (packages/app/src/lib/runtime.tsx), so these have to
+      // resolve on the same origin as /ws or every call and avatar goes dark.
+      "/presence": { target: "http://127.0.0.1:8090", changeOrigin: true },
+      "/turn-credentials": { target: "http://127.0.0.1:8090", changeOrigin: true },
+      // The gateway keeps its own path: it is a websocket upgrade, not a REST
+      // prefix, and `ws: true` is what makes Vite forward the handshake.
+      "/ws": { target: "ws://127.0.0.1:8090", ws: true, changeOrigin: true },
+    },
   },
   define: {
     __WS_URL__: JSON.stringify(process.env.VITE_WS_URL ?? "ws://localhost:8080/ws"),

@@ -25,9 +25,65 @@
 #   3. Point your DNS A/AAAA record at this host and set DOMAIN in .env.prod.
 #   4. docker compose -f docker-compose.prod.yml up -d --build
 #
-# `deploy.resources.limits` is honoured by `docker compose up` (Compose v2)
-# without Swarm; `deploy.replicas`/rollout keys are intentionally NOT used here
-# (that's the Helm chart's job).
+# `deploy.resources.limits` AND `deploy.replicas` are both honoured by
+# `docker compose up` (Compose v2) without Swarm. The rollout keys
+# (update_config / rollback_config) are not, and remain the Helm chart's job.
+#
+# ── Horizontal scale on one host ─────────────────────────────────────────────
+#
+# Every stateless HTTP service below runs TWO replicas, and the Caddy edge
+# distributes across them: infra/caddy/Caddyfile* resolves each compose service
+# name on a timer, and Docker's embedded DNS answers it with the address of
+# EVERY container behind it. There is no address list to keep in step.
+#
+# Before this there was one container per service, so a single process handled
+# every request in the platform for that service. A slow query, a GC pause, an
+# OOM or an ordinary restart was therefore felt by every user simultaneously,
+# and the only lever available was a bigger box. Two replicas make a restart a
+# rebalance instead of an outage, and make added capacity a flag rather than a
+# migration:
+#
+#     docker compose -f docker-compose.prod.yml up -d --scale task-svc=4
+#
+# The edge picks those up within ~10s with no reload and no edit. Two is the
+# baseline that survives losing one, not a ceiling.
+#
+# ── What the fleet costs Postgres, and why it fits ───────────────────────────
+#
+# Replicas multiply POOLS, not just processes, and connection slots are the
+# scarcest thing in this stack — see services/auth-svc/app/db.py for the history
+# (the pools once summed to 121 against a Postgres allowing 97, which surfaced
+# as blanket 500s). The arithmetic at two replicas:
+#
+#   6 HTTP services x 10 max backends x 2 replicas   = 120
+#   email-worker (asyncpg 4+4, single instance)      =   8
+#                                                      ───
+#                                                      128   of max_connections=200
+#
+# That leaves ~70 slots for psql, the exporters and headroom. Raising a replica
+# count by one costs ANOTHER 10 slots for that service; past roughly 4 replicas
+# each this needs pgbouncer in front of Postgres (the Helm chart already has
+# one — deploy/helm/taskboard/templates/pgbouncer.yaml) rather than a bigger
+# max_connections, because 200 backends would not be healthy on 8 cores.
+#
+# ── What is deliberately NOT replicated ──────────────────────────────────────
+#
+#   ws-gateway     Every gateway registers WS_ADVERTISE_ADDR in Redis as "how to
+#                  reach the node holding this socket", and in compose that value
+#                  is the service name (.env.prod: http://ws-gateway:8080) —
+#                  which under replicas resolves to ALL of them. A cross-node
+#                  push would then land on a gateway that does not hold the
+#                  socket, roughly (N-1)/N of the time. Secondarily, broadcast
+#                  fan-out keys each gateway's Kafka group to its hostname, so
+#                  the group churns on every recreate and the new one starts at
+#                  the tip. A gateway fleet is a WS_FANOUT_MODE=routed +
+#                  delivery-svc + per-replica advertise-address decision (see
+#                  that service below), not a `--scale` one.
+#   email-worker   Pure Kafka consumer. Members beyond the topic's partition
+#                  count simply idle, so raise partitions first.
+#   postgres,      Single-instance data and media tiers. Replicating these is a
+#   redis, kafka,  different project with its own failure modes — see
+#   livekit        INFRASTRUCTURE.md.
 # ─────────────────────────────────────────────────────────────────────────────
 name: task-board-prod
 
@@ -191,8 +247,15 @@ services:
     # Custom Caddy compiled with the Coraza WAF (OWASP CRS) — see infra/caddy/Dockerfile.
     # ROLLBACK: revert to `image: caddy:2.8-alpine@sha256:af32e97399febea808609119bb21544d0265c58a02836576e32a2d082c262c17`
     # + the plain Caddyfile mount below, and recreate.
+    #
+    # This was pinned to a literal `:2.11` and deliberately kept out of the
+    # SHA-tag/prune/rollback bookkeeping. That is safe only while the image never
+    # leaves this host: published to a shared registry, a fixed tag lets every
+    # WAF or Caddyfile change overwrite the same manifest, so there is nothing to
+    # roll back TO and two hosts can disagree about what `:2.11` means. It is now
+    # tagged like every other built image, and scripts/deploy-prod.sh tracks it.
     build: ./infra/caddy
-    image: task-board/caddy-waf:2.11
+    image: ${REGISTRY_PREFIX:-task-board}/caddy-waf:${IMAGE_TAG:-latest}
     restart: unless-stopped
     ports:
       - "80:80"     # ACME HTTP-01 challenge + HTTP→HTTPS redirect
@@ -324,7 +387,24 @@ services:
   #     open it), and the only public door to it is the TLS-terminated
   #     /livekit route in the Caddyfile.
   livekit:
-    image: livekit/livekit-server:v1.8.0
+    # MUST stay in step with packages/app's livekit-client, and "in step" is
+    # stricter than it sounds. This was v1.8.0 against livekit-client 2.21.0,
+    # and the skew broke every group call in a way that looked like a capacity
+    # limit: from 2.18.8 the client only treats a publisher negotiation as
+    # finished when the server echoes the offer's id back in its answer
+    # (SessionDescription.id, protobuf field 3), and v1.8.0's protocol has no
+    # such field — so every answer decoded as id 0, the negotiation promise
+    # never resolved, its 15s deadline fired, and the SDK dropped the session
+    # and rejoined. Forever, for everyone, roughly every 15 seconds: the SFU log
+    # was 230 sessions in 40 minutes, each one CLIENT_REQUEST_LEAVE at ~15.2s.
+    # Nobody stayed in the room long enough to see a third person arrive.
+    #
+    # v1.9.1 is the first server that echoes the offer id, i.e. the minimum that
+    # stops it. v1.13.5 is current stable and the one built against the protocol
+    # generation client 2.21.0 comes from; it also serves the /rtc/v1 signal path
+    # the client tries FIRST (the 404 in the browser console) while still
+    # serving legacy /rtc, so cached clients keep working across the rollout.
+    image: livekit/livekit-server:v1.13.5@sha256:3497163e15c48fef6e7830c78716f9e9d5edc28abf7aa90b61c86e93bbc306b1
     restart: unless-stopped
     network_mode: host
     command: ["--config", "/etc/livekit/livekit.yaml"]
@@ -377,15 +457,18 @@ services:
       # ── Capacity ──────────────────────────────────────────────────────────
       # Everything below was previously stock. Stock means max_connections=100
       # (97 after superuser_reserved_connections), and the services are
-      # configured for 68 pooled connections — with the OLD pool sizes it was
-      # 121, i.e. a burst that filled overflow on three services at once hit
-      # `FATAL: sorry, too many clients already`. Because each service owns its
-      # own database there is no shared arbiter, so it surfaced as blanket 500s
-      # across several services simultaneously rather than as queueing.
+      # configured for 68 pooled connections PER REPLICA SET — with the OLD pool
+      # sizes it was 121 at one replica each, i.e. a burst that filled overflow
+      # on three services at once hit `FATAL: sorry, too many clients already`.
+      # Because each service owns its own database there is no shared arbiter, so
+      # it surfaced as blanket 500s across several services simultaneously rather
+      # than as queueing.
       #
-      # 200 leaves real headroom over the 68 the pools can now demand, without
-      # pretending 200 backends would be healthy on 8 cores — that is what the
-      # reduced pool sizes are for (see services/*/app/db.py and store.go).
+      # At the two replicas each service now runs (see the header note) the pools
+      # can demand 128. 200 leaves real headroom over that without pretending 200
+      # backends would be healthy on 8 cores — that is what the reduced pool
+      # sizes are for (see services/*/app/db.py and store.go), and it is why the
+      # replica counts are bounded by this number rather than by memory.
       - -c
       - max_connections=200
       # 25% of the 6144M limit below. Stock was 128MB.
@@ -663,7 +746,7 @@ services:
   auth-svc:
     <<: *svc-defaults
     build: ./services/auth-svc
-    image: task-board/auth-svc:${IMAGE_TAG:-latest}
+    image: ${REGISTRY_PREFIX:-task-board}/auth-svc:${IMAGE_TAG:-latest}
     volumes:
       - ./keys:/keys:ro   # Ed25519 keypair — provisioned per-env, gitignored.
       # Re-listed (not inherited) — see the x-svc-defaults note: `<<:` replaces
@@ -678,13 +761,18 @@ services:
       timeout: 5s
       retries: 20
     deploy:
+      # Two replicas behind the Caddy load balancer (see the header note).
+      # Stateless: the rate limiter is Redis-backed and the outbox poller
+      # claims rows FOR UPDATE SKIP LOCKED, so a second replica shares the work
+      # rather than duplicating it.
+      replicas: 2
       resources:
         limits: { cpus: "1.00", memory: 512M }
 
   email-worker:
     <<: *svc-defaults
     build: ./services/email-worker
-    image: task-board/email-worker:${IMAGE_TAG:-latest}
+    image: ${REGISTRY_PREFIX:-task-board}/email-worker:${IMAGE_TAG:-latest}
     # Pure Kafka consumer — no HTTP port, no /readyz. Liveness is process-up.
     depends_on:
       postgres: { condition: service_healthy }
@@ -697,7 +785,7 @@ services:
   task-svc:
     <<: *svc-defaults
     build: ./services/task-svc
-    image: task-board/task-svc:${IMAGE_TAG:-latest}
+    image: ${REGISTRY_PREFIX:-task-board}/task-svc:${IMAGE_TAG:-latest}
     depends_on:
       postgres: { condition: service_healthy }
       kafka-init: { condition: service_completed_successfully }
@@ -708,13 +796,16 @@ services:
       timeout: 5s
       retries: 20
     deploy:
+      # Two replicas behind the Caddy load balancer (see the header note).
+      # Stateless — same reasoning as auth-svc.
+      replicas: 2
       resources:
         limits: { cpus: "1.00", memory: 512M }
 
   notification-svc:
     <<: *svc-defaults
     build: ./services/notification-svc
-    image: task-board/notification-svc:${IMAGE_TAG:-latest}
+    image: ${REGISTRY_PREFIX:-task-board}/notification-svc:${IMAGE_TAG:-latest}
     depends_on:
       postgres: { condition: service_healthy }
       kafka-init: { condition: service_completed_successfully }
@@ -725,13 +816,17 @@ services:
       timeout: 5s
       retries: 20
     deploy:
+      # Two replicas behind the Caddy load balancer (see the header note).
+      # Stateless — same reasoning as auth-svc. Its Kafka consumer
+      # joins a fixed group, so partitions are split across replicas.
+      replicas: 2
       resources:
         limits: { cpus: "1.00", memory: 384M }
 
   messaging-svc:
     <<: *svc-defaults
     build: ./services/messaging-svc
-    image: task-board/messaging-svc:${IMAGE_TAG:-latest}
+    image: ${REGISTRY_PREFIX:-task-board}/messaging-svc:${IMAGE_TAG:-latest}
     # Chat attachment bytes live on a named volume. `read_only: true` from the
     # anchor still applies — a volume mount stays writable regardless — and it is
     # the ONLY writable path in the container (/tmp is a small in-memory tmpfs,
@@ -754,13 +849,19 @@ services:
       timeout: 5s
       retries: 20
     deploy:
+      # Two replicas behind the Caddy load balancer (see the header note).
+      # Safe to replicate HERE specifically because all replicas mount
+      # the SAME media_blobs volume on the same host — an upload accepted by one
+      # is readable by the others. The Helm chart pins this service at 1 for the
+      # opposite reason: pods get separate disks (see deploy/helm values.yaml).
+      replicas: 2
       resources:
         limits: { cpus: "1.00", memory: 384M }
 
   integrations-svc:
     <<: *svc-defaults
     build: ./services/integrations-svc
-    image: task-board/integrations-svc:${IMAGE_TAG:-latest}
+    image: ${REGISTRY_PREFIX:-task-board}/integrations-svc:${IMAGE_TAG:-latest}
     depends_on:
       postgres: { condition: service_healthy }
       kafka-init: { condition: service_completed_successfully }
@@ -771,13 +872,16 @@ services:
       timeout: 5s
       retries: 20
     deploy:
+      # Two replicas behind the Caddy load balancer (see the header note).
+      # Stateless — same reasoning as auth-svc.
+      replicas: 2
       resources:
         limits: { cpus: "1.00", memory: 384M }
 
   telemetry-svc:
     <<: *svc-defaults
     build: ./services/telemetry-svc
-    image: task-board/telemetry-svc:${IMAGE_TAG:-latest}
+    image: ${REGISTRY_PREFIX:-task-board}/telemetry-svc:${IMAGE_TAG:-latest}
     depends_on:
       postgres: { condition: service_healthy }
       kafka-init: { condition: service_completed_successfully }
@@ -788,13 +892,16 @@ services:
       timeout: 5s
       retries: 20
     deploy:
+      # Two replicas behind the Caddy load balancer (see the header note).
+      # Stateless — same reasoning as auth-svc.
+      replicas: 2
       resources:
         limits: { cpus: "1.00", memory: 384M }
 
   ws-gateway:
     <<: *svc-defaults
     build: ./services/ws-gateway
-    image: task-board/ws-gateway:${IMAGE_TAG:-latest}
+    image: ${REGISTRY_PREFIX:-task-board}/ws-gateway:${IMAGE_TAG:-latest}
     depends_on:
       redis: { condition: service_healthy }
       kafka-init: { condition: service_completed_successfully }
@@ -805,6 +912,9 @@ services:
       timeout: 5s
       retries: 20
     deploy:
+      # No `replicas:` — one gateway. WS_ADVERTISE_ADDR is the compose service
+      # name, which under replicas resolves to all of them and misroutes
+      # cross-node pushes; see the header note and the delivery-svc block.
       resources:
         # SIZE THIS WITH WS_MAX_CONNECTIONS, NOT INDEPENDENTLY.
         #
@@ -856,7 +966,7 @@ services:
     <<: *svc-defaults
     profiles: [routed]
     build: ./services/ws-gateway
-    image: task-board/ws-gateway:${IMAGE_TAG:-latest}
+    image: ${REGISTRY_PREFIX:-task-board}/ws-gateway:${IMAGE_TAG:-latest}
     entrypoint: ["/usr/local/bin/delivery-svc"]
     depends_on:
       redis: { condition: service_healthy }

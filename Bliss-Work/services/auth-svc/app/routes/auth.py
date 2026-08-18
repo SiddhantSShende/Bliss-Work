@@ -35,6 +35,7 @@ from ..security.passwords import (
 from . import session_events
 from .account_service import create_email_verification_tx
 from .cookies import REFRESH_COOKIE, clear_refresh_cookie, set_refresh_cookie
+from .members_service import leave_org_tx
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -435,6 +436,40 @@ async def switch_org(
     set_refresh_cookie(response, raw_refresh)
     log.info("org_switched", user_id=session.user.id, org_id=org_id)
     return session
+
+
+@router.post(
+    "/orgs/{org_id}/leave",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(enforce_origin)],
+)
+async def leave_org(
+    org_id: str, principal: Principal = Depends(get_principal)
+) -> Response:
+    """Leave one of the caller's own organizations — the counterpart to
+    `/orgs/{org_id}/switch`, and like it, valid for any org the identity belongs
+    to rather than only the one currently signed in to.
+
+    The membership is marked removed, not deleted, exactly as an admin-initiated
+    removal is: the person's messages, tasks and audit entries all point at that
+    users row and must keep rendering their name, and a re-invite has to be able
+    to restore it. Every session that membership holds is revoked, so leaving the
+    ACTIVE org signs this client out of it — the caller is expected to switch to
+    one of their remaining orgs, which `leave_org_tx` guarantees exists.
+    """
+    async with engine.begin() as conn:
+        # Cross-org throughout: the target membership, and the other memberships
+        # that decide whether it may be given up, are in orgs this request was
+        # never scoped to. Same trusted path /orgs/{id}/switch takes.
+        await service.set_bypass_rls(conn)
+        iid = await service.identity_id_for_user(conn, principal.user_id)
+        if iid is None:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN, "cannot leave organizations"
+            )
+        left_user_id = await leave_org_tx(conn, iid, org_id)
+    log.info("org_left", user_id=left_user_id, org_id=org_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/me", response_model=UserDTO)

@@ -281,7 +281,7 @@ export type MessageStatus = z.infer<typeof MessageStatus>;
 export const ThreadOrigin = z.enum(["chat", "mail"]);
 export type ThreadOrigin = z.infer<typeof ThreadOrigin>;
 
-export const MessageKind = z.enum(["text", "call_missed"]);
+export const MessageKind = z.enum(["text", "call_missed", "forward_external"]);
 export type MessageKind = z.infer<typeof MessageKind>;
 
 /**
@@ -311,8 +311,8 @@ export const MessageDTO = z.object({
   senderId: z.string().uuid(),
   body: z.string(),
   createdAt: z.string(),
-  /** System entries (e.g. a missed call). Absent = ordinary text.
-   *  Wire-tolerant: see MessageKindWire. */
+  /** System entries (a missed call, a forward handed off to WhatsApp).
+   *  Absent = ordinary text. Wire-tolerant: see MessageKindWire. */
   kind: MessageKindWire.optional(),
   /** Set only on the sender's own bubbles. */
   status: MessageStatus.optional(),
@@ -327,6 +327,14 @@ export const MessageDTO = z.object({
    * rather than a gap that quietly rewrites what they remember.
    */
   deletedForAll: z.boolean().optional(),
+  /**
+   * This message is a copy delivered by forwarding someone else's.
+   *
+   * Rendered as a "Forwarded" label above the bubble. Without it a forwarded
+   * photo looks like one the forwarder took: the same content under their name
+   * with nothing to say otherwise.
+   */
+  isForward: z.boolean().optional(),
 });
 
 /** One emoji's tally on one message, from the caller's point of view. */
@@ -482,14 +490,19 @@ export const ConversationDTO = z.object({
 });
 export type ConversationDTO = z.infer<typeof ConversationDTO>;
 
-// ── Inbox (unified message threads + tasks) ──────────────────────────────────
-export const InboxItemKind = z.enum(["THREAD", "TASK"]);
+// ── Inbox (unified message threads + tasks + mail) ───────────────────────────
+export const InboxItemKind = z.enum(["THREAD", "TASK", "MAIL"]);
 export type InboxItemKind = z.infer<typeof InboxItemKind>;
 
 /**
  * Single row in the unified inbox feed. A THREAD row points to a message
- * thread; a TASK row points to a task assigned to this user. Status/preview
- * differ per kind.
+ * thread; a MAIL row points to an email; a TASK row points to a task assigned
+ * to this user. Status/preview differ per kind.
+ *
+ * TASK rows are still produced by the task projector and still returned here —
+ * the Inbox surface filters them out because it presents itself as a mailbox,
+ * but the kind stays in the contract because the row is real, deep links to it
+ * still resolve, and the People sidebar's rollups still count it.
  */
 export const InboxItemDTO = z.object({
   ownerUserId: z.string().uuid(),
@@ -549,6 +562,70 @@ export const ThreadDTO = z.object({
   myLastReadSeq: z.number().int(),
 });
 export type ThreadDTO = z.infer<typeof ThreadDTO>;
+
+// ── Mail ─────────────────────────────────────────────────────────────────────
+export const MailRecipientKind = z.enum(["TO", "CC", "BCC"]);
+export type MailRecipientKind = z.infer<typeof MailRecipientKind>;
+
+/**
+ * One addressee on a mail header.
+ *
+ * BCC entries are filtered SERVER-side per viewer: the author sees the list
+ * they typed, everyone else sees To and Cc plus their own BCC entry. So a BCC
+ * appearing here is never someone else's — it is either yours or your own mail.
+ */
+export const MailRecipientDTO = z.object({
+  kind: MailRecipientKind,
+  address: z.string(),
+  /** Set when the address resolved to a member of this org at send time. */
+  userId: z.string().uuid().nullable(),
+  displayName: z.string().nullable(),
+});
+export type MailRecipientDTO = z.infer<typeof MailRecipientDTO>;
+
+/** One file on a mail. Downloads go through the same signed-link mint as chat
+ *  attachments (`attachmentLinks`), which re-checks access on every hit. */
+export const MailAttachmentDTO = z.object({
+  id: z.string().uuid(),
+  filename: z.string(),
+  mime: z.string(),
+  sizeBytes: z.number().int().nonnegative(),
+});
+export type MailAttachmentDTO = z.infer<typeof MailAttachmentDTO>;
+
+/** A complete email — the payload behind an opened Inbox row. */
+export const MailDTO = z.object({
+  mailId: z.string().uuid(),
+  status: z.enum(["DRAFT", "SENT", "RECEIVED"]),
+  /** The CALLER's view: SENT if they wrote it, INBOX if it reached them. One
+   *  row is both, seen from two sides. */
+  folder: z.enum(["INBOX", "SENT"]),
+  fromAddress: z.string(),
+  fromName: z.string(),
+  /** Null for mail from outside the org — there is no local account behind it. */
+  fromUserId: z.string().uuid().nullable(),
+  subject: z.string(),
+  bodyText: z.string(),
+  /** Only ever set for inbound multipart/alternative mail. UNTRUSTED markup —
+   *  never inject it; the text body is what the renderer shows. */
+  bodyHtml: z.string().nullable(),
+  recipients: z.array(MailRecipientDTO),
+  attachments: z.array(MailAttachmentDTO),
+  sentAt: z.string(),
+  readAt: z.string().nullable(),
+});
+export type MailDTO = z.infer<typeof MailDTO>;
+
+/** What POST /mail/drafts/{id}/send answers with. The two counts let the UI say
+ *  what actually happened when a mail is addressed both inside and outside the
+ *  org — "sent to 2, queued for 1" rather than a bare "sent". */
+export const SendMailResultDTO = z.object({
+  mailId: z.string().uuid(),
+  sentAt: z.string(),
+  deliveredInApp: z.number().int().nonnegative(),
+  queuedExternal: z.number().int().nonnegative(),
+});
+export type SendMailResultDTO = z.infer<typeof SendMailResultDTO>;
 
 // ── Tasks ──────────────────────────────────────────────────────────────────────
 export const AssigneeStatus = z.enum([
@@ -676,7 +753,17 @@ export type AvailabilityDTO = z.infer<typeof AvailabilityDTO>;
 // ── Notifications ────────────────────────────────────────────────────────────
 export const NotificationDTO = z.object({
   id: z.string().uuid(),
-  kind: z.enum(["TASK_ACKNOWLEDGED", "TASK_COMPLETED", "TASK_IGNORED", "TASK_LEFT"]),
+  /** CHANNEL_ADDED is the one non-task kind: notification-svc writes it when
+   *  someone adds you to a channel. Kept an enum rather than a bare string so a
+   *  server that starts emitting a kind this client cannot render fails loudly
+   *  in one place instead of rendering a blank row. */
+  kind: z.enum([
+    "TASK_ACKNOWLEDGED",
+    "TASK_COMPLETED",
+    "TASK_IGNORED",
+    "TASK_LEFT",
+    "CHANNEL_ADDED",
+  ]),
   text: z.string(),
   taskId: z.string().uuid().nullable(),
   read: z.boolean(),
@@ -737,6 +824,14 @@ export const ChannelMessageDTO = z.object({
   createdAt: z.string(),
   /** System entries in a channel, mirroring MessageDTO.kind. Absent = text. */
   kind: MessageKindWire.optional(),
+  /** Mirrors MessageDTO.isForward. */
+  isForward: z.boolean().optional(),
+  /** Tombstone: deleted for everyone. `body` is EMPTY on the wire when this is
+   *  set — the server never decrypts a deleted message, so there is nothing
+   *  here for a client to be trusted to conceal. */
+  deletedForAll: z.boolean().optional(),
+  /** Pinned for the whole channel by a moderator. */
+  pinned: z.boolean().optional(),
 });
 export type ChannelMessageDTO = z.infer<typeof ChannelMessageDTO>;
 
@@ -749,7 +844,7 @@ export type ChannelMessageDTO = z.infer<typeof ChannelMessageDTO>;
  * file is uploaded and RE-CHECKED on every download, so losing access to a
  * channel revokes its files immediately.
  */
-export const AttachmentScope = z.enum(["conversation", "thread", "channel"]);
+export const AttachmentScope = z.enum(["conversation", "thread", "channel", "mail"]);
 export type AttachmentScope = z.infer<typeof AttachmentScope>;
 
 export const AttachmentDTO = z.object({

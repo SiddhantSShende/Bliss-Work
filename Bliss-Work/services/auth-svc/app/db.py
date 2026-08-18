@@ -22,9 +22,14 @@ engine: AsyncEngine = create_async_engine(
     # backends against a Postgres allowing 97 — so a burst that filled overflow
     # on three services at once produced `FATAL: sorry, too many clients
     # already`, and with a database per service there is no shared arbiter to
-    # make that queue instead of fail. The sum is now 68 against max_connections
-    # 200 (see docker-compose.prod.yml), which is also far closer to what 8
-    # cores can actually run concurrently.
+    # make that queue instead of fail. The sum is now 68 PER REPLICA SET against
+    # max_connections 200 (see docker-compose.prod.yml), which is also far closer
+    # to what 8 cores can actually run concurrently.
+    #
+    # Multiply by the replica count before changing anything here: prod runs two
+    # replicas of each of the six HTTP services, so real demand is 128, not 68.
+    # Raising pool_size by 1 costs 2 backends per service at that width, and the
+    # headroom left over is what absorbs psql and the exporters.
     pool_size=5,
     max_overflow=5,
     pool_pre_ping=True,

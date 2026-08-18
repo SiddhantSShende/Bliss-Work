@@ -52,10 +52,46 @@ class Mailer:
         self._start_tls = starttls or port == 587
         self._use_tls = port == 465
 
-    async def send(self, *, to: str, subject: str, text_body: str, html_body: str) -> None:
+    async def send(
+        self,
+        *,
+        to: str,
+        subject: str,
+        text_body: str,
+        html_body: str,
+        from_name: str = "",
+        reply_to: str = "",
+        display_to: list[str] | None = None,
+        display_cc: list[str] | None = None,
+    ) -> None:
+        """Deliver one copy of a message to ONE envelope recipient (``to``).
+
+        The optional keywords exist for user-composed mail relayed out of the
+        Inbox, and they are what make that mail both deliverable and honest:
+
+        ``from_name`` / ``reply_to``
+            The From address stays this deployment's authenticated sender. It
+            has to: SPF and DMARC are published for that domain, so putting the
+            author's own address in From would get the message classified as a
+            forgery — which is exactly what it would be. The author's name rides
+            in the display part ("Jane Okafor via BlissWork") and their real
+            address in Reply-To, so a reply reaches the person who wrote it.
+
+        ``display_to`` / ``display_cc``
+            The header the RECIPIENTS see, which is not the same thing as who
+            this copy goes to. One copy is sent per addressee with the shared
+            To/Cc header, so a Bcc'd address never appears in anybody's headers
+            — including their own. ``recipients=[to]`` below is what keeps the
+            envelope and the header separate; without it aiosmtplib would derive
+            the envelope from the headers and deliver to everyone named there.
+        """
         message = EmailMessage()
-        message["From"] = self._sender
-        message["To"] = to
+        message["From"] = f"{from_name} via BlissWork <{self._sender}>" if from_name else self._sender
+        message["To"] = ", ".join(display_to) if display_to else to
+        if display_cc:
+            message["Cc"] = ", ".join(display_cc)
+        if reply_to:
+            message["Reply-To"] = reply_to
         message["Subject"] = subject
         message.set_content(text_body)
         message.add_alternative(html_body, subtype="html")
@@ -70,6 +106,8 @@ class Mailer:
                     port=self._port,
                     username=self._username,
                     password=self._password,
+                    # The envelope is ALWAYS this one address, never the header.
+                    recipients=[to],
                     start_tls=self._start_tls or None,
                     use_tls=self._use_tls,
                     timeout=20,

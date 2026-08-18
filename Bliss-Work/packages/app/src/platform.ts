@@ -14,6 +14,18 @@ export interface EventSource {
   /** Ask the host (utilityProcess) to (re)connect its socket. */
   connect: () => void;
   /**
+   * Ask the host to DROP its socket, on sign-out.
+   *
+   * The socket is what the gateway counts as presence, and the desktop's lives
+   * in a utilityProcess that outlives the window on purpose — so unmounting the
+   * React tree, which is all a web sign-out has to do, leaves it connected and
+   * the person online to their whole organisation after they signed out.
+   *
+   * Optional so a host that predates it still compiles; a missing one means the
+   * caller cannot hang up, not that it should not try.
+   */
+  disconnect?: () => void;
+  /**
    * Subscribe to forwarded ServerEvents; returns an unsubscribe fn.
    *
    * `meta.replayed` marks the connect-time catch-up burst. It has to cross the
@@ -158,10 +170,31 @@ export interface PlatformConfig {
    *  fix. Absent on web, where the browser owns the provider and the question
    *  is not ours to answer. */
   hasPreciseLocation?: () => Promise<boolean>;
+  /** Open the OS page where location access for desktop apps is granted.
+   *
+   *  Present ONLY where such a page exists — Electron on Windows and macOS.
+   *  Absent on web (the browser's own prompt is the grant) and on Linux, which
+   *  has no OS location provider to authorize. Treat its presence as the
+   *  capability check and render nothing when it is missing: an "open settings"
+   *  button that opens nothing is worse than no button.
+   *
+   *  Resolves false if the host declined to open anything. Takes no URL — the
+   *  host owns it, deliberately (see desktop shared/location-settings.ts). */
+  openLocationSettings?: () => Promise<boolean>;
   /** Present only in Electron: the app detected and refused a screenshot
-   *  attempt. Returns an unsubscribe fn. Absent on web, where a page cannot
-   *  observe the OS's capture keys at all. */
-  onScreenshotBlocked?: (cb: () => void) => () => void;
+   *  attempt.
+   *
+   *  `chord` names what was pressed, and `recorded` says whether main has
+   *  ALREADY written the attempt to the activity record — it has, for a user
+   *  who consented to the activity agent, and the renderer must not report it a
+   *  second time.
+   *
+   *  Its ABSENCE is the capability check the web build depends on: no desktop
+   *  host means the page installs its own key watcher instead (lib/screenGuard).
+   *  Returns an unsubscribe fn. */
+  onScreenshotBlocked?: (
+    cb: (info: { chord: string; recorded: boolean }) => void,
+  ) => () => void;
   /** Present only in Electron: the OAuth flow returning through the
    *  `taskboard://oauth` deep link. Mirrors the ?connected=/?error= query the
    *  web build reads off its own URL. Returns an unsubscribe fn. */

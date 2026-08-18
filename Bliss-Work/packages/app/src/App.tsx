@@ -64,6 +64,8 @@ const Org = lazyRoute(() => import("./routes/Org"), "Org");
 const InboxFeed = lazyRoute(() => import("./routes/InboxFeed"), "InboxFeed");
 const InboxThread = lazyRoute(() => import("./routes/InboxThread"), "InboxThread");
 const InboxTask = lazyRoute(() => import("./routes/InboxTask"), "InboxTask");
+const MailDetail = lazyRoute(() => import("./routes/MailDetail"), "MailDetail");
+const MailCompose = lazyRoute(() => import("./routes/MailCompose"), "MailCompose");
 const Meetings = lazyRoute(() => import("./routes/Meetings"), "Meetings");
 const JoinCallView = lazyRoute(() => import("./routes/JoinCallView"), "JoinCallView");
 
@@ -182,6 +184,13 @@ export function App({ config }: { config: PlatformConfig }) {
                     <Route path="inbox/all" element={<InboxFeed />} />
                     <Route path="inbox/p/:peerId" element={<InboxFeed />} />
                     <Route path="inbox/thread/:threadId" element={<InboxThread />} />
+                    <Route path="inbox/mail/:mailId" element={<MailDetail />} />
+                    {/* The composer takes the SAME pane a mail is read in, so
+                        New Mail and opening a mail are the same gesture. */}
+                    <Route path="inbox/compose" element={<MailCompose />} />
+                    {/* Tasks no longer appear in the Inbox feed (they live in
+                        Tasks), but this route stays: existing deep links and
+                        notification targets still resolve to it. */}
                     <Route path="inbox/task/:taskId" element={<InboxTask />} />
                     <Route path="meetings" element={<Meetings />} />
                     <Route path="chats" element={<ChatsEmpty />} />

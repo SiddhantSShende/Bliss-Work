@@ -10,19 +10,25 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// Attachment scopes. These name the three membership tables that can authorize
-// a file, and cover all four message send paths (DM send, DM reply, thread
-// reply, channel send).
+// Attachment scopes. These name the four membership tables that can authorize
+// a file, and cover every send path (DM send, DM reply, thread reply, channel
+// send, mail compose).
 const (
 	ScopeConversation = "conversation"
 	ScopeThread       = "thread"
 	ScopeChannel      = "channel"
+	// ScopeMail's scope_id is a mail_messages.id and its membership table is
+	// mail_deliveries. Uniquely among the four, the destination is created
+	// BEFORE anyone else can read it: the composer opens a draft, which gives
+	// the author a mail_deliveries row to upload against, and the recipients'
+	// rows appear only when Send fans the mail out.
+	ScopeMail = "mail"
 )
 
 // ValidAttachmentScope reports whether a client-supplied scope is one we accept.
 // The API layer calls this before anything touches the database.
 func ValidAttachmentScope(s string) bool {
-	return s == ScopeConversation || s == ScopeThread || s == ScopeChannel
+	return s == ScopeConversation || s == ScopeThread || s == ScopeChannel || s == ScopeMail
 }
 
 // Attachment roles.
@@ -142,6 +148,8 @@ func requireScopeMember(ctx context.Context, tx pgx.Tx, orgID, scope, scopeID, u
 		return requireThreadMember(ctx, tx, orgID, scopeID, userID)
 	case ScopeChannel:
 		return requireChannelMember(ctx, tx, orgID, scopeID, userID)
+	case ScopeMail:
+		return requireMailReader(ctx, tx, orgID, scopeID, userID)
 	default:
 		return ErrForbidden
 	}

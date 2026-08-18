@@ -1,6 +1,6 @@
 import { NavLink } from "react-router-dom";
 import { motion } from "framer-motion";
-import { ListTodo, MessageCircle, Reply, X, Trash2, Flag, Check } from "lucide-react";
+import { ListTodo, Mail, MailOpen, MessageCircle, Reply, X, Trash2, Flag, Check } from "lucide-react";
 import { Avatar, Badge } from "@taskboard/ui";
 import type { InboxItemDTO } from "@taskboard/shared";
 import { relative } from "../lib/chatFormat";
@@ -8,10 +8,16 @@ import { useUserLabels } from "../lib/userLabel";
 
 /**
  * Single row in the unified Inbox feed. Branches on item_kind:
- *   THREAD → email-style row with the peer's EMAIL ADDRESS, preview, unread pill,
+ *   MAIL   → an email. Subject and snippet arrive already joined in `preview`
+ *            (the server builds it; the body is never in the feed), so the row
+ *            renders sender + preview and nothing else has to be fetched to
+ *            draw the list.
+ *   THREAD → email-style row with the peer's NAME, preview, unread pill,
  *            status badge for sender-side rows.
  *   TASK   → row with task title + acknowledge / complete / ignore / leave
- *            controls (the actual mutations call task-svc).
+ *            controls (the actual mutations call task-svc). Still rendered
+ *            here for deep links and for any surface that passes one, though
+ *            the Inbox feed itself no longer lists tasks.
  *
  * The row is wrapped in a NavLink that routes into the detail pane.
  */
@@ -36,17 +42,36 @@ export function InboxRow({
 }) {
   const { nameOf, emailOf } = useUserLabels();
   const isTask = item.itemKind === "TASK";
+  const isMail = item.itemKind === "MAIL";
   const to = isTask
     ? `/app/inbox/task/${item.refId}`
-    : `/app/inbox/thread/${item.refId}`;
-  // The Inbox is an email surface, so a row is identified the way an email
-  // client identifies one: by ADDRESS. `peerUsername` is only the email
-  // local-part, so the full address is joined in from the org directory and the
-  // handle is kept as the fallback for anyone no longer listed there.
+    : isMail
+      ? `/app/inbox/mail/${item.refId}`
+      : `/app/inbox/thread/${item.refId}`;
+  // A row is identified by the PERSON, the way every other chat surface in the
+  // app identifies one — not by their address. The Inbox is styled after an
+  // email client and used to print the address here, which left the same
+  // colleague reading as "j.okafor@acme.com" in the list and "Jane Okafor" in
+  // the thread header one click away.
+  //
+  // `peerUsername` is only the email local-part (see lib/userLabel), so it can
+  // never be rendered on its own; the real name is joined in from the org
+  // directory, with the handle kept as the fallback for anyone no longer
+  // listed there. The name also drives the avatar's initials — "j.okafor"
+  // would render "JO" from the wrong halves.
+  //
+  // The one row with no person to name is mail from OUTSIDE the org: there is
+  // no local account behind that address, so the directory has nothing to join
+  // and nameOf would fall back to a handle that does not exist. "External
+  // sender" is the honest label — the address itself is on the detail view.
+  const peerName =
+    isMail && !item.peerUserId
+      ? "External sender"
+      : nameOf(item.peerUserId, item.peerUsername);
+  // The address stays reachable on hover. It is what an Inbox row is really
+  // addressed to, and dropping it entirely would lose the one thing the email
+  // framing did buy — but it is a detail, not the row's identity.
   const peerEmail = emailOf(item.peerUserId, item.peerUsername);
-  // The avatar still needs a human name for its initials — "j.okafor" would
-  // render "JO" from the wrong halves.
-  const peerName = nameOf(item.peerUserId, item.peerUsername);
   const isUnread = item.unreadCount > 0;
 
   return (
@@ -64,6 +89,12 @@ export function InboxRow({
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-accent-soft text-accent">
               <ListTodo size={16} />
             </div>
+          ) : isMail && !item.peerUserId ? (
+            // No account, so no initials worth deriving — the envelope says
+            // "this came from outside" more clearly than a generated monogram.
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-surface-2 text-muted">
+              <Mail size={16} />
+            </div>
           ) : (
             <Avatar name={peerName} size="sm" />
           )}
@@ -76,28 +107,40 @@ export function InboxRow({
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">
             <div className={`truncate ${isUnread ? "font-semibold text-fg" : "text-fg/90"}`}>
-              {isTask ? <span className="inline-flex items-center gap-1"><ListTodo size={13} /> {item.preview || "(untitled task)"}</span> : peerEmail}
+              {isTask ? (
+                <span className="inline-flex items-center gap-1">
+                  <ListTodo size={13} /> {item.preview || "(untitled task)"}
+                </span>
+              ) : (
+                <span title={peerEmail}>{peerName}</span>
+              )}
             </div>
             <span className="shrink-0 text-[10px] text-muted">{relative(item.lastEventAt)}</span>
           </div>
           {!isTask && (
             <div className={`truncate text-xs ${isUnread ? "text-fg/80" : "text-muted"}`}>
-              {item.preview || "(no preview)"}
+              {item.preview || (isMail ? "(no subject)" : "(no preview)")}
             </div>
           )}
           <div className="mt-1 flex items-center gap-1">
             {item.statusBadge && (
               <Badge tone={statusTone(item.statusBadge)}>{item.statusBadge.toLowerCase()}</Badge>
             )}
-            {!isTask && (
+            {isMail ? (
               <span className="ml-1 inline-flex items-center gap-1 text-[10px] text-muted/80">
-                <MessageCircle size={10} /> thread
+                {isUnread ? <Mail size={10} /> : <MailOpen size={10} />} mail
               </span>
+            ) : (
+              !isTask && (
+                <span className="ml-1 inline-flex items-center gap-1 text-[10px] text-muted/80">
+                  <MessageCircle size={10} /> thread
+                </span>
+              )
             )}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          {!isTask && (
+          {!isTask && !isMail && (
             <Quick
               icon={<Reply size={14} />}
               title="Reply (opens thread)"
@@ -128,13 +171,21 @@ export function InboxRow({
           {onIgnore && (!isTask || item.statusBadge === "SENT") && (
             <Quick
               icon={<X size={14} />}
-              title={isTask ? "Ignore — remove from inbox" : "Ignore — hides for both"}
-              label="Ignore"
+              title={
+                isMail
+                  ? "Remove from your Inbox — the sender's copy is unaffected"
+                  : isTask
+                    ? "Ignore — remove from inbox"
+                    : "Ignore — hides for both"
+              }
+              label={isMail ? "Delete" : "Ignore"}
               tone="danger"
               onClick={(e) => { e.preventDefault(); onIgnore(item.itemKind, item.refId); }}
             />
           )}
-          {onDismiss && isTask === false && (
+          {/* Sender-side delete of one's own MESSAGE. Threads only: it posts to
+              /messages/{id}/dismiss, and a mail's refId is not a message id. */}
+          {onDismiss && !isTask && !isMail && (
             <Quick
               icon={<Trash2 size={14} />}
               title="Delete from your inbox"

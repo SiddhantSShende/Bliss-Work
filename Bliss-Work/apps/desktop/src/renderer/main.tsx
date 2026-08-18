@@ -2,7 +2,7 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { App, useSession, refreshSession, type PlatformConfig, type ServerEvent, type RtcTransport, type FileSink, type ChatStickyHost, installChunkReloadRecovery } from "@taskboard/app";
 import type { PinResult, WsEventMeta } from "@taskboard/shared";
-import { resolveEndpoints } from "../shared/endpoints";
+import { resolveEndpointsFromEnv } from "../shared/endpoints";
 import "@taskboard/ui/styles.css";
 import "./index.css";
 
@@ -20,7 +20,11 @@ declare global {
       onInviteDeepLink: (cb: (token: string) => void) => () => void;
       openExternal: (url: string) => void;
       hasPreciseLocation: () => Promise<boolean>;
-      onScreenshotBlocked: (cb: () => void) => () => void;
+      /** Absent on platforms with no OS location-privacy page (Linux). */
+      openLocationSettings?: () => Promise<boolean>;
+      onScreenshotBlocked: (
+        cb: (info: { chord: string; recorded: boolean }) => void,
+      ) => () => void;
       onOAuthReturn: (cb: (r: { connected?: string; error?: string }) => void) => () => void;
       appVersion: () => Promise<string>;
       checkForUpdates: () => Promise<{
@@ -62,12 +66,16 @@ const bridge = window.taskboard;
 // about which backend this build talks to. Any VITE_* override wins, so a
 // custom deployment needs no code edit.
 const env = import.meta.env;
-const ENDPOINTS = resolveEndpoints(!env.DEV, {
+const ENDPOINTS = resolveEndpointsFromEnv(!env.DEV, {
   authBase: env.VITE_AUTH_BASE,
   taskBase: env.VITE_TASK_BASE,
   notificationBase: env.VITE_NOTIFICATION_BASE,
   messagingBase: env.VITE_MESSAGING_BASE,
   integrationsBase: env.VITE_INTEGRATIONS_BASE,
+  // Was MISSING here and in the main process, which made VITE_TELEMETRY_BASE a
+  // web-only override: the desktop silently used the baked default, so a
+  // deployment that moved telemetry broke member activity on desktop alone.
+  telemetryBase: env.VITE_TELEMETRY_BASE,
   wsUrl: env.VITE_WS_URL,
 });
 
@@ -89,6 +97,11 @@ const config: PlatformConfig = {
   // and return through the taskboard://oauth deep link.
   openExternal: (url) => bridge.openExternal(url),
   hasPreciseLocation: () => bridge.hasPreciseLocation(),
+  // Forwarded only when the host actually has one, so `config.openLocationSettings`
+  // stays a truthful capability check in the shared app code.
+  openLocationSettings: bridge.openLocationSettings
+    ? () => bridge.openLocationSettings!()
+    : undefined,
   onScreenshotBlocked: (cb) => bridge.onScreenshotBlocked(cb),
   onOAuthReturn: (cb) => bridge.onOAuthReturn(cb),
   appVersion: () => bridge.appVersion(),
@@ -96,6 +109,11 @@ const config: PlatformConfig = {
   activityAgent: bridge.activity,
   eventSource: {
     connect: () => bridge.setToken(useSession.getState().accessToken),
+    // Sign-out. Clearing the token in the ws-process is what closes its socket,
+    // and the socket is what the gateway counts as presence — the renderer
+    // unmounting does not reach it, because that process outlives the window on
+    // purpose.
+    disconnect: () => bridge.setToken(null),
     subscribe: (cb) => bridge.onWsEvent(cb),
   },
   rtc: bridge.rtc,

@@ -59,12 +59,9 @@ PROVIDERS: dict[str, ProviderSpec] = {
     ),
     # WhatsApp was here. It required a Meta Business account (system-user token,
     # WABA id, phone number id, app secret), which most orgs do not have and
-    # cannot easily get, so in practice nobody could connect it. Forwarding to
-    # WhatsApp is now a wa.me deep link from the chat's Forward button — no
-    # credentials, works from the user's own WhatsApp — see messaging-svc's
-    # forward-link route. Removed deliberately, not lost: the deep link does NOT
-    # cover the inbound half this connection used to do (webhook -> Hub mentions),
-    # so WhatsApp messages that tag you no longer reach the Hub.
+    # cannot easily get, so in practice nobody could connect it. Removed
+    # deliberately, not lost: it also did the inbound half (webhook -> Hub
+    # mentions), so WhatsApp messages that tag you no longer reach the Hub.
     "gmail": ProviderSpec(
         name="gmail",
         label="Gmail",

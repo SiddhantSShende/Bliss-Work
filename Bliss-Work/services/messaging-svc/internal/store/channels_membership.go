@@ -154,10 +154,10 @@ func (s *Store) JoinChannel(ctx context.Context, orgID, channelID, callerID stri
 		return err
 	}
 
-	var cOrg string
+	var cOrg, cName string
 	var locked bool
 	err = tx.QueryRow(ctx,
-		`SELECT org_id, is_locked FROM channels WHERE id = $1`, channelID).Scan(&cOrg, &locked)
+		`SELECT org_id, is_locked, name FROM channels WHERE id = $1`, channelID).Scan(&cOrg, &locked, &cName)
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && cOrg != orgID) {
 		return ErrForbidden
 	}
@@ -184,11 +184,15 @@ func (s *Store) JoinChannel(ctx context.Context, orgID, channelID, callerID stri
 	if err != nil {
 		return err
 	}
-	if err := s.insertChannelMember(ctx, tx, channelID, orgID, callerID); err != nil {
+	// Self-join is always an ordinary member — joining an open channel is not
+	// a claim on it.
+	if err := s.insertChannelMember(ctx, tx, channelID, orgID, callerID, RoleMember); err != nil {
 		return err
 	}
 	if !alreadyMember {
-		if err := emitChannelMemberJoined(ctx, tx, orgID, channelID, callerID); err != nil {
+		// actor == caller: this is a self-join, which notification-svc uses to
+		// stay quiet. Nobody needs telling about a button they just pressed.
+		if err := emitChannelMemberJoined(ctx, tx, orgID, channelID, cName, callerID, callerID); err != nil {
 			return err
 		}
 	}
@@ -198,16 +202,21 @@ func (s *Store) JoinChannel(ctx context.Context, orgID, channelID, callerID stri
 // emitChannelMemberJoined writes a ChannelMemberJoined outbox row inside the
 // caller's transaction. The username is resolved best-effort — an empty value
 // is fine for downstream consumers (they all key off userId anyway).
-func emitChannelMemberJoined(ctx context.Context, tx pgx.Tx, orgID, channelID, userID string) error {
+//
+// `actorID` is who performed the add; pass userID itself for a self-join. See
+// the event's doc comment for why the distinction is load-bearing.
+func emitChannelMemberJoined(ctx context.Context, tx pgx.Tx, orgID, channelID, channelName, userID, actorID string) error {
 	name, _ := username(ctx, tx, userID)
 	evt := events.ChannelMemberJoined{
-		Type:       events.TypeChannelMemberJoined,
-		EventID:    uuid.Must(uuid.NewV7()).String(),
-		OrgID:      orgID,
-		OccurredAt: nowISO(),
-		ChannelID:  channelID,
-		UserID:     userID,
-		Username:   name,
+		Type:        events.TypeChannelMemberJoined,
+		EventID:     uuid.Must(uuid.NewV7()).String(),
+		OrgID:       orgID,
+		OccurredAt:  nowISO(),
+		ChannelID:   channelID,
+		ChannelName: channelName,
+		UserID:      userID,
+		Username:    name,
+		ActorID:     actorID,
 	}
 	return insertOutbox(ctx, tx, channelID, evt)
 }

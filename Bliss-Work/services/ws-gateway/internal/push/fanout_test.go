@@ -120,7 +120,7 @@ func TestDeliverReachesOnlyTheNodesHoldingTheRecipients(t *testing.T) {
 		addrs: map[string]string{"A": nodeA.URL, "B": nodeB.URL, "C": nodeC.URL},
 	}
 	local := &fakeLocal{here: map[string]bool{}}
-	f := NewFanout(st, local, NewClient("t"), "self", discard())
+	f := NewFanout(st, local, NewHTTPTransport(NewClient("t"), st), "self", discard())
 
 	f.Deliver(context.Background(), []string{"u1"}, []byte(`{"type":"rtc.offer"}`))
 
@@ -141,7 +141,7 @@ func TestDeliverReachesEveryNodeHoldingTheUser(t *testing.T) {
 		nodes: map[string][]string{"u1": {"A", "B"}},
 		addrs: map[string]string{"A": nodeA.URL, "B": nodeB.URL},
 	}
-	f := NewFanout(st, &fakeLocal{here: map[string]bool{}}, NewClient("t"), "self", discard())
+	f := NewFanout(st, &fakeLocal{here: map[string]bool{}}, NewHTTPTransport(NewClient("t"), st), "self", discard())
 
 	f.Deliver(context.Background(), []string{"u1"}, []byte(`{}`))
 
@@ -163,7 +163,7 @@ func TestLocalSocketsAreServedOnceAndNotPushed(t *testing.T) {
 		addrs: map[string]string{"self": selfNode.URL},
 	}
 	local := &fakeLocal{here: map[string]bool{"u1": true}}
-	f := NewFanout(st, local, NewClient("t"), "self", discard())
+	f := NewFanout(st, local, NewHTTPTransport(NewClient("t"), st), "self", discard())
 
 	f.Deliver(context.Background(), []string{"u1"}, []byte(`{}`))
 
@@ -185,7 +185,7 @@ func TestUserOnThisNodeAndAnotherGetsBoth(t *testing.T) {
 		addrs: map[string]string{"B": nodeB.URL},
 	}
 	local := &fakeLocal{here: map[string]bool{"u1": true}}
-	f := NewFanout(st, local, NewClient("t"), "self", discard())
+	f := NewFanout(st, local, NewHTTPTransport(NewClient("t"), st), "self", discard())
 
 	f.Deliver(context.Background(), []string{"u1"}, []byte(`{}`))
 
@@ -208,7 +208,7 @@ func TestManyRecipientsOnOneNodeShareASingleRequestAndPayload(t *testing.T) {
 		nodes: map[string][]string{"u1": {"A"}, "u2": {"A"}, "u3": {"A"}},
 		addrs: map[string]string{"A": nodeA.URL},
 	}
-	f := NewFanout(st, &fakeLocal{here: map[string]bool{}}, NewClient("t"), "self", discard())
+	f := NewFanout(st, &fakeLocal{here: map[string]bool{}}, NewHTTPTransport(NewClient("t"), st), "self", discard())
 
 	f.Deliver(context.Background(), []string{"u1", "u2", "u3"}, []byte(`{"type":"presence.online"}`))
 
@@ -234,7 +234,7 @@ func TestOfflineRecipientsAreSkippedQuietly(t *testing.T) {
 		nodes: map[string][]string{"u1": {"A"}}, // u2 is offline
 		addrs: map[string]string{"A": nodeA.URL},
 	}
-	f := NewFanout(st, &fakeLocal{here: map[string]bool{}}, NewClient("t"), "self", discard())
+	f := NewFanout(st, &fakeLocal{here: map[string]bool{}}, NewHTTPTransport(NewClient("t"), st), "self", discard())
 
 	f.Deliver(context.Background(), []string{"u1", "u2"}, []byte(`{}`))
 
@@ -252,7 +252,7 @@ func TestNodeWithNoAddressIsSkippedWithoutLosingOthers(t *testing.T) {
 		nodes: map[string][]string{"u1": {"gone"}, "u2": {"B"}},
 		addrs: map[string]string{"B": nodeB.URL}, // "gone" has expired
 	}
-	f := NewFanout(st, &fakeLocal{here: map[string]bool{}}, NewClient("t"), "self", discard())
+	f := NewFanout(st, &fakeLocal{here: map[string]bool{}}, NewHTTPTransport(NewClient("t"), st), "self", discard())
 
 	f.Deliver(context.Background(), []string{"u1", "u2"}, []byte(`{}`))
 
@@ -275,7 +275,7 @@ func TestAFailedPushInvalidatesTheCachedAddress(t *testing.T) {
 		nodes: map[string][]string{"u1": {"A"}},
 		addrs: map[string]string{"A": addr},
 	}
-	f := NewFanout(st, &fakeLocal{here: map[string]bool{}}, NewClient("t"), "self", discard())
+	f := NewFanout(st, &fakeLocal{here: map[string]bool{}}, NewHTTPTransport(NewClient("t"), st), "self", discard())
 
 	f.Deliver(context.Background(), []string{"u1"}, []byte(`{}`))
 
@@ -295,7 +295,7 @@ func TestASuccessfulPushKeepsTheCachedAddress(t *testing.T) {
 		nodes: map[string][]string{"u1": {"A"}},
 		addrs: map[string]string{"A": nodeA.URL},
 	}
-	f := NewFanout(st, &fakeLocal{here: map[string]bool{}}, NewClient("t"), "self", discard())
+	f := NewFanout(st, &fakeLocal{here: map[string]bool{}}, NewHTTPTransport(NewClient("t"), st), "self", discard())
 
 	f.Deliver(context.Background(), []string{"u1"}, []byte(`{}`))
 
@@ -311,7 +311,7 @@ func TestASuccessfulPushKeepsTheCachedAddress(t *testing.T) {
 func TestRoutingFailureIsSurvivable(t *testing.T) {
 	st := &fakeNodeStore{err: errStub{}}
 	local := &fakeLocal{here: map[string]bool{"u1": true}}
-	f := NewFanout(st, local, NewClient("t"), "self", discard())
+	f := NewFanout(st, local, NewHTTPTransport(NewClient("t"), st), "self", discard())
 
 	f.Deliver(context.Background(), []string{"u1"}, []byte(`{}`))
 
@@ -328,7 +328,7 @@ func TestDeliverIgnoresEmptyInput(t *testing.T) {
 		nodes: map[string][]string{"u1": {"A"}},
 		addrs: map[string]string{"A": nodeA.URL},
 	}
-	f := NewFanout(st, &fakeLocal{here: map[string]bool{}}, NewClient("t"), "self", discard())
+	f := NewFanout(st, &fakeLocal{here: map[string]bool{}}, NewHTTPTransport(NewClient("t"), st), "self", discard())
 
 	f.Deliver(context.Background(), nil, []byte(`{}`))
 	f.Deliver(context.Background(), []string{"u1"}, nil)
@@ -357,7 +357,7 @@ func TestUnroutableCountsUsersReachableNowhere(t *testing.T) {
 		addrs: map[string]string{"A": nodeA.URL},
 	}
 	local := &fakeLocal{here: map[string]bool{"u4": true}}
-	f := NewFanout(st, local, NewClient("t"), "self", discard())
+	f := NewFanout(st, local, NewHTTPTransport(NewClient("t"), st), "self", discard())
 
 	before := unroutableCount(t)
 	f.Deliver(context.Background(), []string{"u1", "u2", "u3", "u4"}, []byte(`{}`))
@@ -377,7 +377,7 @@ func TestUnroutableIsNotCancelledOutByMultiDeviceUsers(t *testing.T) {
 		nodes: map[string][]string{"u1": {"A", "B"}}, // one user, two nodes
 		addrs: map[string]string{"A": nodeA.URL, "B": nodeB.URL},
 	}
-	f := NewFanout(st, &fakeLocal{here: map[string]bool{}}, NewClient("t"), "self", discard())
+	f := NewFanout(st, &fakeLocal{here: map[string]bool{}}, NewHTTPTransport(NewClient("t"), st), "self", discard())
 
 	before := unroutableCount(t)
 	f.Deliver(context.Background(), []string{"u1", "u2"}, []byte(`{}`))
@@ -392,7 +392,7 @@ func TestUnroutableIsNotCancelledOutByMultiDeviceUsers(t *testing.T) {
 // them registered, so nothing off this node can be reached.
 func TestUnroutableCountsEveryoneWhenNoNodeIsRegistered(t *testing.T) {
 	st := &fakeNodeStore{nodes: map[string][]string{}, addrs: map[string]string{}}
-	f := NewFanout(st, &fakeLocal{here: map[string]bool{}}, NewClient("t"), "self", discard())
+	f := NewFanout(st, &fakeLocal{here: map[string]bool{}}, NewHTTPTransport(NewClient("t"), st), "self", discard())
 
 	before := unroutableCount(t)
 	f.Deliver(context.Background(), []string{"u1", "u2", "u3"}, []byte(`{}`))

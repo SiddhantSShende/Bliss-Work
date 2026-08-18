@@ -69,3 +69,27 @@ func TestIntegrationTopicIsConsumed(t *testing.T) {
 	}
 	t.Fatal("integration.events.v1 missing from FanoutTopics")
 }
+
+// channel.member.joined used to route NOWHERE. It exists so task-svc can fan
+// out channel tasks to a new member, and it fell through to `default` here — so
+// the person who had just been added to a channel was the one participant told
+// nothing. Their sidebar grew a channel with no explanation and no notification.
+//
+// It routes to the added user ALONE, and that is a cost decision worth pinning:
+// messaging-svc emits one of these PER ADDED MEMBER, so routing it to the roster
+// would cost added x roster pushes — adding a 500-person department to a
+// 500-person channel would be 250,000.
+func TestRecipientsOfChannelMemberJoined(t *testing.T) {
+	const joiner = "11111111-1111-1111-1111-111111111111"
+	const roster = "22222222-2222-2222-2222-222222222222"
+
+	got := (&Event{
+		Type:    "channel.member.joined",
+		UserID:  joiner,
+		Members: []string{roster, "33333333-3333-3333-3333-333333333333"},
+	}).RecipientsOf()
+
+	if len(got) != 1 || got[0] != joiner {
+		t.Fatalf("RecipientsOf() = %v, want exactly [%s] — the roster must NOT be fanned out to", got, joiner)
+	}
+}

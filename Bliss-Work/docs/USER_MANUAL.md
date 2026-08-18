@@ -30,6 +30,7 @@ BlissWork is available both as a modern Web application and as an Electron Deskt
    - [Mapping External Handles](#mapping-external-handles)
 6. [Organization & Account Administration](#6-organization--account-administration)
    - [Inviting & Managing Members](#inviting--managing-members)
+   - [Leaving an Organization](#leaving-an-organization)
    - [Profile & Security Settings](#profile--security-settings)
 7. [Keyboard Shortcuts & Quick Reference](#7-keyboard-shortcuts--quick-reference)
 
@@ -59,10 +60,49 @@ BlissWork allows a single user account to belong to multiple organizations seaml
 
 * **Switching Workspaces:** Use the top bar Organization Switcher dropdown menu located at the top left of the screen to switch between active organizations instantly without re-authenticating.
 * **Organization Details:** View organization statistics, members, and custom settings under the **Org** menu tab (`/app/org`).
+* **Leaving a Workspace:** Each row under **Your Organizations** (`/app/org`) carries a **Leave** button. Leaving removes your membership and revokes your sessions in that workspace; nothing you posted is deleted, and an admin there can invite you back. You cannot leave your only organization, and you cannot leave a workspace where you are the last admin — promote someone else first.
 
 ---
 
 ## 2. Unified Inbox & Real-Time Messaging
+
+### Your Inbox (Email)
+
+The **Inbox** (`/app/inbox`) is your mailbox. It lists the email you have sent
+and received, newest first, with the people you correspond with down the middle
+pane and the mail itself on the right.
+
+* **Writing a mail:** Click **New Mail** at the top of the Inbox list. The
+  composer opens in the same pane you read mail in — it does not cover the list
+  you are addressing from. Fill in **To** (and **Cc / Bcc**, which are hidden
+  until you ask for them), a **Subject** and a **Message**, then press **Send**.
+* **Addressing:** Start typing a colleague's name and pick them from the
+  suggestions, or type any email address — inside or outside the workspace.
+  Addresses become chips as you finish each one; you can also paste a whole list
+  and it will be split up for you. An address that is not a valid email turns
+  red and Send stays disabled until you fix it.
+* **Attachments:** Use **Attach** to add files. They upload while you keep
+  writing, so pressing Send is instant rather than a wait. Removing the mail
+  before sending removes the files with it.
+* **Bcc:** Blind copies are genuinely blind. Everyone else's copy shows only the
+  To and Cc lists; a person who was Bcc'd sees their own entry, so they know how
+  the mail reached them, and nobody sees anyone else's.
+* **Reading a mail:** Click any row. The full message opens in the same pane —
+  sender, recipients, the complete body and any attachments, each with a
+  **Download** link. Opening it clears the unread badge.
+* **Replying:** **Reply** opens the composer pre-addressed to the sender, with
+  the subject prefixed `Re:` and the original quoted beneath your cursor.
+* **Deleting:** The trash icon removes a mail from **your** Inbox only. The
+  sender's copy and every other recipient's are untouched — a mail belongs to
+  several people, and taking it back from all of them is not one reader's call.
+* **Mail to people outside BlissWork:** Perfectly allowed. Those copies are
+  handed to the mail server and delivered as ordinary email; the confirmation
+  tells you how many went out that way. They arrive from the workspace's sending
+  address with your name on them and your address in Reply-To, so a reply comes
+  straight back to you.
+* **Tasks are not here.** A task assigned to you lives in **Tasks**
+  (`/app/tasks`), which has the full acknowledge/complete workflow. The Inbox is
+  mail.
 
 ### 1:1 Direct Messages (DMs)
 
@@ -81,13 +121,17 @@ Channels (`/app/channels`) enable topic-driven or department-wide group discussi
 
 * **Create Channel:** Click **+ New Channel**, specify a channel name (e.g., `#engineering`, `#announcements`), and optional topic description.
 * **Public vs Private:** Join open public channels or get invited to private team channels.
-* **Message Threading & Forwarding:** Reply directly within message threads or forward critical updates to other channels or members.
-* **Forward to WhatsApp:** Hover any message, click the **Forward** arrow, and choose the **WhatsApp** tab. Enter the recipient's name and phone number *including the country code* (on Android Chrome you can pick them from your contacts instead), then click **Open WhatsApp** — WhatsApp opens with the message already written, and you press send there. No WhatsApp Business account is required. Because BlissWork only opens WhatsApp and cannot see what you do next, the note left in the chat reads "Opened WhatsApp to forward this to …" and the forwarding activity marks it **Unconfirmed**.
+* **Message Threading:** Reply directly within message threads to keep a discussion together.
+* **Adding People:** Whoever creates a channel is its **owner**. Open the member count in the channel header to see who is in it, then use **Add people** to add anyone from the directory. Owners can also promote a member to **admin** (a moderator who can add, remove and block, but not change roles), remove people, and block them. Members who were merely added see the roster but not the management controls; an organization admin can manage any channel without being in it.
 
 ### Media, File Attachments & WebRTC Calls
 
 * **File Transfers:** Share images, videos, audio notes, locations, and documents directly within chat windows.
   * *P2P Desktop Transfers:* Large files stream directly to disk without cloud storage limits.
+* **Attaching Files:** Use the **paperclip**, paste from the clipboard, or drag files onto the conversation. Files are **attached, never sent automatically** — they appear as chips above the message box and go out only when you press **Send**. A dragged file asks you to confirm first, so a file released over the wrong window costs nothing; nothing is uploaded until you choose **Attach**.
+* **Forwarding a Message or File:** Hover a message (your own or one you received), open the **⋯** menu and choose:
+  * **Forward to chat or channel…** — delivers a copy inside BlissWork. Pick a person or a channel and press Forward. Attachments travel with it: the recipient can open the photo or file even though they were not in the original conversation. The copy is labelled **Forwarded** for everyone who sees it.
+  * **Forward to WhatsApp** — opens WhatsApp with the message text ready to send. **You choose the recipient inside WhatsApp**, from your own contacts; BlissWork never asks you to type a phone number and never learns which contact you picked. You still press send there, and attachments do not travel this way. When you come back, the chat shows a note that the message was handed to WhatsApp — it appears only if you actually went, so a blocked pop-up or a quick turn back at the WhatsApp login screen leaves no trace. Because WhatsApp reports nothing back, that note records the handoff, never delivery.
 * **1:1 Audio & Video Calls:**
   * Click the **Phone** or **Video** icon inside any 1:1 DM window to initiate a WebRTC call.
   * Adjust microphone mute (`Mic`), camera toggle (`Video`), or end the call (`Hang up`) using the call bar controls.
@@ -248,6 +292,20 @@ Admins and team members can manage workspace users from **Members** (`/app/membe
 * **Invite Member:** Click **Invite**, enter the recipient's email address, and send an invitation link.
 * **Invite List:** Track pending invites and copy shareable invitation links.
 * **Roles:** Manage permissions (Admin vs Member).
+
+### Leaving an Organization
+
+Under **Your organizations** on **Org** (`/app/org`), each workspace you belong to
+has a **Leave** button beside it. You are asked to confirm first.
+
+* **What happens:** you lose access to that workspace's channels, messages and
+  tasks straight away. Nothing you posted is deleted, and an admin there can
+  invite you back.
+* **Leaving the workspace you are currently in:** you are moved to another of
+  your organizations automatically — you stay signed in.
+* **You cannot leave if** you are the workspace's only admin (promote someone
+  else first), or if it is your only organization (there would be nowhere left
+  to sign in — delete the workspace instead).
 
 ### Profile & Security Settings
 

@@ -82,3 +82,14 @@ backups/
 # headless-browser verification output (regenerable; never commit)
 .shot/
 .ui-verify/
+
+# Load-test access tokens (loadtest/mint-tokens.sh).
+# Real signed JWTs with a 900-second lifetime, regenerated before every run.
+# Committing them put ~250KB of expired credentials and the whole seeded
+# org/user id set in git, and left the working tree permanently dirty — which
+# is why `git status` could no longer be used to see what a change touched.
+loadtest/tokens.json
+
+# chat-drop fixture bundle (regenerable; never commit)
+#   npx vite build --config scripts/fixtures/chat-drop/vite.config.ts
+scripts/fixtures/chat-drop/dist/

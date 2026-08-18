@@ -229,6 +229,70 @@ services:
       timeout: 5s
       retries: 20
 
+  # ── Cross-region replication (opt-in) ────────────────────────────────────────
+  # Bring up with: docker compose --profile crossregion up -d
+  #
+  # NATS JetStream carries events between regions, replacing Kafka MirrorMaker2
+  # for the WAN hop. Kafka stays the in-region bus and NO other service changes,
+  # which is also the rollback: stop these two containers and every region works
+  # exactly as it did before. See docs/CROSS-REGION.md.
+  #
+  # This is ONE region's worth. A second region is the same pair with
+  # BRIDGE_REGION/BRIDGE_PEER_REGIONS swapped and a NATS gateway between them
+  # (infra/nats/region-a.conf, region-b.conf).
+  nats:
+    image: nats:2.10-alpine
+    profiles: ["crossregion"]
+    restart: unless-stopped
+    command: ["-c", "/etc/nats/nats.conf"]
+    ports:
+      - "127.0.0.1:4222:4222"   # client
+      - "127.0.0.1:8222:8222"   # monitoring: /healthz, /jsz
+    volumes:
+      - ./infra/nats/nats.conf:/etc/nats/nats.conf:ro
+      - nats_data:/data
+    networks: [taskboard]
+    healthcheck:
+      # The server's own readiness endpoint — js=true additionally requires
+      # JetStream to be up, which is the part the bridge depends on.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8222/healthz?js-enabled-only=true || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  region-bridge:
+    <<: *svc-defaults
+    profiles: ["crossregion"]
+    build: ./services/region-bridge
+    ports: ["127.0.0.1:${REGION_BRIDGE_PORT:-8009}:8080"]
+    environment:
+      BRIDGE_REGION: ${BRIDGE_REGION:-dev-local}
+      # Empty in a single-region dev stack: there is nothing to import, and the
+      # bridge says so and runs the export half only.
+      BRIDGE_PEER_REGIONS: ${BRIDGE_PEER_REGIONS:-}
+      KAFKA_BROKERS: kafka:9092
+      NATS_URL: nats://nats:4222
+      # Dev is a single NATS node, so a stream cannot be replicated at all.
+      # Production MUST be 3 — see infra/nats/region-a.conf.
+      BRIDGE_STREAM_REPLICAS: ${BRIDGE_STREAM_REPLICAS:-1}
+      # Must stay under the dev server's jetstream.max_file_store (4 GB in
+      # infra/nats/nats.conf), or JetStream refuses the stream outright with
+      # "insufficient storage resources" and the bridge will not start. The
+      # production default is 32 GB.
+      BRIDGE_STREAM_MAX_GB: ${BRIDGE_STREAM_MAX_GB:-1}
+      # The rollback switches. Either direction can be turned off on its own and
+      # the bridge keeps its position, so re-enabling catches up.
+      BRIDGE_EXPORT_ENABLED: ${BRIDGE_EXPORT_ENABLED:-true}
+      BRIDGE_IMPORT_ENABLED: ${BRIDGE_IMPORT_ENABLED:-true}
+    depends_on:
+      nats: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8080/readyz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
   # The web app and Electron desktop client run on the HOST (npm run web / npm run desktop).
 
   # ── Observability stack (opt-in) ─────────────────────────────────────────────
@@ -308,6 +372,10 @@ services:
 volumes:
   pgdata:
   media_blobs:
+  # JetStream's file store: the cross-region replication log. Named rather than
+  # anonymous so a `docker compose down` (without -v) does not discard events
+  # peers have not yet sourced.
+  nats_data:
   promdata:
   alertmanagerdata:
   tempodata:

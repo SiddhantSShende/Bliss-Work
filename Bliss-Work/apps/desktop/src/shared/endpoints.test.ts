@@ -10,7 +10,8 @@
  * so the shared contract is exactly this function.
  */
 import { describe, it, expect } from "vitest";
-import { resolveEndpoints, PROD_ENDPOINTS, DEV_ENDPOINTS, type Endpoints } from "./endpoints";
+import { readFileSync } from "node:fs";
+import { resolveEndpoints, resolveEndpointsFromEnv, PROD_ENDPOINTS, DEV_ENDPOINTS, type Endpoints } from "./endpoints";
 
 const KEYS = Object.keys(PROD_ENDPOINTS) as (keyof Endpoints)[];
 
@@ -75,5 +76,63 @@ describe("production endpoints", () => {
   it("uses a ws:// socket and http:// APIs in dev", () => {
     expect(DEV_ENDPOINTS.wsUrl.startsWith("ws://")).toBe(true);
     expect(DEV_ENDPOINTS.authBase.startsWith("http://localhost")).toBe(true);
+  });
+});
+
+/**
+ * Web and desktop must resolve the SAME set of endpoints from the SAME
+ * overrides. They are one product; a key that is configurable on one platform
+ * and baked on the other is a deployment that half-works.
+ *
+ * This is not theoretical. `telemetryBase` was absent from both desktop
+ * override maps while the web entry passed it, so `VITE_TELEMETRY_BASE` moved
+ * the web app's telemetry and left the desktop pointing at the default — the
+ * member-activity screens failed on desktop only, which reads to a user as
+ * "the desktop app is missing features".
+ */
+describe("web/desktop endpoint parity", () => {
+  const KEYS: (keyof Endpoints)[] = [
+    "authBase",
+    "taskBase",
+    "notificationBase",
+    "messagingBase",
+    "integrationsBase",
+    "telemetryBase",
+    "wsUrl",
+  ];
+
+  it("forwards every key through the required-record form", () => {
+    const overrides = Object.fromEntries(
+      KEYS.map((k) => [k, `https://override.example/${k}`]),
+    ) as Record<keyof Endpoints, string | undefined>;
+
+    expect(resolveEndpointsFromEnv(true, overrides)).toEqual(overrides);
+  });
+
+  it("falls back per key when an override is absent", () => {
+    const overrides = Object.fromEntries(KEYS.map((k) => [k, undefined])) as Record<
+      keyof Endpoints,
+      string | undefined
+    >;
+    expect(resolveEndpointsFromEnv(true, overrides)).toEqual(PROD_ENDPOINTS);
+  });
+
+  it("names every endpoint in BOTH desktop entry points", () => {
+    // The compiler already enforces this (resolveEndpointsFromEnv takes a full
+    // Record), but only for as long as both call sites keep using that form.
+    // This is what notices someone reaching back for the Partial one.
+    for (const [file, envPrefix] of [
+      ["../renderer/main.tsx", "VITE_"],
+      ["../main/index.ts", "TB_"],
+    ] as const) {
+      const src = readFileSync(new URL(file, import.meta.url), "utf8");
+      expect(src, `${file} must use the required-record form`).toContain(
+        "resolveEndpointsFromEnv(",
+      );
+      for (const key of KEYS) {
+        expect(src, `${file} does not pass ${key} — ${envPrefix}* for it is inert`)
+          .toContain(`${key}:`);
+      }
+    }
   });
 });

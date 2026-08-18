@@ -40,15 +40,50 @@
 	# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
 }
 
-# ── Upstream health checking ─────────────────────────────────────────────────
-# Identical to the non-WAF Caddyfile — see the long note there for why. Kept in
-# both files rather than shared, because Caddy has no include mechanism across
-# configs and the two are selected by which one is bind-mounted.
+# ── Upstream discovery, load balancing and health ────────────────────────────
+# Identical to the non-WAF Caddyfile — see the long note there for the reasoning,
+# including why active /readyz probing is traded for passive health plus retry.
+# Kept in both files rather than shared, because Caddy has no include mechanism
+# across configs and the two are selected by which one is bind-mounted.
 (upstream) {
+	# ── Discovery ────────────────────────────────────────────────────────────
+	# One A-record lookup for the compose service name, refreshed on a timer.
+	# Docker's embedded DNS answers a service name with the address of EVERY
+	# container behind it, so
+	#
+	#     docker compose -f docker-compose.prod.yml up -d --scale task-svc=4
+	#
+	# starts receiving traffic within `refresh`, with no edit here and no
+	# reload. The baseline replica counts live in docker-compose.prod.yml
+	# (`deploy.replicas`); this file deliberately knows none of them.
+	dynamic a {
+		name {args[0]}
+		port {args[1]}
+		# Bounds how long a new replica waits for its first request, and how
+		# long a removed one's address lingers. Docker's resolver is in-process;
+		# there is no reason to be lazy about this.
+		refresh 10s
+		# The compose bridge is IPv4-only — an AAAA lookup can only come back
+		# empty.
+		versions ipv4
+	}
+
+	# ── Distribution ─────────────────────────────────────────────────────────
+	# Fewest in-flight requests wins, rather than round-robin. Request cost here
+	# spans orders of magnitude (a token refresh vs. a 100 MB attachment
+	# upload), and least_conn is what stops a replica already holding a slow
+	# request from being handed the next one anyway.
 	lb_policy least_conn
-	health_uri /readyz
-	health_interval 5s
-	health_timeout 2s
+	# A request whose replica refuses the connection is RE-DISPATCHED to another
+	# one instead of being returned as a 502. Caddy only retries when nothing
+	# was written upstream, so a non-idempotent POST is never replayed.
+	lb_retries 2
+	lb_try_duration 5s
+	lb_try_interval 250ms
+
+	# ── Health ───────────────────────────────────────────────────────────────
+	# Two failures inside the window eject that replica for the window.
+	max_fails 2
 	fail_duration 30s
 }
 
@@ -63,8 +98,8 @@
 		#    so /ws is handled and the route stops before the WAF can wrap (and
 		#    corrupt) the 101 Switching Protocols response.
 		@ws path /ws /ws/*
-		reverse_proxy @ws ws-gateway:8080 {
-			import upstream
+		reverse_proxy @ws {
+			import upstream ws-gateway 8080
 		}
 
 		# 1a) Group-call media signaling → the LiveKit SFU. This is a WebSocket
@@ -78,10 +113,11 @@
 		#         runs with host networking for its UDP media range, so it is not on
 		#         the compose bridge and has no DNS name here. The compose `caddy`
 		#         service maps that name via extra_hosts: host-gateway.
-		#       * NO `import upstream`. That snippet health-checks /readyz, which
-		#         LiveKit does not serve — every check would fail, Caddy would mark
-		#         the only upstream down, and the route would 502 while the SFU was
-		#         perfectly healthy.
+		#       * NO `import upstream`. That snippet DISCOVERS replicas by
+		#         resolving a compose service name, and there is no such name to
+		#         resolve here. The SFU is a single host-networked process;
+		#         scaling it means an SFU fleet with its own routing, not another
+		#         address on this line.
 		#
 		#     The prefix is stripped because LiveKit serves at /rtc, not
 		#     /livekit/rtc; LIVEKIT_URL (wss://$DOMAIN/livekit) is what the client
@@ -122,8 +158,8 @@
 		@media path /api/messaging/api/v1/attachments /api/messaging/media/*
 		handle @media {
 			uri strip_prefix /api/messaging
-			reverse_proxy messaging-svc:8004 {
-				import upstream
+			reverse_proxy {
+				import upstream messaging-svc 8004
 			}
 		}
 
@@ -171,28 +207,28 @@
 
 		# 5) REST APIs. Strip the public /api/<svc> prefix when proxying upstream.
 		handle_path /api/auth/* {
-			reverse_proxy auth-svc:8001 {
-				import upstream
+			reverse_proxy {
+				import upstream auth-svc 8001
 			}
 		}
 		handle_path /api/tasks/* {
-			reverse_proxy task-svc:8002 {
-				import upstream
+			reverse_proxy {
+				import upstream task-svc 8002
 			}
 		}
 		handle_path /api/notifications/* {
-			reverse_proxy notification-svc:8003 {
-				import upstream
+			reverse_proxy {
+				import upstream notification-svc 8003
 			}
 		}
 		handle_path /api/messaging/* {
-			reverse_proxy messaging-svc:8004 {
-				import upstream
+			reverse_proxy {
+				import upstream messaging-svc 8004
 			}
 		}
 		handle_path /api/integrations/* {
-			reverse_proxy integrations-svc:8005 {
-				import upstream
+			reverse_proxy {
+				import upstream integrations-svc 8005
 			}
 		}
 		# Member activity record. The beacon (POST /api/telemetry/beacon) is the
@@ -203,8 +239,8 @@
 		# infra/caddy/coraza/rules/99-tuning.conf rather than lowering the
 		# paranoia level globally.
 		handle_path /api/telemetry/* {
-			reverse_proxy telemetry-svc:8006 {
-				import upstream
+			reverse_proxy {
+				import upstream telemetry-svc 8006
 			}
 		}
 		# Public inbound webhooks + OAuth callbacks for external integrations. NOT
@@ -213,30 +249,30 @@
 		# on /ext/*, add a scoped ctl:ruleRemoveById exclusion in
 		# infra/caddy/coraza/rules/*.conf keyed on REQUEST_URI "^/ext/".
 		handle /ext/* {
-			reverse_proxy integrations-svc:8005 {
-				import upstream
+			reverse_proxy {
+				import upstream integrations-svc 8005
 			}
 		}
 
 		# 6) JWKS at a stable public path for any external verifier.
 		handle /.well-known/jwks.json {
-			reverse_proxy auth-svc:8001 {
-				import upstream
+			reverse_proxy {
+				import upstream auth-svc 8001
 			}
 		}
 
 		# TURN credentials (short-lived HMAC) for WebRTC calls → ws-gateway.
 		@turn path /turn-credentials
-		reverse_proxy @turn ws-gateway:8080 {
-			import upstream
+		reverse_proxy @turn {
+			import upstream ws-gateway 8080
 		}
 
 		# Presence (online-user set) HTTP endpoint → ws-gateway. Polled by the SPA
 		# every 20s; without this it falls to the SPA catch-all below and returns
 		# HTML, breaking online-status. Terminal, JWT-authed in the handler.
 		@presence path /presence
-		reverse_proxy @presence ws-gateway:8080 {
-			import upstream
+		reverse_proxy @presence {
+			import upstream ws-gateway 8080
 		}
 
 		# 7) Everything else → the SPA served by nginx on the private network.

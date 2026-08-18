@@ -27,7 +27,15 @@ router = APIRouter(prefix="/telemetry", tags=["ingest"])
 # Categories a CLIENT may claim. 'server' is reserved for Kafka-derived rows and
 # 'auth' for auth-svc's own events — a client asserting either would be putting
 # unforgeable-looking rows into the record.
-_CLIENT_CATEGORIES = {"navigation", "engagement", "app", "site"}
+#
+# 'security' is where a client reports a control it enforced locally, and today
+# that means one thing: a refused screen-capture attempt (see
+# packages/app/src/lib/screenGuard.ts). It is self-reported like everything else
+# here, and the row's `source` says so — a screenshot is taken by the operating
+# system from pixels on the user's own machine, so no server can witness one.
+# The record is therefore evidence that the CLIENT saw and refused an attempt,
+# never proof that no capture occurred, and the UI must not imply otherwise.
+_CLIENT_CATEGORIES = {"navigation", "engagement", "app", "site", "security"}
 
 
 @router.post("/beacon", response_model=BeaconAck)

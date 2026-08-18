@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from .config import settings
 from .crypto import cryptor
+from .logging_config import log
 from .schemas import SessionDTO, UserDTO
 from .security.keys import mint_access_token
 
@@ -260,6 +261,59 @@ async def issue_refresh_token(
     return raw, token_id
 
 
+async def presence_memberships(conn: AsyncConnection, user_id: str) -> list[dict]:
+    """Every ACTIVE membership this person's identity holds, for the JWT claim.
+
+    Feeds ws-gateway's cross-org presence: one socket in one org should make the
+    person appear online in all of them, and the gateway has no database to ask.
+    See security/keys.py::mint_access_token.
+
+    ── Why this saves and restores app.bypass_rls ───────────────────────────────
+    The read is deliberately CROSS-ORG, and `users` is RLS ENABLE+FORCE. Under an
+    org GUC it would quietly return only the caller's current membership — not an
+    error, just a silently short list, which is the worst shape of wrong. So it
+    runs under bypass.
+
+    It restores the PREVIOUS value rather than setting 'off', because most
+    callers (login, refresh, switch-org) are already running under bypass and
+    turning it off underneath them would break the statements that follow. The
+    same discipline migrations/0007_identities.sql applies, for the same reason.
+
+    Fails SOFT: any problem answers `[]`, the claim is omitted, and the gateway
+    falls back to single-org presence. Presence is not worth failing a login for.
+    """
+    try:
+        prev = (
+            await conn.execute(text("SELECT current_setting('app.bypass_rls', true)"))
+        ).scalar()
+        await conn.execute(text("SELECT set_config('app.bypass_rls', 'on', true)"))
+        try:
+            iid = await identity_id_for_user(conn, user_id)
+            if iid is None:
+                return []
+            rows = (
+                await conn.execute(
+                    text(
+                        "SELECT id, org_id FROM users "
+                        "WHERE identity_id = :iid AND status = 'active' "
+                        "ORDER BY created_at ASC"
+                    ),
+                    {"iid": iid},
+                )
+            ).all()
+        finally:
+            # Empty string, not 'off': current_setting(..., true) answers '' for
+            # an unset GUC, and writing that back leaves it unset rather than
+            # explicitly disabled — which is the state we found it in.
+            await conn.execute(
+                text("SELECT set_config('app.bypass_rls', :v, true)"), {"v": prev or ""}
+            )
+    except Exception:  # noqa: BLE001 - see the fail-soft note above
+        log.warning("presence_memberships_failed", user_id=user_id)
+        return []
+    return [{"o": str(r.org_id), "u": str(r.id)} for r in rows]
+
+
 async def build_session(
     conn: AsyncConnection, user_id: str
 ) -> tuple[SessionDTO, str]:
@@ -268,7 +322,12 @@ async def build_session(
     if dto is None:
         raise RuntimeError("user not found while building session")
     token, ttl = mint_access_token(
-        user_id=dto.id, org_id=dto.orgId, roles=list(dto.roles), username=dto.username, plan=dto.plan
+        user_id=dto.id,
+        org_id=dto.orgId,
+        roles=list(dto.roles),
+        username=dto.username,
+        plan=dto.plan,
+        memberships=await presence_memberships(conn, user_id),
     )
     family_id = new_uuid()
     raw_refresh, _ = await issue_refresh_token(conn, user_id=user_id, family_id=family_id)
@@ -400,7 +459,14 @@ async def rotate_refresh_token(
     if dto is None:
         raise ValueError("user not found")
     token, ttl = mint_access_token(
-        user_id=dto.id, org_id=dto.orgId, roles=list(dto.roles), username=dto.username, plan=dto.plan
+        user_id=dto.id,
+        org_id=dto.orgId,
+        roles=list(dto.roles),
+        username=dto.username,
+        plan=dto.plan,
+        # Re-resolved on every refresh, so a membership added or removed since
+        # login reaches presence within one token lifetime without a re-login.
+        memberships=await presence_memberships(conn, user_id),
     )
     return SessionDTO(accessToken=token, user=dto, expiresIn=ttl), new_raw
 

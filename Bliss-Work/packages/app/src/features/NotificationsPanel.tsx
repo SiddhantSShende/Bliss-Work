@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { CheckCheck, Bell } from "lucide-react";
+import { CheckCheck, Bell, Hash } from "lucide-react";
 import { EmptyState } from "@taskboard/ui";
 import type { NotificationDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
@@ -26,17 +26,32 @@ export function NotificationsPanel({
     if (!open) setShowRead(false);
   }, [open]);
 
-  // Auto-mark everything read when the panel opens — "seeing" the inbox counts
-  // as reading it, so the bell badge (AppShell counts !read) clears on open.
-  // The per-item "Mark read" button stays for parity. Best-effort + idempotent.
+  // Mark everything read when the panel CLOSES — not when it opens.
+  //
+  // Opening was the wrong moment, and it made the panel useless for the one
+  // thing it is for. The effect flipped every row to `read` on open, `unread`
+  // emptied on the same render, and the user was left staring at "You're all
+  // caught up": the notifications they opened the bell to read had moved into
+  // "Show read" before they could read them.
+  //
+  // Closing is the honest moment to call them seen — the rows were on screen
+  // for as long as the panel was open — and the bell badge (AppShell counts
+  // !read) still clears without the user having to touch each row.
+  //
+  // The cleanup reads the CACHE rather than the `notifications` prop: the prop
+  // is captured when the effect runs (panel open) and would miss anything that
+  // arrived while it was open. Best-effort + idempotent, as before.
   useEffect(() => {
-    if (!open || !notifications.some((n) => !n.read)) return;
-    void api.readAllNotifications().catch(() => {});
-    qc.setQueryData<NotificationDTO[]>(qk.notifications, (prev) =>
-      (prev ?? []).map((n) => (n.read ? n : { ...n, read: true })),
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+    if (!open) return;
+    return () => {
+      const current = qc.getQueryData<NotificationDTO[]>(qk.notifications) ?? [];
+      if (!current.some((n) => !n.read)) return;
+      void api.readAllNotifications().catch(() => {});
+      qc.setQueryData<NotificationDTO[]>(qk.notifications, (prev) =>
+        (prev ?? []).map((n) => (n.read ? n : { ...n, read: true })),
+      );
+    };
+  }, [open, api, qc]);
 
   const markRead = async (id: string) => {
     await api.markNotificationRead(id).catch(() => {});
@@ -77,7 +92,9 @@ export function NotificationsPanel({
               }`}
             >
               <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-accent">
-                <CheckCheck size={16} />
+                {/* A channel invitation under a double-tick reads as "your task
+                    was completed", which is the opposite of what happened. */}
+                {n.kind === "CHANNEL_ADDED" ? <Hash size={16} /> : <CheckCheck size={16} />}
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-sm text-fg">{n.text}</p>

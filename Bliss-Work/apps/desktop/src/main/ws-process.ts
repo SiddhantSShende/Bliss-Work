@@ -120,7 +120,15 @@ parent.on("message", async (raw: unknown) => {
       if (token) {
         await ws?.connect();
         await refreshSticky();
+        break;
       }
+      // No token means SIGNED OUT, and this socket is what the gateway counts
+      // as presence. Leaving it open — which is what happened before, because
+      // this process is deliberately independent of the window — kept the
+      // person online to their whole organisation with the app signed out in
+      // front of them. close() also parks the reconnect loop, so nothing
+      // re-dials with an empty token; the next `token` message reopens it.
+      ws?.close();
       break;
     }
     case "intent": {

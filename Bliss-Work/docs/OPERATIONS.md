@@ -64,6 +64,47 @@ The prod `caddy` service runs a **custom WAF-enabled build** by default
 for the OWASP-CRS WAF. To run a plain edge (e.g. a managed WAF in front), swap
 to `image: caddy:2.8-alpine` + the stock `infra/caddy/Caddyfile`.
 
+### Load balancing and scaling out
+
+Caddy is also the load balancer. It does not hold a list of backend addresses:
+each `reverse_proxy` resolves a **compose service name** on a 10s timer
+(`dynamic a` in `infra/caddy/Caddyfile*`), and Docker's embedded DNS answers
+that name with the address of every container behind it. Requests are then
+spread with `least_conn`.
+
+`docker-compose.prod.yml` runs **two replicas** of each stateless HTTP service
+(`auth-svc`, `task-svc`, `notification-svc`, `messaging-svc`,
+`integrations-svc`, `telemetry-svc`). To add capacity for a busy period:
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --scale task-svc=4
+```
+
+No edge config change and no reload — the new containers start taking traffic
+within ~10s. Scaling back down is the same command with a lower number.
+
+Three limits to know before turning the dial:
+
+- **Postgres connection slots are the real ceiling.** Each replica of a service
+  opens up to 10 backends, so the fleet costs `10 x replicas` per service
+  against `max_connections=200`. Two replicas each = 128 in use. Past roughly
+  four each you need PgBouncer, which means the Helm path — see
+  `INFRASTRUCTURE.md`.
+- **`ws-gateway` is not `--scale`-able.** Each gateway publishes
+  `WS_ADVERTISE_ADDR` to Redis as "how to reach the node holding this socket",
+  and in compose that is the service name — which under replicas resolves to all
+  of them, so a cross-node push lands on a gateway that does not hold the
+  socket. Broadcast fan-out also keys each gateway's Kafka group to its
+  hostname, which churns on every recreate. A gateway fleet means
+  `WS_FANOUT_MODE=routed` plus `delivery-svc` (compose profile `routed`) and a
+  per-replica advertise address.
+- **Health checking at the edge is passive**, because Caddy does not actively
+  probe dynamically-resolved upstreams. A replica is ejected after two failures
+  and retried 30s later, and a request that hits a refused connection is
+  re-dispatched to another replica rather than returned as a 502. `/readyz`
+  still gates compose dependency ordering; it is simply no longer polled by
+  Caddy.
+
 ### In-transit TLS everywhere (not just the edge)
 
 Public TLS stops at Caddy; this stack ALSO encrypts the **internal** hops so a
@@ -492,7 +533,49 @@ remains a portable, self-hosted fallback that needs no third party.
 
 ---
 
-## 9. Quick checks
+## 9. Inbound mail (optional)
+
+Outbound mail needs nothing beyond the SMTP settings already in section 1:
+messaging-svc queues one `mail.outbound` event per external addressee and
+`email-worker` relays it, using the same `SMTP_*` credentials as the invite and
+notification mail.
+
+**Inbound** is opt-in and NOT wired by default. A BlissWork deployment does not
+terminate SMTP; it exposes an ingestion endpoint for whatever does:
+
+```
+POST http://messaging-svc:8004/internal/mail/inbound
+X-Internal-Token: $TB_INTERNAL_TOKEN
+Content-Type: application/json
+
+{ "orgId": "<uuid>", "externalMessageId": "<RFC 5322 Message-ID>",
+  "fromAddress": "sender@outside.example", "fromName": "Sender Name",
+  "subject": "...", "bodyText": "...", "bodyHtml": "",
+  "to": ["colleague@yourdomain"], "cc": [], "sentAt": "2026-08-18T09:00:00Z" }
+```
+
+Notes for whoever wires this up:
+
+- **The contract is parsed mail, not raw MIME.** MIME parsing belongs in the
+  component that already has to do it (your provider's webhook, an LMTP shim, a
+  fetch job), and keeping it out of messaging-svc means the service never parses
+  a byte stream from the internet.
+- **Auth is the shared `TB_INTERNAL_TOKEN`**, the same secret ws-gateway and
+  task-svc use for their internal calls. The route sits outside `/api/v1`, so it
+  has no JWT middleware and no CORS, and it must NOT be published through Caddy.
+  It is reachable only from inside the deployment network.
+- **`externalMessageId` is the dedup key** and is required. Webhooks retry, and
+  a mail delivered twice is worse than one delivered late. A repeat answers
+  `200 {"duplicate": true}` — deliberately not an error, because a retrying
+  sender treats anything but success as "try again".
+- **Addresses that do not resolve to an active member of `orgId` are dropped.**
+  If none resolve, the request is rejected (422) rather than storing a mail
+  nobody can ever see. This endpoint delivers into BlissWork mailboxes; it does
+  not relay onward.
+
+---
+
+## 10. Quick checks
 
 ```bash
 # Validate the prod compose before deploying (use the example env to satisfy
@@ -513,6 +596,11 @@ docker compose -f docker-compose.prod.yml run --rm --no-deps caddy caddy list-mo
 
 # Readiness of each HTTP service (through Caddy or on the internal network).
 for p in 8001 8002 8003 8004 8080; do curl -fsS localhost:$p/readyz && echo " $p OK"; done
+
+# Confirm the fleet is actually multi-replica, and that the edge can see every
+# member (the second command must list one IP per running container).
+docker compose -f docker-compose.prod.yml ps --format '{{.Service}}\t{{.Name}}\t{{.Status}}'
+docker compose -f docker-compose.prod.yml exec caddy nslookup task-svc
 
 # JWKS sanity (should list the active kid, and during rotation both kids).
 curl -fsS https://$DOMAIN/.well-known/jwks.json | jq '.keys[].kid'

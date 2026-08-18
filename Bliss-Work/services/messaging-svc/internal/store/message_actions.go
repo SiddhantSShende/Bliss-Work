@@ -19,8 +19,8 @@ import (
 // both, and only its author may set it.
 //
 // Both are SOFT. The row has to survive: `seq` is the conversation's ordering
-// key, and message_delivery and message_forwards reference the id — a hard
-// delete would punch a hole in the sequence and orphan the receipts. Keeping it
+// key, and message_delivery references the id — a hard delete would punch a
+// hole in the sequence and orphan the receipts. Keeping it
 // is also the honest thing to render: the reader sees "this message was
 // deleted" where the message was, instead of a gap that silently rewrites what
 // they remember reading.

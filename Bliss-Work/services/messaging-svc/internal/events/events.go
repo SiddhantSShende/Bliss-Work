@@ -19,21 +19,25 @@ const (
 	TypeMessageDismissed    = "message.dismissed"
 	TypeMessageDeleted      = "message.deleted"
 	TypeMessageReaction     = "message.reaction"
+	TypeMessageForwarded    = "message.forwarded"
 	TypeUserCreated         = "user.created"
 	TypeUserDeactivated     = "user.deactivated"
 	TypeUserReactivated     = "user.reactivated"
 	TypeUserRemoved         = "user.removed"
 	// TypeOrgDeleted is keyed by orgId rather than userId — see the topic note
 	// in packages/shared/src/types/events.ts.
-	TypeOrgDeleted            = "org.deleted"
-	TypeChannelMessageCreated = "channel.message.created"
-	TypeChannelMemberJoined   = "channel.member.joined"
-	TypeChannelMemberRemoved  = "channel.member.removed"
-	TypeChannelRoleChanged    = "channel.member.role_changed"
-	TypeChannelBlocked        = "channel.blocked"
-	TypeChannelUnblocked      = "channel.unblocked"
-	TypeConversationBlocked   = "conversation.blocked"
-	TypeConversationUnblocked = "conversation.unblocked"
+	TypeOrgDeleted             = "org.deleted"
+	TypeChannelMessageCreated  = "channel.message.created"
+	TypeChannelMessageDeleted  = "channel.message.deleted"
+	TypeChannelMessageReaction = "channel.message.reaction"
+	TypeChannelMessagePinned   = "channel.message.pinned"
+	TypeChannelMemberJoined    = "channel.member.joined"
+	TypeChannelMemberRemoved   = "channel.member.removed"
+	TypeChannelRoleChanged     = "channel.member.role_changed"
+	TypeChannelBlocked         = "channel.blocked"
+	TypeChannelUnblocked       = "channel.unblocked"
+	TypeConversationBlocked    = "conversation.blocked"
+	TypeConversationUnblocked  = "conversation.unblocked"
 
 	// Call lifecycle. All of these route by `members`, which is what lets a
 	// cross-org meeting notify a participant in another org without the
@@ -55,6 +59,14 @@ const (
 	// Screen sharing. ActorID is the sharer; ShareSource says what they picked.
 	TypeCallShareStarted = "call.screenshare_started"
 	TypeCallShareStopped = "call.screenshare_stopped"
+
+	// Mail. TypeMailDelivered is the in-app signal that a mail landed in
+	// someone's Inbox; TypeMailOutbound is the instruction to email-worker to
+	// put one copy on the wire over SMTP. They are separate events because they
+	// have disjoint audiences — the first is routed to user sockets, the second
+	// is never delivered to a client at all (see ws-gateway's contract package).
+	TypeMailDelivered = "mail.delivered"
+	TypeMailOutbound  = "mail.outbound"
 )
 
 // MessageCreated is emitted when a new message is appended to a conversation.
@@ -88,6 +100,9 @@ type MessageCreated struct {
 	Origin string `json:"origin,omitempty"`
 	// ReplyToID is the message this one quotes, if any.
 	ReplyToID string `json:"replyToId,omitempty"`
+	// IsForward marks a delivered copy of someone else's message, so the
+	// receiving client labels it instead of attributing it to the forwarder.
+	IsForward bool `json:"isForward,omitempty"`
 }
 
 // ConversationIgnored is emitted when a participant ignores (hides) a conversation
@@ -208,6 +223,57 @@ type MessageReaction struct {
 	Members []string `json:"members"`
 }
 
+// MessageForwarded is the PROVENANCE signal for a deep-link forward: the
+// forwarder opened WhatsApp with one of this org's messages prefilled. Its
+// purpose is to reach the ORIGINAL author of that message, so RootAuthorID is
+// embedded and the gateway routes on it without a DB lookup.
+//
+// It is not a delivery signal and must not be presented as one. A wa.me link
+// hands the message to the operating system and ends our visibility — the user
+// may never press send — so Delivery is always "unconfirmed" on this path and
+// every consumer words it as "opened WhatsApp to forward", never "forwarded".
+//
+// Routing note: this goes only to the forwarder and the original author, never
+// to a whole channel, even when ChannelID is set.
+type MessageForwarded struct {
+	Type            string `json:"type"`
+	EventID         string `json:"eventId"`
+	OrgID           string `json:"orgId"`
+	OccurredAt      string `json:"occurredAt"`
+	ConversationID  string `json:"conversationId"`
+	RootMessageID   string `json:"rootMessageId"`
+	RootAuthorID    string `json:"rootAuthorId"`
+	ParentMessageID string `json:"parentMessageId"`
+	ForwardedBy     string `json:"forwardedBy"`
+	// ForwardedToExternal is the target in bare E.164 digits, on the deep-link
+	// path only — that forward leaves the org, so there is no user to name.
+	ForwardedToExternal string `json:"forwardedToExternal,omitempty"`
+	// ForwardedTo / ForwardedToChannelID name the destination of an INTERNAL
+	// forward, exactly one of the two being set. Both are empty on the
+	// deep-link path, where the recipient is chosen inside WhatsApp and never
+	// reported back.
+	ForwardedTo          string `json:"forwardedTo,omitempty"`
+	ForwardedToChannelID string `json:"forwardedToChannelId,omitempty"`
+	// ForwardedMessageID is the clone delivered to that destination. Empty on
+	// the deep-link path, which creates no message.
+	ForwardedMessageID string `json:"forwardedMessageId,omitempty"`
+	Platform           string `json:"platform"`
+	Depth              int    `json:"depth"`
+	BodyPreview        string `json:"bodyPreview"`
+	// Delivery is "confirmed" for an internal forward — the clone is in this
+	// database — and "unconfirmed" for every deep link, which hands the message
+	// to the operating system and ends our visibility. The field is kept rather
+	// than implied so the claim travels with the event instead of living only
+	// in a consumer's assumption.
+	Delivery string `json:"delivery,omitempty"`
+	// ForwardedToName is the captured contact's display name, so the author
+	// reads "opened WhatsApp to forward to Jane Doe" rather than a bare number.
+	ForwardedToName string `json:"forwardedToName,omitempty"`
+	// ChannelID is set when the forwarded message lives in a channel rather
+	// than a 1:1 conversation.
+	ChannelID string `json:"channelId,omitempty"`
+}
+
 // ChannelMessageCreated is emitted when a new message is appended to a group channel.
 type ChannelMessageCreated struct {
 	Type           string   `json:"type"`
@@ -228,20 +294,96 @@ type ChannelMessageCreated struct {
 	// Kind mirrors MessageCreated.Kind — omitted for ordinary text so the wire
 	// shape is unchanged for consumers that predate channel system entries.
 	Kind string `json:"kind,omitempty"`
+	// IsForward marks a delivered copy of someone else's message, so the
+	// receiving client labels it instead of attributing it to the forwarder.
+	IsForward bool `json:"isForward,omitempty"`
+}
+
+// ChannelMessageDeleted is the channel twin of MessageDeleted: one message was
+// tombstoned for everyone in the channel.
+//
+// `DeletedBy` is carried because in a channel it is routinely NOT the author —
+// an owner, a channel admin or an org_admin moderating someone else's message
+// is the main reason the capability exists, and a client that renders "deleted"
+// without saying who is hiding the only interesting part.
+type ChannelMessageDeleted struct {
+	Type       string   `json:"type"`
+	EventID    string   `json:"eventId"`
+	OrgID      string   `json:"orgId"`
+	OccurredAt string   `json:"occurredAt"`
+	ChannelID  string   `json:"channelId"`
+	MessageID  string   `json:"messageId"`
+	DeletedBy  string   `json:"deletedBy"`
+	Members    []string `json:"members"`
+}
+
+// ChannelMessageReaction announces that something about one channel message's
+// reactions changed, and — exactly as MessageReaction does — carries no counts.
+// The tally is per-viewer (`mine` differs per member), so numbers computed for
+// the actor would be wrong for everyone else; each client refetches its own.
+type ChannelMessageReaction struct {
+	Type       string `json:"type"`
+	EventID    string `json:"eventId"`
+	OrgID      string `json:"orgId"`
+	OccurredAt string `json:"occurredAt"`
+	ChannelID  string `json:"channelId"`
+	MessageID  string `json:"messageId"`
+	// Who toggled — used to skip the actor's own echo.
+	ActorID string   `json:"actorId"`
+	Members []string `json:"members"`
+}
+
+// ChannelMessagePinned covers both directions: `Pinned` false is an unpin.
+// One event type rather than two because every consumer treats it as "this
+// message's pin state changed, re-render it".
+type ChannelMessagePinned struct {
+	Type       string   `json:"type"`
+	EventID    string   `json:"eventId"`
+	OrgID      string   `json:"orgId"`
+	OccurredAt string   `json:"occurredAt"`
+	ChannelID  string   `json:"channelId"`
+	MessageID  string   `json:"messageId"`
+	Pinned     bool     `json:"pinned"`
+	ActorID    string   `json:"actorId"`
+	Members    []string `json:"members"`
 }
 
 // ChannelMemberJoined is emitted when a user joins a channel (open self-
 // join via JoinChannel, OR added by an existing member via AddChannelMembers).
-// task-svc consumes this to retroactively assign any active channel tasks
-// to the new member so they catch up to outstanding commitments.
+//
+// Two consumers, and they need different things from it:
+//   - task-svc retroactively assigns active channel tasks to the new member so
+//     they catch up to outstanding commitments. It keys off UserID alone.
+//   - notification-svc turns it into a "You were added to #general" row in the
+//     bell, and the ws-gateway routes it to UserID so their client learns
+//     about the channel without a refetch.
+//
+// ChannelName and ActorID exist for that second consumer and are the reason
+// this event grew past what task-svc reads:
+//
+//   - ChannelName, because a notification that says "you were added to
+//     3f2b91c4-…" is not a notification. Resolved by the producer, which
+//     already holds the channel row; a consumer would need a second service.
+//   - ActorID, because a SELF-join must not notify. Telling someone they were
+//     added to a channel they just clicked "Join" on is noise, and it is the
+//     only thing separating the two producers. actorID == userID means the
+//     user did it to themselves.
 type ChannelMemberJoined struct {
 	Type       string `json:"type"`
 	EventID    string `json:"eventId"`
 	OrgID      string `json:"orgId"`
 	OccurredAt string `json:"occurredAt"`
 	ChannelID  string `json:"channelId"`
-	UserID     string `json:"userId"`
-	Username   string `json:"username"`
+	// ChannelName is the channel's display name at the time of the join.
+	// Deliberately a snapshot: the notification records what the user was told,
+	// and a later rename does not retroactively change what happened.
+	ChannelName string `json:"channelName,omitempty"`
+	UserID      string `json:"userId"`
+	Username    string `json:"username"`
+	// ActorID is who performed the add. Equal to UserID for an open-channel
+	// self-join. Omitted by producers that predate it, which consumers must
+	// treat as "unknown actor", NOT as a self-join.
+	ActorID string `json:"actorId,omitempty"`
 }
 
 // UserCreated is consumed from auth.events to maintain the user_projection.
@@ -322,4 +464,44 @@ type CallLifecycle struct {
 	// Members is who should RECEIVE this, which is usually but not always the
 	// roster — call.waiting goes only to the people who could start the call.
 	Members []string `json:"members"`
+}
+
+// MailDelivered announces that a mail was delivered into one or more people's
+// Inbox. Routed to `Members` — every local recipient plus the author, whose
+// other devices need the Sent copy to appear too.
+//
+// Deliberately carries NO content: subject and body would otherwise be written
+// into every recipient's Redis replay ZSET, and the client's only reaction to
+// this event is to refetch the feed row it already knows how to render.
+type MailDelivered struct {
+	Type       string   `json:"type"`
+	EventID    string   `json:"eventId"`
+	OrgID      string   `json:"orgId"`
+	OccurredAt string   `json:"occurredAt"`
+	MailID     string   `json:"mailId"`
+	SenderID   string   `json:"senderId"`
+	Members    []string `json:"members"`
+}
+
+// MailOutbound is ONE copy of a mail bound for ONE address outside the org,
+// consumed by email-worker and handed to SMTP.
+//
+// One event per external recipient rather than one event with a recipient list.
+// That is what keeps Bcc private: the envelope address is per-event, while To
+// and Cc are the display header every copy shares, so a Bcc'd address never
+// appears in anybody else's message — including their own.
+type MailOutbound struct {
+	Type       string `json:"type"`
+	EventID    string `json:"eventId"`
+	OrgID      string `json:"orgId"`
+	OccurredAt string `json:"occurredAt"`
+	MailID     string `json:"mailId"`
+	// Envelope is the single RCPT TO for this copy.
+	Envelope    string   `json:"envelope"`
+	FromAddress string   `json:"fromAddress"`
+	FromName    string   `json:"fromName"`
+	To          []string `json:"to"`
+	Cc          []string `json:"cc"`
+	Subject     string   `json:"subject"`
+	BodyText    string   `json:"bodyText"`
 }

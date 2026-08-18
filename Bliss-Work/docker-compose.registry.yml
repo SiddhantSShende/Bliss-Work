@@ -1,0 +1,60 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Registry overlay — production PULLS its images instead of building them.
+#
+#     docker compose -f docker-compose.prod.yml -f docker-compose.registry.yml …
+#
+# scripts/deploy-prod.sh adds this file automatically whenever REGISTRY is set,
+# so a normal deploy never names it by hand.
+#
+# WHAT IT CHANGES, and nothing else:
+#
+#   • nginx serves the web bundle FROM AN IMAGE rather than from a volume that a
+#     one-shot container filled in. That indirection only ever existed because
+#     the bundle was built on this host; once Jenkins builds it on the build VM
+#     there is nothing left to write into the volume.
+#
+#   • web-builder moves behind a profile so it no longer runs. It is not
+#     deleted: `--profile host-build` still brings it back for a hand-build on a
+#     host with no registry access.
+#
+# WHAT IT DOES NOT CHANGE: the eight service images and caddy already read
+# ${REGISTRY_PREFIX} from the base file, so they need no overlay at all —
+# setting the prefix is enough to point them at the registry.
+#
+# The `!reset` and `!override` tags need Compose v2.24 or newer.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  # Opt-in only. Everything it needs (the repo bind-mount, the node_modules
+  # volume, the web_dist volume) stays declared in the base file, so bringing it
+  # back is a flag rather than an edit.
+  web-builder:
+    profiles: ["host-build"]
+
+  nginx:
+    # Built by the Jenkins pipeline from apps/web/Dockerfile, which bakes the
+    # bundle into /usr/share/nginx/html — the same path the base file's
+    # healthcheck already probes, so that check keeps working unchanged.
+    #
+    # NOTE this image is environment-specific: apps/web/vite.config.ts bakes the
+    # seven VITE_* service URLs into the JavaScript at build time. A bundle built
+    # for one domain cannot be repointed at another by env var — it needs a
+    # rebuild with a different WEB_DOMAIN.
+    image: ${REGISTRY_PREFIX:-task-board}/web:${IMAGE_TAG:-latest}
+
+    # The base file waits for web-builder to exit successfully. With no
+    # web-builder in the run, that condition can never be met and compose would
+    # refuse to start nginx at all.
+    depends_on: !reset null
+
+    # `!override` replaces the list rather than merging into it — the point here
+    # is to DROP the web_dist mount, which would otherwise shadow the bundle
+    # baked into the image with an empty (or stale) volume. The other two mounts
+    # are re-listed because an override replaces the whole list.
+    volumes: !override
+      # Routing and cache headers stay operational settings, tunable without a
+      # rebuild.
+      - ./infra/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      # Desktop installers, owned by the release pipeline. Still a host path:
+      # release.yml rsyncs here and VPS_PATH must keep matching.
+      - /home/ubuntu/BlissWork/downloads:/srv/downloads:ro

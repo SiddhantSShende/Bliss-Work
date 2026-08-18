@@ -12,11 +12,13 @@ import { displayNameOf } from "../lib/userLabel";
 import { CallMenu } from "../features/CallMenu";
 import { ScheduleCallDialog } from "../features/ScheduleCallDialog";
 import { ChatThread } from "../features/ChatThread";
+import { useWhatsAppForward } from "../lib/useWhatsAppForward";
+import { ForwardToDialog } from "../features/ForwardToDialog";
 import { useChatMedia } from "../features/useChatMedia";
 import { useChatTyping } from "../lib/useChatTyping";
 import { useCall } from "../lib/useCall";
 import { useOlderMessages } from "../lib/useOlderMessages";
-import { usePresence } from "../lib/usePresence";
+import { useUserStatus } from "../lib/usePresence";
 
 export function DMView() {
   const { conversationId = "" } = useParams();
@@ -30,8 +32,12 @@ export function DMView() {
 
   // One person. This screen used to poll the entire organisation's online set
   // every 20 seconds to light a single dot — see lib/usePresence.
-  const onlineSet = usePresence(conv ? [conv.peerId] : []);
-  const isOnline = !!conv && onlineSet.has(conv.peerId);
+  const statusOf = useUserStatus(conv ? [conv.peerId] : []);
+  const peerStatus = conv ? statusOf(conv.peerId) : "offline";
+  // Reachable, not "shows a green dot". Someone on a call is connected and can
+  // be rung — Busy tells the caller what they are interrupting, it does not
+  // put the peer behind glass.
+  const isOnline = peerStatus !== "offline";
 
   // Newest page only. Older pages are prepended into this same flat array by
   // useOlderMessages, so every optimistic update and websocket patch below
@@ -68,6 +74,12 @@ export function DMView() {
   const { peerTyping, onType, stop: stopTyping } = useChatTyping(conversationId, conv?.peerId);
   const call = useCall();
 
+  // Arms a forward; the WhatsApp handoff is the menu anchor's own doing and the
+  // record is written only once the user comes back. Available to every org
+  // member — the link needs no connected account.
+  const recordForward = useWhatsAppForward();
+  // The message being forwarded to another chat or channel (null = closed).
+  const [forwardTo, setForwardTo] = useState<{ id: string; body: string } | null>(null);
   // "Schedule Call" from the header's call menu.
   const [scheduleOpen, setScheduleOpen] = useState(false);
 
@@ -75,6 +87,7 @@ export function DMView() {
   // conversation keeps this component mounted, so the scheduler — which is
   // scoped to a peer — would follow the user into the next chat.
   useEffect(() => {
+    setForwardTo(null);
     setScheduleOpen(false);
   }, [conversationId]);
 
@@ -269,6 +282,14 @@ export function DMView() {
       });
       return;
     }
+    // Not a refusal — they can still take it, and only they know whether they
+    // should. Saying so first is the difference between an informed interruption
+    // and a surprising one.
+    if (peerStatus === "busy") {
+      toast(`${peerName} is on another call`, {
+        description: "Ringing them anyway — they may not pick up.",
+      });
+    }
     call.invite(conv.peerId, peerName, media);
   };
   // A link and a diary entry are both asynchronous, so unlike ringing they do
@@ -301,10 +322,20 @@ export function DMView() {
           >
             <ChevronLeft size={20} />
           </button>
-          <Avatar name={peerName} online={isOnline} />
+          <Avatar name={peerName} status={peerStatus} />
           <div className="min-w-0 leading-tight">
             <div className="truncate font-semibold text-fg">{peerName}</div>
-            <div className={`text-xs ${isOnline ? "text-success" : "text-muted"}`}>{isOnline ? "Online" : "Offline"}</div>
+            <div
+              className={`text-xs ${
+                peerStatus === "busy"
+                  ? "text-warning"
+                  : peerStatus === "online"
+                    ? "text-success"
+                    : "text-muted"
+              }`}
+            >
+              {peerStatus === "busy" ? "On a call" : peerStatus === "online" ? "Online" : "Offline"}
+            </div>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
@@ -334,6 +365,7 @@ export function DMView() {
           id: m.id, senderId: m.senderId, body: m.body, at: m.createdAt, kind: m.kind,
           status: m.status, pending: m.id.startsWith("temp:"),
           replyToId: m.replyToId, deletedForAll: m.deletedForAll,
+          isForward: m.isForward,
           reactions: reactionsByMessage.get(m.id),
         }))}
         meId={me.id}
@@ -361,6 +393,11 @@ export function DMView() {
               ? "You have been blocked."
               : undefined
         }
+        onForwardTo={(id) => {
+          const msg = messages.find((m) => m.id === id);
+          setForwardTo({ id, body: msg?.body ?? "" });
+        }}
+        onForward={recordForward}
         renderBody={media.renderBody}
         onAttach={media.onAttach}
         onShareLocation={media.onShareLocation}
@@ -373,6 +410,12 @@ export function DMView() {
         overlay={media.overlay}
       />
       <input {...media.fileInputProps} />
+      <ForwardToDialog
+        open={!!forwardTo}
+        onClose={() => setForwardTo(null)}
+        sourceMessageId={forwardTo?.id ?? null}
+        preview={forwardTo?.body}
+      />
       {scheduleOpen && (
         <ScheduleCallDialog
           scope={{ kind: "direct", peerId: conv.peerId, peerName }}

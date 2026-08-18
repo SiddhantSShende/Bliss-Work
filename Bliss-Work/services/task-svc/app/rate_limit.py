@@ -13,6 +13,8 @@ from slowapi.errors import RateLimitExceeded
 
 from .net import rate_limit_key
 
+from .config import settings
+
 
 # NOTE: slowapi.util.get_remote_address is deliberately NOT used here. It
 # returns request.client.host, which behind our edge is Caddy's address on
@@ -24,6 +26,19 @@ limiter = Limiter(
     key_func=rate_limit_key,
     default_limits=["600/minute"],  # global per-key safety net
     headers_enabled=True,
+    # Redis storage makes the ceiling honest across replicas. Without it slowapi
+    # keeps its buckets in process memory, so every limit here silently
+    # multiplies by the replica count — and worse, becomes non-deterministic,
+    # since what a caller actually gets depends on how the load balancer
+    # happened to spread their requests. docker-compose.prod.yml runs this
+    # service with two replicas behind Caddy, so that is not hypothetical.
+    # Falls back to in-process when no Redis is configured, which is the correct
+    # behaviour for a single instance.
+    #
+    # swallow_errors fails OPEN on a Redis blip: serving unlimited beats
+    # 500-ing every request because the limiter's store is unreachable.
+    storage_uri=settings.slowapi_storage_uri or settings.redis_url or "memory://",
+    swallow_errors=True,
 )
 
 

@@ -29,7 +29,12 @@ export const EventType = {
   MessageDismissed: "message.dismissed",
   MessageDeleted: "message.deleted",
   MessageReaction: "message.reaction",
+  MessageForwarded: "message.forwarded",
   ChannelMessageCreated: "channel.message.created",
+  ChannelMessageDeleted: "channel.message.deleted",
+  ChannelMessageReaction: "channel.message.reaction",
+  ChannelMessagePinned: "channel.message.pinned",
+  ChannelMemberJoined: "channel.member.joined",
   ChannelMemberRemoved: "channel.member.removed",
   ChannelRoleChanged: "channel.member.role_changed",
   ChannelBlocked: "channel.blocked",
@@ -43,6 +48,8 @@ export const EventType = {
   NotificationCreated: "notification.created",
   IntegrationActivityCreated: "integration.activity.created",
   IntegrationMentionCreated: "integration.mention.created",
+  /** A mail landed in someone's Inbox. Signal-only — see MailDelivered. */
+  MailDelivered: "mail.delivered",
   PresenceOnline: "presence.online",
   PresenceOffline: "presence.offline",
   PresenceSnapshot: "presence.snapshot",
@@ -127,6 +134,10 @@ export const MessageCreated = z.object({
   origin: ThreadOrigin.optional(),
   /** The message this one quotes, if any. */
   replyToId: z.string().uuid().optional(),
+  /** True when this message is a copy delivered by forwarding someone else's.
+   *  The receiving client labels it — content shown under the forwarder's name
+   *  with no marker attributes it to them. */
+  isForward: z.boolean().optional(),
 });
 
 export const ConversationIgnored = z.object({
@@ -232,6 +243,115 @@ export const MessageReaction = z.object({
   members: z.array(z.string().uuid()).optional(),
 });
 
+/**
+ * MessageForwarded is the PROVENANCE signal for a forward of one of this org's
+ * messages. Its whole purpose is to reach the ORIGINAL author, so `rootAuthorId`
+ * is embedded and the gateway routes on it with no DB lookup (the same trick as
+ * ConversationIgnored.members). Routed to [forwardedBy, rootAuthorId] — never to
+ * a whole channel, even when `channelId` is set.
+ *
+ * `delivery` says which of the two forward paths produced it, and consumers MUST
+ * word themselves accordingly:
+ *
+ *   "confirmed"   — an INTERNAL forward. The clone is a real message in a chat
+ *                   or channel of this workspace, written in the same
+ *                   transaction as this event, so "forwarded to X" is a fact.
+ *                   `forwardedMessageId` and one of
+ *                   `forwardedTo`/`forwardedToChannelId` are set.
+ *   "unconfirmed" — a wa.me DEEP LINK. It hands the message to the operating
+ *                   system and ends our visibility: the user may never press
+ *                   send. Word it "opened WhatsApp to forward", never
+ *                   "forwarded". The pill that renders in the chat is a separate
+ *                   ordinary message (kind `forward_external`) riding its own
+ *                   message.created; this event is the author's notification.
+ */
+export const MessageForwarded = z.object({
+  type: z.literal(EventType.MessageForwarded),
+  ...envelope,
+  conversationId: z.string().uuid(),
+  /** The original message — the root of the chain. */
+  rootMessageId: z.string().uuid(),
+  /** Its author — embedded so the gateway routes lookup-free. */
+  rootAuthorId: z.string().uuid(),
+  /** The message that was forwarded (= rootMessageId at depth 1). */
+  parentMessageId: z.string().uuid(),
+  /** Who performed the forward. */
+  forwardedBy: z.string().uuid(),
+  /** The target, in bare E.164 digits. Deep link only. */
+  forwardedToExternal: z.string().optional(),
+  /** The destination of an INTERNAL forward — a person's chat or a channel,
+   *  exactly one of the two. Both absent on the deep-link path, where the
+   *  recipient is chosen inside WhatsApp and never reported back. */
+  forwardedTo: z.string().uuid().optional(),
+  forwardedToChannelId: z.string().uuid().optional(),
+  /** The clone delivered to that destination. Absent on the deep-link path,
+   *  which creates no message. */
+  forwardedMessageId: z.string().uuid().optional(),
+  platform: z.string(),
+  /** Which path this was — see the note above; the wording of every consumer
+   *  depends on it. `.catch` keeps an unrecognised value from failing the whole
+   *  envelope; absent is read as confirmed only because pre-deep-link payloads
+   *  omitted it. */
+  delivery: z.enum(["confirmed", "unconfirmed"]).catch("confirmed").optional(),
+  /** The captured contact's display name, when one was captured, so the author
+   *  reads a name rather than a bare number. */
+  forwardedToName: z.string().optional(),
+  /** Set when the forwarded message lived in a channel rather than a DM. */
+  channelId: z.string().uuid().optional(),
+  /** Hop number (1 = an original forwarded once). */
+  depth: z.number().int().positive(),
+  /** Truncated body so the author's toast can show what was forwarded. */
+  bodyPreview: z.string(),
+});
+
+/**
+ * A channel message was tombstoned for everyone.
+ *
+ * `deletedBy` is carried because in a channel it is routinely NOT the author —
+ * an owner, channel admin or org_admin moderating someone else's message is the
+ * main reason the capability exists.
+ */
+export const ChannelMessageDeleted = z.object({
+  type: z.literal(EventType.ChannelMessageDeleted),
+  ...envelope,
+  channelId: z.string().uuid(),
+  messageId: z.string().uuid(),
+  deletedBy: z.string().uuid(),
+  /** Routing only — see ChannelMessageCreated.members. Never read this. */
+  members: z.array(z.string().uuid()).optional(),
+});
+
+/**
+ * Something about one channel message's reactions changed. Carries NO counts,
+ * exactly as MessageReaction does: the tally is per-viewer (`mine` differs per
+ * member), so numbers computed for the actor would be wrong for everyone else.
+ * Each client refetches its own.
+ */
+export const ChannelMessageReaction = z.object({
+  type: z.literal(EventType.ChannelMessageReaction),
+  ...envelope,
+  channelId: z.string().uuid(),
+  messageId: z.string().uuid(),
+  /** Who toggled — used to skip the actor's own echo. */
+  actorId: z.string().uuid(),
+  /** Routing only — see ChannelMessageCreated.members. Never read this. */
+  members: z.array(z.string().uuid()).optional(),
+});
+
+/** A message was pinned or unpinned for the whole channel. `pinned: false` is
+ *  an unpin — one event type, because every consumer treats it as "this
+ *  message's pin state changed, re-render it". */
+export const ChannelMessagePinned = z.object({
+  type: z.literal(EventType.ChannelMessagePinned),
+  ...envelope,
+  channelId: z.string().uuid(),
+  messageId: z.string().uuid(),
+  pinned: z.boolean(),
+  actorId: z.string().uuid(),
+  /** Routing only — see ChannelMessageCreated.members. Never read this. */
+  members: z.array(z.string().uuid()).optional(),
+});
+
 export const ChannelMessageCreated = z.object({
   type: z.literal(EventType.ChannelMessageCreated),
   ...envelope,
@@ -256,6 +376,8 @@ export const ChannelMessageCreated = z.object({
    * channel and silently show nothing in a real one.
    */
   members: z.array(z.string().uuid()).optional(),
+  /** Mirrors MessageCreated.isForward. */
+  isForward: z.boolean().optional(),
 });
 
 /**
@@ -272,6 +394,35 @@ const channelModeration = {
   actorId: z.string().uuid().optional(),
   members: z.array(z.string().uuid()).optional(),
 };
+
+/**
+ * Somebody joined a channel — either added by an existing member, or a
+ * self-join of an open channel.
+ *
+ * Not part of `channelModeration`, and the difference is the point: that shape
+ * carries `members` (the surviving roster) because a removal has to reach
+ * everyone. This event is emitted ONCE PER ADDED MEMBER, so routing it to the
+ * roster would cost added x roster pushes. It goes to `userId` alone — see
+ * recipientsOf, and ws-gateway/internal/contract/contract.go.
+ */
+export const ChannelMemberJoined = z.object({
+  type: z.literal(EventType.ChannelMemberJoined),
+  ...envelope,
+  channelId: z.string().uuid(),
+  /** Who joined. The only recipient. */
+  userId: z.string().uuid(),
+  /** The channel's name when the join happened, for "You were added to
+   *  #general". Optional: producers before it exist, and the client falls back
+   *  to the channel list it is about to refetch anyway. */
+  channelName: z.string().optional(),
+  /** Who performed the add. Equal to `userId` for an open-channel self-join,
+   *  which is how a client tells "you were added" from "you joined". Absent
+   *  from older producers — treat as unknown, NOT as a self-join. */
+  actorId: z.string().uuid().optional(),
+  /** The joiner's handle. Present for parity with the server event; the client
+   *  has no use for it (and it is the email local-part — see lib/userLabel). */
+  username: z.string().optional(),
+});
 
 export const ChannelMemberRemoved = z.object({
   type: z.literal(EventType.ChannelMemberRemoved),
@@ -385,6 +536,34 @@ export const IntegrationMentionCreated = z.object({
   connectionId: z.string().uuid(),
   provider: z.string(),
   kind: z.string(), // 'message' | 'email'
+});
+
+/**
+ * MailDelivered fires when an email is filed into one or more Inboxes — sent
+ * from the composer to a colleague, or received from outside via the inbound
+ * ingestion endpoint.
+ *
+ * Signal-only, like its integration siblings, and for a stronger reason: the
+ * gateway writes every routed event into each recipient's Redis replay outbox,
+ * so carrying the subject and body here would put the contents of everybody's
+ * mail in Redis. The client's only reaction is to refetch the feed row it
+ * already knows how to render, so the id is all it needs.
+ *
+ * Routed to `members` = every local recipient plus the author, whose other
+ * devices need the Sent copy to appear at the same moment.
+ *
+ * There is deliberately no client-facing sibling for `mail.outbound` (the
+ * instruction to email-worker to put a copy on the wire): it carries the mail
+ * in plaintext and is never delivered to a socket. See ws-gateway's contract
+ * package, which drops it explicitly.
+ */
+export const MailDelivered = z.object({
+  type: z.literal(EventType.MailDelivered),
+  ...envelope,
+  mailId: z.string().uuid(),
+  /** Absent for inbound mail — an external sender has no account here. */
+  senderId: z.string().uuid().optional(),
+  members: z.array(z.string().uuid()),
 });
 
 // ── Presence events (ephemeral; never persisted to the replay outbox) ─────────
@@ -663,7 +842,12 @@ export const ServerEvent = z.discriminatedUnion("type", [
   MessageDismissed,
   MessageDeleted,
   MessageReaction,
+  MessageForwarded,
   ChannelMessageCreated,
+  ChannelMessageDeleted,
+  ChannelMessageReaction,
+  ChannelMessagePinned,
+  ChannelMemberJoined,
   ChannelMemberRemoved,
   ChannelRoleChanged,
   ChannelBlocked,
@@ -677,6 +861,7 @@ export const ServerEvent = z.discriminatedUnion("type", [
   NotificationCreated,
   IntegrationActivityCreated,
   IntegrationMentionCreated,
+  MailDelivered,
   PresenceOnline,
   PresenceOffline,
   PresenceSnapshot,
@@ -698,7 +883,12 @@ export const DomainEvent = z.discriminatedUnion("type", [
   MessageDismissed,
   MessageDeleted,
   MessageReaction,
+  MessageForwarded,
   ChannelMessageCreated,
+  ChannelMessageDeleted,
+  ChannelMessageReaction,
+  ChannelMessagePinned,
+  ChannelMemberJoined,
   ChannelMemberRemoved,
   ChannelRoleChanged,
   ChannelBlocked,
@@ -712,6 +902,7 @@ export const DomainEvent = z.discriminatedUnion("type", [
   NotificationCreated,
   IntegrationActivityCreated,
   IntegrationMentionCreated,
+  MailDelivered,
   UserCreated,
   UserRoleChanged,
   UserDeactivated,
@@ -738,7 +929,12 @@ export type MessageDelivered = z.infer<typeof MessageDelivered>;
 export type MessageDismissed = z.infer<typeof MessageDismissed>;
 export type MessageDeleted = z.infer<typeof MessageDeleted>;
 export type MessageReaction = z.infer<typeof MessageReaction>;
+export type MessageForwarded = z.infer<typeof MessageForwarded>;
 export type ChannelMessageCreated = z.infer<typeof ChannelMessageCreated>;
+export type ChannelMessageDeleted = z.infer<typeof ChannelMessageDeleted>;
+export type ChannelMessageReaction = z.infer<typeof ChannelMessageReaction>;
+export type ChannelMessagePinned = z.infer<typeof ChannelMessagePinned>;
+export type ChannelMemberJoined = z.infer<typeof ChannelMemberJoined>;
 export type ChannelMemberRemoved = z.infer<typeof ChannelMemberRemoved>;
 export type ChannelRoleChanged = z.infer<typeof ChannelRoleChanged>;
 export type ChannelBlocked = z.infer<typeof ChannelBlocked>;
@@ -752,6 +948,7 @@ export type TaskReviewed = z.infer<typeof TaskReviewed>;
 export type NotificationCreated = z.infer<typeof NotificationCreated>;
 export type IntegrationActivityCreated = z.infer<typeof IntegrationActivityCreated>;
 export type IntegrationMentionCreated = z.infer<typeof IntegrationMentionCreated>;
+export type MailDelivered = z.infer<typeof MailDelivered>;
 export type PresenceOnline = z.infer<typeof PresenceOnline>;
 export type PresenceOffline = z.infer<typeof PresenceOffline>;
 export type PresenceSnapshot = z.infer<typeof PresenceSnapshot>;
@@ -1004,8 +1201,27 @@ export function recipientsOf(e: DomainEvent): string[] {
       // have screenshotted first, and a reaction nobody sees arrive is not a
       // reaction.
       return e.members ?? [];
+    case EventType.MessageForwarded:
+      // The forwarder (multi-device sync) and the ORIGINAL author, who is the
+      // person entitled to know their message left the workspace. Deliberately
+      // NOT `members`: for a channel source that would publish a third party's
+      // name to the whole roster, and the pill written into the chat already
+      // tells the room as much as it should know.
+      return [e.forwardedBy, e.rootAuthorId];
     case EventType.ChannelMessageCreated:
+    // The whole channel, for the same reason message.deleted goes to both DM
+    // parties: a moderator's delete that members only learn about at their next
+    // refetch is one they may well have screenshotted first, and a pin nobody
+    // sees appear is not a pin.
+    case EventType.ChannelMessageDeleted:
+    case EventType.ChannelMessageReaction:
+    case EventType.ChannelMessagePinned:
       return e.members ?? [];
+    case EventType.ChannelMemberJoined:
+      // The person who was added, and only them — one event is emitted PER
+      // ADDED MEMBER, so routing to the roster would be added x roster pushes.
+      // Must stay in lockstep with ws-gateway/internal/contract/contract.go.
+      return [e.userId];
     case EventType.ChannelMemberRemoved:
     case EventType.ChannelRoleChanged:
     case EventType.ChannelBlocked:
@@ -1034,6 +1250,10 @@ export function recipientsOf(e: DomainEvent): string[] {
       // The mentioned user only — the connection owner already got the
       // activity event, and a mention is personal to whoever was tagged.
       return [e.recipientId];
+    case EventType.MailDelivered:
+      // Every local recipient plus the author. Must stay in lockstep with
+      // ws-gateway/internal/contract/contract.go.
+      return e.members ?? [];
     case EventType.UserCreated:
     case EventType.InviteCreated:
     case EventType.PasswordResetRequested:
@@ -1058,6 +1278,9 @@ export const NO_DELIVERY_ACK_FOR = new Set<string>([
   // acking them would fan straight back into messaging-svc for nothing.
   EventType.MessageDeleted,
   EventType.MessageReaction,
+  // Provenance, not an arrival: the system entry that DOES arrive in the chat
+  // is an ordinary message.created and carries the delivery ack on its own.
+  EventType.MessageForwarded,
   EventType.ConversationIgnored,
   EventType.ConversationBlocked,
   EventType.ConversationUnblocked,
@@ -1071,4 +1294,6 @@ export const NO_DELIVERY_ACK_FOR = new Set<string>([
   // derived from one has nothing to ack and would 400 downstream.
   EventType.IntegrationActivityCreated,
   EventType.IntegrationMentionCreated,
+  // Same reason: a mail is not a chat message and carries no `messageId`.
+  EventType.MailDelivered,
 ]);

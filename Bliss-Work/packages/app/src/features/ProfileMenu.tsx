@@ -5,13 +5,12 @@ import { User, LogOut, Sun, Moon, Settings, ChevronDown } from "lucide-react";
 import { Avatar, useTheme } from "@taskboard/ui";
 import { useSession } from "../store/session";
 import { useRuntime } from "../lib/runtime";
-import { broadcastLogout } from "../lib/authChannel";
+import { signOut } from "../lib/signOut";
 
 /** Avatar-anchored account popover in the top navbar. */
 export function ProfileMenu() {
-  const { api, config } = useRuntime();
+  const { api, config, ws } = useRuntime();
   const user = useSession((s) => s.user)!;
-  const clear = useSession((s) => s.clear);
   const { theme, toggle } = useTheme();
   const nav = useNavigate();
   const [open, setOpen] = useState(false);
@@ -30,14 +29,11 @@ export function ProfileMenu() {
     setOpen(false);
     nav(to);
   };
+  // The order matters and lives in signOut(): the activity session and the
+  // socket are both closed BEFORE the token is cleared, or the person keeps
+  // reading as Online to their colleagues after signing out.
   const logout = async () => {
-    await api.logout().catch(() => {});
-    clear();
-    // Electron mirrors the refresh token to an encrypted file so the session
-    // survives a restart; without this, signing out would leave that mirror on
-    // disk and the next launch would silently restore the session.
-    config.persistRefreshToken?.(null);
-    broadcastLogout(); // sign out sibling tabs too
+    await signOut(api, config, ws);
     nav("/login");
   };
 

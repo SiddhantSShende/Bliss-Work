@@ -45,6 +45,47 @@ const HIDDEN_HEARTBEAT_MS = 5 * 60_000;
 
 const ACTIVITY_EVENTS = ["pointerdown", "keydown", "wheel", "touchstart", "scroll"] as const;
 
+/**
+ * The queue belonging to the mounted bridge, if any.
+ *
+ * Module-level so SIGN-OUT can close the activity session explicitly, while the
+ * access token is still valid. Leaving it to the unmount does not work: the
+ * session store is cleared first, so the final beacon goes out with no bearer,
+ * 401s, and the session stays open on the server — which is what left people
+ * reading as "Online" to their colleagues long after they signed out.
+ */
+let activeQueue: TelemetryQueue | null = null;
+
+/**
+ * Close the activity session NOW. Call BEFORE clearing the session.
+ *
+ * Idempotent and never throws: a failure here must not stop a sign-out. The
+ * server's sweeper is the backstop if it does fail, but it is measured in
+ * minutes, which is exactly the delay this exists to remove.
+ */
+export async function endTelemetrySession(): Promise<void> {
+  const queue = activeQueue;
+  if (!queue) return;
+  activeQueue = null;
+  try {
+    if (!(await queue.flush({ ended: true }))) {
+      // Either a periodic flush was in flight and swallowed ours (flush is
+      // single-flight) or the request failed and the batch was re-queued. The
+      // goodbye is the one message that must land — without it the person keeps
+      // reading as Online to their colleagues until the server's sweeper times
+      // the session out — so give it one more try.
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      await queue.flush({ ended: true });
+    }
+    // The id is closed server-side now. Keeping it would have the next sign-in
+    // open with a dead session id, which the server answers by minting a
+    // replacement — correct, but a round trip and a confusing wire.
+    setSessionId(null);
+  } catch {
+    /* best-effort: never block or break a sign-out */
+  }
+}
+
 export function TelemetryBridge() {
   const { api } = useRuntime();
   const location = useLocation();
@@ -70,6 +111,7 @@ export function TelemetryBridge() {
       typeof window !== "undefined" && "taskboard" in window ? "desktop" : "web",
     );
     queueRef.current = queue;
+    activeQueue = queue;
     queue.sessionId = getSessionId();
 
     const teardownSession = installTelemetrySession();
@@ -193,7 +235,14 @@ export function TelemetryBridge() {
       teardownSession();
       accrue();
       closeSurface();
-      void queue.flush();
+      // Only if this queue is still the live one. A sign-out has already closed
+      // the session through endTelemetrySession, and flushing again here would
+      // be an unauthenticated POST (the token is gone by now) that either 401s
+      // or re-opens the session we just closed.
+      if (activeQueue === queue) {
+        activeQueue = null;
+        void queue.flush();
+      }
       queueRef.current = null;
     };
     // Rebuilt only when auth flips — `api` is stable for the life of the runtime.
@@ -232,8 +281,15 @@ export function TelemetryBridge() {
     if (queue.shouldFlush) void queue.flush();
   }, [authed, location.pathname]);
 
-  // Sign-out: end the session everywhere and drop anything unsent. Sending it
-  // after the token is gone would only 401.
+  // Sign-out: drop anything unsent and forget the id.
+  //
+  // The GOODBYE is not sent here, and cannot be: by the time `authed` flips the
+  // session store has been cleared, so the beacon would carry no bearer and
+  // 401. That is why signOut() calls endTelemetrySession() first, while the
+  // token is still valid — this effect is the local cleanup that follows, and
+  // the backstop for the sign-outs that never reach signOut (a dead refresh
+  // family, a sibling tab's broadcast), where the server's sweeper closes the
+  // session instead.
   useEffect(() => {
     if (authed) return;
     queueRef.current?.reset();

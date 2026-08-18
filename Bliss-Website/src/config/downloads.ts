@@ -8,9 +8,16 @@
  * over the mounted dist/, and mirrored on communication.rnrtechs.com via nginx),
  * so a click downloads directly from our server with no redirect to GitHub.
  *
- * The filenames are stable and version-less on purpose: Bliss-Work's release.yml
- * overwrites them in place on every green build of `main`, so this file never
- * needs updating when the desktop app ships a new version.
+ * The filenames are stable and version-less on purpose: the desktop release
+ * overwrites them in place, so this file never needs updating when the desktop
+ * app ships a new version.
+ *
+ * Publishing today is `docker compose -f docker-compose.prod.yml --profile
+ * desktop up desktop-builder` on the VPS (Linux + Windows/Wine), which writes
+ * straight into the served directory. macOS still has to be built on a Mac and
+ * published with Bliss-Work/scripts/publish-desktop.sh. This comment used to
+ * claim release.yml republished these on every green build of `main` — it does
+ * not: `main` does not exist on the remote, so that workflow has never fired.
  *
  * To repoint downloads to another host (S3 / CDN / a different server), edit
  * RELEASE_BASE or the per-asset `url` fields below.
@@ -21,7 +28,6 @@
  * "Get the App" buttons starts 404ing.
  */
 
-const REPO_BASE = "";
 const RELEASE_BASE = "/downloads";
 
 export type PlatformId = "windows" | "mac" | "linux";
@@ -107,5 +113,10 @@ export function detectPlatform(): PlatformId | null {
   return null;
 }
 
-/** GitHub releases page (fallback "all downloads / older versions" link). */
+/**
+ * Optional "all downloads / older versions" link, rendered by DownloadProvider
+ * only when non-empty. Empty because there is no such page: installers are
+ * published under stable, version-less names on our own host and only the
+ * current release is kept.
+ */
 export const ALL_RELEASES_URL = "";

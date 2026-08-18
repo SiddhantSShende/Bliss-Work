@@ -38,9 +38,22 @@ func (s *Store) CreateChannel(ctx context.Context, orgID, creatorID, name string
 		return nil, err
 	}
 
+	// The creator is the OWNER, and saying so here is the whole of channel
+	// moderation working.
+	//
+	// 0012_channel_roles introduced roles and backfilled owners from
+	// `channels.created_by` for the channels that already existed — but this
+	// insert was never updated, so every channel created SINCE has had no owner
+	// at all. Nobody could add a member, change a role, kick or block in it: the
+	// creator saw no "Add people" (the client hides what would 403) and an org
+	// admin was the only person on earth who could moderate it.
 	members := dedupeMembers(creatorID, memberIDs)
 	for _, uid := range members {
-		if err := s.insertChannelMember(ctx, tx, chanID, orgID, uid); err != nil {
+		role := RoleMember
+		if uid == creatorID {
+			role = RoleOwner
+		}
+		if err := s.insertChannelMember(ctx, tx, chanID, orgID, uid, role); err != nil {
 			return nil, err
 		}
 	}
@@ -54,6 +67,9 @@ func (s *Store) CreateChannel(ctx context.Context, orgID, creatorID, name string
 		MemberCount: len(members),
 		IsLocked:    isLocked,
 		IAmMember:   true,
+		// Echoed so the client can render the manage affordances immediately,
+		// rather than only after the channel list refetches.
+		MyRole: RoleOwner,
 	}, nil
 }
 
@@ -79,6 +95,15 @@ func (s *Store) AddChannelMembers(ctx context.Context, orgID, channelID, callerI
 	ids := dedupeMembers("", memberIDs)
 	if len(ids) == 0 {
 		return tx.Commit(ctx)
+	}
+
+	// The channel's name, for the "You were added to #general" notification the
+	// joined event carries. One lookup for the whole request, not one per
+	// member — the same reasoning as every other step below.
+	var channelName string
+	if err := tx.QueryRow(ctx,
+		`SELECT name FROM channels WHERE id = $1`, channelID).Scan(&channelName); err != nil {
+		return err
 	}
 
 	// ── Set-based, not row-by-row ────────────────────────────────────────────
@@ -153,24 +178,30 @@ func (s *Store) AddChannelMembers(ctx context.Context, orgID, channelID, callerI
 	//    stay individual — each names one person, and a consumer that had to
 	//    unpack a batch would be a contract change for no benefit — but they no
 	//    longer cost a round trip each.
-	if err := insertOutboxBatch(ctx, tx, channelID, memberJoinedEvents(orgID, channelID, added, names)); err != nil {
+	if err := insertOutboxBatch(ctx, tx, channelID,
+		memberJoinedEvents(orgID, channelID, channelName, callerID, added, names)); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
 }
 
 // memberJoinedEvents builds one ChannelMemberJoined per newly-added member.
-func memberJoinedEvents(orgID, channelID string, userIDs []string, names map[string]string) []any {
+//
+// `actorID` is the caller who added them, and is what makes this path
+// notifiable where the self-join path is not — see the event's doc comment.
+func memberJoinedEvents(orgID, channelID, channelName, actorID string, userIDs []string, names map[string]string) []any {
 	out := make([]any, 0, len(userIDs))
 	for _, uid := range userIDs {
 		out = append(out, events.ChannelMemberJoined{
-			Type:       events.TypeChannelMemberJoined,
-			EventID:    uuid.Must(uuid.NewV7()).String(),
-			OrgID:      orgID,
-			OccurredAt: nowISO(),
-			ChannelID:  channelID,
-			UserID:     uid,
-			Username:   names[uid],
+			Type:        events.TypeChannelMemberJoined,
+			EventID:     uuid.Must(uuid.NewV7()).String(),
+			OrgID:       orgID,
+			OccurredAt:  nowISO(),
+			ChannelID:   channelID,
+			ChannelName: channelName,
+			UserID:      uid,
+			Username:    names[uid],
+			ActorID:     actorID,
 		})
 	}
 	return out
@@ -283,12 +314,19 @@ func (s *Store) SendChannelMessage(ctx context.Context, orgID, channelID, sender
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-// insertChannelMember adds a member row, ignoring duplicates.
-func (s *Store) insertChannelMember(ctx context.Context, tx pgx.Tx, channelID, orgID, userID string) error {
+// insertChannelMember adds a member row with the given role, ignoring
+// duplicates.
+//
+// The role is a parameter rather than the column default because the ONE caller
+// that needs a non-default — the creator of a channel, who is its owner — is
+// also the caller whose omission left every channel created since
+// 0012_channel_roles with nobody able to moderate it. A default is easy to
+// forget; an argument is not.
+func (s *Store) insertChannelMember(ctx context.Context, tx pgx.Tx, channelID, orgID, userID, role string) error {
 	_, err := tx.Exec(ctx,
-		`INSERT INTO channel_members (channel_id, org_id, user_id) VALUES ($1, $2, $3)
+		`INSERT INTO channel_members (channel_id, org_id, user_id, role) VALUES ($1, $2, $3, $4)
 		 ON CONFLICT (channel_id, user_id) DO NOTHING`,
-		channelID, orgID, userID)
+		channelID, orgID, userID, role)
 	return err
 }
 

@@ -18,7 +18,17 @@ var orgPurgeTables = []string{
 	// Message-level children.
 	"message_reactions",
 	"message_hides",
+	// Holds a third party's phone number in plaintext (and their name under the
+	// org DEK), so it must be erased outright rather than left to the
+	// crypto-shred that covers encrypted columns.
+	"message_forwards",
 	"messages",
+	// Mail. Recipients and deliveries cascade off mail_messages, but they are
+	// listed explicitly and first: a purge that relies on a cascade is a purge
+	// that silently stops working the day someone drops the foreign key.
+	"mail_recipients",
+	"mail_deliveries",
+	"mail_messages",
 	// Inbox and threads.
 	"inbox_items",
 	"thread_members",

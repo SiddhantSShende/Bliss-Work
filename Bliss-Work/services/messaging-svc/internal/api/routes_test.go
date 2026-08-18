@@ -55,22 +55,28 @@ func testRouter(t *testing.T) http.Handler {
 var cappedRoutes = map[string]string{
 	// /internal/* — service-to-service, small JSON.
 	"POST /internal/messages/delivered": "small",
+	// Inbound mail. Already-parsed JSON, not raw MIME, and the store truncates
+	// the subject and body to their rune limits — so a large message is
+	// rejected by the cap long before anything is stored.
+	"POST /internal/mail/inbound": "small",
 
 	// /api/v1 — everything small except the one upload route.
-	"POST /api/v1/conversations":                  "small",
-	"POST /api/v1/conversations/messages":         "small",
-	"POST /api/v1/conversations/{id}/reply":       "small",
-	"POST /api/v1/conversations/{id}/ignore":      "small",
-	"POST /api/v1/conversations/{id}/read":        "small",
-	"POST /api/v1/users/{id}/block":               "small",
-	"DELETE /api/v1/users/{id}/block":             "small",
-	"POST /api/v1/attachments/{id}/commit":        "small",
-	"POST /api/v1/attachments/links":              "small",
-	"POST /api/v1/channels":                       "small",
-	"POST /api/v1/channels/{id}/messages":         "small",
-	"POST /api/v1/channels/{id}/members":          "small",
-	"POST /api/v1/channels/{id}/join":             "small",
-	"POST /api/v1/channels/{id}/leave":            "small",
+	"POST /api/v1/conversations":              "small",
+	"POST /api/v1/conversations/messages":     "small",
+	"POST /api/v1/conversations/{id}/reply":   "small",
+	"POST /api/v1/conversations/{id}/ignore":  "small",
+	"POST /api/v1/conversations/{id}/read":    "small",
+	"POST /api/v1/users/{id}/block":           "small",
+	"DELETE /api/v1/users/{id}/block":         "small",
+	"POST /api/v1/attachments/{id}/commit":    "small",
+	"POST /api/v1/attachments/links":          "small",
+	"POST /api/v1/messages/{id}/forward-link": "small",
+	"POST /api/v1/messages/{id}/forward":      "small",
+	"POST /api/v1/channels":                   "small",
+	"POST /api/v1/channels/{id}/messages":     "small",
+	"POST /api/v1/channels/{id}/members":      "small",
+	"POST /api/v1/channels/{id}/join":         "small",
+	"POST /api/v1/channels/{id}/leave":        "small",
 	// Channel moderation. The two DELETEs take no body at all and the PATCH/POST
 	// take a tiny JSON object; all four sit inside the same /api/v1 group that
 	// applies mw.MaxBytes, so the cap is inherited rather than per-handler.
@@ -89,8 +95,28 @@ var cappedRoutes = map[string]string{
 	"DELETE /api/v1/messages/{id}":                   "small",
 	"PUT /api/v1/messages/{id}/reactions/{emoji}":    "small",
 	"DELETE /api/v1/messages/{id}/reactions/{emoji}": "small",
-	"POST /api/v1/inbox/items/{kind}/{refId}/ignore": "small",
-	"POST /api/v1/inbox/items/{kind}/{refId}/read":   "small",
+	// The channel twins of the four above, plus pinning. Same story: the
+	// DELETEs and PUTs carry no body (their arguments are in the path), and all
+	// six sit inside the same /api/v1 small-body group, so the cap is inherited.
+	"POST /api/v1/channel-messages/{id}/hide":                "small",
+	"DELETE /api/v1/channel-messages/{id}":                   "small",
+	"PUT /api/v1/channel-messages/{id}/pin":                  "small",
+	"DELETE /api/v1/channel-messages/{id}/pin":               "small",
+	"PUT /api/v1/channel-messages/{id}/reactions/{emoji}":    "small",
+	"DELETE /api/v1/channel-messages/{id}/reactions/{emoji}": "small",
+	"POST /api/v1/inbox/items/{kind}/{refId}/ignore":         "small",
+	"POST /api/v1/inbox/items/{kind}/{refId}/read":           "small",
+
+	// Mail. All four sit inside the same /api/v1 small-body group (send and
+	// read additionally inside the idempotency subgroup nested in it), so the
+	// cap is inherited. The largest body is a send: a subject, a recipient list
+	// and a body, each bounded again in the store (MaxMailSubjectRunes,
+	// MaxMailRecipients, MaxMailBodyRunes) — attachments never ride this
+	// request, they were uploaded against the draft beforehand.
+	"POST /api/v1/mail/drafts":           "small",
+	"DELETE /api/v1/mail/drafts/{id}":    "small",
+	"POST /api/v1/mail/drafts/{id}/send": "small",
+	"POST /api/v1/mail/{id}/read":        "small",
 
 	// Calls. Every one of these sits inside the same /api/v1 small-body group,
 	// so the cap is inherited. The bodies are a title, a timestamp and at most

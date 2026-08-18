@@ -4,17 +4,42 @@ import (
 	"math"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/task-board/messaging-svc/internal/auth"
 )
 
-// listInbox serves GET /api/v1/inbox?cursor=&limit=&peerId=.
+// inboxKinds parses the optional `?kinds=MAIL,THREAD` filter.
 //
-// Returns the caller's unified inbox feed (messages + tasks intermixed,
-// newest first) with a keyset cursor. Default limit 25; cap 100. An optional
-// peerId narrows the feed to one counterparty (the People-sidebar drill-down).
+// Absent means every kind, which is what keeps the endpoint's existing contract
+// intact for any caller that predates the filter. An unrecognised kind is
+// dropped rather than rejected: the enum can only grow, and a client asking for
+// a kind this build has never heard of should get the kinds it does know, not a
+// 400. A list that names ONLY unknown kinds does 400 — that is a caller asking
+// for nothing, and silently answering "everything" would be the opposite.
+func inboxKinds(raw string) ([]string, bool) {
+	if raw == "" {
+		return nil, true
+	}
+	known := map[string]bool{"THREAD": true, "TASK": true, "MAIL": true}
+	out := make([]string, 0, 3)
+	for _, part := range strings.Split(raw, ",") {
+		k := strings.ToUpper(strings.TrimSpace(part))
+		if known[k] {
+			out = append(out, k)
+		}
+	}
+	return out, len(out) > 0
+}
+
+// listInbox serves GET /api/v1/inbox?cursor=&limit=&peerId=&kinds=.
+//
+// Returns the caller's unified inbox feed (mail, message threads and tasks
+// intermixed, newest first) with a keyset cursor. Default limit 25; cap 100.
+// An optional peerId narrows the feed to one counterparty (the People-sidebar
+// drill-down); an optional kinds list narrows it to those item kinds.
 func (s *Server) listInbox(w http.ResponseWriter, r *http.Request) {
 	claims, _ := auth.FromContext(r.Context())
 	cursor := r.URL.Query().Get("cursor")
@@ -29,7 +54,12 @@ func (s *Server) listInbox(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid peerId")
 		return
 	}
-	page, err := s.store.ListInbox(r.Context(), claims.OrgID, claims.UserID, peerID, cursor, limit)
+	kinds, ok := inboxKinds(r.URL.Query().Get("kinds"))
+	if !ok {
+		writeErr(w, http.StatusBadRequest, "kinds must name at least one of THREAD, TASK, MAIL")
+		return
+	}
+	page, err := s.store.ListInbox(r.Context(), claims.OrgID, claims.UserID, peerID, cursor, limit, kinds)
 	if err != nil {
 		s.mapErr(w, err)
 		return
@@ -37,14 +67,23 @@ func (s *Server) listInbox(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, page)
 }
 
-// listInboxPeers serves GET /api/v1/inbox/peers.
+// listInboxPeers serves GET /api/v1/inbox/peers?kinds=.
 //
 // Returns the distinct counterparties in the caller's visible inbox (newest
 // activity first) with per-peer unread + item rollups. Powers the People
 // sidebar of the inbox.
+//
+// Callers should pass the SAME kinds they pass to /inbox: this is the badge
+// over that list, and counting rows the list does not show produces a "3" the
+// user cannot find.
 func (s *Server) listInboxPeers(w http.ResponseWriter, r *http.Request) {
 	claims, _ := auth.FromContext(r.Context())
-	peers, err := s.store.ListInboxPeers(r.Context(), claims.OrgID, claims.UserID)
+	kinds, ok := inboxKinds(r.URL.Query().Get("kinds"))
+	if !ok {
+		writeErr(w, http.StatusBadRequest, "kinds must name at least one of THREAD, TASK, MAIL")
+		return
+	}
+	peers, err := s.store.ListInboxPeers(r.Context(), claims.OrgID, claims.UserID, kinds)
 	if err != nil {
 		s.mapErr(w, err)
 		return
@@ -81,8 +120,17 @@ func (s *Server) ignoreInboxItem(w http.ResponseWriter, r *http.Request) {
 			s.mapErr(w, err)
 			return
 		}
+	case "MAIL":
+		// One-sided, unlike THREAD. Deleting a mail out of your own Inbox says
+		// nothing about the sender's Sent copy or anyone else's — a mail is
+		// several people's, and removing it for all of them is not one
+		// recipient's call. The mail itself and its attachments stay.
+		if err := s.store.MarkInboxItemHidden(r.Context(), claims.OrgID, claims.UserID, "MAIL", refID); err != nil {
+			s.mapErr(w, err)
+			return
+		}
 	default:
-		writeErr(w, http.StatusBadRequest, "kind must be THREAD or TASK")
+		writeErr(w, http.StatusBadRequest, "kind must be THREAD, TASK or MAIL")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -94,7 +142,8 @@ func (s *Server) ignoreInboxItem(w http.ResponseWriter, r *http.Request) {
 // seq-based read model, so we delegate to MarkReadThread (advances last_read_seq,
 // stamps receipts, emits MessageRead) with an unbounded upToSeq meaning "read
 // everything I can see". TASK rows have no seq — "seen" is a straight
-// unread_count reset via MarkInboxItemRead. This is the path that finally clears
+// unread_count reset via MarkInboxItemRead. MAIL rows carry their own read_at
+// on the delivery row, so they go through MarkMailRead. This is the path that finally clears
 // the task-inbox badge, which was seeded unread_count=1 with no way to clear it.
 func (s *Server) markInboxItemRead(w http.ResponseWriter, r *http.Request) {
 	claims, _ := auth.FromContext(r.Context())
@@ -115,8 +164,16 @@ func (s *Server) markInboxItemRead(w http.ResponseWriter, r *http.Request) {
 			s.mapErr(w, err)
 			return
 		}
+	case "MAIL":
+		// Routed to MarkMailRead rather than the generic unread reset because a
+		// mail has a read_at of its own: the badge and "when did you open it"
+		// are two facts, and clearing only the first would lose the second.
+		if err := s.store.MarkMailRead(r.Context(), claims.OrgID, claims.UserID, refID); err != nil {
+			s.mapErr(w, err)
+			return
+		}
 	default:
-		writeErr(w, http.StatusBadRequest, "kind must be THREAD or TASK")
+		writeErr(w, http.StatusBadRequest, "kind must be THREAD, TASK or MAIL")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

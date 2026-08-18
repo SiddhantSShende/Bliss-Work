@@ -19,6 +19,7 @@ import { MediaBubble, type UploadProgress } from "./MediaBubble";
 import { LocationBubble } from "./LocationBubble";
 import { Lightbox } from "./Lightbox";
 import { FileAttachmentBubble } from "./FileAttachmentBubble";
+import { DropConfirm } from "./DropConfirm";
 
 /**
  * All of media + location sharing for one chat surface, in one hook.
@@ -45,6 +46,13 @@ import { FileAttachmentBubble } from "./FileAttachmentBubble";
  * recipient before the sender has had a chance to look at it. Uploading still
  * begins immediately so the progress bar is honest and Send is instant; only
  * the SEND waits for the user.
+ *
+ * A DROP goes one step further and asks first (DropConfirm), so step 1 does not
+ * even start. The picker and paste are deliberate acts — you opened a file
+ * dialog, you pressed a key combination — but a drop can happen entirely by
+ * accident, releasing a dragged file a few pixels short of the folder you meant.
+ * Confirming before uploading means an accidental drop costs nothing at all:
+ * the bytes never leave the machine and there is no orphaned upload to lapse.
  */
 
 export interface ChatMediaOptions {
@@ -83,6 +91,9 @@ export function useChatMedia(opts: ChatMediaOptions) {
   const [dragging, setDragging] = useState(false);
   const [uploads, setUploads] = useState<Record<string, UploadProgress>>({});
   const [lightbox, setLightbox] = useState<{ items: MediaItem[]; index: number } | null>(null);
+  // Dropped, awaiting the user's "yes". Not uploaded, not staged — see the note
+  // at the top of this file and DropConfirm.
+  const [dropped, setDropped] = useState<File[] | null>(null);
 
   // Uploaded but NOT yet sent. The composer renders these as removable chips.
   const [staged, setStaged] = useState<MediaItem[]>([]);
@@ -99,6 +110,10 @@ export function useChatMedia(opts: ChatMediaOptions) {
   useEffect(() => {
     setStaged([]);
     setUploads({});
+    // A pending drop belongs to the conversation it was dropped on. Leaving it
+    // open across a navigation would attach those files to whatever chat the
+    // user landed in.
+    setDropped(null);
   }, [scopeId]);
 
   // ── uploading ─────────────────────────────────────────────────────────────
@@ -328,7 +343,7 @@ export function useChatMedia(opts: ChatMediaOptions) {
      * A city-level fix is far better than refusing, provided the user is TOLD
      * it is approximate; the large accuracy makes the bubble say so too.
      */
-    const fallback = async (reason: string) => {
+    const fallback = async (reason: string, deniedByPlatform = false) => {
       // Ask the host WHY precision was unavailable before blaming the device.
       // A desktop build with no geolocation API key cannot get a precise fix on
       // any machine, and telling that user to check their location services
@@ -342,12 +357,32 @@ export function useChatMedia(opts: ChatMediaOptions) {
         return;
       }
       await sendLocation(coarse);
+
+      // Offer the OS settings page only when the OS is what refused AND this
+      // platform actually has such a page (Windows and macOS; Linux has no
+      // location provider to authorize, so the host omits the capability).
+      //
+      // Both halves matter. A keyless build that simply could not get a fix
+      // would otherwise send the user off to toggle a setting that was never
+      // the cause — the same "go fix something that isn't broken" the `precise`
+      // check below already exists to avoid.
+      const openSettings = deniedByPlatform ? config.openLocationSettings : undefined;
       toast("Shared an approximate location", {
-        description: precise
-          ? "Your device couldn't get a precise fix, so this is based on your network."
-          : "This build has no precise location provider, so this is based on your network.",
+        description: openSettings
+          ? "Location access is off for desktop apps, so this is based on your network."
+          : precise
+            ? "Your device couldn't get a precise fix, so this is based on your network."
+            : "This build has no precise location provider, so this is based on your network.",
+        ...(openSettings && {
+          action: { label: "Open settings", onClick: () => void openSettings() },
+        }),
       });
     };
+
+    // Whether a PERMISSION_DENIED from this host can mean "the user declined".
+    // Only a browser prompts; the desktop shell answers the permission request
+    // itself. See the error handler below.
+    const hostAsksTheUser = config.kind === "web";
 
     if (typeof navigator === "undefined" || !navigator.geolocation) {
       void fallback("Location sharing isn't available on this device.");
@@ -368,15 +403,32 @@ export function useChatMedia(opts: ChatMediaOptions) {
         // explicit refusal with an IP lookup would be a betrayal, not a
         // feature. Everything else is the device failing, not the user
         // declining, so it is worth trying the coarse path.
-        if (err.code === err.PERMISSION_DENIED) {
+        //
+        // But a refusal is only something the USER can have made where the user
+        // was actually ASKED, and in the desktop app they never are: the main
+        // process grants "geolocation" unconditionally in its
+        // setPermissionRequestHandler (apps/desktop/src/main/index.ts), so
+        // Chromium shows no prompt and there is no dialog to decline. A
+        // PERMISSION_DENIED there is the PLATFORM refusing, not the person —
+        // Windows with "let desktop apps access your location" off (which never
+        // prompts a Win32 app at all, so the user CANNOT be asked), macOS with
+        // Location Services off, or Linux, which has no OS locator to refuse
+        // with in the first place.
+        //
+        // Reading that as an explicit refusal is what made "share location"
+        // fail outright on desktop — the error told people to change a setting
+        // they had never been offered, while the coarse path that would have
+        // answered sat unused two lines below.
+        if (err.code === err.PERMISSION_DENIED && hostAsksTheUser) {
           toast.dismiss(pending);
           toast.error(
-            "Location permission denied. Enable it in your system settings to share your location.",
+            "Location permission denied. Enable it in your site settings to share your location.",
           );
           return;
         }
         void fallback(
           "Couldn't determine your location. Try again, or check that location services are on.",
+          err.code === err.PERMISSION_DENIED,
         );
       },
       { enableHighAccuracy: true, timeout: 10_000, maximumAge: 60_000 },
@@ -470,10 +522,14 @@ export function useChatMedia(opts: ChatMediaOptions) {
         if (!Array.from(e.dataTransfer.types).includes("Files")) return;
         e.preventDefault();
         setDragging(false);
-        if (e.dataTransfer.files?.length) runFiles(e.dataTransfer.files);
+        // COPY THE FILES OUT NOW. `e.dataTransfer.files` is only valid during
+        // the event; holding the FileList to read after the confirmation
+        // dialog would find it empty.
+        const files = Array.from(e.dataTransfer.files ?? []);
+        if (files.length) setDropped(files);
       },
     }),
-    [runFiles],
+    [],
   );
 
   const onPaste = useCallback(
@@ -498,15 +554,28 @@ export function useChatMedia(opts: ChatMediaOptions) {
     onChange: onPickFile,
   };
 
-  const overlay = lightbox ? (
-    <Lightbox
-      items={lightbox.items}
-      index={lightbox.index}
-      urlFor={links.urlFor}
-      onClose={() => setLightbox(null)}
-      onIndexChange={(index) => setLightbox((l) => (l ? { ...l, index } : l))}
-    />
-  ) : null;
+  const overlay = (
+    <>
+      {lightbox && (
+        <Lightbox
+          items={lightbox.items}
+          index={lightbox.index}
+          urlFor={links.urlFor}
+          onClose={() => setLightbox(null)}
+          onIndexChange={(index) => setLightbox((l) => (l ? { ...l, index } : l))}
+        />
+      )}
+      <DropConfirm
+        files={dropped}
+        onConfirm={() => {
+          const files = dropped;
+          setDropped(null);
+          if (files?.length) runFiles(files);
+        }}
+        onCancel={() => setDropped(null)}
+      />
+    </>
+  );
 
   return {
     renderBody,

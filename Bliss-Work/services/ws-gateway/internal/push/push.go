@@ -132,7 +132,7 @@ func (c *Client) Push(ctx context.Context, addr string, deliveries []Delivery) (
 	if len(deliveries) == 0 {
 		return Result{}, nil
 	}
-	return c.Send(ctx, addr, Batch{Deliveries: deliveries})
+	return c.SendTo(ctx, addr, Batch{Deliveries: deliveries})
 }
 
 // Broadcast sends ONE payload to several users on a single node. See Batch for
@@ -143,13 +143,22 @@ func (c *Client) Broadcast(
 	if len(userIDs) == 0 {
 		return Result{}, nil
 	}
-	return c.Send(ctx, addr, Batch{
+	return c.SendTo(ctx, addr, Batch{
 		Broadcast: &Broadcast{UserIDs: userIDs, Payload: payload},
 	})
 }
 
-// Send posts one batch to one node, in whichever shape it carries.
-func (c *Client) Send(ctx context.Context, addr string, batch Batch) (Result, error) {
+// SendTo posts one batch to one node, in whichever shape it carries.
+//
+// Named SendTo rather than Send so that *Client does NOT structurally satisfy
+// Transport. The two signatures were once identical — (context, string, Batch)
+// — differing only in what the string MEANS: an address here, a node id there.
+// Go matched them anyway, so wiring a raw *Client in where an HTTPTransport
+// belonged compiled cleanly and then posted every cross-node delivery to a URL
+// built from a node id. That is exactly what cmd/ws-gateway/main.go did, and it
+// silently broke RTC signalling and presence across a multi-node fleet. The
+// name is the guard: that mistake is now a compile error.
+func (c *Client) SendTo(ctx context.Context, addr string, batch Batch) (Result, error) {
 	var out Result
 	count := len(batch.Deliveries)
 	if batch.Broadcast != nil {

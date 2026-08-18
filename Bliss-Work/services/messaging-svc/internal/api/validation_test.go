@@ -108,3 +108,42 @@ func TestReply_ValidationRejects(t *testing.T) {
 		})
 	}
 }
+
+// The Inbox surface presents itself as a mailbox and asks for MAIL + THREAD;
+// nothing else passes a kinds filter today. Absent must therefore keep meaning
+// "everything", or every caller that predates the filter loses rows.
+func TestInboxKinds(t *testing.T) {
+	cases := []struct {
+		name   string
+		raw    string
+		want   []string
+		wantOK bool
+	}{
+		{"absent means every kind", "", nil, true},
+		{"the Inbox surface's filter", "MAIL,THREAD", []string{"MAIL", "THREAD"}, true},
+		{"case and spacing are the caller's business", " mail , Thread ", []string{"MAIL", "THREAD"}, true},
+		// The enum can only grow. A client asking for a kind this build has
+		// never heard of should get the kinds it does know, not a 400.
+		{"unknown kinds are dropped, not rejected", "MAIL,PIGEON", []string{"MAIL"}, true},
+		// But a list naming ONLY unknown kinds is a caller asking for nothing,
+		// and answering "everything" would be the exact opposite of the ask.
+		{"a list of only unknown kinds is a bad request", "PIGEON", nil, false},
+		{"a list of only separators is a bad request", " , , ", nil, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, ok := inboxKinds(c.raw)
+			if ok != c.wantOK {
+				t.Fatalf("inboxKinds(%q) ok = %v, want %v", c.raw, ok, c.wantOK)
+			}
+			if len(got) != len(c.want) {
+				t.Fatalf("inboxKinds(%q) = %v, want %v", c.raw, got, c.want)
+			}
+			for i := range got {
+				if got[i] != c.want[i] {
+					t.Fatalf("inboxKinds(%q) = %v, want %v", c.raw, got, c.want)
+				}
+			}
+		})
+	}
+}

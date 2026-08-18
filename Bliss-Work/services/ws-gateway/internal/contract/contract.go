@@ -33,6 +33,9 @@ type Event struct {
 
 	// Task
 	AssigneeID string `json:"assigneeId"`
+
+	// Mail
+	MailID string `json:"mailId"`
 }
 
 // RecipientsOf replicates the canonical recipientsOf() routing function from
@@ -49,6 +52,21 @@ func (e *Event) RecipientsOf() []string {
 		return dedupe(e.Members)
 	case "channel.message.created":
 		return dedupe(e.Members)
+	case "channel.message.deleted", "channel.message.reaction",
+		"channel.message.pinned":
+		// The whole channel, for the same reason message.deleted goes to both
+		// DM parties: a moderator's delete that members only learn about on
+		// their next refetch is one they may well have screenshotted first, and
+		// a pin nobody sees appear is not a pin.
+		return dedupe(e.Members)
+	case "channel.member.joined":
+		// The person who was added, and ONLY them. Deliberately not the roster:
+		// this event is emitted once PER ADDED MEMBER, so routing it to
+		// everyone would cost added x roster pushes — adding a 500-person
+		// department to a 500-person channel would be 250,000. The surviving
+		// members' roster is refetched when they next open it, which is what
+		// already happened before this event reached a client at all.
+		return dedupe([]string{e.UserID})
 	case "channel.member.removed", "channel.member.role_changed",
 		"channel.blocked", "channel.unblocked":
 		// Surviving members refresh the roster; the affected user is appended
@@ -104,6 +122,17 @@ func (e *Event) RecipientsOf() []string {
 		// forward across an org boundary (see internal/signal). Media now goes
 		// to the SFU rather than peer-to-peer, so these are notifications only.
 		return dedupe(e.Members)
+	case "mail.delivered":
+		// Every local recipient plus the author, whose other devices need the
+		// Sent copy to appear at the same moment the recipients see the mail.
+		return dedupe(e.Members)
+	case "mail.outbound":
+		// NEVER to a client. This is the instruction to email-worker to put one
+		// copy on the wire, and it carries the mail's subject and body in
+		// plaintext. The `default` below would already drop it; the case is
+		// explicit so that stays true if the default ever changes, and so the
+		// reason is written down next to the routing rather than inferred.
+		return nil
 	default:
 		// user.created / invite.created and anything unknown are internal-only.
 		return nil
@@ -132,6 +161,9 @@ var NoDeliveryAckFor = map[string]struct{}{
 	// derived from one has nothing to ack and would 400 downstream.
 	"integration.activity.created": {},
 	"integration.mention.created":  {},
+	// Mail carries no messaging messageId, so an ack derived from one has
+	// nothing to ack and would 400 at the delivery endpoint.
+	"mail.delivered": {},
 }
 
 func dedupe(in []string) []string {

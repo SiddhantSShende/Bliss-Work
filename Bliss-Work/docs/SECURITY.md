@@ -23,7 +23,7 @@ covers the security architecture, data protection, and compliance mapping.
 |---|---|---|
 | **Secret** | Ed25519 signing key, KEK / `DATA_MASTER_PASSPHRASE`, `DATA_BLIND_INDEX_KEY`, `TB_INTERNAL_TOKEN`, DB passwords | KMS / secret manager only; never in VCS (`keys/*.pem`, `.env*` gitignored); never logged |
 | **PII** | user email, display name | AES-256-GCM at rest (`users.email_enc`/`display_name_enc`); email also has an HMAC **blind index** for login lookup |
-| **User content** | DM + channel message bodies, message/inbox previews, task title/description | AES-256-GCM at rest (`*_enc` columns) |
+| **User content** | DM + channel message bodies, message/inbox previews, task title/description, mail subjects + bodies + every To/Cc/Bcc address | AES-256-GCM at rest (`*_enc` columns) |
 | **Metadata** | org/user ids, timestamps, status, roles, read receipts | not encrypted (needed for queries/joins); protected by authz + RLS |
 
 ## 3. Encryption at rest (envelope, per-org)
@@ -90,9 +90,10 @@ exercised. CI SAST/DAST findings should be triaged before an external test.
 
 ## 8. Screenshot protection — what it does and does not do
 
-The desktop app tries to stop screenshots of workspace content. Read this
-before repeating the claim to a customer, because the honest scope is narrower
-than the feature name suggests.
+The app tries to stop screenshots of workspace content, and where it cannot, it
+detects the attempt, refuses the keystroke, tells the user and records it. Read
+this before repeating the claim to a customer, because the honest scope is
+narrower than the feature name suggests.
 
 **There is no server-side control, and there cannot be.** A screenshot is taken
 by the operating system's compositor from pixels that have already been
@@ -100,7 +101,8 @@ decrypted and drawn on the user's own machine. A backend cannot see the
 framebuffer, cannot see the keyboard, and cannot un-render pixels. Any claim
 that screenshots are "blocked at the backend" is false.
 
-What the app actually does, in `apps/desktop/src/main/screenshot-guard.ts`:
+What the DESKTOP app actually does, in
+`apps/desktop/src/main/screenshot-guard.ts`:
 
 | Control | Windows | macOS | Linux/X11 |
 |---|---|---|---|
@@ -113,6 +115,14 @@ What the app actually does, in `apps/desktop/src/main/screenshot-guard.ts`:
 Applied through `hardenWindow` so every window creation path — main window,
 task sticky notes, pinned chat windows — gets it without anyone remembering to.
 
+The WEB app (`packages/app/src/lib/screenGuard.ts`) can do strictly less, and
+does the part it can: a page cannot exclude itself from capture, so there is no
+row one above it could fill, but capture chords delivered to the page —
+`PrintScreen`, `Print`, and macOS `Cmd+Shift+3/4/5` — are refused with
+`preventDefault`, warned about with the same message, and reported. It is
+installed only when the Electron host is absent, so the two never both report
+the same keystroke.
+
 **Not covered.** Win+Shift+S and the Snipping Tool; `gnome-screenshot`,
 Flameshot, Spectacle, ShareX and every other third-party capture tool; screen
 recording started before the window opened; a virtual machine or capture card;
@@ -124,10 +134,18 @@ practice: the AppImage and `.deb` are the builds produced natively by this repo.
 1. Content protection blacks the window out in *all* capture, including
    legitimate screen shares. Demoing BlissWork over Zoom, Teams or Meet shows a
    black rectangle, and so does a support call. This is currently always-on.
-2. `screenshot.attempted` is recorded only for users who consented to the
-   activity agent and paired a device (`main/activity-state.ts`). Everyone else
-   sees the warning but generates no record — deliberate, so the product never
-   writes monitoring data about someone who declined monitoring.
+2. `screenshot.attempted` reaches the record by one of two routes, and never
+   both. For a user who consented to the activity agent and paired a device it
+   goes through the agent (`main/activity-state.ts`, category `system`).
+   For everyone else — including every web user — the client reports it through
+   the ordinary session beacon it already sends (category `security`), which is
+   session telemetry rather than monitoring. Declining the activity agent
+   therefore costs a member their app-usage record, not the security record of a
+   refused capture. Both routes are `source`-tagged as self-reported, because
+   they are: the client is saying what it saw and refused, which is not the same
+   as proving nothing was captured.
+
+   Admins read it under **Security** in a member's activity timeline.
 
 Treat this as **deterrence, detection and an audit trail**, not prevention. For
 content that genuinely must not leave a screen, the control has to be "do not

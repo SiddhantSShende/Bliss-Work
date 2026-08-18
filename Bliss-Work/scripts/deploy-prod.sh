@@ -25,8 +25,26 @@
 # `env_file:` key. Passing `--env-file .env.prod` would silently swap the
 # interpolation source and is not the same thing.
 #
+# ── Two modes ───────────────────────────────────────────────────────────────
+# Everything above describes BUILD MODE, which is still the default and is
+# unchanged. Setting REGISTRY switches to PULL MODE, where a build VM has
+# already produced and pushed the images and this host only pulls them:
+#
+#     REGISTRY=registry.internal:5000 NAMESPACE=blisswork \
+#     IMAGE_TAG=abc1234 bash scripts/deploy-prod.sh
+#
+# In pull mode point 2 above still holds — the checkout is fast-forwarded and
+# the clean-tree guard still applies — but for a different reason. The tree is
+# no longer a build context; it is where compose reads the compose file, the
+# nginx and Coraza configs and the Postgres CA bundle from. A dirty tree there
+# means the running config has drifted from the images being deployed.
+#
+# Pull mode requires `docker login` to have been run on this host for REGISTRY.
+#
 # Env overrides: DEPLOY_ALLOW_DIRTY=1 (skip the guard — never in CI),
-# HEALTH_TIMEOUT (seconds, default 180), KEEP_IMAGE_TAGS (default 3).
+# HEALTH_TIMEOUT (seconds, default 180), KEEP_IMAGE_TAGS (default 3),
+# REGISTRY + NAMESPACE (enable pull mode), IMAGE_TAG (deploy a specific tag
+# rather than whatever HEAD resolves to).
 #
 set -Eeuo pipefail
 
@@ -36,13 +54,50 @@ LOCK_FILE="/tmp/blisswork-deploy.lock"
 STATE_DIR="$REPO_DIR/.deploy"
 LAST_GOOD="$STATE_DIR/last-good"
 
-# Images we build from source. Everything else in the compose file is a
-# digest-pinned upstream image.
+# ── Where images come from ──────────────────────────────────────────────────
+# Two modes, chosen by whether REGISTRY is set:
 #
-# caddy is built too, but it pins its own `task-board/caddy-waf:2.11` tag rather
-# than ${IMAGE_TAG}, so it takes no part in the SHA-tag/prune/rollback bookkeeping.
-SHA_TAGGED_SERVICES=(auth-svc email-worker task-svc notification-svc messaging-svc integrations-svc telemetry-svc ws-gateway)
-BUILT_SERVICES=("${SHA_TAGGED_SERVICES[@]}" caddy)
+#   REGISTRY unset (default)  build here, from this working tree, exactly as
+#                             this script has always done.
+#   REGISTRY set              pull images a build VM already produced. Nothing
+#                             is compiled on this host; the checkout is only a
+#                             source of config (the compose file, the nginx and
+#                             Coraza configs, the Postgres CA bundle).
+#
+# The compose file reads ${REGISTRY_PREFIX} with a `task-board` default, so
+# leaving REGISTRY unset resolves to the same image names as before.
+#
+# Pull mode needs `docker login` to have been run on this host for REGISTRY, or
+# `compose pull` fails on the first private repository it reaches.
+REGISTRY="${REGISTRY:-}"
+NAMESPACE="${NAMESPACE:-blisswork}"
+
+if [[ -n "$REGISTRY" ]]; then
+    PULL_MODE=1
+    REGISTRY_PREFIX="$REGISTRY/$NAMESPACE"
+    # The overlay repoints nginx at the prebuilt web image and drops the
+    # one-shot that used to fill the web_dist volume.
+    COMPOSE_ARGS=(-f "$COMPOSE_FILE" -f docker-compose.registry.yml)
+else
+    PULL_MODE=0
+    REGISTRY_PREFIX="task-board"
+    COMPOSE_ARGS=(-f "$COMPOSE_FILE")
+fi
+export REGISTRY_PREFIX
+
+# Compose SERVICE names we build (or pull) rather than take from upstream.
+# Everything else in the compose file is a digest-pinned upstream image.
+BUILT_SERVICES=(auth-svc email-worker task-svc notification-svc messaging-svc integrations-svc telemetry-svc ws-gateway caddy)
+
+# IMAGE repository names, one per entry above — identical except for caddy,
+# whose service is `caddy` but whose image is `caddy-waf`.
+#
+# caddy USED TO BE EXCLUDED from this bookkeeping because it pinned a literal
+# `:2.11` tag. That is safe only while the image never leaves this host: pushed
+# to a shared registry, a fixed tag lets every WAF change overwrite the same
+# manifest, leaving nothing to roll back to. It is now tagged, pruned and rolled
+# back like everything else.
+SHA_TAGGED_IMAGES=(auth-svc email-worker task-svc notification-svc messaging-svc integrations-svc telemetry-svc ws-gateway caddy-waf)
 
 # Services that declare a healthcheck and must report `healthy` before a deploy
 # counts as good. email-worker declares none, so polling it would wait forever on
@@ -57,6 +112,12 @@ HEALTH_SERVICES=(auth-svc task-svc notification-svc messaging-svc integrations-s
 
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-180}"
 KEEP_IMAGE_TAGS="${KEEP_IMAGE_TAGS:-3}"
+
+# A caller may name the tag to deploy. Jenkins does: it knows which tag it
+# actually built and pushed, and that is not necessarily this checkout's HEAD —
+# a later config-only commit moves HEAD without producing any images. Captured
+# here, before anything else touches IMAGE_TAG. Unset, HEAD wins, as before.
+REQUESTED_TAG="${IMAGE_TAG:-}"
 
 log()  { printf '\n\033[1;36m▶ %s\033[0m\n' "$*"; }
 warn() { printf '\033[1;33m! %s\033[0m\n' "$*" >&2; }
@@ -87,11 +148,18 @@ fi
 # genuinely broke production would stay broken while the script announced a
 # successful rollback. Forward it explicitly, read at call time so the value is
 # whatever the caller most recently set.
+#
+# REGISTRY_PREFIX rides along for the same reason: the compose file interpolates
+# it to decide whether an image name means "built here" or "pull from the
+# registry VM", and a sanitized environment would silently fall back to the
+# local `task-board` default while the script reported a registry deploy.
 compose() {
     if (( USE_SUDO )); then
-        sudo env IMAGE_TAG="${IMAGE_TAG:-latest}" docker compose -f "$COMPOSE_FILE" "$@"
+        sudo env IMAGE_TAG="${IMAGE_TAG:-latest}" \
+                 REGISTRY_PREFIX="$REGISTRY_PREFIX" \
+                 docker compose "${COMPOSE_ARGS[@]}" "$@"
     else
-        docker compose -f "$COMPOSE_FILE" "$@"
+        docker compose "${COMPOSE_ARGS[@]}" "$@"
     fi
 }
 
@@ -196,6 +264,14 @@ smoke_test() {
 # service_completed_successfully`, so it must be recreated explicitly after the
 # one-shot run rather than picking the change up on its own.
 deploy_web_bundle() {
+    if (( PULL_MODE )); then
+        # The bundle is baked into the nginx image by apps/web/Dockerfile, and
+        # the `compose up -d` above already recreated nginx because its image
+        # tag changed. There is nothing to build and no volume to fill.
+        log "Web bundle ships inside the nginx image — nothing to build"
+        return
+    fi
+
     log "Building web bundle (web-builder one-shot)"
     compose run --rm --no-deps web-builder
     log "Recreating nginx"
@@ -210,10 +286,18 @@ rollback() {
 
     git reset --hard "$prev_sha"
 
-    if [[ -n "$prev_tag" ]] && $DOCKER image inspect "task-board/auth-svc:$prev_tag" >/dev/null 2>&1; then
+    if [[ -n "$prev_tag" ]] && $DOCKER image inspect "$REGISTRY_PREFIX/auth-svc:$prev_tag" >/dev/null 2>&1; then
         # The previous image set is still in the local store, so this is a
         # container restart, not a rebuild.
         export IMAGE_TAG="$prev_tag"
+        compose up -d --remove-orphans
+    elif (( PULL_MODE )); then
+        # Pull mode makes rollback strictly better than it was: the previous tag
+        # lives in the registry, so it is recoverable even after the local store
+        # has been pruned. Rebuilding from source was the only option before.
+        warn "No local image set tagged '${prev_tag:-unknown}' — pulling it from $REGISTRY."
+        export IMAGE_TAG="${prev_tag:-latest}"
+        compose pull "${BUILT_SERVICES[@]}" nginx
         compose up -d --remove-orphans
     else
         warn "No local image set tagged '${prev_tag:-unknown}' — rebuilding from $prev_sha."
@@ -229,9 +313,9 @@ rollback() {
 # Keep the N most recent SHA tags per service so per-deploy tags can't fill the
 # disk. `latest` is never a candidate — it always points at the live set.
 prune_old_images() {
-    local svc tag
-    for svc in "${SHA_TAGGED_SERVICES[@]}"; do
-        $DOCKER images "task-board/$svc" --format '{{.Tag}}|{{.CreatedAt}}' 2>/dev/null \
+    local img tag
+    for img in "${SHA_TAGGED_IMAGES[@]}"; do
+        $DOCKER images "$REGISTRY_PREFIX/$img" --format '{{.Tag}}|{{.CreatedAt}}' 2>/dev/null \
             | grep -v '^latest|' \
             | grep -v '^<none>|' \
             | sort -t'|' -k2 -r \
@@ -239,7 +323,7 @@ prune_old_images() {
             | cut -d'|' -f1 \
             | while read -r tag; do
                 [[ -n "$tag" && "$tag" != "$IMAGE_TAG" ]] || continue
-                $DOCKER rmi "task-board/$svc:$tag" >/dev/null 2>&1 || true
+                $DOCKER rmi "$REGISTRY_PREFIX/$img:$tag" >/dev/null 2>&1 || true
               done
     done
 }
@@ -265,20 +349,35 @@ if ! git merge --ff-only "origin/$BRANCH"; then
 fi
 
 NEW_SHA="$(git rev-parse HEAD)"
-IMAGE_TAG="$(git rev-parse --short HEAD)"
+IMAGE_TAG="${REQUESTED_TAG:-$(git rev-parse --short HEAD)}"
 export IMAGE_TAG   # a shell env var beats the IMAGE_TAG in .env for interpolation
-log "Deploying $NEW_SHA as image tag '$IMAGE_TAG'"
+if [[ -n "$REQUESTED_TAG" ]]; then
+    log "Deploying $NEW_SHA with caller-supplied image tag '$IMAGE_TAG'"
+else
+    log "Deploying $NEW_SHA as image tag '$IMAGE_TAG'"
+fi
 
 trap 'rollback "$PREV_SHA" "$PREV_TAG"' ERR
 
-log "Building service images"
-compose build "${BUILT_SERVICES[@]}"
+if (( PULL_MODE )); then
+    log "Pulling images from $REGISTRY_PREFIX (tag $IMAGE_TAG)"
+    # Only the images this project publishes. Everything else in the compose
+    # file is a digest-pinned upstream image that is already on disk, and
+    # pulling the whole file would re-check two dozen of them on every deploy.
+    # nginx is in the list because in pull mode it IS the web bundle image.
+    compose pull "${BUILT_SERVICES[@]}" nginx
+else
+    log "Building service images"
+    compose build "${BUILT_SERVICES[@]}"
 
-# Keep `:latest` pointing at the live set so a bare `docker compose up -d` (with
-# no IMAGE_TAG exported) still starts what is actually deployed.
-for svc in "${SHA_TAGGED_SERVICES[@]}"; do
-    $DOCKER tag "task-board/$svc:$IMAGE_TAG" "task-board/$svc:latest"
-done
+    # Keep `:latest` pointing at the live set so a bare `docker compose up -d`
+    # (with no IMAGE_TAG exported) still starts what is actually deployed. In
+    # pull mode the registry publishes its own `:latest`, so there is nothing
+    # to alias locally.
+    for img in "${SHA_TAGGED_IMAGES[@]}"; do
+        $DOCKER tag "$REGISTRY_PREFIX/$img:$IMAGE_TAG" "$REGISTRY_PREFIX/$img:latest"
+    done
+fi
 
 log "Rolling services (each service runs its migrations at boot)"
 compose up -d --remove-orphans

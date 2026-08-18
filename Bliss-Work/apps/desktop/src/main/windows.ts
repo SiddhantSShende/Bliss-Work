@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { appIcon } from "./assets";
 import { hardenWindow } from "./harden";
+import { isSystemAway } from "./window-state-guard";
 import { getMainWindowBounds, saveMainWindowBounds } from "./sticky-state";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
@@ -89,6 +90,11 @@ export function createMainWindow(startHidden = false): BrowserWindow {
 function wireBoundsPersistence(win: BrowserWindow): void {
   const persist = () => {
     if (win.isDestroyed() || win.isMinimized()) return;
+    // A resize that happened while the machine was locked or asleep is the
+    // compositor's, not the user's. Recording it is how "the app changed its
+    // own window size overnight" becomes permanent — the next launch opens at
+    // whatever the system left behind. See window-state-guard.ts.
+    if (isSystemAway()) return;
     const b = win.getNormalBounds();
     saveMainWindowBounds({
       x: b.x,

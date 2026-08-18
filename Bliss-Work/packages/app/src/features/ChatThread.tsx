@@ -1,12 +1,14 @@
 import { useLayoutEffect, useMemo, useRef } from "react";
 import { motion } from "framer-motion";
-import { MessageSquare, Ban, PhoneMissed } from "lucide-react";
+import { MessageSquare, Ban, Forward, PhoneMissed, Pin } from "lucide-react";
 import { Avatar } from "@taskboard/ui";
 import { clock, groupMessages } from "../lib/chatFormat";
 import type { MessageDTO, ReactionDTO } from "@taskboard/shared";
 import { readablePrefix, type MediaItem } from "../lib/chatEnvelope";
+import { waForwardText, waShareLink } from "../lib/waLink";
 import { Composer } from "./Composer";
 import { SystemPill } from "./SystemPill";
+import { ForwardBadge } from "./ForwardBadge";
 import { MessageStatusBadge } from "./MessageStatusBadge";
 import { MessageActions, ReactionChips } from "./MessageActions";
 
@@ -17,9 +19,9 @@ export interface ThreadMessage {
   body: string;
   at?: string;
   pending?: boolean;
-  /** System entries (e.g. a missed call) render as
+  /** System entries (a missed call, a forward handed off to WhatsApp) render as
    *  a centered notice, not a bubble. */
-  kind?: "text" | "call_missed";
+  kind?: "text" | "call_missed" | "forward_external";
   /** Sender-side delivery state. Set only on the caller's own messages. */
   status?: MessageDTO["status"];
   /** The message this one quotes. Rendered as a strip above the body. */
@@ -28,6 +30,12 @@ export interface ThreadMessage {
   deletedForAll?: boolean;
   /** This message's reaction tally, from the caller's point of view. */
   reactions?: ReactionDTO[];
+  /** A copy delivered by forwarding someone else's message. Labelled above the
+   *  bubble — the same content under the forwarder's name with no marker
+   *  attributes it to them. */
+  isForward?: boolean;
+  /** Pinned for everyone in the channel. Channels only; DMs never set it. */
+  pinned?: boolean;
 }
 
 /** Is the caller already reacting with this emoji? Drives whether a tap on the
@@ -74,9 +82,13 @@ export function ChatThread({
   placeholder = "Write a message…",
   disabled = false,
   notice,
+  onForwardTo,
+  onForward,
   onReply,
   onHide,
   onDeleteForAll,
+  canModerate,
+  onTogglePin,
   onReact,
   replyTo,
   onCancelReply,
@@ -97,12 +109,40 @@ export function ChatThread({
   messages: ThreadMessage[];
   meId: string;
   onSend: (text: string) => void;
+  /**
+   * When provided, each non-pending bubble offers "Forward to chat or
+   * channel…", which delivers the message inside the workspace (attachments
+   * included — the server re-scopes them).
+   */
+  onForwardTo?: (messageId: string) => void;
+  /**
+   * When provided, each non-pending bubble offers "Forward to WhatsApp".
+   *
+   * The navigation itself is the anchor's own doing (see MessageActions); this
+   * only ARMS the record on the same click. The recipient is chosen inside
+   * WhatsApp, so there is nothing to capture here and no second entry.
+   */
+  onForward?: (messageId: string) => void;
   /** Start a reply quoting this message. */
   onReply?: (messageId: string) => void;
   /** "Delete for me" — hides it for the caller only. */
   onHide?: (messageId: string) => void;
-  /** "Delete for everyone" — sender only; the menu hides it on others' messages. */
+  /** "Delete for everyone" — the menu hides it on others' messages unless
+   *  `canModerate` says the caller may remove anyone's. */
   onDeleteForAll?: (messageId: string) => void;
+  /**
+   * The caller moderates this surface (channel owner / admin / org_admin), and
+   * so may delete other people's messages here.
+   *
+   * One flag for the whole thread rather than a per-message predicate: the
+   * capability is a property of the caller's role in the channel, not of any
+   * individual message, and threading a callback through every bubble to answer
+   * the same question would be the same answer N times.
+   */
+  canModerate?: boolean;
+  /** Pin/unpin a message for everyone. Absent where pinning does not apply
+   *  (DMs) or where the caller may not moderate. */
+  onTogglePin?: (messageId: string, pinned: boolean) => void;
   /** Toggle one emoji reaction on a message. */
   onReact?: (messageId: string, emoji: string, on: boolean) => void;
   /** The message currently being quoted — renders the composer's reply bar. */
@@ -239,8 +279,8 @@ export function ChatThread({
             );
 
             // A missed call is a fact about the conversation, not something
-            // either side said — centered, no bubble. Both members see the same
-            // row; only the caller is told "no answer".
+            // either side said — centered, no bubble, no forward action. Both
+            // members see the same row; only the caller is told "no answer".
             if (m.kind === "call_missed") {
               return (
                 <div key={m.id}>
@@ -248,6 +288,18 @@ export function ChatThread({
                   <SystemPill icon={<PhoneMissed size={12} className="text-red-500" />} at={m.at}>
                     {mine ? `${m.body} · no answer` : m.body}
                   </SystemPill>
+                </div>
+              );
+            }
+
+            // Handing a message to WhatsApp is the same class of fact: it left
+            // the workspace. The body is authored server-side, and the peer's
+            // copy carries the caveat — see ForwardBadge.
+            if (m.kind === "forward_external") {
+              return (
+                <div key={m.id}>
+                  {dayChip}
+                  <ForwardBadge body={m.body} at={m.at} mine={mine} />
                 </div>
               );
             }
@@ -272,15 +324,31 @@ export function ChatThread({
                     {!mine && showSenderNames && !grouped && (
                       <div className="mb-0.5 ml-1 text-xs font-medium text-muted">{m.senderName}</div>
                     )}
+                    {/* Said once, above the bubble, on both parties' copies:
+                        the forwarder needs to know the label is there as much
+                        as the reader does. Without it a forwarded photo is
+                        indistinguishable from one the sender took. */}
+                    {/* A pin nobody can see is not a pin. Marked on the bubble
+                        rather than only in the menu, so "pinned for everyone"
+                        is visible to everyone without opening anything. */}
+                    {m.pinned && !m.deletedForAll && (
+                      <div className="mb-0.5 flex items-center gap-1 px-1 text-[11px] font-medium text-accent">
+                        <Pin size={11} /> Pinned
+                      </div>
+                    )}
+                    {m.isForward && !m.deletedForAll && (
+                      <div className="mb-0.5 flex items-center gap-1 px-1 text-[11px] italic text-muted">
+                        <Forward size={11} /> Forwarded
+                      </div>
+                    )}
                     <div className={`group flex items-center gap-1 ${mine ? "flex-row-reverse" : "flex-row"}`}>
                       {m.deletedForAll ? (
                         // A tombstone, not a gap. The body genuinely is not on
                         // the client — the server never decrypts a deleted
                         // message — so there is nothing here to reveal.
                         <div
-                          className={`inline-flex items-center gap-1.5 rounded-2xl px-3.5 py-2 text-sm italic ${
-                            mine ? "rounded-br-md" : "rounded-bl-md"
-                          } bg-surface-2 text-muted ring-1 ring-border/60`}
+                          className={`inline-flex items-center gap-1.5 rounded-2xl px-3.5 py-2 text-sm italic ${mine ? "rounded-br-md" : "rounded-bl-md"
+                            } bg-surface-2 text-muted ring-1 ring-border/60`}
                         >
                           <Ban size={13} /> This message was deleted
                         </div>
@@ -288,11 +356,10 @@ export function ChatThread({
                         <div className={m.pending ? "opacity-60" : ""}>{custom}</div>
                       ) : (
                         <div
-                          className={`whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2 text-sm shadow-[0_2px_10px_-4px_rgba(40,30,90,0.25)] ${
-                            mine
-                              ? "rounded-br-md bg-gradient-to-br from-brand-from to-brand-to text-accent-fg"
-                              : "rounded-bl-md bg-surface text-fg ring-1 ring-border/60"
-                          } ${m.pending ? "opacity-60" : ""}`}
+                          className={`whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2 text-sm shadow-[0_2px_10px_-4px_rgba(40,30,90,0.25)] ${mine
+                            ? "rounded-br-md bg-gradient-to-br from-brand-from to-brand-to text-accent-fg"
+                            : "rounded-bl-md bg-surface text-fg ring-1 ring-border/60"
+                            } ${m.pending ? "opacity-60" : ""}`}
                         >
                           {quoted(m, byId)}
                           {m.body}
@@ -301,9 +368,23 @@ export function ChatThread({
                       {!m.pending && !m.deletedForAll && (
                         <MessageActions
                           mine={mine}
+                          // Built here because this is where the body lives.
+                          // waForwardText strips the envelope of a structured
+                          // body, so an attachment or shared location forwards
+                          // as readable text rather than raw JSON.
+                          forwardHref={
+                            onForward ? waShareLink(waForwardText(m.body)) : undefined
+                          }
+                          onForwardTo={onForwardTo ? () => onForwardTo(m.id) : undefined}
+                          onForward={onForward ? () => onForward(m.id) : undefined}
                           onReply={onReply ? () => onReply(m.id) : undefined}
                           onHide={onHide ? () => onHide(m.id) : undefined}
                           onDeleteForAll={onDeleteForAll ? () => onDeleteForAll(m.id) : undefined}
+                          canDeleteForAll={mine || !!canModerate}
+                          pinned={m.pinned}
+                          onTogglePin={
+                            onTogglePin ? () => onTogglePin(m.id, !m.pinned) : undefined
+                          }
                           onReact={
                             onReact ? (emoji) => onReact(m.id, emoji, !minePressed(m, emoji)) : undefined
                           }
@@ -363,11 +444,11 @@ export function ChatThread({
           replyPreview={
             replyTo
               ? {
-                  who: replyTo.senderName,
-                  text: replyTo.deletedForAll
-                    ? "Deleted message"
-                    : readablePrefix(replyTo.body) || replyTo.body,
-                }
+                who: replyTo.senderName,
+                text: replyTo.deletedForAll
+                  ? "Deleted message"
+                  : readablePrefix(replyTo.body) || replyTo.body,
+              }
               : undefined
           }
           onCancelReply={onCancelReply}

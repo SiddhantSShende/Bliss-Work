@@ -417,17 +417,43 @@ func (s *Store) MarkJoined(ctx context.Context, orgID, userID, callID string) er
 	})
 }
 
-// MarkLeft records departure. The call itself stays LIVE — an empty room is
-// ended explicitly by a host, or reaped by policy, not by the last person out.
+// LeaveCall records a departure — and ends the call when the person leaving is
+// the one hosting it.
 //
-// Also clears waiting_since, so this doubles as "give up waiting". Someone who
+// A participant walking out only leaves; the call stays LIVE for everyone still
+// in it. A HOST walking out ENDS it, in this same transaction: the meeting is
+// theirs, and one that outlives its organiser is a room the roster can keep
+// rejoining, with a live row in everyone's Meetings list, until somebody
+// remembers to press End. Ending it here is also the only way it happens on the
+// paths that have no button to press — closing the tab, navigating away.
+//
+// Deliberately HOST and not canStartCallTx's wider set. An org admin or channel
+// owner MAY end a call they are attending (that is what EndCall is for), but
+// their leaving must not, or an admin who drops into someone else's meeting for
+// two minutes takes it down on the way out.
+//
+// Clearing waiting_since makes this double as "give up waiting". Someone who
 // closes the tab in the lobby leaves it, and if they come back they are a fresh
 // arrival — which is what re-notifies the host that they are there.
-// Reports whether the departure also ended a screen share, so the caller knows
-// whether the room needs telling.
-func (s *Store) MarkLeft(ctx context.Context, orgID, userID, callID string) (bool, error) {
-	var wasSharing bool
+//
+// Returns whether the departure also ended a screen share, and the ended call
+// when this leave ended one, so the handler knows which events to emit.
+func (s *Store) LeaveCall(
+	ctx context.Context, orgID, userID, callID string,
+) (bool, *CallDTO, error) {
+	var (
+		wasSharing bool
+		ended      *CallDTO
+	)
 	err := s.withCaller(ctx, orgID, userID, func(tx pgx.Tx) error {
+		// Seat and status BEFORE the leave, because both decide what this is:
+		// whether the leaver hosts the call, and whether there is still a call
+		// to end. Reading it after would work too, and would cost a second
+		// round trip for a fact this read already carries.
+		c, seat, err := getCallAndSeatTx(ctx, tx, callID, userID)
+		if err != nil {
+			return err
+		}
 		if _, err := tx.Exec(ctx, `
 			UPDATE call_participants SET left_at = now(), waiting_since = NULL
 			WHERE call_id = $1 AND user_id = $2 AND left_at IS NULL`, callID, userID); err != nil {
@@ -436,11 +462,20 @@ func (s *Store) MarkLeft(ctx context.Context, orgID, userID, callID string) (boo
 		// Leaving stops whatever you were sharing. Without this a share stays
 		// recorded as live against a participant who is no longer in the room,
 		// and every client that joins later is told about a share that ended.
-		var err error
 		wasSharing, err = stopSharesTx(ctx, tx, callID, &userID)
+		if err != nil {
+			return err
+		}
+		if !endsCallOnLeave(orgID, seat, c) {
+			return nil
+		}
+		ended, err = endCallTx(ctx, tx, callID)
 		return err
 	})
-	return wasSharing, err
+	if err != nil {
+		return false, nil, err
+	}
+	return wasSharing, ended, nil
 }
 
 // EndCall closes a call. HOSTS ONLY.
@@ -484,41 +519,83 @@ func (s *Store) EndCall(
 		if callOrg != orgID {
 			return ErrForbidden
 		}
-		if _, err := tx.Exec(ctx, `
-			UPDATE calls SET status = 'ENDED', ended_at = now()
-			WHERE id = $1 AND status IN ('SCHEDULED', 'LIVE')`, callID); err != nil {
-			return err
-		}
-		// Revoke every outstanding link in the same transaction: a meeting that
-		// has ended must not remain joinable by a link already in someone's
-		// inbox.
-		if _, err := tx.Exec(ctx, `
-			UPDATE call_invites SET revoked_at = now()
-			WHERE call_id = $1 AND revoked_at IS NULL`, callID); err != nil {
-			return err
-		}
-		// Empty the waiting room, external guests included. A call that ended
-		// before it ever started would otherwise leave people parked in a lobby
-		// for a meeting that is never going to begin — and leave a stale lobby
-		// mark on the roster everyone can now read.
-		if _, err := clearLobbyTx(ctx, tx, callID); err != nil {
-			return err
-		}
-		// Close every live share. Passing nil means "everyone's" — the one
-		// place a share is stopped by someone other than the person sharing,
-		// and it is the call ending rather than a participant reaching for
-		// somebody else's stop button. Nothing needs telling that the shares
-		// stopped: call.ended already says the room is gone.
-		if _, err := stopSharesTx(ctx, tx, callID, nil); err != nil {
-			return err
-		}
-		out, err = getCallTx(ctx, tx, callID)
+		out, err = endCallTx(ctx, tx, callID)
 		return err
 	})
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
+}
+
+// endsCallOnLeave reports whether one person's departure closes the call.
+//
+// Kept separate from LeaveCall, and free of the database, because it is the
+// whole rule: everything else in that function happens either way. Three
+// conditions, and each one is load-bearing:
+//
+//   - HOST on the roster. Not canStartCallTx's wider set — an org admin or
+//     channel owner may END a call they are attending, but their walking out of
+//     one must not take it down with them.
+//   - the HOSTING org. Ending is a power over that org's call, and nothing
+//     seats a cross-org guest as HOST today; without this, if that ever changed,
+//     the UPDATE would trip the calls WITH CHECK (org-only) and fail with a
+//     database error instead of leaving the call alone.
+//   - a call there is still something to end. A leave arriving after somebody
+//     pressed End, or after the other host left, is ordinary rather than an
+//     error, and simply has no call left to close.
+func endsCallOnLeave(orgID string, seat callerSeat, c *callRow) bool {
+	if seat.role != RoleHost || c.orgID != orgID {
+		return false
+	}
+	return c.status == CallLive || c.status == CallScheduled
+}
+
+// endCallTx closes a call inside an existing transaction and returns it as it
+// is AFTER ending. Shared by the two ways a call ends — a host pressing End
+// (EndCall) and a host walking out (LeaveCall) — so the two cannot drift into
+// ending a call by different amounts.
+//
+// Callers must have decided the caller may do this BEFORE calling; nothing
+// here re-checks it.
+func endCallTx(ctx context.Context, tx pgx.Tx, callID string) (*CallDTO, error) {
+	ct, err := tx.Exec(ctx, `
+		UPDATE calls SET status = 'ENDED', ended_at = now()
+		WHERE id = $1 AND status IN ('SCHEDULED', 'LIVE')`, callID)
+	if err != nil {
+		return nil, err
+	}
+	// Somebody else got there first: two hosts leaving in the same instant, or a
+	// leave racing the End button. Nil rather than the call, so the caller knows
+	// it did not end it and stays quiet — the winner already revoked the links,
+	// emptied the lobby, and told the roster.
+	if ct.RowsAffected() == 0 {
+		return nil, nil
+	}
+	// Revoke every outstanding link in the same transaction: a meeting that
+	// has ended must not remain joinable by a link already in someone's
+	// inbox.
+	if _, err := tx.Exec(ctx, `
+		UPDATE call_invites SET revoked_at = now()
+		WHERE call_id = $1 AND revoked_at IS NULL`, callID); err != nil {
+		return nil, err
+	}
+	// Empty the waiting room, external guests included. A call that ended
+	// before it ever started would otherwise leave people parked in a lobby
+	// for a meeting that is never going to begin — and leave a stale lobby
+	// mark on the roster everyone can now read.
+	if _, err := clearLobbyTx(ctx, tx, callID); err != nil {
+		return nil, err
+	}
+	// Close every live share. Passing nil means "everyone's" — the one
+	// place a share is stopped by someone other than the person sharing,
+	// and it is the call ending rather than a participant reaching for
+	// somebody else's stop button. Nothing needs telling that the shares
+	// stopped: call.ended already says the room is gone.
+	if _, err := stopSharesTx(ctx, tx, callID, nil); err != nil {
+		return nil, err
+	}
+	return getCallTx(ctx, tx, callID)
 }
 
 // ── Invite links (MEETING only) ──────────────────────────────────────────────
@@ -1330,6 +1407,44 @@ func (s *Store) LiveParticipantIDs(ctx context.Context, callID string) ([]string
 			args = []any{*c.channelID}
 		}
 		ids, err = callIDsTx(ctx, tx, q, args...)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return ids, nil
+}
+
+// OnCallUserIDs returns everyone in `orgID` who is in a LIVE call right now.
+//
+// This is what turns "Online" into "Busy": presence knows a socket is connected,
+// which is a different question from whether the person can take an interruption.
+// Someone sitting in a meeting showing as Available is worse than showing
+// nothing at all, because a colleague acts on it.
+//
+// Derived from the call rows on every read rather than tracked as its own piece
+// of state. A `busy` set maintained by join/leave events is one missed event
+// away from marking somebody busy forever, with no traffic coming to correct it
+// — and unlike presence there is no heartbeat here to reap against. Reading the
+// truth is cheap: the row count is bounded by concurrent participants, not by
+// the size of the org.
+//
+// Scoped to the CALL's org. A meeting roster may legitimately span orgs (see
+// EmitCallLifecycle), and a guest from another company being in a call here does
+// not make them busy to their OWN colleagues — that is their org's call state to
+// report, not ours.
+func (s *Store) OnCallUserIDs(ctx context.Context, orgID string) ([]string, error) {
+	var ids []string
+	err := s.withOrg(ctx, orgID, func(tx pgx.Tx) error {
+		var err error
+		ids, err = callIDsTx(ctx, tx, `
+			SELECT DISTINCT cp.user_id
+			FROM call_participants cp
+			JOIN calls c ON c.id = cp.call_id
+			WHERE c.org_id = $1
+			  AND c.status = 'LIVE'
+			  AND cp.joined_at IS NOT NULL
+			  AND cp.left_at IS NULL`, orgID)
 		return err
 	})
 	if err != nil {

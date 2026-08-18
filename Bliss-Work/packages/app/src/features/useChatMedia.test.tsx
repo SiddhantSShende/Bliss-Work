@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { useChatMedia } from "./useChatMedia";
 import { Composer } from "./Composer";
 
@@ -18,6 +19,19 @@ import { Composer } from "./Composer";
 const uploadAttachment = vi.fn();
 const commitAttachment = vi.fn();
 const attachmentLinks = vi.fn();
+const reverseGeocode = vi.fn();
+const whereami = vi.fn();
+const hasPreciseLocation = vi.fn();
+const openLocationSettings = vi.fn();
+
+/** Whether the host offers an OS location-settings page. Undefined models
+ *  Linux and the web, where there is nothing to open. */
+let settingsCapability: (() => Promise<boolean>) | undefined;
+
+/** Which host the hook believes it is running in. Mutated per test — it is the
+ *  whole difference between "the user declined a prompt" and "the platform
+ *  refused something the user was never shown". */
+let hostKind: "web" | "electron" = "web";
 
 vi.mock("../lib/runtime", () => ({
   useRuntime: () => ({
@@ -27,11 +41,11 @@ vi.mock("../lib/runtime", () => ({
       attachmentLinks,
       mediaUrl: (p: string) => `https://example.test${p}`,
       staticMap: vi.fn().mockResolvedValue(null),
-      // The location path isn't exercised here, but the hook closes over both
-      // and an absent mock would surface as a confusing TypeError the day
-      // someone adds a location test.
-      reverseGeocode: vi.fn().mockResolvedValue(null),
-      whereami: vi.fn().mockResolvedValue(null),
+      reverseGeocode,
+      whereami,
+    },
+    get config() {
+      return { kind: hostKind, hasPreciseLocation, openLocationSettings: settingsCapability };
     },
   }),
 }));
@@ -115,6 +129,145 @@ beforeEach(() => {
   });
   commitAttachment.mockResolvedValue(undefined);
   attachmentLinks.mockResolvedValue([]);
+  hostKind = "web";
+  settingsCapability = undefined;
+  openLocationSettings.mockResolvedValue(true);
+  reverseGeocode.mockResolvedValue(null);
+  whereami.mockResolvedValue({ lat: 12.97, lng: 77.59 });
+  hasPreciseLocation.mockResolvedValue(false);
+});
+
+/** Drive getCurrentPosition to its error callback with `code`. */
+function geolocationFailsWith(code: number) {
+  const getCurrentPosition = vi.fn(
+    (_ok: PositionCallback, fail?: PositionErrorCallback | null) =>
+      fail?.({
+        code,
+        message: "",
+        PERMISSION_DENIED: 1,
+        POSITION_UNAVAILABLE: 2,
+        TIMEOUT: 3,
+      } as GeolocationPositionError),
+  );
+  Object.defineProperty(globalThis.navigator, "geolocation", {
+    value: { getCurrentPosition, watchPosition: vi.fn(), clearWatch: vi.fn() },
+    configurable: true,
+  });
+  return getCurrentPosition;
+}
+
+const PERMISSION_DENIED = 1;
+const POSITION_UNAVAILABLE = 2;
+
+/**
+ * Sharing a location when the position provider says no.
+ *
+ * The desktop app grants "geolocation" in its own permission handler and so
+ * never shows a prompt — which means a PERMISSION_DENIED there was NEVER the
+ * user declining, and treating it as one made the feature fail outright on
+ * every Windows box with the location toggle off and on every Linux desktop.
+ */
+describe("sharing a location when the device refuses", () => {
+  it("falls back to a coarse fix on desktop, where the user is never asked", async () => {
+    hostKind = "electron";
+    geolocationFailsWith(PERMISSION_DENIED);
+    const { send } = renderHarness();
+
+    await userEvent.click(screen.getByLabelText("Share your location"));
+
+    // The location still goes out — that is the whole bug.
+    await waitFor(() => expect(whereami).toHaveBeenCalled());
+    await waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+    expect(send.mock.calls[0]![0]).toContain("12.97");
+  });
+
+  it("honours a real refusal in the browser, which does prompt", async () => {
+    hostKind = "web";
+    geolocationFailsWith(PERMISSION_DENIED);
+    const { send } = renderHarness();
+
+    await userEvent.click(screen.getByLabelText("Share your location"));
+
+    // Overriding someone who clicked "Block" with an IP lookup would be a
+    // betrayal, so nothing is sent and nothing is looked up.
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    expect(whereami).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("still falls back for a plain device failure in the browser", async () => {
+    hostKind = "web";
+    geolocationFailsWith(POSITION_UNAVAILABLE);
+    const { send } = renderHarness();
+
+    await userEvent.click(screen.getByLabelText("Share your location"));
+
+    await waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+  });
+});
+
+/** The last `toast(...)` call's options, for asserting on the action button. */
+function lastToastOptions() {
+  const calls = (toast as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+  return calls[calls.length - 1]?.[1] as
+    | { description?: string; action?: { label: string; onClick: () => void } }
+    | undefined;
+}
+
+/**
+ * Offering the OS location settings page.
+ *
+ * Windows cannot prompt a desktop app for location at all, so a deep link to
+ * the settings page is the closest the platform allows to asking. The gating is
+ * the interesting part: it must appear only when the OS is what refused, and
+ * only where such a page exists.
+ */
+describe("the open-location-settings button", () => {
+  it("is offered when the OS refused and the platform has a settings page", async () => {
+    hostKind = "electron";
+    settingsCapability = openLocationSettings;
+    geolocationFailsWith(PERMISSION_DENIED);
+    renderHarness();
+
+    await userEvent.click(screen.getByLabelText("Share your location"));
+    await waitFor(() => expect(toast).toHaveBeenCalled());
+
+    const opts = lastToastOptions();
+    expect(opts?.action?.label).toBe("Open settings");
+    expect(opts?.description).toContain("Location access is off");
+
+    opts!.action!.onClick();
+    expect(openLocationSettings).toHaveBeenCalled();
+  });
+
+  it("is withheld on a platform with no settings page, even when the OS refused", async () => {
+    // Linux: the host omits the capability because there is no OS location
+    // provider to authorize. A button here would open nothing.
+    hostKind = "electron";
+    settingsCapability = undefined;
+    geolocationFailsWith(PERMISSION_DENIED);
+    renderHarness();
+
+    await userEvent.click(screen.getByLabelText("Share your location"));
+    await waitFor(() => expect(toast).toHaveBeenCalled());
+
+    expect(lastToastOptions()?.action).toBeUndefined();
+  });
+
+  it("is withheld when the device merely failed to get a fix", async () => {
+    // The OS never refused, so sending someone to the location toggle would be
+    // pointing them at something that was not the cause.
+    hostKind = "electron";
+    settingsCapability = openLocationSettings;
+    geolocationFailsWith(POSITION_UNAVAILABLE);
+    renderHarness();
+
+    await userEvent.click(screen.getByLabelText("Share your location"));
+    await waitFor(() => expect(toast).toHaveBeenCalled());
+
+    expect(lastToastOptions()?.action).toBeUndefined();
+    expect(openLocationSettings).not.toHaveBeenCalled();
+  });
 });
 
 describe("attaching a file", () => {
@@ -160,19 +313,44 @@ describe("attaching a file", () => {
   });
 
   // THE reported bug: dragging an image into the chat delivered it before the
-  // sender could look at it. Drop must attach, never send.
-  it("stages a dropped file instead of sending it", async () => {
+  // sender could look at it. A drop now ASKS first, and confirming only
+  // ATTACHES — the message still waits for Send.
+  it("asks before attaching a dropped file, then stages it", async () => {
     const { send } = renderHarness();
     const dropzone = screen.getByLabelText("Attach a file").closest("div")!.parentElement!;
     const file = new File(["abc"], "photo.png", { type: "image/png" });
 
     fireEvent.drop(dropzone, { dataTransfer: { files: [file], types: ["Files"] } });
 
+    // Nothing is uploaded on the drop itself: an accidental drop must cost
+    // nothing, not even an orphaned upload waiting to lapse.
+    await screen.findByText("Attach this file?");
+    expect(uploadAttachment).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Attach" }));
+
     await waitFor(() => expect(uploadAttachment).toHaveBeenCalled());
     expect((uploadAttachment.mock.calls[0]![2] as File).name).toBe("photo.png");
     // The chip is named from the SERVER's response, which this suite's mock
     // always answers as notes.pdf regardless of what went up.
     await waitFor(() => expect(screen.getByText("notes.pdf")).toBeInTheDocument());
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("uploads nothing when a dropped file is declined", async () => {
+    const { send } = renderHarness();
+    const dropzone = screen.getByLabelText("Attach a file").closest("div")!.parentElement!;
+    const file = new File(["abc"], "photo.png", { type: "image/png" });
+
+    fireEvent.drop(dropzone, { dataTransfer: { files: [file], types: ["Files"] } });
+    await screen.findByText("Attach this file?");
+
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    await waitFor(() =>
+      expect(screen.queryByText("Attach this file?")).not.toBeInTheDocument(),
+    );
+    expect(uploadAttachment).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
   });
 

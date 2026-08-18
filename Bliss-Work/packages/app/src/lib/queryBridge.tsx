@@ -70,10 +70,19 @@ export const qk = {
   agentTokens: ["activity", "agents"] as const,
   invites: ["invites"] as const,
   presence: ["presence"] as const,
+  /** Who is in a live call right now — the "Busy" half of a person's status.
+   *  Separate from `presence` because it has a different source (messaging-svc,
+   *  from the call rows) and a different lifetime. */
+  onCall: ["onCall"] as const,
   notifications: ["notifications"] as const,
   channels: ["channels"] as const,
   openChannels: ["channels", "open"] as const,
   channelMessages: (id: string) => ["channelMessages", id] as const,
+  /** Reaction tallies for one channel. Kept OFF the message list for the same
+   *  reason `reactions` is: the tally is per-viewer and changes far more often
+   *  than the messages, so folding it in would invalidate the whole channel on
+   *  every tap. */
+  channelReactions: (id: string) => ["channelReactions", id] as const,
   /** Members of ONE channel WITH their roles. Separate from the bare member-id
    *  list the task dialog reads, which must keep its string[] shape. */
   channelRoster: (id: string) => ["channelRoster", id] as const,
@@ -88,6 +97,9 @@ export const qk = {
   inboxPeerFeed: (peerId: string) => ["inboxPeerFeed", peerId] as const,
   thread: (id: string) => ["thread", id] as const,
   threadMessages: (id: string) => ["threadMessages", id] as const,
+  /** One complete email. Fetched only when a MAIL row is opened — the feed row
+   *  itself comes from `unifiedInbox` and carries no body. */
+  mail: (id: string) => ["mail", id] as const,
   /** Connected external accounts (integrations-svc). */
   integrations: ["integrations"] as const,
   /** Organizations the signed-in identity belongs to (org switcher). */
@@ -153,6 +165,19 @@ export function WsEventBridge() {
         case EventType.CallScheduled:
         case EventType.CallParticipantAdded:
         case EventType.CallEnded: {
+          // Someone joined or the call finished, so who is Busy just changed.
+          //
+          // Invalidated rather than patched: the event names one call, and the
+          // question is "is this person in ANY live call" — which only the
+          // server can answer without the client tracking every call it has
+          // ever heard about.
+          //
+          // Not complete on its own, deliberately. One participant leaving a
+          // call that CONTINUES emits nothing (see store.LeaveCall — only the
+          // leave that ends the call produces call.ended), so the 20s poll in
+          // useOnCall remains the correctness path. This is what makes the
+          // common transitions flip promptly rather than eventually.
+          void qc.invalidateQueries({ queryKey: qk.onCall });
           void qc.invalidateQueries({ queryKey: qk.calls });
           void qc.invalidateQueries({ queryKey: qk.call(e.callId) });
           if (e.channelId) {
@@ -172,6 +197,7 @@ export function WsEventBridge() {
         // its Join button went on asking the server to START a call that was
         // already running, which comes back 403 for everyone but the organiser.
         case EventType.CallStarted: {
+          void qc.invalidateQueries({ queryKey: qk.onCall });
           void qc.invalidateQueries({ queryKey: qk.calls });
           void qc.invalidateQueries({ queryKey: qk.call(e.callId) });
           if (e.channelId) {
@@ -244,6 +270,7 @@ export function WsEventBridge() {
                   senderId: e.senderId,
                   body: e.body,
                   kind: e.kind,
+                  isForward: e.isForward,
                   createdAt: e.occurredAt,
                 });
               return next.sort((a, b) => a.seq - b.seq);
@@ -288,6 +315,25 @@ export function WsEventBridge() {
             );
           }
           void qc.invalidateQueries({ queryKey: qk.conversations });
+          break;
+        }
+        case EventType.ChannelMemberJoined: {
+          // Routed to the added user only, so this is always about me — but a
+          // replayed event from another session's socket is cheap to guard.
+          if (e.userId !== me) break;
+          // The channel is new to my sidebar; nothing in cache has it yet.
+          void qc.invalidateQueries({ queryKey: qk.channels });
+          // It also just left the "channels I could join" directory.
+          void qc.invalidateQueries({ queryKey: qk.openChannels });
+          // `actorId === userId` is an open-channel self-join: I clicked Join,
+          // and announcing my own click back at me is noise. An ABSENT actorId
+          // is a server older than the field — stay quiet there too rather than
+          // risk telling someone they were added to a channel they joined.
+          // The durable copy in the bell is notification-svc's job and applies
+          // the same rule; this is only the live toast.
+          if (live && e.actorId && e.actorId !== e.userId) {
+            toast(e.channelName ? `You were added to #${e.channelName}` : "You were added to a channel");
+          }
           break;
         }
         case EventType.ChannelMemberRemoved:
@@ -379,12 +425,43 @@ export function WsEventBridge() {
                   senderUsername: e.senderUsername,
                   senderDisplayName: e.senderDisplayName,
                   body: e.body,
+                  isForward: e.isForward,
                   createdAt: e.occurredAt,
                 });
               return next.sort((a, b) => a.seq - b.seq);
             });
           }
           void qc.invalidateQueries({ queryKey: qk.channels });
+          break;
+        }
+        case EventType.ChannelMessageDeleted: {
+          // Patched, not invalidated. A moderator's delete that members only
+          // see after their next refetch is one they may well have
+          // screenshotted first; swapping the bubble for a tombstone here makes
+          // it immediate. The body is dropped locally too — the server has
+          // already stopped sending it, and leaving it in this cache would keep
+          // the text on screen until something else evicted it.
+          qc.setQueryData<ChannelMessageDTO[]>(qk.channelMessages(e.channelId), (prev) =>
+            (prev ?? []).map((m) =>
+              m.id === e.messageId ? { ...m, body: "", deletedForAll: true, pinned: false } : m,
+            ),
+          );
+          break;
+        }
+        case EventType.ChannelMessagePinned: {
+          qc.setQueryData<ChannelMessageDTO[]>(qk.channelMessages(e.channelId), (prev) =>
+            (prev ?? []).map((m) => (m.id === e.messageId ? { ...m, pinned: e.pinned } : m)),
+          );
+          break;
+        }
+        case EventType.ChannelMessageReaction: {
+          // Refetch rather than patch: the event carries no counts on purpose
+          // (the tally is per-viewer), so there is nothing here to apply. The
+          // actor already has the authoritative tally from their own PUT/DELETE
+          // response, so skipping their echo avoids a redundant round-trip.
+          if (e.actorId !== me) {
+            void qc.invalidateQueries({ queryKey: qk.channelReactions(e.channelId) });
+          }
           break;
         }
         case EventType.TaskAssigned: {
@@ -507,6 +584,23 @@ export function WsEventBridge() {
             void qc.invalidateQueries({ queryKey: ["mentions"] });
             if (live) toast(`You were mentioned on ${e.provider}`);
           }
+          break;
+        }
+        case EventType.MailDelivered: {
+          // Signal-only by design: the event carries no subject or body (see
+          // MailDelivered in the shared contract), so there is nothing to patch
+          // optimistically — the feed is refetched and renders the new row.
+          //
+          // Routed to the author too, whose Sent copy needs to appear on their
+          // other devices, so this fires for mail the user sent themselves.
+          // That is why only the toast is gated on not being the sender: the
+          // refetch is wanted in both cases.
+          void qc.invalidateQueries({ queryKey: qk.unifiedInbox });
+          void qc.invalidateQueries({ queryKey: qk.inboxPeers });
+          void qc.invalidateQueries({ queryKey: ["inboxPeerFeed"] });
+          // Never from the reconnect replay — announcing mail that arrived
+          // hours ago as if it just landed is worse than not announcing it.
+          if (live && e.senderId !== me) toast("New mail in your Inbox");
           break;
         }
         // ── Live presence ────────────────────────────────────────────────────

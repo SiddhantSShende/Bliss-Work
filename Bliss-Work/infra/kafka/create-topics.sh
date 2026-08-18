@@ -72,6 +72,11 @@ create "auth.events"
 # consumers' dead-letter producers fail and a poison message redelivers forever.
 create "notification.events.v1.dlq"
 create "email-worker-dlq"
+# Cross-region bridge dead letters — events that could not cross the region
+# boundary (unpublishable, or refused by the loop guard). Created unconditionally
+# because auto.create.topics.enable is false and a bridge whose DLQ does not
+# exist has to choose between losing the event and stalling the topic behind it.
+create "region-bridge-dlq"
 
 echo "All topics created."
 /opt/kafka/bin/kafka-topics.sh --bootstrap-server "${BROKER}" --list

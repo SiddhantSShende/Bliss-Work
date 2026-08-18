@@ -55,7 +55,7 @@ claim.
 | Audit chain verification | Re-walks the chain, returns `{ok, broken_at, reason}` | `services/auth-svc/app/service.py::verify_audit_chain`; endpoint `services/auth-svc/app/routes/internal.py` (`/internal/audit/verify/{org_id}`) |
 | Request traceability | `X-Request-Id` on every response, bound into structured logs | `services/auth-svc/app/middleware.py::RequestIDMiddleware` |
 | Telemetry | OTEL traces + Prometheus `/metrics` (RED) | `services/auth-svc/app/main.py`; `infra/observability/*` |
-| Member-admin actions audited | role change / suspend / reactivate / remove written to the hash chain | `services/auth-svc/app/routes/members_service.py` (`member.*` actions) |
+| Member-admin actions audited | role change / suspend / reactivate / remove, plus a member's self-service `member.left`, written to the hash chain | `services/auth-svc/app/routes/members_service.py` (`member.*` actions) |
 | Authentication events audited | login, failed login, logout, org switch | `services/auth-svc/app/routes/session_events.py` |
 | Audit trail readable by the tenant | `GET /auth/audit` (org_admin), keyset-paginated | `services/auth-svc/app/routes/members.py::list_audit`; Members → Security tab |
 

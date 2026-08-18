@@ -106,7 +106,7 @@ func (t *HTTPTransport) Send(ctx context.Context, nodeID string, batch Batch) (R
 		return Result{}, fmt.Errorf("%w: %s", ErrNodeUnreachable, nodeID)
 	}
 
-	res, err := t.client.Send(ctx, addr, batch)
+	res, err := t.client.SendTo(ctx, addr, batch)
 	if err != nil {
 		// The address came from a cache; a failure is the best evidence
 		// available that it is stale. See AddrResolver.

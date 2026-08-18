@@ -14,6 +14,7 @@ import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { useSession } from "../store/session";
 import { matchUser, rankUsers } from "../lib/matchUser";
+import { displayNameOf } from "../lib/userLabel";
 import { SearchResults, type SearchGroup } from "../features/SearchResults";
 import { useGoBack } from "../lib/useGoBack";
 
@@ -70,9 +71,19 @@ export function Search() {
       {
         key: "chats",
         label: "Chats",
+        // Labelled by the peer's NAME. `peerUsername` is the email local-part
+        // (see lib/userLabel), so titling a chat result with it put an address
+        // fragment where every other chat surface shows a person.
+        //
+        // The name is MATCHED as well as shown — searching a colleague's actual
+        // name used to miss their chat entirely — while the handle stays
+        // matchable, so nothing that used to be findable stopped being findable.
         rows: chats
-          .filter((c: ConversationDTO) => c.peerUsername.toLowerCase().includes(ql) || (c.lastMessage ?? "").toLowerCase().includes(ql))
-          .map((c) => ({ id: c.id, title: c.peerUsername, subtitle: c.lastMessage ?? undefined, to: `/app/chats/${c.id}` })),
+          .filter((c: ConversationDTO) =>
+            displayNameOf(c).toLowerCase().includes(ql) ||
+            c.peerUsername.toLowerCase().includes(ql) ||
+            (c.lastMessage ?? "").toLowerCase().includes(ql))
+          .map((c) => ({ id: c.id, title: displayNameOf(c), subtitle: c.lastMessage ?? undefined, to: `/app/chats/${c.id}` })),
       },
       { key: "tasks", label: "Tasks", rows: [...tasks.values()] },
     ];

@@ -13,8 +13,20 @@ set -uo pipefail
 
 cd "$(dirname "$0")"
 
-EMAIL="${LT_EMAIL:?set LT_EMAIL}"
+# One of these is required. LT_USERS is the one to use: rate limits are keyed on
+# the verified USER, so a single LT_EMAIL caps the whole curve at ~10 rps of 429s
+# and measures the limiter rather than the system (see provision.sh).
+USERS_FILE="${LT_USERS:-}"
+EMAIL="${LT_EMAIL:-}"
 CHANNEL="${LT_CHANNEL:-}"
+if [ -z "$USERS_FILE" ] && [ -z "$EMAIL" ]; then
+  echo "set LT_USERS=users.json (preferred) or LT_EMAIL" >&2
+  exit 1
+fi
+if [ -n "$USERS_FILE" ] && [ ! -r "$USERS_FILE" ]; then
+  echo "LT_USERS=$USERS_FILE is not readable" >&2
+  exit 1
+fi
 RATES="${RATES:-50 100 200 400 800}"
 HOLD="${HOLD:-25s}"
 ABORT_LOAD="${ABORT_LOAD:-14}"
@@ -29,7 +41,10 @@ prod_unhealthy() {
 
 load1() { awk '{print $1}' /proc/loadavg; }
 
-printf "%-8s %-10s %-10s %-10s %-10s %-8s\n" RPS achieved p50 p95 p99 fail%
+# p90/p95, not p99: k6's --summary-export emits only avg/min/med/max/p(90)/p(95),
+# so a p99 column here is structurally always 0.00 — which reads as "the tail is
+# perfect" at exactly the rates where the tail is what breaks.
+printf "%-8s %-10s %-10s %-10s %-10s %-8s\n" RPS achieved p50 p90 p95 fail%
 printf "%s\n" "----------------------------------------------------------------------"
 
 for rate in $RATES; do
@@ -45,15 +60,24 @@ for rate in $RATES; do
   fi
 
   json="$OUT/rate-${rate}.json"
+  # The pool has to be MOUNTED as well as named: LT_USERS is a path the k6
+  # script `open()`s from inside the container, so exporting it on the host
+  # without the bind mount leaves blisswork.js falling back to LT_EMAIL.
   sudo -n docker run --rm --network host \
     -v "$PWD/k6:/scripts:ro" -v "$PWD/$OUT:/out" \
-    -e LT_EMAIL="$EMAIL" -e LT_CHANNEL="$CHANNEL" \
+    ${USERS_FILE:+-v "$PWD/$USERS_FILE:/users.json:ro"} \
+    ${USERS_FILE:+-e LT_USERS=/users.json} \
+    ${EMAIL:+-e LT_EMAIL="$EMAIL"} -e LT_CHANNEL="$CHANNEL" \
+    ${SKIP_TASK:+-e SKIP_TASK="$SKIP_TASK"} \
     -e CONST_RPS="$rate" -e HOLD="$HOLD" \
     grafana/k6:latest run --quiet --summary-export="/out/rate-${rate}.json" \
-    /scripts/blisswork.js >/dev/null 2>&1
+    /scripts/blisswork.js >"$OUT/rate-${rate}.log" 2>&1
 
+  # k6 writes the summary as the container user; $OUT has to be writable by it
+  # or the run succeeds and silently exports nothing. Keep the full k6 output so
+  # a failed step is diagnosable instead of just absent.
   if [ ! -s "$json" ]; then
-    echo "step ${rate}: no summary written (k6 failed)" >&2
+    echo "step ${rate}: no summary written — see $OUT/rate-${rate}.log" >&2
     continue
   fi
 
@@ -67,8 +91,8 @@ secs = float(re.sub(r"[^0-9.]", "", hold) or 1)
 reqs = m.get("http_reqs", {}).get("count", 0)
 failrate = m.get("http_req_failed", {}).get("value", 0) * 100
 print("%-8s %-10.1f %-10.2f %-10.2f %-10.2f %-8.2f" % (
-    rate, reqs / secs, dur.get("med", 0), dur.get("p(95)", 0),
-    dur.get("p(99)", 0), failrate))
+    rate, reqs / secs, dur.get("med", 0), dur.get("p(90)", 0),
+    dur.get("p(95)", 0), failrate))
 PY
 done
 

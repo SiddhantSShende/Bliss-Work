@@ -616,7 +616,11 @@ livekit:
   # a chart that silently schedules an unreachable media plane is worse than one
   # that makes you opt in.
   enabled: false
-  image: livekit/livekit-server:v1.8.0
+  # Keep in step with packages/app's livekit-client — see the long note on the
+  # `livekit` service in docker-compose.prod.yml. A server older than v1.9.1
+  # does not echo the offer id the client waits for, and every group call turns
+  # into a 15-second rejoin loop.
+  image: livekit/livekit-server:v1.13.5
   # hostNetwork means one SFU per node — this is bounded by node count, not by
   # load. Past a few hundred concurrent streams the answer is more nodes.
   replicas: 1

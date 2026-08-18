@@ -255,6 +255,61 @@ def render_new_task_email(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# User-composed mail. Unlike everything else in this module, the content is not
+# ours: it is a person's own email, being relayed to an address outside the
+# workspace. So there is no card, no brand button and no call to action — the
+# body is the message, and dressing it in a notification template would turn
+# somebody's email into an advert for the product they sent it from.
+#
+# The ONLY addition is a one-line footer naming the workspace it came through,
+# which the recipient needs in order to make sense of a From address that is
+# not the author's own (see Mailer.send for why it cannot be).
+# ─────────────────────────────────────────────────────────────────────────────
+
+_USER_MAIL_HTML = _env.from_string(
+    """<!doctype html>
+<html><body style="margin:0;padding:24px;background:#ffffff;
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  font-size:15px;line-height:1.6;color:#111827;">
+  <div style="white-space:pre-wrap;">{{ body }}</div>
+  <hr style="margin:28px 0 12px;border:0;border-top:1px solid #e5e7eb;">
+  <p style="margin:0;font-size:12px;color:#6b7280;">
+    Sent by {{ sender_name }}{% if sender_address %} ({{ sender_address }}){% endif %}
+    via BlissWork. Reply to this email to reach them directly.
+  </p>
+</body></html>"""
+)
+
+_USER_MAIL_TEXT = _env.from_string(
+    """{{ body }}
+
+--
+Sent by {{ sender_name }}{% if sender_address %} ({{ sender_address }}){% endif %} via BlissWork.
+Reply to this email to reach them directly."""
+)
+
+
+def render_user_mail(
+    *,
+    body: str,
+    sender_name: str,
+    sender_address: str,
+) -> tuple[str, str]:
+    """Render a user's own email for relay to an external address.
+
+    ``body`` is the author's plain text and is NOT interpreted as markup —
+    jinja autoescape covers the HTML part, and the text part is passed through
+    verbatim.
+    """
+    ctx = {
+        "body": body,
+        "sender_name": sender_name or "a BlissWork user",
+        "sender_address": sender_address,
+    }
+    return _USER_MAIL_TEXT.render(**ctx), _USER_MAIL_HTML.render(**ctx)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Account-security emails: password reset + email verification. Same visual
 # language as the invite email (centered card, brand button). The security
 # copy ("didn't request this?" / expiry) is deliberate.

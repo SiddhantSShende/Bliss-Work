@@ -1,16 +1,18 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Hash, Users, ChevronLeft, LogOut, Lock, Video } from "lucide-react";
 import { toast } from "sonner";
 import { EmptyState } from "@taskboard/ui";
-import type { CallDTO, ChannelDTO, ChannelMessageDTO } from "@taskboard/shared";
+import type { CallDTO, ChannelDTO, ChannelMessageDTO, ReactionDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
 import { ChatThread } from "../features/ChatThread";
 import { useOlderMessages } from "../lib/useOlderMessages";
 import { ChannelMembersSheet } from "../features/ChannelMembersSheet";
+import { useWhatsAppForward } from "../lib/useWhatsAppForward";
+import { ForwardToDialog } from "../features/ForwardToDialog";
 import { useChatMedia } from "../features/useChatMedia";
 import { ScheduleCallDialog } from "../features/ScheduleCallDialog";
 import { CallRoom } from "../features/CallRoomLazy";
@@ -20,6 +22,9 @@ export function ChannelView() {
   const { api } = useRuntime();
   const qc = useQueryClient();
   const [rosterOpen, setRosterOpen] = useState(false);
+  const recordForward = useWhatsAppForward();
+  // The message being forwarded to another chat or channel (null = closed).
+  const [forwardTo, setForwardTo] = useState<{ id: string; body: string } | null>(null);
   const me = useSession((s) => s.user)!;
   const nav = useNavigate();
 
@@ -30,6 +35,7 @@ export function ChannelView() {
   // into the next channel unless it is explicitly reset.
   useEffect(() => {
     setRosterOpen(false);
+    setForwardTo(null);
     setScheduleOpen(false);
     // Leaving the route must not leave you silently in the previous
     // channel's call — CallRoom disconnects on unmount.
@@ -45,6 +51,62 @@ export function ChannelView() {
     queryKey: qk.channelMessages(channelId),
     queryFn: () => api.channelMessages(channelId),
     enabled: !!channelId,
+  });
+
+  // Reactions ride a separate query rather than the message DTO — same reason
+  // as DMView: the tally is per-viewer and changes far more often than the
+  // messages do, so folding it in would invalidate the channel on every tap.
+  const { data: reactions = [] } = useQuery({
+    queryKey: qk.channelReactions(channelId),
+    queryFn: () => api.channelReactions(channelId),
+    enabled: !!channelId,
+  });
+  const reactionsByMessage = useMemo(() => {
+    const map = new Map<string, ReactionDTO[]>();
+    for (const r of reactions) {
+      const list = map.get(r.messageId);
+      if (list) list.push(r);
+      else map.set(r.messageId, [r]);
+    }
+    return map;
+  }, [reactions]);
+
+  // Whether the caller may moderate: remove anyone's message, and pin for
+  // everyone. `myRole` is the caller's standing in THIS channel; an org_admin
+  // moderates every channel without needing to be in it, which is the same rule
+  // requireChannelManager applies server-side. The server re-checks regardless
+  // — this only decides what to OFFER.
+  const canModerate =
+    channel?.myRole === "owner" ||
+    channel?.myRole === "admin" ||
+    !!me.roles?.includes("org_admin");
+
+  const react = useMutation({
+    mutationFn: ({ id, emoji, on }: { id: string; emoji: string; on: boolean }) =>
+      api.setChannelReaction(id, emoji, on),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.channelReactions(channelId) }),
+    onError: () => toast.error("Couldn't save that reaction"),
+  });
+
+  const hide = useMutation({
+    mutationFn: (id: string) => api.hideChannelMessage(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.channelMessages(channelId) }),
+    onError: () => toast.error("Couldn't hide that message"),
+  });
+
+  const removeForAll = useMutation({
+    mutationFn: (id: string) => api.deleteChannelMessageForAll(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.channelMessages(channelId) }),
+    onError: () => toast.error("Couldn't delete that message"),
+  });
+
+  const togglePin = useMutation({
+    mutationFn: ({ id, on }: { id: string; on: boolean }) => api.setChannelMessagePin(id, on),
+    onSuccess: (_r, { on }) => {
+      qc.invalidateQueries({ queryKey: qk.channelMessages(channelId) });
+      toast.success(on ? "Pinned for everyone" : "Unpinned");
+    },
+    onError: () => toast.error("Couldn't change the pin"),
   });
 
   const [scheduleOpen, setScheduleOpen] = useState(false);
@@ -204,7 +266,11 @@ export function ChannelView() {
           // senderUsername is the email local-part; the display name is what a
           // reader should see above a channel bubble.
           id: m.id, senderId: m.senderId, senderName: m.senderDisplayName || m.senderUsername,
-          body: m.body, at: m.createdAt, kind: m.kind, pending: m.id.startsWith("temp:"),
+          body: m.body, at: m.createdAt, kind: m.kind, isForward: m.isForward,
+          pending: m.id.startsWith("temp:"),
+          deletedForAll: m.deletedForAll,
+          pinned: m.pinned,
+          reactions: reactionsByMessage.get(m.id),
         }))}
         meId={me.id}
         onLoadOlder={loadOlder}
@@ -215,6 +281,19 @@ export function ChannelView() {
         onSend={(t) => media.flushStaged(t)}
         showSenderNames
         placeholder={`Message #${channel.name}…`}
+        onForwardTo={(id) => {
+          const msg = messages.find((m: ChannelMessageDTO) => m.id === id);
+          setForwardTo({ id, body: msg?.body ?? "" });
+        }}
+        onForward={recordForward}
+        onHide={(id) => hide.mutate(id)}
+        onDeleteForAll={(id) => removeForAll.mutate(id)}
+        canModerate={canModerate}
+        // Pinning is a moderation capability: it changes what the whole channel
+        // sees, so the entry is simply absent for an ordinary member rather than
+        // present and refused.
+        onTogglePin={canModerate ? (id, on) => togglePin.mutate({ id, on }) : undefined}
+        onReact={(id, emoji, on) => react.mutate({ id, emoji, on })}
         renderBody={media.renderBody}
         onAttach={media.onAttach}
         onShareLocation={media.onShareLocation}
@@ -227,6 +306,12 @@ export function ChannelView() {
         overlay={media.overlay}
       />
       <input {...media.fileInputProps} />
+      <ForwardToDialog
+        open={!!forwardTo}
+        onClose={() => setForwardTo(null)}
+        sourceMessageId={forwardTo?.id ?? null}
+        preview={forwardTo?.body}
+      />
       {scheduleOpen && (
         <ScheduleCallDialog
           scope={{ kind: "channel", channelId }}

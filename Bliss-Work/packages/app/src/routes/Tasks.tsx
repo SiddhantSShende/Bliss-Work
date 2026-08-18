@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useParams, NavLink } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
@@ -8,6 +8,7 @@ import { Badge, Button, GlassCard, EmptyState } from "@taskboard/ui";
 import type { SentTaskDTO, StickyTaskDTO, TaskAction, UserDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
+import { TERMINAL_VIEW_LIMIT, isTerminalView, terminalAt } from "./tasksBuckets";
 import { AvailablePeople } from "../features/AvailablePeople";
 import { CreateTaskDialog } from "../features/CreateTaskDialog";
 import { ExportTasksDialog } from "../features/ExportTasksDialog";
@@ -119,12 +120,25 @@ function AssignedBucket({ view }: { view: string }) {
   // LEFT is its OWN terminal bucket — never folded into "Completed". Leaving a
   // task is a distinct outcome from completing it, and the user must see it
   // labelled "left" (to both parties), not "completed".
-  const tasks = all.filter((t: StickyTaskDTO) =>
-    view === "ignored" ? t.myStatus === "IGNORED"
-      : view === "left" ? t.myStatus === "LEFT"
-        : view === "completed" ? t.myStatus === "COMPLETED"
-          : t.myStatus === "SENT" || t.myStatus === "ACKNOWLEDGED",
-  );
+  const tasks = useMemo(() => {
+    const matched = all.filter((t: StickyTaskDTO) =>
+      view === "ignored" ? t.myStatus === "IGNORED"
+        : view === "left" ? t.myStatus === "LEFT"
+          : view === "completed" ? t.myStatus === "COMPLETED"
+            : t.myStatus === "SENT" || t.myStatus === "ACKNOWLEDGED",
+    );
+    if (!isTerminalView(view)) return matched;
+    // Terminal buckets are history, and history only grows. Show the most
+    // recent handful and stop.
+    //
+    // Sorted by when the task REACHED this bucket, not by when it was
+    // assigned: a task handed over in January and completed today is the
+    // newest thing in Completed, and ordering by assignedAt would bury it
+    // under nine tasks nobody has touched since.
+    return [...matched]
+      .sort((a, b) => terminalAt(b).localeCompare(terminalAt(a)))
+      .slice(0, TERMINAL_VIEW_LIMIT);
+  }, [all, view]);
 
   const act = useMutation({
     mutationFn: ({ taskId, action }: { taskId: string; action: TaskAction }) =>

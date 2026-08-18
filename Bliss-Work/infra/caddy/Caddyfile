@@ -14,30 +14,79 @@
 	# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
 }
 
-# ── Upstream health checking ─────────────────────────────────────────────────
+# ── Upstream discovery, load balancing and health ────────────────────────────
 #
-# Imported by every reverse_proxy below. Two things it buys, and the first
-# matters even though this deployment runs one container per service:
+#     import upstream <compose-service> <port>
 #
-#   1. FAST EJECTION. Without a health check Caddy keeps handing requests to a
-#      wedged upstream and returns 502 for as long as it stays wedged. With one,
-#      the upstream is taken out of rotation within ~5s of going unhealthy and
-#      put back within ~5s of recovering, so a container restart is a brief
-#      blip rather than a wall of 502s.
-#   2. REAL LOAD BALANCING the moment there is more than one upstream. Add
-#      addresses to a reverse_proxy line and least_conn distributes across the
-#      healthy ones — with no health checks it would happily balance onto a dead
-#      one. Kubernetes is where multi-replica actually happens (deploy/helm),
-#      but the shape belongs here too so the two deployments do not disagree.
+# Imported by every reverse_proxy that targets a service on the private compose
+# network. It is what makes the edge a LOAD BALANCER rather than a router.
 #
-# /readyz rather than /healthz: readiness is "can serve traffic" (dependencies
-# reachable), liveness is only "process is alive". Every service exposes both.
+# ── Why the address is discovered rather than written down ───────────────────
+# Each route used to name exactly one container (`reverse_proxy auth-svc:8001`),
+# so every request on the platform reached a single process per service and the
+# only answer to load was to make that process bigger. Resolving the service
+# name instead means the replica count is a deployment decision, not an edge-
+# config one — see the `dynamic a` block below.
+#
+# ── What this costs, and why it is still the right trade ─────────────────────
+# ACTIVE health checks (`health_uri /readyz` on a timer) do NOT run against
+# dynamic upstreams — Caddy only probes a statically listed set. This config
+# relied on them, so the loss is real, and it is replaced rather than dropped:
+#
+#   * PASSIVE health (`max_fails` / `fail_duration`) ejects a replica on real
+#     failures instead of on a probe. It reacts a few requests later than a
+#     probe would.
+#   * `lb_try_duration` makes most of those few requests invisible anyway: a
+#     refused connection is retried against another replica rather than
+#     returned to the user.
+#   * The compose `healthcheck:` + `restart: unless-stopped` still restart a
+#     wedged container, and `refresh` then drops its address.
+#
+# At one replica this is slightly worse than the probe it replaces. At two or
+# more it is far better, because a failing replica no longer takes every request
+# routed to it down with it — and running two or more is the entire point.
+#
+# /readyz has NOT gone away: it still gates compose dependency ordering and the
+# Kubernetes readiness probe (deploy/helm). It is only no longer polled here.
 (upstream) {
+	# ── Discovery ────────────────────────────────────────────────────────────
+	# One A-record lookup for the compose service name, refreshed on a timer.
+	# Docker's embedded DNS answers a service name with the address of EVERY
+	# container behind it, so
+	#
+	#     docker compose -f docker-compose.prod.yml up -d --scale task-svc=4
+	#
+	# starts receiving traffic within `refresh`, with no edit here and no
+	# reload. The baseline replica counts live in docker-compose.prod.yml
+	# (`deploy.replicas`); this file deliberately knows none of them.
+	dynamic a {
+		name {args[0]}
+		port {args[1]}
+		# Bounds how long a new replica waits for its first request, and how
+		# long a removed one's address lingers. Docker's resolver is in-process;
+		# there is no reason to be lazy about this.
+		refresh 10s
+		# The compose bridge is IPv4-only — an AAAA lookup can only come back
+		# empty.
+		versions ipv4
+	}
+
+	# ── Distribution ─────────────────────────────────────────────────────────
+	# Fewest in-flight requests wins, rather than round-robin. Request cost here
+	# spans orders of magnitude (a token refresh vs. a 100 MB attachment
+	# upload), and least_conn is what stops a replica already holding a slow
+	# request from being handed the next one anyway.
 	lb_policy least_conn
-	health_uri /readyz
-	health_interval 5s
-	health_timeout 2s
-	# How long a failing upstream stays ejected before it is retried.
+	# A request whose replica refuses the connection is RE-DISPATCHED to another
+	# one instead of being returned as a 502. Caddy only retries when nothing
+	# was written upstream, so a non-idempotent POST is never replayed.
+	lb_retries 2
+	lb_try_duration 5s
+	lb_try_interval 250ms
+
+	# ── Health ───────────────────────────────────────────────────────────────
+	# Two failures inside the window eject that replica for the window.
+	max_fails 2
 	fail_duration 30s
 }
 
@@ -73,8 +122,8 @@
 	# source order and matches before the catch-all.
 	@ws path /ws /ws/*
 	handle @ws {
-		reverse_proxy ws-gateway:8080 {
-			import upstream
+		reverse_proxy {
+			import upstream ws-gateway 8080
 		}
 	}
 
@@ -85,9 +134,10 @@
 	# than a compose service name: livekit runs with host networking for its UDP
 	# media range, so it is not on the bridge and has no DNS name (the compose
 	# `caddy` service maps that name via extra_hosts: host-gateway). And no
-	# `import upstream` — that snippet health-checks /readyz, which LiveKit does
-	# not serve, so the only upstream would be marked down and the route would 502
-	# while the SFU was healthy.
+	# `import upstream` — that snippet DISCOVERS replicas by resolving a compose
+	# service name, and there is no such name to resolve here. The SFU is a
+	# single host-networked process; scaling it means an SFU fleet with its own
+	# routing, not another address on this line.
 	#
 	# The prefix is stripped because LiveKit serves at /rtc, not /livekit/rtc.
 	# Keep in lock-step with Caddyfile.waf.
@@ -108,18 +158,18 @@
 
 	# REST APIs. Strip the public /api/<svc> prefix when proxying upstream.
 	handle_path /api/auth/* {
-		reverse_proxy auth-svc:8001 {
-			import upstream
+		reverse_proxy {
+			import upstream auth-svc 8001
 		}
 	}
 	handle_path /api/tasks/* {
-		reverse_proxy task-svc:8002 {
-			import upstream
+		reverse_proxy {
+			import upstream task-svc 8002
 		}
 	}
 	handle_path /api/notifications/* {
-		reverse_proxy notification-svc:8003 {
-			import upstream
+		reverse_proxy {
+			import upstream notification-svc 8003
 		}
 	}
 	# Chat attachments (upload and the signed /media/* download) ride this same
@@ -128,40 +178,40 @@
 	# a 100 MB upload at the edge. This file has no WAF, so one handler suffices;
 	# the asymmetry between the two files is deliberate, not drift.
 	handle_path /api/messaging/* {
-		reverse_proxy messaging-svc:8004 {
-			import upstream
+		reverse_proxy {
+			import upstream messaging-svc 8004
 		}
 	}
 	handle_path /api/integrations/* {
-		reverse_proxy integrations-svc:8005 {
-			import upstream
+		reverse_proxy {
+			import upstream integrations-svc 8005
 		}
 	}
 	handle_path /api/telemetry/* {
-		reverse_proxy telemetry-svc:8006 {
-			import upstream
+		reverse_proxy {
+			import upstream telemetry-svc 8006
 		}
 	}
 	# Public inbound webhooks + OAuth callbacks for external integrations. NOT under
 	# /internal/ (which is 404'd), and provider-signature authenticated upstream.
 	handle /ext/* {
-		reverse_proxy integrations-svc:8005 {
-			import upstream
+		reverse_proxy {
+			import upstream integrations-svc 8005
 		}
 	}
 
 	# JWKS must be reachable at a stable public path for any external verifier.
 	handle /.well-known/jwks.json {
-		reverse_proxy auth-svc:8001 {
-			import upstream
+		reverse_proxy {
+			import upstream auth-svc 8001
 		}
 	}
 
 	# TURN credentials for WebRTC calls → ws-gateway.
 	@turn path /turn-credentials
 	handle @turn {
-		reverse_proxy ws-gateway:8080 {
-			import upstream
+		reverse_proxy {
+			import upstream ws-gateway 8080
 		}
 	}
 
@@ -170,8 +220,8 @@
 	# returns HTML, breaking online-status. JWT-authed in the handler.
 	@presence path /presence
 	handle @presence {
-		reverse_proxy ws-gateway:8080 {
-			import upstream
+		reverse_proxy {
+			import upstream ws-gateway 8080
 		}
 	}
 

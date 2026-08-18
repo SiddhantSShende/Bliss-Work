@@ -95,6 +95,7 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
     start,
     status,
     canStart,
+    ended,
     participants,
     micOn,
     camOn,
@@ -114,6 +115,13 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
     void join();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [call.id]);
+
+  // The host ended it. The hook has already disconnected and told the server we
+  // are out, so this only has to close the screen — going through hangUp would
+  // post a second leave for a call that is over.
+  useEffect(() => {
+    if (ended) onClose();
+  }, [ended, onClose]);
 
   const externals = call.participants.filter((p) => p.external).length;
 

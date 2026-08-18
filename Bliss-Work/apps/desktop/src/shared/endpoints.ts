@@ -73,3 +73,28 @@ export function resolveEndpoints(
     wsUrl: pick("wsUrl"),
   };
 }
+
+/**
+ * The form the two entry points MUST use.
+ *
+ * Identical to `resolveEndpoints` except that the overrides object is a full
+ * `Record<keyof Endpoints, …>` rather than a `Partial`, so every key has to be
+ * named at the call site. Omitting one is a compile error rather than a silent
+ * fallback to the baked default.
+ *
+ * That is not hypothetical tidiness. Both entry points shipped for months
+ * without `telemetryBase` in their override maps: `VITE_TELEMETRY_BASE` worked
+ * on the web app and was silently ignored on the desktop, so a deployment that
+ * pointed telemetry anywhere other than the default had a desktop app quietly
+ * talking to the wrong host — and the whole member-activity section failing
+ * only there. A `Partial` cannot tell you that; a required key can.
+ *
+ * `resolveEndpoints` keeps its Partial signature because tests legitimately
+ * override one key at a time.
+ */
+export function resolveEndpointsFromEnv(
+  isProd: boolean,
+  overrides: Record<keyof Endpoints, string | undefined>,
+): Endpoints {
+  return resolveEndpoints(isProd, overrides);
+}

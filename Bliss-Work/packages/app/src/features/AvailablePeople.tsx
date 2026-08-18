@@ -23,6 +23,7 @@ import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
 import { matchUser, rankUsers } from "../lib/matchUser";
 import { type AvailablePerson, useAvailability } from "../lib/useAvailability";
+import { useOnCall, type UserStatus } from "../lib/usePresence";
 
 export function AvailablePeople({ onAssign }: { onAssign: (u: UserDTO) => void }) {
   const { api } = useRuntime();
@@ -38,6 +39,10 @@ export function AvailablePeople({ onAssign }: { onAssign: (u: UserDTO) => void }
     refetchInterval: 20_000,
   });
   const onlineSet = new Set(online);
+  // Who is mid-call. This screen exists to answer "who can take work right
+  // now", so somebody sitting in a meeting showing as plain Available is the
+  // wrong answer to the only question it is asked.
+  const onCall = useOnCall();
 
   const setHidden = useMutation({
     mutationFn: ({ userId, hide }: { userId: string; hide: boolean }) =>
@@ -133,7 +138,13 @@ export function AvailablePeople({ onAssign }: { onAssign: (u: UserDTO) => void }
                   person={p}
                   isMe={p.user.id === me.id}
                   hiddenSelf={p.user.id === me.id && hiddenSelf}
-                  online={onlineSet.has(p.user.id)}
+                  status={
+                    onCall.has(p.user.id)
+                      ? "busy"
+                      : onlineSet.has(p.user.id)
+                        ? "online"
+                        : "offline"
+                  }
                   onAssign={() => onAssign(p.user)}
                   onHide={
                     canManage
@@ -185,14 +196,14 @@ function PersonCard({
   person: p,
   isMe,
   hiddenSelf,
-  online,
+  status,
   onAssign,
   onHide,
 }: {
   person: AvailablePerson;
   isMe: boolean;
   hiddenSelf: boolean;
-  online: boolean;
+  status: UserStatus;
   onAssign: () => void;
   onHide?: () => void;
 }) {
@@ -204,7 +215,7 @@ function PersonCard({
         title={`Allocate a task to ${p.user.displayName}`}
         className="flex w-full items-center gap-3 rounded-2xl p-4 text-left transition-colors hover:bg-surface-2/60"
       >
-        <Avatar name={p.user.displayName} online={online} />
+        <Avatar name={p.user.displayName} status={status} />
         <div className="min-w-0 flex-1">
           <div className="truncate font-medium text-fg">
             {p.user.displayName}
@@ -217,6 +228,7 @@ function PersonCard({
                 {p.pending} pending, unacked
               </Badge>
             )}
+            {status === "busy" && <Badge tone="warning">on a call</Badge>}
             {hiddenSelf && <Badge tone="neutral">hidden from others</Badge>}
           </div>
         </div>

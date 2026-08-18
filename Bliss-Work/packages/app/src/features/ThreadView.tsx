@@ -6,6 +6,7 @@ import type { MessageDTO } from "@taskboard/shared";
 import { clock, groupMessages } from "../lib/chatFormat";
 import { MessageStatusBadge } from "./MessageStatusBadge";
 import { SystemPill } from "./SystemPill";
+import { ForwardBadge } from "./ForwardBadge";
 
 interface ThreadMsgVisual {
   id: string;
@@ -142,6 +143,17 @@ export function ThreadView({
                 <SystemPill icon={<PhoneMissed size={12} className="text-red-500" />} at={m.at}>
                   {mine ? `${m.body} · no answer` : m.body}
                 </SystemPill>
+              </div>
+            );
+          }
+
+          // Same class of fact: the message left the workspace for WhatsApp.
+          // The original author's copy carries the caveat — see ForwardBadge.
+          if (m.kind === "forward_external") {
+            return (
+              <div key={m.id}>
+                {dayChip}
+                <ForwardBadge body={m.body} at={m.at} mine={mine} />
               </div>
             );
           }

@@ -160,6 +160,10 @@ func (s *Server) Router(webOrigin string) http.Handler {
 		// task-svc resolves channel members here when fanning out a channel-
 		// allocated task. Same shared-secret auth as the delivery endpoint.
 		g.Get("/internal/channels/{id}/members", s.internalChannelMembers)
+		// Inbound mail from outside BlissWork. Posted by whatever terminates
+		// SMTP for the deployment, in already-parsed form — see
+		// store.InboundMailInput for why the contract is not raw RFC 5322.
+		g.Post("/internal/mail/inbound", s.receiveInboundMail)
 	})
 
 	// ── Signed attachment download ───────────────────────────────────────────
@@ -239,6 +243,10 @@ func (s *Server) Router(webOrigin string) http.Handler {
 			r.Post("/calls/join", s.joinCallByToken)
 
 			r.Post("/calls/direct", s.startDirectCall)
+			// Who is busy right now. Registered BEFORE /calls/{id} so chi
+			// cannot read the literal "on-call" as a call id — the same
+			// ordering rule the channel roster route carries a note about.
+			r.Get("/calls/on-call", s.onCallUsers)
 			r.Get("/calls", s.listMyCalls)
 			r.Get("/calls/{id}", s.getCall)
 			r.Post("/calls/{id}/participants", s.addCallParticipant)
@@ -276,6 +284,21 @@ func (s *Server) Router(webOrigin string) http.Handler {
 			r.Get("/maps/reverse", s.reverseGeocode)
 			r.Get("/maps/whereami", s.whereami)
 
+			// Deep link (wa.me): records the forward and writes the system
+			// entry, but sends nothing — the client opens WhatsApp itself.
+			// Needs no connected Business account, so it is available to every
+			// authenticated org member. Idempotent on clientMsgId, so it stays
+			// out of the idempotency group.
+			r.Post("/messages/{id}/forward-link", s.forwardLink)
+
+			// Forward INSIDE the workspace, to a chat or a channel. Unlike the
+			// deep link this one delivers: it writes the clone, re-scopes the
+			// attachments it carries so the recipient can actually open them,
+			// and records the provenance edge in the same transaction.
+			// Idempotent on clientMsgId, so it stays out of the idempotency
+			// group for the same reason forward-link does.
+			r.Post("/messages/{id}/forward", s.forwardMessage)
+
 			r.Post("/channels", s.createChannel)
 			r.Get("/channels", s.listChannels)
 			r.Get("/channels/open", s.listOpenChannels)
@@ -295,9 +318,27 @@ func (s *Server) Router(webOrigin string) http.Handler {
 			r.Post("/channels/{id}/blocks/{userId}", s.blockChannelMember)
 			r.Delete("/channels/{id}/blocks/{userId}", s.unblockChannelMember)
 
+			// Per-message actions inside a channel. Same shapes as their DM
+			// twins above; see api/channel_message_actions.go for why the
+			// prefix is `/channel-messages/` rather than `/channels/messages/`.
+			r.Get("/channels/{id}/reactions", s.listChannelReactions)
+			r.Put("/channel-messages/{id}/reactions/{emoji}", s.setChannelReaction)
+			r.Delete("/channel-messages/{id}/reactions/{emoji}", s.setChannelReaction)
+			r.Put("/channel-messages/{id}/pin", s.pinChannelMessage)
+			r.Delete("/channel-messages/{id}/pin", s.pinChannelMessage)
+
 			// ── Phase 3: unified inbox + email-style threads ───────────────
 			r.Get("/inbox", s.listInbox)
 			r.Get("/inbox/peers", s.listInboxPeers)
+
+			// ── Mail ───────────────────────────────────────────────────────
+			// There is deliberately no GET /mail list endpoint: a mailbox
+			// listing is exactly what GET /inbox already serves (item_kind
+			// MAIL), keyset-paginated with unread rollups. Adding a second,
+			// parallel list would mean two pagination models over one feed.
+			r.Post("/mail/drafts", s.createMailDraft)
+			r.Delete("/mail/drafts/{id}", s.discardMailDraft)
+			r.Get("/mail/{id}", s.getMail)
 			r.Get("/threads/{id}", s.getThread)
 			r.Get("/threads/{id}/messages", s.listThreadMessages)
 			r.Post("/threads/{id}/reply", s.replyToThread)
@@ -312,8 +353,16 @@ func (s *Server) Router(webOrigin string) http.Handler {
 				// message itself and only its author may do it.
 				g.Post("/messages/{id}/hide", s.hideMessage)
 				g.Delete("/messages/{id}", s.deleteMessage)
+				// The channel twins. Same two acts, different table and a
+				// wider set of people allowed to perform the second.
+				g.Post("/channel-messages/{id}/hide", s.hideChannelMessage)
+				g.Delete("/channel-messages/{id}", s.deleteChannelMessage)
 				g.Post("/inbox/items/{kind}/{refId}/ignore", s.ignoreInboxItem)
 				g.Post("/inbox/items/{kind}/{refId}/read", s.markInboxItemRead)
+				// Send has no natural client-supplied id, and a double-tap on a
+				// slow connection must not fan a mail out twice.
+				g.Post("/mail/drafts/{id}/send", s.sendMail)
+				g.Post("/mail/{id}/read", s.markMailRead)
 			})
 		})
 	})

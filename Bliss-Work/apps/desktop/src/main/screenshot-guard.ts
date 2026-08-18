@@ -39,8 +39,16 @@ import * as activityAgent from "./activity-agent";
  * content is actually on screen.
  */
 
-/** Notified on every detected attempt, so main can toast the renderer. */
-type AttemptListener = (source: string) => void;
+/**
+ * Notified on every detected attempt, so main can toast the renderer.
+ *
+ * `recorded` says whether the attempt already reached the activity record here.
+ * It has not, for anyone who declined the activity agent — which is most
+ * people — and the renderer reports those itself so the control still leaves a
+ * server-side trace. Passing the fact along is what stops it being recorded
+ * twice for everyone else.
+ */
+type AttemptListener = (source: string, recorded: boolean) => void;
 
 let notify: AttemptListener = () => {};
 
@@ -69,21 +77,28 @@ function onAttempt(source: string): void {
 
   console.warn(`[security] screenshot attempt blocked (${source})`);
 
+  // Recorded here ONLY for users who consented to the activity agent and paired
+  // a device — activityAgent.recordScreenshotAttempt is a no-op otherwise. That
+  // is deliberate: the alternative is writing MONITORING records about people
+  // who explicitly declined monitoring, which is exactly what the consent notice
+  // exists to prevent.
+  //
+  // It runs before the notify below so the renderer can be told whether it still
+  // needs to report the attempt through its own session beacon. That beacon is
+  // ordinary session telemetry the client already sends, not the activity agent,
+  // so declining monitoring costs the user their app-usage record — not the
+  // security record of a refused capture.
+  let recorded = false;
   try {
-    notify(source);
-  } catch (err) {
-    console.error("[security] failed to notify renderer of screenshot attempt", err);
-  }
-
-  // Recorded ONLY for users who consented to the activity agent and paired a
-  // device — activityAgent.recordScreenshotAttempt is a no-op otherwise. That
-  // is deliberate: the alternative is writing monitoring records about people
-  // who explicitly declined monitoring, which is exactly what the consent
-  // notice exists to prevent. The warning still fires for everyone.
-  try {
-    activityAgent.recordScreenshotAttempt();
+    recorded = activityAgent.recordScreenshotAttempt();
   } catch (err) {
     console.error("[security] failed to record screenshot attempt", err);
+  }
+
+  try {
+    notify(source, recorded);
+  } catch (err) {
+    console.error("[security] failed to notify renderer of screenshot attempt", err);
   }
 }
 
