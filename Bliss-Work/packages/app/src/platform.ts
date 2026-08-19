@@ -83,6 +83,12 @@ export interface PlatformConfig {
   /** External Integrations service (OAuth/webhooks/provider connections). */
   integrationsBase: string;
   telemetryBase: string;
+  /**
+   * Read-composition GraphQL gateway. OPTIONAL — absent means every screen
+   * takes its REST path, which is how the gateway rollout stays reversible by
+   * configuration instead of by deploy.
+   */
+  graphBase?: string;
   wsUrl: string;
   /** "browser" for web, "hash" for the Electron file:// renderer. */
   router: "browser" | "hash";

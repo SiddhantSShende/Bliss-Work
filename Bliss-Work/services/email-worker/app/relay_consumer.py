@@ -38,6 +38,7 @@ from aiokafka.errors import KafkaConnectionError, KafkaError
 from opentelemetry import trace
 from opentelemetry.trace import SpanKind
 
+from .attachments import Attachment, fetch as fetch_attachment, within_budget
 from .config import Settings
 from .mailer import Mailer, is_valid_email
 from .presence import Presence
@@ -337,10 +338,12 @@ class RelayConsumer:
 
         sender_name = str(event.get("fromName") or "")
         sender_address = str(event.get("fromAddress") or "")
+        parts, skipped = await self._collect_attachments(event, event_id, mail_id)
         text, html = render_user_mail(
             body=str(event.get("bodyText") or ""),
             sender_name=sender_name,
             sender_address=sender_address,
+            skipped_files=skipped,
         )
         try:
             await self._mailer.send(
@@ -349,11 +352,18 @@ class RelayConsumer:
                 text_body=text,
                 html_body=html,
                 from_name=sender_name,
-                # Only a real address is worth advertising as a reply target —
-                # a Reply-To nobody can reply to is worse than none.
+                # The author's own identity in From, so the mail arrives from
+                # the person who wrote it. Mailer keeps the SMTP envelope on the
+                # deployment's authenticated address regardless.
+                from_address=sender_address,
+                # The reply target is the author too. Mailer emits the header
+                # only when it says something From does not already say, so this
+                # is a no-op while the two agree — it is declared rather than
+                # assumed so the reply target survives a change to either.
                 reply_to=sender_address if is_valid_email(sender_address) else "",
                 display_to=[str(a) for a in (event.get("to") or [])],
                 display_cc=[str(a) for a in (event.get("cc") or [])],
+                attachments=parts,
             )
         except Exception as exc:  # noqa: BLE001 - poison-message handling below
             return await self._on_failure(str(event_id), event, str(exc))
@@ -362,6 +372,59 @@ class RelayConsumer:
         self._failures.pop(str(event_id), None)
         _log.info("relay_mail_sent", event_id=event_id, mail_id=mail_id)
         return True
+
+    async def _collect_attachments(
+        self, event: dict, event_id: str, mail_id: str
+    ) -> tuple[list[tuple[str, str, bytes]], list[str]]:
+        """Fetch the files that fit. Returns the MIME parts and the names left off.
+
+        Never raises, and never fails the mail. A file that cannot be fetched —
+        a blob that outlived its row, a messaging-svc mid-restart — is reported
+        as skipped and the message still goes out, because retrying the whole
+        mail to recover one attachment would mean nobody receives the words
+        either. The recipient is told what is missing rather than left to
+        wonder, and the in-app copy for anyone inside the org still has it all.
+        """
+        # isinstance before iterating: this field crossed a topic, and a string
+        # would iterate as characters while a number would raise — out here,
+        # OUTSIDE the send's try/except, where it would escape the poison-message
+        # handling and take the consumer loop with it.
+        raw = event.get("attachments")
+        if not isinstance(raw, list):
+            return [], []
+        declared = [
+            att for att in (Attachment.from_event(a) for a in raw) if att is not None
+        ]
+        if not declared:
+            return [], []
+
+        wanted, oversized = within_budget(
+            declared, self._settings.mail_attachment_budget_bytes
+        )
+        if oversized:
+            _log.info("relay_mail_attachments_over_budget", event_id=event_id,
+                      mail_id=mail_id, count=len(oversized),
+                      budget=self._settings.mail_attachment_budget_bytes)
+
+        org_id = str(event.get("orgId") or "")
+        parts: list[tuple[str, str, bytes]] = []
+        skipped = [att.filename for att in oversized]
+        for att in wanted:
+            data = None
+            if self._http is not None and org_id:
+                data = await fetch_attachment(
+                    self._http,
+                    base_url=self._settings.messaging_internal_base,
+                    token=self._settings.internal_token,
+                    org_id=org_id,
+                    mail_id=mail_id,
+                    attachment=att,
+                )
+            if data is None:
+                skipped.append(att.filename)
+                continue
+            parts.append((att.filename, att.mime, data))
+        return parts, skipped
 
     async def _on_failure(self, event_id: str, event: dict, error: str) -> bool:
         """Count consecutive failures; route poison messages to the DLQ.

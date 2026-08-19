@@ -12,9 +12,9 @@ Three behaviours follow from that difference and are pinned here:
   * the ENVELOPE is one address while the To/Cc header is the shared display
     list, which is the mechanism that keeps a Bcc'd address out of every
     header, including the Bcc'd person's own copy;
-  * From stays the deployment's authenticated sender with the author in
-    Reply-To, because a From carrying the author's own domain is what SPF and
-    DMARC exist to classify as a forgery.
+  * the author's own name and address go out as the From, because this mail is
+    from them and not from the product — while the SMTP envelope stays on the
+    deployment's authenticated address, which is what keeps it accepted.
 
 These drive the REAL ``_handle`` / ``_handle_outbound_mail`` coroutines. Only
 the two I/O edges are replaced: the dedup claim (Postgres) and the Mailer.
@@ -39,6 +39,13 @@ def _settings() -> types.SimpleNamespace:
         smtp_starttls=False,
         redis_url="redis://localhost:6379/0",
         poison_max_failures=3,
+        # Present so this harness matches a real Settings object. The events
+        # here carry no attachments, so nothing reads them — but a stub missing
+        # a field the code reads fails as an AttributeError inside the handler,
+        # which reads as a broken relay rather than a stale test.
+        messaging_internal_base="http://messaging-svc:8004",
+        internal_token="test-token",
+        mail_attachment_budget_bytes=10 * 1024 * 1024,
     )
 
 
@@ -136,18 +143,22 @@ async def test_envelope_is_this_copy_and_headers_are_the_shared_list():
 
 
 @pytest.mark.asyncio
-async def test_author_rides_in_reply_to_not_in_from():
+async def test_the_author_is_who_the_mail_comes_from():
+    # Both halves of the identity reach the mailer: the member's display name
+    # and the member's own address. test_from_header.py pins what it builds
+    # from them, including the envelope that does NOT follow the address here.
     c, mailer, _ = _consumer()
     await c._handle(_event())  # noqa: SLF001
     sent = mailer.sends[0]
-    assert sent["reply_to"] == "jane@acme.test"
     assert sent["from_name"] == "Jane Okafor"
+    assert sent["from_address"] == "jane@acme.test"
 
 
 @pytest.mark.asyncio
 async def test_unparseable_author_address_yields_no_reply_to():
-    # A Reply-To nobody can reply to is worse than none: it produces a bounce
-    # instead of an obvious "this came through BlissWork".
+    # An address nobody can reply to is worse than none: it produces a bounce
+    # instead of an obvious "this came through BlissWork". The From falls back
+    # to the deployment sender for the same reason — see test_from_header.py.
     c, mailer, _ = _consumer()
     await c._handle(_event(fromAddress="not-an-address"))  # noqa: SLF001
     assert mailer.sends[0]["reply_to"] == ""

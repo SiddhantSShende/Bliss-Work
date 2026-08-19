@@ -11,7 +11,7 @@ BlissWork is available both as a modern Web application and as an Electron Deskt
    - [System Requirements & Quick Access](#system-requirements--quick-access)
    - [Account Registration & Login](#account-registration--login)
    - [Multi-Organization Navigation](#multi-organization-navigation)
-2. [Unified Inbox & Real-Time Messaging](#2-unified-inbox--real-time-messaging)
+2. [Mail & Real-Time Messaging](#2-mail--real-time-messaging)
    - [1:1 Direct Messages (DMs)](#11-direct-messages-dms)
    - [Team Channels & Discussions](#team-channels--discussions)
    - [Media, File Attachments & WebRTC Calls](#media-file-attachments--webrtc-calls)
@@ -64,17 +64,31 @@ BlissWork allows a single user account to belong to multiple organizations seaml
 
 ---
 
-## 2. Unified Inbox & Real-Time Messaging
+## 2. Mail & Real-Time Messaging
 
-### Your Inbox (Email)
+### Your Mail (Email)
 
-The **Inbox** (`/app/inbox`) is your mailbox. It lists the email you have sent
-and received, newest first, with the people you correspond with down the middle
-pane and the mail itself on the right.
+**Mail** (`/app/mail`) is your mailbox, laid out in three columns:
 
-* **Writing a mail:** Click **New Mail** at the top of the Inbox list. The
-  composer opens in the same pane you read mail in — it does not cover the list
-  you are addressing from. Fill in **To** (and **Cc / Bcc**, which are hidden
+1. **Folders** — Inbox, Sent Items, Drafts, Deleted Items and Spam, with the
+   people you correspond with listed underneath. Picking a person narrows the
+   list to your mail with them; the folder and the person combine, so switching
+   one keeps the other.
+2. **Messages** — everything in the selected folder, newest first, grouped by
+   day. **All** and **Unread** filter it, and **+ New Mail** sits beside them.
+3. **The mail itself** — opens here when you click a row, beside the list you
+   picked it out of rather than in place of it. On a narrow window it takes the
+   whole width and **Back to list** returns you.
+
+Two of the five folders hold mail: **Inbox** is everything that reached you and
+**Sent Items** is everything you sent. **Drafts**, **Deleted Items** and
+**Spam** are always empty and each says why when you open it — an unsent message
+lives in the composer until you send it, deleting a mail removes your copy for
+good rather than filing it, and mail is never sorted into spam.
+
+* **Writing a mail:** Click **+ New Mail** above the message list. The composer
+  opens in the same pane you read mail in — it does not cover the list you are
+  addressing from. Fill in **To** (and **Cc / Bcc**, which are hidden
   until you ask for them), a **Subject** and a **Message**, then press **Send**.
 * **Addressing:** Start typing a colleague's name and pick them from the
   suggestions, or type any email address — inside or outside the workspace.
@@ -92,7 +106,7 @@ pane and the mail itself on the right.
   **Download** link. Opening it clears the unread badge.
 * **Replying:** **Reply** opens the composer pre-addressed to the sender, with
   the subject prefixed `Re:` and the original quoted beneath your cursor.
-* **Deleting:** The trash icon removes a mail from **your** Inbox only. The
+* **Deleting:** The trash icon removes a mail from **your** mailbox only. The
   sender's copy and every other recipient's are untouched — a mail belongs to
   several people, and taking it back from all of them is not one reader's call.
 * **Mail to people outside BlissWork:** Perfectly allowed. Those copies are
@@ -101,7 +115,7 @@ pane and the mail itself on the right.
   address with your name on them and your address in Reply-To, so a reply comes
   straight back to you.
 * **Tasks are not here.** A task assigned to you lives in **Tasks**
-  (`/app/tasks`), which has the full acknowledge/complete workflow. The Inbox is
+  (`/app/tasks`), which has the full acknowledge/complete workflow. Mail is
   mail.
 
 ### 1:1 Direct Messages (DMs)
@@ -184,7 +198,7 @@ Task management in BlissWork follows an explicit, accountable state machine desi
 1. Navigate to **Tasks** (`/app/tasks/allocated`) or click **New Task** (+ icon).
 2. Enter the **Task Title** and detailed **Description**.
 3. Select one or multiple assignees from your workspace members.
-4. Click **Create Task**. The task is instantly dispatched to each assignee's inbox and sticky note overlay.
+4. Click **Create Task**. The task is instantly dispatched to each assignee's task list and sticky note overlay.
 
 ### Task Actions: Acknowledge, Ignore, Complete & Leave
 
@@ -195,7 +209,7 @@ Assignees interact with tasks through clear action buttons:
   * Locks the task into your active task list and floats it as a sticky note.
 * **Ignore:** Declines the task.
   * Notifies the allocator that the task was ignored.
-  * Removes the task from your actionable inbox.
+  * Removes the task from your actionable task list.
 * **Complete:** Marks an acknowledged task as completed upon finishing the work.
   * Notifies the allocator immediately.
   * Unlocks the review phase for the task sender.

@@ -273,6 +273,14 @@ _USER_MAIL_HTML = _env.from_string(
   font-size:15px;line-height:1.6;color:#111827;">
   <div style="white-space:pre-wrap;">{{ body }}</div>
   <hr style="margin:28px 0 12px;border:0;border-top:1px solid #e5e7eb;">
+  {%- if skipped_files %}
+  <p style="margin:0 0 8px;font-size:12px;color:#6b7280;">
+    {{ skipped_files | length }} file{{ '' if skipped_files | length == 1 else 's' }}
+    could not be attached to this email:
+    {% for name in skipped_files %}{{ name }}{{ ", " if not loop.last }}{% endfor %}.
+    Ask {{ sender_name }} to share {{ 'it' if skipped_files | length == 1 else 'them' }} another way.
+  </p>
+  {%- endif %}
   <p style="margin:0;font-size:12px;color:#6b7280;">
     Sent by {{ sender_name }}{% if sender_address %} ({{ sender_address }}){% endif %}
     via BlissWork. Reply to this email to reach them directly.
@@ -284,7 +292,10 @@ _USER_MAIL_TEXT = _env.from_string(
     """{{ body }}
 
 --
-Sent by {{ sender_name }}{% if sender_address %} ({{ sender_address }}){% endif %} via BlissWork.
+{% if skipped_files %}{{ skipped_files | length }} file{{ '' if skipped_files | length == 1 else 's' }} could not be attached to this email: {% for name in skipped_files %}{{ name }}{{ ", " if not loop.last }}{% endfor %}.
+Ask {{ sender_name }} to share {{ 'it' if skipped_files | length == 1 else 'them' }} another way.
+
+{% endif %}Sent by {{ sender_name }}{% if sender_address %} ({{ sender_address }}){% endif %} via BlissWork.
 Reply to this email to reach them directly."""
 )
 
@@ -294,17 +305,25 @@ def render_user_mail(
     body: str,
     sender_name: str,
     sender_address: str,
+    skipped_files: list[str] | None = None,
 ) -> tuple[str, str]:
     """Render a user's own email for relay to an external address.
 
     ``body`` is the author's plain text and is NOT interpreted as markup —
     jinja autoescape covers the HTML part, and the text part is passed through
     verbatim.
+
+    ``skipped_files`` names attachments this copy does NOT carry, because they
+    exceeded what email can hold or could not be read. They are named rather
+    than dropped in silence: a recipient who knows a file exists can ask for it,
+    while a recipient who was told nothing reads a message referring to an
+    attachment that isn't there.
     """
     ctx = {
         "body": body,
         "sender_name": sender_name or "a BlissWork user",
         "sender_address": sender_address,
+        "skipped_files": skipped_files or [],
     }
     return _USER_MAIL_TEXT.render(**ctx), _USER_MAIL_HTML.render(**ctx)
 

@@ -1,5 +1,8 @@
 import { powerMonitor } from "electron";
 import { isActive, getState } from "./activity-state";
+// Shared with the desktop-note watcher: one provider, loaded once, so the two
+// features cannot disagree about whether app tracking is available.
+import { loadProvider, providerUnavailableReason } from "./foreground";
 
 /**
  * The desktop activity agent.
@@ -48,53 +51,12 @@ interface AgentEvent {
   durationMs?: number;
 }
 
-interface ForegroundWindow {
-  owner?: { name?: string };
-}
-
-type GetWindows = { activeWindow: () => Promise<ForegroundWindow | undefined> };
-
 let telemetryBase = "";
 let queue: AgentEvent[] = [];
 let sampleTimer: NodeJS.Timeout | null = null;
 let flushTimer: NodeJS.Timeout | null = null;
 let current: { app: string; since: number } | null = null;
 let idleSince: number | null = null;
-let provider: GetWindows | null = null;
-let providerChecked = false;
-let providerError: string | null = null;
-
-/**
- * Resolve the native foreground-window provider, once.
- *
- * `get-windows` ships PREBUILT helper binaries rather than compiling on install,
- * which is the property that makes it usable here at all. Wayland is excluded
- * outright: GNOME and KDE deliberately do not expose the active window, so the
- * honest answer is "unsupported on this session" rather than silently reporting
- * nothing and letting an admin read that as "they did no work".
- */
-async function loadProvider(): Promise<GetWindows | null> {
-  if (providerChecked) return provider;
-  providerChecked = true;
-  if (process.platform === "linux" && process.env.XDG_SESSION_TYPE === "wayland") {
-    providerError = "Wayland does not expose the active window";
-    return null;
-  }
-  try {
-    // The specifier is a VARIABLE, not a literal, and deliberately so: a literal
-    // would make `get-windows` a hard build-time dependency — TypeScript would
-    // demand its types and the bundler would try to inline it — when the whole
-    // design is that it is optional. This keeps it a runtime lookup that simply
-    // fails on a build where it was not installed.
-    const specifier = "get-windows";
-    provider = (await import(/* @vite-ignore */ specifier)) as GetWindows;
-  } catch {
-    provider = null;
-    providerError = "app tracking is not installed in this build";
-  }
-  return provider;
-}
-
 function push(e: AgentEvent): void {
   queue.push(e);
   // Drop the OLDEST: after a long offline stretch the recent minutes are the
@@ -285,5 +247,5 @@ export async function flushOnQuit(): Promise<void> {
 /** What the Settings screen needs to render honestly. */
 export async function capability(): Promise<{ appTracking: boolean; reason: string | null }> {
   const win = await loadProvider();
-  return { appTracking: !!win, reason: win ? null : providerError };
+  return { appTracking: !!win, reason: win ? null : providerUnavailableReason() };
 }

@@ -7,7 +7,9 @@
  *   * which section you are in, and for how long   (route.enter / route.dwell)
  *   * whether the window has focus                 (focus / blur)
  *   * whether you are actually at the keyboard     (idle.start / idle.end)
- *   * that you are still here                      (heartbeat)
+ *   * that you are still here                      (a beacon, recorded on the
+ *                                                   session rather than as an
+ *                                                   event of its own)
  *
  * It does NOT observe what you type, click, or read — everything of that kind
  * is already recorded server-side from the events the services emit, where it
@@ -38,7 +40,7 @@ const FLUSH_MS = 30_000;
  * something; anything shorter reports a person reading a long document as idle.
  */
 const IDLE_AFTER_MS = 5 * 60_000;
-/** Heartbeat while visible. The server's session timeout is 3x this. */
+/** Beat while visible. The server's session timeout is 3x this. */
 const HEARTBEAT_MS = 60_000;
 /** Hidden-but-open: still alive, but at a twentieth of the traffic. */
 const HIDDEN_HEARTBEAT_MS = 5 * 60_000;
@@ -209,9 +211,16 @@ export function TelemetryBridge() {
       void queue.flush();
     }, FLUSH_MS);
     const idleTimer = window.setInterval(checkIdle, 30_000);
+    /**
+     * "Still here." Deliberately NOT an event: the beacon itself is the signal
+     * — the server advances the session's last_seen_at and banks the accrued
+     * active/idle time on receipt — so recording a row alongside it stored the
+     * same fact twice and put a minute-by-minute wall of identical entries on
+     * the timeline, on top of the events that actually say what someone did.
+     */
     const beat = () => {
       accrue();
-      push(stamp({ action: "heartbeat", category: "engagement" }));
+      void queue.flush();
     };
     let heartbeatTimer = window.setInterval(beat, HEARTBEAT_MS);
     const retuneHeartbeat = () => {

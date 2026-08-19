@@ -10,7 +10,7 @@ import { useLocation, useNavigate } from "react-router-dom";
  * the first entry of a session with `location.key === "default"`, which is
  * precisely the case that needs `fallback` instead.
  */
-export function useGoBack(fallback = "/app/inbox") {
+export function useGoBack(fallback = "/app/mail") {
   const nav = useNavigate();
   const { key } = useLocation();
   return useCallback(() => {

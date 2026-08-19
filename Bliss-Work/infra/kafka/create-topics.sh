@@ -67,6 +67,23 @@ create "integration.events.v1"
 # Notification is the high-fan-out hot path — extra partitions in prod (200+).
 create "notification.events.v1" "${NOTIFICATION_PARTITIONS}"
 create "auth.events"
+# Cross-site routing directory: org id / invite token hash -> home site. Bridged
+# to every site by region-bridge, and consumed by every site's auth-svc.
+#
+# COMPACTED, unlike every other topic here. This is a directory — the current
+# home of each key — not a change feed, so the useful retention is "the latest
+# value for every key, forever". Time-based retention would silently delete the
+# placement of an org that simply had not changed recently, and a site that
+# rebuilt from the log afterwards would answer "retry" for it indefinitely.
+/opt/kafka/bin/kafka-topics.sh --bootstrap-server "${BROKER}" \
+  --create --if-not-exists \
+  --topic "routing.events.v1" \
+  --partitions "${PARTITIONS}" \
+  --replication-factor "${RF}" \
+  --config "min.insync.replicas=${MIN_ISR}" \
+  --config "cleanup.policy=compact" \
+  --config "min.cleanable.dirty.ratio=0.1"
+echo "  topic ready: routing.events.v1 (compacted, partitions=${PARTITIONS}, rf=${RF})"
 # Dead-letter topics for poison (unparseable / permanently-failing) messages.
 # auto.create.topics.enable is false, so these MUST be created explicitly or the
 # consumers' dead-letter producers fail and a poison message redelivers forever.

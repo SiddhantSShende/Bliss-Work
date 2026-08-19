@@ -8,7 +8,7 @@
  * string into a support ticket, and offers a Retry / Go Home action.
  *
  * The boundary resets when the route changes — otherwise an error on
- * `/app/tasks` would stay visible after the user navigates to `/app/inbox`.
+ * `/app/tasks` would stay visible after the user navigates to `/app/mail`.
  *
  * Production note: at 1B DAU you'd plug this into Sentry's React integration
  * via the onError prop. We expose `onError` so the integration can be wired

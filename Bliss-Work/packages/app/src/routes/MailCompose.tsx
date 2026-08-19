@@ -11,12 +11,13 @@ import { errorText } from "../lib/errorText";
 import { MailAddressField } from "../features/MailAddressField";
 import { MailAttachmentTray, useMailAttachments } from "../features/MailAttachments";
 import { useMailDraft } from "../features/useMailDraft";
+import type { MailPrefill } from "../lib/mailActions";
 
 /** Mirrors store.MaxMailSubjectRunes. Enforced server-side; this is the counter. */
 const MAX_SUBJECT = 200;
 
 /**
- * Main pane content for /app/inbox/compose — writing an email.
+ * Main pane content for /app/mail/compose — writing an email.
  *
  * Occupies the SAME pane a mail is read in, so New Mail and opening a mail are
  * the same gesture rather than a modal covering the list you are addressing
@@ -33,22 +34,26 @@ export function MailCompose() {
   const { api } = useRuntime();
   const qc = useQueryClient();
   const nav = useNavigate();
-  // Reply arrives as router state rather than query params: the quoted body can
-  // be thousands of characters, which does not belong in a URL. Absent for a
-  // plain New Mail, which is why every field falls back to empty.
-  const prefill = (useLocation().state ?? {}) as {
-    to?: string[];
-    subject?: string;
-    quoted?: string;
-  };
+  // Reply / Reply all / Forward arrive as router state rather than query
+  // params: the quoted body can be thousands of characters, which does not
+  // belong in a URL. Absent for a plain New Mail, which is why every field
+  // falls back to empty. What each answer puts here is decided in
+  // lib/mailActions — this component only receives it.
+  const loc = useLocation();
+  const prefill = (loc.state ?? {}) as Partial<MailPrefill>;
 
   const [to, setTo] = useState<string[]>(prefill.to ?? []);
-  const [cc, setCc] = useState<string[]>([]);
+  const [cc, setCc] = useState<string[]>(prefill.cc ?? []);
   const [bcc, setBcc] = useState<string[]>([]);
-  const [showCc, setShowCc] = useState(false);
+  // Reply all carries a Cc line, and a Cc the user cannot see is one they
+  // cannot remove — so the field starts open whenever it starts populated.
+  const [showCc, setShowCc] = useState((prefill.cc?.length ?? 0) > 0);
   const [subject, setSubject] = useState(prefill.subject ?? "");
   const [body, setBody] = useState(prefill.quoted ?? "");
   const isReply = !!prefill.subject || (prefill.to?.length ?? 0) > 0;
+  // A forward starts with no addressee — it is the one answer that still needs
+  // one typed — so it is titled for what it is rather than lumped in with Reply.
+  const heading = prefill.kind === "forward" ? "Forward" : isReply ? "Reply" : "New Mail";
 
   // Opening the draft is a real network call that can fail; the composer stays
   // usable (typing is local) but Send and attachments wait on it, so its state
@@ -80,7 +85,10 @@ export function MailCompose() {
       void qc.invalidateQueries({ queryKey: qk.unifiedInbox });
       void qc.invalidateQueries({ queryKey: qk.inboxPeers });
       void qc.invalidateQueries({ queryKey: ["inboxPeerFeed"] });
-      nav(`/app/inbox/mail/${res.mailId}`, { replace: true });
+      // Keep the list's filters (?box=, ?p=) on the way out. A bare pathname
+      // would drop them, so the folder the user was writing from silently
+      // resets to the Inbox behind the mail they just sent.
+      nav({ pathname: `/app/mail/message/${res.mailId}`, search: loc.search }, { replace: true });
     },
     // The server names the field that is wrong (a rejected address, an
     // over-long subject), so its message is more useful than anything we could
@@ -93,7 +101,7 @@ export function MailCompose() {
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between gap-3 border-b border-border/60 px-4 py-3">
         <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-fg">
-          <PenSquare size={16} className="text-accent" /> {isReply ? "Reply" : "New Mail"}
+          <PenSquare size={16} className="text-accent" /> {heading}
         </div>
         <button
           onClick={() => nav(-1)}
@@ -133,7 +141,7 @@ export function MailCompose() {
                   value={to}
                   onChange={setTo}
                   placeholder="name@company.com"
-                  autoFocus={!isReply}
+                  autoFocus={to.length === 0}
                 />
               </div>
               {!showCc && (

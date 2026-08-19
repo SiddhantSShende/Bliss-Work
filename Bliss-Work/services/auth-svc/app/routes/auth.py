@@ -1,7 +1,7 @@
 """Auth + session + directory endpoints."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
 from fastapi.responses import JSONResponse
@@ -14,6 +14,8 @@ from ..crypto import cryptor
 from ..db import engine
 from ..events.outbox import TOPIC_AUTH, build_event, enqueue_event
 from ..logging_config import log
+from ..routing.notify import notify_capacity_alerts, notify_ops_no_capacity
+from ..routing.placement import NoCapacityError, no_capacity_message, place_org
 from ..schemas import (
     CreateOrgRequest,
     LoginRequest,
@@ -35,6 +37,7 @@ from ..security.passwords import (
 from . import session_events
 from .account_service import create_email_verification_tx
 from .cookies import REFRESH_COOKIE, clear_refresh_cookie, set_refresh_cookie
+from .directory_service import InvalidUserIds, parse_user_ids
 from .members_service import leave_org_tx
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -88,6 +91,39 @@ async def create_org(body: CreateOrgRequest, response: Response) -> SessionDTO:
             text("SELECT set_config('app.bypass_rls', 'off', true)")
         )
         await service.set_org_guc(conn, org_id)
+
+        # ── Where will this organisation live? ───────────────────────────
+        #
+        # Decided ONCE, here, and never revisited: org data is partitioned by
+        # site and never replicated, so this choice is permanent for the life of
+        # the org. Done before any org row is written so a "no capacity" refusal
+        # costs nothing and cannot half-create an organisation.
+        #
+        # `place_org` also writes the routing-directory row and the outbox event
+        # that tells every peer site — in THIS transaction, so an org is never
+        # visible locally without also being on its way to the rest of the mesh.
+        try:
+            placed = await place_org(
+                conn,
+                org_id,
+                local_site=settings.site_id,
+                candidates=settings.placement_candidate_list,
+                max_report_age=timedelta(seconds=settings.site_capacity_max_age_seconds),
+            )
+        except NoCapacityError as exhausted:
+            # Not a bad request and not transient: the deployment has nowhere to
+            # put an organisation. 503 says "not now" honestly, and ops is paged
+            # below — no retry and no user action fixes this one.
+            log.error(
+                "org_placement_no_capacity",
+                reason=exhausted.reason,
+                detail=no_capacity_message(exhausted.reason, exhausted.worst),
+            )
+            notify_ops_no_capacity(exhausted)
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "we can't create new organisations right now — our team has been notified",
+            ) from exhausted
 
         await conn.execute(
             text(
@@ -187,7 +223,19 @@ async def create_org(body: CreateOrgRequest, response: Response) -> SessionDTO:
         session, raw_refresh = await service.build_session(conn, user_id)
 
     set_refresh_cookie(response, raw_refresh)
-    log.info("org_created", org_id=org_id, user_id=user_id, slug=slug)
+    # AFTER the commit, and deliberately not awaited. A site crossing 80% is an
+    # operational fact, not part of creating an account: an SMTP timeout or a
+    # Slack outage must never delay — or fail — a signup that has already
+    # succeeded. See routing/notify.py.
+    notify_capacity_alerts(placed.alerts)
+    log.info(
+        "org_created",
+        org_id=org_id,
+        user_id=user_id,
+        slug=slug,
+        home_site=placed.site,
+        placement_reason=placed.reason,
+    )
     return session
 
 
@@ -553,6 +601,37 @@ async def directory(
             limit=min(max(limit, 1), MAX_DIRECTORY_PAGE),
             offset=max(offset, 0),
         )
+
+
+@router.get("/users", response_model=list[UserDTO])
+async def users_by_ids(
+    ids: str | None = None,
+    principal: Principal = Depends(get_principal),
+) -> list[UserDTO]:
+    """Resolve up to `MAX_BATCH_IDS` users by id: `GET /auth/users?ids=a,b,c`.
+
+    The lookup a screen needs when it is rendering rows for specific people and
+    does NOT want the whole organisation. `/auth/directory` answers "everyone in
+    my org" and is paged for that job; asking it to resolve twelve names means
+    downloading up to five thousand rows and joining them in the browser, which
+    is what every caller of it was doing.
+
+    Scoped to the caller's org twice over — the `org_id` predicate in the query
+    and the RLS context bound below. An id belonging to another tenant is not an
+    error, it is simply absent from the response, so a caller cannot use presence
+    or absence to probe for accounts elsewhere.
+
+    Unlike `/auth/directory` this does NOT filter by status; see the note on
+    `service.user_dtos_by_ids` for why a by-id lookup must still resolve
+    suspended and removed colleagues.
+    """
+    try:
+        wanted = parse_user_ids(ids)
+    except InvalidUserIds as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
+    async with engine.connect() as conn:
+        await service.set_org_guc(conn, principal.org_id)
+        return await service.user_dtos_by_ids(conn, principal.org_id, wanted)
 
 
 @router.get("/users/{user_id}", response_model=UserDTO)

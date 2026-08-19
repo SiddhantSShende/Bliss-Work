@@ -17,7 +17,7 @@ import { useChatMedia } from "../features/useChatMedia";
 import { useFileTransfers } from "../lib/fileTransfer";
 
 /**
- * Main pane content for /app/inbox/thread/:threadId.
+ * Main pane content for /app/mail/thread/:threadId.
  *
  * Loads the thread header (ThreadDTO), the most recent 16 messages, and
  * supports reverse-infinite scroll for older pages. New messages from the
@@ -27,18 +27,18 @@ import { useFileTransfers } from "../lib/fileTransfer";
  * Send path is optimistic: we synthesize a temp:* MessageDTO before the
  * server returns, then reconcile when the 201 lands.
  */
-export function InboxThread() {
+export function MailThread() {
   const { threadId } = useParams<{ threadId: string }>();
   const me = useSession((s) => s.user);
   // Guard HERE — only useParams + useSession run before it. The heavy hooks live
-  // in InboxThreadContent so they are always called in the same order: a logout
+  // in MailThreadContent so they are always called in the same order: a logout
   // (me -> null) or a threadId cleared mid-navigation can no longer change this
   // component's hook count and crash React ("rendered fewer hooks than expected").
   if (!threadId || !me) return null;
-  return <InboxThreadContent threadId={threadId} me={me} />;
+  return <MailThreadContent threadId={threadId} me={me} />;
 }
 
-function InboxThreadContent({ threadId, me }: { threadId: string; me: UserDTO }) {
+function MailThreadContent({ threadId, me }: { threadId: string; me: UserDTO }) {
   const { api } = useRuntime();
   const qc = useQueryClient();
   const ft = useFileTransfers();

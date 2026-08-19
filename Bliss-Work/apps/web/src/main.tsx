@@ -55,6 +55,11 @@ const config: PlatformConfig = {
   messagingBase: env.VITE_MESSAGING_BASE ?? "http://localhost:8004",
   integrationsBase: env.VITE_INTEGRATIONS_BASE ?? "http://localhost:8005",
   telemetryBase: env.VITE_TELEMETRY_BASE ?? "http://localhost:8006",
+  // Deliberately absent from REQUIRED_ENV: the GraphQL gateway fronts a few
+  // read paths, and a build without it simply takes the REST path on those
+  // screens. Making it mandatory would turn an optional optimisation into a
+  // deploy blocker.
+  graphBase: env.VITE_GRAPH_BASE,
   wsUrl: env.VITE_WS_URL ?? "ws://localhost:8090/ws",
   router: "browser",
 };

@@ -221,6 +221,17 @@ func (s *FSStore) Open(orgID, sha string) (Reader, error) {
 	return openFile(p)
 }
 
+// OpenKey serves a key this package produced (RecordingKey). The key is
+// re-validated here rather than trusted: it arrives from a database column and
+// is about to become a path under the blob root, which is exactly the input
+// blobPath refuses to take on faith.
+func (s *FSStore) OpenKey(key string) (Reader, error) {
+	if err := ParseRecordingKey(key); err != nil {
+		return nil, err
+	}
+	return openFile(filepath.Join(s.root, filepath.FromSlash(key)))
+}
+
 // fsReader adapts an *os.File to Reader. The size and mod time are captured at
 // open rather than read lazily: ServeContent asks for both while streaming, and
 // a Stat per call on a hot download path is a syscall for something that cannot

@@ -40,6 +40,7 @@ from .config import settings
 from .crypto import cryptor
 from .db import session, set_bypass_rls
 from .ingest import ingest_one
+from .mail_bridge import deliver as deliver_inbound_mail, from_graph_message
 from .logging_setup import log
 from .providers import gmail, microsoft as ms
 from .push_backoff import needs_renewal, next_attempt_at
@@ -369,11 +370,12 @@ class PushWorker:
 
         items, delta_link = await ms.walk_delta(token, cursor or ms.inbox_delta_url())
         conn = _ConnRow(row)
+        org_id = str(row["org_id"])
         for msg in items[:_MAX_MESSAGES_PER_SWEEP]:
             if msg.get("isDraft"):
                 continue
             sender, _to, _cc = ms.addresses_of(msg)
-            await ingest_one(
+            activity_id = await ingest_one(
                 db,
                 conn,
                 "outlook",
@@ -384,11 +386,41 @@ class PushWorker:
                 kind="email",
                 connected_account=None,
             )
+            # Only a mail that was NEW to us. ingest_one answers None on its
+            # dedup, which is what keeps a replayed webhook or a re-walked page
+            # from spending a Graph round trip — and a delivery — on a mail the
+            # inbox already has.
+            if activity_id:
+                await self._mirror_to_inbox(token, msg, org_id=org_id)
 
         # ONLY when the walk completed. A half-walked nextLink stored as the
         # cursor silently skips every message beyond it.
         if delta_link:
             await self._store_cursor(db, row["id"], str(row["org_id"]), delta_link)
+
+    async def _mirror_to_inbox(self, token: str, msg: dict, *, org_id: str) -> None:
+        """Put one newly-seen Outlook mail into the member's BlissWork inbox.
+
+        The inbox delta deliberately omits `body` — it exists for mention
+        detection, which only needs the addressing fields — so the full message
+        is fetched here, and only for mail that is actually being delivered.
+
+        Never raises. The caller is mid-sweep and about to advance the provider
+        cursor; one mail that cannot be mirrored must not stall every message
+        behind it, and the mail is still in the member's real mailbox regardless.
+        """
+        message_id = str(msg.get("id") or "")
+        if not message_id:
+            return
+        try:
+            full = await ms.get_message(token, message_id, as_text=True)
+        except Exception as exc:  # noqa: BLE001 — Graph transport / rate limit / auth
+            log.warning("inbound_mail_fetch_failed", connection_org=org_id, error=str(exc))
+            return
+        mail = from_graph_message(full, org_id=org_id)
+        if mail is None:
+            return
+        await deliver_inbound_mail(mail)
 
     async def _store_cursor(self, db, conn_id, org_id: str, cursor: str) -> None:
         enc = await cryptor().encrypt(db, org_id, cursor)

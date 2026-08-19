@@ -11,7 +11,7 @@ import { StickyWidget } from "../features/StickyWidget";
 import { dismissBrowserSticky } from "../features/BrowserStickies";
 
 /**
- * Main pane content for /app/inbox/task/:taskId.
+ * Main pane content for /app/mail/task/:taskId.
  *
  * Looks the task up in the existing tasks/inbox query data first (cheap),
  * falls back to the sticky list as a secondary cache, and finally to a
@@ -22,7 +22,7 @@ import { dismissBrowserSticky } from "../features/BrowserStickies";
  * non-compact mode for the actual rendering — keeps task UX consistent across
  * inbox / sticky.
  */
-export function InboxTask() {
+export function MailTask() {
   const { taskId } = useParams<{ taskId: string }>();
   const { api, config } = useRuntime();
   const qc = useQueryClient();

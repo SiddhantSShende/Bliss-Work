@@ -9,7 +9,8 @@
   },
   "workspaces": [
     "packages/*",
-    "apps/*"
+    "apps/*",
+    "services/graph-gw"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",

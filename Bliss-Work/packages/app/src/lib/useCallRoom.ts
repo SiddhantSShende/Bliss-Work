@@ -11,6 +11,7 @@ import {
 import { toast } from "sonner";
 import { EventType } from "@taskboard/shared";
 import { useRuntime } from "./runtime";
+import { decodeRoomMessage, encodeRoomMessage, type RoomMessage } from "./roomMessages";
 
 /**
  * A participant as the call UI needs to render them.
@@ -117,6 +118,14 @@ export function useCallRoom(callId: string | null) {
   callIdRef.current = callId;
   const apiRef = useRef(api);
   apiRef.current = api;
+  /**
+   * Subscribers to what other participants say directly to this room.
+   *
+   * A ref rather than state: the set changes when a panel opens, and rebuilding
+   * the room's event handlers for that would tear down the connection. The room
+   * dispatches into whatever is registered at the moment a message lands.
+   */
+  const dataSubs = useRef(new Set<(m: RoomMessage, from: string) => void>());
 
   /** Stop waiting on a lobby, by either route. Both the timer and the socket
    *  subscription have to go together — leaving either behind re-joins a call
@@ -263,6 +272,14 @@ export function useCallRoom(callId: string | null) {
           resync();
         })
         .on(RoomEvent.ActiveSpeakersChanged, resync)
+        // Raised hands, shared notes and the recording notice — see
+        // lib/roomMessages for why they travel here rather than through the
+        // server, and why every one of them is validated before it is believed.
+        .on(RoomEvent.DataReceived, (payload: Uint8Array, from?: { identity: string }) => {
+          const msg = decodeRoomMessage(payload);
+          if (!msg || !from?.identity) return;
+          for (const sub of dataSubs.current) sub(msg, from.identity);
+        })
         .on(RoomEvent.Reconnecting, () => setStatus("reconnecting"))
         .on(RoomEvent.Reconnected, () => {
           setStatus("connected");
@@ -367,6 +384,9 @@ export function useCallRoom(callId: string | null) {
     await join();
   }, [api, callId, join, stopWaiting]);
 
+  /** Our own identity in the room, or "" before we are in one. */
+  const identity = participants.find((p) => p.isLocal)?.identity ?? "";
+
   const leave = useCallback(async () => {
     stopWaiting();
     const room = roomRef.current;
@@ -449,6 +469,35 @@ export function useCallRoom(callId: string | null) {
     await api.startScreenShare(callId, (settings?.displaySurface ?? "monitor") as "monitor").catch(() => {});
   }, [api, callId, sharing, sync]);
 
+  /**
+   * Say something to the room — everyone, or named participants.
+   *
+   * Reliable delivery: every message this app sends is state somebody would
+   * otherwise be missing (a hand that stays up, a note nobody else got), and
+   * none of them are frequent enough for lossy to buy anything.
+   *
+   * Silently does nothing when there is no room yet, which is the honest
+   * behaviour for a call that has not connected: there is nobody to tell.
+   */
+  const sendData = useCallback((msg: RoomMessage, to?: string[]) => {
+    const room = roomRef.current;
+    if (!room) return;
+    void room.localParticipant
+      .publishData(encodeRoomMessage(msg), { reliable: true, destinationIdentities: to })
+      .catch(() => {
+        // A failed datagram is not worth interrupting a call for. The state it
+        // carried is re-sent on the next sync request.
+      });
+  }, []);
+
+  /** Subscribe to room messages; returns an unsubscribe. */
+  const onData = useCallback((cb: (m: RoomMessage, from: string) => void) => {
+    dataSubs.current.add(cb);
+    return () => {
+      dataSubs.current.delete(cb);
+    };
+  }, []);
+
   /** Pull more people from this org into the call. The server rings them and
    *  refreshes the roster for everyone already here. */
   const addPeople = useCallback(
@@ -504,6 +553,11 @@ export function useCallRoom(callId: string | null) {
     toggleCam,
     toggleShare,
     addPeople,
+    sendData,
+    onData,
+    /** This client's own participant identity — the BlissWork user id, which is
+     *  what every message's `from` is compared against. */
+    identity,
     connected: status === "connected" || status === "reconnecting",
     waiting: status === "waiting",
   };

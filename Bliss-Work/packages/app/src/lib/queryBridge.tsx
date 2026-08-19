@@ -45,9 +45,18 @@ export const qk = {
   /** Calls the caller is expected at, including cross-org meetings. */
   calls: ["calls"] as const,
   call: (id: string) => ["calls", id] as const,
+  /** The signed playback link for one call's recording. Its own key, not part
+   *  of the call, because the link EXPIRES and is refetched on a timer while
+   *  the call row itself does not change. */
+  callRecording: (callId: string) => ["calls", callId, "recording"] as const,
   /** Calls scheduled or live in one channel. */
   channelCalls: (channelId: string) => ["channelCalls", channelId] as const,
   directory: ["directory"] as const,
+  /** Specific people, resolved by id through the GraphQL gateway. Deliberately
+   *  NOT under ["directory"]: that key holds "everyone in the org" and a
+   *  partial result written there would be read as the whole directory by the
+   *  pickers and mention lists that share it. */
+  usersByIds: (ids: readonly string[]) => ["usersByIds", ids.join(",")] as const,
   /** Admin roster: every membership INCLUDING suspended/removed ones. Kept off
    *  the ["directory"] key so the admin screen's inactive rows can never leak
    *  into the pickers and mention lists that read the plain directory. */
@@ -652,7 +661,7 @@ function refreshInboxSidebars(qc: ReturnType<typeof useQueryClient>) {
 
 /**
  * Auto-pin a just-acknowledged task to the desktop (Electron only). Mirrors the
- * manual pin flow in InboxTask: writes the authoritative pinned set back into
+ * manual pin flow in MailTask: writes the authoritative pinned set back into
  * `qk.taskPins` and surfaces the max-5 limit refusal. No-op on web (config.pinTask
  * absent) and idempotent on redelivered events (already-pinned ⇒ same set).
  */

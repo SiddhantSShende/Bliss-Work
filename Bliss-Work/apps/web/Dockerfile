@@ -50,9 +50,25 @@ COPY packages/ui/package.json        packages/ui/
 COPY apps/web/package.json           apps/web/
 COPY apps/desktop/package.json       apps/desktop/
 COPY apps/extension/package.json     apps/extension/
+# @taskboard/graph-gw is a workspace too (it imports @taskboard/shared, which
+# is what keeps its schema and the REST contract from drifting). Its manifest
+# must be present or `npm ci` cannot resolve the tree — even though the web
+# bundle never imports a line of it.
+COPY services/graph-gw/package.json  services/graph-gw/
 
+# ── Why --ignore-scripts ────────────────────────────────────────────────────
+# `npm ci` at the root installs every workspace, and apps/desktop depends on
+# get-windows — a native module with no musl prebuild. Its install script tries
+# to compile against Windows headers on Alpine, fails, and takes the whole
+# install with it, so this image could not build at all.
+#
+# Skipping lifecycle scripts is safe for a Vite build: esbuild and @swc/core
+# both ship their platform binaries as optional dependency PACKAGES rather than
+# as a postinstall download, so npm places them without running anything. Not
+# executing arbitrary install-time code in a build that produces a public bundle
+# is worth having on its own.
 RUN --mount=type=cache,target=/root/.npm,sharing=locked \
-    npm ci
+    npm ci --ignore-scripts
 
 # Sources last: these change on nearly every commit, so nothing above should
 # depend on them.
@@ -86,6 +102,12 @@ ARG VITE_INTEGRATIONS_BASE=https://${WEB_DOMAIN}/api/integrations
 ARG VITE_TELEMETRY_BASE=https://${WEB_DOMAIN}/api/telemetry
 ARG VITE_WS_URL=wss://${WEB_DOMAIN}/ws
 
+# The read-composition GraphQL gateway. EMPTY BY DEFAULT and deliberately so: an
+# unset value makes every screen take its REST path, so the gateway is opted
+# into per build rather than switched on for everyone the moment it exists.
+# Turn it on with --build-arg VITE_GRAPH_BASE=https://${WEB_DOMAIN}/graphql
+ARG VITE_GRAPH_BASE=
+
 # Stamped into the bundle so Settings → About reports which commit is live.
 # Vite only exposes VITE_-prefixed vars to client code. Defaults to "dev" for a
 # hand-run build, matching web-builder's behaviour.
@@ -98,7 +120,8 @@ ENV VITE_BUILD_SHA=$VITE_BUILD_SHA \
     VITE_MESSAGING_BASE=$VITE_MESSAGING_BASE \
     VITE_INTEGRATIONS_BASE=$VITE_INTEGRATIONS_BASE \
     VITE_TELEMETRY_BASE=$VITE_TELEMETRY_BASE \
-    VITE_WS_URL=$VITE_WS_URL
+    VITE_WS_URL=$VITE_WS_URL \
+    VITE_GRAPH_BASE=$VITE_GRAPH_BASE
 
 RUN npm run build -w @taskboard/web
 

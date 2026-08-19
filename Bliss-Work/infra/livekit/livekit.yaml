@@ -46,6 +46,34 @@ rtc:
 # One node is not a small ceiling: room:max_participants below is 100, and the
 # CPU limit in compose carries a few hundred concurrent streams.
 
+# ── Recording (OFF) ──────────────────────────────────────────────────────────
+# Call recording needs LiveKit Egress, which is a separate process that receives
+# its work from this server over REDIS. Both blocks below are what turn it on,
+# and both are commented out on purpose: with no Redis reachable, adding the
+# first one makes livekit-server FAIL AT STARTUP rather than degrade, and with
+# no egress running the second one is a webhook nothing will ever fire.
+#
+# Enable them together with docker-compose.recording.yml, which publishes Redis
+# on 127.0.0.1:6379 (this container is host-networked, so `redis` does not
+# resolve) and starts the egress worker on the compose bridge. Editing this file
+# needs a container RECREATE — a bind-mounted single file is not re-read on
+# restart alone.
+#
+# redis:
+#   address: 127.0.0.1:6379
+#   password: <REDIS_PASSWORD>
+#
+# webhook:
+#   # Signs the callback with the same key pair as the room tokens.
+#   # messaging-svc verifies the signature over the body before believing a
+#   # word of it (internal/livekit/egress.go).
+#   api_key: <LIVEKIT_API_KEY>
+#   urls:
+#     # NOT /livekit/webhook — the edge proxies /livekit/* to THIS server, so
+#     # that URL would post the callback back to the SFU. messaging-svc is
+#     # reached under the /api/messaging prefix, which Caddy strips.
+#     - https://<your-host>/api/messaging/livekit/webhook
+
 # Keys are supplied via the LIVEKIT_KEYS environment variable rather than this
 # file, so the secret never lands on disk in the image or the repo.
 

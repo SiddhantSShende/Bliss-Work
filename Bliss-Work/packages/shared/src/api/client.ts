@@ -17,6 +17,8 @@ import {
   CallDTO,
   CallInviteDTO,
   CallJoinDTO,
+  CallRecordingDTO,
+  CallRecordingStatus,
   CallShareDTO,
   type CallShareSource,
   ChannelDTO,
@@ -62,6 +64,7 @@ import {
   ErrorCode,
   httpStatusToCode,
 } from "../types/errors";
+import type { GraphqlOperationName } from "../graphql/operations";
 
 export interface ApiConfig {
   authBase: string; // e.g. http://localhost:8001
@@ -71,6 +74,16 @@ export interface ApiConfig {
   telemetryBase: string; // member activity record, e.g. http://localhost:8006
   notificationBase: string; // notifications are served by task/notification svc
   presenceBase: string; // ws-gateway HTTP, e.g. http://localhost:8090
+  /**
+   * Read-composition GraphQL gateway, e.g. http://localhost:8007.
+   *
+   * OPTIONAL, and deliberately so. The gateway fronts a handful of read paths;
+   * everything else — writes, uploads, exports, realtime, auth — talks to the
+   * REST services directly and always will. A build with this unset simply
+   * takes the REST path on those screens too, which is what makes the rollout
+   * reversible by configuration rather than by deploy.
+   */
+  graphBase?: string;
   getToken: () => string | null | Promise<string | null>;
   /**
    * Mint a fresh access token when an authed request 401s (the short-lived
@@ -112,6 +125,39 @@ function uuid(): string {
  * cap does not fail, it silently returns the default.
  */
 export const MESSAGE_PAGE_SIZE = 50;
+
+/** The GraphQL over-HTTP response envelope. `data` is validated by the CALLER's
+ *  schema, not here — this only pins the envelope's own shape. */
+const GraphqlEnvelope = z.object({
+  data: z.unknown().optional(),
+  errors: z
+    .array(
+      z.object({
+        message: z.string(),
+        extensions: z.object({ code: z.string().optional() }).passthrough().optional(),
+      }),
+    )
+    .optional(),
+});
+
+/** The gateway echoes the platform's own ErrorCode vocabulary in
+ *  `extensions.code`. Anything else is treated as absent rather than trusted —
+ *  the UI switches on these values. */
+function asErrorCode(code: string | undefined): ErrorCode | undefined {
+  const known: ErrorCode[] = [
+    "bad_request",
+    "unauthorized",
+    "forbidden",
+    "not_found",
+    "conflict",
+    "validation_error",
+    "rate_limited",
+    "internal_error",
+    "service_unavailable",
+    "gateway_timeout",
+  ];
+  return known.find((c) => c === code);
+}
 
 export class ApiClient {
   constructor(private readonly cfg: ApiConfig) {}
@@ -184,6 +230,63 @@ export class ApiClient {
       return parsed.data;
     }
     return (await res.json()) as T;
+  }
+
+  /**
+   * Execute one REGISTERED GraphQL operation against the read-composition
+   * gateway. See `packages/shared/src/graphql/operations.ts` for the registry.
+   *
+   * ── Why this is a GET, and why only a name goes over the wire ──────────────
+   * The document lives on both sides already, so only its name and variables
+   * travel. That keeps the URL stable and cacheable — a POST to /graphql would
+   * throw away the HTTP caching the REST endpoints behind Caddy already get,
+   * which would make the gateway a downgrade on exactly the screens it is meant
+   * to speed up.
+   *
+   * ── Partial results are a feature, not a failure ───────────────────────────
+   * A GraphQL response can carry BOTH data and errors: when one upstream
+   * service is down, the nullable fields it backs come back null and the rest of
+   * the screen still renders. That is the degradation the gateway was built for,
+   * so a partial response resolves rather than throwing, and the caller's schema
+   * decides whether the missing field is tolerable. Only a response with NO data
+   * is an error.
+   */
+  async graphql<T>(
+    operationName: GraphqlOperationName,
+    variables: Record<string, unknown> | undefined,
+    schema: z.ZodType<T, z.ZodTypeDef, unknown>,
+  ): Promise<T> {
+    const base = this.cfg.graphBase;
+    if (!base) {
+      // A caller reached a GraphQL path in a build that has no gateway. That is
+      // a wiring mistake, not a runtime condition — say so plainly rather than
+      // failing later with a confusing network error.
+      throw new ApiError(501, "graphBase is not configured; this build has no GraphQL gateway");
+    }
+
+    const qs = new URLSearchParams({ operationName });
+    if (variables) qs.set("variables", JSON.stringify(variables));
+
+    const envelope = await this.req(base, `/graphql?${qs.toString()}`, {}, GraphqlEnvelope);
+
+    if (envelope.data === null || envelope.data === undefined) {
+      const first = envelope.errors?.[0];
+      throw new ApiError(502, first?.message ?? "the GraphQL gateway returned no data", {
+        code: asErrorCode(first?.extensions?.code),
+      });
+    }
+    if (envelope.errors?.length) {
+      // Partial: something is degraded but the screen can still draw. Surface it
+      // for diagnosis without breaking the render.
+      console.warn("graphql partial result", operationName, envelope.errors);
+    }
+
+    const parsed = schema.safeParse(envelope.data);
+    if (!parsed.success) {
+      console.warn("graphql response validation failed", operationName, parsed.error.issues);
+      throw new ApiError(502, "invalid response from the GraphQL gateway");
+    }
+    return parsed.data;
   }
 
   // ── auth / org / invite ─────────────────────────────────────────────────────
@@ -1818,6 +1921,41 @@ export class ApiClient {
       },
       CallInviteDTO,
     );
+  }
+
+  /** The recording of a finished call, with a short-lived signed playback path
+   *  in `url`.
+   *
+   *  Only worth calling when `call.recordingStatus` is "READY" — a call
+   *  with no recording answers 404, which is a state and not a failure. The
+   *  link expires (MEDIA_URL_TTL_SECONDS), so hold the result no longer than
+   *  the playback it was fetched for. */
+  callRecording(callId: string) {
+    return this.req(
+      this.cfg.messagingBase,
+      `/api/v1/calls/${callId}/recording`,
+      {},
+      CallRecordingDTO,
+    );
+  }
+
+  /** Start recording this call. HOSTS ONLY — the server refuses everyone else,
+   *  and answers 503 on a deployment with no recording worker, which the room
+   *  reports as "recording isn't enabled here" rather than as a failure. */
+  startCallRecording(callId: string) {
+    return this.req(
+      this.cfg.messagingBase,
+      `/api/v1/calls/${callId}/recording/start`,
+      { method: "POST" },
+      z.object({ recordingStatus: CallRecordingStatus }),
+    );
+  }
+
+  /** Stop it. Idempotent: stopping a call nobody is recording is not an error. */
+  stopCallRecording(callId: string) {
+    return this.req<void>(this.cfg.messagingBase, `/api/v1/calls/${callId}/recording/stop`, {
+      method: "POST",
+    });
   }
 
   revokeCallInvite(callId: string, inviteId: string) {

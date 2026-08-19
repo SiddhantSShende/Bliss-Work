@@ -253,7 +253,7 @@ function MentionRow({
           )}
           {m.state === "claimed" && m.taskId && (
             <Link
-              to={`/app/inbox/task/${m.taskId}`}
+              to={`/app/mail/task/${m.taskId}`}
               className="inline-flex items-center gap-1 text-[11px] text-accent hover:underline"
             >
               <Check size={11} /> View task

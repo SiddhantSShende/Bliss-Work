@@ -53,6 +53,13 @@ class Settings(BaseSettings):
     # clicked Claim rather than by a trusted service impersonating them.
     task_internal_base: str = "http://task-svc:8002"
 
+    # messaging-svc base for delivering a mail from a connected mailbox into the
+    # BlissWork inbox. Private-network only, and authenticated with the shared
+    # internal token rather than a user JWT: the sweep that produces these runs
+    # on a timer with no caller to borrow an identity from, and messaging-svc
+    # decides for itself which members the mail's recipients resolve to.
+    messaging_internal_base: str = "http://messaging-svc:8004"
+
     # ── App-level OAuth client credentials (OUR developer apps) ─────────────────
     # Per-user tokens obtained through these flows are stored encrypted per-row.
     # All optional: a provider whose creds are unset is simply not connectable.

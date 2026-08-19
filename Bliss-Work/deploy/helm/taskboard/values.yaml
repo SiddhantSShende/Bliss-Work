@@ -356,6 +356,27 @@ services:
     readyPath: /readyz
     readOnlyRootFilesystem: true
 
+  # Read-composition GraphQL gateway. Optional: a cluster without it serves
+  # every screen over REST, because the web bundle only calls it when it was
+  # built with VITE_GRAPH_BASE set.
+  graph-gw:
+    image: graph-gw
+    port: 8007
+    http: true
+    replicas: 2
+    hpa:
+      enabled: true
+      min: 2
+      max: 6
+      cpu: 70
+    resources:
+      requests: { cpu: 50m, memory: 128Mi }
+      limits: { cpu: 1000m, memory: 512Mi }
+    healthPath: /healthz
+    readyPath: /readyz
+    # Node writes nothing outside /tmp, which the chart mounts as an emptyDir.
+    readOnlyRootFilesystem: true
+
   email-worker:
     image: email-worker
     # No HTTP port: pure Kafka consumer. No Service / Ingress / HPA / PDB / probes.

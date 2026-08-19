@@ -2,7 +2,11 @@ package blob
 
 import (
 	"io"
+	"path"
+	"regexp"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // Store is where attachment bytes live.
@@ -57,7 +61,65 @@ type Store interface {
 	// steered by a client.
 	CacheGet(kind, key string) (Reader, error)
 	CachePut(kind, key string, r io.Reader, max int64) error
+
+	// OpenKey returns a seekable handle on a key this package produced —
+	// today, RecordingKey.
+	//
+	// Every other read here is content-addressed: the caller has a sha and the
+	// layout is derived from it. A call recording is not written by this
+	// service at all (LiveKit Egress writes it), so its key is agreed up front
+	// instead of discovered afterwards, and reading it back needs a way in that
+	// takes the key. Implementations MUST re-validate the key rather than
+	// trusting the caller's — it is the whole path-traversal boundary for this
+	// route.
+	OpenKey(key string) (Reader, error)
 }
+
+// RecordingKey is where a call's recording is written and read back.
+//
+// Under `blobs/{orgID}/` deliberately, and not a sibling tree: RemoveOrg is a
+// single prefix removal under exactly that path, so an org erasure takes its
+// recordings with it. A recordings/ tree of its own would have been quietly
+// missed by the one operation that must not miss anything.
+//
+// `ext` is the container the SFU was asked to write ("mp4", "ogg"), which is
+// also the only part of this key that is not a UUID.
+func RecordingKey(orgID, callID, egressID, ext string) (string, error) {
+	if _, err := uuid.Parse(orgID); err != nil {
+		return "", ErrBadKey
+	}
+	if _, err := uuid.Parse(callID); err != nil {
+		return "", ErrBadKey
+	}
+	if !egressIDRe.MatchString(egressID) || !extRe.MatchString(ext) {
+		return "", ErrBadKey
+	}
+	return path.Join("blobs", orgID, "recordings", callID, egressID+"."+ext), nil
+}
+
+// ParseRecordingKey re-validates a key read back out of the database.
+//
+// A stored key is not automatically trustworthy: it becomes a filesystem path
+// on the fs backend, and "the database only ever holds keys we wrote" is a
+// property of today's code, not of the bytes on disk. So the same shape is
+// required on the way out as on the way in.
+func ParseRecordingKey(key string) error {
+	if !recordingKeyRe.MatchString(key) {
+		return ErrBadKey
+	}
+	return nil
+}
+
+var (
+	// LiveKit egress ids look like "EG_xxxxxxxxxxxx". Anchored and
+	// conservative: this becomes a filename.
+	egressIDRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+	extRe      = regexp.MustCompile(`^[a-z0-9]{2,5}$`)
+	// The whole key, exactly as RecordingKey builds it. No separators beyond
+	// the four it names, no "..", no absolute path can satisfy it.
+	recordingKeyRe = regexp.MustCompile(
+		`^blobs/[0-9a-fA-F-]{36}/recordings/[0-9a-fA-F-]{36}/[A-Za-z0-9_-]{1,64}\.[a-z0-9]{2,5}$`)
+)
 
 // Reader is an open handle plus the two facts http.ServeContent wants.
 //

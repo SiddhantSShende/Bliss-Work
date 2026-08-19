@@ -271,7 +271,105 @@ more than the server allows. The error names both numbers — either lower
 
 ---
 
-## 9. What has and has not been verified
+## 9. The routing directory (org and invite placement)
+
+Sites are also how ORG DATA is partitioned. Each organisation has exactly one
+home site, chosen at signup, and its data is never replicated — so the one thing
+that must reach every site is a small map of **which key lives where**.
+
+That map rides the same bridge as everything else, on `routing.events.v1`.
+
+### What is replicated
+
+| Event | When | Key |
+|---|---|---|
+| `routing.upserted` | an org is placed; an invite is minted | org id / invite token hash |
+| `routing.revoked` | an invite expires or is revoked | invite token hash |
+| `site.capacity.reported` | every `SITE_CAPACITY_REPORT_SECONDS` | site |
+
+None of them carries an `orgId`, unlike every other event in the platform. The
+directory answers "where does this key live?" *before* any org context exists —
+which is exactly what lets it serve an invite redemption that has nothing but a
+token hash to go on.
+
+The topic is **compacted**, and alone among the bridged topics in that. It is a
+directory, not a change feed: the useful retention is "the latest value for
+every key, forever", and time-based retention would quietly drop the placement
+of an org that simply had not changed recently.
+
+> `BRIDGE_REGION` and auth-svc's `SITE_ID` **must be the same string**. The
+> bridge stamps the first as the event's origin; the directory stores the second
+> as a key's home. If they disagree, replication still works and every routing
+> decision points somewhere that does not exist.
+
+### Placement (once, at signup)
+
+Score each site by storage against **its own** ceiling, then walk the candidates
+nearest-first: take the first under 80%; if every site is over, take the
+globally least-filled one regardless of distance. A signup is never failed
+because the nearby sites are busy — latency is a degradation, refusing the
+account is an outage.
+
+The one exception is the **hard ceiling**. If even the emptiest site is at its
+configured maximum, nothing is placed: the signup gets a 503 and ops is paged.
+That is a provisioning event, not a routing decision, and no amount of cascading
+invents disk.
+
+Crossing 80% raises an admin alert, dispatched **after** the placement
+transaction commits and never awaited. An alert path wired synchronously into a
+write path is how a mail server that stops answering turns into a signup
+endpoint that times out.
+
+Placement is decided once and there is no rebalancing. Capacity comes from each
+site's own reports, replicated like everything else, so the decision is always a
+local read — a cross-site query on the signup path would make signup fail
+whenever a peer was unreachable.
+
+### Request-time routing
+
+Every org-scoped request and every invite redemption looks the key up locally
+first:
+
+| Directory says | Answer |
+|---|---|
+| home site is this one | serve it |
+| home site is elsewhere | **307** to that site — preserves method and body, which a 302 would not |
+| no such key | **503 + Retry-After**, never a 404 |
+| expired or revoked | **410**, answered here |
+
+The "no such key" row is the one that matters. The directory replicates
+asynchronously, so an org created a moment ago at another site, or an invite
+minted seconds before the link was clicked, is legitimately absent — and
+answering 404 turns a hundred milliseconds of lag into "your invite link is
+invalid", which a user cannot tell apart from a real expiry.
+
+Redirect targets come from `SITE_ENDPOINTS` configuration, never from the
+request's own Host header or from anything a peer sent: a redirect built from
+either is an open redirect wearing a routing decision's clothes.
+
+### Operating it
+
+| Variable (auth-svc) | Meaning |
+|---|---|
+| `SITE_ID` | this deployment's site; must equal the bridge's `BRIDGE_REGION` |
+| `SITE_ENDPOINTS` | `site-a=https://a…,site-b=https://b…` — public URLs for redirects |
+| `PLACEMENT_CANDIDATES` | nearest-first order for requests with no geo hint |
+| `SITE_STORAGE_CEILING_GB` | this site's hard ceiling (default 100,000) |
+| `SITE_CAPACITY_REPORT_SECONDS` | how often this site publishes its position |
+| `SITE_CAPACITY_MAX_AGE_SECONDS` | after this, a peer's report is UNKNOWN, not stale-but-usable |
+| `OPS_ALERT_WEBHOOK_URL` | optional; every alert is logged at ERROR regardless |
+
+**Orgs created before this shipped** have no directory row and would be
+unroutable everywhere. Each site backfills its own on startup — only the site
+holding the data knows it holds it — publishing as it goes, bounded per pass.
+
+**A site that stops reporting** is treated as UNKNOWN by placement rather than
+as its last value, and stops receiving new orgs. A stale "40% full" is exactly
+how a stream of signups gets routed into a site that died an hour ago.
+
+---
+
+## 10. What has and has not been verified
 
 **Verified against a real NATS JetStream server** (`internal/streams`, run with
 `NATS_TEST_URL`): an event crosses the boundary exactly once and does not come
@@ -282,6 +380,13 @@ enter its inbound stream; provisioning refuses a self-sourcing topology.
 JetStream: message counts converge and stop rather than growing, both guards
 fire (`skipped` for a peer's events, `rejected/returned` for the shared-Kafka
 case), and rejected events reach the DLQ with a reason.
+
+**Routing directory, verified**: the placement cascade, the ceiling refusal, the
+alert set, and every request-time answer (local / redirect / retry / expired) are
+covered by unit tests against the pure policy. The migration and the replay
+guarantee were exercised against a real Postgres: a redelivered event is a no-op,
+a newer event wins, an older one arriving late loses, and a revoke that overtakes
+its own upsert leaves the row revoked.
 
 **Not verified locally**: the gateway/super-cluster WAN transport, which needs
 three NATS nodes per region. Stream sourcing behaves identically whether the

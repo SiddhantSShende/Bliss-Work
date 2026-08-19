@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { appIcon } from "./assets";
 import { hardenWindow } from "./harden";
+import { isDesktopCurrentlyExposed } from "./foreground";
 import { isSystemAway } from "./window-state-guard";
 import { getMainWindowBounds, saveMainWindowBounds } from "./sticky-state";
 
@@ -122,13 +123,29 @@ export function createStickyWindow(taskId: string, index: number, collapsed = fa
   // layer like a wallpaper widget, visible only when the desktop is (Show
   // Desktop / everything minimised). This is deliberate per product spec.
   //
-  // How the "always behind" is achieved without a native module:
-  //   • type: "desktop"  → on X11/Linux maps to _NET_WM_WINDOW_TYPE_DESKTOP, so
-  //     the window manager keeps the window at the very bottom of the stack.
+  // How the "always behind" is achieved without a native module, per platform:
+  //
+  //   • LINUX — type: "desktop" maps to _NET_WM_WINDOW_TYPE_DESKTOP and the
+  //     window manager keeps the window at the very bottom of the stack. Real
+  //     layering: the note stays put, stays clickable, and is simply never in
+  //     the way.
+  //
+  //   • WINDOWS and macOS — the type is NOT set, and ./foreground hides the note
+  //     while another application is in front instead. Neither platform can do
+  //     what Linux does here:
+  //       – Windows supports only type: "toolbar"; "desktop" is silently
+  //         ignored, and Electron has no API to lower a window in the z-order,
+  //         so a shown note sits ON TOP of the front app until something else
+  //         is raised over it.
+  //       – macOS does support type: "desktop", but such a window "will not
+  //         receive focus, keyboard or mouse events" — which would leave
+  //         Acknowledge, Ignore and Complete dead, and those are the note.
+  //
   //   • focusable: false → the note can never take focus or be raised to the
-  //     front by a click, so opening/clicking any app leaves it behind. Task
-  //     actions are pure click targets (Acknowledge / Ignore / Complete /
-  //     Collapse) — no text input — so a non-focusable window stays fully usable.
+  //     front by a click, so opening/clicking any app leaves it behind, and
+  //     clicking the note itself does not change which app is in front (which is
+  //     what lets a note stay visible while its buttons are being used). Task
+  //     actions are pure click targets — no text input — so this costs nothing.
   //   • alwaysOnTop: false + skipTaskbar: true → never promoted above apps, and
   //     kept out of the taskbar/alt-tab (it's an ambient desktop widget).
   //   • showInactive() (below) surfaces it WITHOUT stealing focus.
@@ -149,7 +166,9 @@ export function createStickyWindow(taskId: string, index: number, collapsed = fa
     skipTaskbar: true,
     alwaysOnTop: false,
     focusable: false, // never raises to the front — stays pinned behind all apps
-    type: "desktop",
+    // Linux only: elsewhere this is either ignored (Windows) or costs the note
+    // every mouse event (macOS). See the note above.
+    ...(process.platform === "linux" ? { type: "desktop" } : {}),
     hasShadow: true,
     maximizable: false,
     minimizable: false, // can't be minimised — it's already an unframed widget
@@ -168,9 +187,10 @@ export function createStickyWindow(taskId: string, index: number, collapsed = fa
     },
   });
 
-  // Belt-and-suspenders: force the note to sit at the bottom of the window
-  // stack, never on top. moveTop has no inverse, so type:"desktop" +
-  // focusable:false above are what actually keep it behind on each platform.
+  // Belt-and-suspenders: a note must never be left promoted above app windows.
+  // This only re-asserts the constructor option — moveTop has no inverse, so
+  // what actually keeps the note out of the way is type:"desktop" on Linux and
+  // ./foreground hiding it on Windows and macOS.
   win.setAlwaysOnTop(false);
 
   hardenWindow(win, "sticky");
@@ -179,9 +199,13 @@ export function createStickyWindow(taskId: string, index: number, collapsed = fa
   if (DEV_URL) void win.loadURL(`${DEV_URL}/sticky.html${query}`);
   else void win.loadFile(join(rendererDir, "sticky.html"), { search: query });
 
-  // Surface on top the moment it's ready, without grabbing keyboard focus.
+  // Show it without grabbing keyboard focus — but only if the desktop is what
+  // the user is looking at. A task allocated while someone is in another
+  // application must not appear over their work, and on Windows a freshly shown
+  // window goes to the top of the stack, so "show it and let it fall behind" is
+  // not available. The watcher shows it the moment they return to the desktop.
   win.on("ready-to-show", () => {
-    win.showInactive();
+    if (isDesktopCurrentlyExposed()) win.showInactive();
   });
   return win;
 }

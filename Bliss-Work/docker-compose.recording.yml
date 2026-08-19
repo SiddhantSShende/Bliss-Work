@@ -1,0 +1,109 @@
+# Call recording — an OPT-IN OVERLAY, deliberately not part of the running stack.
+#
+#   docker compose --env-file .env --env-file .env.prod \
+#     -f docker-compose.prod.yml -f docker-compose.recording.yml up -d
+#
+# Nothing here starts unless that second -f is given, which is the point: the
+# base stack must keep behaving exactly as it does today for a deployment that
+# does not record.
+#
+# ── Why an overlay and not a service in the main file ────────────────────────
+# Recording is the one feature that cannot be switched on inside messaging-svc
+# alone. LiveKit Egress is a SEPARATE process that receives its work from the
+# SFU over REDIS — and this deployment's SFU deliberately runs single-node with
+# no Redis at all, because it uses host networking and cannot resolve the
+# compose bridge (see the long note above the `livekit` service, and
+# infra/livekit/livekit.yaml). So enabling recording is a topology change, not a
+# flag, and it belongs somewhere an operator has to opt into on purpose.
+#
+# ── The four things that must ALL be true ────────────────────────────────────
+#  1. This overlay is in the `up` command (adds egress; publishes Redis on
+#     loopback so the host-networked SFU can reach the same instance egress is
+#     talking to).
+#  2. infra/livekit/livekit.yaml gains, on the SFU side of the same Redis:
+#         redis:
+#           address: 127.0.0.1:6379
+#           password: ${REDIS_PASSWORD}
+#     and the webhook that reports finished files back:
+#         webhook:
+#           api_key: <LIVEKIT_API_KEY>
+#           urls: ["https://<your-host>/api/messaging/livekit/webhook"]
+#     (the /api/messaging prefix matters — /livekit/* at the edge is the SFU
+#     itself, so a callback sent there would arrive back at LiveKit)
+#     Both are commented out there rather than live, because turning them on
+#     without this overlay running makes livekit-server fail at startup.
+#     REMEMBER: the Caddyfile bind mount needs a container RECREATE, not a
+#     reload, and so does this file.
+#  3. .env.prod sets RECORDINGS_ENABLED=true (and, on MEDIA_BACKEND=fs,
+#     RECORDINGS_EGRESS_ROOT — see below).
+#  4. Everyone in a recorded call is told: the client shows "This call is being
+#     recorded" from CallDTO.recordingStatus. That is a product requirement in
+#     two-party-consent jurisdictions, not a nicety, and it is why 1:1 calls are
+#     never recorded at all (see api.startRecording).
+#
+# Rollback is symmetrical: drop the -f, set RECORDINGS_ENABLED=false, recreate.
+# Recordings already written stay readable — playback needs no egress.
+
+services:
+  # Redis gains a LOOPBACK-ONLY published port. livekit-server runs with host
+  # networking and cannot resolve `redis`; egress runs on the bridge and can.
+  # Both must reach the SAME instance, so the SFU addresses it at
+  # 127.0.0.1:6379 and egress at redis:6379.
+  #
+  # 127.0.0.1 is load-bearing. A published Docker port BYPASSES ufw — it is
+  # inserted into the DOCKER-USER chain ahead of it — so a bare "6379:6379"
+  # would put an authenticated-but-public Redis on the internet. See
+  # infra/host/db-allowlist.sh for the same trap on Postgres.
+  redis:
+    ports:
+      - "127.0.0.1:6379:6379"
+
+  livekit-egress:
+    # Pair this with the livekit-server version in docker-compose.prod.yml.
+    # Egress and the SFU speak a versioned protocol over Redis; check LiveKit's
+    # release notes before moving either one alone.
+    image: livekit/egress:v1.14.1@sha256:bf2b648b947349c3e9ff7aa8c718f00378d5c06af7624652a3653318e00333ce
+    restart: unless-stopped
+    networks: [taskboard]
+    # The SFU has no DNS name on this bridge (host networking), exactly as for
+    # Caddy's /livekit route.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      # Inline YAML rather than a mounted file, so the API secret and the Redis
+      # password stay out of the repo and out of the image — the same reasoning
+      # as LIVEKIT_KEYS on the livekit service. Interpolated from `.env`, so the
+      # `--env-file .env --env-file .env.prod` pair is required here too.
+      EGRESS_CONFIG_BODY: |
+        api_key: ${LIVEKIT_API_KEY}
+        api_secret: ${LIVEKIT_API_SECRET}
+        ws_url: ws://host.docker.internal:7880
+        redis:
+          address: redis:6379
+          password: ${REDIS_PASSWORD}
+        health_port: 9091
+        # Room composite runs a headless browser per recording. Two at a time on
+        # the CPU limit below; raise both together or recordings queue.
+        cpu_cost:
+          room_composite_cpu_cost: 2
+    # Chrome's sandbox needs it. Without this the browser fails to start and
+    # every recording ends as EGRESS_FAILED with no file.
+    cap_add:
+      - SYS_ADMIN
+    volumes:
+      # Only needed with MEDIA_BACKEND=fs: egress writes the finished file
+      # straight into the blob volume messaging-svc serves it from, at the SAME
+      # path, so RECORDINGS_EGRESS_ROOT=/var/lib/blisswork/media matches what
+      # blob.RecordingKey produces. On MEDIA_BACKEND=s3 egress uploads to the
+      # bucket instead and this mount is dead weight — remove it.
+      - media_blobs:/var/lib/blisswork/media
+    depends_on:
+      redis: { condition: service_started }
+    deploy:
+      resources:
+        # A room composite is a headless Chrome plus an encoder: this is the
+        # most CPU-hungry container in the stack per unit of work, and it is
+        # sharing a host with the SFU. Size it before enabling recording on a
+        # box that is already busy.
+        limits: { cpus: "2.00", memory: 3072M }
+        reservations: { cpus: "0.50", memory: 512M }

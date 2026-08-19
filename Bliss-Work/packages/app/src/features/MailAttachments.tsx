@@ -1,6 +1,17 @@
-import { useCallback, useRef, useState } from "react";
-import { Paperclip, X, Loader2, AlertCircle } from "lucide-react";
-import type { AttachmentDTO } from "@taskboard/shared";
+import { useCallback, useMemo, useRef, useState } from "react";
+import {
+  Paperclip,
+  X,
+  Loader2,
+  AlertCircle,
+  Download,
+  File as FileIcon,
+  FileSpreadsheet,
+  FileText,
+  ImageIcon,
+} from "lucide-react";
+import type { AttachmentDTO, MailAttachmentDTO } from "@taskboard/shared";
+import { useAttachmentLinks } from "../lib/useAttachmentLinks";
 import { toast } from "sonner";
 import { useRuntime } from "../lib/runtime";
 import { errorText } from "../lib/errorText";
@@ -144,6 +155,83 @@ export function MailAttachmentTray({
       </ul>
     </div>
   );
+}
+
+/**
+ * A received mail's attachments, each behind a freshly minted signed link.
+ *
+ * The counterpart of the tray above: same file, other end of the send. It
+ * mints its own links rather than taking them as a prop because the mint is
+ * batched per rendered page and keyed on the ids — the one caller that has
+ * those ids is this component.
+ */
+export function MailAttachmentCards({ attachments }: { attachments: MailAttachmentDTO[] }) {
+  const ids = useMemo(() => attachments.map((a) => a.id), [attachments]);
+  const links = useAttachmentLinks(ids);
+  if (attachments.length === 0) return null;
+
+  return (
+    <section className="mt-6 border-t border-border/60 pt-4">
+      <h3 className="mb-2 flex items-center gap-1.5 text-[13px] font-medium text-fg/80">
+        <Paperclip size={14} /> Attachments ({attachments.length})
+      </h3>
+      <ul className="grid gap-2 sm:grid-cols-2">
+        {attachments.map((a) => {
+          const url = links.urlFor(a.id);
+          const { Icon, tone } = fileGlyph(a.mime, a.filename);
+          return (
+            <li
+              key={a.id}
+              className="flex items-center gap-2.5 rounded-xl border border-border bg-surface px-3 py-2.5 text-xs transition-colors hover:border-accent/40"
+            >
+              <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${tone}`}>
+                <Icon size={17} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-medium text-fg">{a.filename}</span>
+                <span className="block truncate text-muted">{formatBytes(a.sizeBytes)}</span>
+              </span>
+              {url ? (
+                <a
+                  href={url}
+                  download={a.filename}
+                  title={`Download ${a.filename}`}
+                  className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 font-medium text-accent hover:bg-accent-soft"
+                >
+                  <Download size={14} /> Download
+                </a>
+              ) : (
+                // Links are minted in one batched, short-lived request; a
+                // missing one means the mint is still in flight or access was
+                // denied, and neither is a broken download button.
+                <span className="shrink-0 text-muted">
+                  {links.isLoading ? "Preparing…" : "Unavailable"}
+                </span>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+/**
+ * The glyph a file gets in the list.
+ *
+ * Type is read from the MIME the server stored, with the extension as the
+ * fallback: inbound SMTP mail routinely arrives with application/octet-stream
+ * on a perfectly ordinary .pdf.
+ */
+function fileGlyph(mime: string, filename: string): { Icon: typeof FileIcon; tone: string } {
+  const ext = filename.slice(filename.lastIndexOf(".") + 1).toLowerCase();
+  if (mime.startsWith("image/") || ["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(ext))
+    return { Icon: ImageIcon, tone: "bg-accent-soft text-accent" };
+  if (mime.includes("spreadsheet") || mime.includes("excel") || ["xlsx", "xls", "csv"].includes(ext))
+    return { Icon: FileSpreadsheet, tone: "bg-success/12 text-success" };
+  if (mime.includes("pdf") || ext === "pdf")
+    return { Icon: FileText, tone: "bg-danger/12 text-danger" };
+  return { Icon: FileIcon, tone: "bg-surface-2 text-muted" };
 }
 
 export function formatBytes(n: number): string {

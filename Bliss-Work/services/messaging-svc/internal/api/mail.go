@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/task-board/messaging-svc/internal/auth"
+	mw "github.com/task-board/messaging-svc/internal/middleware"
 	"github.com/task-board/messaging-svc/internal/store"
 )
 
@@ -187,4 +188,57 @@ func (s *Server) receiveInboundMail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"mailId": mailID, "delivered": delivered})
+}
+
+// internalMailAttachment serves GET /internal/mail/{mailId}/attachments/{id}.
+//
+// This is where the SMTP relay gets the bytes of a file someone attached. The
+// bytes live on a volume mounted into THIS service only, so email-worker asks
+// for them rather than reading another service's disk — the same boundary that
+// makes it ask auth-svc for a member's address instead of reading authdb.
+//
+// Auth: the shared X-Internal-Token, as with the two endpoints above, plus
+// GetSentMailAttachment's own check that the file really is on that mail and
+// that the mail has been sent. Reachable only from inside the deployment
+// network; it must not be published through Caddy.
+//
+// Always Content-Disposition: attachment and nosniff. Nothing here is ever
+// rendered — the one caller is a program building a MIME part — and serving a
+// user-supplied file inline on this origin is the XSS foot-gun downloadMedia
+// documents at length. Same reason the declared MIME is echoed rather than
+// trusted for display.
+func (s *Server) internalMailAttachment(w http.ResponseWriter, r *http.Request) {
+	if !internalAuthOK(r) {
+		writeErrR(w, r, http.StatusUnauthorized, "bad internal token")
+		return
+	}
+	orgID := r.URL.Query().Get("orgId")
+	if !validUUID(orgID) {
+		writeErrR(w, r, http.StatusBadRequest, "invalid orgId")
+		return
+	}
+	att, err := s.store.GetSentMailAttachment(
+		r.Context(), orgID, chi.URLParam(r, "mailId"), chi.URLParam(r, "id"))
+	if err != nil {
+		s.mapErrR(w, r, err)
+		return
+	}
+	f, err := s.blobs.Open(orgID, att.SHA256)
+	if err != nil {
+		// The row outlived its bytes. Logged rather than retried: the relay
+		// treats this as "cannot attach" and still sends the mail, which is the
+		// right outcome — the message matters more than the file.
+		s.log.Error("mail attachment blob missing", "mail_id", chi.URLParam(r, "mailId"),
+			"attachment_id", chi.URLParam(r, "id"), "sha256", att.SHA256,
+			"request_id", mw.RequestIDFromContext(r.Context()))
+		writeErrR(w, r, http.StatusNotFound, "file not found")
+		return
+	}
+	defer f.Close()
+
+	h := w.Header()
+	h.Set("Content-Type", "application/octet-stream")
+	h.Set("Content-Disposition", "attachment")
+	h.Set("X-Content-Type-Options", "nosniff")
+	http.ServeContent(w, r, "", f.ModTime(), f)
 }

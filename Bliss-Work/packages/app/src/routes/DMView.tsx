@@ -11,6 +11,8 @@ import { qk } from "../lib/queryBridge";
 import { displayNameOf } from "../lib/userLabel";
 import { CallMenu } from "../features/CallMenu";
 import { ScheduleCallDialog } from "../features/ScheduleCallDialog";
+import { SendCallLinkDialog } from "../features/SendCallLinkDialog";
+import { deliverCallLink } from "../lib/deliverCallLink";
 import { ChatThread } from "../features/ChatThread";
 import { useWhatsAppForward } from "../lib/useWhatsAppForward";
 import { ForwardToDialog } from "../features/ForwardToDialog";
@@ -82,6 +84,8 @@ export function DMView() {
   const [forwardTo, setForwardTo] = useState<{ id: string; body: string } | null>(null);
   // "Schedule Call" from the header's call menu.
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  /** The "who else gets the link" dialog. */
+  const [linkOpen, setLinkOpen] = useState(false);
 
   // Same route-reuse trap as ChannelView's members sheet: navigating to another
   // conversation keeps this component mounted, so the scheduler — which is
@@ -204,33 +208,41 @@ export function DMView() {
   });
 
   /**
-   * "Send Call Link" — a joinable link, delivered into the chat.
+   * "Send Call Link" — a joinable link, posted into the chat and, when the
+   * sender picks anyone, direct-messaged to org members too.
    *
-   * A link only means anything on a MEETING: a channel call's roster is the
-   * channel and a direct call's is the two of you, and the server refuses to
-   * mint one for either. So this creates a meeting with the peer already on the
-   * roster (they see it under Meetings too, not only as a URL), takes the token
-   * — which is returned exactly once — and posts it as an ordinary message.
-   *
-   * Omitting scheduledAt makes it live immediately, which is the point: the
-   * link is useful the moment it lands.
+   * The minting and delivery rules live in lib/deliverCallLink. What stays here
+   * is what the view owes the user afterwards — the message in this
+   * conversation, the caches that are now stale, and what the toast says.
    */
   const sendLink = useMutation({
-    mutationFn: async () => {
+    mutationFn: (alsoTo: string[]) => {
       if (!conv) throw new Error("no conversation");
-      const call = await api.scheduleMeeting({
-        title: `Call with ${displayNameOf(conv)}`,
-        media: "video",
-        inviteeIds: [conv.peerId],
+      return deliverCallLink(api, {
+        peerId: conv.peerId,
+        peerName: displayNameOf(conv),
+        alsoTo,
+        origin: window.location.origin,
       });
-      const invite = await api.createCallInvite(call.id);
-      return `${window.location.origin}/join?t=${encodeURIComponent(invite.token)}`;
     },
-    onSuccess: (link) => {
+    onSuccess: ({ link, failed }, alsoTo) => {
       reply.mutate({ body: `Join my call: ${link}` });
       void qc.invalidateQueries({ queryKey: qk.calls });
+      // Messaging someone for the first time creates the conversation, so the
+      // chat list is now out of date.
+      if (alsoTo.length > 0) void qc.invalidateQueries({ queryKey: qk.conversations });
+      setLinkOpen(false);
+      if (failed > 0) {
+        toast.error(`Couldn't reach ${failed} of ${alsoTo.length}`, {
+          description: "The link is posted in this chat, and everyone else has it.",
+        });
+        return;
+      }
       toast.success("Call link sent", {
-        description: "The call is open now — join it from Meetings whenever you're ready.",
+        description:
+          alsoTo.length > 0
+            ? `Also sent to ${alsoTo.length} ${alsoTo.length === 1 ? "person" : "people"}. The call is open now — join it from Meetings whenever you're ready.`
+            : "The call is open now — join it from Meetings whenever you're ready.",
       });
     },
     onError: () => toast.error("Couldn't create a call link"),
@@ -299,7 +311,7 @@ export function DMView() {
       blockedNotice();
       return;
     }
-    sendLink.mutate();
+    setLinkOpen(true);
   };
   const scheduleCall = () => {
     if (isBlocked) {
@@ -422,6 +434,16 @@ export function DMView() {
           onClose={() => setScheduleOpen(false)}
         />
       )}
+      <SendCallLinkDialog
+        open={linkOpen}
+        onClose={() => setLinkOpen(false)}
+        peerName={peerName}
+        // The peer is posted the link in this chat, so listing them would offer
+        // to send it twice.
+        exclude={new Set([conv.peerId])}
+        busy={sendLink.isPending}
+        onSend={(ids) => sendLink.mutate(ids)}
+      />
     </div>
   );
 }

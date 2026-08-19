@@ -7,7 +7,7 @@ import type { NotificationDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { qk, WsEventBridge } from "../lib/queryBridge";
-import { INBOX_KINDS } from "../lib/inboxKinds";
+import { useInboxPeers } from "../lib/useInboxPeers";
 import { listSectionOf, railSectionOf } from "../lib/section";
 import { TelemetryBridge } from "../lib/telemetry";
 import { CallProvider } from "../lib/useCall";
@@ -19,7 +19,7 @@ import { ChatsList } from "./ChatsList";
 import { TasksList } from "./TasksList";
 import { ChannelsList } from "./ChannelsList";
 import { MembersList } from "./MembersList";
-import { InboxPeopleList } from "./InboxPeopleList";
+import { MailFolders } from "./MailFolders";
 
 export function AppShell() {
   const { api } = useRuntime();
@@ -32,22 +32,19 @@ export function AppShell() {
   });
   const unread = notifications.filter((n: NotificationDTO) => !n.read).length;
 
-  // Per-section alert counts for the left rail. Inbox shows the summed unread
+  // Per-section alert counts for the left rail. Mail shows the summed unread
   // across counterparties; Tasks surfaces unread task notifications so a new
   // ack/complete/ignore/left is visible without opening the bell.
   //
-  // INBOX_KINDS, not everything: the badge has to count what the Inbox
+  // Mail kinds only (see INBOX_KINDS): the badge has to count what the mailbox
   // actually lists, or it points at rows the user cannot find there. Tasks
   // already have their own badge beside it, so counting them here would also
   // be counting them twice.
-  const { data: inboxPeers = [] } = useQuery({
-    queryKey: qk.inboxPeers,
-    queryFn: () => api.inboxPeers(INBOX_KINDS),
-  });
+  const { data: inboxPeers = [] } = useInboxPeers();
   const inboxUnread = inboxPeers.reduce((sum, p) => sum + (p.unreadCount || 0), 0);
-  const railBadges: Record<string, number> = { inbox: inboxUnread, tasks: unread };
+  const railBadges: Record<string, number> = { mail: inboxUnread, tasks: unread };
 
-  // inbox/chats/tasks/channels drive the contextual list pane; utility pages
+  // mail/chats/tasks/channels drive the contextual list pane; utility pages
   // (search/invite/profile) render full-width with no list pane. Integrations
   // and Org are full-width but ARE rail items, so the rail gets its own
   // highlight-only key. Both live in lib/section.ts, which telemetry shares —
@@ -81,11 +78,15 @@ export function AppShell() {
         <Rail section={railSection} variant="side" className="hidden md:flex" badges={railBadges} />
         {section && (
           <aside
-            className={`glass min-h-0 w-full shrink-0 flex-col overflow-hidden rounded-2xl md:my-0 md:w-80 lg:w-96 ${
-              showListOnMobile ? "flex" : "hidden"
-            } md:flex`}
+            className={`glass min-h-0 w-full shrink-0 flex-col overflow-hidden rounded-2xl md:my-0 ${
+              // Mail is the one section whose main pane is itself two columns
+              // (message list + reading pane, see MailLayout), so its folder
+              // column is narrower — three panes at 24rem each leaves the mail
+              // itself nothing to be read in. Every other section fills the pane.
+              section === "mail" ? "md:w-64 lg:w-72" : "md:w-80 lg:w-96"
+            } ${showListOnMobile ? "flex" : "hidden"} md:flex`}
           >
-            {section === "inbox" && <InboxPeopleList />}
+            {section === "mail" && <MailFolders />}
             {section === "chats" && <ChatsList />}
             {section === "tasks" && <TasksList />}
             {section === "channels" && <ChannelsList />}

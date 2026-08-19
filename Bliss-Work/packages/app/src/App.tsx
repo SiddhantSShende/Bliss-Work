@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, useState, type ComponentType } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, HashRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, HashRouter, Navigate, Route, Routes, useLocation, useParams } from "react-router-dom";
 import { Toaster } from "sonner";
 import { ThemeProvider } from "@taskboard/ui";
 import type { PlatformConfig } from "./platform";
@@ -11,6 +11,7 @@ import { useSession } from "./store/session";
 import { refreshSession } from "./lib/refresh";
 import { installGlobalErrorHandlers } from "./lib/globalErrorHandlers";
 import { installAuthChannel } from "./lib/authChannel";
+import { legacyInboxTarget } from "./lib/mailView";
 import { MessageSquare, Hash, Users } from "lucide-react";
 import { EmptyState } from "@taskboard/ui";
 import { ErrorBoundary, RouteErrorBoundary } from "./features/ErrorBoundary";
@@ -61,13 +62,18 @@ const Profile = lazyRoute(() => import("./routes/Profile"), "Profile");
 const Settings = lazyRoute(() => import("./routes/Settings"), "Settings");
 const Integrations = lazyRoute(() => import("./routes/Integrations"), "Integrations");
 const Org = lazyRoute(() => import("./routes/Org"), "Org");
-const InboxFeed = lazyRoute(() => import("./routes/InboxFeed"), "InboxFeed");
-const InboxThread = lazyRoute(() => import("./routes/InboxThread"), "InboxThread");
-const InboxTask = lazyRoute(() => import("./routes/InboxTask"), "InboxTask");
+// The Mail layout owns the message column; the routes below it are what shows
+// in the reading pane beside it. Both named exports live in one module, so the
+// two wrappers resolve the same chunk.
+const MailLayout = lazyRoute(() => import("./routes/MailLayout"), "MailLayout");
+const MailWelcome = lazyRoute(() => import("./routes/MailLayout"), "MailWelcome");
+const MailThread = lazyRoute(() => import("./routes/MailThread"), "MailThread");
+const MailTask = lazyRoute(() => import("./routes/MailTask"), "MailTask");
 const MailDetail = lazyRoute(() => import("./routes/MailDetail"), "MailDetail");
 const MailCompose = lazyRoute(() => import("./routes/MailCompose"), "MailCompose");
 const Meetings = lazyRoute(() => import("./routes/Meetings"), "Meetings");
 const JoinCallView = lazyRoute(() => import("./routes/JoinCallView"), "JoinCallView");
+const CallWindow = lazyRoute(() => import("./routes/CallWindow"), "CallWindow");
 
 /**
  * `React.lazy` for a NAMED export.
@@ -171,6 +177,18 @@ export function App({ config }: { config: PlatformConfig }) {
                       </Protected>
                     }
                   />
+                  {/* A meeting, in a tab of its own (lib/callWindow). Outside
+                      /app deliberately: the room IS the window, and the app
+                      shell's sidebar beside a video grid helps nobody. Still
+                      Protected — the room needs a session to mint its token. */}
+                  <Route
+                    path="/call/:callId"
+                    element={
+                      <Protected>
+                        <CallWindow />
+                      </Protected>
+                    }
+                  />
                   <Route
                     path="/app"
                     element={
@@ -179,19 +197,32 @@ export function App({ config }: { config: PlatformConfig }) {
                       </Protected>
                     }
                   >
-                    <Route index element={<Navigate to="/app/inbox" replace />} />
-                    <Route path="inbox" element={<InboxFeed />} />
-                    <Route path="inbox/all" element={<InboxFeed />} />
-                    <Route path="inbox/p/:peerId" element={<InboxFeed />} />
-                    <Route path="inbox/thread/:threadId" element={<InboxThread />} />
-                    <Route path="inbox/mail/:mailId" element={<MailDetail />} />
-                    {/* The composer takes the SAME pane a mail is read in, so
-                        New Mail and opening a mail are the same gesture. */}
-                    <Route path="inbox/compose" element={<MailCompose />} />
-                    {/* Tasks no longer appear in the Inbox feed (they live in
-                        Tasks), but this route stays: existing deep links and
-                        notification targets still resolve to it. */}
-                    <Route path="inbox/task/:taskId" element={<InboxTask />} />
+                    <Route index element={<Navigate to="/app/mail" replace />} />
+                    {/* Mail is a LAYOUT, not a page: MailLayout renders the
+                        message column itself and puts whatever was opened from
+                        it in the pane beside it. Every route below is therefore
+                        a child — opening a mail must not throw away the list it
+                        was picked out of. Which folder and which person the
+                        list is narrowed to ride in the query string (?box=, ?p=)
+                        so both panes read the same filters; see lib/mailView.
+                        The folder column itself is a level up, in AppShell. */}
+                    <Route path="mail" element={<MailLayout />}>
+                      {/* Nothing opened yet — from xl up the pane holds an empty
+                          state beside the list; below xl the list has it all. */}
+                      <Route index element={<MailWelcome />} />
+                      <Route path="all" element={<MailWelcome />} />
+                      <Route path="thread/:threadId" element={<MailThread />} />
+                      <Route path="message/:mailId" element={<MailDetail />} />
+                      {/* The composer takes the SAME pane a mail is read in, so
+                          New Mail and opening a mail are the same gesture. */}
+                      <Route path="compose" element={<MailCompose />} />
+                      {/* Tasks no longer appear in the mail list (they live in
+                          Tasks), but this route stays: existing deep links and
+                          notification targets still resolve to it. */}
+                      <Route path="task/:taskId" element={<MailTask />} />
+                    </Route>
+                    {/* Everything this section was called before Mail. */}
+                    <Route path="inbox/*" element={<LegacyInboxRedirect />} />
                     <Route path="meetings" element={<Meetings />} />
                     <Route path="chats" element={<ChatsEmpty />} />
                     <Route path="chats/:conversationId" element={<DMView />} />
@@ -273,6 +304,19 @@ function Protected({ children }: { children: React.ReactNode }) {
   const status = useSession((s) => s.status);
   if (status !== "authed") return <Navigate to="/login" replace />;
   return <>{children}</>;
+}
+
+/**
+ * Everything /app/inbox used to address, pointed at /app/mail.
+ *
+ * The mapping itself is a pure function in lib/mailView — a redirect that
+ * silently drops a segment is invisible until somebody follows a two-year-old
+ * link, which is exactly the kind of thing worth having a test for.
+ */
+function LegacyInboxRedirect() {
+  const { search } = useLocation();
+  // "*" is the whole tail of /app/inbox/…, which is what this has to re-point.
+  return <Navigate to={legacyInboxTarget(useParams()["*"] ?? "", search)} replace />;
 }
 
 function ChatsEmpty() {

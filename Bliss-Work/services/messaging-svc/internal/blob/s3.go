@@ -222,6 +222,17 @@ func (s *S3Store) Open(orgID, sha string) (Reader, error) {
 	return s.open(k)
 }
 
+// OpenKey serves a key this package produced (RecordingKey), under the same
+// prefix every other object gets. Validated on the way in for the same reason
+// the filesystem implementation does it — one of the two backends turns this
+// string into a path, and the check belongs on both.
+func (s *S3Store) OpenKey(key string) (Reader, error) {
+	if err := ParseRecordingKey(key); err != nil {
+		return nil, err
+	}
+	return s.open(s.join(key))
+}
+
 // Remove deletes one blob. A missing object is not an error, matching the
 // filesystem implementation: the attachment reaper wants "already gone" to be
 // success.

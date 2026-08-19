@@ -37,4 +37,16 @@ export default tseslint.config(
       "react-hooks/exhaustive-deps": "warn",
     },
   },
+  {
+    // Node services have no React in them. graph-gw's plugin factories follow
+    // envelop's `use*` naming convention, which the hooks rule cannot tell apart
+    // from a real hook — it reports every one of them as a hook called outside a
+    // component. Renaming them to satisfy the linter would hide which library
+    // convention they belong to, so the rule is scoped out here instead.
+    files: ["services/**/*.ts"],
+    rules: {
+      "react-hooks/rules-of-hooks": "off",
+      "react-hooks/exhaustive-deps": "off",
+    },
+  },
 );

@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy import text
 
 from .. import service
@@ -20,7 +21,15 @@ from ..schemas import (
 from ..security.auth_dep import Principal, require_org_admin
 from ..security.origin import enforce_origin
 from .cookies import set_refresh_cookie
-from .invites_service import accept_invite_tx, create_invite_tx, iso_z
+from ..config import settings
+from ..routing.decision import Route, RouteDecision
+from ..routing.redirect import SiteEndpoints, enforce
+from .invites_service import (
+    InviteAtAnotherSite,
+    accept_invite_tx,
+    create_invite_tx,
+    iso_z,
+)
 
 router = APIRouter(prefix="/auth/invites", tags=["invites"])
 
@@ -134,10 +143,34 @@ async def verify_invite(token: str = Query(...)) -> InviteVerifyResponse:
 
 
 @router.post("/accept", response_model=SessionDTO, dependencies=[Depends(enforce_origin)])
-async def accept_invite(body: AcceptInviteRequest, response: Response) -> SessionDTO:
-    async with engine.begin() as conn:
-        session, raw_refresh, user_id = await accept_invite_tx(conn, body)
-        org_id = session.user.orgId
+async def accept_invite(
+    body: AcceptInviteRequest, request: Request, response: Response
+) -> SessionDTO | RedirectResponse:
+    """Redeem an invite, wherever in the world its organisation lives.
+
+    The site that serves this request is not necessarily the site that holds the
+    org: an invite link is emailed and clicked from anywhere, and org data is
+    never replicated. `accept_invite_tx` consults the shared routing directory
+    first and raises InviteAtAnotherSite when the answer is elsewhere; the
+    redirect is built HERE, by the same helper an org-mismatch uses, because
+    building HTTP is the router's job and not the transaction's.
+    """
+    try:
+        async with engine.begin() as conn:
+            session, raw_refresh, user_id = await accept_invite_tx(conn, body)
+            org_id = session.user.orgId
+    except InviteAtAnotherSite as elsewhere:
+        # 307, not 302: the redemption is a POST carrying a password, and a 302
+        # would arrive at the far site as a GET with no body.
+        redirect = enforce(
+            RouteDecision(Route.REDIRECT, elsewhere.home_site),
+            request,
+            SiteEndpoints(settings.site_endpoint_map),
+            key_kind="this invite",
+        )
+        assert redirect is not None  # a REDIRECT decision always yields one
+        log.info("invite_redirected", home_site=elsewhere.home_site)
+        return redirect
 
     set_refresh_cookie(response, raw_refresh)
     log.info("invite_accepted", user_id=user_id, org_id=org_id)

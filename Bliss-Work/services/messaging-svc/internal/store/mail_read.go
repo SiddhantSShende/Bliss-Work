@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -246,4 +247,74 @@ func requireMailReader(ctx context.Context, tx pgx.Tx, orgID, mailID, userID str
 		return ErrForbidden
 	}
 	return nil
+}
+
+// SentMailAttachment is one file on a sent mail, resolved far enough to stream
+// it: the content address plus what the MIME part needs.
+type SentMailAttachment struct {
+	SHA256    string
+	Filename  string
+	Mime      string
+	SizeBytes int64
+}
+
+// GetSentMailAttachment resolves one attachment for the SMTP relay.
+//
+// There is no user here, so the usual scope-membership check has nothing to run
+// against. What authorizes the read instead is the pair the caller must already
+// know AND the state of the mail:
+//
+//   - the attachment must be scoped to THIS mail (scope='mail', scope_id) and be
+//     a file rather than a thumbnail, so holding the internal token plus one
+//     attachment id does not reach files on other mails;
+//   - the mail must be SENT. A draft's attachments are still expiring-by-default
+//     and belong to nobody but their author, and no outbound event exists for one
+//     — so a request naming a draft is either a bug or a probe, and is refused.
+//
+// Deliberately NOT reusing GetAttachmentForDownload: that one re-verifies a
+// human's membership on every hit, which is the right rule for a browser and the
+// wrong shape for a service that is not acting as anybody.
+func (s *Store) GetSentMailAttachment(ctx context.Context, orgID, mailID, attachmentID string) (*SentMailAttachment, error) {
+	if _, err := uuid.Parse(mailID); err != nil {
+		return nil, ErrNotFound
+	}
+	if _, err := uuid.Parse(attachmentID); err != nil {
+		return nil, ErrNotFound
+	}
+	out := &SentMailAttachment{}
+	err := s.withOrg(ctx, orgID, func(tx pgx.Tx) error {
+		var namePlain *string
+		var nameEnc []byte
+		err := tx.QueryRow(ctx, `
+			SELECT a.sha256, a.mime, a.size_bytes, a.filename, a.filename_enc
+			FROM attachments a
+			JOIN mail_messages m
+			  ON m.id = a.scope_id AND m.org_id = a.org_id AND m.status = 'SENT'
+			WHERE a.id = $1 AND a.org_id = $2 AND a.scope = 'mail'
+			  AND a.scope_id = $3 AND a.role = 'file'`,
+			attachmentID, orgID, mailID).Scan(
+			&out.SHA256, &out.Mime, &out.SizeBytes, &namePlain, &nameEnc)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		// filename_enc is the source of truth; the plaintext column is the
+		// fallback for un-backfilled rows, exactly as loadMailAttachments has it.
+		if nameEnc != nil {
+			dec, derr := s.crypto.Decrypt(ctx, tx, orgID, nameEnc)
+			if derr != nil {
+				return derr
+			}
+			out.Filename = dec
+		} else if namePlain != nil {
+			out.Filename = *namePlain
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }

@@ -20,6 +20,21 @@ from .config import settings
 from .crypto import cryptor
 from .logging_setup import log
 
+# Actions that are liveness signals, not activity, and are never stored.
+#
+# A heartbeat says "this client is still open". The beacon carrying it has
+# ALREADY advanced the session's last_seen_at and banked its active/idle time,
+# which is where "still here" is actually recorded — so the row added nothing a
+# reader could use, while arriving once a minute per open client. On the
+# timeline that buried the events that do mean something under a wall of
+# identical entries, and in the table it was the single largest contributor to
+# a 90-day partition set.
+#
+# Dropped here, in the shared write path, rather than in the beacon handler:
+# desktop builds and cached browser bundles keep sending heartbeats for as long
+# as they are installed, and this is the one place no producer can bypass.
+NON_EVENT_ACTIONS = frozenset({"heartbeat"})
+
 
 @dataclass
 class ActivityRow:
@@ -73,11 +88,13 @@ _INSERT = text(
 
 
 async def insert_events(db: AsyncSession, rows: list[ActivityRow]) -> int:
-    """Insert a batch. Returns the number written.
+    """Insert a batch. Returns the number written, which is not necessarily the
+    number offered — see NON_EVENT_ACTIONS.
 
     The caller owns the transaction and MUST have set the RLS context first —
     `set_org_context` for a request, `set_bypass_rls` for the cross-org consumer.
     """
+    rows = [r for r in rows if r.action not in NON_EVENT_ACTIONS]
     if not rows:
         return 0
     params = [await _params(db, r) for r in rows]

@@ -1,8 +1,8 @@
 import { useNavigate } from "react-router-dom";
-import { Inbox, Calendar, MessageSquare, ListTodo, Hash, Users, Plug, Building2 } from "lucide-react";
+import { Mail, Calendar, MessageSquare, ListTodo, Hash, Users, Plug, Building2 } from "lucide-react";
 
 const ITEMS = [
-  { key: "inbox", label: "Inbox", icon: Inbox, to: "/app/inbox" },
+  { key: "mail", label: "Mail", icon: Mail, to: "/app/mail" },
   { key: "meetings", label: "Meetings", icon: Calendar, to: "/app/meetings" },
   { key: "chats", label: "Chats", icon: MessageSquare, to: "/app/chats" },
   { key: "tasks", label: "Tasks", icon: ListTodo, to: "/app/tasks/allocated" },
@@ -28,7 +28,7 @@ export function Rail({
   section: string | null;
   variant?: "side" | "bottom";
   className?: string;
-  /** Per-section unread/alert counts keyed by item.key (e.g. inbox, tasks). A
+  /** Per-section unread/alert counts keyed by item.key (e.g. mail, tasks). A
    *  value > 0 renders a red badge on top of that icon. */
   badges?: Record<string, number>;
 }) {

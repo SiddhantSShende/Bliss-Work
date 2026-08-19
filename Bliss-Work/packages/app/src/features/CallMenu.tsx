@@ -13,6 +13,10 @@ import { Button, cn } from "@taskboard/ui";
  * Layout follows the navbar's GetAppButton dropdown (trigger + click-away
  * backdrop + absolutely-positioned panel) so the two menus in the app behave
  * the same way.
+ *
+ * `onSendLink` is optional because a channel call has no link to send: the
+ * channel IS the guest list and the server refuses to mint one, so that row is
+ * ABSENT there rather than present and failing.
  */
 export function CallMenu({
   onVoiceCall,
@@ -20,20 +24,25 @@ export function CallMenu({
   onSendLink,
   onSchedule,
   busy = false,
+  className,
 }: {
   onVoiceCall: () => void;
   onVideoCall: () => void;
-  /** Mint a join link and send it into this conversation. */
-  onSendLink: () => void;
+  /** Mint a join link and send it into this conversation. Omit where a link is
+   *  meaningless — the row is then not rendered at all. */
+  onSendLink?: () => void;
   /** Open the scheduler for a call later on. */
   onSchedule: () => void;
   /** A link is being minted — the menu stays usable, that one row does not. */
   busy?: boolean;
+  /** Trigger styling, for a header whose other icon buttons are not ghost
+   *  Buttons. The menu panel itself is unaffected. */
+  className?: string;
 }) {
   const [open, setOpen] = useState(false);
 
-  /** Every row closes the menu first: all four either navigate away, open a
-   *  dialog, or fire a request, and none of them wants the panel left behind. */
+  /** Every row closes the menu first: each one either navigates away, opens a
+   *  dialog, or fires a request, and none of them wants the panel left behind. */
   const pick = (run: () => void) => () => {
     setOpen(false);
     run();
@@ -45,6 +54,7 @@ export function CallMenu({
         variant="ghost"
         size="sm"
         onClick={() => setOpen((v) => !v)}
+        className={className}
         title="Call"
         aria-label="Call"
         aria-haspopup="menu"
@@ -63,12 +73,14 @@ export function CallMenu({
           >
             <Item icon={<Phone size={15} />} label="Voice Call" onClick={pick(onVoiceCall)} />
             <Item icon={<Video size={15} />} label="Video Call" onClick={pick(onVideoCall)} />
-            <Item
-              icon={<Link size={15} />}
-              label="Send Call Link"
-              onClick={pick(onSendLink)}
-              disabled={busy}
-            />
+            {onSendLink && (
+              <Item
+                icon={<Link size={15} />}
+                label="Send Call Link"
+                onClick={pick(onSendLink)}
+                disabled={busy}
+              />
+            )}
             <Item
               icon={<CalendarClock size={15} />}
               label="Schedule Call"

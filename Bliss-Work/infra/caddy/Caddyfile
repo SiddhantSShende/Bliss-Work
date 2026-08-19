@@ -192,6 +192,18 @@
 			import upstream telemetry-svc 8006
 		}
 	}
+	# Read-composition GraphQL gateway. NOT under /api/<svc>/* because it is not
+	# one service's API — it composes several. Kept on the SAME ORIGIN as
+	# /api/* so the browser reuses the one HTTP/2 connection it already has, and
+	# so the bearer token the client sets explicitly is all the auth involved.
+	#
+	# `handle` rather than `handle_path`: the gateway serves /graphql itself, so
+	# there is no prefix to strip.
+	handle /graphql {
+		reverse_proxy {
+			import upstream graph-gw 8007
+		}
+	}
 	# Public inbound webhooks + OAuth callbacks for external integrations. NOT under
 	# /internal/ (which is 404'd), and provider-signature authenticated upstream.
 	handle /ext/* {

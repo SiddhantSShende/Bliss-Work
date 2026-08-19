@@ -96,15 +96,16 @@ def _raise_for_status(r: httpx.Response) -> None:
     raise MicrosoftError(f"{r.status_code}: {msg}")
 
 
-async def _request(token: str, method: str, url: str, **kw) -> dict:
+async def _request(
+    token: str, method: str, url: str, *, extra_headers: dict[str, str] | None = None, **kw
+) -> dict:
     """`url` may be absolute (a nextLink/deltaLink Graph handed us) or a path."""
     full = url if url.startswith("http") else f"{_GRAPH}{url}"
+    headers = {"Authorization": f"Bearer {token}", **(extra_headers or {})}
 
     async def _attempt() -> dict:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            r = await client.request(
-                method, full, headers={"Authorization": f"Bearer {token}"}, **kw
-            )
+            r = await client.request(method, full, headers=headers, **kw)
             _raise_for_status(r)
             return r.json() if r.content else {}
 
@@ -230,8 +231,16 @@ def inbox_delta_url() -> str:
     )
 
 
-async def get_message(token: str, message_id: str) -> dict:
-    return await _request(token, "GET", f"/me/messages/{message_id}")
+async def get_message(token: str, message_id: str, *, as_text: bool = False) -> dict:
+    """One mail in full, including the body the inbox delta deliberately omits.
+
+    `as_text` asks Graph to convert the body to plain text rather than returning
+    the HTML it was sent as. That conversion is worth having done by Microsoft:
+    the alternative is an HTML-to-text pass of our own over untrusted markup,
+    and the BlissWork inbox renders text, never a sender's HTML.
+    """
+    headers = {"Prefer": 'outlook.body-content-type="text"'} if as_text else None
+    return await _request(token, "GET", f"/me/messages/{message_id}", extra_headers=headers)
 
 
 async def list_chats(token: str, *, top: int = 50) -> list[dict]:

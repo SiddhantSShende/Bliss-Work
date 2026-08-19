@@ -191,7 +191,12 @@ func Load() (*Config, error) {
 // defaultTopics is every topic the platform fans out today. Kept in one place
 // so adding a topic is a config change in one file rather than a discovery rule
 // nobody can audit.
-const defaultTopics = "messaging.events.v1,task.events.v1,notification.events.v1,integration.events.v1,auth.events"
+// `routing.events.v1` is the cross-site routing DIRECTORY — which org and which
+// invite live at which site. It is the one topic on this list that the bridge is
+// not merely a convenience for: org data is partitioned by site and never
+// replicated, so without the directory reaching every site, a request that lands
+// on the wrong one has no way to discover where its data actually lives.
+const defaultTopics = "messaging.events.v1,task.events.v1,notification.events.v1,integration.events.v1,auth.events,routing.events.v1"
 
 // OutboundStream is the name of the stream this region publishes into.
 func (c *Config) OutboundStream() string { return "EVENTS_OUT_" + upper(c.Region) }

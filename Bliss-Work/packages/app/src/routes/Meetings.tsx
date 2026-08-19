@@ -12,79 +12,30 @@
  * from, and hiding a channel call here would make this page quietly wrong.
  *
  * Scheduling and the in-call surface are the existing ScheduleCallDialog and
- * CallRoom, unchanged — this page only decides what to list and when the join
- * control is meaningful.
+ * CallRoom, unchanged — this page only decides what to list, and each row is a
+ * MeetingCard, which owns everything said ABOUT a call.
  */
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Calendar, CalendarPlus, Globe, Hash, Phone, Users, Video } from "lucide-react";
+import { Calendar, CalendarPlus } from "lucide-react";
 import { Button, EmptyState, PageHeader, Spinner } from "@taskboard/ui";
 import type { CallDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
-import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
 import { useGoBack } from "../lib/useGoBack";
+import { openCallTab } from "../lib/callWindow";
+import { groupByDay, whenOf } from "../lib/meetingTime";
 import { Tabs, type TabSpec } from "../features/Tabs";
 import { ScheduleCallDialog } from "../features/ScheduleCallDialog";
+import { MeetingCard } from "../features/MeetingCard";
 import { CallRoom } from "../features/CallRoomLazy";
 
 type View = "upcoming" | "live" | "past";
 
-const KIND_LABEL: Record<CallDTO["kind"], string> = {
-  MEETING: "Meeting",
-  CHANNEL: "Channel call",
-  DIRECT: "Call",
-};
-
-/** The moment a call belongs at in the list: when it is meant to happen, or —
- *  for a "meet now" that was never scheduled — when it actually did. */
-function whenOf(c: CallDTO): number {
-  const iso = c.scheduledAt || c.startedAt || c.endedAt || c.createdAt;
-  return new Date(iso).getTime();
-}
-
-function startOfDay(t: number): number {
-  const d = new Date(t);
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-}
-
-/** "Today" / "Tomorrow" / "Yesterday", else a short calendar date. Relative to
- *  the viewer's own day boundary, which is what a person means by "today". */
-function dayLabel(t: number): string {
-  const days = Math.round((startOfDay(t) - startOfDay(Date.now())) / 86_400_000);
-  if (days === 0) return "Today";
-  if (days === 1) return "Tomorrow";
-  if (days === -1) return "Yesterday";
-  return new Date(t).toLocaleDateString(undefined, {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    // Only spell out the year once it stops being obvious.
-    year: new Date(t).getFullYear() === new Date().getFullYear() ? undefined : "numeric",
-  });
-}
-
-function timeLabel(t: number): string {
-  return new Date(t).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-}
-
-/** Consecutive runs of the same day, in the order the caller sorted them. */
-function groupByDay(calls: CallDTO[]): { label: string; items: CallDTO[] }[] {
-  const groups: { label: string; items: CallDTO[] }[] = [];
-  for (const c of calls) {
-    const label = dayLabel(whenOf(c));
-    const last = groups[groups.length - 1];
-    if (last && last.label === label) last.items.push(c);
-    else groups.push({ label, items: [c] });
-  }
-  return groups;
-}
-
 export function Meetings() {
-  const { api } = useRuntime();
+  const { api, config } = useRuntime();
   const qc = useQueryClient();
   const goBack = useGoBack();
-  const me = useSession((s) => s.user);
   const [view, setView] = useState<View>("upcoming");
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [activeCall, setActiveCall] = useState<CallDTO | null>(null);
@@ -119,8 +70,16 @@ export function Meetings() {
    * The room already handles all of it: its token request answers either with a
    * token or with the waiting room, the server decides which, and whoever may
    * open the call is offered the control there. So this just goes in.
+   *
+   * It goes in A NEW TAB, so the meeting and the rest of BlissWork stop being
+   * the same surface — see lib/callWindow. Where there is no tab to open (the
+   * desktop app; a blocked pop-up) the room opens in place exactly as it always
+   * did, which is why this page still holds the fallback.
    */
-  const openCall = (call: CallDTO) => setActiveCall(call);
+  const openCall = (call: CallDTO) => {
+    if (openCallTab(call.id, config)) return;
+    setActiveCall(call);
+  };
 
   if (activeCall) {
     return (
@@ -147,7 +106,6 @@ export function Meetings() {
 
   return (
     <div className="flex h-full flex-col">
-      
       <PageHeader
         title="Meetings"
         subtitle="Everything you're expected at — scheduled, live, and already done."
@@ -194,12 +152,7 @@ export function Meetings() {
                   </h2>
                   <div className="space-y-2">
                     {g.items.map((c) => (
-                      <MeetingRow
-                        key={c.id}
-                        call={c}
-                        isOrganiser={c.createdBy === me?.id}
-                        onOpen={() => openCall(c)}
-                      />
+                      <MeetingCard key={c.id} call={c} onOpen={() => openCall(c)} />
                     ))}
                   </div>
                 </section>
@@ -215,92 +168,11 @@ export function Meetings() {
           onClose={() => setScheduleOpen(false)}
           onStarted={(call) => {
             setScheduleOpen(false);
-            setActiveCall(call);
+            // "Meet now" is a join like any other, and lands in the same tab
+            // the Join button would have opened.
+            openCall(call);
           }}
         />
-      )}
-    </div>
-  );
-}
-
-/** One row. Stacks on a phone so the join control never squeezes the title. */
-function MeetingRow({
-  call,
-  isOrganiser,
-  onOpen,
-}: {
-  call: CallDTO;
-  isOrganiser: boolean;
-  onOpen: () => void;
-}) {
-  const live = call.status === "LIVE";
-  const done = call.status === "ENDED" || call.status === "CANCELLED";
-  const at = whenOf(call);
-  const externals = call.participants.filter((p) => p.external).length;
-
-  return (
-    <div className="glass flex flex-col gap-3 rounded-2xl p-4 sm:flex-row sm:items-center">
-      <div className="flex min-w-0 flex-1 items-center gap-3">
-        <div
-          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
-            live
-              ? "bg-gradient-to-br from-brand-from to-brand-to text-accent-fg shadow-[0_2px_10px_-2px_var(--color-accent)]"
-              : "bg-accent-soft text-accent"
-          }`}
-        >
-          {call.media === "audio" ? <Phone size={18} /> : <Video size={18} />}
-        </div>
-
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="truncate text-sm font-semibold text-fg">
-              {call.title || KIND_LABEL[call.kind]}
-            </span>
-            {live && (
-              <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-success-soft px-2 py-0.5 text-[10px] font-medium text-success">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-success" /> Live
-              </span>
-            )}
-            {call.status === "CANCELLED" && (
-              <span className="shrink-0 rounded-full bg-surface-2 px-2 py-0.5 text-[10px] font-medium text-muted">
-                Cancelled
-              </span>
-            )}
-          </div>
-
-          <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted">
-            <span title={new Date(at).toLocaleString()}>{timeLabel(at)}</span>
-            <span className="flex items-center gap-1">
-              {call.kind === "CHANNEL" ? <Hash size={11} /> : null}
-              {KIND_LABEL[call.kind]}
-            </span>
-            {call.participants.length > 0 && (
-              <span className="flex items-center gap-1">
-                <Users size={11} /> {call.participants.length}
-              </span>
-            )}
-            {externals > 0 && (
-              // Same reasoning as in the room itself: someone outside the
-              // organisation being here should never have to be inferred.
-              <span className="flex items-center gap-1 text-amber-600">
-                <Globe size={11} /> {externals} external
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {!done && (
-        <div className="shrink-0 sm:pl-3">
-          <Button
-            variant={live ? "primary" : "subtle"}
-            size="sm"
-            className="w-full sm:w-auto"
-            onClick={onOpen}
-          >
-            {live ? "Join" : isOrganiser ? "Start" : "Join"}
-          </Button>
-        </div>
       )}
     </div>
   );

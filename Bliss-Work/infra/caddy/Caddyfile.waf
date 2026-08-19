@@ -150,12 +150,20 @@
 		#     byte stream that goes straight to disk, and the download is
 		#     HMAC-token authed with a per-request membership re-check upstream.
 		#
+		#     Call recording playback (/recordings/*) rides the same bypass and
+		#     for both of the same reasons: its URL carries the same base64url
+		#     HMAC token, and the response is an hour-long MP4 served with Range
+		#     — neither is something to push through a response-buffering WAF.
+		#     The endpoint that MINTS that link is small JSON and stays behind
+		#     the WAF via step 5, as does the LiveKit webhook.
+		#
 		#     The matcher is deliberately NARROW — the exact upload path and the
-		#     media prefix only. /api/messaging/api/v1/attachments/links and
-		#     .../commit are small JSON and stay behind the WAF via step 5.
-		#     `uri strip_prefix` reproduces what handle_path does for the other
-		#     API prefixes (handle_path cannot take a named matcher).
-		@media path /api/messaging/api/v1/attachments /api/messaging/media/*
+		#     two signed-download prefixes only.
+		#     /api/messaging/api/v1/attachments/links and .../commit are small
+		#     JSON and stay behind the WAF via step 5. `uri strip_prefix`
+		#     reproduces what handle_path does for the other API prefixes
+		#     (handle_path cannot take a named matcher).
+		@media path /api/messaging/api/v1/attachments /api/messaging/media/* /api/messaging/recordings/*
 		handle @media {
 			uri strip_prefix /api/messaging
 			reverse_proxy {
@@ -241,6 +249,18 @@
 		handle_path /api/telemetry/* {
 			reverse_proxy {
 				import upstream telemetry-svc 8006
+			}
+		}
+		# Read-composition GraphQL gateway. NOT under /api/<svc>/* because it is not
+		# one service's API — it composes several. Kept on the SAME ORIGIN as
+		# /api/* so the browser reuses the one HTTP/2 connection it already has, and
+		# so the bearer token the client sets explicitly is all the auth involved.
+		#
+		# `handle` rather than `handle_path`: the gateway serves /graphql itself, so
+		# there is no prefix to strip.
+		handle /graphql {
+			reverse_proxy {
+				import upstream graph-gw 8007
 			}
 		}
 		# Public inbound webhooks + OAuth callbacks for external integrations. NOT

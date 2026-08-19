@@ -55,6 +55,22 @@ type LiveKitConfig struct {
 	APIKey    string // LIVEKIT_API_KEY
 	APISecret string // LIVEKIT_API_SECRET — signs room tokens; treat as a credential
 	URL       string // LIVEKIT_URL — public wss:// endpoint the browser dials
+
+	// Recording is OFF unless RECORDINGS_ENABLED is set, and it is off by
+	// default for an infrastructural reason rather than a product one: LiveKit
+	// Egress is a SEPARATE process that reaches the SFU over Redis, and a
+	// single-node SFU deployment does not necessarily run either. Switching
+	// this on without that deployment gives every call a recording that
+	// immediately fails, which is worse than no recording at all.
+	RecordingsEnabled bool // RECORDINGS_ENABLED
+	// APIURL overrides the http(s) base derived from URL, for a service that
+	// reaches the SFU on an internal address the browser cannot.
+	APIURL string // LIVEKIT_API_URL
+	// EgressRoot is the blob root AS THE EGRESS CONTAINER SEES IT, used only
+	// when recordings go to a shared volume rather than to S3. Egress writes
+	// through its own filesystem, so this is its mount point and not
+	// necessarily this service's MEDIA_ROOT.
+	EgressRoot string // RECORDINGS_EGRESS_ROOT
 }
 
 // MediaConfig configures persisted chat attachments.
@@ -157,9 +173,12 @@ func Load() (*Config, error) {
 			APIKey:   os.Getenv("MAPS_STATIC_API_KEY"),
 		},
 		LiveKit: LiveKitConfig{
-			APIKey:    os.Getenv("LIVEKIT_API_KEY"),
-			APISecret: os.Getenv("LIVEKIT_API_SECRET"),
-			URL:       os.Getenv("LIVEKIT_URL"),
+			APIKey:            os.Getenv("LIVEKIT_API_KEY"),
+			APISecret:         os.Getenv("LIVEKIT_API_SECRET"),
+			URL:               os.Getenv("LIVEKIT_URL"),
+			RecordingsEnabled: getenvBool("RECORDINGS_ENABLED", false),
+			APIURL:            os.Getenv("LIVEKIT_API_URL"),
+			EgressRoot:        os.Getenv("RECORDINGS_EGRESS_ROOT"),
 		},
 	}
 
@@ -209,6 +228,19 @@ func Load() (*Config, error) {
 		}
 	default:
 		return nil, fmt.Errorf("MEDIA_BACKEND must be \"fs\" or \"s3\", got %q", c.Media.Backend)
+	}
+	// Recording needs an SFU to record and somewhere to put the file. Both are
+	// checked here rather than at the first call, because "recording silently
+	// did nothing" is the failure this feature must not have.
+	if c.LiveKit.RecordingsEnabled {
+		if c.LiveKit.APISecret == "" {
+			return nil, fmt.Errorf("RECORDINGS_ENABLED needs LIVEKIT_API_KEY/SECRET/URL")
+		}
+		if c.Media.Backend == "fs" && strings.TrimSpace(c.LiveKit.EgressRoot) == "" {
+			return nil, fmt.Errorf(
+				"RECORDINGS_EGRESS_ROOT is required with MEDIA_BACKEND=fs: " +
+					"it is the path the egress container has the media volume mounted at")
+		}
 	}
 	return c, nil
 }

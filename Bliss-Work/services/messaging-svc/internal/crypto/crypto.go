@@ -15,7 +15,11 @@
 //   - Self-describing ciphertext: 0x01 || key_version(uint16 BE) || nonce(12) ||
 //     AES-GCM(ct||tag). Embedding key_version makes DEK rotation lazy.
 //   - KEK provider is pluggable: DEV derives the KEK from a passphrase via Argon2id
-//     (honoring "use Argon2" as the KDF); PROD uses a KMS/Vault interface (stub).
+//     (honoring "use Argon2" as the KDF); PROD wraps DEKs through a KMS. The
+//     vault-transit backend is IMPLEMENTED — the master key never leaves Vault —
+//     while aws-kms and gcp-kms fail closed at construction. This said "(stub)"
+//     long after Vault was wired, which reads as "at-rest key wrapping is fake in
+//     production" to anyone auditing it.
 package crypto
 
 import (

@@ -12,6 +12,7 @@ from ..config import settings
 from ..crypto import CryptoError, cryptor
 from ..cursor import decode_cursor, encode_cursor
 from ..db import session, set_org_context
+from ..ingest import NON_EVENT_ACTIONS
 from ..logging_setup import log
 from ..schemas import (
     MemberActivityDTO,
@@ -102,7 +103,7 @@ async def timeline(
     Keyset-paginated on (occurred_at DESC, id DESC) — the same tuple the index is
     built on. OFFSET would be wrong here for a reason that shows up immediately
     in use: activity arrives continuously at the head of this list, so every new
-    heartbeat shifts the page boundary and the reader sees rows twice.
+    event shifts the page boundary and the reader sees rows twice.
     """
     subject = resolve_subject(principal, user_id)
     before: tuple[datetime, str] | None = None
@@ -125,6 +126,12 @@ async def timeline(
                        -- Only the visible window is browsable; older events are
                        -- retained but not served here. See _visible_floor.
                        AND occurred_at >= :floor
+                       -- Liveness beats are not activity and are no longer
+                       -- written (see NON_EVENT_ACTIONS), but rows from before
+                       -- that are still inside the visible window and inside
+                       -- retention. Excluded here so the timeline reads the
+                       -- same before and after the old rows age out.
+                       AND NOT (action = ANY(CAST(:hidden AS text[])))
                        -- CAST every nullable parameter: on the first page both
                        -- cursor values are NULL, and asyncpg cannot infer a type
                        -- for a parameter that only ever appears against NULL —
@@ -142,6 +149,7 @@ async def timeline(
                     "cur_id": before[1] if before else None,
                     "category": category, "lim": limit + 1,
                     "floor": _visible_floor(),
+                    "hidden": sorted(NON_EVENT_ACTIONS),
                 },
             )
         ).all()

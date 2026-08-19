@@ -332,6 +332,34 @@ export class StickyManager {
     for (const [, w] of this.widgets) if (!w.isDestroyed()) w.setAlwaysOnTop(false);
   }
 
+  /**
+   * Follow the desktop in and out of view.
+   *
+   * On Windows and macOS this is what "pinned to the desktop" actually means —
+   * see ./foreground for why neither platform can put a usable window under the
+   * others. A note is shown while the desktop is what the user is looking at and
+   * taken away the moment any application is, so it is never over somebody's
+   * work. On Linux the window really is at the bottom of the stack and this is
+   * only ever called with `true`.
+   *
+   * showInactive, never show: a note must not take focus even as it reappears.
+   * The window is non-focusable anyway, which is also why CLICKING a note does
+   * not count as leaving the desktop — the buttons keep working while it's up.
+   */
+  setDesktopExposed(exposed: boolean): void {
+    for (const [, w] of this.widgets) {
+      if (w.isDestroyed()) continue;
+      // A note the user minimised stays minimised; this decides visibility on
+      // the desktop, not what the user did with an individual note.
+      if (w.isMinimized()) continue;
+      if (exposed) {
+        if (!w.isVisible()) w.showInactive();
+      } else if (w.isVisible()) {
+        w.hide();
+      }
+    }
+  }
+
   /** Re-confine every live note to the primary display. Called on display
    *  add/remove/metrics-change so unplugging the monitor a note drifted toward
    *  can't strand it off the main desktop screen. */

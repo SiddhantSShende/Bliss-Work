@@ -4,6 +4,11 @@ import { fileURLToPath } from "node:url";
 import type { StickyTaskDTO } from "@taskboard/shared";
 import { createMainWindow } from "./windows";
 import { StickyManager } from "./sticky-manager";
+import {
+  onDesktopExposureChange,
+  startDesktopWatch,
+  stopDesktopWatch,
+} from "./foreground";
 import { ChatStickyManager, type ChatStickyBootstrap } from "./chat-sticky-manager";
 import { initCache, getTasks, setTasks } from "./cache";
 import {
@@ -239,6 +244,14 @@ function bootstrap() {
   screen.on("display-added", reclampStickies);
   screen.on("display-removed", reclampStickies);
   screen.on("display-metrics-changed", reclampStickies);
+
+  // Follow the desktop in and out of view, so a task note is only ever up when
+  // the desktop is — never over the application someone is working in. This is
+  // what "pinned to the desktop" has to mean on Windows and macOS; on Linux the
+  // window really is at the bottom of the stack and the watcher does not run.
+  // See ./foreground.
+  onDesktopExposureChange((visible) => sticky.setDesktopExposed(visible));
+  void startDesktopWatch();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -691,6 +704,7 @@ powerMonitor.on("shutdown", onSystemShutdown);
 
 app.on("before-quit", () => {
   quitting = true;
+  stopDesktopWatch();
   // Flush any pending sticky-state writes so the user's geometry survives a
   // tray-quit. The atomic temp-then-rename means a SIGKILL during this call
   // still leaves a valid prior file in place.

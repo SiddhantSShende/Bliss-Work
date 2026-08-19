@@ -114,6 +114,10 @@ func (s *Store) upsertMailInboxItem(ctx context.Context, tx pgx.Tx, it mailInbox
 
 // queueMailOutbound emits one MailOutbound event per address outside the org.
 //
+// The events carry attachment METADATA, never bytes — see
+// events.MailOutboundAttachment, and internalMailAttachment for the endpoint
+// email-worker then fetches each file from.
+//
 // One event per envelope recipient, never one event with a recipient list. The
 // To and Cc arrays it carries are the DISPLAY header — the same for every copy —
 // while `Envelope` is the single address this copy is actually delivered to.
@@ -125,6 +129,18 @@ func (s *Store) queueMailOutbound(
 ) error {
 	if len(externals) == 0 {
 		return nil
+	}
+	// Read once, not once per copy: every external recipient gets the same file
+	// list, and this is a decrypt-per-filename query.
+	files, err := s.loadMailAttachments(ctx, tx, in.OrgID, in.MailID)
+	if err != nil {
+		return err
+	}
+	attachments := make([]events.MailOutboundAttachment, 0, len(files))
+	for _, f := range files {
+		attachments = append(attachments, events.MailOutboundAttachment{
+			ID: f.ID, Filename: f.Filename, Mime: f.Mime, SizeBytes: f.SizeBytes,
+		})
 	}
 	var to, cc []string
 	for _, r := range recipients {
@@ -151,6 +167,7 @@ func (s *Store) queueMailOutbound(
 			Cc:          cc,
 			Subject:     in.Subject,
 			BodyText:    in.BodyText,
+			Attachments: attachments,
 		})
 	}
 	// Same kafka key as the in-app event so every copy of one mail keeps its

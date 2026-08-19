@@ -57,6 +57,15 @@ scrape_configs:
     static_configs:
       - targets: ["ws-gateway:8080"]
 
+  # Read-composition GraphQL gateway. graphql_loader_batch_size is the series
+  # that would catch it regressing into an N+1: if the p99 batch stays at 1
+  # while pages grow, batching has stopped working and the gateway is costing
+  # more than the client-side joins it replaced.
+  - job_name: graph-gw
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["graph-gw:8007"]
+
   - job_name: integrations-svc
     metrics_path: /metrics
     static_configs:

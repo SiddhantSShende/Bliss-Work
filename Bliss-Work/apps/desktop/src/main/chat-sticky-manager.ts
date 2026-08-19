@@ -167,7 +167,11 @@ export class ChatStickyManager {
       movable: true,
       skipTaskbar: true,
       alwaysOnTop: false,
-      type: "desktop",
+      // Linux only. On macOS a type:"desktop" window "will not receive focus,
+      // keyboard or mouse events" — which for a window whose entire purpose is
+      // TYPING a reply means it cannot be used at all. Windows ignores the
+      // option outright. See ./foreground for what each platform can do.
+      ...(process.platform === "linux" ? { type: "desktop" } : {}),
       hasShadow: true,
       maximizable: false,
       fullscreenable: false,

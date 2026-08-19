@@ -2,7 +2,7 @@
   "name": "@taskboard/desktop",
   "version": "0.1.0",
   "private": true,
-  "description": "BlissWork — desktop app with always-on-top sticky task notes",
+  "description": "BlissWork — desktop app with desktop-pinned sticky task notes",
   "author": "BlissWork",
   "homepage": "https://blisswork.rnrtechs.com",
   "main": "out/main/index.js",
@@ -167,6 +167,7 @@
     "ws": "^8.18.0"
   },
   "dependencies": {
-    "electron-updater": "^6.8.9"
+    "electron-updater": "^6.8.9",
+    "get-windows": "^9.3.0"
   }
 }

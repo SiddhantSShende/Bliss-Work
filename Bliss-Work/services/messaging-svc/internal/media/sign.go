@@ -49,7 +49,22 @@ type Grant struct {
 	OrgID        string    `json:"o"`
 	UserID       string    `json:"u"`
 	Exp          time.Time `json:"-"`
+	// Kind names WHAT the id refers to, and exists so one signer can serve two
+	// resources without either link working on the other's route. Empty means
+	// an attachment — the only thing this signed before recordings existed, so
+	// tokens minted then keep verifying and keep meaning what they meant.
+	//
+	// Handlers must check it. The ids are distinct UUID spaces, so a swap is
+	// not exploitable today; the check is what keeps that from being a fact the
+	// next resource silently depends on.
+	Kind string `json:"k,omitempty"`
 }
+
+// Resource kinds. KindAttachment is the empty default and is never written.
+const (
+	KindAttachment = ""
+	KindRecording  = "r"
+)
 
 // wire is the on-the-wire shape: Exp as a Unix second, which keeps the payload
 // short and avoids RFC3339 parsing differences round-tripping a time.Time.
@@ -58,6 +73,7 @@ type wire struct {
 	O string `json:"o"`
 	U string `json:"u"`
 	E int64  `json:"e"`
+	K string `json:"k,omitempty"`
 }
 
 // Signer mints and verifies media download tokens.
@@ -78,7 +94,8 @@ var b64 = base64.RawURLEncoding
 // Sign returns "<payload>.<mac>", both base64url without padding so the token is
 // safe unescaped in a query string.
 func (s *Signer) Sign(g Grant) string {
-	payload, _ := json.Marshal(wire{A: g.AttachmentID, O: g.OrgID, U: g.UserID, E: g.Exp.Unix()})
+	payload, _ := json.Marshal(
+		wire{A: g.AttachmentID, O: g.OrgID, U: g.UserID, E: g.Exp.Unix(), K: g.Kind})
 	enc := b64.EncodeToString(payload)
 	return enc + "." + b64.EncodeToString(s.mac(enc))
 }
@@ -116,7 +133,7 @@ func (s *Signer) Verify(tok string) (*Grant, error) {
 	if time.Now().After(exp) {
 		return nil, ErrInvalidToken
 	}
-	return &Grant{AttachmentID: w.A, OrgID: w.O, UserID: w.U, Exp: exp}, nil
+	return &Grant{AttachmentID: w.A, OrgID: w.O, UserID: w.U, Exp: exp, Kind: w.K}, nil
 }
 
 func (s *Signer) mac(encPayload string) []byte {

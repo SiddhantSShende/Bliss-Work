@@ -84,6 +84,11 @@
 #   postgres,      Single-instance data and media tiers. Replicating these is a
 #   redis, kafka,  different project with its own failure modes — see
 #   livekit        INFRASTRUCTURE.md.
+#
+# NOT IN THIS FILE: call recording. It needs a LiveKit Egress worker and a Redis
+# the SFU can reach, which this topology deliberately does not have — so it lives
+# in docker-compose.recording.yml as an opt-in overlay. docs/RECORDING.md is the
+# procedure, including what your users must be told before you enable it.
 # ─────────────────────────────────────────────────────────────────────────────
 name: task-board-prod
 
@@ -145,8 +150,13 @@ services:
       - ./:/workspace
       - web_node_modules:/workspace/node_modules
       - web_dist:/dist
+    # --ignore-scripts: apps/desktop depends on get-windows, a native module with
+    # no musl prebuild whose install script fails on Alpine and takes the whole
+    # `npm ci` with it. Vite needs no install scripts — esbuild and @swc ship
+    # their binaries as optional dependency packages — so skipping them is both
+    # the fix and one less place arbitrary install-time code runs.
     command: >-
-      sh -lc "npm ci && npm run build -w @taskboard/web && rm -rf /dist/* && cp -a apps/web/dist/. /dist/"
+      sh -lc "npm ci --ignore-scripts && npm run build -w @taskboard/web && rm -rf /dist/* && cp -a apps/web/dist/. /dist/"
 
   # Desktop installers, built the same way the web bundle is: a one-shot
   # container that runs on `docker compose up` and exits. `docker compose up`
@@ -1004,6 +1014,45 @@ services:
   # SSH tunnel, never through Caddy — Prometheus and Grafana have no auth worth
   # the name in this configuration, and /metrics is already 404'd at the edge
   # (see infra/caddy/Caddyfile's @introspection rule).
+  # ── Read-composition GraphQL gateway ───────────────────────────────────────
+  # OPTIONAL by design. It fronts a few READ paths; writes, uploads, exports,
+  # auth and realtime all keep talking to the services directly. A stack without
+  # it works, and a web bundle built without VITE_GRAPH_BASE never calls it — so
+  # this can be deployed dark and switched on by rebuilding the bundle.
+  graph-gw:
+    <<: *svc-defaults
+    build:
+      # Repository root, not services/graph-gw: this service is a workspace
+      # member and imports @taskboard/shared. See its Dockerfile.
+      context: .
+      dockerfile: services/graph-gw/Dockerfile
+    image: ${REGISTRY_PREFIX:-task-board}/graph-gw:${IMAGE_TAG:-latest}
+    environment:
+      # In-network addresses — the gateway sits WITH the services and does not
+      # go back out through the edge to reach them.
+      AUTH_BASE: http://auth-svc:8001
+      MESSAGING_BASE: http://messaging-svc:8004
+      NODE_ENV: production
+      IMAGE_TAG: ${IMAGE_TAG:-dev}
+    depends_on:
+      auth-svc: { condition: service_healthy }
+      messaging-svc: { condition: service_healthy }
+    healthcheck:
+      # 127.0.0.1, not localhost: Node binds IPv4 only and busybox wget tries
+      # ::1 first. See the note in the Dockerfile.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8007/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    deploy:
+      # Two behind the Caddy load balancer, like the other stateless services.
+      # Nothing is held between requests: the DataLoader cache is per request by
+      # construction, so a second replica shares load rather than splitting a
+      # cache in half.
+      replicas: 2
+      resources:
+        limits: { cpus: "1.00", memory: 512M }
+
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.115.1
     restart: unless-stopped

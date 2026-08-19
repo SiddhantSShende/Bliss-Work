@@ -172,6 +172,23 @@ async def user_dtos_for_org(
             {"org": org_id, "all": include_inactive, "lim": limit, "off": offset},
         )
     ).all()
+    return await _user_dtos_from_rows(conn, rows)
+
+
+# Columns every caller of `_user_dtos_from_rows` must select, kept in one place
+# so a new lookup cannot silently omit one and get a KeyError at decrypt time.
+_USER_DTO_COLUMNS = """u.id, u.org_id, u.username, u.display_name_enc,
+                       u.email_enc, u.email_verified, o.plan, o.name AS org_name"""
+
+
+async def _user_dtos_from_rows(conn: AsyncConnection, rows) -> list[UserDTO]:
+    """Rows selecting `_USER_DTO_COLUMNS` -> DTOs, in ONE extra round trip.
+
+    Every role for every row is fetched with a single `= ANY(...)` rather than a
+    lookup per user. Decryption stays per-row because it must — each value is
+    separately AES-GCM sealed — but the org's key is cached after the first use,
+    so it is CPU and not another round trip.
+    """
     if not rows:
         return []
 
@@ -212,6 +229,52 @@ async def user_dtos_for_org(
             )
         )
     return out
+
+
+async def user_dtos_by_ids(
+    conn: AsyncConnection, org_id: str, user_ids: list[str]
+) -> list[UserDTO]:
+    """The named users, scoped to `org_id`. Two queries regardless of count.
+
+    ── Why this exists alongside user_dtos_for_org ──────────────────────────────
+    `/auth/directory` is an ENUMERATION endpoint: "everyone in my org". Screens
+    that only need to put a name and an address on the dozen rows they are
+    drawing had no way to ask for a dozen, so they fetched the whole directory
+    and joined it in the browser. This is the lookup they should have had.
+
+    ── Why status is NOT filtered here ──────────────────────────────────────────
+    `user_dtos_for_org` excludes suspended and removed members so they stop being
+    OFFERED in pickers and mention lists. That reasoning does not transfer to a
+    by-id lookup: the caller already holds the id because it is on a row they can
+    already see, and hiding the user renders their own history as "Unknown user"
+    — the exact bug the callers' fallbacks were bolted on to hide.
+
+    So this resolves any member of the CALLER'S OWN ORG regardless of status. The
+    tenant boundary is what protects the data, and it is enforced twice: the
+    `org_id` predicate below, and the RLS policy the caller must already have
+    bound with `set_org_guc`.
+
+    Users not in the caller's org are simply absent from the result. Callers must
+    therefore match on `id` and not assume the response is positional or complete.
+    """
+    if not user_ids:
+        return []
+    rows = (
+        await conn.execute(
+            text(
+                f"""
+                SELECT {_USER_DTO_COLUMNS}
+                FROM users u
+                JOIN orgs o ON o.id = u.org_id
+                WHERE u.org_id = :org
+                  AND u.id = ANY(CAST(:uids AS uuid[]))
+                ORDER BY u.username
+                """
+            ),
+            {"org": org_id, "uids": user_ids},
+        )
+    ).all()
+    return await _user_dtos_from_rows(conn, rows)
 
 
 async def update_display_name(

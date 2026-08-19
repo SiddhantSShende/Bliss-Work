@@ -16,6 +16,9 @@ from .. import service
 from ..config import settings
 from ..crypto import cryptor
 from ..events.outbox import TOPIC_AUTH, build_event, enqueue_event
+from ..routing import directory, placement
+from ..routing.decision import Route, route_for
+from ..routing.events import KEY_INVITE, invite_key
 from ..schemas import AcceptInviteRequest, CreateInviteRequest, SessionDTO
 from ..security.auth_dep import Principal
 from ..security.passwords import (
@@ -26,6 +29,20 @@ from ..security.passwords import (
 )
 
 INVITE_TTL = timedelta(hours=72)
+
+
+class InviteAtAnotherSite(Exception):
+    """This invite belongs to an org whose data lives at another site.
+
+    Carried out of the service layer as an exception rather than a response
+    because `accept_invite_tx` runs inside the caller's transaction and has no
+    business building HTTP: the router catches this and hands it to the shared
+    redirect helper, which is the same code path an org-mismatch takes.
+    """
+
+    def __init__(self, home_site: str) -> None:
+        super().__init__(home_site)
+        self.home_site = home_site
 
 
 def iso_z(dt: datetime) -> str:
@@ -70,6 +87,23 @@ async def create_invite_tx(
         },
     )
 
+    # Make the invite routable from EVERY site before the link is emailed.
+    #
+    # Stamped with the ORG's home site, not this one. An admin may well be
+    # signed in at a site that is not their org's home — that is the whole point
+    # of cross-site routing — and an invite stamped with the serving site would
+    # send its recipient somewhere the org's data is not.
+    #
+    # In the same transaction as the invite insert, so there is no window where
+    # a valid invite exists that no site can route.
+    home_site = await placement.home_site_of_org(conn, principal.org_id) or settings.site_id
+    await placement.record_invite_placement(
+        conn,
+        invite_key(service.sha256_bytes(raw_token)),
+        home_site=home_site,
+        expires_at=expires_at,
+    )
+
     invite_url = f"{settings.invite_base_url}?token={raw_token}"
     event = build_event(
         "invite.created",
@@ -112,6 +146,34 @@ async def accept_invite_tx(
     # org we pin app.org_id and clear the bypass so the user/role/org_keys writes
     # below are genuinely org-scoped.
     await service.set_bypass_rls(conn)
+
+    # ── Which SITE owns this invite? ─────────────────────────────────────────
+    #
+    # This lookup has to come first, and it is the reason the routing directory
+    # exists. Redemption is keyed on the token hash ALONE — deliberately, since
+    # an invite link must work for someone who belongs to no org yet — so there
+    # is no org id to route by and the local `invites` table is not authoritative
+    # for an invite minted at another site.
+    #
+    # Without this, a recipient whose org lives at the other site sees "invalid
+    # or expired invite": the row genuinely is not here, and the old code could
+    # not tell that apart from a bad token.
+    #
+    # Raises for the remote / not-yet-replicated / expired cases; returns for the
+    # local one. See routing/decision.py for why an unknown key is a retry rather
+    # than a 404.
+    entry = await directory.lookup(conn, KEY_INVITE, invite_key(token_hash))
+    decision = route_for(entry, settings.site_id, now=now)
+    if decision.route is Route.RETRY:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "this invite is not available at this site yet — retry shortly",
+            headers={"Retry-After": "2"},
+        )
+    if decision.route is Route.REDIRECT:
+        raise InviteAtAnotherSite(decision.home_site or "")
+    if decision.route is Route.GONE:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid or expired invite")
 
     invite = (
         await conn.execute(

@@ -4,4 +4,5 @@ export * from "./types/errors";
 export * from "./policy/stickyPin";
 export * from "./policy/mailAddress";
 export * from "./ws-client/WsClient";
+export * from "./graphql/operations";
 export * from "./api/client";

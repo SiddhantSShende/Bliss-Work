@@ -52,6 +52,26 @@ class Settings(BaseSettings):
         default="dev-internal-token",
         validation_alias=AliasChoices("TB_INTERNAL_TOKEN", "internal_token"),
     )
+    #  * messaging_internal_base → fetch the bytes of a file attached to an
+    #    outbound mail. The blob volume is mounted into messaging-svc alone, so
+    #    the files are asked for rather than read off another service's disk.
+    messaging_internal_base: str = Field(
+        default="http://messaging-svc:8004",
+        validation_alias=AliasChoices("MESSAGING_INTERNAL_BASE", "messaging_internal_base"),
+    )
+    # Total RAW bytes of attachments carried on one outbound email. Base64 adds
+    # about a third on top, so the default lands near 13.6 MB on the wire —
+    # comfortably under the 25 MB Gmail accepts and the 20 MB or less that many
+    # providers do. Uploads themselves are capped far higher (MEDIA_MAX_BYTES,
+    # 100 MB); what exceeds this budget is named in the mail rather than
+    # attached, and the in-app copy still carries every file.
+    # Set to 0 to relay no attachments at all.
+    mail_attachment_budget_bytes: int = Field(
+        default=10 * 1024 * 1024,
+        validation_alias=AliasChoices(
+            "MAIL_ATTACHMENT_BUDGET_BYTES", "mail_attachment_budget_bytes"
+        ),
+    )
     redis_url: str = Field(
         default="redis://redis:6379/0",
         validation_alias=AliasChoices("REDIS_URL", "redis_url"),

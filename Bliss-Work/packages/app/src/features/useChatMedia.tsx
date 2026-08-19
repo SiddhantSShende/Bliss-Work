@@ -25,7 +25,7 @@ import { DropConfirm } from "./DropConfirm";
  * All of media + location sharing for one chat surface, in one hook.
  *
  * DMs, channels and Inbox threads each have their own container component
- * (`DMView`, `ChannelView`, `InboxThread`) with its own send mutation, and the
+ * (`DMView`, `ChannelView`, `MailThread`) with its own send mutation, and the
  * message list itself is forked between `ChatThread` and `ThreadView`. Rather
  * than implement attachments three times, everything lives here and each
  * surface supplies two things: which scope it is, and how to send a message.

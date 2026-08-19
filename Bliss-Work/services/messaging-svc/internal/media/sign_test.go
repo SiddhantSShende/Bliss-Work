@@ -127,3 +127,34 @@ func TestVerify_EmptyGrantFieldsRejected(t *testing.T) {
 		t.Fatal("grant with empty ids accepted")
 	}
 }
+
+// A recording link and an attachment link are signed by the same key, so what
+// keeps one from opening the other's route is the kind carried in the payload.
+// The handlers check it; this pins that it survives the round trip and that an
+// old token — minted before recordings existed, with no kind at all — still
+// reads as the attachment it was.
+func TestGrantKindSurvivesTheRoundTripAndDefaultsToAttachment(t *testing.T) {
+	s, err := NewSigner(strings.Repeat("k", 32))
+	if err != nil {
+		t.Fatalf("NewSigner: %v", err)
+	}
+	exp := time.Now().Add(time.Minute)
+
+	rec := Grant{AttachmentID: "rec-1", OrgID: "o", UserID: "u", Exp: exp, Kind: KindRecording}
+	got, err := s.Verify(s.Sign(rec))
+	if err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	if got.Kind != KindRecording {
+		t.Fatalf("kind = %q, want %q", got.Kind, KindRecording)
+	}
+
+	att := Grant{AttachmentID: "att-1", OrgID: "o", UserID: "u", Exp: exp}
+	got, err = s.Verify(s.Sign(att))
+	if err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	if got.Kind != KindAttachment {
+		t.Fatalf("an attachment grant must carry no kind, got %q", got.Kind)
+	}
+}

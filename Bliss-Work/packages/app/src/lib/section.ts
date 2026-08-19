@@ -9,7 +9,7 @@
  */
 
 /** Sections that own a contextual list pane in the shell. */
-export type ListSection = "inbox" | "chats" | "channels" | "members" | "tasks";
+export type ListSection = "mail" | "chats" | "channels" | "members" | "tasks";
 
 /** Every part of the product a user can be "in", for time attribution. */
 export type Surface =
@@ -22,7 +22,7 @@ export type Surface =
   | "meetings"
   | "org";
 
-const LIST_SECTIONS: ListSection[] = ["inbox", "tasks", "channels", "members", "chats"];
+const LIST_SECTIONS: ListSection[] = ["mail", "tasks", "channels", "members", "chats"];
 const UTILITY: Surface[] = [
   "search",
   "invite",

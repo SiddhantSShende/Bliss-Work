@@ -279,12 +279,56 @@ func main() {
 		log.Warn("group calling disabled — LIVEKIT_* not set; 1:1 calls still work")
 	}
 
+	// Call recording, which is OFF unless a deployment asks for it. It needs
+	// more than this service: LiveKit Egress is a separate process that reaches
+	// the SFU over Redis, and without it every call would open a recording that
+	// immediately failed. Hence the explicit switch rather than "on if an SFU
+	// is configured" — see docs and infra/livekit.
+	var recorder *livekit.Recorder
+	if cfg.LiveKit.RecordingsEnabled {
+		recorder, err = livekit.NewRecorder(
+			cfg.LiveKit.APIKey, cfg.LiveKit.APISecret, cfg.LiveKit.URL,
+			livekit.RecorderOptions{
+				APIURL: cfg.LiveKit.APIURL,
+				S3: func() livekit.S3Output {
+					if cfg.Media.Backend != "s3" {
+						return livekit.S3Output{}
+					}
+					scheme := "http://"
+					if cfg.Media.S3.UseSSL {
+						scheme = "https://"
+					}
+					return livekit.S3Output{
+						AccessKey: cfg.Media.S3.AccessKey,
+						SecretKey: cfg.Media.S3.SecretKey,
+						Region:    cfg.Media.S3.Region,
+						// LiveKit wants a full URL here; the blob store's own
+						// config carries host:port and the flag separately.
+						Endpoint: scheme + cfg.Media.S3.Endpoint,
+						Bucket:   cfg.Media.S3.Bucket,
+						// Recordings land under the same prefix as every other
+						// object, because that is where the download route
+						// looks for them.
+						Prefix:         cfg.Media.S3.Prefix,
+						ForcePathStyle: true,
+					}
+				}(),
+				FileRoot: cfg.LiveKit.EgressRoot,
+			})
+		if err != nil {
+			log.Error("recording config invalid", "err", err)
+			os.Exit(1)
+		}
+		log.Info("call recording enabled", "backend", cfg.Media.Backend)
+	}
+
 	// Wrap the root handler so every request is a server span and incoming W3C
 	// tracecontext headers are extracted. When tracing is disabled the global
 	// no-op provider makes this effectively free.
 	handler := otelhttp.NewHandler(
 		api.NewServer(st, verifier, log, blobs, signer, cfg.Media, cfg.Maps, lk).
 			WithSharedRateLimits(rateStore).
+			WithRecorder(recorder).
 			Router(cfg.WebOrigin),
 		"messaging-svc")
 

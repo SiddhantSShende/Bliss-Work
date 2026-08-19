@@ -140,6 +140,12 @@ func (s *Server) scheduleChannelCall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.notifyCall(r.Context(), c, events.TypeCallScheduled, claims.UserID)
+	// A channel call with no time on it is live already — there is no later
+	// "start" to hang the recording off.
+	if c.Status == "LIVE" && s.startRecording(r.Context(), c.ID, c.OrgID, c.Kind) {
+		st := store.RecordingInProgress
+		c.RecordingStatus = &st
+	}
 	writeJSON(w, http.StatusCreated, c)
 }
 
@@ -194,6 +200,11 @@ func (s *Server) scheduleMeeting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.notifyCall(r.Context(), c, events.TypeCallScheduled, claims.UserID)
+	// Same as a channel call: "meet now" has no start request to follow.
+	if c.Status == "LIVE" && s.startRecording(r.Context(), c.ID, c.OrgID, c.Kind) {
+		st := store.RecordingInProgress
+		c.RecordingStatus = &st
+	}
 	writeJSON(w, http.StatusCreated, c)
 }
 
@@ -574,6 +585,13 @@ func (s *Server) startCall(w http.ResponseWriter, r *http.Request) {
 	// this, because a client that arrives between the UPDATE and this fan-out
 	// would otherwise never be told.
 	s.notifyCall(r.Context(), c, events.TypeCallStarted, claims.UserID)
+	// Recording begins with the call, on a deployment that records at all. The
+	// response is written after it so `recordingStatus` on the call the starter
+	// gets back is already true rather than arriving a refetch later.
+	if s.startRecording(r.Context(), c.ID, c.OrgID, c.Kind) {
+		st := store.RecordingInProgress
+		c.RecordingStatus = &st
+	}
 	s.log.Info("call started", "call", callID, "by", claims.UserID, "admitted", len(admitted))
 	writeJSON(w, http.StatusOK, c)
 }
@@ -665,6 +683,7 @@ func (s *Server) leaveCall(w http.ResponseWriter, r *http.Request) {
 	// the room is gone, so a separate "their share stopped" is noise.
 	if ended != nil {
 		s.notifyCall(r.Context(), ended, events.TypeCallEnded, claims.UserID)
+		s.stopRecording(r.Context(), callID)
 		s.log.Info("call ended by host leaving", "call", callID, "by", claims.UserID)
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -701,6 +720,9 @@ func (s *Server) endCall(w http.ResponseWriter, r *http.Request) {
 	}
 	if c != nil {
 		s.notifyCall(r.Context(), c, events.TypeCallEnded, claims.UserID)
+		// Egress stops by itself once the room empties; this is the prompt, and
+		// the thing that settles the row when the SFU cannot be reached.
+		s.stopRecording(r.Context(), callID)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

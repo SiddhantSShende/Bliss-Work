@@ -305,7 +305,10 @@ func (s *Server) downloadMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := chi.URLParam(r, "id")
-	if id != grant.AttachmentID {
+	// The kind check is what keeps this route to attachments: a recording link
+	// carries the same signature over a different resource, and neither should
+	// open the other's door.
+	if id != grant.AttachmentID || grant.Kind != media.KindAttachment {
 		writeAPIError(w, r, http.StatusForbidden, CodeForbidden, "invalid or expired link")
 		return
 	}

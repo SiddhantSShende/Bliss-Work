@@ -78,6 +78,20 @@ type CallDTO struct {
 	// participant who joins mid-share knows about it immediately, rather than
 	// inferring it from whichever tracks happen to arrive first.
 	ActiveShares []CallShareDTO `json:"activeShares"`
+	// RecordingStatus is "RECORDING" while the SFU is writing a recording of
+	// this call, "READY" once there is something to play, and absent when
+	// neither is true.
+	//
+	// Two things at once, deliberately. It is what tells a PARTICIPANT they are
+	// being recorded — which nobody should have to be told twice, or find out
+	// afterwards — and it is what lets a list of past meetings offer playback
+	// without minting a signed link per row for links nobody clicks. The link
+	// itself comes from GET /calls/{id}/recording, one at a time.
+	//
+	// A failed recording is reported as neither: there is nothing to play and
+	// nothing still running, and the operator's copy of the failure is in the
+	// row, not in a participant's screen.
+	RecordingStatus *string `json:"recordingStatus,omitempty"`
 }
 
 // CallParticipantDTO is one row of a call's roster.
@@ -1016,6 +1030,19 @@ func getCallTx(ctx context.Context, tx pgx.Tx, callID string) (*CallDTO, error) 
 	if err != nil {
 		return nil, err
 	}
+
+	// Recordings need no widening either: the call_recordings policy admits the
+	// hosting org and anyone on the roster, which is exactly who may see the
+	// call in the first place.
+	var recStatus *string
+	if err := tx.QueryRow(ctx, `
+		SELECT status FROM call_recordings
+		WHERE call_id = $1 AND status IN ('RECORDING', 'READY')
+		ORDER BY started_at DESC LIMIT 1`, callID).Scan(&recStatus); err != nil &&
+		!errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
+	}
+	d.RecordingStatus = recStatus
 	return &d, nil
 }
 
@@ -1102,9 +1129,21 @@ func (s *Store) ListChannelCalls(
 	return out, nil
 }
 
+// MyCallsHistoryDays is how far back this list reaches for calls that are over.
+//
+// A window rather than everything: the page that reads this shows "what am I
+// expected at", and a meeting from eighteen months ago is not that. It is also
+// what bounds the query — without it a long-lived account's finished calls would
+// crowd the page cap and push its upcoming ones off the end.
+const MyCallsHistoryDays = 30
+
 // ListMyCalls returns the calls the caller is a participant of, newest first.
 // Includes cross-org meetings they were invited to, which is the read path the
 // participant RLS disjunct exists for.
+//
+// Finished calls are included for MyCallsHistoryDays. They used to be filtered
+// out entirely, which left the Meetings page's "Past" tab permanently empty and
+// made a call's recording unreachable — there was no row to offer it from.
 func (s *Store) ListMyCalls(ctx context.Context, orgID, callerID string, limit int) ([]CallDTO, error) {
 	limit = clampMessagePage(limit)
 	out := []CallDTO{}
@@ -1113,8 +1152,11 @@ func (s *Store) ListMyCalls(ctx context.Context, orgID, callerID string, limit i
 			SELECT c.id FROM calls c
 			JOIN call_participants p ON p.call_id = c.id AND p.user_id = $1
 			WHERE c.status IN ('SCHEDULED', 'LIVE')
+			   OR (c.status IN ('ENDED', 'CANCELLED')
+			       AND COALESCE(c.ended_at, c.scheduled_at, c.created_at)
+			           > now() - make_interval(days => $3))
 			ORDER BY COALESCE(c.scheduled_at, c.created_at) DESC
-			LIMIT $2`, callerID, limit)
+			LIMIT $2`, callerID, limit, MyCallsHistoryDays)
 		if err != nil {
 			return err
 		}
@@ -1234,6 +1276,33 @@ func appendCallsTx(ctx context.Context, tx pgx.Tx, ids []string, out *[]CallDTO)
 	}
 	srows.Close()
 	if err := srows.Err(); err != nil {
+		return err
+	}
+
+	// 4. Which of these calls are being recorded, and which have something to
+	// play back. One read for the page. DISTINCT ON keeps the newest of the two
+	// states that matter, so a call recorded twice reports the current attempt
+	// rather than an arbitrary one.
+	rrows, err := tx.Query(ctx, `
+		SELECT DISTINCT ON (call_id) call_id, status FROM call_recordings
+		WHERE call_id = ANY($1) AND status IN ('RECORDING', 'READY')
+		ORDER BY call_id, started_at DESC`, ids)
+	if err != nil {
+		return err
+	}
+	for rrows.Next() {
+		var callID, status string
+		if err := rrows.Scan(&callID, &status); err != nil {
+			rrows.Close()
+			return err
+		}
+		if c, ok := byID[callID]; ok {
+			st := status
+			c.RecordingStatus = &st
+		}
+	}
+	rrows.Close()
+	if err := rrows.Err(); err != nil {
 		return err
 	}
 

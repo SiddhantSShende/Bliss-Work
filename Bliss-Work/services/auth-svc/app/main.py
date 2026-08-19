@@ -16,6 +16,8 @@ from .crypto import init_cryptor
 from .db import engine, run_migrations
 from .errors import register_exception_handlers
 from .events.poller import OutboxPoller
+from .routing.consumer import RoutingConsumer
+from .routing.reporter import CapacityReporter
 from .logging_config import configure_logging, log
 from .middleware import (
     BodySizeLimitMiddleware,
@@ -38,6 +40,11 @@ from .tracing import setup_tracing, shutdown_tracing
 configure_logging(settings.log_level)
 
 _poller = OutboxPoller()
+# Cross-site routing: the consumer keeps this site's copy of the routing
+# directory in step with every peer, and the reporter publishes this site's
+# storage position so peers can place organisations without querying us.
+_routing_consumer = RoutingConsumer()
+_capacity_reporter = CapacityReporter()
 
 
 @asynccontextmanager
@@ -57,10 +64,14 @@ async def lifespan(app: FastAPI):
     if settings.web_origin.startswith("https://") and not settings.cookie_secure:
         log.warning("cookie_secure_false_behind_tls", detail="set COOKIE_SECURE=true so refresh cookies are TLS-only")
     await _poller.start()
+    await _routing_consumer.start()
+    await _capacity_reporter.start()
     log.info("auth_svc_ready")
     try:
         yield
     finally:
+        await _capacity_reporter.stop()
+        await _routing_consumer.stop()
         await _poller.stop()
         await engine.dispose()
         shutdown_tracing()  # flush any buffered spans (no-op when disabled)

@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { createRingtone, primeRingtoneAudio } from "./ringtone";
 import { notifyIncomingCall, notifyMissedCall, primeCallNotifications } from "./callNotify";
 import { qk } from "./queryBridge";
+import { usersByIdsQuery } from "./userLabel";
 
 export type CallStatus = "idle" | "outgoing" | "incoming" | "connecting" | "in-call" | "ended";
 
@@ -85,7 +86,7 @@ const IDLE: CallState = {
 };
 
 export function CallProvider({ children }: { children: React.ReactNode }) {
-  const { rtc, api } = useRuntime();
+  const { rtc, api, config } = useRuntime();
   const qc = useQueryClient();
   const me = useSession((s) => s.user);
   const [state, setState] = useState<CallState>(IDLE);
@@ -174,22 +175,31 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     [qc],
   );
 
-  /** Fetch the directory when the cache is cold so an incoming call can still
-   *  show a display name. Best-effort: the gateway-stamped username is already
-   *  on screen, so a failure here just leaves that in place. */
+  /** Resolve the caller's display name when the cache is cold, so an incoming
+   *  call can show a name rather than an e-mail fragment. Best-effort: the
+   *  gateway-stamped username is already on screen, so a failure here just
+   *  leaves that in place.
+   *
+   *  This is the worst directory fetch in the app when it falls back: a ringing
+   *  phone is the most latency-sensitive moment in the product, and the REST
+   *  path downloads every member of the organisation to read ONE name. With a
+   *  GraphQL gateway configured it asks for that one person instead. */
   const resolveName = useCallback(
     async (userId: string, callId: string) => {
       if (cachedName(userId)) return;
       try {
-        const dir = await qc.fetchQuery({ queryKey: qk.directory, queryFn: () => api.directory() });
-        const name = dir.find((u) => u.id === userId)?.displayName;
+        const name = config.graphBase
+          ? (await qc.fetchQuery(usersByIdsQuery(api, [userId])))[0]?.displayName
+          : (
+              await qc.fetchQuery({ queryKey: qk.directory, queryFn: () => api.directory() })
+            ).find((u) => u.id === userId)?.displayName;
         if (!name) return;
         setState((s) => (s.callId === callId ? { ...s, peerName: name } : s));
       } catch {
         /* keep whatever the invite frame carried */
       }
     },
-    [api, cachedName, qc],
+    [api, cachedName, config.graphBase, qc],
   );
 
   const iceConfig = useCallback(async (): Promise<RTCConfiguration> => {

@@ -954,6 +954,15 @@ export const CallShareDTO = z.object({
 });
 export type CallShareDTO = z.infer<typeof CallShareDTO>;
 
+/** How far along a call's recording is.
+ *
+ *  RECORDING is the live state — the SFU is writing the file and there is
+ *  nothing to play yet. READY means the file has landed and been measured.
+ *  FAILED is kept rather than deleted so a host who was told "this is being
+ *  recorded" is not left wondering where it went. */
+export const CallRecordingStatus = z.enum(["RECORDING", "READY", "FAILED"]);
+export type CallRecordingStatus = z.infer<typeof CallRecordingStatus>;
+
 export const CallDTO = z.object({
   id: z.string().uuid(),
   orgId: z.string().uuid(),
@@ -975,6 +984,18 @@ export const CallDTO = z.object({
   /** What is on screen right now. Present on every read, so opening a call
    *  already tells you a share is in progress. */
   activeShares: z.array(CallShareDTO).default([]),
+  /** "RECORDING" while the SFU is writing a recording of this call, "READY"
+   *  once there is something to play, absent when neither is true.
+   *
+   *  It carries two jobs on purpose. It is what tells a PARTICIPANT they are
+   *  being recorded — which is not something anyone should discover
+   *  afterwards — and it is what lets a list of past meetings offer playback
+   *  without minting a signed link per row. The link itself comes from GET
+   *  /calls/{id}/recording, one at a time, and expires.
+   *
+   *  A failed recording is reported as neither: there is nothing to play, and
+   *  the failure is the operator's to see, not the participants'. */
+  recordingStatus: CallRecordingStatus.exclude(["FAILED"]).nullish(),
 });
 export type CallDTO = z.infer<typeof CallDTO>;
 
@@ -989,6 +1010,27 @@ export const CallInviteDTO = z.object({
   maxUses: z.number().int().nullish(),
 });
 export type CallInviteDTO = z.infer<typeof CallInviteDTO>;
+
+
+/** A call's recording, with a signed link when there is something to play.
+ *
+ *  `url` is a path on the messaging service, not an absolute URL — the same
+ *  shape AttachmentLinkDTO uses, and for the same reason: the caller knows its
+ *  own API base and the token inside is what carries the authorization. */
+export const CallRecordingDTO = z.object({
+  id: z.string().uuid(),
+  callId: z.string().uuid(),
+  status: CallRecordingStatus,
+  mime: z.string().default("video/mp4"),
+  sizeBytes: z.number().int().nonnegative().default(0),
+  durationMs: z.number().int().nonnegative().default(0),
+  startedAt: z.string(),
+  endedAt: z.string().nullish(),
+  /** Signed playback path, present only once the recording is READY. */
+  url: z.string().default(""),
+  expiresAt: z.string().nullish(),
+});
+export type CallRecordingDTO = z.infer<typeof CallRecordingDTO>;
 
 /** Everything needed to open the SFU room. Short-lived by design: access is
  *  re-decided from the database on every refresh, so losing channel membership

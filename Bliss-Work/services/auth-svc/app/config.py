@@ -164,6 +164,65 @@ class Settings(BaseSettings):
             connect_args["ssl"] = ssl_context
         return connect_args
 
+    # ── Multi-site placement and routing ─────────────────────────────────────
+    #
+    # Org data is partitioned by site and never replicated: an organisation has
+    # one home site, chosen at signup, and stays there. These settings are what
+    # this deployment knows about the wider mesh. See docs/CROSS-REGION.md.
+
+    # THIS deployment's site id. It is stamped on every org placed here and on
+    # every invite minted here, so it must match the site name used by the
+    # region bridge and by every peer's `site_endpoints`.
+    site_id: str = "site-a"
+
+    # site → PUBLIC base URL, comma-separated: "site-a=https://a...,site-b=https://b..."
+    #
+    # Explicit configuration rather than anything derived from an event, because
+    # these addresses are where a user's BROWSER is sent. A redirect target
+    # taken from a peer's message would be an open redirect with a routing
+    # decision's name on it.
+    site_endpoints: str = ""
+
+    # Placement candidates, nearest-first, for requests with no geographic hint.
+    # Empty means "this site only", which is the correct single-site behaviour.
+    placement_candidates: str = ""
+
+    # This site's HARD storage ceiling. Placement refuses to assign anywhere once
+    # the emptiest site reaches its own ceiling — that is a provisioning event,
+    # not a routing decision, and it pages rather than silently overfilling a
+    # disk. 100,000 GB is the worked example from the design.
+    site_storage_ceiling_gb: int = 100_000
+
+    # How often this site publishes its storage position to its peers, and how
+    # long a peer's last report stays usable. A site that has gone quiet for
+    # longer than the second number is treated as UNKNOWN by placement rather
+    # than as its last cheerful value — a stale "40% full" is how new orgs get
+    # routed into a site that died an hour ago.
+    site_capacity_report_seconds: int = 60
+    site_capacity_max_age_seconds: int = 900
+
+    # Optional outbound webhook for capacity alerts (Slack/PagerDuty). Empty
+    # means log-only, which is not silent: every alert is written at ERROR with
+    # a structured payload, and that log line is the record. The webhook is the
+    # convenience on top of it — see routing/notify.py.
+    ops_alert_webhook_url: str = ""
+
+    @property
+    def site_endpoint_map(self) -> dict[str, str]:
+        """Parsed `site_endpoints`. Malformed entries are dropped rather than
+        fatal: a missing endpoint degrades one site's redirects to a retryable
+        503, while refusing to boot takes out the site that is still healthy."""
+        out: dict[str, str] = {}
+        for part in self.site_endpoints.split(","):
+            name, sep, url = part.partition("=")
+            if sep and name.strip() and url.strip():
+                out[name.strip()] = url.strip()
+        return out
+
+    @property
+    def placement_candidate_list(self) -> list[str]:
+        return [s.strip() for s in self.placement_candidates.split(",") if s.strip()]
+
     @staticmethod
     def _strip_query(url: str) -> str:
         parts = urlsplit(url)

@@ -31,7 +31,6 @@ const ACTIONS: Record<string, string> = {
   blur: "Switched away from BlissWork",
   "idle.start": "Went idle",
   "idle.end": "Became active",
-  heartbeat: "Active",
   // Desktop-agent system events. These have been emitted since the agent
   // shipped but had no entries here, so they rendered as raw machine verbs.
   "screen.locked": "Locked their screen",
@@ -41,6 +40,9 @@ const ACTIONS: Record<string, string> = {
 };
 
 const SURFACES: Record<string, string> = {
+  mail: "Mail",
+  // What Mail was called before it was renamed. Kept because the timeline is
+  // years of stored rows and the old ones still say "inbox".
   inbox: "Inbox",
   chats: "Chats",
   channels: "Channels",

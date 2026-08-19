@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Hash, Users, ChevronLeft, LogOut, Lock, Video } from "lucide-react";
+import { Hash, Users, ChevronLeft, LogOut, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { EmptyState } from "@taskboard/ui";
 import type { CallDTO, ChannelDTO, ChannelMessageDTO, ReactionDTO } from "@taskboard/shared";
@@ -15,6 +15,7 @@ import { useWhatsAppForward } from "../lib/useWhatsAppForward";
 import { ForwardToDialog } from "../features/ForwardToDialog";
 import { useChatMedia } from "../features/useChatMedia";
 import { ScheduleCallDialog } from "../features/ScheduleCallDialog";
+import { CallMenu } from "../features/CallMenu";
 import { CallRoom } from "../features/CallRoomLazy";
 
 export function ChannelView() {
@@ -113,6 +114,24 @@ export function ChannelView() {
   // The call currently open in this view. Held here rather than routed so
   // leaving a call returns you to the conversation you were already in.
   const [activeCall, setActiveCall] = useState<CallDTO | null>(null);
+
+  // Ringing the channel right now. Omitting scheduledAt is what makes the call
+  // LIVE server-side; the dialog stays for a call in the diary. No title is
+  // asked for — nobody is being invited, so there is nothing to label for them.
+  const startCall = useMutation({
+    mutationFn: (media: "audio" | "video") => api.scheduleChannelCall(channelId, { media }),
+    onSuccess: (call) => {
+      void qc.invalidateQueries({ queryKey: qk.calls });
+      void qc.invalidateQueries({ queryKey: qk.channelCalls(channelId) });
+      setActiveCall(call);
+    },
+    onError: () => toast.error("Couldn't start the call"),
+  });
+  // Guard the double-tap: the menu closes on pick, but a second click before
+  // the pane switches to the call would open a second live call in the channel.
+  const start = (media: "audio" | "video") => {
+    if (!startCall.isPending) startCall.mutate(media);
+  };
 
   const { loadOlder, loadingOlder, hasOlder } = useOlderMessages(
     qk.channelMessages(channelId),
@@ -224,15 +243,15 @@ export function ChannelView() {
         <div className="flex shrink-0 items-center gap-3">
           {/* Channel calls are members-only by construction — there is no
               invite control anywhere in this view because the channel IS the
-              guest list, and the server refuses to mint a link for one. */}
-          <button
-            onClick={() => setScheduleOpen(true)}
-            title="Start or schedule a call"
-            aria-label="Start or schedule a channel call"
-            className="flex items-center gap-1.5 rounded-lg px-1.5 py-1 text-sm text-muted transition-colors hover:bg-surface-2 hover:text-fg"
-          >
-            <Video size={15} />
-          </button>
+              guest list, and the server refuses to mint a link for one. That is
+              why no onSendLink is passed: the menu is three rows here, not four.
+              className matches the muted icon buttons either side of it. */}
+          <CallMenu
+            onVoiceCall={() => start("audio")}
+            onVideoCall={() => start("video")}
+            onSchedule={() => setScheduleOpen(true)}
+            className="h-auto gap-1.5 rounded-lg px-1.5 py-1 text-sm text-muted hover:text-fg"
+          />
           {/* The member count has always been here as plain text. It is the
               obvious place to look for "who else is in this channel", so it is
               now the button that answers that — and, for a manager, the way in

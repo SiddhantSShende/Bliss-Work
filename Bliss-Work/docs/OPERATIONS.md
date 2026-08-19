@@ -533,15 +533,102 @@ remains a portable, self-hosted fallback that needs no third party.
 
 ---
 
-## 9. Inbound mail (optional)
+## 9. Mail
 
-Outbound mail needs nothing beyond the SMTP settings already in section 1:
+### Outbound
+
 messaging-svc queues one `mail.outbound` event per external addressee and
 `email-worker` relays it, using the same `SMTP_*` credentials as the invite and
-notification mail.
+notification mail. No extra configuration is needed for it to send.
 
-**Inbound** is opt-in and NOT wired by default. A BlissWork deployment does not
-terminate SMTP; it exposes an ingestion endpoint for whatever does:
+**Attachments** ride as MIME parts. The bytes are NOT on the Kafka event — the
+broker's default message cap is 1 MB and a mail to five external addresses would
+carry five copies of every file — so the event names them and email-worker
+fetches each one from `GET /internal/mail/{mailId}/attachments/{id}` on
+messaging-svc, which is the service the `media_blobs` volume is mounted into.
+That endpoint takes the shared `TB_INTERNAL_TOKEN` and, like every other
+`/internal/` path, is 404'd at the edge — it must stay unreachable from outside.
+
+`MAIL_ATTACHMENT_BUDGET_BYTES` (default 10 MiB) caps the RAW bytes carried on one
+email. Base64 adds about a third, so the default lands near 13.6 MB on the wire,
+under the 25 MB Gmail accepts and the 20 MB or less common elsewhere. Uploads
+themselves are capped by `MEDIA_MAX_BYTES` (100 MB), so a file can legitimately
+be far too large to email: those are NAMED in the message rather than dropped
+silently, and the in-app copy still carries every one. Raise the budget only as
+far as your provider and your recipients' will accept — a message over the limit
+is rejected at the far end, not truncated.
+
+Getting it *accepted* is a DNS question, because a member's mail goes out under
+the member's own identity:
+
+| | invite / reset / notification mail | mail a member composed |
+|---|---|---|
+| `From:` header | `SMTP_FROM` | the member's name and account address |
+| SMTP envelope sender | `SMTP_FROM` | `SMTP_FROM` |
+
+The envelope is what your relay authorises and what **SPF** is checked against,
+so it stays on `SMTP_FROM` in both cases and both pass SPF.
+
+**DMARC is the part that needs a decision.** DMARC asks whether the `From:`
+DOMAIN authorised this deployment, and it is satisfied by either SPF or DKIM
+being *aligned* with that domain. For member mail the From domain is the
+member's, not `SMTP_FROM`'s, so:
+
+- **Members on a domain you control** (the usual case — everyone is
+  `@yourcompany.com`): publish the SPF include and the DKIM key your provider
+  gives you on that domain, and member mail is fully aligned. Nothing else to do.
+- **Members on domains you do not control**: their mail is unaligned. A domain
+  publishing `p=none` still delivers; `p=quarantine` or `p=reject` will not.
+  Either have those domains authorise your provider, or accept that mail from
+  them lands in spam.
+
+Check what a domain currently publishes before assuming, e.g.
+`dig +short TXT _dmarc.example.com`.
+
+### Inbound
+
+There are two ways mail gets INTO a BlissWork inbox, and a deployment can use
+either, both, or neither. A deployment does not terminate SMTP itself.
+
+#### 1. Mirroring a connected mailbox (no infrastructure)
+
+When a member connects Outlook under **Integrations**, integrations-svc already
+walks their inbox for mention detection. Every mail that is new to it is now also
+delivered into their BlissWork inbox — see `app/mail_bridge.py`. The mail stays
+in Outlook exactly as before; BlissWork receives a copy.
+
+What an operator has to do:
+
+1. **Register a Microsoft Entra app for the org** and enter its client id/secret
+   under Integrations → app credentials. Each org brings its own app; there is no
+   central BlissWork app to consent to. The Outlook connection requests
+   `Mail.Read` and `Mail.Send`.
+2. **Have each member connect Outlook.** The mirror is per-connection: it can
+   only read a mailbox somebody has authorised.
+
+Then it runs on its own — the push subscription wakes the sweep, and the sweep
+reconciles anything a missed notification would have dropped.
+
+Notes:
+
+- **Dedup is on the RFC 5322 `Message-ID`**, not the per-mailbox Graph id. Two
+  colleagues who both connect Outlook and were both on one mail get ONE
+  conversation in BlissWork, delivered to both.
+- **Mail addressed to nobody in the org is dropped** (messaging-svc answers 422
+  and the bridge logs it at info). Most of a real mailbox is exactly that, so
+  this is the ordinary path, not an error.
+- **Gmail is not mirrored yet.** The Gmail connection ingests for mentions as
+  before. Graph hands us a parsed message; Gmail returns a raw MIME payload that
+  has to be decoded first, which is the piece still to write.
+- A mail that cannot be delivered is logged and skipped, never retried into a
+  stall — it is still in the member's real mailbox, and blocking the sweep would
+  hold up every message behind it.
+
+#### 2. Terminating SMTP yourself (whole domain, no per-user OAuth)
+
+Point a domain's MX at whatever parses mail for you and have it POST the parsed
+result to the ingestion endpoint below. This is what to use when BlissWork should
+be the real mailbox for an address rather than a copy of one.
 
 ```
 POST http://messaging-svc:8004/internal/mail/inbound

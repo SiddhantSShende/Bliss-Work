@@ -47,6 +47,11 @@ type Server struct {
 	// nil — an unconfigured Minter reports itself and every call token request
 	// fails with a clear 503 rather than a nil dereference.
 	livekit *livekit.Minter
+
+	// Asks the SFU to record a call, and reads the webhook that says how it
+	// went. Never nil either, and a zero one is the ordinary state: recording
+	// is off unless RECORDINGS_ENABLED and an egress deployment say otherwise.
+	recorder *livekit.Recorder
 }
 
 // NewServer constructs an API server.
@@ -75,7 +80,22 @@ func NewServer(
 		mediaCfg: mediaCfg,
 		mapsCfg:  mapsCfg,
 		livekit:  lk,
+		// Zero value = "this deployment does not record", which every recording
+		// path checks for. WithRecorder replaces it where it does.
+		recorder: &livekit.Recorder{},
 	}
+}
+
+// WithRecorder turns call recording on.
+//
+// A method rather than a tenth constructor parameter, for the same reason
+// WithSharedRateLimits is one: recording is genuinely optional, and every
+// existing caller — the tests included — keeps working untouched without it.
+func (s *Server) WithRecorder(rec *livekit.Recorder) *Server {
+	if rec != nil {
+		s.recorder = rec
+	}
+	return s
 }
 
 // WithSharedRateLimits makes rate limiting fleet-wide, drawing every caller's
@@ -164,6 +184,12 @@ func (s *Server) Router(webOrigin string) http.Handler {
 		// SMTP for the deployment, in already-parsed form — see
 		// store.InboundMailInput for why the contract is not raw RFC 5322.
 		g.Post("/internal/mail/inbound", s.receiveInboundMail)
+		// The bytes of a file attached to a sent mail, for email-worker to put
+		// on the wire as a MIME part. A GET carries no body, so the MaxBytes
+		// above is irrelevant to it; the RESPONSE is a whole file, bounded by
+		// the upload cap that let it exist and by what the relay agrees to ask
+		// for in the first place.
+		g.Get("/internal/mail/{mailId}/attachments/{id}", s.internalMailAttachment)
 	})
 
 	// ── Signed attachment download ───────────────────────────────────────────
@@ -180,6 +206,21 @@ func (s *Server) Router(webOrigin string) http.Handler {
 	r.Group(func(g chi.Router) {
 		g.Use(s.limiter.PerIPMiddleware)
 		g.Get("/media/{id}", s.downloadMedia)
+		// A call recording, on the same terms and for the same reason: a
+		// <video src> cannot carry an Authorization header.
+		g.Get("/recordings/{id}", s.downloadRecording)
+	})
+
+	// ── LiveKit webhook ──────────────────────────────────────────────────────
+	// The SFU reporting that a recording finished. Outside /api/v1 because
+	// LiveKit holds no BlissWork account and cannot present our JWT; what
+	// authenticates it is a signature over the body, checked before the payload
+	// is parsed (see livekit.ParseWebhook). Rate-limited per IP like every
+	// other public route, and body-capped like every other route with a body.
+	r.Group(func(g chi.Router) {
+		g.Use(s.limiter.PerIPMiddleware)
+		g.Use(mw.MaxBytes(smallBody))
+		g.Post("/livekit/webhook", s.livekitWebhook)
 	})
 
 	idempotency := mw.Idempotency(s.store.Pool(), s.log)
@@ -267,6 +308,15 @@ func (s *Server) Router(webOrigin string) http.Handler {
 			r.Post("/calls/{id}/share/stop", s.stopScreenShare)
 			r.Post("/calls/{id}/leave", s.leaveCall)
 			r.Post("/calls/{id}/end", s.endCall)
+			// The recording of a finished call, if it has one and this caller
+			// may see it. Answers a short-lived signed link rather than the
+			// bytes; the bytes are at /recordings/{id} below.
+			r.Get("/calls/{id}/recording", s.getCallRecording)
+			// Starting and stopping one by hand, from inside the room. HOSTS
+			// ONLY (AuthorizeRecordingControl), and both are POST — see the
+			// note on stopCallRecording for why the stop is not a DELETE.
+			r.Post("/calls/{id}/recording/start", s.startCallRecording)
+			r.Post("/calls/{id}/recording/stop", s.stopCallRecording)
 
 			// Attachment metadata routes — small JSON, so they stay behind the
 			// 1 MiB cap (and, at the edge, behind the WAF) unlike the upload.

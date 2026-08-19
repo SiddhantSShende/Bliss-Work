@@ -504,4 +504,21 @@ type MailOutbound struct {
 	Cc          []string `json:"cc"`
 	Subject     string   `json:"subject"`
 	BodyText    string   `json:"bodyText"`
+	// Attachments is METADATA ONLY — the bytes stay in the blob store and
+	// email-worker fetches each one over the internal API when it builds the
+	// message. A Kafka topic is the wrong place to carry a 10 MB file: the
+	// broker's default message cap is 1 MB, every copy of a mail would carry
+	// its own duplicate of the bytes, and the topic's retention would keep them
+	// long after the mail was delivered.
+	Attachments []MailOutboundAttachment `json:"attachments,omitempty"`
+}
+
+// MailOutboundAttachment names one file on an outbound mail. `ID` is what
+// email-worker asks the internal API for; the rest is what it needs to build the
+// MIME part, and to decide what fits before fetching a single byte.
+type MailOutboundAttachment struct {
+	ID        string `json:"id"`
+	Filename  string `json:"filename"`
+	Mime      string `json:"mime"`
+	SizeBytes int64  `json:"sizeBytes"`
 }

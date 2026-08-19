@@ -35,6 +35,7 @@ browser web app and an Electron desktop app from one shared codebase.
 | `messaging-svc` | Go | 8004 | conversations, channels, messages, ignore/block, forward-tracking |
 | `integrations-svc` | Python/FastAPI | 8005 | external platform connections, OAuth, webhooks, Hub mentions |
 | `telemetry-svc` | Python/FastAPI | 8006 | member activity record: sessions, activity timeline, rollups, .xlsx export |
+| `graph-gw` | Node/TS | 8007 | **optional** read-composition GraphQL gateway over the REST services — see [`docs/GRAPH-GATEWAY.md`](docs/GRAPH-GATEWAY.md) |
 | `ws-gateway` | Go | 8080 → host **8090** | WebSocket fan-out (consume-all-and-filter), WebRTC signaling, presence |
 
 Clients connect to the WebSocket at `ws://localhost:8090/ws` (the gateway listens on
@@ -123,6 +124,7 @@ and publish with `bash scripts/publish-desktop.sh <dir>`.
 | [`docs/DEPLOY.md`](docs/DEPLOY.md) | The CI/CD pipeline, required secrets, manual deploy + rollback |
 | [`docs/INTEGRATIONS-SETUP.md`](docs/INTEGRATIONS-SETUP.md) | Connecting Slack / Gmail / Outlook / Teams with your own apps |
 | [`docs/OPERATIONS.md`](docs/OPERATIONS.md) | Backups, key rotation, WAF rollout |
+| [`docs/GRAPH-GATEWAY.md`](docs/GRAPH-GATEWAY.md) | The GraphQL gateway: what it fronts, what it must never front, trusted documents |
 | [`docs/TELEMETRY.md`](docs/TELEMETRY.md) | What the activity record collects, retention, the nightly jobs |
 | [`apps/extension/README.md`](apps/extension/README.md) | The browser extension: what it records, how it pairs, how to ship it |
 | [`apps/desktop/STORE.md`](apps/desktop/STORE.md) | Microsoft Store submission |
@@ -131,7 +133,7 @@ and publish with `bash scripts/publish-desktop.sh <dir>`.
 
 ```
 packages/{shared,ui,app}          apps/{web,desktop,extension}
-services/{auth-svc,email-worker,task-svc,notification-svc,messaging-svc,integrations-svc,telemetry-svc,ws-gateway}
+services/{auth-svc,email-worker,task-svc,notification-svc,messaging-svc,integrations-svc,telemetry-svc,ws-gateway,graph-gw}
 infra/{postgres,kafka,nginx,caddy}
 scripts/   (seed.ts, demo-e2e.ts, gen-keys.ts, wait-for.sh, deploy-prod.sh, responsive-check.ts)
 ```
