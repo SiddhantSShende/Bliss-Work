@@ -59,16 +59,37 @@ const LINK_REFRESH_MS = 8 * 60_000;
 const chip =
   "inline-flex items-center gap-1.5 rounded-full bg-surface-2 px-2.5 py-1 text-xs font-medium text-muted transition-colors hover:text-fg";
 
-export function MeetingCard({ call, onOpen }: { call: CallDTO; onOpen: () => void }) {
+export function MeetingCard({
+  call,
+  onOpen,
+  labelIds,
+}: {
+  call: CallDTO;
+  onOpen: () => void;
+  /**
+   * The people to resolve names for, supplied by the LIST rather than computed
+   * per card — and that distinction is the whole point.
+   *
+   * The lookup is cached by the id set it was asked for, so a card computing its
+   * own set gets its own cache entry: twenty cards on screen meant twenty
+   * requests, which is the N+1 this gateway exists to remove, reintroduced one
+   * layer up. One shared set means one cache entry and one request for the whole
+   * page.
+   *
+   * Optional so a card rendered on its own still resolves names; it then falls
+   * back to its own participants.
+   */
+  labelIds?: readonly string[];
+}) {
   const { api } = useRuntime();
   const me = useSession((s) => s.user);
   // createdBy is included explicitly: an organiser who is not on the roster
   // still has to render, and leaving them out would be a silent "Unknown user".
-  const labelIds = useMemo(
+  const ownIds = useMemo(
     () => [...call.participants.map((p) => p.userId), call.createdBy],
     [call.participants, call.createdBy],
   );
-  const { nameOf } = useUserLabels(labelIds);
+  const { nameOf } = useUserLabels(labelIds ?? ownIds);
   const [people, setPeople] = useState<PeopleTab | null>(null);
   const [link, setLink] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -266,6 +287,7 @@ export function MeetingCard({ call, onOpen }: { call: CallDTO; onOpen: () => voi
 
       {people && (
         <MeetingPeopleSheet
+          labelIds={labelIds ?? ownIds}
           call={call}
           open
           initialTab={people}

@@ -72,20 +72,24 @@ export function MeetingPeopleSheet({
   open,
   initialTab,
   onClose,
+  labelIds,
 }: {
   call: CallDTO;
   open: boolean;
   initialTab: PeopleTab;
   onClose: () => void;
+  /** Shared with the card that opened this sheet, so opening it reuses that
+   *  page's lookup instead of issuing a second one for a subset. */
+  labelIds?: readonly string[];
 }) {
   const [tab, setTab] = useState<PeopleTab>(initialTab);
   // The roster IS the id list, so ask for those people rather than the whole
   // organisation. Falls back to the directory when no gateway is configured.
-  const participantIds = useMemo(
+  const ownIds = useMemo(
     () => call.participants.map((p) => p.userId),
     [call.participants],
   );
-  const { nameOf } = useUserLabels(participantIds);
+  const { nameOf } = useUserLabels(labelIds ?? ownIds);
   const me = useSession((st) => st.user);
   const roster = rosterOf(call);
 

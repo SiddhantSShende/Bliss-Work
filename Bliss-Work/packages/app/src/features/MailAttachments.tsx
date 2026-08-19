@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Paperclip,
   X,
@@ -42,13 +42,37 @@ export type MailAttachmentsState = ReturnType<typeof useMailAttachments>;
  *
  * Uploaded blobs are expiring-by-default until the mail is sent (the server
  * clears their expiry as part of the send transaction), so a compose the user
- * abandons cannot leak files onto the volume.
+ * abandons cannot leak files onto the volume. Saving a draft pushes that expiry
+ * out again, so a draft still being written keeps its files.
+ *
+ * @param initial files ALREADY on the draft, when one is being resumed from the
+ *                Drafts folder. They have to be shown: Send commits every file
+ *                scoped to the mail, so anything the tray does not list is a
+ *                file the sender does not know they are about to send.
  */
-export function useMailAttachments(mailId: string | undefined) {
+export function useMailAttachments(mailId: string | undefined, initial?: MailAttachmentDTO[]) {
   const { api } = useRuntime();
   const [files, setFiles] = useState<MailAttachment[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const seq = useRef(0);
+  // Seeded once, when the resumed draft arrives. Keyed by the server id so a
+  // re-render (or a refetch of the same draft) cannot duplicate a row.
+  useEffect(() => {
+    if (!initial?.length) return;
+    setFiles((prev) => {
+      const known = new Set(prev.map((f) => f.id).filter(Boolean));
+      const seeded = initial
+        .filter((a) => !known.has(a.id))
+        .map((a) => ({
+          key: `s${a.id}`,
+          filename: a.filename,
+          sizeBytes: a.sizeBytes,
+          progress: 100,
+          id: a.id,
+        }));
+      return seeded.length ? [...prev, ...seeded] : prev;
+    });
+  }, [initial]);
 
   const patch = useCallback((key: string, next: Partial<MailAttachment>) => {
     setFiles((prev) => prev.map((f) => (f.key === key ? { ...f, ...next } : f)));
@@ -89,11 +113,23 @@ export function useMailAttachments(mailId: string | undefined) {
     [upload],
   );
 
-  const remove = useCallback((key: string) => {
-    // Only dropped from the tray. The blob keeps its 24h expiry and is reaped
-    // server-side, because nothing outside the sent mail can reference it.
-    setFiles((prev) => prev.filter((f) => f.key !== key));
-  }, []);
+  const remove = useCallback(
+    (key: string) => {
+      // Read OUTSIDE the updater: a state updater must be pure, and one that
+      // fires a request as a side effect sends it twice under StrictMode.
+      const removedId = files.find((f) => f.key === key)?.id;
+      setFiles((prev) => prev.filter((f) => f.key !== key));
+      // A file that reached the server has to be taken off the DRAFT, not just
+      // out of the tray: Send commits everything still scoped to the mail, so a
+      // row left behind is a file the sender removed and sent anyway.
+      if (mailId && removedId) {
+        void api.removeDraftAttachment(mailId, removedId).catch((e) => {
+          toast.error("Could not remove that file", { description: errorText(e) });
+        });
+      }
+    },
+    [api, files, mailId],
+  );
 
   return {
     files,
@@ -101,7 +137,10 @@ export function useMailAttachments(mailId: string | undefined) {
     isUploading: files.some((f) => !f.id && !f.error),
     pick: () => inputRef.current?.click(),
     remove,
-    clear: () => setFiles([]),
+    /** Remove all — the same server-side detach as `remove`, once per file. */
+    clear: () => {
+      files.forEach((f) => remove(f.key));
+    },
     inputProps: {
       ref: inputRef,
       type: "file" as const,

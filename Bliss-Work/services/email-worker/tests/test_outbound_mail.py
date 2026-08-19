@@ -44,6 +44,7 @@ def _settings() -> types.SimpleNamespace:
         # a field the code reads fails as an AttributeError inside the handler,
         # which reads as a broken relay rather than a stale test.
         messaging_internal_base="http://messaging-svc:8004",
+        integrations_internal_base="http://integrations-svc:8005",
         internal_token="test-token",
         mail_attachment_budget_bytes=10 * 1024 * 1024,
     )

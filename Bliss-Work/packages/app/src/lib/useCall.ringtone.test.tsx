@@ -51,6 +51,10 @@ vi.mock("./runtime", () => ({
       },
     },
     rtcAvailable: true,
+    // The real runtime always supplies this; without it these tests assert
+    // against a shape that cannot occur. No graphBase => the REST path, which
+    // is what `api.directory` above stands in for.
+    config: { kind: "web" },
   }),
 }));
 

@@ -81,6 +81,18 @@ export function Meetings() {
     setActiveCall(call);
   };
 
+  // ONE id set for the whole page, not one per card.
+  //
+  // The name lookup is cached by the set it was asked for, so a card computing
+  // its own would get its own cache entry and its own request — twenty meetings
+  // on screen, twenty requests. Built from `calls` rather than from what is
+  // currently filtered into view so the set (and therefore the cache entry)
+  // does not change when the user switches between Upcoming / Live / Past.
+  const labelIds = useMemo(
+    () => calls.flatMap((c) => [...c.participants.map((p) => p.userId), c.createdBy]),
+    [calls],
+  );
+
   if (activeCall) {
     return (
       <CallRoom
@@ -152,7 +164,12 @@ export function Meetings() {
                   </h2>
                   <div className="space-y-2">
                     {g.items.map((c) => (
-                      <MeetingCard key={c.id} call={c} onOpen={() => openCall(c)} />
+                      <MeetingCard
+                        key={c.id}
+                        call={c}
+                        labelIds={labelIds}
+                        onOpen={() => openCall(c)}
+                      />
                     ))}
                   </div>
                 </section>

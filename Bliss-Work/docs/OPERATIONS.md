@@ -558,8 +558,38 @@ silently, and the in-app copy still carries every one. Raise the budget only as
 far as your provider and your recipients' will accept — a message over the limit
 is rejected at the far end, not truncated.
 
-Getting it *accepted* is a DNS question, because a member's mail goes out under
-the member's own identity:
+#### Sending a member's mail AS that member
+
+There are two ways a member's mail leaves, and email-worker prefers the first.
+
+**Through the member's own mailbox.** Once `MS_CLIENT_ID`/`MS_CLIENT_SECRET` are
+set and a member has connected Outlook under **Integrations**, their composed
+mail is sent through that mailbox with Graph `/me/sendMail`. Nothing about the
+identity has to be arranged, because it is not being asserted: the `From:`
+address is theirs because the mailbox is theirs, their own provider signs it
+with their domain's DKIM key so it is DMARC-aligned, and the copy is filed in
+their **Sent** folder where they expect to find it. This is also the only
+configuration in which a recipient on a corporate mail system reliably sees the
+mail in their Inbox rather than their Junk folder.
+
+The Entra app registration needs the delegated **Mail.Send** permission
+alongside `Mail.Read` (already required for the inbox mirror below).
+
+One send covers every external recipient of a mail, because a mailbox provider
+has no envelope/header split — it delivers to exactly the addresses it is given.
+Bcc survives as a real Bcc. Members of the org are deliberately left OFF that
+send: they already have the mail in their BlissWork Inbox, and a provider
+delivering to them as well would put a duplicate in front of them.
+
+Attachments ride inline and Graph caps the whole request at 4 MB, so a mail
+carrying more than ~3 MB of files falls back to the relay rather than being sent
+truncated.
+
+**Over the SMTP relay** — the fallback, and what every member without a
+connected mailbox uses. Also the ONLY path for mail the product itself sends
+(invites, password resets, notifications), which is not from a person and must
+not claim to be. Getting relayed mail *accepted* is a DNS question, because it
+goes out under the member's identity while being authenticated by yours:
 
 | | invite / reset / notification mail | mail a member composed |
 |---|---|---|
@@ -584,6 +614,51 @@ member's, not `SMTP_FROM`'s, so:
 
 Check what a domain currently publishes before assuming, e.g.
 `dig +short TXT _dmarc.example.com`.
+
+A relay on a domain you do NOT control — a personal Gmail account, say — is the
+worst case and worth naming explicitly: nothing authenticates the member's
+domain, so every mail arrives as an unfamiliar third party asserting one of your
+people's identity, which is what spam filtering exists to catch. Connect the
+mailboxes, or move the relay onto a provider you can align with the member
+domain. `SMTP_FROM` on a free-mail provider is a temporary measure, not a
+configuration.
+
+#### Which way did a given mail actually go?
+
+`email-worker` records the answer per mail in `emaildb.mail_transport`
+(`provider` or `relay`) and logs `relay_mail_sent_via_provider` or
+`relay_mail_sent`. The record is also what makes the two consistent: a mail with
+several external recipients arrives as one event per address, and the copies
+after the first read this rather than deciding again.
+
+### The directory projection every mail path depends on
+
+Both directions resolve an address to a person through
+`messagingdb.user_projection.email`, which auth-svc fills by putting the address
+on the `user.created` event. Two things break at once when a row's email is
+missing, and neither announces itself:
+
+- **A colleague reads as an outsider.** Mail addressed to a member does not
+  resolve, so it is not delivered into their BlissWork Inbox and is relayed out
+  over SMTP instead. It arrives in their real mailbox and nowhere else, which
+  looks like the inbox being broken rather than like a directory gap.
+- **Mail leaves under the wrong `From:`.** The header is stamped from the same
+  column, and an empty one falls back to `SMTP_FROM` — so a member's mail
+  arrives from the deployment's relay address.
+
+Members who joined before their auth-svc release carried the address on the
+event have no value. Re-emit the directory for an org to fill them in:
+
+```
+curl -fsS -X POST -H "X-Internal-Token: $TB_INTERNAL_TOKEN" \
+  http://auth-svc:8001/internal/users/reproject/<orgId>
+```
+
+It re-emits `user.created` for every active member, so the ordinary consumer
+path fills every projection at once. Idempotent — each emission carries a fresh
+event id and drives an upsert of values auth-svc is already authoritative for.
+Verify with `SELECT count(*) FILTER (WHERE email IS NULL) FROM user_projection;`
+against `messagingdb`.
 
 ### Inbound
 

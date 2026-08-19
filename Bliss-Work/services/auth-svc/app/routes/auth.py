@@ -206,6 +206,11 @@ async def create_org(body: CreateOrgRequest, response: Response) -> SessionDTO:
             userId=user_id,
             username=dto.username,
             displayName=dto.displayName,
+            # The address is on the event because messaging-svc's user_projection
+            # is what resolves a typed recipient to a member (in-app delivery)
+            # and what stamps the From: header on mail that member composes.
+            # Without it every colleague reads as an outside address.
+            email=dto.email,
         )
         await enqueue_event(conn, topic=TOPIC_AUTH, kafka_key=user_id, event=event)
         await service.write_audit(

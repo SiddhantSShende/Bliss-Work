@@ -127,8 +127,15 @@ func ClearThreadUnread(ctx context.Context, tx pgx.Tx, ownerUserID, threadID str
 // Items are filtered to (NOT hidden_for_owner AND NOT deleted_for_owner). Both
 // hidden and deleted are restored by a fresh write — Reply on an ignored thread
 // flips hidden_for_owner back to false in upsertThreadInboxItem.
+//
+// `hidden` INVERTS the first half of that predicate, which is what serves the
+// Deleted Items folder: deleting a mail sets hidden_for_owner and nothing else
+// (see api.ignoreInboxItem), so the deleted mailbox is this same feed read from
+// the other side rather than a second table. deleted_for_owner is still excluded
+// either way — that flag is the tombstone, not the wastebasket.
 func (s *Store) ListInbox(
 	ctx context.Context, orgID, ownerUserID, peerID, cursor string, limit int, kinds []string,
+	hidden bool,
 ) (*InboxPageDTO, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 25
@@ -178,7 +185,7 @@ func (s *Store) ListInbox(
 			LEFT JOIN user_projection up ON up.user_id = i.peer_user_id
 			WHERE i.owner_user_id = $1
 			  AND i.org_id = $2
-			  AND NOT i.hidden_for_owner
+			  AND i.hidden_for_owner = $9
 			  AND NOT i.deleted_for_owner
 			  AND ($7::uuid IS NULL OR i.peer_user_id = $7::uuid)
 			  AND ($8::text[] IS NULL OR i.item_kind = ANY($8::text[]))
@@ -192,7 +199,7 @@ func (s *Store) ListInbox(
 			ownerUserID, orgID,
 			cursor, cursorTs, cursorRef,
 			limit+1,
-			peerArg, kindArg,
+			peerArg, kindArg, hidden,
 		)
 		if err != nil {
 			return err
@@ -307,21 +314,31 @@ func (s *Store) ListInboxPeers(
 	return out, nil
 }
 
-// MarkInboxItemHidden flips hidden_for_owner for a single (owner, kind, ref)
-// row. Called by /inbox/items/{id}/ignore (the non-thread-scoped path).
+// MarkInboxItemHidden hides a single (owner, kind, ref) row. Called by
+// /inbox/items/{id}/ignore (the non-thread-scoped path).
+func (s *Store) MarkInboxItemHidden(
+	ctx context.Context, orgID, ownerUserID, itemKind, refID string,
+) error {
+	return s.SetInboxItemHidden(ctx, orgID, ownerUserID, itemKind, refID, true)
+}
+
+// SetInboxItemHidden flips hidden_for_owner for a single (owner, kind, ref) row,
+// in either direction. Hiding is Ignore (or, on a MAIL row, Delete); un-hiding
+// is Restore, which puts a deleted mail back in the folder it came from — the
+// row was never modified beyond this flag, so nothing else has to be undone.
 //
 // RLS: this is a request path, so it carries the caller's org. The UPDATE runs
 // inside withOrg; the org_isolation policy's WITH CHECK + USING ensures the row
 // must already belong to orgID (a cross-org refId matches 0 rows → ErrForbidden).
-func (s *Store) MarkInboxItemHidden(
-	ctx context.Context, orgID, ownerUserID, itemKind, refID string,
+func (s *Store) SetInboxItemHidden(
+	ctx context.Context, orgID, ownerUserID, itemKind, refID string, hidden bool,
 ) error {
 	return s.withOrg(ctx, orgID, func(tx pgx.Tx) error {
 		ct, err := tx.Exec(ctx, `
 			UPDATE inbox_items
-			SET hidden_for_owner = true, updated_at = now()
+			SET hidden_for_owner = $4, updated_at = now()
 			WHERE owner_user_id = $1 AND item_kind = $2 AND ref_id = $3`,
-			ownerUserID, itemKind, refID)
+			ownerUserID, itemKind, refID, hidden)
 		if err != nil {
 			return err
 		}

@@ -395,6 +395,18 @@ type UserCreated struct {
 	UserID      string `json:"userId"`
 	Username    string `json:"username"`
 	DisplayName string `json:"displayName"`
+	// Email is the member's account address, denormalized into
+	// user_projection.email. Two things depend on it and both fail silently
+	// without it: resolveMailRecipients matches a typed address to a member (an
+	// unmatched colleague is treated as an outside address and gets no in-app
+	// delivery), and loadSendableDraft stamps it as the From: header on mail
+	// that member composes (an empty one falls back to the deployment's own
+	// relay address, so the mail arrives from the wrong person).
+	//
+	// Empty on events produced before auth-svc started sending it. UpsertUser
+	// therefore leaves an existing value alone rather than blanking it — see
+	// scripts/backfill-user-emails.py for the one-off fill.
+	Email string `json:"email"`
 }
 
 // MembershipChanged carries user.deactivated / user.reactivated / user.removed.
@@ -497,13 +509,38 @@ type MailOutbound struct {
 	OccurredAt string `json:"occurredAt"`
 	MailID     string `json:"mailId"`
 	// Envelope is the single RCPT TO for this copy.
-	Envelope    string   `json:"envelope"`
+	Envelope string `json:"envelope"`
+	// AuthorID is the member who composed the mail. email-worker uses it to ask
+	// integrations-svc whether that member has a connected mailbox to send
+	// through — mail sent that way carries their real identity, lands in their
+	// provider's Sent folder, and is authenticated by their own domain instead
+	// of by this deployment's relay. Empty on events produced before it existed,
+	// which simply means the relay is the only option for that copy.
+	AuthorID    string   `json:"authorId"`
 	FromAddress string   `json:"fromAddress"`
 	FromName    string   `json:"fromName"`
 	To          []string `json:"to"`
 	Cc          []string `json:"cc"`
 	Subject     string   `json:"subject"`
 	BodyText    string   `json:"bodyText"`
+	// ProviderCopy marks the ONE copy that owns the send through the author's
+	// connected mailbox, and the three fields below are that send's whole
+	// recipient list. A mailbox provider has no envelope/header split — it
+	// delivers to exactly the addresses in the headers it is given — so the
+	// per-envelope fan-out that SMTP needs cannot be expressed there. One copy
+	// therefore carries the entire external recipient list and the rest defer to
+	// its outcome (see email-worker's mail_transport record).
+	//
+	// Members of this org are deliberately ABSENT from these lists even when
+	// they were addressed: they already have the mail in their BlissWork Inbox,
+	// and a provider that delivered to them as well would put a second,
+	// duplicate copy in front of them.
+	ProviderCopy bool     `json:"providerCopy,omitempty"`
+	ProviderTo   []string `json:"providerTo,omitempty"`
+	ProviderCc   []string `json:"providerCc,omitempty"`
+	// ProviderBcc stays a Bcc at the provider too, so a blind copy is still
+	// blind — it is the one part of the envelope/header split that survives.
+	ProviderBcc []string `json:"providerBcc,omitempty"`
 	// Attachments is METADATA ONLY — the bytes stay in the blob store and
 	// email-worker fetches each one over the internal API when it builds the
 	// message. A Kafka topic is the wrong place to carry a 10 MB file: the

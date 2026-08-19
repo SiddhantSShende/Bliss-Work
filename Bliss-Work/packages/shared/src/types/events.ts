@@ -600,6 +600,16 @@ export const UserCreated = z.object({
   userId: z.string().uuid(),
   username: z.string(),
   displayName: z.string(),
+  /**
+   * The member's account address. Consumers denormalize it into their
+   * `user_projection` so a typed mail recipient resolves to a member (in-app
+   * delivery) and so mail a member composes carries their own From: header.
+   *
+   * Optional because events produced before it was added are still on the
+   * topic and must keep parsing; a consumer treats an absent value as "unknown"
+   * rather than as an empty address.
+   */
+  email: z.string().optional(),
 });
 
 /**

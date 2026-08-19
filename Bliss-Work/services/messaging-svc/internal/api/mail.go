@@ -45,6 +45,106 @@ func (s *Server) discardMailDraft(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// listMailDrafts serves GET /api/v1/mail/drafts — the Drafts folder.
+//
+// Not part of GET /inbox, which is where every other mailbox listing comes
+// from, because a draft is not in anybody's feed: it has no counterparty, no
+// unread state and no delivery, and projecting one into inbox_items would put
+// it in the People sidebar's rollups and in the unread badge. See
+// store.MailDraftDTO.
+func (s *Server) listMailDrafts(w http.ResponseWriter, r *http.Request) {
+	claims, _ := auth.FromContext(r.Context())
+	drafts, err := s.store.ListMailDrafts(r.Context(), claims.OrgID, claims.UserID)
+	if err != nil {
+		s.mapErrR(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, drafts)
+}
+
+// saveMailDraftReq is the composer's current contents. Same field names as
+// sendMailReq: it is the same form, saved rather than sent.
+type saveMailDraftReq struct {
+	To       []string `json:"to"`
+	Cc       []string `json:"cc"`
+	Bcc      []string `json:"bcc"`
+	Subject  string   `json:"subject"`
+	BodyText string   `json:"bodyText"`
+}
+
+// saveMailDraft serves PATCH /api/v1/mail/drafts/{id} — the composer's autosave.
+//
+// Not behind the idempotency middleware, unlike send: a save is a full
+// overwrite of one row the caller owns, so replaying it is what it already does.
+func (s *Server) saveMailDraft(w http.ResponseWriter, r *http.Request) {
+	claims, _ := auth.FromContext(r.Context())
+	mailID := chi.URLParam(r, "id")
+	if !validUUID(mailID) {
+		writeErrR(w, r, http.StatusBadRequest, "invalid mail id")
+		return
+	}
+	var req saveMailDraftReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErrR(w, r, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if err := s.store.SaveMailDraft(r.Context(), store.SaveMailDraftInput{
+		OrgID:    claims.OrgID,
+		UserID:   claims.UserID,
+		MailID:   mailID,
+		To:       req.To,
+		Cc:       req.Cc,
+		Bcc:      req.Bcc,
+		Subject:  req.Subject,
+		BodyText: req.BodyText,
+		// Files already uploaded to this draft get their expiry pushed out, so
+		// a draft still being edited keeps them. See SaveMailDraftInput.
+		AttachmentTTL: s.mediaCfg.UploadTTL,
+	}); err != nil {
+		s.mapErrR(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// removeDraftAttachment serves
+// DELETE /api/v1/mail/drafts/{id}/attachments/{attachmentId}.
+//
+// Taking a file back off a draft the author is still writing. There is no
+// general "delete an attachment" endpoint and this is not one: it reaches only
+// files on the caller's own UNSENT mail, where nobody else can have seen them.
+//
+// The blob is unlinked after the row is gone and only when nothing in the org
+// still points at those bytes — the same order and the same condition the
+// attachment reaper uses.
+func (s *Server) removeDraftAttachment(w http.ResponseWriter, r *http.Request) {
+	claims, _ := auth.FromContext(r.Context())
+	mailID := chi.URLParam(r, "id")
+	attachmentID := chi.URLParam(r, "attachmentId")
+	if !validUUID(mailID) || !validUUID(attachmentID) {
+		writeErrR(w, r, http.StatusBadRequest, "invalid id")
+		return
+	}
+	sha, err := s.store.RemoveDraftAttachment(
+		r.Context(), claims.OrgID, claims.UserID, mailID, attachmentID)
+	if err != nil {
+		s.mapErrR(w, r, err)
+		return
+	}
+	if sha != "" {
+		if rerr := s.blobs.Remove(claims.OrgID, sha); rerr != nil {
+			// The row is already gone, so the file is unreachable either way and
+			// the user's request succeeded. Logged rather than surfaced: what is
+			// left behind is disk, and re-uploading the same content will simply
+			// dedupe onto it.
+			s.log.Error("draft attachment blob unlink failed", "mail_id", mailID,
+				"attachment_id", attachmentID, "err", rerr,
+				"request_id", mw.RequestIDFromContext(r.Context()))
+		}
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // sendMailReq is the composed mail. Addresses arrive as typed; the store
 // normalizes and validates each one and reports which address was rejected.
 type sendMailReq struct {

@@ -26,7 +26,7 @@ import { useMutation } from "@tanstack/react-query";
 import { Circle, Clock, Globe, Hand, NotebookPen, Users } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@taskboard/ui";
-import type { CallDTO } from "@taskboard/shared";
+import { ApiError, type CallDTO } from "@taskboard/shared";
 import { useSession } from "../store/session";
 import { useRuntime } from "../lib/runtime";
 import { useCallRoom } from "../lib/useCallRoom";
@@ -83,6 +83,9 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
   const [hands, setHands] = useState<Set<string>>(() => new Set());
   const [notes, setNotes] = useState<NoteEntry[]>(() => loadNotes(call.id));
   const [recording, setRecording] = useState(call.recordingStatus === "RECORDING");
+  // Latched once the server says it cannot record. Deployment config does not
+  // change mid-call, so one refusal is enough to stop asking.
+  const [recordingUnavailable, setRecordingUnavailable] = useState(false);
 
   const title = call.title || (call.kind === "CHANNEL" ? "Channel call" : "Meeting");
   const myName = participants.find((p) => p.isLocal)?.name || me?.displayName || "You";
@@ -255,9 +258,17 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
       toast(on ? "Recording started" : "Recording stopped");
     },
     onError: (e) => {
-      const msg = e instanceof Error ? e.message : "";
+      // Switch on the CODE, not on the words in the message. The message is
+      // prose the server is free to reword; matching it meant that the day the
+      // server started answering "internal error" for an unconfigured recorder,
+      // this silently fell through to the generic branch and told the user
+      // nothing they could act on.
+      const notEnabled = e instanceof ApiError && e.code === "service_unavailable";
+      // Nothing the user does will make an unconfigured deployment record, so
+      // stop offering it rather than letting them press it again.
+      if (notEnabled) setRecordingUnavailable(true);
       toast.error(
-        /not configured|unavailable|503/i.test(msg)
+        notEnabled
           ? "Recording isn't enabled on this server"
           : "Couldn't change the recording",
       );
@@ -401,9 +412,15 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
               {isHost && (
                 <CallControlButton
                   variant="surface"
-                  title={recording ? "Stop recording" : "Record this meeting"}
+                  title={
+                    recordingUnavailable
+                      ? "Recording isn't enabled on this server"
+                      : recording
+                        ? "Stop recording"
+                        : "Record this meeting"
+                  }
                   pressed={recording}
-                  disabled={toggleRecording.isPending}
+                  disabled={toggleRecording.isPending || recordingUnavailable}
                   onClick={() => toggleRecording.mutate()}
                   className={recording ? "bg-red-500 text-white hover:bg-red-600" : undefined}
                 >

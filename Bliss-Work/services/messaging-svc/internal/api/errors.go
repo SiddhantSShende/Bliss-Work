@@ -127,8 +127,19 @@ func mapStoreError(err error) (int, ErrorCode, string) {
 		return http.StatusBadRequest, CodeBadRequest,
 			"only meetings can be joined by link; a channel call is open to its channel members"
 	case errors.Is(err, livekit.ErrNotConfigured):
-		return http.StatusServiceUnavailable, CodeInternalError,
+		// 503 with an internal_error code was self-contradictory: the envelope
+		// said "we broke" about a state that is simply how this deployment is
+		// configured. Clients switch on the CODE.
+		return http.StatusServiceUnavailable, CodeServiceUnavailable,
 			"calling is not configured on this deployment"
+	case errors.Is(err, livekit.ErrEgressNotConfigured):
+		// Recording needs LiveKit Egress, a separate process this deployment may
+		// not run (see docs/RECORDING.md). Without this case the error fell
+		// through to the default and the button reported a 500 "internal error"
+		// — which is both alarming and untrue, and gave the UI nothing to say
+		// beyond "couldn't change the recording".
+		return http.StatusServiceUnavailable, CodeServiceUnavailable,
+			"recording is not enabled on this deployment"
 	// ── Mail composition ────────────────────────────────────────────────
 	// Each of these names a specific field the composer can point at, which is
 	// the whole reason they are distinct errors rather than one "bad request":

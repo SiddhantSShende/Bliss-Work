@@ -15,6 +15,10 @@ import {
   actionsFor,
 } from "@taskboard/shared";
 import { useRuntime } from "./runtime";
+import {
+  createCoalescedInvalidator,
+  type CoalescedInvalidator,
+} from "./coalesceInvalidations";
 import type { PlatformConfig } from "../platform";
 import { useSession } from "../store/session";
 import {
@@ -109,6 +113,16 @@ export const qk = {
   /** One complete email. Fetched only when a MAIL row is opened — the feed row
    *  itself comes from `unifiedInbox` and carries no body. */
   mail: (id: string) => ["mail", id] as const,
+  /** Deleted Items: the same feed as `unifiedInbox`, read with its visibility
+   *  predicate inverted. Its OWN namespace rather than a suffix on
+   *  `unifiedInbox`, because lib/inboxPatch writes that key with an exact-key
+   *  setQueryData and a deleted row landing in those patches would put mail
+   *  back in the mailbox it was just removed from. */
+  deletedMail: ["deletedMail"] as const,
+  /** The Drafts folder — unsent mail, from its own listing rather than the
+   *  feed. A draft is in nobody's inbox_items, so there is no feed row to
+   *  patch and nothing here shares a namespace with one. */
+  mailDrafts: ["mailDrafts"] as const,
   /** Connected external accounts (integrations-svc). */
   integrations: ["integrations"] as const,
   /** Organizations the signed-in identity belongs to (org switcher). */
@@ -150,6 +164,10 @@ export function WsEventBridge() {
   const orgId = useSession((s) => s.user?.orgId);
 
   useEffect(() => {
+    // A burst of events touching the same list costs ONE refetch, not one per
+    // event. Created per subscription so it is torn down with the socket.
+    const invalidate = createCoalescedInvalidator(qc);
+
     // Electron relays events from the utilityProcess; web opens its own socket.
     const source = config.eventSource;
     if (source) source.connect();
@@ -291,9 +309,9 @@ export function WsEventBridge() {
             patchThreadOnMessage(qc, e);
           }
           // conversation list refreshes (revive + reorder + unread)
-          void qc.invalidateQueries({ queryKey: qk.conversations });
+          invalidate(qk.conversations);
           // People sidebar + open per-person feed (all-feed already patched).
-          refreshInboxSidebars(qc);
+          refreshInboxSidebars(invalidate);
           break;
         }
         case EventType.ConversationIgnored: {
@@ -301,7 +319,7 @@ export function WsEventBridge() {
             (prev ?? []).filter((c) => c.id !== e.conversationId),
           );
           patchInboxOnIgnored(qc, e);
-          refreshInboxSidebars(qc);
+          refreshInboxSidebars(invalidate);
           break;
         }
         case EventType.ConversationBlocked:
@@ -323,7 +341,7 @@ export function WsEventBridge() {
               ),
             );
           }
-          void qc.invalidateQueries({ queryKey: qk.conversations });
+          invalidate(qk.conversations);
           break;
         }
         case EventType.ChannelMemberJoined: {
@@ -331,9 +349,9 @@ export function WsEventBridge() {
           // replayed event from another session's socket is cheap to guard.
           if (e.userId !== me) break;
           // The channel is new to my sidebar; nothing in cache has it yet.
-          void qc.invalidateQueries({ queryKey: qk.channels });
+          invalidate(qk.channels);
           // It also just left the "channels I could join" directory.
-          void qc.invalidateQueries({ queryKey: qk.openChannels });
+          invalidate(qk.openChannels);
           // `actorId === userId` is an open-channel self-join: I clicked Join,
           // and announcing my own click back at me is noise. An ABSENT actorId
           // is a server older than the field — stay quiet there too rather than
@@ -367,8 +385,8 @@ export function WsEventBridge() {
               navRef.current("/app/channels");
             }
           }
-          void qc.invalidateQueries({ queryKey: qk.channels });
-          void qc.invalidateQueries({ queryKey: qk.openChannels });
+          invalidate(qk.channels);
+          invalidate(qk.openChannels);
           break;
         }
         case EventType.ChannelRoleChanged:
@@ -376,12 +394,12 @@ export function WsEventBridge() {
           void qc.invalidateQueries({ queryKey: qk.channelRoster(e.channelId) });
           // myRole rides ChannelDTO, so the channel list has to refetch for the
           // moderation controls to appear or disappear.
-          void qc.invalidateQueries({ queryKey: qk.channels });
-          void qc.invalidateQueries({ queryKey: qk.openChannels });
+          invalidate(qk.channels);
+          invalidate(qk.openChannels);
           break;
         }
         case EventType.MessageRead: {
-          void qc.invalidateQueries({ queryKey: qk.conversations });
+          invalidate(qk.conversations);
           if (me) patchThreadOnRead(qc, e, me);
           break;
         }
@@ -391,7 +409,7 @@ export function WsEventBridge() {
         }
         case EventType.MessageDismissed: {
           patchOnDismissed(qc, e);
-          refreshInboxSidebars(qc);
+          refreshInboxSidebars(invalidate);
           break;
         }
         case EventType.MessageDeleted: {
@@ -405,7 +423,7 @@ export function WsEventBridge() {
           );
           // The thread view paginates, so its cache shape differs — let it refetch.
           if (e.threadId) void qc.invalidateQueries({ queryKey: qk.threadMessages(e.threadId) });
-          refreshInboxSidebars(qc);
+          refreshInboxSidebars(invalidate);
           break;
         }
         case EventType.MessageReaction: {
@@ -440,7 +458,7 @@ export function WsEventBridge() {
               return next.sort((a, b) => a.seq - b.seq);
             });
           }
-          void qc.invalidateQueries({ queryKey: qk.channels });
+          invalidate(qk.channels);
           break;
         }
         case EventType.ChannelMessageDeleted: {
@@ -479,7 +497,7 @@ export function WsEventBridge() {
             void qc.invalidateQueries({ queryKey: qk.sticky });
             // New TASK row lands in the unified inbox / People sidebar.
             void qc.invalidateQueries({ queryKey: qk.unifiedInbox });
-            refreshInboxSidebars(qc);
+            refreshInboxSidebars(invalidate);
             if (live) toast(`New task: ${e.title}`, { description: `from ${e.senderUsername}` });
           }
           // Availability roster: task.* events reach only the sender + assignee
@@ -506,7 +524,7 @@ export function WsEventBridge() {
             // desktop with notes they had already cleared.
             if (live) autoPinOnAcknowledge(qc, config, e.taskId);
             void qc.invalidateQueries({ queryKey: qk.unifiedInbox });
-            refreshInboxSidebars(qc);
+            refreshInboxSidebars(invalidate);
           }
           void qc.invalidateQueries({ queryKey: qk.sent });
           void qc.invalidateQueries({ queryKey: qk.notifications });
@@ -523,12 +541,12 @@ export function WsEventBridge() {
             // completion (status badge / hidden state). Without this the
             // allocator only learns via the toast and a stale row stays put.
             void qc.invalidateQueries({ queryKey: qk.unifiedInbox });
-            refreshInboxSidebars(qc);
+            refreshInboxSidebars(invalidate);
           }
           if (e.assigneeId === me) {
             clearTaskForMe(qc, e.taskId);
             void qc.invalidateQueries({ queryKey: qk.unifiedInbox });
-            refreshInboxSidebars(qc);
+            refreshInboxSidebars(invalidate);
           }
           void qc.invalidateQueries({ queryKey: qk.sent });
           void qc.invalidateQueries({ queryKey: qk.notifications });
@@ -546,12 +564,12 @@ export function WsEventBridge() {
             const verb = e.type === EventType.TaskLeft ? "left" : "ignored";
             if (live) toast(`Task ${verb} by ${e.assigneeUsername}`);
             void qc.invalidateQueries({ queryKey: qk.unifiedInbox });
-            refreshInboxSidebars(qc);
+            refreshInboxSidebars(invalidate);
           }
           if (e.assigneeId === me) {
             clearTaskForMe(qc, e.taskId);
             void qc.invalidateQueries({ queryKey: qk.unifiedInbox });
-            refreshInboxSidebars(qc);
+            refreshInboxSidebars(invalidate);
           }
           void qc.invalidateQueries({ queryKey: qk.sent });
           void qc.invalidateQueries({ queryKey: qk.notifications });
@@ -639,6 +657,8 @@ export function WsEventBridge() {
 
     return () => {
       off();
+      // Queued invalidations belong to a subscription that no longer exists.
+      invalidate.cancel();
       if (!source) ws.close();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -654,9 +674,9 @@ export function WsEventBridge() {
  * untouched here for message events; task events invalidate it explicitly at
  * their call sites.
  */
-function refreshInboxSidebars(qc: ReturnType<typeof useQueryClient>) {
-  void qc.invalidateQueries({ queryKey: qk.inboxPeers });
-  void qc.invalidateQueries({ queryKey: ["inboxPeerFeed"] });
+function refreshInboxSidebars(invalidate: CoalescedInvalidator) {
+  invalidate(qk.inboxPeers);
+  invalidate(["inboxPeerFeed"]);
 }
 
 /**

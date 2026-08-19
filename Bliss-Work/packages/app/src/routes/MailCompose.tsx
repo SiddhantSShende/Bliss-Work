@@ -1,6 +1,6 @@
-import { useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Paperclip, PenSquare, Send, Trash2, X, Loader2, AlertCircle } from "lucide-react";
 import { Button, Input, Textarea } from "@taskboard/ui";
 import { isValidMailAddress } from "@taskboard/shared";
@@ -27,13 +27,19 @@ const MAX_SUBJECT = 200;
  * A server-side draft is opened as soon as this mounts, before anything is
  * typed. That is not bookkeeping for its own sake: an attachment upload has to
  * be authorized against a destination that already exists, and the draft id is
- * what those uploads scope to (see 0023_mail.sql). Leaving without sending
- * discards it, so an abandoned compose leaves nothing behind.
+ * what those uploads scope to (see 0023_mail.sql).
+ *
+ * What is typed is written back to that draft after a pause and again on close,
+ * so leaving without sending KEEPS the mail — it appears in Drafts and this
+ * same component reopens it at /app/mail/compose/:draftId. A composer that was
+ * opened and never written in is discarded instead; see useMailDraft.
  */
 export function MailCompose() {
   const { api } = useRuntime();
   const qc = useQueryClient();
   const nav = useNavigate();
+  // Present when resuming from the Drafts folder, absent for a new mail.
+  const { draftId } = useParams<{ draftId?: string }>();
   // Reply / Reply all / Forward arrive as router state rather than query
   // params: the quoted body can be thousands of characters, which does not
   // belong in a URL. Absent for a plain New Mail, which is why every field
@@ -41,6 +47,19 @@ export function MailCompose() {
   // lib/mailActions — this component only receives it.
   const loc = useLocation();
   const prefill = (loc.state ?? {}) as Partial<MailPrefill>;
+
+  // A resumed draft's contents. Fetched through the same endpoint a mail is
+  // read with — a draft IS a mail, and its author is entitled to read it — so
+  // there is no second shape to keep in step.
+  const resumed = useQuery({
+    queryKey: qk.mail(draftId!),
+    queryFn: () => api.mail(draftId!),
+    enabled: !!draftId,
+    // The composer is the only writer, and it holds what it typed. A refetch
+    // that landed mid-sentence would fight the person writing.
+    refetchOnWindowFocus: false,
+    staleTime: Infinity,
+  });
 
   const [to, setTo] = useState<string[]>(prefill.to ?? []);
   const [cc, setCc] = useState<string[]>(prefill.cc ?? []);
@@ -53,16 +72,59 @@ export function MailCompose() {
   const isReply = !!prefill.subject || (prefill.to?.length ?? 0) > 0;
   // A forward starts with no addressee — it is the one answer that still needs
   // one typed — so it is titled for what it is rather than lumped in with Reply.
-  const heading = prefill.kind === "forward" ? "Forward" : isReply ? "Reply" : "New Mail";
+  const heading = draftId
+    ? "Draft"
+    : prefill.kind === "forward"
+      ? "Forward"
+      : isReply
+        ? "Reply"
+        : "New Mail";
+
+  // Fill the form from the resumed draft, ONCE — keyed on the mail id, not on
+  // the query result, so a refetch cannot overwrite what is being typed.
+  const [loadedId, setLoadedId] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    const mail = resumed.data;
+    if (!mail || mail.mailId === loadedId) return;
+    setLoadedId(mail.mailId);
+    setTo(mail.recipients.filter((r) => r.kind === "TO").map((r) => r.address));
+    const ccAddresses = mail.recipients.filter((r) => r.kind === "CC").map((r) => r.address);
+    setCc(ccAddresses);
+    setBcc(mail.recipients.filter((r) => r.kind === "BCC").map((r) => r.address));
+    // Same rule as a reply-all: a Cc the user cannot see is one they cannot
+    // remove, so the field opens whenever it is populated.
+    if (ccAddresses.length > 0) setShowCc(true);
+    setSubject(mail.subject);
+    setBody(mail.bodyText);
+  }, [resumed.data, loadedId]);
 
   // Opening the draft is a real network call that can fail; the composer stays
   // usable (typing is local) but Send and attachments wait on it, so its state
   // has to be visible rather than assumed. The hook also discards the draft if
   // the composer is left without sending — see useMailDraft.
-  const draft = useMailDraft();
+  const draft = useMailDraft(draftId);
   const { mailId } = draft;
 
-  const attachments = useMailAttachments(mailId);
+  const attachments = useMailAttachments(mailId, resumed.data?.attachments);
+
+  // Autosave. Runs on every change rather than on a timer of its own: the hook
+  // debounces, and what it must never miss is the LAST edit before the composer
+  // closes — which it reads from here.
+  const { save: saveDraft } = draft;
+  useEffect(() => {
+    if (!mailId) return;
+    // Nothing is written until the resumed draft has actually loaded, or the
+    // first save would overwrite the mail with an empty form.
+    if (draftId && !resumed.data) return;
+    saveDraft({
+      to,
+      cc,
+      bcc,
+      subject,
+      bodyText: body,
+      hasAttachments: attachments.files.length > 0,
+    });
+  }, [mailId, draftId, resumed.data, saveDraft, to, cc, bcc, subject, body, attachments.files.length]);
 
   const allAddresses = [...to, ...cc, ...bcc];
   const invalidAddress = allAddresses.find((a) => !isValidMailAddress(a));
@@ -73,6 +135,25 @@ export function MailCompose() {
     !invalidAddress &&
     !subjectTooLong &&
     !attachments.isUploading;
+
+  /**
+   * Throw the draft away and leave.
+   *
+   * Separate from Close, which now keeps it: with autosave, "get rid of this"
+   * has to be something the user can actually say. Navigating happens whether
+   * or not the delete succeeded — the composer is closed either way, and a
+   * draft that outlived a failed delete is still the user's own unsent mail,
+   * sitting in Drafts where they can try again.
+   */
+  const discardDraft = async () => {
+    try {
+      await draft.discard();
+      toast.success("Draft discarded");
+    } catch (e) {
+      toast.error("Could not discard the draft", { description: errorText(e) });
+    }
+    nav({ pathname: "/app/mail/all", search: loc.search }, { replace: true });
+  };
 
   const send = useMutation({
     mutationFn: async () => {
@@ -85,6 +166,11 @@ export function MailCompose() {
       void qc.invalidateQueries({ queryKey: qk.unifiedInbox });
       void qc.invalidateQueries({ queryKey: qk.inboxPeers });
       void qc.invalidateQueries({ queryKey: ["inboxPeerFeed"] });
+      // The draft just stopped being one. Without this the Drafts folder —
+      // frequently on screen beside this pane — keeps listing a mail that is
+      // now in Sent Items.
+      void qc.invalidateQueries({ queryKey: qk.mailDrafts });
+      void qc.invalidateQueries({ queryKey: qk.mail(res.mailId) });
       // Keep the list's filters (?box=, ?p=) on the way out. A bare pathname
       // would drop them, so the folder the user was writing from silently
       // resets to the Inbox behind the mail they just sent.
@@ -105,9 +191,12 @@ export function MailCompose() {
         </div>
         <button
           onClick={() => nav(-1)}
-          title="Discard and close"
-          aria-label="Discard and close"
-          className="rounded-lg p-1.5 text-muted hover:bg-surface-2 hover:text-danger"
+          // Closing KEEPS the mail now — it is saved to Drafts on the way out
+          // (useMailDraft), and only a composer with nothing in it is thrown
+          // away. Discarding on purpose is the button in the footer.
+          title="Close — keeps this in Drafts"
+          aria-label="Close — keeps this in Drafts"
+          className="rounded-lg p-1.5 text-muted hover:bg-surface-2 hover:text-fg"
         >
           <X size={16} />
         </button>
@@ -241,8 +330,16 @@ export function MailCompose() {
                 <Loader2 size={12} className="animate-spin" /> Preparing…
               </span>
             )}
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => void discardDraft()}
+              title="Discard — deletes this draft; it has not been sent to anyone"
+            >
+              Discard
+            </Button>
             <Button type="button" variant="ghost" onClick={() => nav(-1)}>
-              Cancel
+              Close
             </Button>
             <Button type="submit" loading={send.isPending} disabled={!canSend || send.isPending}>
               <Send size={15} /> {send.isPending ? "Sending…" : "Send"}

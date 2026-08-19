@@ -7,19 +7,21 @@ import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { INBOX_KINDS } from "../lib/inboxKinds";
 import { peerLabel, useInboxPeers } from "../lib/useInboxPeers";
-import { flatInbox, useInboxPages } from "../lib/useCursorPagination";
+import { flatInbox, useDeletedMailPages, useInboxPages } from "../lib/useCursorPagination";
 import { useMarkPeerRead } from "../lib/useMarkPeerRead";
 import {
   folderOf,
   folderSpec,
   groupByDay,
   inFolder,
+  isFeedFolder,
   isListableFolder,
   mailSearch,
   peerOf,
 } from "../lib/mailView";
 import { Tabs } from "../features/Tabs";
 import { MailRow } from "../features/MailRow";
+import { MailDraftList } from "../features/MailDraftList";
 
 /**
  * How few rows are too few to stop paging at.
@@ -48,9 +50,17 @@ const MIN_VISIBLE = 12;
  * The Unread tab is local state: it is a way of looking at the list, not a
  * place in the app worth linking to.
  *
- * Rows carry inline actions: MAIL → Delete (removes YOUR copy only); THREAD →
- * Ignore. The canonical state transitions all run through messaging-svc; the
- * WsEventBridge reconciles caches.
+ * Rows carry inline actions: MAIL → Delete (removes YOUR copy only), or Restore
+ * when the folder IS Deleted Items; THREAD → Ignore. The canonical state
+ * transitions all run through messaging-svc; the WsEventBridge reconciles
+ * caches.
+ *
+ * ── Three sources, one column ────────────────────────────────────────────────
+ * Inbox and Sent Items share one request and are told apart by direction.
+ * Deleted Items is the same feed read with its visibility predicate inverted,
+ * which is a different cache — a deleted row must never land in the live feed's
+ * optimistic patches. Drafts are not in the feed at all and have their own
+ * listing, rendered by MailDraftList.
  */
 export function MailList() {
   const [params] = useSearchParams();
@@ -58,26 +68,37 @@ export function MailList() {
   const folder = folderOf(params);
   const search = mailSearch(folder, peerId);
   const spec = folderSpec(folder);
-  // Drafts / Deleted Items / Spam have no listing behind them at all — see
-  // lib/mailView for why each one is structurally empty.
+  // Spam is the one folder with nothing behind it — see lib/mailView.
   const listable = isListableFolder(folder);
+  const isDrafts = folder === "drafts";
+  const isDeleted = folder === "deleted";
+  // Whether the keyset feed is what this folder reads. Drafts have their own
+  // listing; Spam has none.
+  const fromFeed = isFeedFolder(folder);
 
   const { api, config } = useRuntime();
   const qc = useQueryClient();
   const sentinel = useRef<HTMLDivElement>(null);
   const [unreadOnly, setUnreadOnly] = useState(false);
 
-  const q = useInboxPages(api, peerId, INBOX_KINDS);
+  // Both hooks always run — hooks cannot be conditional — but the deleted feed
+  // only fetches while its folder is open. It is a folder people visit rarely,
+  // and pre-loading everything they have thrown away is work nobody asked for.
+  const live = useInboxPages(api, peerId, INBOX_KINDS);
+  const trash = useDeletedMailPages(api, peerId, isDeleted);
+  const q = isDeleted ? trash : live;
   const items = flatInbox(q.data);
 
-  useMarkPeerRead(api, peerId, items);
+  // Bound to the LIVE feed, never the wastebasket: opening a person marks their
+  // unread mail read, and rows the user deleted are not mail they are reading.
+  useMarkPeerRead(api, peerId, flatInbox(live.data));
 
   const visible = useMemo(
     () =>
-      listable
+      fromFeed
         ? items.filter((it) => inFolder(it, folder) && (!unreadOnly || it.unreadCount > 0))
         : [],
-    [items, folder, listable, unreadOnly],
+    [items, folder, fromFeed, unreadOnly],
   );
   const groups = useMemo(() => groupByDay(visible), [visible]);
 
@@ -98,7 +119,7 @@ export function MailList() {
   const fetchMore = () => {
     // Paging through the whole mailbox to fill a folder the feed can never
     // answer for would be every request for nothing.
-    if (listable && q.hasNextPage && !q.isFetchingNextPage) void q.fetchNextPage();
+    if (fromFeed && q.hasNextPage && !q.isFetchingNextPage) void q.fetchNextPage();
   };
 
   // IntersectionObserver-driven next-page fetch.
@@ -114,19 +135,23 @@ export function MailList() {
     io.observe(el);
     return () => io.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q.hasNextPage, q.isFetchingNextPage, listable]);
+  }, [q.hasNextPage, q.isFetchingNextPage, fromFeed]);
 
   // A filtered list can be short enough that the sentinel never moves, which is
   // the one case the observer cannot recover from on its own.
   useEffect(() => {
     if (visible.length < MIN_VISIBLE) fetchMore();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible.length, q.hasNextPage, q.isFetchingNextPage, listable]);
+  }, [visible.length, q.hasNextPage, q.isFetchingNextPage, fromFeed]);
 
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: qk.unifiedInbox });
     void qc.invalidateQueries({ queryKey: qk.inboxPeers });
     void qc.invalidateQueries({ queryKey: ["inboxPeerFeed"] });
+    // Delete and Restore move a row BETWEEN the live feed and the wastebasket,
+    // so neither is correct on its own after either action.
+    void qc.invalidateQueries({ queryKey: qk.deletedMail });
+    void qc.invalidateQueries({ queryKey: qk.mailDrafts });
     // qk.sticky drives both the desktop sticky reconcile AND the browser
     // overlay (BrowserStickies). The TaskAcknowledged WS event patches the
     // cache too, but the patch is in-place — if the cache is empty (newly
@@ -150,6 +175,10 @@ export function MailList() {
     },
     onSuccess: refresh,
   });
+  const restoreMut = useMutation({
+    mutationFn: (refId: string) => api.restoreMail(refId),
+    onSuccess: refresh,
+  });
   const dismissMut = useMutation({
     mutationFn: (messageId: string) => api.dismissMessage(messageId),
     onSuccess: refresh,
@@ -167,14 +196,22 @@ export function MailList() {
     <div className="flex h-full flex-col">
       <header className="shrink-0 border-b border-border/60 px-3 py-2.5">
         <div className="flex items-center justify-between gap-2">
-          <Tabs
-            tabs={[
-              { key: "all", label: "All" },
-              { key: "unread", label: "Unread" },
-            ]}
-            active={unreadOnly ? "unread" : "all"}
-            onChange={(k) => setUnreadOnly(k === "unread")}
-          />
+          {/* Unread is a property of DELIVERED mail. A draft has never been
+              read by anyone, so the filter has nothing to say about the folder
+              it would sit above — and a control that cannot change the list is
+              worse than no control. */}
+          {fromFeed ? (
+            <Tabs
+              tabs={[
+                { key: "all", label: "All" },
+                { key: "unread", label: "Unread" },
+              ]}
+              active={unreadOnly ? "unread" : "all"}
+              onChange={(k) => setUnreadOnly(k === "unread")}
+            />
+          ) : (
+            <span />
+          )}
           <div className="flex shrink-0 items-center gap-1.5">
             {/* New Mail ROUTES rather than opening a dialog. Composing an email
                 is not a two-field confirmation — it is To/Cc/Bcc, a subject, a
@@ -209,7 +246,7 @@ export function MailList() {
           </span>
           {/* How many rows the two filters actually left. Without it a folder
               that pages in slowly is indistinguishable from an empty one. */}
-          {visible.length > 0 && (
+          {fromFeed && visible.length > 0 && (
             <span className="tabular-nums">
               {visible.length}
               {q.hasNextPage ? "+" : ""}{" "}
@@ -243,18 +280,24 @@ export function MailList() {
           />
         )}
 
-        {listable && q.isLoading && <FeedSkeleton />}
+        {/* Drafts are not a page of the feed — their own listing renders here,
+            under the same header and inside the same scroll container. */}
+        {isDrafts && <MailDraftList search={search} />}
 
-        {listable && visible.length === 0 && !q.isLoading && !q.isFetchingNextPage && (
+        {fromFeed && q.isLoading && <FeedSkeleton />}
+
+        {fromFeed && visible.length === 0 && !q.isLoading && !q.isFetchingNextPage && (
           <EmptyState
             icon={<Inbox size={22} />}
-            title={unreadOnly ? "Nothing unread" : "Nothing here yet"}
+            title={unreadOnly ? "Nothing unread" : isDeleted ? "Nothing deleted" : "Nothing here yet"}
             hint={
               unreadOnly
                 ? "Everything in this folder has been read."
                 : peerId
                   ? `No mail with ${peerName} in ${spec.label}.`
-                  : "Choose New Mail to write one."
+                  : isDeleted
+                    ? "Mail you delete is kept here for 90 days, so you can put it back."
+                    : "Choose New Mail to write one."
             }
           />
         )}
@@ -278,7 +321,15 @@ export function MailList() {
                   key={`${it.itemKind}:${it.refId}`}
                   item={it}
                   search={search}
-                  onIgnore={locked ? undefined : (kind, refId) => ignoreMut.mutate({ kind, refId })}
+                  // In Deleted Items the row's one action is the undo of the
+                  // one that put it there. Offering Delete again would be a
+                  // button that does nothing to a row already deleted.
+                  onIgnore={
+                    locked || isDeleted
+                      ? undefined
+                      : (kind, refId) => ignoreMut.mutate({ kind, refId })
+                  }
+                  onRestore={isDeleted ? (refId) => restoreMut.mutate(refId) : undefined}
                   onDismiss={(refId) => dismissMut.mutate(refId)}
                   onAcknowledge={(refId) => ackMut.mutate(refId)}
                   onComplete={(refId) => completeMut.mutate(refId)}
@@ -290,7 +341,7 @@ export function MailList() {
 
         {/* IntersectionObserver target for keyset paging. */}
         <div ref={sentinel} className="h-4" />
-        {q.isFetchingNextPage && listable && (
+        {q.isFetchingNextPage && fromFeed && (
           <div className="py-2 text-center text-[11px] text-muted">Loading more…</div>
         )}
       </div>

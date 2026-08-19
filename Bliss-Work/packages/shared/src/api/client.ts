@@ -39,6 +39,7 @@ import {
   InboxPageDTO,
   InboxPeerDTO,
   MailDTO,
+  MailDraftDTO,
   SendMailResultDTO,
   InviteDTO,
   MemberActivityDTO,
@@ -743,13 +744,26 @@ export class ApiClient {
    * kinds afterwards would leave a caller with a screenful of the wrong kind
    * looking at an empty feed that still claims to have a next page. Omitted
    * means every kind.
+   *
+   * `deleted` returns the rows the caller has REMOVED instead of the rows they
+   * have kept — the Deleted Items folder. Same feed, same cursor, same page
+   * shape; only the predicate is inverted. Pass `kinds: ["MAIL"]` with it:
+   * hidden means Delete on a mail row but Ignore on a thread or task, and a
+   * wastebasket listing every thread you ever ignored is not that folder.
    */
-  inbox(cursor?: string, limit = 25, peerId?: string, kinds?: InboxItemKind[]) {
+  inbox(
+    cursor?: string,
+    limit = 25,
+    peerId?: string,
+    kinds?: InboxItemKind[],
+    deleted = false,
+  ) {
     const qs = new URLSearchParams();
     if (cursor) qs.set("cursor", cursor);
     qs.set("limit", String(limit));
     if (peerId) qs.set("peerId", peerId);
     if (kinds?.length) qs.set("kinds", kinds.join(","));
+    if (deleted) qs.set("deleted", "1");
     return this.req(
       this.cfg.messagingBase,
       `/api/v1/inbox?${qs.toString()}`,
@@ -814,6 +828,13 @@ export class ApiClient {
   // There is no `mailList()`. A mailbox listing is what `inbox()` already
   // serves (rows with itemKind "MAIL"), keyset-paginated with unread rollups —
   // a second parallel list would mean two pagination models over one feed.
+  // `mailDrafts()` is the one exception, and only because a draft is in
+  // nobody's feed at all: there is no inbox row for it to be a page of.
+
+  /** The Drafts folder — the caller's unsent mail, newest edit first. */
+  mailDrafts() {
+    return this.req(this.cfg.messagingBase, "/api/v1/mail/drafts", {}, z.array(MailDraftDTO));
+  }
 
   /**
    * Opens a draft and returns its id.
@@ -829,6 +850,44 @@ export class ApiClient {
       "/api/v1/mail/drafts",
       { method: "POST" },
       z.object({ mailId: z.string().uuid() }),
+    );
+  }
+  /**
+   * Saves what is in the composer onto the draft. Author-only, draft-only.
+   *
+   * A full overwrite of the draft's contents rather than a patch of changed
+   * fields: the composer always knows every field, and a partial update would
+   * make "the user cleared the subject" indistinguishable from "the subject was
+   * not part of this save". Addresses are stored as typed — a half-written one
+   * is expected in a draft, and validation stays at send.
+   */
+  saveMailDraft(
+    mailId: string,
+    mail: { to: string[]; cc?: string[]; bcc?: string[]; subject: string; bodyText: string },
+  ) {
+    return this.req<void>(this.cfg.messagingBase, `/api/v1/mail/drafts/${mailId}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        to: mail.to,
+        cc: mail.cc ?? [],
+        bcc: mail.bcc ?? [],
+        subject: mail.subject,
+        bodyText: mail.bodyText,
+      }),
+    });
+  }
+  /**
+   * Takes one file back off an unsent draft.
+   *
+   * Necessary rather than cosmetic: Send commits every file still scoped to the
+   * mail, so a file only dropped from the composer's tray would go out with it.
+   * Reaches the caller's own drafts and nothing else.
+   */
+  removeDraftAttachment(mailId: string, attachmentId: string) {
+    return this.req<void>(
+      this.cfg.messagingBase,
+      `/api/v1/mail/drafts/${mailId}/attachments/${attachmentId}`,
+      { method: "DELETE" },
     );
   }
   /** Discards an unsent draft and its attachments. Author-only, draft-only. */
@@ -1486,6 +1545,21 @@ export class ApiClient {
     return this.req<void>(
       this.cfg.messagingBase,
       `/api/v1/inbox/items/${kind}/${refId}/ignore`,
+      { method: "POST", headers: { "idempotency-key": uuid() } },
+    );
+  }
+  /**
+   * Puts a deleted mail back in the folder it came from — the undo of
+   * `ignoreInboxItem("MAIL", …)`.
+   *
+   * MAIL only, server-side too. Deleting a mail only ever set a flag on the
+   * caller's feed row, so there is nothing else to reverse: the same mail, with
+   * the same read state, reappears where it was.
+   */
+  restoreMail(refId: string) {
+    return this.req<void>(
+      this.cfg.messagingBase,
+      `/api/v1/inbox/items/MAIL/${refId}/restore`,
       { method: "POST", headers: { "idempotency-key": uuid() } },
     );
   }

@@ -172,27 +172,40 @@ func (s *Store) CreateMailDraft(ctx context.Context, orgID, userID string) (stri
 // cascades away with the draft, so requireMailReader denies every caller.
 func (s *Store) DiscardMailDraft(ctx context.Context, orgID, userID, mailID string) error {
 	return s.withOrg(ctx, orgID, func(tx pgx.Tx) error {
-		var author *string
-		var status string
-		err := tx.QueryRow(ctx, `
-			SELECT author_user_id::text, status FROM mail_messages
-			WHERE id = $1 AND org_id = $2`, mailID, orgID).Scan(&author, &status)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrNotFound
-		}
-		if err != nil {
+		if err := requireOwnDraft(ctx, tx, orgID, userID, mailID); err != nil {
 			return err
 		}
-		if author == nil || *author != userID {
-			return ErrForbidden
-		}
-		if status != MailStatusDraft {
-			return ErrMailAlreadySent
-		}
 		// mail_recipients / mail_deliveries cascade off this row.
-		_, err = tx.Exec(ctx, `DELETE FROM mail_messages WHERE id = $1 AND org_id = $2`, mailID, orgID)
+		_, err := tx.Exec(ctx, `DELETE FROM mail_messages WHERE id = $1 AND org_id = $2`, mailID, orgID)
 		return err
 	})
+}
+
+// requireOwnDraft is the rule shared by every operation that writes to a draft:
+// it must exist, it must be the caller's, and it must still be unsent.
+//
+// One definition because the three failures are meaningfully different and each
+// caller must report the same one — a draft somebody else owns is ErrForbidden,
+// not ErrNotFound, and a draft that has already left is neither.
+func requireOwnDraft(ctx context.Context, tx pgx.Tx, orgID, userID, mailID string) error {
+	var author *string
+	var status string
+	err := tx.QueryRow(ctx, `
+		SELECT author_user_id::text, status FROM mail_messages
+		WHERE id = $1 AND org_id = $2`, mailID, orgID).Scan(&author, &status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if author == nil || *author != userID {
+		return ErrForbidden
+	}
+	if status != MailStatusDraft {
+		return ErrMailAlreadySent
+	}
+	return nil
 }
 
 // resolvedAddress is one validated recipient plus the local account it belongs

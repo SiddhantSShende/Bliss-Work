@@ -616,6 +616,27 @@ export const MailDTO = z.object({
 });
 export type MailDTO = z.infer<typeof MailDTO>;
 
+/**
+ * One row of the Drafts folder — a mail the author has written but not sent.
+ *
+ * Deliberately not an `InboxItemDTO`: a draft is in nobody's feed, so it has no
+ * counterparty, no unread state and no delivery. What it does have is the
+ * people it is addressed to so far and the moment it was last touched.
+ */
+export const MailDraftDTO = z.object({
+  mailId: z.string().uuid(),
+  /** `subject — body`, the same one-line preview the feed builds for sent mail,
+   *  so a draft row reads like every other row in the mailbox. */
+  preview: z.string(),
+  /** The To line as typed. Empty is ordinary — mail is often written before it
+   *  is addressed. */
+  to: z.array(z.string()),
+  attachmentCount: z.number().int().nonnegative(),
+  /** When the author last edited it. Drafts are listed newest-edit first. */
+  updatedAt: z.string(),
+});
+export type MailDraftDTO = z.infer<typeof MailDraftDTO>;
+
 /** What POST /mail/drafts/{id}/send answers with. The two counts let the UI say
  *  what actually happened when a mail is addressed both inside and outside the
  *  org — "sent to 2, queued for 1" rather than a bare "sent". */

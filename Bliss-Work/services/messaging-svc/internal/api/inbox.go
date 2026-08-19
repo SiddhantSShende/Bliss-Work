@@ -3,6 +3,7 @@ package api
 import (
 	"math"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -34,12 +35,19 @@ func inboxKinds(raw string) ([]string, bool) {
 	return out, len(out) > 0
 }
 
-// listInbox serves GET /api/v1/inbox?cursor=&limit=&peerId=&kinds=.
+// listInbox serves GET /api/v1/inbox?cursor=&limit=&peerId=&kinds=&deleted=.
 //
 // Returns the caller's unified inbox feed (mail, message threads and tasks
 // intermixed, newest first) with a keyset cursor. Default limit 25; cap 100.
 // An optional peerId narrows the feed to one counterparty (the People-sidebar
 // drill-down); an optional kinds list narrows it to those item kinds.
+//
+// `deleted=1` returns the rows the caller has HIDDEN instead of the rows they
+// have not — the Deleted Items folder. A parameter rather than a second
+// endpoint because it is the same feed, the same cursor and the same page
+// shape; only the predicate differs. Pair it with kinds=MAIL: hidden is Delete
+// on a mail row but Ignore on a thread or a task, and a wastebasket that also
+// lists everything you ever ignored is not the folder anybody opened.
 func (s *Server) listInbox(w http.ResponseWriter, r *http.Request) {
 	claims, _ := auth.FromContext(r.Context())
 	cursor := r.URL.Query().Get("cursor")
@@ -59,7 +67,11 @@ func (s *Server) listInbox(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "kinds must name at least one of THREAD, TASK, MAIL")
 		return
 	}
-	page, err := s.store.ListInbox(r.Context(), claims.OrgID, claims.UserID, peerID, cursor, limit, kinds)
+	// Any of the usual truthy spellings; anything else (including absent) is
+	// the ordinary feed, which is what every caller that predates this expects.
+	deleted := isTruthyParam(r.URL.Query(), "deleted")
+	page, err := s.store.ListInbox(
+		r.Context(), claims.OrgID, claims.UserID, peerID, cursor, limit, kinds, deleted)
 	if err != nil {
 		s.mapErr(w, err)
 		return
@@ -131,6 +143,58 @@ func (s *Server) ignoreInboxItem(w http.ResponseWriter, r *http.Request) {
 		}
 	default:
 		writeErr(w, http.StatusBadRequest, "kind must be THREAD, TASK or MAIL")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// isTruthyParam reads a boolean query parameter the way a URL actually carries
+// one: `?deleted`, `?deleted=1` and `?deleted=true` all mean the same thing.
+//
+// Takes the whole Values because a bare `?deleted` and an absent `deleted` are
+// both the empty string to Get(), and they mean opposite things.
+func isTruthyParam(q url.Values, key string) bool {
+	vs, present := q[key]
+	if !present {
+		return false
+	}
+	if len(vs) == 0 || vs[0] == "" {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(vs[0])) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+// restoreInboxItem serves POST /api/v1/inbox/items/{kind}/{refId}/restore.
+//
+// Undoes a Delete: the row goes back into the feed it was removed from. MAIL
+// only, and deliberately so — hidden_for_owner means "deleted" on a mail row,
+// but on a THREAD it means Ignore (which revives on the next reply, from the
+// thread's own path) and on a TASK it is the projector's to own. Restore is a
+// mailbox action, so it answers only for the mailbox's rows.
+//
+// The mail itself was never touched by the delete, so there is nothing to
+// recover beyond the flag: the same row, with the same read state, reappears
+// where it was.
+func (s *Server) restoreInboxItem(w http.ResponseWriter, r *http.Request) {
+	claims, _ := auth.FromContext(r.Context())
+	kind := chi.URLParam(r, "kind")
+	refID := chi.URLParam(r, "refId")
+	if !validUUID(refID) {
+		writeErr(w, http.StatusBadRequest, "invalid refId")
+		return
+	}
+	if kind != "MAIL" {
+		writeErr(w, http.StatusBadRequest, "only MAIL rows can be restored")
+		return
+	}
+	if err := s.store.SetInboxItemHidden(
+		r.Context(), claims.OrgID, claims.UserID, "MAIL", refID, false); err != nil {
+		s.mapErr(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

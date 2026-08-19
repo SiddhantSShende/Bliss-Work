@@ -59,6 +59,18 @@ class Settings(BaseSettings):
         default="http://messaging-svc:8004",
         validation_alias=AliasChoices("MESSAGING_INTERNAL_BASE", "messaging_internal_base"),
     )
+    #  * integrations_internal_base → ask whether the member who composed a mail
+    #    has a connected mailbox to send it through, and send it there. Mail sent
+    #    that way is genuinely from them: their own address in From, signed by
+    #    their own domain, and filed in their own Sent folder. The SMTP settings
+    #    below stay the fallback for members with no connection, and remain the
+    #    ONLY path for mail the product itself sends.
+    integrations_internal_base: str = Field(
+        default="http://integrations-svc:8005",
+        validation_alias=AliasChoices(
+            "INTEGRATIONS_INTERNAL_BASE", "integrations_internal_base"
+        ),
+    )
     # Total RAW bytes of attachments carried on one outbound email. Base64 adds
     # about a third on top, so the default lands near 13.6 MB on the wire —
     # comfortably under the 25 MB Gmail accepts and the 20 MB or less that many

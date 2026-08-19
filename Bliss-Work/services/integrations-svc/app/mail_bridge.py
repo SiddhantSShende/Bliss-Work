@@ -156,7 +156,11 @@ async def deliver(mail: InboundMail) -> bool:
                 },
                 json=mail.payload(),
             )
-            if r.status_code == 200:
+            # 201 is a mail newly filed into somebody's inbox; 200 is one
+            # messaging-svc already had. Both mean the mail is where it belongs
+            # and there is nothing left to retry — treating the 201 as anything
+            # else reports every SUCCESSFUL delivery as a failure.
+            if r.status_code in (200, 201):
                 return True
             # 422 is the ordinary case, not a fault: it means nobody the mail was
             # addressed to is a member of this org. Most of a mailbox is exactly

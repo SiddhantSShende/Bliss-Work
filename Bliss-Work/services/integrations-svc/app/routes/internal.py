@@ -12,6 +12,8 @@ provider_activity so it shows up in the unified hub.
 """
 from __future__ import annotations
 
+import base64
+import binascii
 import secrets
 
 import uuid6
@@ -24,6 +26,7 @@ from ..config import settings
 from ..crypto import cryptor
 from ..db import session, set_org_context
 from ..events import emit_activity_created
+from ..providers import microsoft as ms
 
 router = APIRouter()
 
@@ -141,3 +144,128 @@ async def internal_send(
         await db.commit()
 
     return SendResp(status="sent", externalId=external_id, provider=row.provider)
+
+
+class MailAttachment(BaseModel):
+    filename: str
+    mime: str = ""
+    #: Base64 — JSON has no byte type, and the bytes came off a blob volume that
+    #: only messaging-svc mounts, so they arrive over the wire either way.
+    contentBase64: str
+
+
+class MailSendReq(BaseModel):
+    orgId: str
+    #: The member who composed the mail. Their connected mailbox is the one it
+    #: is sent from — this endpoint never falls back to somebody else's.
+    userId: str
+    subject: str = ""
+    bodyText: str = ""
+    bodyHtml: str = ""
+    to: list[str] = []
+    cc: list[str] = []
+    bcc: list[str] = []
+    attachments: list[MailAttachment] = []
+    #: False for the extra copy that carries a Bcc: the Sent folder already has
+    #: the copy filed by the main send, and a second one would show the blind
+    #: recipient's address sitting in the sender's own Sent list.
+    saveToSentItems: bool = True
+
+
+class MailSendResp(BaseModel):
+    status: str
+    provider: str
+
+
+@router.post("/mail/send", response_model=MailSendResp)
+async def internal_send_mail(
+    body: MailSendReq, x_internal_token: str | None = Header(default=None)
+) -> MailSendResp:
+    """Relay a member's composed mail through that member's OWN mailbox.
+
+    email-worker asks for this before it reaches for SMTP, and treats a 404 as
+    "this member has no connected mailbox" rather than as a failure — the relay
+    is the fallback, and a deployment with no integrations configured never
+    leaves that fallback. What the connected path buys is everything the relay
+    structurally cannot give: a From: header that is genuinely the member's
+    because the mailbox is theirs, DKIM signed by their own domain (so the mail
+    passes DMARC alignment rather than arriving unauthenticated from a third
+    party), and a copy in their Sent folder.
+
+    Deliberately NOT routed through outbound.send_via_connection: that is the
+    chat-shaped dispatcher (one target, one text) shared by Slack/Teams/Gmail,
+    and mail needs Cc, Bcc, an HTML body and attachments that none of them can
+    carry. The reuse that matters happens one level down — both paths send
+    through the same providers.microsoft.send_mail.
+
+    No provider_activity mirror is written. The unified hub reads that table,
+    and this mail is already IN the hub: messaging-svc wrote the Sent row that
+    produced the event in the first place, so mirroring it would show the member
+    their own mail twice.
+    """
+    _require_internal(x_internal_token)
+
+    try:
+        files = [
+            (a.filename, a.mime, base64.b64decode(a.contentBase64, validate=True))
+            for a in body.attachments
+        ]
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="attachment is not valid base64"
+        ) from exc
+
+    async with session() as db:
+        await set_org_context(db, body.orgId)
+        row = (
+            await db.execute(
+                text(
+                    """
+                    SELECT id, access_token_enc
+                      FROM integration_connections
+                     WHERE org_id = :o AND owner_user_id = :u
+                       AND provider = 'outlook' AND status = 'connected'
+                     ORDER BY updated_at DESC
+                     LIMIT 1
+                    """
+                ),
+                {"o": body.orgId, "u": body.userId},
+            )
+        ).one_or_none()
+        if row is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="no connected mailbox for this member"
+            )
+
+        token = await cryptor().decrypt(
+            db, body.orgId, bytes(row.access_token_enc) if row.access_token_enc else None
+        )
+        if not token:
+            # The refresh worker has not caught up, or the connection was revoked
+            # mid-flight. Retryable — a redelivery after a refresh will work.
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY, detail="connection has no usable token"
+            )
+
+        try:
+            await ms.send_mail(
+                token,
+                to=body.to,
+                subject=body.subject,
+                body=body.bodyText,
+                cc=body.cc,
+                bcc=body.bcc,
+                html=body.bodyHtml,
+                attachments=files,
+                save_to_sent_items=body.saveToSentItems,
+            )
+        except (ms.MicrosoftAuthError, ms.MicrosoftRateLimited) as exc:
+            # 502 means "ask again": a refreshed token or an expired throttle
+            # window makes this exact request work.
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+        except ms.MicrosoftError as exc:
+            # Definitive — including the mail being too large to send inline.
+            # The caller relays this copy over SMTP instead of losing it.
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    return MailSendResp(status="sent", provider="outlook")

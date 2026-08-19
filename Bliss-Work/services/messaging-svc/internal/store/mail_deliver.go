@@ -151,16 +151,18 @@ func (s *Store) queueMailOutbound(
 			cc = append(cc, r.address)
 		}
 	}
+	providerTo, providerCc, providerBcc := splitExternalsByKind(recipients, externals)
 	occurred := sentAt.Format("2006-01-02T15:04:05.000Z")
 	payloads := make([]any, 0, len(externals))
-	for _, addr := range externals {
-		payloads = append(payloads, events.MailOutbound{
+	for i, addr := range externals {
+		ev := events.MailOutbound{
 			Type:        events.TypeMailOutbound,
 			EventID:     uuid.Must(uuid.NewV7()).String(),
 			OrgID:       in.OrgID,
 			OccurredAt:  occurred,
 			MailID:      in.MailID,
 			Envelope:    addr,
+			AuthorID:    in.UserID,
 			FromAddress: author.address,
 			FromName:    author.name,
 			To:          to,
@@ -168,9 +170,51 @@ func (s *Store) queueMailOutbound(
 			Subject:     in.Subject,
 			BodyText:    in.BodyText,
 			Attachments: attachments,
-		})
+		}
+		// The FIRST copy owns the provider send, and it is first on the topic
+		// too — every copy of a mail shares the mailId as its Kafka key, so they
+		// land on one partition in this order and the consumer reads the
+		// transport decision only after the copy that makes it.
+		if i == 0 {
+			ev.ProviderCopy = true
+			ev.ProviderTo, ev.ProviderCc, ev.ProviderBcc = providerTo, providerCc, providerBcc
+		}
+		payloads = append(payloads, ev)
 	}
 	// Same kafka key as the in-app event so every copy of one mail keeps its
 	// relative order on the topic.
 	return insertOutboxBatch(ctx, tx, in.MailID, payloads)
+}
+
+// splitExternalsByKind regroups the addresses leaving the org back into the
+// header they were typed in, which is what the provider send needs: it has no
+// envelope of its own, so To, Cc and Bcc have to be handed to it as three
+// lists rather than as one address at a time.
+//
+// `externals` is the authority on WHICH addresses leave (it already dropped
+// every member and every duplicate); `recipients` is the authority on the KIND
+// each one was typed as. Walking recipients preserves the order the sender
+// typed, and the seen-set keeps an address that appears in two headers from
+// being delivered to twice.
+func splitExternalsByKind(recipients []resolvedAddress, externals []string) (to, cc, bcc []string) {
+	isExternal := make(map[string]bool, len(externals))
+	for _, a := range externals {
+		isExternal[a] = true
+	}
+	seen := make(map[string]bool, len(externals))
+	for _, r := range recipients {
+		if !isExternal[r.address] || seen[r.address] {
+			continue
+		}
+		seen[r.address] = true
+		switch r.kind {
+		case MailKindTo:
+			to = append(to, r.address)
+		case MailKindCc:
+			cc = append(cc, r.address)
+		default:
+			bcc = append(bcc, r.address)
+		}
+	}
+	return to, cc, bcc
 }

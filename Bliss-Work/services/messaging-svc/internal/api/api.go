@@ -386,8 +386,13 @@ func (s *Server) Router(webOrigin string) http.Handler {
 			// listing is exactly what GET /inbox already serves (item_kind
 			// MAIL), keyset-paginated with unread rollups. Adding a second,
 			// parallel list would mean two pagination models over one feed.
+			// The Drafts folder is the one mailbox listing GET /inbox cannot
+			// serve: a draft is in nobody's feed (see listMailDrafts).
+			r.Get("/mail/drafts", s.listMailDrafts)
 			r.Post("/mail/drafts", s.createMailDraft)
+			r.Patch("/mail/drafts/{id}", s.saveMailDraft)
 			r.Delete("/mail/drafts/{id}", s.discardMailDraft)
+			r.Delete("/mail/drafts/{id}/attachments/{attachmentId}", s.removeDraftAttachment)
 			r.Get("/mail/{id}", s.getMail)
 			r.Get("/threads/{id}", s.getThread)
 			r.Get("/threads/{id}/messages", s.listThreadMessages)
@@ -408,6 +413,8 @@ func (s *Server) Router(webOrigin string) http.Handler {
 				g.Post("/channel-messages/{id}/hide", s.hideChannelMessage)
 				g.Delete("/channel-messages/{id}", s.deleteChannelMessage)
 				g.Post("/inbox/items/{kind}/{refId}/ignore", s.ignoreInboxItem)
+				// The undo of the line above, for the Deleted Items folder.
+				g.Post("/inbox/items/{kind}/{refId}/restore", s.restoreInboxItem)
 				g.Post("/inbox/items/{kind}/{refId}/read", s.markInboxItemRead)
 				// Send has no natural client-supplied id, and a double-tap on a
 				// slow connection must not fan a mail out twice.

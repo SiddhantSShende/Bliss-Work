@@ -80,14 +80,19 @@ func insertOutboxBatch(ctx context.Context, tx pgx.Tx, key string, payloads []an
 // (it projects user.created for every org off one stream). user_projection is
 // RLS-protected, so it runs under BYPASS. (The orgID arg is the row's org, not
 // a request-scoped caller org, so it is NOT used to scope app.org_id.)
-func (s *Store) UpsertUser(ctx context.Context, userID, orgID, username, displayName string) error {
+// `email` may be empty — events produced before auth-svc carried the address
+// still replay off the topic. NULLIF + COALESCE below keep an empty one from
+// blanking an address the backfill already wrote, which is what makes replaying
+// the topic safe rather than destructive.
+func (s *Store) UpsertUser(ctx context.Context, userID, orgID, username, displayName, email string) error {
 	if err := s.withBypass(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx,
-			`INSERT INTO user_projection (user_id, org_id, username, display_name)
-			 VALUES ($1, $2, $3, $4)
+			`INSERT INTO user_projection (user_id, org_id, username, display_name, email)
+			 VALUES ($1, $2, $3, $4, NULLIF(lower($5), ''))
 			 ON CONFLICT (user_id) DO UPDATE
-			 SET org_id = EXCLUDED.org_id, username = EXCLUDED.username, display_name = EXCLUDED.display_name`,
-			userID, orgID, username, displayName)
+			 SET org_id = EXCLUDED.org_id, username = EXCLUDED.username, display_name = EXCLUDED.display_name,
+			     email = COALESCE(EXCLUDED.email, user_projection.email)`,
+			userID, orgID, username, displayName, email)
 		return err
 	}); err != nil {
 		return err

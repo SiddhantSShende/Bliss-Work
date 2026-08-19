@@ -28,6 +28,7 @@ TWO GRAPH BEHAVIORS THAT WILL BITE IF FORGOTTEN
 """
 from __future__ import annotations
 
+import base64
 import hmac
 from datetime import datetime, timedelta, timezone
 
@@ -255,26 +256,89 @@ async def get_chat_message(token: str, chat_id: str, message_id: str) -> dict:
 
 
 # ── sending ───────────────────────────────────────────────────────────────────
-async def send_mail(token: str, *, to: str, subject: str, body: str) -> None:
-    """Send Outlook mail.
+#: Total size of the attachment bytes Graph accepts inline on /sendMail. The
+#: request itself is capped at 4 MB and base64 inflates by a third, so this is
+#: the raw budget that fits under it with room for the message. Anything larger
+#: needs an upload session against a draft, which the caller does not have —
+#: it is told the mail does not fit and relays that copy over SMTP instead.
+MAX_INLINE_ATTACHMENT_BYTES = 3 * 1024 * 1024
+
+
+def _recipient_list(addresses: list[str] | None) -> list[dict]:
+    return [{"emailAddress": {"address": a}} for a in (addresses or []) if a]
+
+
+async def send_mail(
+    token: str,
+    *,
+    to: str | list[str],
+    subject: str,
+    body: str,
+    cc: list[str] | None = None,
+    bcc: list[str] | None = None,
+    html: str = "",
+    attachments: list[tuple[str, str, bytes]] | None = None,
+    save_to_sent_items: bool = True,
+) -> None:
+    """Send Outlook mail as the owner of `token`.
 
     Graph answers 202 with an EMPTY body — there is no message id to return.
     Callers must therefore write the activity mirror with external_id = None,
     which the partial unique index on external_id_bidx tolerates (it only covers
     non-null values).
+
+    Everything past `body` exists for relaying a mail a member composed in
+    BlissWork, and `bcc` is the one that carries a privacy obligation: Graph
+    strips it from the headers every recipient sees, exactly as an MTA does, so
+    a blind copy stays blind. The plain notification callers pass none of them
+    and get byte-identical behaviour to before.
+
+    Sending through the member's own mailbox — rather than through this
+    deployment's SMTP relay — is what makes the mail genuinely theirs: the
+    From: header is their real address because the mailbox IS theirs, their
+    provider signs it with their domain's DKIM so it passes DMARC alignment
+    instead of arriving unauthenticated, and `save_to_sent_items` files the copy
+    in their Sent folder where they expect to find it.
+
+    Raises MicrosoftError when the attachments do not fit inline; see
+    MAX_INLINE_ATTACHMENT_BYTES.
     """
+    files = attachments or []
+    total = sum(len(data) for _, _, data in files)
+    if total > MAX_INLINE_ATTACHMENT_BYTES:
+        raise MicrosoftError(
+            f"attachments total {total} bytes, over the {MAX_INLINE_ATTACHMENT_BYTES} "
+            "inline limit for /sendMail"
+        )
+
+    message: dict = {
+        "subject": subject,
+        # HTML when the caller rendered it, plain text otherwise. Never both:
+        # Graph takes ONE body, so offering it the text of an HTML mail would
+        # send the recipient the version without the formatting.
+        "body": {"contentType": "HTML" if html else "Text", "content": html or body},
+        "toRecipients": _recipient_list([to] if isinstance(to, str) else to),
+    }
+    if cc:
+        message["ccRecipients"] = _recipient_list(cc)
+    if bcc:
+        message["bccRecipients"] = _recipient_list(bcc)
+    if files:
+        message["attachments"] = [
+            {
+                "@odata.type": "#microsoft.graph.fileAttachment",
+                "name": name,
+                "contentType": mime or "application/octet-stream",
+                "contentBytes": base64.b64encode(data).decode("ascii"),
+            }
+            for name, mime, data in files
+        ]
+
     await _request(
         token,
         "POST",
         "/me/sendMail",
-        json={
-            "message": {
-                "subject": subject,
-                "body": {"contentType": "Text", "content": body},
-                "toRecipients": [{"emailAddress": {"address": to}}],
-            },
-            "saveToSentItems": True,
-        },
+        json={"message": message, "saveToSentItems": save_to_sent_items},
     )
 
 

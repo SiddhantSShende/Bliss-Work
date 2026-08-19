@@ -19,10 +19,9 @@ export interface FolderSpec {
   /**
    * Why this folder can never have anything in it, in the reader's words.
    *
-   * Set on the three folders the server has no listing behind (see
-   * MAIL_FOLDERS). Absent on the two that are backed by the feed. The message
-   * column renders it INSTEAD of a list, so a folder that is structurally empty
-   * says why rather than implying the mail went missing.
+   * Set only on Spam, the one folder with nothing behind it (see MAIL_FOLDERS).
+   * The message column renders this INSTEAD of a list, so a folder that is
+   * structurally empty says why rather than implying the mail went missing.
    */
   unavailable?: string;
 }
@@ -30,37 +29,25 @@ export interface FolderSpec {
 /**
  * The folder list, in the order a mail client puts them.
  *
- * Only the first two are backed by data. `inbox` and `sent` are the two sides of
- * the one feed the server returns, told apart by `statusBadge` (see isOutgoing),
- * so both are real listings of real mail.
+ * Four of the five are backed by data, and each reads a different source:
+ *   inbox   — the unified feed's MAIL rows that the caller did not send…
+ *   sent    — …and the ones they did. One feed, two sides, told apart by
+ *             `statusBadge` (see isOutgoing).
+ *   drafts  — a separate listing (GET /mail/drafts). A draft is in nobody's
+ *             feed — no counterparty, no unread, no delivery — so there is no
+ *             inbox row for it to be a page of.
+ *   deleted — the same feed as inbox/sent, read with its visibility predicate
+ *             inverted: deleting a mail hides the caller's row and touches
+ *             nothing else, so the wastebasket is those hidden rows.
  *
- * The other three exist in the UI because a mailbox is expected to have them,
- * and each one carries the reason it is empty rather than pretending to be a
- * listing that has not loaded yet:
- *   drafts  — a draft is created when the composer opens and discarded when it
- *             closes (see useMailDraft); nothing projects one into a feed, and
- *             there is no endpoint that lists them.
- *   deleted — deleting a mail sets hidden_for_owner, and the server filters
- *             those rows out of every response. Nothing can list them back.
- *   spam    — there is no spam classification anywhere in the product.
- * All three would need messaging-svc to grow an endpoint before they could hold
- * anything, so the honest thing is to say so in the folder itself.
+ * Spam is the one that stays structurally empty, and it carries the reason
+ * rather than pretending to be a listing that has not loaded yet.
  */
 export const MAIL_FOLDERS = [
   { key: "inbox", label: "Inbox" },
   { key: "sent", label: "Sent Items" },
-  {
-    key: "drafts",
-    label: "Drafts",
-    unavailable:
-      "A message you are writing lives in the composer until you send it — unsent mail is not kept here.",
-  },
-  {
-    key: "deleted",
-    label: "Deleted Items",
-    unavailable:
-      "Deleting a mail removes your copy for good. There is no recovery folder behind it, so nothing lands here.",
-  },
+  { key: "drafts", label: "Drafts" },
+  { key: "deleted", label: "Deleted Items" },
   {
     key: "spam",
     label: "Spam",
@@ -73,9 +60,21 @@ export function folderSpec(folder: MailFolder): FolderSpec {
   return MAIL_FOLDERS.find((f) => f.key === folder) ?? MAIL_FOLDERS[0];
 }
 
-/** Can the feed answer for this folder at all? See MAIL_FOLDERS. */
+/** Does this folder have a listing behind it at all? See MAIL_FOLDERS. */
 export function isListableFolder(folder: MailFolder): boolean {
   return folderSpec(folder).unavailable === undefined;
+}
+
+/**
+ * Is this folder served by the unified feed?
+ *
+ * True for the three that read inbox_items — which is what decides whether the
+ * message column runs the keyset feed at all. Drafts have their own listing and
+ * Spam has none, so both answer false for the same reason: neither is a page of
+ * that feed.
+ */
+export function isFeedFolder(folder: MailFolder): boolean {
+  return folder === "inbox" || folder === "sent" || folder === "deleted";
 }
 
 /**
@@ -93,12 +92,21 @@ export function isOutgoing(item: InboxItemDTO): boolean {
   return item.statusBadge !== null;
 }
 
-/** Does this row belong in the selected folder? */
+/**
+ * Does this row belong in the selected folder?
+ *
+ * Only Inbox and Sent Items are separated here, because they share one request
+ * and are told apart client-side by direction. Deleted Items is a DIFFERENT
+ * request — the same feed with its visibility predicate inverted — so every row
+ * it returns is already in that folder, incoming and outgoing alike, exactly as
+ * a wastebasket holds both.
+ */
 export function inFolder(item: InboxItemDTO, folder: MailFolder): boolean {
   if (folder === "sent") return isOutgoing(item);
   if (folder === "inbox") return !isOutgoing(item);
-  // Drafts / Deleted Items / Spam are never projected into the feed, so no row
-  // the feed carries can belong to one.
+  if (folder === "deleted") return true;
+  // Drafts have their own listing and Spam has none, so no row the feed carries
+  // can belong to either.
   return false;
 }
 

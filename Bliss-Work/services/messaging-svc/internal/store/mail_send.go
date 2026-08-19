@@ -199,9 +199,19 @@ func (s *Store) writeSentMail(
 }
 
 // writeMailRecipients stores the To/Cc/Bcc header, addresses encrypted.
+//
+// The draft's own recipient rows are cleared first. A draft carries whatever
+// was autosaved into it (SaveMailDraft), and the composer can have removed an
+// addressee since: an upsert keyed on (kind, position) would leave that row
+// behind and mail somebody the sender took off the list.
 func (s *Store) writeMailRecipients(
 	ctx context.Context, tx pgx.Tx, orgID, mailID string, recipients []resolvedAddress,
 ) error {
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM mail_recipients WHERE mail_id = $1 AND org_id = $2`,
+		mailID, orgID); err != nil {
+		return err
+	}
 	for _, r := range recipients {
 		addrEnc, err := s.crypto.Encrypt(ctx, tx, orgID, r.address)
 		if err != nil {

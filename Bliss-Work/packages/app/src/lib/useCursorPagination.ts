@@ -40,6 +40,30 @@ export function useInboxPages(api: ApiClient, peerId?: string, kinds?: InboxItem
   });
 }
 
+/**
+ * Deleted Items — the same keyset feed with its visibility predicate inverted.
+ *
+ * A separate hook rather than a flag on the one above, because the two are
+ * different CACHES that must never be confused: the live feed is patched
+ * in place by lib/inboxPatch and by the WS bridge, and a deleted row arriving
+ * through either would put mail back in the mailbox it was removed from. The
+ * peer filter still applies, so picking a person narrows the wastebasket too.
+ *
+ * `enabled` keeps the request from firing at all while another folder is on
+ * screen: this is a folder the user visits rarely, and prefetching a page of
+ * everything they have thrown away is work nobody asked for.
+ */
+export function useDeletedMailPages(api: ApiClient, peerId?: string, enabled = true) {
+  return useInfiniteQuery({
+    queryKey: peerId ? [...qk.deletedMail, peerId] : qk.deletedMail,
+    queryFn: ({ pageParam }) =>
+      api.inbox(pageParam as string | undefined, 25, peerId, ["MAIL"], true),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last: InboxPageDTO) => last.nextCursor ?? undefined,
+    enabled,
+  });
+}
+
 /** Flatten infinite-query pages to a single InboxItemDTO[]. */
 export function flatInbox(data: { pages: InboxPageDTO[] } | undefined): InboxItemDTO[] {
   if (!data) return [];

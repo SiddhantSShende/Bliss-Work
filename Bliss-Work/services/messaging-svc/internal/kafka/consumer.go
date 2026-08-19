@@ -139,7 +139,7 @@ func (c *AuthConsumer) handle(ctx context.Context, value []byte) {
 		c.log.Error("auth consumer decode user.created", "err", err)
 		return
 	}
-	if err := c.store.UpsertUser(ctx, evt.UserID, evt.OrgID, evt.Username, evt.DisplayName); err != nil {
+	if err := c.store.UpsertUser(ctx, evt.UserID, evt.OrgID, evt.Username, evt.DisplayName, evt.Email); err != nil {
 		c.log.Error("upsert user_projection failed", "userId", evt.UserID, "err", err)
 		return
 	}

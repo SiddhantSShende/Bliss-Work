@@ -42,6 +42,7 @@ from .attachments import Attachment, fetch as fetch_attachment, within_budget
 from .config import Settings
 from .mailer import Mailer, is_valid_email
 from .presence import Presence
+from .provider_mail import ProviderMailUnavailable, send as provider_send
 from .resilience import CircuitBreaker, CircuitOpenError, retry_async
 from .templates import render_new_message_email, render_new_task_email, render_user_mail
 from .tracing import extract_context, inject_headers
@@ -65,6 +66,13 @@ TASK_ASSIGNED = "task.assigned"
 # recipient. That difference drives every special case below: no presence gate,
 # no auth-svc lookup, and a template that does not dress it up.
 MAIL_OUTBOUND = "mail.outbound"
+
+# How one mail left the deployment. Persisted in mail_transport — see the
+# migration and _decide_transport for why the copies of one mail have to agree.
+TRANSPORT_PROVIDER = "provider"
+TRANSPORT_RELAY = "relay"
+#: Not a stored value: the deciding copy has not been processed yet.
+TRANSPORT_UNDECIDED = "undecided"
 
 # Events that arrive on the same topics but MUST NOT trigger a notification
 # (closing the delivered→ack→delivered loop, e.g.).
@@ -338,6 +346,10 @@ class RelayConsumer:
 
         sender_name = str(event.get("fromName") or "")
         sender_address = str(event.get("fromAddress") or "")
+        # An empty Subject is both unhelpful to the recipient and a filtering
+        # signal in its own right on the corporate mail systems this most often
+        # lands on. Applied once, so both transports send the same header.
+        subject = str(event.get("subject") or "").strip() or "(no subject)"
         parts, skipped = await self._collect_attachments(event, event_id, mail_id)
         text, html = render_user_mail(
             body=str(event.get("bodyText") or ""),
@@ -345,10 +357,39 @@ class RelayConsumer:
             sender_address=sender_address,
             skipped_files=skipped,
         )
+
+        # Through the author's own mailbox when they have one — see
+        # provider_mail for why that is worth preferring.
+        try:
+            transport = await self._decide_transport(
+                event, mail_id, parts, subject, text, html
+            )
+        except ProviderMailUnavailable as exc:
+            # Transient: do NOT commit, so Kafka redelivers and we try again.
+            # Deliberately not counted as a failure of this MESSAGE — nothing
+            # about the mail is wrong, the mailbox was momentarily unreachable.
+            _log.warning("relay_mail_provider_unavailable", mail_id=mail_id, error=str(exc))
+            return False
+        if transport == TRANSPORT_PROVIDER:
+            # One send through the mailbox already covered every external
+            # recipient of this mail, this copy's own envelope among them.
+            await self._mark_sent(event_id, mail_id)
+            self._failures.pop(str(event_id), None)
+            _log.info("relay_mail_sent_via_provider", event_id=event_id, mail_id=mail_id)
+            return True
+        if transport == TRANSPORT_UNDECIDED:
+            # The copy that owns the decision has not finished. It is FIRST on
+            # this partition, so this normally cannot happen; bounded retries
+            # then the DLQ is the right answer to a state that should not exist,
+            # rather than a copy that spins forever.
+            return await self._on_failure(
+                str(event_id), event, "provider transport not decided for this mail"
+            )
+
         try:
             await self._mailer.send(
                 to=envelope,
-                subject=str(event.get("subject") or "(no subject)"),
+                subject=subject,
                 text_body=text,
                 html_body=html,
                 from_name=sender_name,
@@ -372,6 +413,87 @@ class RelayConsumer:
         self._failures.pop(str(event_id), None)
         _log.info("relay_mail_sent", event_id=event_id, mail_id=mail_id)
         return True
+
+    async def _decide_transport(
+        self,
+        event: dict,
+        mail_id: str,
+        parts: list[tuple[str, str, bytes]],
+        subject: str,
+        text_body: str,
+        html_body: str,
+    ) -> str:
+        """Which way this mail leaves — and, for one copy, actually send it.
+
+        A mail addressed to several outside recipients arrives as one event per
+        address, which is what SMTP wants and what keeps a Bcc'd address out of
+        everybody's headers. A mailbox provider cannot work that way: it has no
+        envelope of its own and delivers to exactly the addresses it is handed,
+        so ONE send covers every external recipient and the other copies must do
+        nothing at all.
+
+        messaging-svc therefore marks exactly one copy (`providerCopy`) and puts
+        the whole external recipient list on it. That copy sends, records what
+        happened, and the rest read the record — they cannot work it out for
+        themselves, because whether the mailbox exists is only known once it has
+        been tried.
+
+        Returns TRANSPORT_PROVIDER (already delivered, nothing more to do),
+        TRANSPORT_RELAY (send this copy over SMTP) or TRANSPORT_UNDECIDED.
+        """
+        author_id = str(event.get("authorId") or "")
+        if not author_id:
+            # An event produced before authorId existed. SMTP is the only route
+            # available for it, which is exactly what it was emitted expecting.
+            return TRANSPORT_RELAY
+        if not event.get("providerCopy"):
+            return await self._read_transport(mail_id) or TRANSPORT_UNDECIDED
+
+        # Recorded BEFORE the send is retried, not after: this is the marker
+        # that makes the deciding copy idempotent. Without it a redelivery
+        # (crash between the send and the offset commit) sends a second time.
+        decided = await self._read_transport(mail_id)
+        if decided:
+            return decided
+
+        sent = await provider_send(
+            self._http,
+            self._settings.integrations_internal_base,
+            self._settings.internal_token,
+            org_id=str(event.get("orgId") or ""),
+            author_id=author_id,
+            subject=subject,
+            text_body=text_body,
+            html_body=html_body,
+            to=[str(a) for a in (event.get("providerTo") or [])],
+            cc=[str(a) for a in (event.get("providerCc") or [])],
+            bcc=[str(a) for a in (event.get("providerBcc") or [])],
+            attachments=parts,
+        )
+        transport = TRANSPORT_PROVIDER if sent else TRANSPORT_RELAY
+        await self._record_transport(mail_id, transport)
+        return transport
+
+    async def _read_transport(self, mail_id: str) -> str | None:
+        assert self._db is not None
+        async with self._db.acquire() as conn:
+            return await conn.fetchval(
+                "SELECT transport FROM mail_transport WHERE mail_id = $1", mail_id
+            )
+
+    async def _record_transport(self, mail_id: str, transport: str) -> None:
+        """First decision wins — a redelivery must not change how a mail that
+        has already gone out is described to the copies still to be read."""
+        assert self._db is not None
+        async with self._db.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO mail_transport (mail_id, transport)
+                VALUES ($1, $2)
+                ON CONFLICT (mail_id) DO NOTHING
+                """,
+                mail_id, transport,
+            )
 
     async def _collect_attachments(
         self, event: dict, event_id: str, mail_id: str

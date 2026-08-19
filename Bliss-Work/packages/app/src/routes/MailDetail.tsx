@@ -7,6 +7,7 @@ import {
   Reply,
   ReplyAll,
   Trash2,
+  Undo2,
   Loader2,
   AlertCircle,
 } from "lucide-react";
@@ -70,10 +71,16 @@ function MailDetailContent({ mailId }: { mailId: string }) {
   const qc = useQueryClient();
   const nav = useNavigate();
   const [params] = useSearchParams();
+  const folder = folderOf(params);
   // The list's own filters, carried into the composer and into the route this
   // falls back to after a delete — so answering or removing a mail returns to
   // the same filtered folder it was opened from rather than an unfiltered one.
-  const listSearch = mailSearch(folderOf(params), peerOf(params));
+  const listSearch = mailSearch(folder, peerOf(params));
+  // A mail opened FROM Deleted Items is already deleted. Its toolbar offers the
+  // undo rather than a Delete that would do nothing — the folder the reader
+  // came from is the only thing that says which of the two this is, because the
+  // mail itself is untouched by a delete (only the reader's feed row is).
+  const isDeleted = folder === "deleted";
 
   // The signed-in address, needed to keep the reader off their own Reply all.
   // Empty until the session lands, which only ever means one extra address the
@@ -99,15 +106,21 @@ function MailDetailContent({ mailId }: { mailId: string }) {
   }, [mailId, mail?.readAt]);
 
   const remove = useMutation({
-    mutationFn: () => api.ignoreInboxItem("MAIL", mailId),
+    mutationFn: () => (isDeleted ? api.restoreMail(mailId) : api.ignoreInboxItem("MAIL", mailId)),
     onSuccess: () => {
-      toast.success("Removed from your mailbox");
+      toast.success(isDeleted ? "Restored to your mailbox" : "Moved to Deleted Items");
       void qc.invalidateQueries({ queryKey: qk.unifiedInbox });
       void qc.invalidateQueries({ queryKey: qk.inboxPeers });
       void qc.invalidateQueries({ queryKey: ["inboxPeerFeed"] });
+      // The row moves BETWEEN the live feed and the wastebasket, so neither
+      // listing is correct on its own afterwards.
+      void qc.invalidateQueries({ queryKey: qk.deletedMail });
       nav({ pathname: "/app/mail/all", search: listSearch }, { replace: true });
     },
-    onError: (e) => toast.error("Could not remove", { description: errorText(e) }),
+    onError: (e) =>
+      toast.error(isDeleted ? "Could not restore" : "Could not remove", {
+        description: errorText(e),
+      }),
   });
 
   if (q.isLoading) {
@@ -181,6 +194,7 @@ function MailDetailContent({ mailId }: { mailId: string }) {
         onForward={onForward}
         onDelete={() => remove.mutate()}
         deleting={remove.isPending}
+        deleted={isDeleted}
       />
 
       <div className="min-h-0 flex-1 overflow-auto">
@@ -270,14 +284,18 @@ function Toolbar({
   onForward,
   onDelete,
   deleting,
+  deleted,
 }: {
   mail: MailDTO;
   myAddress: string;
   onReply: () => void;
   onReplyAll: () => void;
   onForward: () => void;
+  /** Delete, or Restore when the mail is already in Deleted Items. */
   onDelete: () => void;
   deleting: boolean;
+  /** Opened from Deleted Items — the last control is the undo, not the delete. */
+  deleted: boolean;
 }) {
   const canReplyAll = hasWiderReply(mail, myAddress);
 
@@ -302,10 +320,14 @@ function Toolbar({
       />
       <div className="ml-auto" />
       <Action
-        icon={<Trash2 size={16} />}
-        label="Delete"
-        title="Delete — removes your copy only; nobody else's is affected"
-        tone="danger"
+        icon={deleted ? <Undo2 size={16} /> : <Trash2 size={16} />}
+        label={deleted ? "Restore" : "Delete"}
+        title={
+          deleted
+            ? "Restore — puts this mail back in the folder it came from"
+            : "Delete — removes your copy only; nobody else's is affected"
+        }
+        tone={deleted ? "default" : "danger"}
         disabled={deleting}
         onClick={onDelete}
       />

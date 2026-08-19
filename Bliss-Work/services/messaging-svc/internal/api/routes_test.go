@@ -106,6 +106,10 @@ var cappedRoutes = map[string]string{
 	"DELETE /api/v1/channel-messages/{id}/reactions/{emoji}": "small",
 	"POST /api/v1/inbox/items/{kind}/{refId}/ignore":         "small",
 	"POST /api/v1/inbox/items/{kind}/{refId}/read":           "small",
+	// Restore — the undo of ignore, for the Deleted Items folder. No body at
+	// all (its arguments are in the path), and it sits in the same idempotency
+	// group as the two above, inside the /api/v1 small-body group.
+	"POST /api/v1/inbox/items/{kind}/{refId}/restore": "small",
 
 	// Mail. All four sit inside the same /api/v1 small-body group (send and
 	// read additionally inside the idempotency subgroup nested in it), so the
@@ -116,6 +120,13 @@ var cappedRoutes = map[string]string{
 	"POST /api/v1/mail/drafts":           "small",
 	"DELETE /api/v1/mail/drafts/{id}":    "small",
 	"POST /api/v1/mail/drafts/{id}/send": "small",
+	// Taking a file back off a draft. No body at all — both ids are in the path
+	// — and it sits in the same /api/v1 group, so the cap is inherited.
+	"DELETE /api/v1/mail/drafts/{id}/attachments/{attachmentId}": "small",
+	// The composer's autosave. Same body as /send — a subject and a body, both
+	// bounded by the store's rune limits — and in the same /api/v1 group, so it
+	// runs under the same cap.
+	"PATCH /api/v1/mail/drafts/{id}": "small",
 	"POST /api/v1/mail/{id}/read":        "small",
 
 	// Calls. Every one of these sits inside the same /api/v1 small-body group,
@@ -135,6 +146,18 @@ var cappedRoutes = map[string]string{
 	"POST /api/v1/calls/{id}/share/stop":           "small",
 	"POST /api/v1/calls/{id}/leave":                "small",
 	"POST /api/v1/calls/{id}/end":                  "small",
+	// Recording start/stop carry no body at all — the call id is in the path —
+	// but they are POSTs, so they inherit the same small-body group and are
+	// listed here for the walk to find. Verified at api.go: both sit inside the
+	// /api/v1 group that applies mw.MaxBytes(smallBody).
+	"POST /api/v1/calls/{id}/recording/start": "small",
+	"POST /api/v1/calls/{id}/recording/stop":  "small",
+
+	// LiveKit's egress/room webhook. PUBLIC — it is reached without a session,
+	// so an uncapped body here would be a denial-of-service anyone could send.
+	// It has its own group applying mw.MaxBytes(smallBody) rather than
+	// inheriting one, because it is registered outside /api/v1.
+	"POST /livekit/webhook": "small",
 
 	// The single large-body route. Capped in the handler, not by a group.
 	"POST /api/v1/attachments": "large",

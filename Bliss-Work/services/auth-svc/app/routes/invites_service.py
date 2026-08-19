@@ -275,6 +275,8 @@ async def accept_invite_tx(
         userId=user_id,
         username=dto.username,
         displayName=dto.displayName,
+        # See the note at the org-creation emit in routes/auth.py.
+        email=dto.email,
     )
     await enqueue_event(conn, topic=TOPIC_AUTH, kafka_key=user_id, event=event)
     await service.write_audit(

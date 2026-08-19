@@ -1,6 +1,6 @@
 import { NavLink } from "react-router-dom";
 import { motion } from "framer-motion";
-import { ListTodo, Mail, MessageCircle, X, Trash2, Flag, Check } from "lucide-react";
+import { ListTodo, Mail, MessageCircle, X, Trash2, Flag, Check, Undo2 } from "lucide-react";
 import { Avatar, Badge } from "@taskboard/ui";
 import type { InboxItemDTO } from "@taskboard/shared";
 import { listTime, splitMailPreview } from "../lib/mailView";
@@ -28,6 +28,7 @@ export function MailRow({
   item,
   search = "",
   onIgnore,
+  onRestore,
   onDismiss,
   onAcknowledge,
   onComplete,
@@ -39,6 +40,10 @@ export function MailRow({
   /** Hide for the owner. THREAD → always; TASK → only valid from SENT (the
    *  parent withholds this for ACKNOWLEDGED/locked rows). Shows the X button. */
   onIgnore?: (itemKind: string, refId: string) => void;
+  /** Deleted Items only: put this mail back where it came from. The parent
+   *  passes this INSTEAD of onIgnore there — a deleted row cannot be deleted
+   *  again, so the two are never both offered. */
+  onRestore?: (refId: string) => void;
   /** Sender-side delete on own messages — shows the trash button only when
    *  there's currently a sender-side last message in the preview. */
   onDismiss?: (refId: string) => void;
@@ -191,6 +196,15 @@ export function MailRow({
               label="Complete"
               tone="success"
               onClick={(e) => { e.preventDefault(); onComplete(item.refId); }}
+            />
+          )}
+          {onRestore && isMail && (
+            <Quick
+              icon={<Undo2 size={14} />}
+              title="Restore — puts this mail back in the folder it came from"
+              label="Restore"
+              tone="accent"
+              onClick={(e) => { e.preventDefault(); onRestore(item.refId); }}
             />
           )}
           {onIgnore && (!isTask || item.statusBadge === "SENT") && (

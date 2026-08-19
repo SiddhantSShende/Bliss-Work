@@ -58,6 +58,21 @@ services:
     ports:
       - "127.0.0.1:6379:6379"
 
+  # The SFU needs a redis: block (to hand work to egress) and a webhook: block
+  # (to report when a recording finished). Both carry secrets, and the base
+  # config file is IN THE REPO — so this mounts a rendered, gitignored copy
+  # instead of asking anyone to paste a password into a tracked file.
+  #
+  #   set -a; . ./.env; . ./.env.prod; set +a
+  #   bash scripts/render-livekit-recording-config.sh
+  #
+  # The mount REPLACES the base file's, because compose merges service keys but
+  # a `volumes:` list is replaced wholesale — so every mount the base declares is
+  # re-listed here.
+  livekit:
+    volumes:
+      - ./infra/livekit/livekit.recording.yaml:/etc/livekit/livekit.yaml:ro
+
   livekit-egress:
     # Pair this with the livekit-server version in docker-compose.prod.yml.
     # Egress and the SFU speak a versioned protocol over Redis; check LiveKit's

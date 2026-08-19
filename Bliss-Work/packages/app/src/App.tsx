@@ -216,6 +216,11 @@ export function App({ config }: { config: PlatformConfig }) {
                       {/* The composer takes the SAME pane a mail is read in, so
                           New Mail and opening a mail are the same gesture. */}
                       <Route path="compose" element={<MailCompose />} />
+                      {/* Resuming an unsent mail from the Drafts folder. The
+                          SAME component: a draft is not a different kind of
+                          thing from a mail being written, it is one that was
+                          left and picked up again. */}
+                      <Route path="compose/:draftId" element={<MailCompose />} />
                       {/* Tasks no longer appear in the mail list (they live in
                           Tasks), but this route stays: existing deep links and
                           notification targets still resolve to it. */}

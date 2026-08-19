@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  AudioPresets,
   ConnectionState,
   RemoteTrack,
   RemoteTrackPublication,
   Room,
   RoomEvent,
   Track,
+  VideoPresets,
   type RemoteParticipant,
 } from "livekit-client";
 import { toast } from "sonner";
@@ -248,6 +250,44 @@ export function useCallRoom(callId: string | null) {
         adaptiveStream: true,
         // Only forward layers someone is actually subscribed to.
         dynacast: true,
+
+        // ── Capture ──────────────────────────────────────────────────────────
+        // Everything below used to be left to the library's defaults, which is
+        // why calls looked and sounded poor: the two options above are both
+        // QUALITY-REDUCING (they exist to save CPU and bandwidth) and there was
+        // nothing set on the other side of the trade telling them what floor to
+        // stop at.
+        videoCaptureDefaults: {
+          // 720p is the point where a face in a grid tile stops looking soft.
+          // Capturing higher only feeds a layer nobody subscribes to on a call
+          // of more than two.
+          resolution: VideoPresets.h720.resolution,
+        },
+        audioCaptureDefaults: {
+          // Stated rather than assumed. These are browser defaults today, but
+          // they are the difference between a call and an echo chamber, and a
+          // default is a thing that changes without telling you.
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+
+        // ── Publish ──────────────────────────────────────────────────────────
+        publishDefaults: {
+          // Explicit rungs for adaptiveStream/dynacast to step DOWN to. Without
+          // them the library picks its own, and a tile that shrinks can land on
+          // a layer far below what the space it occupies could show.
+          videoSimulcastLayers: [VideoPresets.h180, VideoPresets.h360],
+          // Speech, not the telephone-grade default. This is the single biggest
+          // change to how a meeting sounds.
+          audioPreset: AudioPresets.speech,
+          // Stop sending while nobody is talking (saves bandwidth for the
+          // people who are), and carry redundant audio so a lost packet is
+          // recovered rather than heard as a dropout — the artefact people
+          // describe as the audio "breaking up".
+          dtx: true,
+          red: true,
+        },
       });
       roomRef.current = room;
 
