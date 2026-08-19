@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -723,9 +724,46 @@ func (s *Server) endCall(w http.ResponseWriter, r *http.Request) {
 		// Egress stops by itself once the room empties; this is the prompt, and
 		// the thing that settles the row when the SFU cannot be reached.
 		s.stopRecording(r.Context(), callID)
+		// Then CLOSE THE ROOM. Ending a call used to be a database fact and
+		// nothing else: the row went ENDED and call.ended went out, but every
+		// participant stayed connected with cameras and microphones live,
+		// because nothing had told the SFU. The organiser ended a meeting that
+		// carried on without them.
+		//
+		// Deleting the room is what makes ending authoritative — it does not
+		// depend on each client receiving the event or acting on it. Clients
+		// still react to call.ended, but that is now the fast path rather than
+		// the only one.
+		//
+		// AFTER stopRecording so egress finalises its file instead of being cut
+		// off mid-write. The room name IS the call id (see livekit.Grant.Room).
+		s.closeRoom(callID)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// closeRoom disconnects everyone still in the SFU room for a call that has
+// ended. Best-effort by design: the call is already committed and every client
+// has been told, so a failure here is logged rather than returned — a 500 would
+// tell the organiser their End button did not work when it did.
+//
+// WithoutCancel: an organiser who navigates away the instant they press End
+// must not leave the room open behind them. The timeout inside DeleteRoom still
+// bounds it.
+func (s *Server) closeRoom(callID string) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(context.Background()), roomCloseTimeout)
+	defer cancel()
+	if err := s.livekit.DeleteRoom(ctx, callID); err != nil {
+		if errors.Is(err, livekit.ErrNotConfigured) {
+			return // calling is not set up on this deployment; nothing to close
+		}
+		s.log.Error("could not close the room after ending the call",
+			"call_id", callID, "err", err)
+	}
+}
+
+// Bounds what closing the room can add to the end-call request.
+const roomCloseTimeout = 6 * time.Second
 
 // ── Notification helpers ─────────────────────────────────────────────────────
 //

@@ -41,9 +41,10 @@ const FOLDER_ICONS: Record<MailFolder, LucideIcon> = {
  * folder itself is chosen. Two things stacked:
  *   Folders — Inbox, Sent Items, Drafts, Deleted Items and Spam, written into
  *             the URL as ?box= so the message list and the reading pane both
- *             see the same choice. Only the first two can hold anything; the
- *             other three say why they cannot (see lib/mailView) rather than
- *             looking like a listing that failed to load.
+ *             see the same choice. Four of them list real mail, each from a
+ *             different source; Spam is the one with nothing behind it and says
+ *             why (see lib/mailView) rather than looking like a listing that
+ *             failed to load.
  *   People  — every counterparty the user has exchanged mail with, newest
  *             activity first. Selecting one adds ?p=<id>, which narrows the
  *             message list to that person server-side.

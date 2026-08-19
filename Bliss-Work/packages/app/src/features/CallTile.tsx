@@ -51,16 +51,37 @@ export function CallTile({
   // the one picture that is useless cropped, so it is letterboxed rather than
   // filled.
   const shown = p.sharing ? p.screenTrack : p.videoTrack;
+  // Mirrors the condition the <video> element is rendered under, below.
+  const showVideo = p.camOn || p.sharing;
+
+  // ── Why these deps, and not just the track ──────────────────────────────────
+  // The <video> element is CONDITIONALLY RENDERED. Turning the camera off
+  // unmounts it; turning it back on mounts a NEW one. Neither changes the Track
+  // object's identity, so an effect keyed on the track alone did not re-run —
+  // and the freshly mounted element was never attached to anything. That is the
+  // "pause then resume leaves a blank tile" bug, and it hit remote participants
+  // as well as the local one.
+  //
+  // `showVideo` is what re-runs this after the element remounts (effects run
+  // after commit, so the ref points at the new element by then).
+  //
+  // `streamId` covers the other half: LiveKit can swap the underlying
+  // MediaStreamTrack — a camera re-acquired after being stopped — while keeping
+  // the same Track wrapper. Without it the element would stay bound to a track
+  // that has ended, which also renders as a blank tile.
+  const streamId = shown?.mediaStreamTrack?.id;
 
   useEffect(() => {
     const el = videoRef.current;
     const track = shown;
-    if (!el || !track) return;
+    if (!el || !track || !showVideo) return;
     track.attach(el);
     return () => {
       track.detach(el);
     };
-  }, [shown]);
+  }, [shown, showVideo, streamId]);
+
+  const audioStreamId = p.audioTrack?.mediaStreamTrack?.id;
 
   useEffect(() => {
     const el = audioRef.current;
@@ -71,7 +92,9 @@ export function CallTile({
     return () => {
       track.detach(el);
     };
-  }, [p.audioTrack, p.isLocal]);
+    // audioStreamId for the same reason as above: un-muting a microphone can
+    // hand back a new MediaStreamTrack under the same publication.
+  }, [p.audioTrack, p.isLocal, audioStreamId]);
 
   return (
     <div

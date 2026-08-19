@@ -183,6 +183,28 @@ export function MailCompose() {
     onError: (e) => toast.error("Could not send", { description: errorText(e) }),
   });
 
+  // A resumed draft fills the form from the server. Until it lands there is
+  // nothing to edit — and anything typed into the empty form would be
+  // overwritten the moment it did, which is worse than a short wait.
+  if (draftId && resumed.isLoading) {
+    return (
+      <div className="flex h-full items-center justify-center gap-2 text-sm text-muted">
+        <Loader2 size={18} className="animate-spin text-accent" /> Opening draft…
+      </div>
+    );
+  }
+  if (draftId && resumed.isError) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-sm text-muted">
+        <AlertCircle size={18} className="text-danger" />
+        <span>This draft could not be opened. It may have been sent or discarded.</span>
+        <Button size="sm" variant="ghost" onClick={() => void resumed.refetch()}>
+          Try again
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between gap-3 border-b border-border/60 px-4 py-3">

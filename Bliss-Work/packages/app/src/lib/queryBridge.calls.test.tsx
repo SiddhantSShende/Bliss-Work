@@ -12,12 +12,13 @@
  * So these assert the invalidations, not the rendering: an event that changes
  * what the server would now return has to invalidate the query that asked.
  */
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { render, act } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { EventType, type ServerEvent, type WsEventMeta } from "@taskboard/shared";
 import { WsEventBridge, qk } from "./queryBridge";
+import { INVALIDATE_WINDOW_MS } from "./coalesceInvalidations";
 
 const ws = vi.hoisted(() => ({
   emit: undefined as ((e: unknown, meta?: WsEventMeta) => void) | undefined,
@@ -83,7 +84,27 @@ function harness() {
   );
   return {
     invalidated,
-    fire: (e: ServerEvent, meta?: WsEventMeta) => act(() => ws.emit?.(e, meta)),
+    /**
+     * Deliver an event and let the bridge settle.
+     *
+     * Invalidations are COALESCED (lib/coalesceInvalidations): a burst of events
+     * touching one list costs a single refetch instead of one per event, which
+     * is what stopped the Meetings page firing ~30 concurrent /calls requests on
+     * a socket replay. The bridge's contract is that the list gets refreshed,
+     * not that it happens in the same tick, so the window is advanced here and
+     * every assertion below reads as it always did.
+     */
+    fire: (e: ServerEvent, meta?: WsEventMeta) =>
+      act(() => {
+        ws.emit?.(e, meta);
+        vi.advanceTimersByTime(INVALIDATE_WINDOW_MS);
+      }),
+    /** Deliver several events WITHOUT settling between them — a replay burst. */
+    fireBurst: (events: ServerEvent[]) =>
+      act(() => {
+        for (const e of events) ws.emit?.(e);
+        vi.advanceTimersByTime(INVALIDATE_WINDOW_MS);
+      }),
   };
 }
 
@@ -107,6 +128,62 @@ const has = (keys: unknown[][], key: readonly unknown[]) =>
 
 beforeEach(() => {
   toasts.shown = [];
+  vi.useFakeTimers();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+describe("WsEventBridge — call event bursts", () => {
+  // The bug this pins, seen in a browser network tab on /app/meetings: ~30
+  // concurrent requests to /calls, all 200, queueing 179ms -> 750ms.
+  //
+  // The gateway REPLAYS buffered events when the socket connects, and each call
+  // event invalidated up to four keys, so one replay burst fanned out into
+  // dozens of refetches of the same list.
+  const countOf = (keys: unknown[][], key: readonly unknown[]) =>
+    keys.filter((k) => JSON.stringify(k) === JSON.stringify(key)).length;
+
+  it("refetches the call list ONCE for a burst of call events", () => {
+    const h = harness();
+    h.fireBurst(
+      Array.from({ length: 12 }, () => callEvent(EventType.CallStarted)),
+    );
+    expect(countOf(h.invalidated, qk.calls)).toBe(1);
+  });
+
+  it("still refetches once when the burst mixes different call events", () => {
+    const h = harness();
+    h.fireBurst([
+      callEvent(EventType.CallStarted),
+      callEvent(EventType.CallEnded),
+      callEvent(EventType.CallRing),
+      callEvent(EventType.CallScheduled),
+      callEvent(EventType.CallStarted),
+    ]);
+    expect(countOf(h.invalidated, qk.calls)).toBe(1);
+  });
+
+  it("does not LOSE any distinct key in the burst", () => {
+    // Collapsing repeats must never mean dropping a key nothing else refreshes.
+    const h = harness();
+    h.fireBurst([
+      callEvent(EventType.CallStarted, { kind: "CHANNEL", channelId: CHANNEL }),
+      callEvent(EventType.CallStarted),
+    ]);
+    expect(has(h.invalidated, qk.calls)).toBe(true);
+    expect(has(h.invalidated, qk.call(CALL))).toBe(true);
+    expect(has(h.invalidated, qk.channelCalls(CHANNEL))).toBe(true);
+  });
+
+  it("refetches again for a LATER burst, rather than going quiet", () => {
+    // The window must not be re-armed indefinitely by a steady event stream.
+    const h = harness();
+    h.fireBurst([callEvent(EventType.CallStarted)]);
+    h.fireBurst([callEvent(EventType.CallStarted)]);
+    expect(countOf(h.invalidated, qk.calls)).toBe(2);
+  });
 });
 
 describe("WsEventBridge — calls", () => {

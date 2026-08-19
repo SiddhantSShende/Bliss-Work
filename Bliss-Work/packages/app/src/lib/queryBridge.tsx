@@ -204,11 +204,11 @@ export function WsEventBridge() {
           // leave that ends the call produces call.ended), so the 20s poll in
           // useOnCall remains the correctness path. This is what makes the
           // common transitions flip promptly rather than eventually.
-          void qc.invalidateQueries({ queryKey: qk.onCall });
-          void qc.invalidateQueries({ queryKey: qk.calls });
-          void qc.invalidateQueries({ queryKey: qk.call(e.callId) });
+          invalidate(qk.onCall);
+          invalidate(qk.calls);
+          invalidate(qk.call(e.callId));
           if (e.channelId) {
-            void qc.invalidateQueries({ queryKey: qk.channelCalls(e.channelId) });
+            invalidate(qk.channelCalls(e.channelId));
           }
           // Only announce a scheduling someone ELSE did, and never from the
           // reconnect replay — otherwise every launch re-toasts old meetings.
@@ -224,11 +224,11 @@ export function WsEventBridge() {
         // its Join button went on asking the server to START a call that was
         // already running, which comes back 403 for everyone but the organiser.
         case EventType.CallStarted: {
-          void qc.invalidateQueries({ queryKey: qk.onCall });
-          void qc.invalidateQueries({ queryKey: qk.calls });
-          void qc.invalidateQueries({ queryKey: qk.call(e.callId) });
+          invalidate(qk.onCall);
+          invalidate(qk.calls);
+          invalidate(qk.call(e.callId));
           if (e.channelId) {
-            void qc.invalidateQueries({ queryKey: qk.channelCalls(e.channelId) });
+            invalidate(qk.channelCalls(e.channelId));
           }
           // Worth interrupting for: it is starting NOW, and the toast is the
           // only thing that reaches someone who is not looking at Meetings.
@@ -247,7 +247,7 @@ export function WsEventBridge() {
         // recipient check of its own — but it IS pointless replayed, because the
         // wait it describes is long over.
         case EventType.CallWaiting: {
-          void qc.invalidateQueries({ queryKey: qk.call(e.callId) });
+          invalidate(qk.call(e.callId));
           if (live && e.actorId !== me) {
             toast(
               e.title ? `Someone is waiting for ${e.title}` : "Someone is waiting for your call",
@@ -261,7 +261,7 @@ export function WsEventBridge() {
           break;
         }
         case EventType.CallRing: {
-          void qc.invalidateQueries({ queryKey: qk.calls });
+          invalidate(qk.calls);
           // A ring is only meaningful live. Replaying it would ring the user
           // for a call that was answered or abandoned hours ago.
           if (live && e.actorId !== me) {
@@ -280,7 +280,7 @@ export function WsEventBridge() {
         // progress before any track of it turns up.
         case EventType.CallShareStarted:
         case EventType.CallShareStopped: {
-          void qc.invalidateQueries({ queryKey: qk.call(e.callId) });
+          invalidate(qk.call(e.callId));
           break;
         }
         case EventType.MessageCreated: {
@@ -365,7 +365,7 @@ export function WsEventBridge() {
         }
         case EventType.ChannelMemberRemoved:
         case EventType.ChannelBlocked: {
-          void qc.invalidateQueries({ queryKey: qk.channelRoster(e.channelId) });
+          invalidate(qk.channelRoster(e.channelId));
           if (e.userId === me) {
             // It was ME. Drop the channel from my list immediately rather than
             // waiting for a refetch, and if I am standing in it, leave — a
@@ -391,7 +391,7 @@ export function WsEventBridge() {
         }
         case EventType.ChannelRoleChanged:
         case EventType.ChannelUnblocked: {
-          void qc.invalidateQueries({ queryKey: qk.channelRoster(e.channelId) });
+          invalidate(qk.channelRoster(e.channelId));
           // myRole rides ChannelDTO, so the channel list has to refetch for the
           // moderation controls to appear or disappear.
           invalidate(qk.channels);
@@ -422,7 +422,7 @@ export function WsEventBridge() {
             ),
           );
           // The thread view paginates, so its cache shape differs — let it refetch.
-          if (e.threadId) void qc.invalidateQueries({ queryKey: qk.threadMessages(e.threadId) });
+          if (e.threadId) invalidate(qk.threadMessages(e.threadId));
           refreshInboxSidebars(invalidate);
           break;
         }
@@ -431,7 +431,7 @@ export function WsEventBridge() {
           // between the parties), so the actor's numbers are not ours. Skip our
           // own echo — the mutation already invalidated on success.
           if (e.actorId !== me) {
-            void qc.invalidateQueries({ queryKey: qk.reactions(e.conversationId) });
+            invalidate(qk.reactions(e.conversationId));
           }
           break;
         }
@@ -487,16 +487,16 @@ export function WsEventBridge() {
           // actor already has the authoritative tally from their own PUT/DELETE
           // response, so skipping their echo avoids a redundant round-trip.
           if (e.actorId !== me) {
-            void qc.invalidateQueries({ queryKey: qk.channelReactions(e.channelId) });
+            invalidate(qk.channelReactions(e.channelId));
           }
           break;
         }
         case EventType.TaskAssigned: {
           if (e.assigneeId === me) {
-            void qc.invalidateQueries({ queryKey: qk.inbox });
-            void qc.invalidateQueries({ queryKey: qk.sticky });
+            invalidate(qk.inbox);
+            invalidate(qk.sticky);
             // New TASK row lands in the unified inbox / People sidebar.
-            void qc.invalidateQueries({ queryKey: qk.unifiedInbox });
+            invalidate(qk.unifiedInbox);
             refreshInboxSidebars(invalidate);
             if (live) toast(`New task: ${e.title}`, { description: `from ${e.senderUsername}` });
           }
@@ -506,7 +506,7 @@ export function WsEventBridge() {
           // via the 30s poll in useAvailability — that poll is the actual
           // correctness mechanism. Left unguarded so it stays right if routing
           // ever widens.
-          void qc.invalidateQueries({ queryKey: qk.availability });
+          invalidate(qk.availability);
           break;
         }
         case EventType.TaskAcknowledged: {
@@ -522,16 +522,16 @@ export function WsEventBridge() {
             // Gated on `live`: a replayed acknowledge is one the user already
             // dealt with, and re-pinning it made every relaunch repopulate the
             // desktop with notes they had already cleared.
-            if (live) autoPinOnAcknowledge(qc, config, e.taskId);
-            void qc.invalidateQueries({ queryKey: qk.unifiedInbox });
+            if (live) autoPinOnAcknowledge(qc, invalidate, config, e.taskId);
+            invalidate(qk.unifiedInbox);
             refreshInboxSidebars(invalidate);
           }
-          void qc.invalidateQueries({ queryKey: qk.sent });
-          void qc.invalidateQueries({ queryKey: qk.notifications });
+          invalidate(qk.sent);
+          invalidate(qk.notifications);
           // A status change moves this assignee into or out of the Available
           // roster (see the note on TaskAssigned — push reaches only the two
           // parties; everyone else converges on the poll).
-          void qc.invalidateQueries({ queryKey: qk.availability });
+          invalidate(qk.availability);
           break;
         }
         case EventType.TaskCompleted: {
@@ -540,20 +540,20 @@ export function WsEventBridge() {
             // Sender's inbox row needs to refresh so the row reflects the
             // completion (status badge / hidden state). Without this the
             // allocator only learns via the toast and a stale row stays put.
-            void qc.invalidateQueries({ queryKey: qk.unifiedInbox });
+            invalidate(qk.unifiedInbox);
             refreshInboxSidebars(invalidate);
           }
           if (e.assigneeId === me) {
-            clearTaskForMe(qc, e.taskId);
-            void qc.invalidateQueries({ queryKey: qk.unifiedInbox });
+            clearTaskForMe(qc, invalidate, e.taskId);
+            invalidate(qk.unifiedInbox);
             refreshInboxSidebars(invalidate);
           }
-          void qc.invalidateQueries({ queryKey: qk.sent });
-          void qc.invalidateQueries({ queryKey: qk.notifications });
+          invalidate(qk.sent);
+          invalidate(qk.notifications);
           // A status change moves this assignee into or out of the Available
           // roster (see the note on TaskAssigned — push reaches only the two
           // parties; everyone else converges on the poll).
-          void qc.invalidateQueries({ queryKey: qk.availability });
+          invalidate(qk.availability);
           break;
         }
         case EventType.TaskIgnored:
@@ -563,35 +563,35 @@ export function WsEventBridge() {
           if (e.senderId === me) {
             const verb = e.type === EventType.TaskLeft ? "left" : "ignored";
             if (live) toast(`Task ${verb} by ${e.assigneeUsername}`);
-            void qc.invalidateQueries({ queryKey: qk.unifiedInbox });
+            invalidate(qk.unifiedInbox);
             refreshInboxSidebars(invalidate);
           }
           if (e.assigneeId === me) {
-            clearTaskForMe(qc, e.taskId);
-            void qc.invalidateQueries({ queryKey: qk.unifiedInbox });
+            clearTaskForMe(qc, invalidate, e.taskId);
+            invalidate(qk.unifiedInbox);
             refreshInboxSidebars(invalidate);
           }
-          void qc.invalidateQueries({ queryKey: qk.sent });
-          void qc.invalidateQueries({ queryKey: qk.notifications });
+          invalidate(qk.sent);
+          invalidate(qk.notifications);
           // A status change moves this assignee into or out of the Available
           // roster (see the note on TaskAssigned — push reaches only the two
           // parties; everyone else converges on the poll).
-          void qc.invalidateQueries({ queryKey: qk.availability });
+          invalidate(qk.availability);
           break;
         }
         case EventType.TaskReviewed: {
           // Sender's other devices see the review they left; the assignee sees
           // a review land on their completed task. Refetch the affected surfaces.
-          if (e.senderId === me) void qc.invalidateQueries({ queryKey: qk.sent });
+          if (e.senderId === me) invalidate(qk.sent);
           if (e.assigneeId === me) {
-            void qc.invalidateQueries({ queryKey: qk.assigned });
-            void qc.invalidateQueries({ queryKey: qk.sticky });
+            invalidate(qk.assigned);
+            invalidate(qk.sticky);
             if (live) toast(`${e.reviewerUsername} reviewed your task`);
           }
           break;
         }
         case EventType.NotificationCreated: {
-          if (e.recipientId === me) void qc.invalidateQueries({ queryKey: qk.notifications });
+          if (e.recipientId === me) invalidate(qk.notifications);
           break;
         }
         case EventType.IntegrationActivityCreated: {
@@ -601,14 +601,14 @@ export function WsEventBridge() {
           // the mentions feed exists to replace. Notification is the mention
           // event's job, below.
           if (e.recipientId === me) {
-            void qc.invalidateQueries({ queryKey: qk.integrationActivity });
+            invalidate(qk.integrationActivity);
           }
           break;
         }
         case EventType.IntegrationMentionCreated: {
           // Someone actually tagged me — this one is worth interrupting for.
           if (e.recipientId === me) {
-            void qc.invalidateQueries({ queryKey: ["mentions"] });
+            invalidate(["mentions"]);
             if (live) toast(`You were mentioned on ${e.provider}`);
           }
           break;
@@ -622,9 +622,9 @@ export function WsEventBridge() {
           // other devices, so this fires for mail the user sent themselves.
           // That is why only the toast is gated on not being the sender: the
           // refetch is wanted in both cases.
-          void qc.invalidateQueries({ queryKey: qk.unifiedInbox });
-          void qc.invalidateQueries({ queryKey: qk.inboxPeers });
-          void qc.invalidateQueries({ queryKey: ["inboxPeerFeed"] });
+          invalidate(qk.unifiedInbox);
+          invalidate(qk.inboxPeers);
+          invalidate(["inboxPeerFeed"]);
           // Never from the reconnect replay — announcing mail that arrived
           // hours ago as if it just landed is worse than not announcing it.
           if (live && e.senderId !== me) toast("New mail in your Inbox");
@@ -687,6 +687,7 @@ function refreshInboxSidebars(invalidate: CoalescedInvalidator) {
  */
 function autoPinOnAcknowledge(
   qc: ReturnType<typeof useQueryClient>,
+  invalidate: CoalescedInvalidator,
   config: PlatformConfig,
   taskId: string,
 ) {
@@ -698,7 +699,7 @@ function autoPinOnAcknowledge(
       if (!res.ok && res.reason === "limit")
         toast("Desktop is full — complete or unpin a note first (max 5 pinned).");
     })
-    .catch(() => void qc.invalidateQueries({ queryKey: qk.taskPins }));
+    .catch(() => invalidate(qk.taskPins));
 }
 
 function patchStickyStatus(
@@ -734,9 +735,13 @@ function removeSticky(qc: ReturnType<typeof useQueryClient>, taskId: string) {
  * desktop pin set — a plain refetch could race (and lose to) the main-process
  * prune, leaving a stale "Pinned" state.
  */
-function clearTaskForMe(qc: ReturnType<typeof useQueryClient>, taskId: string) {
+function clearTaskForMe(
+  qc: ReturnType<typeof useQueryClient>,
+  invalidate: CoalescedInvalidator,
+  taskId: string,
+) {
   removeSticky(qc, taskId);
-  void qc.invalidateQueries({ queryKey: qk.assigned });
+  invalidate(qk.assigned);
   qc.setQueryData<string[]>(qk.taskPins, (prev) =>
     prev ? prev.filter((id) => id !== taskId) : prev,
   );

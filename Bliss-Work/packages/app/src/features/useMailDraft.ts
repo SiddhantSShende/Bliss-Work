@@ -121,6 +121,10 @@ export function useMailDraft(existingId?: string): MailDraftState {
     async (id: string) => {
       const content = contentRef.current;
       if (!content) return;
+      // Nothing has been written and nothing has been typed: the composer was
+      // opened and left alone, which is not a save — it is a request that would
+      // fire on every New Mail before the user reached the first field.
+      if (isEmpty(content) && savedRef.current === null) return;
       const print = fingerprint(content);
       if (print === savedRef.current) return;
       await api.saveMailDraft(id, content);
