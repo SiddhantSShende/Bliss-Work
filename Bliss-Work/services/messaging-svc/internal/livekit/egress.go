@@ -385,29 +385,8 @@ func (r *Recorder) ParseWebhook(authHeader string, body []byte) (*RecordingEvent
 	if !r.Configured() {
 		return nil, ErrEgressNotConfigured
 	}
-	raw := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(authHeader), "Bearer"))
-	if raw == "" {
-		return nil, errors.New("livekit: webhook is not signed")
-	}
-	tok, err := jwt.Parse([]byte(raw),
-		jwt.WithKey(jwa.HS256, []byte(r.apiSecret)),
-		jwt.WithIssuer(r.apiKey),
-		jwt.WithAcceptableSkew(webhookLeeway),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("livekit: webhook token: %w", err)
-	}
-	sum, _ := tok.Get("sha256")
-	want, _ := sum.(string)
-	if want == "" {
-		return nil, errors.New("livekit: webhook token carries no body hash")
-	}
-	got := sha256.Sum256(body)
-	// Constant time, and over the decoded digest rather than its encoding, so
-	// padding or encoding differences cannot be probed.
-	wantRaw, err := decodeB64(want)
-	if err != nil || !hmac.Equal(wantRaw, got[:]) {
-		return nil, errors.New("livekit: webhook body does not match its signature")
+	if err := verifyWebhook(r.apiKey, r.apiSecret, authHeader, body); err != nil {
+		return nil, err
 	}
 
 	var wb webhookBody
@@ -444,6 +423,47 @@ func (r *Recorder) ParseWebhook(authHeader string, body []byte) (*RecordingEvent
 		}
 	}
 	return ev, nil
+}
+
+// verifyWebhook authenticates a LiveKit webhook against one API key pair.
+//
+// This IS the security boundary of the webhook route: the endpoint is public
+// and unauthenticated in the JWT sense, because the sender is the SFU and it
+// holds no BlissWork account. The token is signed with the API secret and
+// carries a SHA-256 of the body, so a valid token cannot be replayed over a
+// different payload.
+//
+// Shared by the two things that read that one route — a finished recording
+// (Recorder.ParseWebhook) and a room's lifecycle (Minter.ParseRoomWebhook) —
+// so the check cannot drift into being stricter on one than the other. They are
+// separate types because they are configured separately: an SFU with no egress
+// is an ordinary deployment, and its room events must still be believed.
+func verifyWebhook(apiKey, apiSecret, authHeader string, body []byte) error {
+	raw := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(authHeader), "Bearer"))
+	if raw == "" {
+		return errors.New("livekit: webhook is not signed")
+	}
+	tok, err := jwt.Parse([]byte(raw),
+		jwt.WithKey(jwa.HS256, []byte(apiSecret)),
+		jwt.WithIssuer(apiKey),
+		jwt.WithAcceptableSkew(webhookLeeway),
+	)
+	if err != nil {
+		return fmt.Errorf("livekit: webhook token: %w", err)
+	}
+	sum, _ := tok.Get("sha256")
+	want, _ := sum.(string)
+	if want == "" {
+		return errors.New("livekit: webhook token carries no body hash")
+	}
+	got := sha256.Sum256(body)
+	// Constant time, and over the decoded digest rather than its encoding, so
+	// padding or encoding differences cannot be probed.
+	wantRaw, err := decodeB64(want)
+	if err != nil || !hmac.Equal(wantRaw, got[:]) {
+		return errors.New("livekit: webhook body does not match its signature")
+	}
+	return nil
 }
 
 // decodeB64 accepts either base64 alphabet, padded or not — the encoding of the

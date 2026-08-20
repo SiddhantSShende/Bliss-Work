@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Hash, Users, ChevronLeft, LogOut, Lock } from "lucide-react";
+import { Hash, Users, ChevronLeft, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { EmptyState } from "@taskboard/ui";
 import type { CallDTO, ChannelDTO, ChannelMessageDTO, ReactionDTO } from "@taskboard/shared";
@@ -16,13 +16,24 @@ import { ForwardToDialog } from "../features/ForwardToDialog";
 import { useChatMedia } from "../features/useChatMedia";
 import { ScheduleCallDialog } from "../features/ScheduleCallDialog";
 import { CallMenu } from "../features/CallMenu";
-import { CallRoom } from "../features/CallRoomLazy";
+import { ConversationMenu } from "../features/ConversationMenu";
+import { ChatSearchBar } from "../features/ChatSearchBar";
+import { ChatAssetsSheet } from "../features/ChatAssetsSheet";
+import { searchMessages } from "../lib/chatSearch";
+import { exportChatTranscript } from "../lib/chatExport";
+import { toggleConversationPref, useConversationPrefs } from "../lib/conversationPrefs";
+import { useMeetingSession } from "../lib/MeetingSession";
 
 export function ChannelView() {
   const { channelId = "" } = useParams();
   const { api } = useRuntime();
   const qc = useQueryClient();
   const [rosterOpen, setRosterOpen] = useState(false);
+  // The header's overflow menu opens these three: an inline search over the
+  // loaded messages, the shared-files panel, and nothing else that needs state.
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [assetsOpen, setAssetsOpen] = useState(false);
   const recordForward = useWhatsAppForward();
   // The message being forwarded to another chat or channel (null = closed).
   const [forwardTo, setForwardTo] = useState<{ id: string; body: string } | null>(null);
@@ -38,9 +49,16 @@ export function ChannelView() {
     setRosterOpen(false);
     setForwardTo(null);
     setScheduleOpen(false);
-    // Leaving the route must not leave you silently in the previous
-    // channel's call — CallRoom disconnects on unmount.
-    setActiveCall(null);
+    // Same route-reuse trap as the roster: a query typed in one channel would
+    // otherwise follow the reader into the next one and silently hide messages.
+    setSearchOpen(false);
+    setQuery("");
+    setAssetsOpen(false);
+    // The call is NOT reset here any more. It used to have to be, because the
+    // room was rendered by this route and switching channels would have left
+    // the user silently in the previous channel's call; now the meeting is held
+    // above the router, so changing channel simply leaves it running — which is
+    // what the floating window is for.
   }, [channelId]);
 
   const { data: channels = [] } = useQuery({ queryKey: qk.channels, queryFn: () => api.channels() });
@@ -113,7 +131,7 @@ export function ChannelView() {
   const [scheduleOpen, setScheduleOpen] = useState(false);
   // The call currently open in this view. Held here rather than routed so
   // leaving a call returns you to the conversation you were already in.
-  const [activeCall, setActiveCall] = useState<CallDTO | null>(null);
+  const { enter } = useMeetingSession();
 
   // Ringing the channel right now. Omitting scheduledAt is what makes the call
   // LIVE server-side; the dialog stays for a call in the diary. No title is
@@ -123,7 +141,7 @@ export function ChannelView() {
     onSuccess: (call) => {
       void qc.invalidateQueries({ queryKey: qk.calls });
       void qc.invalidateQueries({ queryKey: qk.channelCalls(channelId) });
-      setActiveCall(call);
+      enter(call);
     },
     onError: () => toast.error("Couldn't start the call"),
   });
@@ -190,6 +208,46 @@ export function ChannelView() {
     },
   });
 
+  /**
+   * The messages as the thread renders them.
+   *
+   * Lifted out of the ChatThread call because three other things now read the
+   * same list — the in-conversation search, the Media/Links/Docs panel and the
+   * transcript export — and each of them re-deriving it from `messages` would
+   * be three chances for them to disagree about what is in this conversation.
+   */
+  const thread = useMemo(
+    () =>
+      messages.map((m) => ({
+        // senderUsername is the email local-part; the display name is what a
+        // reader should see above a channel bubble.
+        id: m.id, senderId: m.senderId, senderName: m.senderDisplayName || m.senderUsername,
+        body: m.body, at: m.createdAt, kind: m.kind, isForward: m.isForward,
+        pending: m.id.startsWith("temp:"),
+        deletedForAll: m.deletedForAll,
+        pinned: m.pinned,
+        reactions: reactionsByMessage.get(m.id),
+      })),
+    [messages, reactionsByMessage],
+  );
+
+  // The same messages with the reader's own name normalised, for the surfaces
+  // that LIST rather than render them — "You · 3h ago" above a file you shared
+  // reads as it does everywhere else in the app.
+  const threadForTools = useMemo(
+    () => thread.map((m) => (m.senderId === me.id ? { ...m, senderName: "You" } : m)),
+    [thread, me.id],
+  );
+
+  // Searching narrows what the thread draws; it does not touch what is loaded,
+  // so "Load older" still widens the set being searched.
+  const shown = useMemo(
+    () => searchMessages(thread, searchOpen ? query : ""),
+    [thread, searchOpen, query],
+  );
+
+  const prefs = useConversationPrefs();
+
   // Declared before the early return so the hook order stays stable while a
   // channel is briefly missing. No p2pFallback: WebRTC transfers are 1:1 and
   // have no channel fanout, so oversized files are refused rather than silently
@@ -211,15 +269,36 @@ export function ChannelView() {
   // A live call takes over the pane. Showing a video grid and a message list in
   // the same column makes both unusable at this width, and the messages are one
   // click away again the moment the call ends.
-  if (activeCall) {
-    return <CallRoom call={activeCall} onClose={() => setActiveCall(null)} />;
-  }
+
+  const closeSearch = () => {
+    setSearchOpen(false);
+    setQuery("");
+  };
+  /** The loaded conversation as a text file. Bounded by what is loaded, and the
+   *  transcript's own header says so — see lib/chatExport. */
+  const exportChat = () => {
+    exportChatTranscript(threadForTools, {
+      title: `#${channel.name}`,
+      meId: me.id,
+      now: new Date(),
+    });
+    toast.success(`Exported ${threadForTools.length} message${threadForTools.length === 1 ? "" : "s"}`);
+  };
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between border-b border-border/70 bg-surface/60 px-5 py-3 backdrop-blur">
+      {/* relative z-30, matching TopNavbar's `glass relative z-50`. backdrop-blur
+          makes this header a STACKING CONTEXT that is painted at its in-flow
+          position, so without a z-index of its own everything inside it — the
+          options menu included — is trapped below the message list that follows
+          it in the DOM, whatever z-index the menu asks for. That is what put a
+          dropdown behind the photos and file cards in the thread. z-30 clears
+          the list and a message's own action popover (z-20) while staying under
+          the sheets and dialogs (z-50) and the lightbox (z-[100]), which should
+          still cover it. */}
+      <header className="relative z-30 flex items-center justify-between border-b border-border/70 bg-surface/60 px-5 py-3 backdrop-blur">
         {/* min-w-0 + truncate: a long channel name must not push the member
-            count and Leave action off the right edge on a narrow window. */}
+            count and options menu off the right edge on a narrow window. */}
         <div className="flex min-w-0 items-center gap-2">
           <button
             onClick={() => nav("/app/channels")}
@@ -264,40 +343,69 @@ export function ChannelView() {
           >
             <Users size={15} /> {channel.memberCount}
           </button>
-          <button
-            onClick={confirmLeave}
-            disabled={leave.isPending}
-            title="Leave channel"
-            aria-label="Leave channel"
-            className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-muted transition hover:bg-surface-2 hover:text-danger disabled:opacity-50"
-          >
-            <LogOut size={13} /> {leave.isPending ? "Leaving…" : "Leave"}
-          </button>
+          {/* Rename, Delete and Clear Chat are deliberately left unwired:
+              messaging-svc has no PATCH or DELETE for a channel, and no bulk
+              hide for its messages, so the menu renders those rows disabled
+              with the reason on hover rather than offering an action that
+              cannot be carried out. Everything else here works today.
+
+              "View Profile" for a channel is its membership — who is in it is
+              what a channel's profile consists of — so it opens the roster the
+              member count already opens. */}
+          <ConversationMenu
+            scope="channel"
+            onViewProfile={() => setRosterOpen(true)}
+            onSearch={() => setSearchOpen(true)}
+            onMedia={() => setAssetsOpen(true)}
+            muted={prefs.isMuted("channel", channelId)}
+            onToggleMute={() => toggleConversationPref("muted", "channel", channelId)}
+            shortcut={prefs.hasShortcut("channel", channelId)}
+            onToggleShortcut={() => toggleConversationPref("shortcut", "channel", channelId)}
+            onExport={exportChat}
+            onLeave={confirmLeave}
+            leaving={leave.isPending}
+          />
         </div>
       </header>
+      {searchOpen && (
+        <ChatSearchBar
+          value={query}
+          onChange={setQuery}
+          onClose={closeSearch}
+          matches={shown.length}
+          loaded={thread.length}
+          placeholder={`Search #${channel.name}…`}
+        />
+      )}
       <ChannelMembersSheet
         open={rosterOpen}
         onClose={() => setRosterOpen(false)}
         channel={channel}
       />
+      {/* Mounted only while open, as MeetingCard does with its roster sheet:
+          the panel mints one signed link per attachment in the thread, and a
+          closed panel doing that on a refresh interval is a request nobody
+          asked for. */}
+      {assetsOpen && (
+        <ChatAssetsSheet
+          open
+          onClose={() => setAssetsOpen(false)}
+          title={`#${channel.name}`}
+          messages={threadForTools}
+        />
+      )}
       <ChatThread
-        messages={messages.map((m) => ({
-          // senderUsername is the email local-part; the display name is what a
-          // reader should see above a channel bubble.
-          id: m.id, senderId: m.senderId, senderName: m.senderDisplayName || m.senderUsername,
-          body: m.body, at: m.createdAt, kind: m.kind, isForward: m.isForward,
-          pending: m.id.startsWith("temp:"),
-          deletedForAll: m.deletedForAll,
-          pinned: m.pinned,
-          reactions: reactionsByMessage.get(m.id),
-        }))}
+        messages={shown}
         meId={me.id}
         onLoadOlder={loadOlder}
         loadingOlder={loadingOlder}
         hasOlder={hasOlder}
         // flushStaged, not send.mutate: Send must emit the attachment tray as
         // well as the text, and must tolerate an empty text (attachments only).
-        onSend={(t) => media.flushStaged(t)}
+        // Sending drops out of search: a filtered thread would swallow the
+        // message the user just sent unless it happened to match the query,
+        // which reads as a send that failed.
+        onSend={(t) => { media.flushStaged(t); closeSearch(); }}
         showSenderNames
         placeholder={`Message #${channel.name}…`}
         onForwardTo={(id) => {
@@ -337,7 +445,7 @@ export function ChannelView() {
           onClose={() => setScheduleOpen(false)}
           onStarted={(call) => {
             setScheduleOpen(false);
-            setActiveCall(call);
+            enter(call);
           }}
         />
       )}

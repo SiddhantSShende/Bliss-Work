@@ -18,6 +18,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"time"
@@ -122,25 +123,72 @@ func (s *Server) downloadRecording(w http.ResponseWriter, r *http.Request) {
 	http.ServeContent(w, r, "", f.ModTime(), f)
 }
 
-// livekitWebhook serves POST /livekit/webhook — the SFU telling us how a
-// recording ended.
+// livekitWebhook serves POST /livekit/webhook — the SFU telling us what
+// happened in a room, and how a recording ended.
 //
 // Unauthenticated in the JWT sense and public by necessity: the sender is
 // LiveKit, which holds no BlissWork account. What makes it safe is the
-// signature over the body, checked in livekit.ParseWebhook before a byte of the
-// payload is trusted.
+// signature over the body, checked before a byte of the payload is trusted.
 //
-// It answers 200 to everything it can parse, including events it ignores.
-// Egress retries a non-2xx, and there is nothing to retry for an event about a
-// recording this deployment has no row for.
+// TWO readers, on one route because LiveKit posts every event to one URL:
+//
+//   - the ROOM reader (handleRoomEvent) is the authoritative answer to "who is
+//     actually still in this call". Tried first, and on the Minter rather than
+//     the Recorder, because it must work on a deployment with no recording at
+//     all — otherwise whether somebody shows as "Busy" forever would depend on
+//     whether calls happen to be recorded.
+//   - the RECORDING reader settles call_recordings, unchanged.
+//
+// It answers 200 to everything it can authenticate, including events neither
+// reader acts on. The SFU retries a non-2xx, and there is nothing to retry for
+// an event about a room or a recording this deployment has no row for.
 func (s *Server) livekitWebhook(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, smallBody))
 	if err != nil {
 		writeErrR(w, r, http.StatusBadRequest, "unreadable body")
 		return
 	}
-	ev, err := s.recorder.ParseWebhook(r.Header.Get("Authorization"), body)
+	auth := r.Header.Get("Authorization")
+
+	// Room lifecycle first. A signature this accepts is the same signature the
+	// recorder would check — one key pair, one check (livekit.verifyWebhook) —
+	// so an event that is not about a room falls through to the recording path
+	// without being re-authenticated against a different rule.
+	// Whether the body's signature has already been checked. Tracked rather
+	// than assumed: it is what decides, below, whether "recording is switched
+	// off" means an authenticated event with nothing to settle (200) or a
+	// deployment that cannot authenticate this POST at all (401).
+	verified := false
+	if s.livekit.Configured() {
+		ev, err := s.livekit.ParseRoomWebhook(auth, body)
+		if err != nil {
+			s.log.Warn("livekit webhook rejected", "err", err,
+				"request_id", mw.RequestIDFromContext(r.Context()))
+			writeAPIError(w, r, http.StatusUnauthorized, CodeForbidden, "invalid webhook signature")
+			return
+		}
+		verified = true
+		if ev.Event != "" {
+			s.handleRoomEvent(r.Context(), ev)
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+	}
+
+	ev, err := s.recorder.ParseWebhook(auth, body)
 	if err != nil {
+		// An event whose signature the room reader ALREADY accepted, on a
+		// deployment that records nothing. There is no row to settle and
+		// nothing to retry, so it is a 200 rather than a refusal.
+		//
+		// Only when `verified`. Without that check, an SFU-less deployment —
+		// where nothing holds a key and nothing can be authenticated — would
+		// answer 200 to an unsigned POST from anywhere, which is precisely the
+		// probe this route's signature check exists to refuse.
+		if verified && errors.Is(err, livekit.ErrEgressNotConfigured) {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
 		// Logged at warn, not error: an unsigned POST here is somebody probing,
 		// and the honest response is to refuse it without noise.
 		s.log.Warn("livekit webhook rejected", "err", err,

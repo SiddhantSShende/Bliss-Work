@@ -23,14 +23,14 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { Circle, Clock, Globe, Hand, NotebookPen, Users } from "lucide-react";
+import { Circle, Clock, Globe, Hand, MessageSquare, Minimize2, NotebookPen, Users } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@taskboard/ui";
 import { ApiError, type CallDTO } from "@taskboard/shared";
 import { useSession } from "../store/session";
 import { useRuntime } from "../lib/runtime";
 import { useCallRoom } from "../lib/useCallRoom";
-import { NOTES_SYNC_MAX } from "../lib/roomMessages";
+import { CHAT_SYNC_MAX, NOTES_SYNC_MAX } from "../lib/roomMessages";
 import {
   loadNotes,
   mergeNotes,
@@ -39,18 +39,39 @@ import {
   saveNotes,
   type NoteEntry,
 } from "../lib/callNotes";
+import {
+  chatFilename,
+  chatToText,
+  loadChat,
+  mergeChat,
+  newChatEntry,
+  saveChat,
+  unreadSince,
+  visibleToMe,
+  visibleToPeer,
+  type ChatEntry,
+} from "../lib/callChat";
+import {
+  initialSpeakerState,
+  pruneSpeakers,
+  reduceActiveSpeaker,
+  type SpeakerState,
+} from "../lib/activeSpeaker";
+import { useMeetingSessionOptional } from "../lib/MeetingSession";
 import { downloadBlob } from "../lib/download";
+import { MiniMeeting } from "./MiniMeeting";
 import { CallControls, CallControlButton } from "./CallControls";
 import { CallTile, UnpinButton } from "./CallTile";
 import { CallMembers } from "./CallMembers";
 import { CallNotes } from "./CallNotes";
+import { CallChat } from "./CallChat";
 import { CallRoster } from "./CallRoster";
 import { ScreenSharePopup } from "./ScreenSharePopup";
 import { AddPeopleDialog } from "./AddPeopleDialog";
 
 /** Which side panel is open. One at a time: they share the column, and two
  *  panels on a laptop leaves the meeting itself a strip down the middle. */
-type Panel = "notes" | "members" | null;
+type Panel = "notes" | "members" | "chat" | null;
 
 export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void }) {
   const room = useCallRoom(call.id);
@@ -76,12 +97,25 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
   } = room;
   const { api } = useRuntime();
   const me = useSession((s) => s.user);
+  /**
+   * Optional so this component can still be rendered on its own — the dev
+   * preview harness does. Without a session there is nothing to minimise INTO,
+   * so the room simply always shows itself.
+   */
+  const session = useMeetingSessionOptional();
+  const minimized = session?.minimized ?? false;
   const [addOpen, setAddOpen] = useState(false);
   const [starting, setStarting] = useState(false);
   const [panel, setPanel] = useState<Panel>(null);
   const [pinned, setPinned] = useState<string | null>(null);
   const [hands, setHands] = useState<Set<string>>(() => new Set());
   const [notes, setNotes] = useState<NoteEntry[]>(() => loadNotes(call.id));
+  const [chat, setChat] = useState<ChatEntry[]>(() => loadChat(call.id));
+  /** Everything up to this moment has been read. Moved forward while the chat
+   *  panel is open, so the badge counts only what arrived behind your back. */
+  const [chatSeenAt, setChatSeenAt] = useState(() => Date.now());
+  /** Who the room is listening to, filtered so a cough cannot take the stage. */
+  const [speakers, setSpeakers] = useState<SpeakerState>(initialSpeakerState);
   const [recording, setRecording] = useState(call.recordingStatus === "RECORDING");
   // Latched once the server says it cannot record. Deployment config does not
   // change mid-call, so one refusal is enough to stop asking.
@@ -98,6 +132,8 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
   // close over a stale copy of what we hold.
   const notesRef = useRef(notes);
   notesRef.current = notes;
+  const chatRef = useRef(chat);
+  chatRef.current = chat;
   const handRef = useRef(handRaised);
   handRef.current = handRaised;
   const recordingRef = useRef(recording);
@@ -123,6 +159,40 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
   useEffect(() => {
     saveNotes(call.id, notes);
   }, [call.id, notes]);
+
+  // Same for the chat, for the same reason: a reload mid-meeting should not
+  // lose the thread. Also no server copy — see lib/callChat.
+  useEffect(() => {
+    saveChat(call.id, chat);
+  }, [call.id, chat]);
+
+  /**
+   * Who the stage should follow, when nobody has pinned anyone.
+   *
+   * Recomputed only when the SET of speakers changes, not on every room event:
+   * `speaking` is joined into a string first so a re-render caused by anything
+   * else — a track muting, someone's name arriving — cannot advance the
+   * filter's clock and hand the stage over early.
+   *
+   * The local participant is excluded. You are already on screen in your own
+   * tile, and promoting yourself the moment you speak takes the person you are
+   * replying to off the stage mid-sentence.
+   */
+  const speakingKey = participants
+    .filter((p) => p.speaking && !p.isLocal)
+    .map((p) => p.identity)
+    .sort()
+    .join(",");
+  useEffect(() => {
+    const speaking = speakingKey ? speakingKey.split(",") : [];
+    setSpeakers((prev) => reduceActiveSpeaker(prev, speaking, Date.now()));
+  }, [speakingKey]);
+
+  // An open panel is a read one: anything that lands while you are looking at
+  // it has been seen, so the badge never counts what is already on screen.
+  useEffect(() => {
+    if (panel === "chat") setChatSeenAt(Date.now());
+  }, [panel, chat.length]);
 
   /** Everything other participants say to this room. */
   useEffect(
@@ -150,6 +220,30 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
           case "notes-sync":
             setNotes((prev) => mergeNotes(prev, msg.notes));
             break;
+          case "chat":
+            // The SFU only delivered this to people it was addressed to, so
+            // this check is a second lock on the same door rather than the
+            // one holding it — see lib/callChat.
+            if (msg.msg.from !== from) break;
+            setChat((prev) => mergeChat(prev, [msg.msg]));
+            break;
+          case "chat-request":
+            // Answer the asker alone, and only with what they are party to: the
+            // room's own messages, plus any direct exchange between us and
+            // them. A private word with somebody ELSE is not ours to forward.
+            sendData(
+              {
+                t: "chat-sync",
+                msgs: chatRef.current
+                  .filter((c) => visibleToPeer(c, from))
+                  .slice(-CHAT_SYNC_MAX),
+              },
+              [from],
+            );
+            break;
+          case "chat-sync":
+            setChat((prev) => mergeChat(prev, msg.msgs));
+            break;
           case "recording":
             setRecording(msg.on);
             break;
@@ -171,6 +265,12 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
     sendData({ t: "notes-request" });
     const held = notesRef.current;
     if (held.length) sendData({ t: "notes-sync", notes: held.slice(-NOTES_SYNC_MAX) });
+    // Same handshake for the chat. Only what was said to the ROOM is offered
+    // back: a direct message is the two parties' to re-send, and broadcasting
+    // our copy of one would hand it to everybody who happens to be here now.
+    sendData({ t: "chat-request" });
+    const heldChat = chatRef.current.filter((c) => c.to === null);
+    if (heldChat.length) sendData({ t: "chat-sync", msgs: heldChat.slice(-CHAT_SYNC_MAX) });
   }, [status, sendData]);
 
   /**
@@ -201,6 +301,9 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
       const next = new Set([...prev].filter((id) => present.has(id)));
       return next.size === prev.size ? prev : next;
     });
+    // And so does the stage. pruneSpeakers returns the same object when nothing
+    // changed, so this cannot loop.
+    setSpeakers((prev) => pruneSpeakers(prev, present));
   }, [identities]);
 
   const togglePin = useCallback((who: string) => {
@@ -238,6 +341,30 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
     downloadBlob(
       new Blob([notesToText(title, notes)], { type: "text/plain;charset=utf-8" }),
       notesFilename(title),
+    );
+  };
+
+  /**
+   * Say something to the room, or to one person.
+   *
+   * `to === null` publishes to everyone; otherwise the datagram carries a
+   * single destination identity and the SFU delivers it to nobody else. Our own
+   * copy is added locally either way — a sender is not among their own message's
+   * destinations.
+   */
+  const sendChat = (text: string, to: string | null) => {
+    if (!identity) return;
+    const entry = newChatEntry({ from: identity, fromName: myName, to, text });
+    setChat((prev) => mergeChat(prev, [entry]));
+    sendData({ t: "chat", msg: entry }, to ? [to] : undefined);
+  };
+
+  const exportChat = () => {
+    const nameOf = (id: string) =>
+      participants.find((p) => p.identity === id)?.name ?? id;
+    downloadBlob(
+      new Blob([chatToText(title, chat, nameOf)], { type: "text/plain;charset=utf-8" }),
+      chatFilename(title),
     );
   };
 
@@ -298,8 +425,13 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
       setStarting(true);
       void start().finally(() => setStarting(false));
     };
+    // Deliberately NOT hidden when minimised. There is no meeting to float yet
+    // — no media, nobody to show — so a minimised lobby would leave the user
+    // with no meeting on screen and no way back to one. The minimise control is
+    // not reachable from here, so this is a guard rather than a state the room
+    // can normally be in.
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-5 bg-surface p-6 text-center">
+      <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-5 bg-surface p-6 text-center">
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent-soft text-accent">
           <Clock size={24} />
         </div>
@@ -331,10 +463,53 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
   if (me) onTheCall.add(me.id);
 
   const externals = call.participants.filter((p) => p.external).length;
-  const stage = pinned ? participants.find((p) => p.identity === pinned) : undefined;
+
+  /**
+   * Who is on the stage: the viewer's own pin if they made one, otherwise
+   * whoever the room is listening to.
+   *
+   * The pin WINS, and that is the whole distinction — someone who chose a tile
+   * deliberately should not lose it every time another person speaks. Unpinning
+   * falls through to the active speaker again with no extra state, and because
+   * `pinned` is this component's own state, one viewer's choice is invisible to
+   * everybody else in the meeting.
+   */
+  const stageId = pinned ?? speakers.active;
+  const stage = stageId ? participants.find((p) => p.identity === stageId) : undefined;
+
+  // Only what this viewer is party to — the wire already guarantees it, and
+  // this is the second lock (see lib/callChat).
+  const visibleChat = identity ? chat.filter((c) => visibleToMe(c, identity)) : chat;
+  const unread = panel === "chat" ? 0 : unreadSince(visibleChat, chatSeenAt, identity);
 
   return (
-    <div className="flex h-full flex-col bg-surface">
+    <>
+      {/* The meeting, small and on top, while the app is used underneath.
+          Rendered as a SIBLING of the room rather than inside it: the room is
+          hidden when minimised, and anything nested in it would be hidden too. */}
+      {minimized && session && (
+        <MiniMeeting
+          title={title}
+          stage={stage}
+          participantCount={participants.length}
+          status={status}
+          micOn={micOn}
+          camOn={camOn}
+          unread={unread}
+          connectedAt={connectedAt}
+          onToggleMic={() => void toggleMic()}
+          onToggleCam={() => void toggleCam()}
+          onRestore={session.restore}
+          onLeave={() => void hangUp()}
+        />
+      )}
+
+      {/* HIDDEN, never unmounted. Unmounting is what disconnects the room and
+          posts the leave (see useCallRoom's cleanup), so keeping this in the
+          DOM is precisely what lets the meeting outlive a minimise. */}
+      <div
+        className={minimized ? "hidden" : "fixed inset-0 z-[100] flex flex-col bg-surface"}
+      >
       <header className="shrink-0 space-y-3 border-b border-border/70 px-5 py-3">
         <div className="min-w-0">
           <div className="truncate font-semibold text-fg">{title}</div>
@@ -407,6 +582,35 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
                 <Users size={17} />
               </CallControlButton>
 
+              <CallControlButton
+                variant="surface"
+                title={
+                  panel === "chat"
+                    ? "Hide chat"
+                    : unread > 0
+                      ? `Chat (${unread} new)`
+                      : "Chat"
+                }
+                pressed={panel === "chat"}
+                onClick={() => setPanel((p) => (p === "chat" ? null : "chat"))}
+                className={panel === "chat" ? "bg-accent text-accent-fg" : undefined}
+              >
+                <span className="relative inline-flex">
+                  <MessageSquare size={17} />
+                  {/* The count, not just a dot: "someone said something" and
+                      "eleven messages went by" are different situations to come
+                      back to. Capped so the badge cannot grow the button. */}
+                  {unread > 0 && (
+                    <span
+                      aria-hidden
+                      className="absolute -right-2 -top-1.5 min-w-[15px] rounded-full bg-danger px-1 text-[9px] font-bold leading-[15px] text-white"
+                    >
+                      {unread > 9 ? "9+" : unread}
+                    </span>
+                  )}
+                </span>
+              </CallControlButton>
+
               {/* Offered to hosts alone, because the server allows nobody else
                   to start or stop one. Everyone still SEES the notice above. */}
               {isHost && (
@@ -437,6 +641,19 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
               >
                 <NotebookPen size={17} />
               </CallControlButton>
+
+              {/* Offered only where there is somewhere to minimise INTO — the
+                  session provider is what keeps the meeting running behind the
+                  rest of the app. */}
+              {session && (
+                <CallControlButton
+                  variant="surface"
+                  title="Minimise — keep the meeting running while you work"
+                  onClick={session.minimize}
+                >
+                  <Minimize2 size={17} />
+                </CallControlButton>
+              )}
             </>
           }
         />
@@ -464,7 +681,17 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
               />
               {stage && (
                 <div className="relative min-h-0 flex-1">
-                  <UnpinButton name={stage.name} onClick={() => setPinned(null)} />
+                  {/* Offered only for a pin somebody MADE. The stage following
+                      the speaker is the room's normal behaviour, and "unpin"
+                      over a tile nobody pinned is a control with nothing to
+                      undo. */}
+                  {pinned ? (
+                    <UnpinButton name={stage.name} onClick={() => setPinned(null)} />
+                  ) : (
+                    <span className="pointer-events-none absolute left-3 top-3 z-10 rounded-full bg-black/55 px-2 py-1 text-[11px] font-medium text-white backdrop-blur">
+                      Speaking
+                    </span>
+                  )}
                   <CallTile p={stage} size="stage" pinned />
                 </div>
               )}
@@ -481,6 +708,15 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
                 notes={notes}
                 onAdd={addNote}
                 onExport={exportNotes}
+                onClose={() => setPanel(null)}
+              />
+            ) : panel === "chat" ? (
+              <CallChat
+                chat={visibleChat}
+                participants={participants}
+                me={identity}
+                onSend={sendChat}
+                onExport={exportChat}
                 onClose={() => setPanel(null)}
               />
             ) : (
@@ -502,6 +738,7 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
         exclude={onTheCall}
         onAdd={addPeople}
       />
-    </div>
+      </div>
+    </>
   );
 }

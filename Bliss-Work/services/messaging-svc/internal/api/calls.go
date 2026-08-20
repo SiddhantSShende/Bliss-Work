@@ -81,36 +81,84 @@ func truncateTitle(title string) string {
 	return title[:cut]
 }
 
+// defaultCallMinutes is how long a SCHEDULED call runs when the organiser does
+// not say.
+//
+// Applied to scheduled calls only, never to "meet now". A call put in the diary
+// has an implied length — an hour is what every calendar in the world defaults
+// to — and giving it one is what lets the sweeper close a meeting whose
+// organiser never turned up to end it. An ad-hoc call has no such implication,
+// and cutting one off at an hour because nobody named a duration would be the
+// product inventing a rule the user never asked for; those end when the SFU
+// reports the room empty instead.
+const defaultCallMinutes = 60
+
+// maxCallMinutes bounds what a caller may ask for. Twelve hours is far past any
+// real meeting and exists to keep a typo'd duration from writing an `ends_at`
+// years out, which is the same as having none at all.
+const maxCallMinutes = 12 * 60
+
 type scheduleCallReq struct {
 	Title string `json:"title"`
 	Media string `json:"media"`
 	// RFC3339. Omit or leave empty to start immediately ("meet now").
 	ScheduledAt string `json:"scheduledAt"`
+	// How long the call is expected to run. Omit for defaultCallMinutes on a
+	// scheduled call, or for no scheduled end at all on a "meet now".
+	DurationMinutes int `json:"durationMinutes"`
 	// Meetings only: same-org users placed on the roster at creation.
 	InviteeIDs []string `json:"inviteeIds"`
 }
 
-// parseSchedule normalises the two request knobs every scheduling endpoint
-// shares. A nil time means "start now"; the media default is video.
-func parseSchedule(req scheduleCallReq) (*time.Time, string, string, bool) {
+// schedule is the normalised form of the knobs every scheduling endpoint
+// shares. A struct rather than a widening return tuple: there are four values
+// now, they are read positionally at three call sites, and a fifth `bool, bool,
+// *time.Time` return is where two of them get swapped without the compiler
+// noticing.
+// badScheduleMsg is the single 400 all three scheduling endpoints answer with.
+// One string because they run the same validation: three copies is three places
+// for the wording to drift from what parseSchedule actually enforces.
+const badScheduleMsg = "media must be audio or video, scheduledAt must be RFC3339, " +
+	"durationMinutes must be between 0 and 720"
+
+type schedule struct {
+	// At is when the call starts, or nil for "start now".
+	At *time.Time
+	// EndsAt is when it is scheduled to be over, or nil for no scheduled end.
+	EndsAt *time.Time
+	Title  string
+	Media  string
+}
+
+// parseSchedule normalises the request knobs every scheduling endpoint shares.
+// Reports false for a media or time this service will not accept, which every
+// caller turns into one 400.
+func parseSchedule(req scheduleCallReq) (schedule, bool) {
 	media := strings.ToLower(strings.TrimSpace(req.Media))
 	if media == "" {
 		media = "video"
 	}
 	if media != "audio" && media != "video" {
-		return nil, "", "", false
+		return schedule{}, false
 	}
-	title := truncateTitle(strings.TrimSpace(req.Title))
-	var at *time.Time
+	if req.DurationMinutes < 0 || req.DurationMinutes > maxCallMinutes {
+		return schedule{}, false
+	}
+	out := schedule{Title: truncateTitle(strings.TrimSpace(req.Title)), Media: media}
 	if s := strings.TrimSpace(req.ScheduledAt); s != "" {
 		t, err := time.Parse(time.RFC3339, s)
 		if err != nil {
-			return nil, "", "", false
+			return schedule{}, false
 		}
 		utc := t.UTC()
-		at = &utc
+		out.At = &utc
 	}
-	return at, title, media, true
+	mins := req.DurationMinutes
+	if mins == 0 && out.At != nil {
+		mins = defaultCallMinutes
+	}
+	out.EndsAt = store.EndsAtFor(out.At, time.Duration(mins)*time.Minute)
+	return out, true
 }
 
 // scheduleChannelCall serves POST /api/v1/channels/{id}/calls.
@@ -130,12 +178,13 @@ func (s *Server) scheduleChannelCall(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	at, title, media, ok := parseSchedule(req)
+	sc, ok := parseSchedule(req)
 	if !ok {
-		writeErr(w, http.StatusBadRequest, "media must be audio or video, scheduledAt must be RFC3339")
+		writeErr(w, http.StatusBadRequest, badScheduleMsg)
 		return
 	}
-	c, err := s.store.ScheduleChannelCall(r.Context(), claims.OrgID, claims.UserID, channelID, title, media, at)
+	c, err := s.store.ScheduleChannelCall(r.Context(), claims.OrgID, claims.UserID,
+		channelID, sc.Title, sc.Media, sc.At, sc.EndsAt)
 	if err != nil {
 		s.mapErrR(w, r, err)
 		return
@@ -179,9 +228,9 @@ func (s *Server) scheduleMeeting(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	at, title, media, ok := parseSchedule(req)
+	sc, ok := parseSchedule(req)
 	if !ok {
-		writeErr(w, http.StatusBadRequest, "media must be audio or video, scheduledAt must be RFC3339")
+		writeErr(w, http.StatusBadRequest, badScheduleMsg)
 		return
 	}
 	if len(req.InviteeIDs) > maxMeetingInvitees {
@@ -194,8 +243,8 @@ func (s *Server) scheduleMeeting(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	c, err := s.store.ScheduleMeeting(
-		r.Context(), claims.OrgID, claims.UserID, title, media, at, req.InviteeIDs)
+	c, err := s.store.ScheduleMeeting(r.Context(), claims.OrgID, claims.UserID,
+		sc.Title, sc.Media, sc.At, sc.EndsAt, req.InviteeIDs)
 	if err != nil {
 		s.mapErrR(w, r, err)
 		return
@@ -215,6 +264,8 @@ type directCallReq struct {
 	Title  string `json:"title"`
 	// RFC3339. Omit to ring now; set it to schedule the call for later.
 	ScheduledAt string `json:"scheduledAt"`
+	// How long the call is expected to run; see scheduleCallReq.
+	DurationMinutes int `json:"durationMinutes"`
 }
 
 // startDirectCall serves POST /api/v1/calls/direct — a call in a one-to-one
@@ -237,18 +288,18 @@ func (s *Server) startDirectCall(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid peerId")
 		return
 	}
-	at, title, media, ok := parseSchedule(scheduleCallReq{
-		Title:       req.Title,
-		Media:       req.Media,
-		ScheduledAt: req.ScheduledAt,
+	sc, ok := parseSchedule(scheduleCallReq{
+		Title:           req.Title,
+		Media:           req.Media,
+		ScheduledAt:     req.ScheduledAt,
+		DurationMinutes: req.DurationMinutes,
 	})
 	if !ok {
-		writeErr(w, http.StatusBadRequest,
-			"media must be audio or video, scheduledAt must be RFC3339")
+		writeErr(w, http.StatusBadRequest, badScheduleMsg)
 		return
 	}
-	c, err := s.store.CreateDirectCall(
-		r.Context(), claims.OrgID, claims.UserID, req.PeerID, title, media, at)
+	c, err := s.store.CreateDirectCall(r.Context(), claims.OrgID, claims.UserID,
+		req.PeerID, sc.Title, sc.Media, sc.At, sc.EndsAt)
 	if err != nil {
 		s.mapErrR(w, r, err)
 		return
@@ -256,7 +307,7 @@ func (s *Server) startDirectCall(w http.ResponseWriter, r *http.Request) {
 	// A scheduled chat call is an appointment the peer needs to see coming; an
 	// immediate one is announced by the ring that follows on the signaling
 	// path, so it stays quiet here rather than arriving twice.
-	if at != nil {
+	if sc.At != nil {
 		s.notifyCall(r.Context(), c, events.TypeCallScheduled, claims.UserID)
 	}
 	writeJSON(w, http.StatusCreated, c)
@@ -521,10 +572,20 @@ func (s *Server) callToken(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	// The room label is the member's DISPLAY NAME, not the JWT's `username` —
+	// that field is the email local-part auth-svc derived at signup, so minting
+	// with it put address fragments ("siddhant.shende", "mayank@example.com")
+	// on the video tiles. The store resolved the real name under the caller's
+	// own org scope; claims.Username remains only as the last resort for a
+	// member with no projection row yet.
+	name := access.DisplayName
+	if name == "" {
+		name = claims.Username
+	}
 	tok, exp, err := s.livekit.Mint(livekit.Grant{
 		Room:     access.CallID,
 		Identity: claims.UserID,
-		Name:     claims.Username,
+		Name:     name,
 		// Everyone on the roster may publish. A view-only role would be a
 		// product decision this feature has not been asked for; the grant shape
 		// already supports it when it is.
@@ -720,24 +781,12 @@ func (s *Server) endCall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if c != nil {
-		s.notifyCall(r.Context(), c, events.TypeCallEnded, claims.UserID)
-		// Egress stops by itself once the room empties; this is the prompt, and
-		// the thing that settles the row when the SFU cannot be reached.
-		s.stopRecording(r.Context(), callID)
-		// Then CLOSE THE ROOM. Ending a call used to be a database fact and
-		// nothing else: the row went ENDED and call.ended went out, but every
-		// participant stayed connected with cameras and microphones live,
-		// because nothing had told the SFU. The organiser ended a meeting that
-		// carried on without them.
-		//
-		// Deleting the room is what makes ending authoritative — it does not
-		// depend on each client receiving the event or acting on it. Clients
-		// still react to call.ended, but that is now the fast path rather than
-		// the only one.
-		//
-		// AFTER stopRecording so egress finalises its file instead of being cut
-		// off mid-write. The room name IS the call id (see livekit.Grant.Room).
-		s.closeRoom(callID)
+		// Announce, stop the recording, then CLOSE THE ROOM — see
+		// endedCallSideEffects for the ordering and for why deleting the room
+		// is what makes ending authoritative rather than a database fact every
+		// client is trusted to act on. Shared with the two ways a call now ends
+		// without anybody pressing this button.
+		s.endedCallSideEffects(r.Context(), c, claims.UserID)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

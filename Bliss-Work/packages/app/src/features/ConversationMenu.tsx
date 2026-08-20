@@ -1,0 +1,280 @@
+/**
+ * The overflow menu on a conversation header — one component for a chat and for
+ * a channel.
+ *
+ * Both headers ask the same five questions of a conversation (who is this, find
+ * something in it, what has been shared in it, stop it interrupting me, and
+ * everything rarer than that), so both get the same menu rather than two that
+ * drift. A channel additionally carries the rows that manage the channel
+ * itself; those are passed in and rendered as their own group, below a
+ * separator, so leaving a channel never sits next to exporting one.
+ *
+ * "More" EXPANDS IN PLACE. It is a disclosure inside this panel, not a second
+ * menu: a submenu that opens beside a right-aligned panel has nowhere to go on
+ * a narrow window, and stacking one popup on another is how a menu becomes
+ * impossible to dismiss on touch. The disclosure collapses again whenever the
+ * menu closes, so re-opening always starts from the short list.
+ *
+ * Layout follows CallMenu and the ChannelMenu it replaces (trigger +
+ * click-away backdrop + absolutely positioned panel) so every menu in the app
+ * behaves the same way.
+ */
+import { useState } from "react";
+import {
+  Bell,
+  BellOff,
+  Bookmark,
+  BookmarkCheck,
+  ChevronDown,
+  Download,
+  Eraser,
+  Images,
+  LogOut,
+  MoreVertical,
+  Pencil,
+  Search,
+  Trash2,
+  User,
+  Users,
+} from "lucide-react";
+import { cn } from "@taskboard/ui";
+
+/** Said on the row itself, because a disabled row with no explanation reads as
+ *  a bug. Matches the wording the channel rows have carried since they were
+ *  first rendered inert. */
+const UNAVAILABLE_HINT = "Not available yet — needs a server endpoint";
+
+export interface ConversationMenuProps {
+  /** Which surface this is. Decides the trigger's label and the profile row's
+   *  icon — a chat's profile is a person, a channel's is its membership. */
+  scope: "chat" | "channel";
+  /** The peer's profile page, or the channel's members. */
+  onViewProfile: () => void;
+  /** Open the in-conversation search field. */
+  onSearch: () => void;
+  /** Open the media / documents / links panel. */
+  onMedia: () => void;
+  /** Muted on THIS DEVICE — see lib/conversationPrefs. */
+  muted: boolean;
+  onToggleMute: () => void;
+  /** Pinned to the top of the list on this device. */
+  shortcut: boolean;
+  onToggleShortcut: () => void;
+  /** Download the loaded conversation as a transcript. */
+  onExport: () => void;
+  /**
+   * Clear this conversation for the caller. OMIT while nothing backs it: the
+   * row then renders disabled with UNAVAILABLE_HINT rather than half-clearing
+   * the page that happens to be loaded and calling it done.
+   */
+  onClearChat?: () => void;
+  /** Leave this channel. Confirmation is the caller's, not the menu's. Its
+   *  presence is what makes this a channel menu. */
+  onLeave?: () => void;
+  /** A leave request is in flight — that one row is disabled, the menu is not. */
+  leaving?: boolean;
+  /** Rename this channel. Same contract as `onClearChat`. */
+  onRename?: () => void;
+  /** Delete this channel. Same contract as `onClearChat`. */
+  onDelete?: () => void;
+  /** Trigger styling, for a header whose other icon buttons are not ghost
+   *  Buttons. The menu panel itself is unaffected. */
+  className?: string;
+}
+
+export function ConversationMenu({
+  scope,
+  onViewProfile,
+  onSearch,
+  onMedia,
+  muted,
+  onToggleMute,
+  shortcut,
+  onToggleShortcut,
+  onExport,
+  onClearChat,
+  onLeave,
+  leaving = false,
+  onRename,
+  onDelete,
+  className,
+}: ConversationMenuProps) {
+  const [open, setOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  const close = () => {
+    setOpen(false);
+    // Collapsed for next time: the point of the disclosure is that the menu is
+    // short until someone asks for the rest of it.
+    setExpanded(false);
+  };
+
+  /** Every row except More either navigates, opens a panel or fires a request;
+   *  none of them wants the menu left behind. */
+  const pick = (run: () => void) => () => {
+    close();
+    run();
+  };
+
+  const label = scope === "channel" ? "Channel options" : "Chat options";
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => (open ? close() : setOpen(true))}
+        title={label}
+        aria-label={label}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className={
+          className ??
+          "flex items-center rounded-lg px-1.5 py-1 text-muted transition-colors hover:bg-surface-2 hover:text-fg"
+        }
+      >
+        <MoreVertical size={16} />
+      </button>
+      {open && (
+        <>
+          {/* Click-away backdrop. One below the panel so it dismisses anything
+              the panel is covering without covering the panel itself. */}
+          <div className="fixed inset-0 z-[999]" onClick={close} aria-hidden />
+          {/* z-1000 deliberately clears every other layer in the app — the
+              tallest elsewhere is z-[200]. This menu opens over a message list
+              that renders images, video, file cards and map previews, and a
+              menu that appears BEHIND the photo it is anchored next to is not a
+              menu.
+
+              The height cap is what keeps the expanded form usable on a short
+              window: eleven rows is taller than a laptop browser's viewport
+              once the disclosure is open, and a panel that runs off the bottom
+              of the screen takes its last rows with it. */}
+          <div
+            role="menu"
+            aria-label={label}
+            className="absolute right-0 z-[1000] mt-1.5 max-h-[70dvh] w-56 overflow-y-auto rounded-xl border border-border bg-surface p-1 shadow-card"
+          >
+            <Item
+              icon={scope === "channel" ? <Users size={15} /> : <User size={15} />}
+              label="View Profile"
+              onClick={pick(onViewProfile)}
+            />
+            <Item icon={<Search size={15} />} label="Search" onClick={pick(onSearch)} />
+            <Item
+              icon={<Images size={15} />}
+              label="Media, Links & Docs"
+              onClick={pick(onMedia)}
+            />
+            <Item
+              icon={muted ? <BellOff size={15} /> : <Bell size={15} />}
+              label={muted ? "Unmute Notifications" : "Mute Notifications"}
+              onClick={pick(onToggleMute)}
+            />
+
+            <Item
+              icon={
+                <ChevronDown
+                  size={15}
+                  className={cn("transition-transform", expanded && "rotate-180")}
+                />
+              }
+              label="More"
+              expanded={expanded}
+              onClick={() => setExpanded((v) => !v)}
+            />
+            {expanded && (
+              // Inset and ruled so the three rows read as belonging to More
+              // rather than as four more peers of it.
+              <div className="ml-3.5 border-l border-border pl-1">
+                <Item
+                  icon={<Eraser size={15} />}
+                  label="Clear Chat"
+                  onClick={onClearChat ? pick(onClearChat) : undefined}
+                  hint={UNAVAILABLE_HINT}
+                  danger
+                />
+                <Item
+                  icon={<Download size={15} />}
+                  label="Export Chat"
+                  onClick={pick(onExport)}
+                />
+                <Item
+                  icon={shortcut ? <BookmarkCheck size={15} /> : <Bookmark size={15} />}
+                  label={shortcut ? "Remove Shortcut" : "Add Shortcut"}
+                  onClick={pick(onToggleShortcut)}
+                />
+              </div>
+            )}
+
+            {onLeave && (
+              <>
+                <div className="my-1 h-px bg-border" role="separator" />
+                <Item
+                  icon={<Pencil size={15} />}
+                  label="Rename"
+                  onClick={onRename ? pick(onRename) : undefined}
+                  hint={UNAVAILABLE_HINT}
+                />
+                <Item
+                  icon={<Trash2 size={15} />}
+                  label="Delete"
+                  onClick={onDelete ? pick(onDelete) : undefined}
+                  hint={UNAVAILABLE_HINT}
+                  danger
+                />
+                <Item
+                  icon={<LogOut size={15} />}
+                  label={leaving ? "Leaving…" : "Leave"}
+                  onClick={leaving ? undefined : pick(onLeave)}
+                  danger
+                />
+              </>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * One menu row.
+ *
+ * A missing `onClick` is what disables the row — the caller decides a capability
+ * is absent by not passing a handler, so there is no way to render an enabled
+ * row that does nothing. `hint` rides on a WRAPPER span because a disabled
+ * button fires no mouse events and its own `title` would never surface.
+ */
+function Item({
+  icon,
+  label,
+  onClick,
+  hint,
+  expanded,
+  danger = false,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick?: () => void;
+  hint?: string;
+  /** Set on the disclosure row only; every other row opens nothing. */
+  expanded?: boolean;
+  danger?: boolean;
+}) {
+  const button = (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      disabled={!onClick}
+      aria-expanded={expanded}
+      className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors disabled:pointer-events-none disabled:opacity-45 ${
+        danger ? "text-danger hover:bg-danger/10" : "text-fg hover:bg-surface-2"
+      }`}
+    >
+      <span className={danger ? "" : "text-muted"}>{icon}</span>
+      <span className="font-medium">{label}</span>
+    </button>
+  );
+  return onClick || !hint ? button : <span title={hint}>{button}</span>;
+}

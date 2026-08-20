@@ -175,7 +175,7 @@ export default defineConfig(({ mode }) => ({
      *
      * TWO chunks exceed it on purpose, and always will:
      *
-     *   CallRoom  ~538 kB  livekit-client, behind features/CallRoomLazy
+     *   CallRoom  ~571 kB  livekit-client, behind features/CallRoomLazy
      *   exceljs   ~940 kB  behind the Export Tasks dynamic import
      *
      * Both are loaded on demand and are not on anyone's critical path, so

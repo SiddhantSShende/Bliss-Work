@@ -16,6 +16,8 @@ import { MessageSquare, Hash, Users } from "lucide-react";
 import { EmptyState } from "@taskboard/ui";
 import { ErrorBoundary, RouteErrorBoundary } from "./features/ErrorBoundary";
 import { BrowserStickies } from "./features/BrowserStickies";
+import { MeetingHost } from "./features/MeetingHost";
+import { MeetingSessionProvider } from "./lib/MeetingSession";
 import { ScreenshotNotice } from "./features/ScreenshotNotice";
 // ── Route loading: eager for signed-out, lazy for everything behind the login ─
 //
@@ -146,6 +148,10 @@ export function App({ config }: { config: PlatformConfig }) {
           <RuntimeProvider config={config}>
             <FileTransferProvider>
             <Router>
+              {/* Inside <Router> because minimising a meeting opened in its own
+                  tab navigates into the app — there is nothing behind the
+                  floating window at /call/:id otherwise. */}
+              <MeetingSessionProvider>
               <SessionBootstrap config={config}>
                 <RouteErrorBoundary>
                 {/* INSIDE RouteErrorBoundary, deliberately. A lazy chunk that
@@ -257,6 +263,12 @@ export function App({ config }: { config: PlatformConfig }) {
                   <Router> so it can read the current location. Electron uses real
                   desktop windows instead. */}
               <BrowserStickies />
+              {/* The meeting, mounted ABOVE the routes so navigating cannot
+                  unmount it — which is what used to hang up the call. Routes
+                  ask for a meeting via useMeetingSession().enter(); none of
+                  them render the room themselves any more. */}
+              <MeetingHost />
+              </MeetingSessionProvider>
             </Router>
             </FileTransferProvider>
             <Toaster position="bottom-right" richColors closeButton />

@@ -29,6 +29,15 @@ import (
 // oversized payload cannot be buffered into the heap as a cheap DoS.
 const smallBody = 1 << 20
 
+// livekitWebhooksPerMinute is the allowance for the SFU's callbacks.
+//
+// Sized for the event rate rather than for a person: LiveKit emits roughly ten
+// events per participant-session (joining, leaving, and each track published
+// and unpublished), so this carries a few hundred people moving in and out of
+// rooms every minute. Still bounded — the route is public, and an allowance is
+// what keeps an unauthenticated endpoint from being an amplifier.
+const livekitWebhooksPerMinute = 3000
+
 // Server holds handler dependencies.
 type Server struct {
 	store    *store.Store
@@ -212,13 +221,21 @@ func (s *Server) Router(webOrigin string) http.Handler {
 	})
 
 	// ── LiveKit webhook ──────────────────────────────────────────────────────
-	// The SFU reporting that a recording finished. Outside /api/v1 because
-	// LiveKit holds no BlissWork account and cannot present our JWT; what
-	// authenticates it is a signature over the body, checked before the payload
-	// is parsed (see livekit.ParseWebhook). Rate-limited per IP like every
-	// other public route, and body-capped like every other route with a body.
+	// The SFU reporting what happened in a room, and how a recording finished.
+	// Outside /api/v1 because LiveKit holds no BlissWork account and cannot
+	// present our JWT; what authenticates it is a signature over the body,
+	// checked before the payload is parsed. Body-capped like every other route
+	// with a body.
+	//
+	// On its OWN rate-limit budget rather than the per-IP default. This used to
+	// carry one event per recording, which is rare; it now also carries every
+	// participant and track event in every room, which is not — and all of it
+	// arrives from the single source address of the SFU. Left on the ordinary
+	// browser-sized allowance, a busy hour would start answering 429 to
+	// `participant_left`, and a dropped departure is exactly the bug this route
+	// was extended to fix: somebody shown as being in a meeting they have left.
 	r.Group(func(g chi.Router) {
-		g.Use(s.limiter.PerIPMiddleware)
+		g.Use(s.limiter.PerIPBudget("livekit", livekitWebhooksPerMinute))
 		g.Use(mw.MaxBytes(smallBody))
 		g.Post("/livekit/webhook", s.livekitWebhook)
 	})

@@ -14,6 +14,12 @@ import { ScheduleCallDialog } from "../features/ScheduleCallDialog";
 import { SendCallLinkDialog } from "../features/SendCallLinkDialog";
 import { deliverCallLink } from "../lib/deliverCallLink";
 import { ChatThread } from "../features/ChatThread";
+import { ConversationMenu } from "../features/ConversationMenu";
+import { ChatSearchBar } from "../features/ChatSearchBar";
+import { ChatAssetsSheet } from "../features/ChatAssetsSheet";
+import { searchMessages } from "../lib/chatSearch";
+import { exportChatTranscript } from "../lib/chatExport";
+import { toggleConversationPref, useConversationPrefs } from "../lib/conversationPrefs";
 import { useWhatsAppForward } from "../lib/useWhatsAppForward";
 import { ForwardToDialog } from "../features/ForwardToDialog";
 import { useChatMedia } from "../features/useChatMedia";
@@ -86,6 +92,11 @@ export function DMView() {
   const [scheduleOpen, setScheduleOpen] = useState(false);
   /** The "who else gets the link" dialog. */
   const [linkOpen, setLinkOpen] = useState(false);
+  // The header's overflow menu opens these two: an inline search over the
+  // loaded messages, and the shared-files panel.
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [assetsOpen, setAssetsOpen] = useState(false);
 
   // Same route-reuse trap as ChannelView's members sheet: navigating to another
   // conversation keeps this component mounted, so the scheduler — which is
@@ -93,6 +104,11 @@ export function DMView() {
   useEffect(() => {
     setForwardTo(null);
     setScheduleOpen(false);
+    // A query typed in one chat would otherwise follow the reader into the next
+    // one and silently hide messages there.
+    setSearchOpen(false);
+    setQuery("");
+    setAssetsOpen(false);
   }, [conversationId]);
 
   useEffect(() => {
@@ -248,6 +264,49 @@ export function DMView() {
     onError: () => toast.error("Couldn't create a call link"),
   });
 
+  // Never render peerUsername directly — it is the email local-part. Read
+  // before the early return because the derived lists below need it; the helper
+  // answers "Unknown user" for a conversation that is briefly missing.
+  const peerName = displayNameOf(conv);
+
+  /**
+   * The messages as the thread renders them.
+   *
+   * Lifted out of the ChatThread call because three other things now read the
+   * same list — the in-conversation search, the Media/Links/Docs panel and the
+   * transcript export — and each of them re-deriving it from `messages` would
+   * be three chances for them to disagree about what is in this conversation.
+   */
+  const thread = useMemo(
+    () =>
+      messages.map((m) => ({
+        id: m.id, senderId: m.senderId, body: m.body, at: m.createdAt, kind: m.kind,
+        status: m.status, pending: m.id.startsWith("temp:"),
+        replyToId: m.replyToId, deletedForAll: m.deletedForAll,
+        isForward: m.isForward,
+        reactions: reactionsByMessage.get(m.id),
+      })),
+    [messages, reactionsByMessage],
+  );
+
+  // A 1:1 bubble carries no sender name — there are only two people and the
+  // side of the thread says which. The surfaces that LIST messages have no
+  // sides, so they get the names attached here rather than in the thread, where
+  // adding them would start captioning quoted replies that never had captions.
+  const threadForTools = useMemo(
+    () => thread.map((m) => ({ ...m, senderName: m.senderId === me.id ? "You" : peerName })),
+    [thread, me.id, peerName],
+  );
+
+  // Searching narrows what the thread draws; it does not touch what is loaded,
+  // so "Load older" still widens the set being searched.
+  const shown = useMemo(
+    () => searchMessages(thread, searchOpen ? query : ""),
+    [thread, searchOpen, query],
+  );
+
+  const prefs = useConversationPrefs();
+
   // Declared before the early return below so the hook order never changes
   // when a conversation is briefly missing mid-navigation.
   //
@@ -272,8 +331,6 @@ export function DMView() {
   // callee with rtc.peer.unreachable). Rather than silently disable the buttons,
   // let the click through and surface a clear note when the peer is offline.
   const isBlocked = conv.blockedByMe || conv.blockedByPeer;
-  // Never render peerUsername directly — it is the email local-part.
-  const peerName = displayNameOf(conv);
   /** A block in either direction rules out every entry in the call menu, not
    *  just ringing — so all four routes through it say the same thing. */
   const blockedNotice = () => {
@@ -319,6 +376,16 @@ export function DMView() {
       return;
     }
     setScheduleOpen(true);
+  };
+  const closeSearch = () => {
+    setSearchOpen(false);
+    setQuery("");
+  };
+  /** The loaded conversation as a text file. Bounded by what is loaded, and the
+   *  transcript's own header says so — see lib/chatExport. */
+  const exportChat = () => {
+    exportChatTranscript(threadForTools, { title: peerName, meId: me.id, now: new Date() });
+    toast.success(`Exported ${threadForTools.length} message${threadForTools.length === 1 ? "" : "s"}`);
   };
 
   return (
@@ -370,23 +437,50 @@ export function DMView() {
           <Button variant="ghost" size="sm" onClick={() => ignore.mutate()} title="Remove from both inboxes">
             <X size={15} /> Ignore
           </Button>
+          {/* Clear Chat is deliberately left unwired: messaging-svc hides one
+              message at a time and has no bulk route, so clearing what happens
+              to be loaded and calling the chat cleared would be a promise the
+              server cannot keep. The menu renders that row disabled with the
+              reason on hover; everything else here works today. */}
+          <ConversationMenu
+            scope="chat"
+            onViewProfile={() => nav(`/app/members/${conv.peerId}`)}
+            onSearch={() => setSearchOpen(true)}
+            onMedia={() => setAssetsOpen(true)}
+            muted={prefs.isMuted("chat", conversationId)}
+            onToggleMute={() => toggleConversationPref("muted", "chat", conversationId)}
+            shortcut={prefs.hasShortcut("chat", conversationId)}
+            onToggleShortcut={() => toggleConversationPref("shortcut", "chat", conversationId)}
+            onExport={exportChat}
+            // Sits alongside two `Button variant="ghost" size="sm"` controls,
+            // so it takes their height and radius rather than the bare
+            // icon-button styling the channel header's neighbours use.
+            className="inline-flex h-8 items-center justify-center rounded-xl px-2 text-muted transition-colors hover:bg-surface-2 hover:text-fg"
+          />
         </div>
       </header>
+      {searchOpen && (
+        <ChatSearchBar
+          value={query}
+          onChange={setQuery}
+          onClose={closeSearch}
+          matches={shown.length}
+          loaded={thread.length}
+          placeholder={`Search your chat with ${peerName}…`}
+        />
+      )}
       <ChatThread
-        messages={messages.map((m) => ({
-          id: m.id, senderId: m.senderId, body: m.body, at: m.createdAt, kind: m.kind,
-          status: m.status, pending: m.id.startsWith("temp:"),
-          replyToId: m.replyToId, deletedForAll: m.deletedForAll,
-          isForward: m.isForward,
-          reactions: reactionsByMessage.get(m.id),
-        }))}
+        messages={shown}
         meId={me.id}
         onLoadOlder={loadOlder}
         loadingOlder={loadingOlder}
         hasOlder={hasOlder}
         // flushStaged, not reply.mutate: Send must emit the attachment tray as
         // well as the text, and must tolerate an empty text (attachments only).
-        onSend={(t) => { media.flushStaged(t); stopTyping(); }}
+        // Sending drops out of search: a filtered thread would swallow the
+        // message the user just sent unless it happened to match the query,
+        // which reads as a send that failed.
+        onSend={(t) => { media.flushStaged(t); stopTyping(); closeSearch(); }}
         replyTo={replyTo ? messages.find((m) => m.id === replyTo) ?? null : null}
         onCancelReply={() => setReplyTo(null)}
         onReply={(id) => setReplyTo(id)}
@@ -428,6 +522,18 @@ export function DMView() {
         sourceMessageId={forwardTo?.id ?? null}
         preview={forwardTo?.body}
       />
+      {/* Mounted only while open, as MeetingCard does with its roster sheet:
+          the panel mints one signed link per attachment in the thread, and a
+          closed panel doing that on a refresh interval is a request nobody
+          asked for. */}
+      {assetsOpen && (
+        <ChatAssetsSheet
+          open
+          onClose={() => setAssetsOpen(false)}
+          title={peerName}
+          messages={threadForTools}
+        />
+      )}
       {scheduleOpen && (
         <ScheduleCallDialog
           scope={{ kind: "direct", peerId: conv.peerId, peerName }}

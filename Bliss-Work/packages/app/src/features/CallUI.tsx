@@ -9,7 +9,7 @@ import { qk } from "../lib/queryBridge";
 import { CallControls } from "./CallControls";
 import { ScreenSharePopup } from "./ScreenSharePopup";
 import { AddPeopleDialog } from "./AddPeopleDialog";
-import { CallRoom } from "./CallRoomLazy";
+import { useMeetingSession } from "../lib/MeetingSession";
 
 /** Attaches a MediaStream to a media element and STARTS it.
  *
@@ -130,6 +130,7 @@ function Backdrop({ children, dark }: { children: ReactNode; dark?: boolean }) {
  */
 function RoomHandoff({ callId, onClose }: { callId: string; onClose: () => void }) {
   const { api } = useRuntime();
+  const { enter, call: active } = useMeetingSession();
   const { data: call, isError } = useQuery({
     queryKey: qk.call(callId),
     queryFn: () => api.call(callId),
@@ -141,16 +142,22 @@ function RoomHandoff({ callId, onClose }: { callId: string; onClose: () => void 
     onClose();
   }, [isError, onClose]);
 
+  // Handed to the session above the router rather than rendered here, so the
+  // widened call gets exactly what every other meeting gets: it survives
+  // navigation, and it can be minimised. This overlay used to box the room into
+  // a modal, which meant a 1:1 that grew a third person took the whole app
+  // hostage until somebody hung up.
+  useEffect(() => {
+    if (!call || active?.id === call.id) return;
+    enter(call, onClose);
+  }, [call, active?.id, enter, onClose]);
+
+  if (call) return null;
+
   return (
     <Backdrop dark>
-      <div className="h-full max-h-[92vh] w-full max-w-5xl overflow-hidden rounded-3xl bg-surface shadow-2xl">
-        {call ? (
-          <CallRoom call={call} onClose={onClose} />
-        ) : (
-          <div className="flex h-full items-center justify-center text-sm text-muted">
-            Moving everyone to the room…
-          </div>
-        )}
+      <div className="flex h-full items-center justify-center text-sm text-muted">
+        Moving everyone to the room…
       </div>
     </Backdrop>
   );

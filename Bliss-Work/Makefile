@@ -2,7 +2,7 @@
 # On Windows run via Git Bash, or use the npm-script equivalents (npm run up/down/...).
 SHELL := bash
 
-.PHONY: help keys env up down reset logs ps seed demo wait test
+.PHONY: help keys env up down reset logs ps seed demo wait test check-migrations
 
 help:
 	@echo "Task-Board targets:"
@@ -51,3 +51,7 @@ reset:
 
 test:
 	npm test --silent
+	node scripts/check-migrations.mjs
+
+check-migrations:
+	node scripts/check-migrations.mjs

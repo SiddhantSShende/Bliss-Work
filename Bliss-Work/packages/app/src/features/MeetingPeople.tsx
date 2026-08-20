@@ -6,9 +6,14 @@
  * with three nullable timestamps rather than a status field. `rosterOf` is the
  * single place that reads them, so the card's counts and the sheet's list can
  * never disagree about what "joined" means.
+ *
+ * The card's chips are counts; this is the answer to "who ARE they" — name,
+ * face, email address — which is why it also carries a search box once the
+ * roster is longer than a glance.
  */
 import { useMemo, useState } from "react";
-import { Users } from "lucide-react";
+import { createPortal } from "react-dom";
+import { Search, Users } from "lucide-react";
 import { Avatar, Badge, EmptyState } from "@taskboard/ui";
 import type { CallDTO, CallParticipantDTO } from "@taskboard/shared";
 import { useUserLabels } from "../lib/userLabel";
@@ -66,6 +71,13 @@ export function rosterOf(call: CallDTO): { invited: RosterEntry[]; joined: Roste
 
 export type PeopleTab = "invited" | "joined";
 
+/** What the count line calls the list it is counting. */
+const TAB_NOUN: Record<PeopleTab, string> = { invited: "invited", joined: "joined" };
+
+/** Below this many people the whole roster fits in one look, and a search box is
+ *  one more control to read past on the way to a list of four names. */
+const SEARCH_FROM = 8;
+
 /** The roster, opened on whichever count was clicked. */
 export function MeetingPeopleSheet({
   call,
@@ -83,36 +95,87 @@ export function MeetingPeopleSheet({
   labelIds?: readonly string[];
 }) {
   const [tab, setTab] = useState<PeopleTab>(initialTab);
+  const [query, setQuery] = useState("");
   // The roster IS the id list, so ask for those people rather than the whole
   // organisation. Falls back to the directory when no gateway is configured.
   const ownIds = useMemo(
     () => call.participants.map((p) => p.userId),
     [call.participants],
   );
-  const { nameOf } = useUserLabels(labelIds ?? ownIds);
+  const { nameOf, emailOf } = useUserLabels(labelIds ?? ownIds);
   const me = useSession((st) => st.user);
-  const roster = rosterOf(call);
+  const roster = useMemo(() => rosterOf(call), [call]);
 
   const tabs: readonly TabSpec<PeopleTab>[] = [
     { key: "invited", label: "Invited", badge: roster.invited.length },
     { key: "joined", label: "Joined", badge: roster.joined.length },
   ];
-  const shown = roster[tab];
 
-  return (
-    <Sheet open={open} onClose={onClose} title={call.title || "Meeting"}>
-      <Tabs tabs={tabs} active={tab} onChange={setTab} className="mb-4" />
+  const q = query.trim().toLowerCase();
+  const all = roster[tab];
+  const shown = useMemo(() => {
+    if (!q) return all;
+    // The three things a row shows, so anything on screen is something you can
+    // type. `username` is included because it is the email local-part people
+    // are used to searching by elsewhere in the app (see lib/matchUser, which
+    // takes a directory UserDTO this list does not have).
+    return all.filter(({ participant }) =>
+      [
+        nameOf(participant.userId, participant.username),
+        emailOf(participant.userId),
+        participant.username,
+      ].some((field) => field.toLowerCase().includes(q)),
+    );
+  }, [all, q, nameOf, emailOf]);
+
+  // Offered on the size of the WHOLE roster, not of the tab in view, so
+  // switching to Joined cannot pull the box out from under a live query and
+  // leave the list quietly filtered by something you can no longer see.
+  const searchable = roster.invited.length >= SEARCH_FROM;
+
+  return createPortal(
+    <Sheet open={open} onClose={onClose} title={call.title || "Meeting"} showClose>
+      <Tabs tabs={tabs} active={tab} onChange={setTab} className="mb-3" />
+
+      {searchable && (
+        <div className="relative mb-3">
+          <Search
+            size={14}
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted"
+          />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search members…"
+            aria-label="Search members"
+            className="w-full rounded-lg border border-border bg-surface-2 py-2 pl-9 pr-3 text-sm text-fg outline-none focus:border-accent"
+          />
+        </div>
+      )}
+
+      {/* The total said in words as well as on the tab badge: the badge is part
+          of a control, and the moment a search narrows the list the number on
+          screen and the number of people on the meeting stop being the same. */}
+      <p className="mb-2 text-xs text-muted">
+        {q
+          ? `${shown.length} of ${all.length} shown`
+          : `${all.length} member${all.length === 1 ? "" : "s"} ${TAB_NOUN[tab]}`}
+      </p>
 
       {shown.length === 0 ? (
         <EmptyState
           icon={<Users size={22} />}
-          title={tab === "joined" ? "Nobody has joined yet" : "Nobody is invited"}
+          title={q ? "No matches" : tab === "joined" ? "Nobody has joined yet" : "Nobody is invited"}
           hint={
-            tab === "joined" ? "People show up here the moment they enter the room." : undefined
+            q
+              ? "Try another name or email address."
+              : tab === "joined"
+                ? "People show up here the moment they enter the room."
+                : undefined
           }
         />
       ) : (
-        <ul className="space-y-1">
+        <ul className="m-0 list-none space-y-1 p-0">
           {shown.map(({ participant, state }) => (
             <li
               key={participant.userId}
@@ -128,7 +191,16 @@ export function MeetingPeopleSheet({
                       had to find yourself by reading your own name. */}
                   {participant.userId === me?.id && <span className="text-muted"> (you)</span>}
                 </div>
-                <div className="text-xs text-muted">{STATE_LABEL[state]}</div>
+                <div className="flex items-center gap-1.5 text-xs text-muted">
+                  {/* "—" for a guest who joined on a link: they are not in this
+                      org's directory, so nobody here has their address. Same
+                      placeholder the Inbox uses for the same reason. */}
+                  <span className="min-w-0 truncate">{emailOf(participant.userId)}</span>
+                  <span aria-hidden="true" className="shrink-0">
+                    ·
+                  </span>
+                  <span className="shrink-0">{STATE_LABEL[state]}</span>
+                </div>
               </div>
               <div className="flex shrink-0 items-center gap-1">
                 {participant.role === "HOST" && <Badge tone="accent">Host</Badge>}
@@ -140,6 +212,7 @@ export function MeetingPeopleSheet({
           ))}
         </ul>
       )}
-    </Sheet>
+    </Sheet>,
+    document.body,
   );
 }

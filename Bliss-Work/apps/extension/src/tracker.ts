@@ -43,7 +43,27 @@ export interface Visit {
   path: string;
   startedAt: number;
   durationMs: number;
+  /**
+   * Where the user came FROM to reach this one — a registrable domain, or the
+   * BlissWork marker. Absent when there was no previous site, or when the
+   * previous site was one that may not be recorded (see `recordableSite`).
+   *
+   * That last case is the point of carrying it here rather than deriving it in
+   * the UI: without it, a hop from a bank to YouTube would publish the bank on
+   * the YouTube row, which is exactly what NEVER_RECORD exists to prevent.
+   */
+  from?: string;
 }
+
+/**
+ * How the timeline says "they were in BlissWork itself".
+ *
+ * Must match BLISSWORK_DESTINATION in packages/shared. Not imported: this
+ * extension ships as a dependency-free esbuild bundle, deliberately, so that
+ * what runs in a member's browser is auditable without following it into the
+ * web application's package tree.
+ */
+export const SELF = "BlissWork";
 
 export interface Candidate {
   url: string;
@@ -110,7 +130,38 @@ export function toVisit(
   startedAt: number,
   durationMs: number,
   opts: CaptureConfig = {},
+  from?: string,
 ): Visit | null {
+  const site = recordableSite(candidate, opts);
+  if (!site) return null;
+
+  // Spans shorter than this are navigation noise — a redirect hop, a mistyped
+  // address, a tab passed through with alt-tab.
+  if (durationMs < 5_000) return null;
+
+  return { ...site, startedAt, durationMs, ...(from ? { from } : {}) };
+}
+
+/**
+ * May this site be recorded at all, and under what name?
+ *
+ * Every rule in `toVisit` EXCEPT the duration minimum, which is about whether a
+ * span is worth keeping rather than whether a site may be named. Split out so
+ * the "switched from" half can ask the identical question: the previous site
+ * appears on the NEXT site's row, so it has to clear the same bar, and a second
+ * copy of the blocklist here is precisely how a bank would eventually leak onto
+ * a YouTube row.
+ *
+ * The duration rule must NOT apply to that use. A four-second glance at a blocked
+ * site is still a blocked site, and it is still not worth naming as a source —
+ * but a four-second glance at an ordinary one is a perfectly good answer to
+ * "where did they come from", even though it is too short to be a visit of its
+ * own.
+ */
+export function recordableSite(
+  candidate: Candidate,
+  opts: CaptureConfig = {},
+): { domain: string; path: string } | null {
   // Incognito is an explicit "do not record this". Honoured UNLESS the workspace
   // has turned that off. The extension can technically see it either way; whether
   // it records it is the configured decision.
@@ -135,11 +186,7 @@ export function toVisit(
   const blocked = [...(opts.captureAll ? [] : NEVER_RECORD), ...(opts.extraBlocked ?? [])];
   if (blocked.some((b) => haystack.includes(b))) return null;
 
-  // Spans shorter than this are navigation noise — a redirect hop, a mistyped
-  // address, a tab passed through with alt-tab.
-  if (durationMs < 5_000) return null;
-
-  return { domain, path: fullPath(url), startedAt, durationMs };
+  return { domain, path: fullPath(url) };
 }
 
 /**
@@ -175,6 +222,27 @@ export function toAgentEvent(v: Visit): {
     targetId: v.domain,
     durationMs: v.durationMs,
     // Encrypted per-org server-side, and only ever read one row at a time.
-    detail: { url: `${v.domain}${v.path}` },
+    // `from` rides here rather than in a column of its own so that the stored
+    // shape is unchanged and no rollup has to learn about it.
+    detail: { url: `${v.domain}${v.path}`, ...(v.from ? { from: v.from } : {}) },
   };
+}
+
+/**
+ * The registrable domain BlissWork itself is served from, derived from the
+ * enrolled API base.
+ *
+ * Used to recognise the member's own BlissWork tab as a source, so the timeline
+ * can say "switched from BlissWork to YouTube" instead of naming the host the
+ * workspace happens to live on. Derived rather than configured: the ingest base
+ * is already provisioned by pairing or by managed policy, and a second setting
+ * that could disagree with it would be one more thing to get wrong.
+ */
+export function selfDomain(apiBase: string | undefined): string | null {
+  if (!apiBase) return null;
+  try {
+    return registrableDomain(new URL(apiBase).hostname);
+  } catch {
+    return null;
+  }
 }

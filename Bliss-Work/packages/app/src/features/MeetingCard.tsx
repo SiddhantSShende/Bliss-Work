@@ -245,7 +245,7 @@ export function MeetingCard({
 
         <div className="flex flex-wrap items-center gap-1.5">
           <button type="button" className={chip} onClick={() => setPeople("invited")}>
-            <Users size={12} /> Invited{" "}
+            <Users size={12} /> Invited Members{" "}
             <span className="font-semibold text-fg">{roster.invited.length}</span>
           </button>
           <button type="button" className={chip} onClick={() => setPeople("joined")}>

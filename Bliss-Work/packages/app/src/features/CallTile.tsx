@@ -35,12 +35,22 @@ export function CallTile({
   size = "grid",
   pinned = false,
   handRaised = false,
+  withAudio = true,
   onTogglePin,
 }: {
   p: RoomParticipant;
   size?: TileSize;
   pinned?: boolean;
   handRaised?: boolean;
+  /**
+   * Render this participant's audio sink.
+   *
+   * On by default, and only ever turned off for a SECOND tile showing someone
+   * already on screen elsewhere — the floating mini window, which previews the
+   * speaker while the room itself stays mounted and hidden behind it. Attaching
+   * the same audio track to two elements plays it twice.
+   */
+  withAudio?: boolean;
   /** Omitted where pinning makes no sense (the stage's own tile has its own
    *  unpin control). */
   onTogglePin?: () => void;
@@ -87,14 +97,14 @@ export function CallTile({
     const el = audioRef.current;
     const track = p.audioTrack;
     // Never play your own microphone back at yourself.
-    if (!el || !track || p.isLocal) return;
+    if (!el || !track || p.isLocal || !withAudio) return;
     track.attach(el);
     return () => {
       track.detach(el);
     };
     // audioStreamId for the same reason as above: un-muting a microphone can
     // hand back a new MediaStreamTrack under the same publication.
-  }, [p.audioTrack, p.isLocal, audioStreamId]);
+  }, [p.audioTrack, p.isLocal, audioStreamId, withAudio]);
 
   return (
     <div
@@ -126,7 +136,7 @@ export function CallTile({
           </div>
         </div>
       )}
-      {!p.isLocal && <audio ref={audioRef} autoPlay />}
+      {!p.isLocal && withAudio && <audio ref={audioRef} autoPlay />}
 
       {/* Pin lives on hover so twelve tiles are not twelve buttons, but it is
           also revealed by keyboard focus — an affordance only a mouse can find

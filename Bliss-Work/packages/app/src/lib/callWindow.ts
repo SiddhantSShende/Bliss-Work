@@ -22,9 +22,84 @@ export interface CallWindowConfig {
   router: "browser" | "hash";
 }
 
+/**
+ * The flag `openCallTab` puts on the URL so the tab it opens can recognise
+ * itself later.
+ *
+ * The tab cannot work this out on its own. `window.opener` is severed below —
+ * deliberately — and even if it were not, the opener goes null the moment the
+ * tab that launched the meeting is closed, which is exactly when someone is
+ * most likely to be finishing up in the meeting tab. A flag the opener writes
+ * INTO the URL survives both.
+ */
+export const OPENED_BY_APP_PARAM = "opened";
+
+/** Where the "this tab exists to hold a meeting" mark lives. Per TAB, which is
+ *  the whole point: sessionStorage is not shared with the tab that opened it. */
+const MEETING_TAB_KEY = "tb.meeting-tab.v1";
+
 /** The in-app path of the meeting room. */
 export function callPath(callId: string): string {
   return `/call/${encodeURIComponent(callId)}`;
+}
+
+/**
+ * Record that THIS tab was opened to hold this meeting.
+ *
+ * Written to sessionStorage rather than kept in React state because the mark
+ * has to outlive the meeting route: the tab can browse the rest of BlissWork
+ * with the meeting running in the floating window, and it is still a tab whose
+ * reason to exist is the meeting.
+ */
+export function rememberMeetingTab(callId: string): void {
+  try {
+    window.sessionStorage.setItem(MEETING_TAB_KEY, callId);
+  } catch {
+    // Private browsing, or storage disabled. The tab simply falls back to
+    // navigating instead of closing — worse, but not broken.
+  }
+}
+
+/** Was this tab opened by BlissWork to hold a meeting? */
+export function isMeetingTab(): boolean {
+  try {
+    return !!window.sessionStorage.getItem(MEETING_TAB_KEY);
+  } catch {
+    return false;
+  }
+}
+
+/** Forget the mark — the meeting is over, so the tab is just a tab again. */
+export function forgetMeetingTab(): void {
+  try {
+    window.sessionStorage.removeItem(MEETING_TAB_KEY);
+  } catch {
+    // Nothing to do: an unreadable store is an unwritable one.
+  }
+}
+
+/** How long to wait before deciding the browser refused to close us. */
+const CLOSE_REFUSED_MS = 150;
+
+/**
+ * Close the meeting tab, or fall back to going somewhere sensible.
+ *
+ * `window.close()` is a REQUEST, not a guarantee — the browser refuses it for a
+ * tab the script did not open, which is precisely the bookmarked-or-reloaded
+ * case. So it is attempted and then checked, rather than trusted: if we are
+ * still here a moment later, the tab was never ours to close and the caller's
+ * fallback runs instead of leaving a dead page on screen.
+ */
+export function closeMeetingTab(fallback: () => void): void {
+  if (!isMeetingTab()) {
+    fallback();
+    return;
+  }
+  forgetMeetingTab();
+  window.close();
+  window.setTimeout(() => {
+    if (!window.closed) fallback();
+  }, CLOSE_REFUSED_MS);
 }
 
 /**
@@ -37,7 +112,10 @@ export function callPath(callId: string): string {
  */
 export function openCallTab(callId: string, config: CallWindowConfig): boolean {
   if (config.kind !== "web" || typeof window === "undefined") return false;
-  const path = callPath(callId);
+  // The flag rides in the URL because it is the only channel to a tab that does
+  // not exist yet — see OPENED_BY_APP_PARAM. It stays on the address afterwards
+  // on purpose: a reload of the meeting tab has to arrive at the same answer.
+  const path = `${callPath(callId)}?${OPENED_BY_APP_PARAM}=1`;
   const url =
     config.router === "hash"
       ? `${window.location.origin}${window.location.pathname}#${path}`
@@ -50,6 +128,12 @@ export function openCallTab(callId: string, config: CallWindowConfig): boolean {
   // Not "noopener" in the feature string: that form returns null, so a blocked
   // pop-up would be indistinguishable from a successful one. Severing the link
   // afterwards gets the same protection with an answer.
+  //
+  // Because of this line the opened tab CANNOT use `window.opener` to recognise
+  // itself, which is why OPENED_BY_APP_PARAM exists. Reading `window.opener`
+  // over there is always false, and a meeting tab that believed it therefore
+  // navigated to /app instead of closing — leaving a second copy of BlissWork
+  // behind every time a meeting ended.
   try {
     opened.opener = null;
     opened.focus();

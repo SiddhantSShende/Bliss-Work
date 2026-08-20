@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { X } from "lucide-react";
 
 /**
  * Shared dialog primitives.
@@ -136,11 +137,21 @@ export function Sheet({
   onClose,
   children,
   title,
+  showClose = false,
 }: {
   open: boolean;
   onClose: () => void;
   children: React.ReactNode;
   title?: string;
+  /**
+   * Render an X in the header alongside the title.
+   *
+   * Opt-in rather than always-on: the sheets that predate it close on the
+   * backdrop, on Escape and on their own footer buttons, and giving every one
+   * of them a second dismiss control is a change to those screens, not to this
+   * primitive. Needs `title` — the X lives in the title row.
+   */
+  showClose?: boolean;
 }) {
   const panelRef = useDialogBehavior(open, onClose);
 
@@ -168,9 +179,20 @@ export function Sheet({
             onClick={(e) => e.stopPropagation()}
           >
             {title && (
-              <h2 className="shrink-0 px-5 pt-5 text-lg font-semibold tracking-tight text-fg">
-                {title}
-              </h2>
+              <div className="flex shrink-0 items-start justify-between gap-3 px-5 pt-5">
+                <h2 className="min-w-0 text-lg font-semibold tracking-tight text-fg">{title}</h2>
+                {showClose && (
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    title="Close"
+                    aria-label="Close"
+                    className="-mr-1 shrink-0 rounded-lg p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg"
+                  >
+                    <X size={15} />
+                  </button>
+                )}
+              </div>
             )}
             <div className={`min-h-0 flex-1 overflow-y-auto px-5 pb-5 ${title ? "pt-4" : "pt-5"}`}>
               {children}

@@ -22,6 +22,29 @@ type Scope =
   | { kind: "meeting" }
   | { kind: "direct"; peerId: string; peerName: string };
 
+/** How long the call is expected to run.
+ *
+ *  The server ENDS the call when this elapses, which is the point: a meeting
+ *  whose organiser closed their laptop rather than pressing End used to stay
+ *  live indefinitely, and everyone still on its roster went on being shown to
+ *  their colleagues as "Busy". The organiser picks the length here rather than
+ *  the product guessing one.
+ *
+ *  "No end time" is offered deliberately for the rare call that genuinely runs
+ *  until people leave — an all-day room. Those still close when the last
+ *  participant disconnects; they simply have no clock on them. */
+const DURATIONS: { label: string; minutes: number }[] = [
+  { label: "15m", minutes: 15 },
+  { label: "30m", minutes: 30 },
+  { label: "1h", minutes: 60 },
+  { label: "2h", minutes: 120 },
+  { label: "No end time", minutes: 0 },
+];
+
+/** Matches the server's own default (defaultCallMinutes in calls.go), so the
+ *  form shows what would happen if it sent nothing. */
+const DEFAULT_MINUTES = 60;
+
 /** Turns a datetime-local value into the RFC3339 the API wants, or undefined
  *  for "start now". datetime-local has no zone, so it is interpreted in the
  *  viewer's timezone — which is what someone picking a time means. */
@@ -46,6 +69,7 @@ export function ScheduleCallDialog({
   const [title, setTitle] = useState("");
   const [media, setMedia] = useState<"audio" | "video">("video");
   const [when, setWhen] = useState("");
+  const [minutes, setMinutes] = useState(DEFAULT_MINUTES);
   const [created, setCreated] = useState<CallDTO | null>(null);
   const [link, setLink] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -53,7 +77,7 @@ export function ScheduleCallDialog({
   const create = useMutation({
     mutationFn: async () => {
       const at = toRFC3339(when);
-      const body = { title: title.trim(), media, scheduledAt: at };
+      const body = { title: title.trim(), media, scheduledAt: at, durationMinutes: minutes };
       if (scope.kind === "channel") return api.scheduleChannelCall(scope.channelId, body);
       // The submit control is disabled without a time in this scope, so `at`
       // is present by the time this runs.
@@ -156,8 +180,26 @@ export function ScheduleCallDialog({
                 onChange={(e) => setWhen(e.target.value)}
                 className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-fg outline-none focus:border-accent"
               />
-              
             </label>
+
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-medium text-muted">
+                Length{" "}
+                <span className="font-normal">— the call ends automatically when it runs out</span>
+              </span>
+              <div className="flex flex-wrap gap-2">
+                {DURATIONS.map((d) => (
+                  <Button
+                    key={d.minutes}
+                    variant={minutes === d.minutes ? "primary" : "ghost"}
+                    size="sm"
+                    onClick={() => setMinutes(d.minutes)}
+                  >
+                    {d.label}
+                  </Button>
+                ))}
+              </div>
+            </div>
 
             <div className="mt-2 flex justify-end gap-2">
               <Button variant="ghost" size="sm" onClick={onClose}>
@@ -180,6 +222,7 @@ export function ScheduleCallDialog({
                 {created.scheduledAt
                   ? new Date(created.scheduledAt).toLocaleString()
                   : "Started now"}
+                {created.endsAt && ` — ends ${new Date(created.endsAt).toLocaleTimeString()}`}
               </div>
             </div>
 

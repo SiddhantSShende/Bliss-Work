@@ -15,7 +15,7 @@
  * The decisions about WHAT may be recorded live in tracker.ts, deliberately free
  * of `chrome.*` so they can be tested.
  */
-import { toAgentEvent, toVisit, type Candidate } from "./tracker";
+import { recordableSite, selfDomain, SELF, toAgentEvent, toVisit, type Candidate } from "./tracker";
 
 const FLUSH_ALARM = "blisswork-flush";
 const FLUSH_MINUTES = 1;
@@ -27,6 +27,17 @@ interface OpenSpan {
   url: string;
   incognito: boolean;
   startedAt: number;
+  /**
+   * The site the user was on immediately before this one — a registrable
+   * domain, or the BlissWork marker. Absent when this is the first span of the
+   * session, or when the previous site was one that may not be recorded.
+   *
+   * Stored on the span rather than recomputed at close time because by then the
+   * previous tab's URL is gone: `chrome.storage.session` holds one open span,
+   * and MV3 kills the worker between events, so anything not written down here
+   * does not survive to the moment the row is built.
+   */
+  from?: string;
 }
 
 interface Config {
@@ -108,17 +119,41 @@ async function closeSpan(now = Date.now()): Promise<void> {
   if (!open) return;
   const cfg = await config();
   const candidate: Candidate = { url: open.url, incognito: open.incognito };
-  const visit = toVisit(candidate, open.startedAt, now - open.startedAt, captureOpts(cfg));
+  const visit = toVisit(
+    candidate, open.startedAt, now - open.startedAt, captureOpts(cfg), open.from,
+  );
   if (visit) await enqueue([toAgentEvent(visit)]);
+}
+
+/**
+ * Where the user is switching AWAY from, as a name that may be recorded.
+ *
+ * Runs the departing tab back through the SAME capture rules the arriving one
+ * faces. Without that, a hop from a bank to an ordinary site would name the bank
+ * on the ordinary site's row — publishing, as a side effect of a feature about
+ * destinations, precisely the visit the blocklist refused to store.
+ *
+ * The member's own BlissWork tab resolves to the marker, because "switched from
+ * BlissWork to YouTube" is the fact worth reading; naming the host the workspace
+ * is served from would be technically true and useless.
+ */
+function sourceName(open: OpenSpan | null, cfg: Config): string | undefined {
+  if (!open) return undefined;
+  const site = recordableSite({ url: open.url, incognito: open.incognito }, captureOpts(cfg));
+  if (!site) return undefined;
+  return site.domain === selfDomain(cfg.apiBase) ? SELF : site.domain;
 }
 
 /** Point the tracker at a new tab, closing whatever was open. */
 async function focus(url: string | undefined, incognito: boolean): Promise<void> {
   const cfg = await config();
   if (!cfg.token || cfg.paused) return;
+  // Read the outgoing span BEFORE closeSpan clears it — that tab is the answer
+  // to "where did they come from" for the one being opened.
+  const from = sourceName(await getOpen(), cfg);
   await closeSpan();
   if (!url) return;
-  await setOpen({ url, incognito, startedAt: Date.now() });
+  await setOpen({ url, incognito, startedAt: Date.now(), ...(from ? { from } : {}) });
 }
 
 async function flush(): Promise<void> {
@@ -209,7 +244,11 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   const open = await getOpen();
   if (open) {
     await closeSpan();
-    await setOpen({ ...open, startedAt: Date.now() });
+    // Re-opened WITHOUT `from`: the switch that started this span has already
+    // been reported on the increment just closed, and repeating it on every
+    // subsequent hour of the same tab would put a switch that happened once on
+    // the timeline once per minute.
+    await setOpen({ url: open.url, incognito: open.incognito, startedAt: Date.now() });
   }
   await flush();
 });

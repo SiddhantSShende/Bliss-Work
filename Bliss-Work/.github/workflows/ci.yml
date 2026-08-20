@@ -93,6 +93,16 @@ jobs:
         # dangerouslySetInnerHTML out of the codebase. A non-blocking XSS guard
         # is not a guard.
         run: npm run lint
+      - name: Check migration filenames and duplicated SQL blocks
+        # Runs here rather than in each service's own suite because the rule is
+        # ONE rule over seven migration directories in three languages — a copy
+        # per service would be the duplication this very check exists to catch,
+        # and the four services with no Go/pytest coverage of their migrations
+        # would still be unguarded.
+        #
+        # No database and no npm install beyond what this job already did: it
+        # only reads filenames and file contents.
+        run: node scripts/check-migrations.mjs
 
   # ───────────────────────────────────────────────────────────────────────────
   # BUILD — compile the front-end bundles (web + desktop renderer).

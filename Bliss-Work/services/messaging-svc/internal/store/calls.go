@@ -67,7 +67,11 @@ type CallDTO struct {
 	Media       string  `json:"media"`
 	CreatedBy   string  `json:"createdBy"`
 	ScheduledAt *string `json:"scheduledAt,omitempty"`
-	StartedAt   *string `json:"startedAt,omitempty"`
+	// EndsAt is when the call is SCHEDULED to be over, which is a different
+	// fact from EndedAt — the first is a plan, the second is history. Absent
+	// on a call that named no duration; the sweeper leaves those alone.
+	EndsAt    *string `json:"endsAt,omitempty"`
+	StartedAt *string `json:"startedAt,omitempty"`
 	// StartedBy is who let everyone in, which is not always who scheduled it.
 	StartedBy    *string              `json:"startedBy,omitempty"`
 	EndedAt      *string              `json:"endedAt,omitempty"`
@@ -147,7 +151,8 @@ func tsPtr(t *time.Time) *string {
 // the channel; no roster is copied, because the roster IS the channel and
 // copying it would let someone who has since left keep a seat.
 func (s *Store) ScheduleChannelCall(
-	ctx context.Context, orgID, callerID, channelID, title, media string, scheduledAt *time.Time,
+	ctx context.Context, orgID, callerID, channelID, title, media string,
+	scheduledAt, endsAt *time.Time,
 ) (*CallDTO, error) {
 	var out *CallDTO
 	err := s.withCaller(ctx, orgID, callerID, func(tx pgx.Tx) error {
@@ -166,9 +171,10 @@ func (s *Store) ScheduleChannelCall(
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO calls (id, org_id, kind, channel_id, title, media,
-			                   created_by, scheduled_at, started_at, status)
-			VALUES ($1, $2, 'CHANNEL', $3, $4, $5, $6, $7, $8, $9)`,
-			id, orgID, channelID, title, media, callerID, scheduledAt, startedAt, status); err != nil {
+			                   created_by, scheduled_at, ends_at, started_at, status)
+			VALUES ($1, $2, 'CHANNEL', $3, $4, $5, $6, $7, $8, $9, $10)`,
+			id, orgID, channelID, title, media, callerID,
+			scheduledAt, endsAt, startedAt, status); err != nil {
 			return err
 		}
 		// The organiser is a HOST from the outset so they can end the call even
@@ -193,7 +199,7 @@ func (s *Store) ScheduleChannelCall(
 // same-org users added up front; everyone else arrives by link.
 func (s *Store) ScheduleMeeting(
 	ctx context.Context, orgID, callerID, title, media string,
-	scheduledAt *time.Time, inviteeIDs []string,
+	scheduledAt, endsAt *time.Time, inviteeIDs []string,
 ) (*CallDTO, error) {
 	var out *CallDTO
 	err := s.withCaller(ctx, orgID, callerID, func(tx pgx.Tx) error {
@@ -207,9 +213,10 @@ func (s *Store) ScheduleMeeting(
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO calls (id, org_id, kind, title, media,
-			                   created_by, scheduled_at, started_at, status)
-			VALUES ($1, $2, 'MEETING', $3, $4, $5, $6, $7, $8)`,
-			id, orgID, title, media, callerID, scheduledAt, startedAt, status); err != nil {
+			                   created_by, scheduled_at, ends_at, started_at, status)
+			VALUES ($1, $2, 'MEETING', $3, $4, $5, $6, $7, $8, $9)`,
+			id, orgID, title, media, callerID,
+			scheduledAt, endsAt, startedAt, status); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
@@ -283,7 +290,8 @@ func (s *Store) ScheduleMeeting(
 // row is itself the grant. Cross-org entry belongs on the meeting-link path,
 // which is the one place it can be audited.
 func (s *Store) CreateDirectCall(
-	ctx context.Context, orgID, callerID, peerID, title, media string, scheduledAt *time.Time,
+	ctx context.Context, orgID, callerID, peerID, title, media string,
+	scheduledAt, endsAt *time.Time,
 ) (*CallDTO, error) {
 	var out *CallDTO
 	err := s.withCaller(ctx, orgID, callerID, func(tx pgx.Tx) error {
@@ -310,9 +318,10 @@ func (s *Store) CreateDirectCall(
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO calls (id, org_id, kind, title, media, created_by,
-			                   scheduled_at, started_at, status)
-			VALUES ($1, $2, 'DIRECT', $3, $4, $5, $6, $7, $8)`,
-			id, orgID, title, media, callerID, scheduledAt, startedAt, status); err != nil {
+			                   scheduled_at, ends_at, started_at, status)
+			VALUES ($1, $2, 'DIRECT', $3, $4, $5, $6, $7, $8, $9)`,
+			id, orgID, title, media, callerID,
+			scheduledAt, endsAt, startedAt, status); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
@@ -599,6 +608,23 @@ func endCallTx(ctx context.Context, tx pgx.Tx, callID string) (*CallDTO, error) 
 	// for a meeting that is never going to begin — and leave a stale lobby
 	// mark on the roster everyone can now read.
 	if _, err := clearLobbyTx(ctx, tx, callID); err != nil {
+		return nil, err
+	}
+	// CLOSE OUT THE ROSTER. Everyone still holding an open participant row is
+	// recorded as having left now, because they have: the room is about to be
+	// deleted on the SFU and there is nothing left to be in.
+	//
+	// Not cosmetic. `left_at` is only ever written by the client's own leave
+	// request, so anybody whose browser was closed rather than clicked keeps an
+	// open row indefinitely — and OnCallUserIDs reads exactly those rows to
+	// decide who is "Busy". Without this line the ONLY thing that stopped a
+	// departed participant being shown to their colleagues as still in a
+	// meeting was the call leaving LIVE, which is precisely the state a call
+	// with no end time never leaves.
+	if _, err := tx.Exec(ctx, `
+		UPDATE call_participants SET left_at = now()
+		WHERE call_id = $1 AND joined_at IS NOT NULL AND left_at IS NULL`,
+		callID); err != nil {
 		return nil, err
 	}
 	// Close every live share. Passing nil means "everyone's" — the one
@@ -993,16 +1019,16 @@ func markExternal(callOrgID string, roster []CallParticipantDTO) []CallParticipa
 
 func getCallTx(ctx context.Context, tx pgx.Tx, callID string) (*CallDTO, error) {
 	var (
-		d                               CallDTO
-		scheduledAt, startedAt, endedAt *time.Time
-		createdAt                       time.Time
+		d                                       CallDTO
+		scheduledAt, endsAt, startedAt, endedAt *time.Time
+		createdAt                               time.Time
 	)
 	err := tx.QueryRow(ctx, `
 		SELECT id, org_id, kind, channel_id, title, media, created_by,
-		       scheduled_at, started_at, started_by, ended_at, status, created_at
+		       scheduled_at, ends_at, started_at, started_by, ended_at, status, created_at
 		FROM calls WHERE id = $1`, callID).
 		Scan(&d.ID, &d.OrgID, &d.Kind, &d.ChannelID, &d.Title, &d.Media, &d.CreatedBy,
-			&scheduledAt, &startedAt, &d.StartedBy, &endedAt, &d.Status, &createdAt)
+			&scheduledAt, &endsAt, &startedAt, &d.StartedBy, &endedAt, &d.Status, &createdAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrForbidden
 	}
@@ -1010,6 +1036,7 @@ func getCallTx(ctx context.Context, tx pgx.Tx, callID string) (*CallDTO, error) 
 		return nil, err
 	}
 	d.ScheduledAt, d.StartedAt, d.EndedAt = tsPtr(scheduledAt), tsPtr(startedAt), tsPtr(endedAt)
+	d.EndsAt = tsPtr(endsAt)
 	d.CreatedAt = createdAt.UTC().Format("2006-01-02T15:04:05.000Z")
 
 	byCall, err := rostersTx(ctx, tx, []string{callID})
@@ -1207,24 +1234,25 @@ func appendCallsTx(ctx context.Context, tx pgx.Tx, ids []string, out *[]CallDTO)
 	byID := make(map[string]*CallDTO, len(ids))
 	rows, err := tx.Query(ctx, `
 		SELECT id, org_id, kind, channel_id, title, media, created_by,
-		       scheduled_at, started_at, started_by, ended_at, status, created_at
+		       scheduled_at, ends_at, started_at, started_by, ended_at, status, created_at
 		FROM calls WHERE id = ANY($1)`, ids)
 	if err != nil {
 		return err
 	}
 	for rows.Next() {
 		var (
-			d                               CallDTO
-			scheduledAt, startedAt, endedAt *time.Time
-			createdAt                       time.Time
+			d                                       CallDTO
+			scheduledAt, endsAt, startedAt, endedAt *time.Time
+			createdAt                               time.Time
 		)
 		if err := rows.Scan(&d.ID, &d.OrgID, &d.Kind, &d.ChannelID, &d.Title, &d.Media,
-			&d.CreatedBy, &scheduledAt, &startedAt, &d.StartedBy, &endedAt,
+			&d.CreatedBy, &scheduledAt, &endsAt, &startedAt, &d.StartedBy, &endedAt,
 			&d.Status, &createdAt); err != nil {
 			rows.Close()
 			return err
 		}
 		d.ScheduledAt, d.StartedAt, d.EndedAt = tsPtr(scheduledAt), tsPtr(startedAt), tsPtr(endedAt)
+		d.EndsAt = tsPtr(endsAt)
 		d.CreatedAt = createdAt.UTC().Format("2006-01-02T15:04:05.000Z")
 		d.Participants = []CallParticipantDTO{}
 		d.ActiveShares = []CallShareDTO{}
@@ -1326,6 +1354,13 @@ type CallAccess struct {
 	Status   string
 	Role     string
 	External bool
+	// DisplayName is how this caller should be LABELLED in the room, and it is
+	// resolved here rather than taken from the JWT because the token has only
+	// `username` — which auth-svc derives from the email local-part at signup,
+	// so it is an address fragment and not a name anybody chose. Populated only
+	// on the path that actually mints a token; the lobby polls this endpoint,
+	// and a name it will not use is a lookup per poll.
+	DisplayName string
 	// Waiting is true when the caller belongs in this call but it has not
 	// started yet. NO TOKEN MAY BE MINTED in that state — the caller is in the
 	// waiting room, and the fields below say what to tell them about it.
@@ -1416,6 +1451,17 @@ func (s *Store) AuthorizeCallAccess(
 		// Everything above decided that this person belongs in the call. This
 		// decides whether the call is open yet.
 		if c.status != CallScheduled {
+			uname, display, nerr := s.cachedUserNames(ctx, tx, orgID, userID)
+			if nerr != nil {
+				return nerr
+			}
+			// username only as a last resort, and only because a member whose
+			// user.created has not been consumed yet has no projected name at
+			// all — an address fragment on a tile still beats a blank one.
+			out.DisplayName = display
+			if out.DisplayName == "" {
+				out.DisplayName = uname
+			}
 			return nil
 		}
 		out.Waiting = true
@@ -1456,9 +1502,42 @@ func (s *Store) AuthorizeCallAccess(
 	return out, nil
 }
 
-// LiveParticipantIDs lists who should be notified about a call — the roster for
-// MEETING and DIRECT, and live channel membership for CHANNEL calls, where the
-// invite set is the channel itself.
+// RosterIDs lists everyone who has ever held a seat in a call, whether or not
+// they are still in it — and live channel membership for a CHANNEL call, where
+// the invite set is the channel and there is no other roster to have.
+//
+// The audience for "this is over", where LiveParticipantIDs is the audience for
+// "this is happening". Both exist because ending a call closes out the roster,
+// which makes the second set empty at exactly the moment the first is needed.
+//
+// Runs under bypass for the same reason LiveParticipantIDs does: a MEETING
+// roster legitimately spans orgs, and this is the server fanning out to a list
+// it computed itself.
+func (s *Store) RosterIDs(ctx context.Context, callID string) ([]string, error) {
+	var ids []string
+	err := s.withBypass(ctx, func(tx pgx.Tx) error {
+		c, err := getCallRowTx(ctx, tx, callID)
+		if err != nil {
+			return err
+		}
+		q := `SELECT user_id FROM call_participants WHERE call_id = $1`
+		args := []any{callID}
+		if c.kind == CallChannel && c.channelID != nil {
+			q = `SELECT user_id FROM channel_members WHERE channel_id = $1`
+			args = []any{*c.channelID}
+		}
+		ids, err = callIDsTx(ctx, tx, q, args...)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return ids, nil
+}
+
+// LiveParticipantIDs lists who should be notified about a call in progress — the
+// roster for MEETING and DIRECT, and live channel membership for CHANNEL calls,
+// where the invite set is the channel itself.
 //
 // Runs under bypass because a MEETING roster legitimately spans orgs and this
 // is trusted server code fanning out a notification, not a user read.
@@ -1554,7 +1633,20 @@ func (s *Store) EmitCallLifecycle(ctx context.Context, c *CallDTO, n CallNotice)
 	recipients := n.Recipients
 	if recipients == nil {
 		var err error
-		recipients, err = s.LiveParticipantIDs(ctx, c.ID)
+		// `call.ended` goes to the WHOLE roster, not the live part of it.
+		//
+		// Ending a call closes out every open participant row in the same
+		// transaction (endCallTx), so by the time this runs there is no live
+		// part left to read — resolving this event the ordinary way would send
+		// it to nobody and leave every client showing a meeting that is over.
+		// The distinction is right in its own terms too: everyone who was in
+		// the call needs to be told it ended, including the host whose leaving
+		// ended it, whose other devices are still showing the room.
+		if n.Type == events.TypeCallEnded {
+			recipients, err = s.RosterIDs(ctx, c.ID)
+		} else {
+			recipients, err = s.LiveParticipantIDs(ctx, c.ID)
+		}
 		if err != nil {
 			return err
 		}

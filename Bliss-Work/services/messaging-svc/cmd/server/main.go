@@ -322,15 +322,20 @@ func main() {
 		log.Info("call recording enabled", "backend", cfg.Media.Backend)
 	}
 
+	apiSrv := api.NewServer(st, verifier, log, blobs, signer, cfg.Media, cfg.Maps, lk).
+		WithSharedRateLimits(rateStore).
+		WithRecorder(recorder)
+
+	// Ends calls that have run past the time they were scheduled to finish.
+	// Runs in EVERY replica on purpose — the sweep claims rows with FOR UPDATE
+	// SKIP LOCKED, so duplicating the timer buys availability without
+	// duplicating the work. See api.RunCallSweeper.
+	go apiSrv.RunCallSweeper(rootCtx)
+
 	// Wrap the root handler so every request is a server span and incoming W3C
 	// tracecontext headers are extracted. When tracing is disabled the global
 	// no-op provider makes this effectively free.
-	handler := otelhttp.NewHandler(
-		api.NewServer(st, verifier, log, blobs, signer, cfg.Media, cfg.Maps, lk).
-			WithSharedRateLimits(rateStore).
-			WithRecorder(recorder).
-			Router(cfg.WebOrigin),
-		"messaging-svc")
+	handler := otelhttp.NewHandler(apiSrv.Router(cfg.WebOrigin), "messaging-svc")
 
 	srv := &http.Server{
 		Addr:              "0.0.0.0:" + cfg.Port,

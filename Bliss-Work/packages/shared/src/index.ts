@@ -2,6 +2,7 @@ export * from "./types/events";
 export * from "./types/domain";
 export * from "./types/errors";
 export * from "./policy/stickyPin";
+export * from "./policy/activityDestination";
 export * from "./policy/mailAddress";
 export * from "./ws-client/WsClient";
 export * from "./graphql/operations";

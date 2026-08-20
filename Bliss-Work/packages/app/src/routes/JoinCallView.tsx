@@ -5,7 +5,7 @@ import { Button, EmptyState } from "@taskboard/ui";
 import type { CallDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
-import { CallRoom } from "../features/CallRoomLazy";
+import { useMeetingSession } from "../lib/MeetingSession";
 
 /**
  * Redeems a meeting invite link: /join?t=<token>
@@ -98,5 +98,28 @@ export function JoinCallView() {
     );
   }
 
-  return <CallRoom call={call} onClose={() => nav("/app")} />;
+  // Handed to the session above the router — see routes/CallWindow for why the
+  // room is never rendered by a route any more.
+  return <HandOff call={call} />;
+}
+
+/**
+ * Ask the session for this meeting, and show that it is happening.
+ *
+ * A component rather than an effect in the view above it because the hand-off
+ * has to happen AFTER the call row resolves, and only once.
+ */
+function HandOff({ call }: { call: CallDTO }) {
+  const { enter, call: active } = useMeetingSession();
+  const nav = useNavigate();
+  useEffect(() => {
+    if (active?.id === call.id) return;
+    enter(call, () => nav("/app"));
+  }, [call, active?.id, enter, nav]);
+
+  return (
+    <div className="flex h-full items-center justify-center bg-surface text-sm text-muted">
+      Joining the meeting…
+    </div>
+  );
 }

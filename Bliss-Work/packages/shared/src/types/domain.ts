@@ -994,6 +994,14 @@ export const CallDTO = z.object({
   createdBy: z.string().uuid(),
   /** Absent for "meet now". */
   scheduledAt: z.string().nullish(),
+  /** When the call is scheduled to be OVER, which is a plan rather than
+   *  history — `endedAt` is history. The server ends a call that reaches this
+   *  without anybody pressing End, so an organiser who closes their laptop no
+   *  longer leaves a meeting running and its participants showing as busy.
+   *
+   *  Absent on a call that named no duration; those end when the last person
+   *  leaves the room. */
+  endsAt: z.string().nullish(),
   startedAt: z.string().nullish(),
   /** Who opened it, which is not always who scheduled it — an org admin or a
    *  channel owner can start a call the organiser is late for. */

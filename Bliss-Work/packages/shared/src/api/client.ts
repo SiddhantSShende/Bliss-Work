@@ -1848,7 +1848,12 @@ export class ApiClient {
    *  Everyone in the channel is implicitly invited; there is no link. */
   scheduleChannelCall(
     channelId: string,
-    body: { title?: string; media?: "audio" | "video"; scheduledAt?: string },
+    body: {
+      title?: string;
+      media?: "audio" | "video";
+      scheduledAt?: string;
+      durationMinutes?: number;
+    },
   ) {
     return this.req(
       this.cfg.messagingBase,
@@ -1874,6 +1879,10 @@ export class ApiClient {
     title?: string;
     media?: "audio" | "video";
     scheduledAt?: string;
+    /** How long it should run. Omit for the server's default hour on a
+     *  scheduled meeting, or for no scheduled end at all on a "meet now".
+     *  The server ends the call when this elapses. */
+    durationMinutes?: number;
     inviteeIds?: string[];
   }) {
     return this.req(
@@ -1911,7 +1920,12 @@ export class ApiClient {
    *  who opens it early waits until you start it. */
   scheduleDirectCall(
     peerId: string,
-    body: { scheduledAt: string; title?: string; media?: "audio" | "video" },
+    body: {
+      scheduledAt: string;
+      title?: string;
+      media?: "audio" | "video";
+      durationMinutes?: number;
+    },
   ) {
     return this.req(
       this.cfg.messagingBase,

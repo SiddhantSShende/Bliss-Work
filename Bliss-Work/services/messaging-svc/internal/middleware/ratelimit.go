@@ -332,6 +332,30 @@ func (l *Limiter) PerIPMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// PerIPBudget caps by IP with an explicit allowance, in a bucket of its own.
+//
+// For a public route whose legitimate sender is a SERVICE rather than a
+// browser, and which therefore has a completely different natural rate. The
+// per-IP default is sized for a person clicking things; a machine reporting
+// every participant and track event in every room on the deployment shares one
+// source address and will exceed it while behaving perfectly normally.
+//
+// Still capped, and still by IP: the route is unauthenticated at the transport
+// layer, so an allowance is what stops an open endpoint being an amplifier. The
+// separate `name` keeps that budget from being spent by, or spending, the
+// ordinary per-IP allowance for the same address.
+func (l *Limiter) PerIPBudget(name string, perMinute int) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !l.AllowCtx(r.Context(), name+":"+clientIP(r), perMinute) {
+				writeRateLimited(w, r, perMinute)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // PerUserMiddleware caps requests by JWT subject. Writes (POST/PUT/PATCH/
 // DELETE) are limited harder than reads, and they bucket independently — a
 // chatty inbox-poller shouldn't lock the user out of sending a message. The

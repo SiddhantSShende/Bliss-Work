@@ -6,7 +6,14 @@ import type { TimelineEntry } from "@taskboard/shared";
 import { useRuntime } from "../../lib/runtime";
 import { qk } from "../../lib/queryBridge";
 import { Tabs, type TabSpec } from "../Tabs";
-import { actionLabel, dayHeading, formatDuration, sourceLabel } from "./activityLabels";
+import {
+  actionLabel,
+  collapseSwitches,
+  dayHeading,
+  destinationOf,
+  formatDuration,
+  sourceLabel,
+} from "./activityLabels";
 
 type Filter = "all" | "auth" | "engagement" | "navigation" | "app" | "site" | "security";
 
@@ -48,7 +55,10 @@ export function MemberTimeline({ userId }: { userId: string }) {
     getNextPageParam: (last) => last.nextCursor ?? undefined,
   });
 
-  const entries = data?.pages.flatMap((p) => p.entries) ?? [];
+  // Collapsed, not filtered: three producers can see the same switch from
+  // different distances, and this keeps the one that names where the person
+  // actually went. See collapseSwitches.
+  const entries = collapseSwitches(data?.pages.flatMap((p) => p.entries) ?? []);
 
   return (
     <div className="space-y-4">
@@ -100,6 +110,12 @@ function Row({ entry }: { entry: TimelineEntry }) {
   const duration = formatDuration(entry.durationMs);
   const preview = entry.detail?.preview;
   const url = entry.detail?.url;
+  // The raw reading behind a resolved name — "youtube.com" under "YouTube".
+  // Shown only when it adds something: a row whose destination had no mapping
+  // already displays the domain as its name, and repeating it underneath is
+  // noise rather than detail.
+  const { to } = destinationOf(entry);
+  const rawDestination = to && to !== entry.targetId ? entry.targetId : null;
 
   return (
     <li className="flex items-start gap-3 rounded-xl px-2 py-2 hover:bg-surface-2">
@@ -128,7 +144,13 @@ function Row({ entry }: { entry: TimelineEntry }) {
         {preview && (
           <p className="mt-0.5 truncate text-sm text-muted" title={preview}>“{preview}”</p>
         )}
-        {url && <p className="mt-0.5 truncate text-xs text-muted" title={url}>{url}</p>}
+        {url ? (
+          <p className="mt-0.5 truncate text-xs text-muted" title={url}>{url}</p>
+        ) : (
+          rawDestination && (
+            <p className="mt-0.5 truncate text-xs text-muted">{rawDestination}</p>
+          )
+        )}
       </div>
       <span className="shrink-0 pt-0.5 text-[11px] text-muted">{src.text}</span>
     </li>

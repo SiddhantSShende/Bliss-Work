@@ -28,7 +28,7 @@ import { groupByDay, whenOf } from "../lib/meetingTime";
 import { Tabs, type TabSpec } from "../features/Tabs";
 import { ScheduleCallDialog } from "../features/ScheduleCallDialog";
 import { MeetingCard } from "../features/MeetingCard";
-import { CallRoom } from "../features/CallRoomLazy";
+import { useMeetingSession } from "../lib/MeetingSession";
 
 type View = "upcoming" | "live" | "past";
 
@@ -38,7 +38,7 @@ export function Meetings() {
   const goBack = useGoBack();
   const [view, setView] = useState<View>("upcoming");
   const [scheduleOpen, setScheduleOpen] = useState(false);
-  const [activeCall, setActiveCall] = useState<CallDTO | null>(null);
+  const { enter, restore, call: active } = useMeetingSession();
 
   const { data: calls = [], isLoading } = useQuery({
     queryKey: qk.calls,
@@ -77,8 +77,21 @@ export function Meetings() {
    * did, which is why this page still holds the fallback.
    */
   const openCall = (call: CallDTO) => {
+    // Already in it — including minimised, which is the case that matters:
+    // "Join" on a meeting you never left should bring it back, not open a
+    // second door into the room you are standing in.
+    if (active?.id === call.id) {
+      restore();
+      return;
+    }
     if (openCallTab(call.id, config)) return;
-    setActiveCall(call);
+    // In place — but held by the session above the router, not by this page, so
+    // the meeting survives navigating away and can be minimised.
+    enter(call, () => {
+      // The row's status (and its startedAt) changed underneath us if this was
+      // the visit that opened or ended it.
+      void qc.invalidateQueries({ queryKey: qk.calls });
+    });
   };
 
   // ONE id set for the whole page, not one per card.
@@ -92,20 +105,6 @@ export function Meetings() {
     () => calls.flatMap((c) => [...c.participants.map((p) => p.userId), c.createdBy]),
     [calls],
   );
-
-  if (activeCall) {
-    return (
-      <CallRoom
-        call={activeCall}
-        onClose={() => {
-          setActiveCall(null);
-          // The row's status (and its startedAt) changed underneath us if this
-          // was the visit that opened or ended it.
-          void qc.invalidateQueries({ queryKey: qk.calls });
-        }}
-      />
-    );
-  }
 
   const TABS: readonly TabSpec<View>[] = [
     { key: "upcoming", label: "Upcoming", badge: buckets.upcoming.length },

@@ -113,3 +113,96 @@ func (m *Minter) roomAdminToken(room string) (string, error) {
 	}
 	return string(signed), nil
 }
+
+// ── Room lifecycle, as the SFU reports it ────────────────────────────────────
+
+// Room webhook events this service acts on. LiveKit sends several more
+// (room_started, participant_joined, track_published…) and they are read as
+// "nothing to do" rather than errors — the route answers 200 to everything it
+// can authenticate, because a non-2xx makes the SFU retry an event we will
+// ignore again.
+const (
+	// EventParticipantLeft fires when the SFU loses a participant, whether they
+	// disconnected politely or their client simply stopped answering. The
+	// second is the case this whole path exists for: it is the only signal
+	// there is when a browser is closed, a laptop sleeps, or a network drops.
+	EventParticipantLeft = "participant_left"
+	// EventRoomFinished fires when the last participant leaves and the SFU
+	// tears the room down.
+	EventRoomFinished = "room_finished"
+)
+
+// RoomEvent is what a room-lifecycle webhook said, reduced to the three facts
+// this service uses.
+type RoomEvent struct {
+	// Event is one of the constants above, or "" for an event to ignore.
+	Event string
+	// Room is the room name, which IS the call id — see Grant.Room. Empty on an
+	// event that named no room.
+	Room string
+	// Identity is the participant's identity, which IS the BlissWork user id.
+	// Set on participant events only.
+	Identity string
+}
+
+// roomWebhookBody is the subset of LiveKit's WebhookEvent this reads.
+//
+// Both spellings of each nested object are accepted for the same reason
+// egress.go accepts both: protojson emits camelCase, and a sender configured to
+// emit proto names emits snake_case. Reading only one of them compiles, passes
+// a hand-written test, and then silently ignores every real webhook.
+type roomWebhookBody struct {
+	Event       string           `json:"event"`
+	Room        *roomInfo        `json:"room"`
+	Participant *participantInfo `json:"participant"`
+}
+
+type roomInfo struct {
+	Name string `json:"name"`
+}
+
+type participantInfo struct {
+	Identity string `json:"identity"`
+}
+
+// ParseRoomWebhook authenticates a LiveKit webhook and extracts what it says
+// about a room or one of its participants.
+//
+// Lives on Minter rather than Recorder because it must work on a deployment
+// with no recording at all: an SFU is configured whenever calling is on, egress
+// only when RECORDINGS_ENABLED is. Reading room events off the Recorder would
+// have made "who is still in this call" depend on whether calls are recorded.
+//
+// An event this service does not act on returns a zero RoomEvent and no error,
+// so the caller can treat "not for me" and "malformed" differently — only the
+// second is worth logging.
+func (m *Minter) ParseRoomWebhook(authHeader string, body []byte) (*RoomEvent, error) {
+	if !m.Configured() {
+		return nil, ErrNotConfigured
+	}
+	if err := verifyWebhook(m.apiKey, m.apiSecret, authHeader, body); err != nil {
+		return nil, err
+	}
+
+	var wb roomWebhookBody
+	if err := json.Unmarshal(body, &wb); err != nil {
+		return nil, fmt.Errorf("livekit: webhook body: %w", err)
+	}
+	if wb.Event != EventParticipantLeft && wb.Event != EventRoomFinished {
+		return &RoomEvent{}, nil
+	}
+	ev := &RoomEvent{Event: wb.Event}
+	if wb.Room != nil {
+		ev.Room = wb.Room.Name
+	}
+	if wb.Participant != nil {
+		ev.Identity = wb.Participant.Identity
+	}
+	// A room event with no room names nothing to act on. Reported as an ignored
+	// event rather than an error: it is the SFU being odd, not an attack, and
+	// there is nothing to retry.
+	if ev.Room == "" || (ev.Event == EventParticipantLeft && ev.Identity == "") {
+		return &RoomEvent{}, nil
+	}
+	return ev, nil
+}

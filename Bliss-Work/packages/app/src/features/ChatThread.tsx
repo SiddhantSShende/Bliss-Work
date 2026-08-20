@@ -399,10 +399,13 @@ export function ChatThread({
                     )}
                     <span className="mt-0.5 flex items-center gap-1 px-1 text-[10px] text-muted/70">
                       {m.pending ? "Sending…" : clock(m.at)}
-                      {/* Sent → Delivered → Seen, on my own bubbles only. The
-                          Inbox thread has shown this for a while; DMs and
-                          channels never did, so there was no way to tell
-                          whether a message had landed. */}
+                      {/* Sent → Delivered → Seen, spelled out, on my own
+                          bubbles only — and on every kind of them, because this
+                          row sits BELOW the bubble and so covers media, files
+                          and shared locations as well as text. Channels pass no
+                          status (there is no per-member read cursor behind a
+                          channel message), and the badge renders nothing for an
+                          absent one. */}
                       {mine && !m.pending && <MessageStatusBadge status={m.status} />}
                     </span>
                   </div>

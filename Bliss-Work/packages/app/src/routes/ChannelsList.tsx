@@ -1,14 +1,15 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { NavLink } from "react-router-dom";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Plus, Hash, Lock, Globe, LogIn, Compass } from "lucide-react";
+import { Plus, Hash, Lock, Globe, LogIn, Compass, BellOff, Bookmark } from "lucide-react";
 import { Button, EmptyState } from "@taskboard/ui";
 import type { ChannelDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { ListHeader, rowClass, relTime } from "../features/ListPane";
 import { CreateChannelDialog } from "../features/CreateChannelDialog";
+import { useConversationPrefs } from "../lib/conversationPrefs";
 
 /**
  * Middle pane of /app/channels.
@@ -39,6 +40,20 @@ export function ChannelsList() {
     queryKey: qk.channels,
     queryFn: () => api.channels(),
   });
+  // Mute and "add shortcut", set from a channel's own overflow menu, are read
+  // back here — this list is the only place either one is observable. Both are
+  // device-local; see lib/conversationPrefs.
+  const prefs = useConversationPrefs();
+
+  // Shortcuts float to the top of "My channels"; everything else keeps the
+  // server's order. A stable partition rather than a sort, so two pinned
+  // channels stay in the order the list already put them in. Browse is left
+  // alone: it is a directory of channels the reader is not in.
+  const orderedMine = useMemo(() => {
+    const pinned = mine.filter((c: ChannelDTO) => prefs.hasShortcut("channel", c.id));
+    if (pinned.length === 0) return mine;
+    return [...pinned, ...mine.filter((c: ChannelDTO) => !prefs.hasShortcut("channel", c.id))];
+  }, [mine, prefs]);
   // Browse lists every open channel in the ORG, so it is paged — the directory
   // grows with the customer, and an org with thousands of channels would
   // otherwise fetch and render all of them to show the first screenful.
@@ -101,7 +116,14 @@ export function ChannelsList() {
               hint="Tap + to create one, or Browse to find open channels."
             />
           ) : (
-            mine.map((c) => <ChannelRow key={c.id} channel={c} />)
+            orderedMine.map((c) => (
+              <ChannelRow
+                key={c.id}
+                channel={c}
+                muted={prefs.isMuted("channel", c.id)}
+                shortcut={prefs.hasShortcut("channel", c.id)}
+              />
+            ))
           )
         ) : open.length === 0 ? (
           <EmptyState
@@ -139,7 +161,17 @@ export function ChannelsList() {
   );
 }
 
-function ChannelRow({ channel: c }: { channel: ChannelDTO }) {
+function ChannelRow({
+  channel: c,
+  muted,
+  shortcut,
+}: {
+  channel: ChannelDTO;
+  /** Muted on this device. A channel carries no unread count, so the icon is
+   *  the whole of what muting shows here. */
+  muted: boolean;
+  shortcut: boolean;
+}) {
   const Icon = c.isLocked ? Lock : Hash;
   return (
     <NavLink
@@ -152,7 +184,11 @@ function ChannelRow({ channel: c }: { channel: ChannelDTO }) {
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-2">
           <span className="truncate font-medium text-fg">{c.name}</span>
-          <span className="shrink-0 text-[10px] text-muted">{relTime(c.lastMessageAt)}</span>
+          <span className="flex shrink-0 items-center gap-1 text-[10px] text-muted">
+            {shortcut && <Bookmark size={11} aria-label="Shortcut" className="text-accent" />}
+            {muted && <BellOff size={11} aria-label="Muted" />}
+            {relTime(c.lastMessageAt)}
+          </span>
         </div>
         <div className="truncate text-sm text-muted">
           {c.lastMessage ?? `${c.memberCount} member${c.memberCount === 1 ? "" : "s"}`}
