@@ -40,10 +40,10 @@ export function createMainWindow(startHidden = false): BrowserWindow {
 
   const win = new BrowserWindow({
     ...(usable ? { x: usable.x, y: usable.y } : {}),
-    width: usable?.width ?? 1180,
-    height: usable?.height ?? 800,
-    minWidth: 900,
-    minHeight: 600,
+    width: usable?.width ?? 1440,
+    height: usable?.height ?? 900,
+    minWidth: 1280,
+    minHeight: 700,
     show: false,
     autoHideMenuBar: true,
     backgroundColor: "#16181f",

@@ -5,7 +5,6 @@ import {
   folderOf,
   inFolder,
   isFeedFolder,
-  isListableFolder,
   mailSearch,
 } from "./mailView";
 
@@ -27,14 +26,12 @@ function row(statusBadge: string | null): InboxItemDTO {
 }
 
 describe("the folders a mailbox has", () => {
-  it("backs all of them with a listing except Spam", () => {
-    for (const folder of ["inbox", "sent", "drafts", "deleted"] as const) {
-      expect(isListableFolder(folder), `${folder} should list`).toBe(true);
+  it("backs all of them with a listing", () => {
+    const keys = MAIL_FOLDERS.map((f) => f.key);
+    for (const folder of ["inbox", "sent", "drafts", "deleted", "favorites"] as const) {
+      expect(keys, `${folder} should list`).toContain(folder);
     }
-    // The one folder with nothing behind it says why rather than looking like a
-    // listing that failed to load.
-    expect(isListableFolder("spam")).toBe(false);
-    expect(MAIL_FOLDERS.find((f) => f.key === "spam")?.unavailable).toBeTruthy();
+    expect(MAIL_FOLDERS.find((f) => f.key === "favorites")?.label).toBe("Favorites");
   });
 
   it("reads three of them from the unified feed and Drafts from its own listing", () => {
@@ -44,7 +41,7 @@ describe("the folders a mailbox has", () => {
     // A draft is in nobody's inbox_items, so the message column must not try to
     // page the feed for it.
     expect(isFeedFolder("drafts")).toBe(false);
-    expect(isFeedFolder("spam")).toBe(false);
+    expect(isFeedFolder("favorites")).toBe(true);
   });
 });
 
@@ -66,9 +63,10 @@ describe("which folder a feed row belongs to", () => {
     expect(inFolder(row(null), "deleted")).toBe(true);
   });
 
-  it("never files a feed row under Drafts or Spam", () => {
+  it("never files a feed row under Drafts or Favorites without a favorite mark", () => {
     expect(inFolder(row(null), "drafts")).toBe(false);
-    expect(inFolder(row("SENT"), "spam")).toBe(false);
+    expect(inFolder(row("SENT"), "favorites")).toBe(false);
+    expect(inFolder(row(null), "favorites", true)).toBe(true);
   });
 });
 

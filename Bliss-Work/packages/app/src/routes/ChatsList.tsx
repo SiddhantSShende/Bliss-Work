@@ -10,7 +10,7 @@ import { displayNameOf } from "../lib/userLabel";
 import { ListHeader, rowClass, relTime } from "../features/ListPane";
 import { NewChatDialog } from "../features/NewChatDialog";
 import { usePresence } from "../lib/usePresence";
-import { useConversationPrefs } from "../lib/conversationPrefs";
+import { toggleConversationPref, useConversationPrefs } from "../lib/conversationPrefs";
 
 const UNAVAILABLE_HINT = "Not available yet — needs a server endpoint";
 

@@ -15,13 +15,13 @@ import {
   groupByDay,
   inFolder,
   isFeedFolder,
-  isListableFolder,
   mailSearch,
   peerOf,
 } from "../lib/mailView";
 import { Tabs } from "../features/Tabs";
 import { MailRow } from "../features/MailRow";
 import { MailDraftList } from "../features/MailDraftList";
+import { toggleMailFavorite, useMailPrefs } from "../lib/mailPrefs";
 
 /**
  * How few rows are too few to stop paging at.
@@ -56,9 +56,11 @@ const MIN_VISIBLE = 12;
  * caches.
  *
  * ── Three sources, one column ────────────────────────────────────────────────
- * Inbox and Sent Items share one request and are told apart by direction.
- * Deleted Items is the same feed read with its visibility predicate inverted,
- * which is a different cache — a deleted row must never land in the live feed's
+ * Inbox, Sent Items and Favorites all share ONE request and are told apart
+ * here: the first two by direction, the third by a star that lives on the
+ * device (lib/mailPrefs) because the server has nowhere to keep one. Deleted
+ * Items is the same feed read with its visibility predicate inverted, which is
+ * a different cache — a deleted row must never land in the live feed's
  * optimistic patches. Drafts are not in the feed at all and have their own
  * listing, rendered by MailDraftList.
  */
@@ -68,13 +70,16 @@ export function MailList() {
   const folder = folderOf(params);
   const search = mailSearch(folder, peerId);
   const spec = folderSpec(folder);
-  // Spam is the one folder with nothing behind it — see lib/mailView.
-  const listable = isListableFolder(folder);
   const isDrafts = folder === "drafts";
   const isDeleted = folder === "deleted";
-  // Whether the keyset feed is what this folder reads. Drafts have their own
-  // listing; Spam has none.
+  const isFavorites = folder === "favorites";
+  // Whether the keyset feed is what this folder reads. Drafts are the one that
+  // does not — they have a listing of their own.
   const fromFeed = isFeedFolder(folder);
+  // The stars, which live on the device rather than on the server — see
+  // lib/mailPrefs. Read here rather than in the row so the Favorites folder can
+  // FILTER on them, not merely draw them.
+  const mailPrefs = useMailPrefs();
 
   const { api, config } = useRuntime();
   const qc = useQueryClient();
@@ -96,9 +101,13 @@ export function MailList() {
   const visible = useMemo(
     () =>
       fromFeed
-        ? items.filter((it) => inFolder(it, folder) && (!unreadOnly || it.unreadCount > 0))
+        ? items.filter(
+          (it) =>
+            inFolder(it, folder, mailPrefs.isFavorite(it.refId)) &&
+            (!unreadOnly || it.unreadCount > 0),
+          )
         : [],
-    [items, folder, fromFeed, unreadOnly],
+      [items, folder, fromFeed, unreadOnly, mailPrefs],
   );
   const groups = useMemo(() => groupByDay(visible), [visible]);
 
@@ -240,7 +249,7 @@ export function MailList() {
           {/* A neutral folder glyph rather than the selected folder's own
               icon: this line says WHICH folder is on screen, and repeating the
               icon the folder column already shows beside the same word buys
-              nothing — while an envelope sitting next to "Spam" reads wrong. */}
+              nothing. */}
           <span className="inline-flex items-center gap-1.5 font-medium text-fg/70">
             <FolderOpen size={13} className="text-accent" /> {spec.label}
           </span>
@@ -269,17 +278,6 @@ export function MailList() {
       </header>
 
       <div className="min-h-0 flex-1 overflow-auto px-2 pb-3 pt-1">
-        {/* A folder with no listing behind it says so, and says why. It is not
-            loading and it is not filtered — there is nothing that could ever
-            arrive in it, which is a different thing from an empty mailbox. */}
-        {!listable && (
-          <EmptyState
-            icon={<FolderOpen size={22} />}
-            title={`${spec.label} is empty`}
-            hint={spec.unavailable}
-          />
-        )}
-
         {/* Drafts are not a page of the feed — their own listing renders here,
             under the same header and inside the same scroll container. */}
         {isDrafts && <MailDraftList search={search} />}
@@ -289,7 +287,15 @@ export function MailList() {
         {fromFeed && visible.length === 0 && !q.isLoading && !q.isFetchingNextPage && (
           <EmptyState
             icon={<Inbox size={22} />}
-            title={unreadOnly ? "Nothing unread" : isDeleted ? "Nothing deleted" : "Nothing here yet"}
+            title={
+              unreadOnly
+                ? "Nothing unread"
+                : isDeleted
+                  ? "Nothing deleted"
+                  : isFavorites
+                    ? "No favorites yet"
+                    : "Nothing here yet"
+            }
             hint={
               unreadOnly
                 ? "Everything in this folder has been read."
@@ -297,7 +303,9 @@ export function MailList() {
                   ? `No mail with ${peerName} in ${spec.label}.`
                   : isDeleted
                     ? "Mail you delete is kept here for 90 days, so you can put it back."
-                    : "Choose New Mail to write one."
+                    : isFavorites
+                      ? "Star a mail from any folder and it is collected here. Stars are kept on this device."
+                      : "Choose New Mail to write one."
             }
           />
         )}
@@ -321,6 +329,10 @@ export function MailList() {
                   key={`${it.itemKind}:${it.refId}`}
                   item={it}
                   search={search}
+                  favorite={it.itemKind === "MAIL" && mailPrefs.isFavorite(it.refId)}
+                  onToggleFavorite={
+                    it.itemKind === "MAIL" ? () => toggleMailFavorite(it.refId) : undefined
+                  }
                   // In Deleted Items the row's one action is the undo of the
                   // one that put it there. Offering Delete again would be a
                   // button that does nothing to a row already deleted.

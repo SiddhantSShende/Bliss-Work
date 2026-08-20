@@ -1,6 +1,6 @@
 import { NavLink } from "react-router-dom";
 import { motion } from "framer-motion";
-import { ListTodo, Mail, MessageCircle, X, Trash2, Flag, Check, Undo2 } from "lucide-react";
+import { ListTodo, Mail, MessageCircle, X, Trash2, Flag, Check, Undo2, Star } from "lucide-react";
 import { Avatar, Badge } from "@taskboard/ui";
 import type { InboxItemDTO } from "@taskboard/shared";
 import { listTime, splitMailPreview } from "../lib/mailView";
@@ -32,6 +32,8 @@ export function MailRow({
   onDismiss,
   onAcknowledge,
   onComplete,
+  favorite = false,
+  onToggleFavorite,
 }: {
   item: InboxItemDTO;
   /** The list's own query string (folder + person), carried into the reading
@@ -51,6 +53,8 @@ export function MailRow({
   onAcknowledge?: (refId: string) => void;
   /** TASK rows only: complete an ACKNOWLEDGED task. Shows the flag button. */
   onComplete?: (refId: string) => void;
+  favorite?: boolean;
+  onToggleFavorite?: (refId: string) => void;
 }) {
   const { nameOf, emailOf } = useUserLabels();
   const isTask = item.itemKind === "TASK";
@@ -178,6 +182,16 @@ export function MailRow({
             list this dense a permanent column of glyphs reads as clutter — but
             never hidden from the keyboard or from touch, which has no hover. */}
         <div className="flex shrink-0 items-center gap-0.5 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
+          {onToggleFavorite && isMail && (
+            <Quick
+              icon={<Star size={14} fill={favorite ? "currentColor" : "none"} />}
+              title={favorite ? "Remove from Favorites" : "Add to Favorites"}
+              label={favorite ? "Remove from Favorites" : "Add to Favorites"}
+              hideLabel
+              tone={favorite ? "accent" : "muted"}
+              onClick={(e) => { e.preventDefault(); onToggleFavorite(item.refId); }}
+            />
+          )}
           {/* TASK actions mirror the assignee state machine: SENT → Acknowledge,
               ACKNOWLEDGED → Complete. Ignore is valid only from SENT. */}
           {isTask && item.statusBadge === "SENT" && onAcknowledge && (

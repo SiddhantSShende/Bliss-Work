@@ -10,71 +10,55 @@ import type { InboxItemDTO } from "@taskboard/shared";
 import { clock, dayLabel } from "./chatFormat";
 
 /** The folders the folder column lists. */
-export type MailFolder = "inbox" | "sent" | "drafts" | "deleted" | "spam";
+export type MailFolder = "inbox" | "sent" | "drafts" | "deleted" | "favorites";
 
 /** One row of the folder column. */
 export interface FolderSpec {
   key: MailFolder;
   label: string;
-  /**
-   * Why this folder can never have anything in it, in the reader's words.
-   *
-   * Set only on Spam, the one folder with nothing behind it (see MAIL_FOLDERS).
-   * The message column renders this INSTEAD of a list, so a folder that is
-   * structurally empty says why rather than implying the mail went missing.
-   */
-  unavailable?: string;
 }
 
 /**
  * The folder list, in the order a mail client puts them.
  *
- * Four of the five are backed by data, and each reads a different source:
- *   inbox   — the unified feed's MAIL rows that the caller did not send…
- *   sent    — …and the ones they did. One feed, two sides, told apart by
- *             `statusBadge` (see isOutgoing).
- *   drafts  — a separate listing (GET /mail/drafts). A draft is in nobody's
- *             feed — no counterparty, no unread, no delivery — so there is no
- *             inbox row for it to be a page of.
- *   deleted — the same feed as inbox/sent, read with its visibility predicate
- *             inverted: deleting a mail hides the caller's row and touches
- *             nothing else, so the wastebasket is those hidden rows.
- *
- * Spam is the one that stays structurally empty, and it carries the reason
- * rather than pretending to be a listing that has not loaded yet.
+ * Each one reads a different source, and no folder here is decorative:
+ *   inbox     — the unified feed's MAIL rows that the caller did not send…
+ *   sent      — …and the ones they did. One feed, two sides, told apart by
+ *               `statusBadge` (see isOutgoing).
+ *   drafts    — a separate listing (GET /mail/drafts). A draft is in nobody's
+ *               feed — no counterparty, no unread, no delivery — so there is no
+ *               inbox row for it to be a page of.
+ *   deleted   — the same feed as inbox/sent, read with its visibility predicate
+ *               inverted: deleting a mail hides the caller's row and touches
+ *               nothing else, so the wastebasket is those hidden rows.
+ *   favorites — the same feed again, narrowed to the mail the reader starred.
+ *               The star is the one thing on this screen the server has no
+ *               column for, so it lives on the device — see lib/mailPrefs.
  */
 export const MAIL_FOLDERS = [
   { key: "inbox", label: "Inbox" },
   { key: "sent", label: "Sent Items" },
   { key: "drafts", label: "Drafts" },
   { key: "deleted", label: "Deleted Items" },
-  {
-    key: "spam",
-    label: "Spam",
-    unavailable: "Mail is never sorted into spam — everything that arrives lands in your Inbox.",
-  },
+  { key: "favorites", label: "Favorites" },
 ] as const satisfies readonly FolderSpec[];
 
-/** The folder's spec, for its label and for whether it can list anything. */
+/** The folder's spec — its label, for the header the message column writes. */
 export function folderSpec(folder: MailFolder): FolderSpec {
   return MAIL_FOLDERS.find((f) => f.key === folder) ?? MAIL_FOLDERS[0];
-}
-
-/** Does this folder have a listing behind it at all? See MAIL_FOLDERS. */
-export function isListableFolder(folder: MailFolder): boolean {
-  return folderSpec(folder).unavailable === undefined;
 }
 
 /**
  * Is this folder served by the unified feed?
  *
- * True for the three that read inbox_items — which is what decides whether the
- * message column runs the keyset feed at all. Drafts have their own listing and
- * Spam has none, so both answer false for the same reason: neither is a page of
- * that feed.
+ * True for the four that read inbox_items — which is what decides whether the
+ * message column runs the keyset feed at all. Favorites is among them: starring
+ * does not move a mail anywhere, it only marks one, so the folder is that same
+ * feed seen through the mark. Drafts answer false because they have a listing
+ * of their own and are no page of this one.
  */
 export function isFeedFolder(folder: MailFolder): boolean {
-  return folder === "inbox" || folder === "sent" || folder === "deleted";
+  return folder === "inbox" || folder === "sent" || folder === "deleted" || folder === "favorites";
 }
 
 /**
@@ -100,13 +84,24 @@ export function isOutgoing(item: InboxItemDTO): boolean {
  * request — the same feed with its visibility predicate inverted — so every row
  * it returns is already in that folder, incoming and outgoing alike, exactly as
  * a wastebasket holds both.
+ *
+ * Favorites cuts across all of them: a starred mail is still in the folder it
+ * was in, so this answers from the mark rather than from the row. The mark is
+ * device-local and the caller is the one holding it (see lib/mailPrefs), which
+ * is why it arrives as an argument — this file stays a pure view of what the
+ * server sent.
+ *
+ * @param favorite whether the READER has starred this row. Only consulted for
+ *                 the Favorites folder.
  */
-export function inFolder(item: InboxItemDTO, folder: MailFolder): boolean {
+export function inFolder(item: InboxItemDTO, folder: MailFolder, favorite = false): boolean {
+  // Threads and tasks cannot be starred: the star is offered on mail rows only,
+  // so anything else would be a row nothing could ever put here.
+  if (folder === "favorites") return item.itemKind === "MAIL" && favorite;
   if (folder === "sent") return isOutgoing(item);
   if (folder === "inbox") return !isOutgoing(item);
   if (folder === "deleted") return true;
-  // Drafts have their own listing and Spam has none, so no row the feed carries
-  // can belong to either.
+  // Drafts have a listing of their own, so no row this feed carries is one.
   return false;
 }
 
