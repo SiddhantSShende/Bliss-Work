@@ -15,6 +15,7 @@
     "@tanstack/react-query": "^5.62.0",
     "@taskboard/shared": "*",
     "@taskboard/ui": "*",
+    "emoji-picker-react": "^4.19.1",
     "exceljs": "^4.4.0",
     "framer-motion": "^11.15.0",
     "livekit-client": "^2.21.0",

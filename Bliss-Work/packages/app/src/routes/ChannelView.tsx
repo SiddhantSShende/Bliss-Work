@@ -113,6 +113,15 @@ export function ChannelView() {
     onError: () => toast.error("Couldn't hide that message"),
   });
 
+  const clearChat = useMutation({
+    mutationFn: () => api.clearChannel(channelId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: qk.channelMessages(channelId) });
+      toast.success("Channel messages cleared for you");
+    },
+    onError: () => toast.error("Couldn't clear the channel messages"),
+  });
+
   const removeForAll = useMutation({
     mutationFn: (id: string) => api.deleteChannelMessageForAll(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.channelMessages(channelId) }),
@@ -179,6 +188,26 @@ export function ChannelView() {
       }`,
     );
     if (ok) leave.mutate();
+  };
+
+  const confirmRename = () => {
+    const name = window.prompt("Channel name", channel?.name ?? "")?.trim();
+    if (!name || name === channel?.name) return;
+    api.renameChannel(channelId, name)
+      .then(() => qc.invalidateQueries({ queryKey: qk.channels }))
+      .then(() => toast.success("Channel renamed"))
+      .catch(() => toast.error("Couldn't rename the channel"));
+  };
+
+  const confirmDelete = () => {
+    if (!window.confirm(`Delete #${channel?.name}? This cannot be undone.`)) return;
+    api.deleteChannel(channelId)
+      .then(() => {
+        void qc.invalidateQueries({ queryKey: qk.channels });
+        nav("/app/channels");
+        toast.success("Channel deleted");
+      })
+      .catch(() => toast.error("Couldn't delete the channel"));
   };
 
   const send = useMutation({
@@ -362,8 +391,13 @@ export function ChannelView() {
             shortcut={prefs.hasShortcut("channel", channelId)}
             onToggleShortcut={() => toggleConversationPref("shortcut", "channel", channelId)}
             onExport={exportChat}
+            onClearChat={() => {
+              if (window.confirm("Clear the loaded channel messages for you?")) clearChat.mutate();
+            }}
             onLeave={confirmLeave}
             leaving={leave.isPending}
+            onRename={confirmRename}
+            onDelete={confirmDelete}
           />
         </div>
       </header>

@@ -73,6 +73,44 @@ func (s *Store) CreateChannel(ctx context.Context, orgID, creatorID, name string
 	}, nil
 }
 
+// RenameChannel changes the channel name for a channel manager.
+func (s *Store) RenameChannel(ctx context.Context, orgID, channelID, callerID string, roles []string, name string) (*ChannelDTO, error) {
+	var out ChannelDTO
+	err := s.withOrg(ctx, orgID, func(tx pgx.Tx) error {
+		if err := requireChannelManager(ctx, tx, orgID, channelID, callerID, roles); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE channels SET name = $2 WHERE id = $1`, channelID, name); err != nil {
+			return err
+		}
+		return tx.QueryRow(ctx, `SELECT id, name, (SELECT count(*) FROM channel_members WHERE channel_id = $1), is_locked, created_by FROM channels WHERE id = $1`, channelID).
+			Scan(&out.ID, &out.Name, &out.MemberCount, &out.IsLocked, &out.CreatedBy)
+	})
+	return &out, err
+}
+
+// DeleteChannel permanently removes a channel and all of its messages.
+func (s *Store) DeleteChannel(ctx context.Context, orgID, channelID, callerID string, roles []string) error {
+	return s.withOrg(ctx, orgID, func(tx pgx.Tx) error {
+		if err := requireChannelManager(ctx, tx, orgID, channelID, callerID, roles); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM message_reactions WHERE message_id IN (SELECT id FROM channel_messages WHERE channel_id = $1)`, channelID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM message_hides WHERE message_id IN (SELECT id FROM channel_messages WHERE channel_id = $1)`, channelID); err != nil {
+			return err
+		}
+		for _, table := range []string{"channel_member_history", "channel_blocks", "channel_members", "channel_messages"} {
+			if _, err := tx.Exec(ctx, `DELETE FROM `+table+` WHERE channel_id = $1`, channelID); err != nil {
+				return err
+			}
+		}
+		_, err := tx.Exec(ctx, `DELETE FROM channels WHERE id = $1 AND org_id = $2`, channelID, orgID)
+		return err
+	})
+}
+
 // AddChannelMembers adds members to a channel; caller must already be a
 // member. Emits ChannelMemberJoined for every member that was actually new
 // (re-adding an existing member is a no-op and emits nothing).

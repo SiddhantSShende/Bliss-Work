@@ -189,7 +189,7 @@ func (s *Store) ExpireOverdueCalls(ctx context.Context, limit int) ([]*CallDTO, 
 // it, and nothing in the product treats a two-minute-stale call as current. It
 // is a ceiling rather than the usual case: pressing Leave still ends the call
 // at once (LeaveCall), and this only covers the departures nobody announced.
-const HostGracePeriod = 2 * time.Minute
+const HostGracePeriod = 10 * time.Second
 
 // ExpireHostlessCalls ends live calls whose HOST has been disconnected for
 // longer than the grace period.

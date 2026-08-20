@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { NavLink } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Bell, BellOff, Bookmark, MessageSquarePlus, MoreVertical, Pin, Plus, Trash2 } from "lucide-react";
+import { Bell, BellOff, MessageSquarePlus, MoreVertical, Pin, Plus, Trash2 } from "lucide-react";
 import { Avatar, EmptyState } from "@taskboard/ui";
 import type { ConversationDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
@@ -157,7 +157,7 @@ export function ChatsList() {
                     <span className="truncate font-medium text-fg">{displayNameOf(c)}</span>
                     <span className="flex shrink-0 items-center gap-1 text-[10px] text-muted">
                       {prefs.hasShortcut("chat", c.id) && (
-                        <Bookmark size={11} aria-label="Shortcut" className="text-accent" />
+                        <Pin size={11} aria-label="Pinned" className="text-accent" />
                       )}
                       {muted && <BellOff size={11} aria-label="Muted" />}
                       {relTime(c.lastMessageAt)}

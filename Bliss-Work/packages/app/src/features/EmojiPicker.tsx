@@ -1,15 +1,12 @@
+import EmojiPicker, { EmojiStyle, Theme } from "emoji-picker-react";
 import { useEffect, useRef, useState } from "react";
 import { Smile } from "lucide-react";
 
 /**
- * A small, built-in emoji palette.
+ * Emoji selection shared by composers and message reactions.
  *
- * NO DEPENDENCY, deliberately. Every off-the-shelf picker ships a full Unicode
- * index and, usually, a sprite sheet or a remote CDN image set — hundreds of
- * kilobytes for a feature whose realistic use is a dozen glyphs, and the remote
- * variants are simply blocked outright by the desktop shell's CSP. This is a
- * curated grid of the reactions people actually send, plus a composer button
- * that inserts into the textarea.
+ * The picker uses native Unicode glyphs, so the operating system supplies the
+ * same broad catalog and visual style people already know from their phone.
  *
  * The list is the ONLY thing to change if the set turns out to be wrong; the
  * server takes an arbitrary emoji string (bounded and control-char-filtered),
@@ -19,15 +16,6 @@ import { Smile } from "lucide-react";
 /** The one-tap row offered on a message bubble. Ordered by how often each is
  *  actually used as a reaction, so the common ones need no aiming. */
 export const QUICK_REACTIONS = ["👍", "❤️", "😂", "🎉", "😮", "🙏"] as const;
-
-/** The composer palette. Same glyphs the reaction row uses, plus enough range
- *  to write with. Grouped loosely so the grid is scannable. */
-const PALETTE = [
-  "👍", "👎", "❤️", "🎉", "😂", "😊", "😉", "😍",
-  "🤔", "😅", "😭", "😡", "😮", "🙏", "👏", "🔥",
-  "✅", "❌", "⚠️", "💡", "📌", "⏰", "🚀", "💯",
-  "👀", "🙌", "🤝", "💪", "☕", "🍕", "🎂", "🌟",
-];
 
 /**
  * Composer emoji button. Inserts at the end of the current text — not at the
@@ -61,12 +49,12 @@ export function EmojiPickerButton({ onPick }: { onPick: (emoji: string) => void 
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="h-11 w-11 rounded-full text-muted hover:bg-surface-2 hover:text-fg"
+        className="flex h-11 w-11 items-center justify-center rounded-full text-muted hover:bg-surface-2 hover:text-fg"
         title="Insert an emoji"
         aria-label="Insert an emoji"
         aria-expanded={open}
       >
-        <Smile size={18} className="mx-auto" />
+        <Smile size={18} />
       </button>
       {open && (
         <EmojiGrid
@@ -90,24 +78,16 @@ export function EmojiGrid({
   className?: string;
 }) {
   return (
-    <div
-      className={`w-64 rounded-2xl border border-border bg-surface p-2 shadow-soft ${className}`}
-      role="menu"
-    >
-      <div className="grid grid-cols-8 gap-0.5">
-        {PALETTE.map((e) => (
-          <button
-            key={e}
-            type="button"
-            role="menuitem"
-            onClick={() => onPick(e)}
-            title={e}
-            className="rounded-lg p-1 text-lg leading-none transition-colors hover:bg-surface-2"
-          >
-            {e}
-          </button>
-        ))}
-      </div>
+    <div className={className}>
+      <EmojiPicker
+        onEmojiClick={(emoji) => onPick(emoji.emoji)}
+        emojiStyle={EmojiStyle.NATIVE}
+        theme={Theme.LIGHT}
+        width="min(350px, calc(100vw - 1rem))"
+        height={420}
+        previewConfig={{ showPreview: false }}
+        lazyLoadEmojis
+      />
     </div>
   );
 }

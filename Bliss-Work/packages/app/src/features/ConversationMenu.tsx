@@ -23,8 +23,6 @@ import { useState } from "react";
 import {
   Bell,
   BellOff,
-  Bookmark,
-  BookmarkCheck,
   ChevronDown,
   Download,
   Eraser,
@@ -32,6 +30,7 @@ import {
   LogOut,
   MoreVertical,
   Pencil,
+  Pin,
   Search,
   Trash2,
   User,
@@ -190,7 +189,7 @@ export function ConversationMenu({
                   icon={<Eraser size={15} />}
                   label="Clear Chat"
                   onClick={onClearChat ? pick(onClearChat) : undefined}
-                  hint={UNAVAILABLE_HINT}
+                  hint={onClearChat ? undefined : UNAVAILABLE_HINT}
                   danger
                 />
                 <Item
@@ -199,8 +198,8 @@ export function ConversationMenu({
                   onClick={pick(onExport)}
                 />
                 <Item
-                  icon={shortcut ? <BookmarkCheck size={15} /> : <Bookmark size={15} />}
-                  label={shortcut ? "Remove Shortcut" : "Add Shortcut"}
+                  icon={<Pin size={15} />}
+                  label={shortcut ? `Unpin ${scope === "channel" ? "Channel" : "Chat"}` : `Pin ${scope === "channel" ? "Channel" : "Chat"}`}
                   onClick={pick(onToggleShortcut)}
                 />
               </div>
@@ -213,13 +212,13 @@ export function ConversationMenu({
                   icon={<Pencil size={15} />}
                   label="Rename"
                   onClick={onRename ? pick(onRename) : undefined}
-                  hint={UNAVAILABLE_HINT}
+                  hint={onRename ? undefined : UNAVAILABLE_HINT}
                 />
                 <Item
                   icon={<Trash2 size={15} />}
                   label="Delete"
                   onClick={onDelete ? pick(onDelete) : undefined}
-                  hint={UNAVAILABLE_HINT}
+                  hint={onDelete ? undefined : UNAVAILABLE_HINT}
                   danger
                 />
                 <Item

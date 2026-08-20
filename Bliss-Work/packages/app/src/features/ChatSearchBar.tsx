@@ -58,8 +58,19 @@ export function ChatSearchBar({
           }}
           placeholder={placeholder}
           aria-label="Search this conversation"
-          className="w-full rounded-lg border border-border bg-surface-2 py-1.5 pl-9 pr-3 text-sm text-fg outline-none focus:border-accent"
+          className={`w-full rounded-lg border border-border bg-surface-2 py-1.5 pl-9 text-sm text-fg outline-none focus:border-accent ${value ? "pr-9" : "pr-3"}`}
         />
+        {value && (
+          <button
+            type="button"
+            onClick={() => onChange("")}
+            title="Clear search"
+            aria-label="Clear search"
+            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted hover:bg-surface hover:text-fg"
+          >
+            <X size={13} />
+          </button>
+        )}
       </div>
       {/* Hidden until there is a query, so an empty field does not announce
           "0 results" at someone who has not typed anything yet. */}

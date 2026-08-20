@@ -73,10 +73,13 @@ var cappedRoutes = map[string]string{
 	"POST /api/v1/messages/{id}/forward-link": "small",
 	"POST /api/v1/messages/{id}/forward":      "small",
 	"POST /api/v1/channels":                   "small",
+	"PATCH /api/v1/channels/{id}":             "small",
+	"DELETE /api/v1/channels/{id}":            "small",
 	"POST /api/v1/channels/{id}/messages":     "small",
 	"POST /api/v1/channels/{id}/members":      "small",
 	"POST /api/v1/channels/{id}/join":         "small",
 	"POST /api/v1/channels/{id}/leave":        "small",
+	"POST /api/v1/channels/{id}/clear":        "small",
 	// Channel moderation. The two DELETEs take no body at all and the PATCH/POST
 	// take a tiny JSON object; all four sit inside the same /api/v1 group that
 	// applies mw.MaxBytes, so the cap is inherited rather than per-handler.
@@ -127,7 +130,7 @@ var cappedRoutes = map[string]string{
 	// bounded by the store's rune limits — and in the same /api/v1 group, so it
 	// runs under the same cap.
 	"PATCH /api/v1/mail/drafts/{id}": "small",
-	"POST /api/v1/mail/{id}/read":        "small",
+	"POST /api/v1/mail/{id}/read":    "small",
 
 	// Calls. Every one of these sits inside the same /api/v1 small-body group,
 	// so the cap is inherited. The bodies are a title, a timestamp and at most

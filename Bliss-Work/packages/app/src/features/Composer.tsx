@@ -139,45 +139,47 @@ export function Composer({
         </div>
       )}
 
-      <div className="flex items-end gap-2">
-      {onAttach && (
-        <button
-          type="button"
-          onClick={onAttach}
-          className="h-11 w-11 shrink-0 rounded-full text-muted hover:bg-surface-2 hover:text-fg"
-          title="Attach photos, videos or files"
-          aria-label="Attach a file"
-        >
-          <Paperclip size={18} className="mx-auto" />
-        </button>
-      )}
-      {onShareLocation && (
-        <button
-          type="button"
-          onClick={onShareLocation}
-          className="h-11 w-11 shrink-0 rounded-full text-muted hover:bg-surface-2 hover:text-fg"
-          title="Share your location"
-          aria-label="Share your location"
-        >
-          <MapPin size={18} className="mx-auto" />
-        </button>
-      )}
-      <EmojiPickerButton
-        onPick={(e) => {
-          // Appended rather than inserted at the caret: the textarea is
-          // uncontrolled from the picker's side, and reaching into its
-          // selection would couple the two for no gain anyone has asked for.
-          setText((t) => t + e);
-          requestAnimationFrame(() => {
-            taRef.current?.focus();
-            grow();
-          });
-        }}
-      />
+      <div className="flex min-w-0 items-center gap-2">
+        <div className="flex shrink-0 items-center gap-1">
+          {onAttach && (
+            <button
+              type="button"
+              onClick={onAttach}
+              className="flex h-11 w-11 items-center justify-center rounded-full text-muted hover:bg-surface-2 hover:text-fg"
+              title="Attach photos, videos or files"
+              aria-label="Attach a file"
+            >
+              <Paperclip size={18} />
+            </button>
+          )}
+          {onShareLocation && (
+            <button
+              type="button"
+              onClick={onShareLocation}
+              className="flex h-11 w-11 items-center justify-center rounded-full text-muted hover:bg-surface-2 hover:text-fg"
+              title="Share your location"
+              aria-label="Share your location"
+            >
+              <MapPin size={18} />
+            </button>
+          )}
+          <EmojiPickerButton
+            onPick={(e) => {
+              // Appended rather than inserted at the caret: the textarea is
+              // uncontrolled from the picker's side, and reaching into its
+              // selection would couple the two for no gain anyone has asked for.
+              setText((t) => t + e);
+              requestAnimationFrame(() => {
+                taRef.current?.focus();
+                grow();
+              });
+            }}
+          />
+        </div>
       <textarea
         ref={taRef}
         rows={1}
-        className="max-h-[140px] min-h-[44px] flex-1 resize-none rounded-2xl border border-border bg-surface px-4 py-2.5 text-sm leading-relaxed text-fg placeholder:text-muted/70 focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/25"
+        className="max-h-[140px] min-h-[44px] min-w-0 flex-1 resize-none rounded-2xl border border-border bg-surface px-4 py-2.5 text-sm leading-relaxed text-fg placeholder:text-muted/70 focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/25"
         placeholder={
           dragging
             ? "Drop files to attach…"

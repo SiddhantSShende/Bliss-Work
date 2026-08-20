@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -13,6 +14,10 @@ type createChannelReq struct {
 	Name      string   `json:"name"`
 	IsLocked  bool     `json:"isLocked"`
 	MemberIDs []string `json:"memberIds"`
+}
+
+type renameChannelReq struct {
+	Name string `json:"name"`
 }
 
 func (s *Server) createChannel(w http.ResponseWriter, r *http.Request) {
@@ -38,6 +43,45 @@ func (s *Server) createChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, dto)
+}
+
+func (s *Server) renameChannel(w http.ResponseWriter, r *http.Request) {
+	claims, _ := auth.FromContext(r.Context())
+	channelID := chi.URLParam(r, "id")
+	if !validUUID(channelID) {
+		writeErr(w, http.StatusBadRequest, "invalid channel id")
+		return
+	}
+	var req renameChannelReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" || len([]rune(name)) > 120 {
+		writeErr(w, http.StatusBadRequest, "name must be between 1 and 120 characters")
+		return
+	}
+	dto, err := s.store.RenameChannel(r.Context(), claims.OrgID, channelID, claims.UserID, claims.Roles, name)
+	if err != nil {
+		s.mapErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, dto)
+}
+
+func (s *Server) deleteChannel(w http.ResponseWriter, r *http.Request) {
+	claims, _ := auth.FromContext(r.Context())
+	channelID := chi.URLParam(r, "id")
+	if !validUUID(channelID) {
+		writeErr(w, http.StatusBadRequest, "invalid channel id")
+		return
+	}
+	if err := s.store.DeleteChannel(r.Context(), claims.OrgID, channelID, claims.UserID, claims.Roles); err != nil {
+		s.mapErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // listOpenChannels serves GET /api/v1/channels/open — the directory of open
@@ -105,6 +149,21 @@ func (s *Server) leaveChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.store.LeaveChannel(r.Context(), claims.OrgID, channelID, claims.UserID); err != nil {
+		s.mapErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// clearChannel hides every message in the channel for this caller only.
+func (s *Server) clearChannel(w http.ResponseWriter, r *http.Request) {
+	claims, _ := auth.FromContext(r.Context())
+	channelID := chi.URLParam(r, "id")
+	if !validUUID(channelID) {
+		writeErr(w, http.StatusBadRequest, "invalid channel id")
+		return
+	}
+	if err := s.store.ClearChannel(r.Context(), claims.OrgID, channelID, claims.UserID); err != nil {
 		s.mapErr(w, err)
 		return
 	}

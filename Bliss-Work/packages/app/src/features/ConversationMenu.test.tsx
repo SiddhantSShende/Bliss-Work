@@ -23,7 +23,7 @@ import userEvent from "@testing-library/user-event";
 import { ConversationMenu, type ConversationMenuProps } from "./ConversationMenu";
 
 const CHAT_ROWS = ["View Profile", "Search", "Media, Links & Docs", "Mute Notifications", "More"];
-const MORE_ROWS = ["Clear Chat", "Export Chat", "Add Shortcut"];
+const MORE_ROWS = ["Clear Chat", "Export Chat", "Pin Chat"];
 
 function menu(props: Partial<ConversationMenuProps> = {}) {
   const handlers = {
@@ -128,7 +128,7 @@ describe("ConversationMenu", () => {
 
     user = await openMenu();
     await user.click(screen.getByRole("menuitem", { name: "More" }));
-    await user.click(screen.getByRole("menuitem", { name: "Add Shortcut" }));
+    await user.click(screen.getByRole("menuitem", { name: "Pin Chat" }));
     expect(h.onToggleShortcut).toHaveBeenCalledOnce();
   });
 
@@ -137,7 +137,7 @@ describe("ConversationMenu", () => {
     const user = await openMenu();
     expect(screen.getByRole("menuitem", { name: "Unmute Notifications" })).toBeInTheDocument();
     await user.click(screen.getByRole("menuitem", { name: "More" }));
-    expect(screen.getByRole("menuitem", { name: "Remove Shortcut" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Unpin Chat" })).toBeInTheDocument();
   });
 
   it("leaves Clear Chat inert while no endpoint backs it, and says why", async () => {

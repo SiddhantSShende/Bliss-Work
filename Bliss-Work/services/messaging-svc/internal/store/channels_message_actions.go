@@ -74,6 +74,20 @@ func (s *Store) HideChannelMessage(ctx context.Context, orgID, callerID, message
 	})
 }
 
+// ClearChannel hides the complete channel history for one reader.
+func (s *Store) ClearChannel(ctx context.Context, orgID, channelID, callerID string) error {
+	return s.withOrg(ctx, orgID, func(tx pgx.Tx) error {
+		if err := requireChannelMember(ctx, tx, orgID, channelID, callerID); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `
+			INSERT INTO message_hides (message_id, user_id, org_id)
+			SELECT id, $2, $3 FROM channel_messages WHERE channel_id = $1
+			ON CONFLICT (message_id, user_id) DO NOTHING`, channelID, callerID, orgID)
+		return err
+	})
+}
+
 // DeleteChannelMessageForAll tombstones a channel message for everyone.
 //
 // Permitted to the AUTHOR or to anyone who moderates the channel. The author

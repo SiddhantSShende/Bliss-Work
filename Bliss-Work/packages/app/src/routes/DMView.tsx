@@ -208,6 +208,11 @@ export function DMView() {
     },
   });
 
+  const clearChat = () => {
+    if (!window.confirm("Clear this chat from your conversations?")) return;
+    ignore.mutate();
+  };
+
   // Block / unblock toggles the caller's own block on the peer. The WS
   // conversation.blocked/unblocked echo (queryBridge) reconciles both sides;
   // we also invalidate here so the actor's UI flips without waiting on it.
@@ -390,7 +395,7 @@ export function DMView() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between border-b border-border/70 bg-surface/60 px-5 py-3 backdrop-blur">
+      <header className="relative z-30 flex items-center justify-between border-b border-border/70 bg-surface/60 px-5 py-3 backdrop-blur">
         {/* min-w-0 + truncate: without them a long username pushes the call and
             block buttons off the right edge on a narrow window. */}
         <div className="flex min-w-0 items-center gap-3">
@@ -452,6 +457,7 @@ export function DMView() {
             shortcut={prefs.hasShortcut("chat", conversationId)}
             onToggleShortcut={() => toggleConversationPref("shortcut", "chat", conversationId)}
             onExport={exportChat}
+            onClearChat={clearChat}
             // Sits alongside two `Button variant="ghost" size="sm"` controls,
             // so it takes their height and radius rather than the bare
             // icon-button styling the channel header's neighbours use.

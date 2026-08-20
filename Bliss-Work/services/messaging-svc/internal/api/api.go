@@ -369,12 +369,15 @@ func (s *Server) Router(webOrigin string) http.Handler {
 			r.Post("/channels", s.createChannel)
 			r.Get("/channels", s.listChannels)
 			r.Get("/channels/open", s.listOpenChannels)
+			r.Patch("/channels/{id}", s.renameChannel)
+			r.Delete("/channels/{id}", s.deleteChannel)
 			r.Get("/channels/{id}/messages", s.listChannelMessages)
 			r.Post("/channels/{id}/messages", s.sendChannelMessage)
 			r.Get("/channels/{id}/members", s.listChannelMembers)
 			r.Post("/channels/{id}/members", s.addChannelMembers)
 			r.Post("/channels/{id}/join", s.joinChannel)
 			r.Post("/channels/{id}/leave", s.leaveChannel)
+			r.Post("/channels/{id}/clear", s.clearChannel)
 			// Moderation. `/members/roster` is registered BEFORE the
 			// `/members/{userId}` routes so chi does not treat the literal
 			// "roster" as a user id — same registration-order rule the

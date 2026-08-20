@@ -1689,6 +1689,17 @@ export class ApiClient {
       body: JSON.stringify({ isLocked: false, ...body }),
     }, ChannelDTO);
   }
+  renameChannel(channelId: string, name: string) {
+    return this.req<ChannelDTO>(this.cfg.messagingBase, `/api/v1/channels/${channelId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name }),
+    }, ChannelDTO);
+  }
+  deleteChannel(channelId: string) {
+    return this.req<void>(this.cfg.messagingBase, `/api/v1/channels/${channelId}`, {
+      method: "DELETE",
+    });
+  }
   joinChannel(channelId: string) {
     return this.req<void>(this.cfg.messagingBase, `/api/v1/channels/${channelId}/join`, {
       method: "POST",
@@ -1696,6 +1707,11 @@ export class ApiClient {
   }
   leaveChannel(channelId: string) {
     return this.req<void>(this.cfg.messagingBase, `/api/v1/channels/${channelId}/leave`, {
+      method: "POST",
+    });
+  }
+  clearChannel(channelId: string) {
+    return this.req<void>(this.cfg.messagingBase, `/api/v1/channels/${channelId}/clear`, {
       method: "POST",
     });
   }
