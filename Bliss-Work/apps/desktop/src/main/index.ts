@@ -121,7 +121,13 @@ if (!app.requestSingleInstanceLock()) {
     // NOTE for packaged macOS builds: CoreLocation is gated by the OS before
     // this handler is consulted, so Info.plist needs
     // NSLocationWhenInUseUsageDescription — see electron-builder config.
-    const allowed = new Set(["media", "geolocation"]);
+    //
+    // "picture-in-picture" is the meeting's floating window: Electron is
+    // Chromium, so requestPictureInPicture() on the stage's <video> produces
+    // a real always-on-top OS window with no second BrowserWindow and no
+    // second call connection — see lib/useMeetingPiP. Denied by default like
+    // everything else here, so without this the request would just fail.
+    const allowed = new Set(["media", "geolocation", "picture-in-picture"]);
     session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => cb(allowed.has(permission)));
     session.defaultSession.setPermissionCheckHandler((_wc, permission) => allowed.has(permission));
 

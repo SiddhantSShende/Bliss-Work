@@ -23,7 +23,17 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { Circle, Clock, Globe, Hand, MessageSquare, Minimize2, NotebookPen, Users } from "lucide-react";
+import {
+  Circle,
+  Clock,
+  Globe,
+  Hand,
+  MessageSquare,
+  Minimize2,
+  NotebookPen,
+  PictureInPicture2,
+  Users,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@taskboard/ui";
 import { ApiError, type CallDTO } from "@taskboard/shared";
@@ -58,6 +68,7 @@ import {
   type SpeakerState,
 } from "../lib/activeSpeaker";
 import { useMeetingSessionOptional } from "../lib/MeetingSession";
+import { useMeetingPiP } from "../lib/useMeetingPiP";
 import { downloadBlob } from "../lib/download";
 import { MiniMeeting } from "./MiniMeeting";
 import { CallControls, CallControlButton } from "./CallControls";
@@ -72,6 +83,13 @@ import { AddPeopleDialog } from "./AddPeopleDialog";
 /** Which side panel is open. One at a time: they share the column, and two
  *  panels on a laptop leaves the meeting itself a strip down the middle. */
 type Panel = "notes" | "members" | "chat" | null;
+
+/** How often the active-speaker filter's clock is re-checked. PROMOTE_AFTER_MS
+ *  and DEMOTE_AFTER_MS are time thresholds, and nothing marks time passing on
+ *  its own — the SFU has no reason to send another event while nobody's
+ *  speaking status has changed. Frequent enough that the silence timeout feels
+ *  immediate against DEMOTE_AFTER_MS, cheap enough not to matter. */
+const SPEAKER_TICK_MS = 250;
 
 export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void }) {
   const room = useCallRoom(call.id);
@@ -120,6 +138,35 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
   // Latched once the server says it cannot record. Deployment config does not
   // change mid-call, so one refusal is enough to stop asking.
   const [recordingUnavailable, setRecordingUnavailable] = useState(false);
+
+  /**
+   * Who is on the stage: the viewer's own pin if they made one, otherwise
+   * whoever the room is listening to.
+   *
+   * The pin WINS, and that is the whole distinction — someone who chose a tile
+   * deliberately should not lose it every time another person speaks. Unpinning
+   * falls through to the active speaker again with no extra state, and because
+   * `pinned` is this component's own state, one viewer's choice is invisible to
+   * everybody else in the meeting.
+   *
+   * Computed here, ahead of the "waiting" early return below, because
+   * useMeetingPiP (a hook) needs it and hooks cannot follow a conditional
+   * return.
+   */
+  const stageId = pinned ?? speakers.active;
+  const stage = stageId ? participants.find((p) => p.identity === stageId) : undefined;
+
+  // What Picture-in-Picture follows: the same track CallTile would show on
+  // the stage tile — a shared screen over a camera, and nothing at all when
+  // the stage participant has neither on, mirroring CallTile's own showVideo
+  // gate so the PiP button never claims to work for an avatar tile.
+  const pipTrack =
+    stage && (stage.camOn || stage.sharing)
+      ? stage.sharing
+        ? stage.screenTrack
+        : stage.videoTrack
+      : null;
+  const pip = useMeetingPiP(pipTrack, status === "connected" || status === "reconnecting");
 
   const title = call.title || (call.kind === "CHANNEL" ? "Channel call" : "Meeting");
   const myName = participants.find((p) => p.isLocal)?.name || me?.displayName || "You";
@@ -183,10 +230,28 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
     .map((p) => p.identity)
     .sort()
     .join(",");
+  // Read fresh by the tick below without making the tick's interval depend on
+  // the speaking set — the interval itself is what re-evaluates the filter's
+  // clock, not a change in who is reported speaking.
+  const speakingRef = useRef<string[]>([]);
+  speakingRef.current = speakingKey ? speakingKey.split(",") : [];
+
   useEffect(() => {
-    const speaking = speakingKey ? speakingKey.split(",") : [];
-    setSpeakers((prev) => reduceActiveSpeaker(prev, speaking, Date.now()));
+    setSpeakers((prev) => reduceActiveSpeaker(prev, speakingRef.current, Date.now()));
   }, [speakingKey]);
+
+  // Time-aware on its own clock, not only when the SFU's reported speaking set
+  // changes: a promotion that crosses PROMOTE_AFTER_MS, or a silence that
+  // crosses DEMOTE_AFTER_MS, has to be caught even when nobody's speaking
+  // status changes in between — otherwise a speaker who simply stopped talking
+  // keeps the stage until somebody else happens to trigger a re-check.
+  useEffect(() => {
+    if (status !== "connected" && status !== "reconnecting") return;
+    const id = setInterval(() => {
+      setSpeakers((prev) => reduceActiveSpeaker(prev, speakingRef.current, Date.now()));
+    }, SPEAKER_TICK_MS);
+    return () => clearInterval(id);
+  }, [status]);
 
   // An open panel is a read one: anything that lands while you are looking at
   // it has been seen, so the badge never counts what is already on screen.
@@ -464,19 +529,6 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
 
   const externals = call.participants.filter((p) => p.external).length;
 
-  /**
-   * Who is on the stage: the viewer's own pin if they made one, otherwise
-   * whoever the room is listening to.
-   *
-   * The pin WINS, and that is the whole distinction — someone who chose a tile
-   * deliberately should not lose it every time another person speaks. Unpinning
-   * falls through to the active speaker again with no extra state, and because
-   * `pinned` is this component's own state, one viewer's choice is invisible to
-   * everybody else in the meeting.
-   */
-  const stageId = pinned ?? speakers.active;
-  const stage = stageId ? participants.find((p) => p.identity === stageId) : undefined;
-
   // Only what this viewer is party to — the wire already guarantees it, and
   // this is the second lock (see lib/callChat).
   const visibleChat = identity ? chat.filter((c) => visibleToMe(c, identity)) : chat;
@@ -641,6 +693,22 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
               >
                 <NotebookPen size={17} />
               </CallControlButton>
+
+              {/* Only where the platform actually supports it — a button that
+                  cannot work is worse than no button. Explicit click = a real
+                  user gesture, so this is the reliable way in; leaving the tab
+                  also attempts it, but browsers are free to refuse that one. */}
+              {pip.supported && (
+                <CallControlButton
+                  variant="surface"
+                  title={pip.active ? "Exit picture-in-picture" : "Picture-in-picture"}
+                  pressed={pip.active}
+                  onClick={pip.toggle}
+                  className={pip.active ? "bg-accent text-accent-fg" : undefined}
+                >
+                  <PictureInPicture2 size={17} />
+                </CallControlButton>
+              )}
 
               {/* Offered only where there is somewhere to minimise INTO — the
                   session provider is what keeps the meeting running behind the

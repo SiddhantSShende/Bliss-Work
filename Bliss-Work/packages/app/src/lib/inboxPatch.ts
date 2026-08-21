@@ -132,36 +132,51 @@ export function patchInboxOnIgnored(qc: QueryClient, e: ConversationIgnored): vo
   });
 }
 
+/**
+ * Apply one receipt rule to BOTH caches a message can be sitting in.
+ *
+ * There are two, with different shapes and different owners: ThreadView reads
+ * `qk.threadMessages` (InfiniteData, paginated), and DMView reads
+ * `qk.messages` (one flat array — see its comment on why older pages are
+ * prepended into it rather than paged).
+ *
+ * Patching only the first is the bug this exists to stop repeating. Delivery
+ * and read receipts arrive as websocket events and are never re-fetched, so a
+ * receipt applied to the thread cache alone simply never reached the DM screen:
+ * the server computed SENT/DELIVERED/SEEN correctly, ListMessages returned it
+ * correctly, and a bubble the recipient had visibly just read went on saying
+ * nothing until something else happened to invalidate the conversation.
+ */
+function patchBothMessageCaches(
+  qc: QueryClient,
+  conversationId: string,
+  threadId: string,
+  rule: (m: MessageDTO) => MessageDTO,
+): void {
+  qc.setQueryData<ThreadInfinite>(qk.threadMessages(threadId), (prev) =>
+    prev ? { ...prev, pages: prev.pages.map((page) => page.map(rule)) } : prev,
+  );
+  qc.setQueryData<MessageDTO[]>(qk.messages(conversationId), (prev) =>
+    prev ? prev.map(rule) : prev,
+  );
+}
+
 /** Bump a sender-side message bubble to DELIVERED status. */
 export function patchThreadOnDelivered(qc: QueryClient, e: MessageDelivered): void {
   const threadId = e.threadId ?? e.conversationId;
-  qc.setQueryData<ThreadInfinite>(qk.threadMessages(threadId), (prev) => {
-    if (!prev) return prev;
-    return {
-      ...prev,
-      pages: prev.pages.map((page) =>
-        page.map((m) =>
-          m.id === e.messageId && m.status !== "SEEN" ? { ...m, status: "DELIVERED" } : m,
-        ),
-      ),
-    };
-  });
+  patchBothMessageCaches(qc, e.conversationId, threadId, (m) =>
+    // SEEN outranks DELIVERED and the two events can land out of order, so this
+    // never writes over a bubble that has already been read.
+    m.id === e.messageId && m.status !== "SEEN" ? { ...m, status: "DELIVERED" } : m,
+  );
 }
 
 /** Bump every sender-side bubble in this thread up to upToSeq to SEEN. */
 export function patchThreadOnRead(qc: QueryClient, e: MessageRead, meId: string): void {
   const threadId = e.threadId ?? e.conversationId;
-  qc.setQueryData<ThreadInfinite>(qk.threadMessages(threadId), (prev) => {
-    if (!prev) return prev;
-    return {
-      ...prev,
-      pages: prev.pages.map((page) =>
-        page.map((m) =>
-          m.senderId === meId && m.seq <= e.upToSeq ? { ...m, status: "SEEN" } : m,
-        ),
-      ),
-    };
-  });
+  patchBothMessageCaches(qc, e.conversationId, threadId, (m) =>
+    m.senderId === meId && m.seq <= e.upToSeq ? { ...m, status: "SEEN" } : m,
+  );
 }
 
 /** Reflect a sender-side soft-delete locally. */

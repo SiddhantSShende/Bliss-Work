@@ -99,6 +99,36 @@ describe("MessageActions — delete for everyone", () => {
   });
 });
 
+describe("MessageActions — mark as unread", () => {
+  it("offers the action after WhatsApp forwarding and before delete for me", async () => {
+    render(
+      <MessageActions
+        mine={false}
+        forwardHref="https://wa.me/"
+        onMarkUnread={() => {}}
+        onHide={() => {}}
+      />,
+    );
+    await openMenu();
+
+    const items = screen.getAllByRole("menuitem");
+    expect(items.map((entry) => entry.textContent?.trim())).toEqual([
+      "Forward to WhatsApp",
+      "Mark as unread",
+      "Delete for me",
+    ]);
+  });
+
+  it("reports the selected message as unread", async () => {
+    const onMarkUnread = vi.fn();
+    render(<MessageActions mine={false} onMarkUnread={onMarkUnread} />);
+    await openMenu();
+    await userEvent.click(screen.getByRole("menuitem", { name: /mark as unread/i }));
+
+    expect(onMarkUnread).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("MessageActions — pin for everyone", () => {
   it("is absent where pinning does not apply", async () => {
     // DMs pass no onTogglePin at all.

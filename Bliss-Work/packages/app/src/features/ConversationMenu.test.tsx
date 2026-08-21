@@ -179,17 +179,42 @@ describe("ConversationMenu", () => {
     expect(screen.getByRole("menu").className).toMatch(/\bz-\[1000\]/);
   });
 
+  // Asserted through the BEHAVIOUR — click somewhere else, menu goes away —
+  // rather than through the click-away backdrop that used to implement it. The
+  // backdrop is gone (it covered the whole app at z-[999] and swallowed the
+  // click that dismissed it, so reaching any other control took two presses);
+  // this rule did not change, and a test written against the mechanism rather
+  // than the rule is what turned removing that layer into a false failure.
   it("closes when the click lands outside it", async () => {
     menu();
     const user = await openMenu();
     expect(screen.getByRole("menu")).toBeInTheDocument();
 
-    const backdrop = document.querySelector('[aria-hidden="true"].fixed');
-    expect(backdrop).not.toBeNull();
-    // One below the panel, so it dismisses without covering what it guards.
-    expect((backdrop as Element).className).toMatch(/\bz-\[999\]/);
-    await user.click(backdrop as Element);
+    await user.click(document.body);
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
+  it("closes on Escape", async () => {
+    menu();
+    const user = await openMenu();
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
+  // The disclosure is collapsed again on the way out, so re-opening always
+  // starts from the short list — the same promise `close` has always made,
+  // now that Escape is another way to reach it.
+  it("collapses More when dismissed by Escape", async () => {
+    menu();
+    const user = await openMenu();
+    await user.click(screen.getByRole("menuitem", { name: /More/ }));
+    expect(screen.getByRole("menuitem", { name: /Export Chat/ })).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    await openMenu();
+    expect(screen.queryByRole("menuitem", { name: /Export Chat/ })).not.toBeInTheDocument();
   });
 });
 

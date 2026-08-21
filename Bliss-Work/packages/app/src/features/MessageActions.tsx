@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import {
   CornerUpLeft,
   Forward,
   MoreHorizontal,
+  MailOpen,
   Pin,
   PinOff,
   SmilePlus,
@@ -10,7 +11,8 @@ import {
   EyeOff,
 } from "lucide-react";
 import type { ReactionDTO } from "@taskboard/shared";
-import { EmojiGrid, QUICK_REACTIONS } from "./EmojiPicker";
+import { usePopupDismiss } from "../lib/usePopupDismiss";
+import { EmojiGrid, EmojiPopup, QUICK_REACTIONS } from "./EmojiPicker";
 import { WhatsAppIcon } from "./WhatsAppIcon";
 
 /**
@@ -33,6 +35,7 @@ export function MessageActions({
   onForward,
   onReact,
   onHide,
+  onMarkUnread,
   onDeleteForAll,
   canDeleteForAll,
   pinned,
@@ -72,6 +75,8 @@ export function MessageActions({
   onReact?: (emoji: string) => void;
   /** "Delete for me" — either party, any message. */
   onHide?: () => void;
+  /** Marks this message and everything after it as unread. */
+  onMarkUnread?: () => void;
   /** "Delete for everyone" — the server enforces who may, `canDeleteForAll`
    *  only decides whether to offer it. */
   onDeleteForAll?: () => void;
@@ -93,29 +98,18 @@ export function MessageActions({
 }) {
   const [menu, setMenu] = useState(false);
   const [emoji, setEmoji] = useState(false);
-  const wrap = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!menu && !emoji) return;
-    const onDown = (e: MouseEvent) => {
-      if (!wrap.current?.contains(e.target as Node)) {
-        setMenu(false);
-        setEmoji(false);
-      }
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setMenu(false);
-        setEmoji(false);
-      }
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [menu, emoji]);
+  const popupRef = useRef<HTMLDivElement>(null);
+  // ONE registration for both panels, because they share a wrapper and only one
+  // of them is ever open: each trigger closes the other, so "is anything open
+  // here" is the state that dismissal cares about.
+  const wrap = usePopupDismiss<HTMLDivElement>(
+    menu || emoji,
+    () => {
+      setMenu(false);
+      setEmoji(false);
+    },
+    [popupRef],
+  );
 
   const item =
     "flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs text-fg transition-colors hover:bg-surface-2";
@@ -147,7 +141,7 @@ export function MessageActions({
       </div>
 
       {emoji && onReact && (
-        <div className={`absolute z-20 ${mine ? "right-0" : "left-0"} bottom-7`}>
+        <EmojiPopup anchor={wrap} popupRef={popupRef}>
           <div className="mb-1 flex gap-0.5 rounded-full border border-border bg-surface p-1 shadow-soft">
             {QUICK_REACTIONS.map((e) => (
               <button
@@ -161,7 +155,7 @@ export function MessageActions({
             ))}
           </div>
           <EmojiGrid onPick={(e) => { onReact(e); setEmoji(false); }} />
-        </div>
+        </EmojiPopup>
       )}
 
       {menu && (
@@ -197,6 +191,11 @@ export function MessageActions({
             >
               <WhatsAppIcon size={13} className="text-[#25D366]" /> Forward to WhatsApp
             </a>
+          )}
+          {onMarkUnread && (
+            <button role="menuitem" className={item} onClick={() => { onMarkUnread(); setMenu(false); }}>
+              <MailOpen size={13} className="text-muted" /> Mark as unread
+            </button>
           )}
           {onHide && (
             <button role="menuitem" className={item} onClick={() => { onHide(); setMenu(false); }}>
@@ -241,9 +240,38 @@ export function MessageActions({
 }
 
 /**
+ * Who is behind one chip's tally, as a sentence.
+ *
+ * A count answers "how many" and stops there, which in a channel is the less
+ * useful half — a chip reading 3 is a question you have to ask out loud. The
+ * names come from the server (store.reactionColumns), CAPPED, so `count` and
+ * the list can legitimately disagree: when they do the remainder is stated
+ * rather than the tally quietly shrinking to the names that fit.
+ *
+ * Falls back to the old wording when there are no names at all, which is what a
+ * client holding a cached tally from before reactors existed will have.
+ */
+function reactorLabel(r: ReactionDTO): string {
+  const action = r.mine ? "Click to remove your reaction" : "Click to react";
+  if (!r.reactors || r.reactors.length === 0) return action;
+  const named = r.reactors.filter(Boolean);
+  if (named.length === 0) return action;
+  const hidden = Math.max(0, r.count - named.length);
+  const who = hidden > 0 ? `${named.join(", ")} and ${hidden} more` : named.join(", ");
+  return `${who} reacted with ${r.emoji} — ${action.toLowerCase()}`;
+}
+
+/**
  * The reaction tally under a bubble. A chip the caller is part of renders
  * pressed, and clicking it toggles — the same gesture adds and removes, which
  * is what every chat app has taught people to expect.
+ *
+ * The reactors are surfaced as the chip's own tooltip rather than as a panel of
+ * their own. That keeps the click doing the one thing it has always done: a
+ * chip that toggles on click AND opens something on click is a chip where
+ * neither gesture is reliable, and the tally sits under every bubble in the
+ * thread, so anything with a layout of its own would move the whole
+ * conversation.
  */
 export function ReactionChips({
   reactions,
@@ -255,22 +283,30 @@ export function ReactionChips({
   if (reactions.length === 0) return null;
   return (
     <div className="mt-1 flex flex-wrap gap-1">
-      {reactions.map((r) => (
-        <button
-          key={r.emoji}
-          onClick={() => onToggle(r.emoji, !r.mine)}
-          title={r.mine ? "Remove your reaction" : "React"}
-          aria-pressed={r.mine}
-          className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] leading-none transition-colors ${
-            r.mine
-              ? "bg-accent-soft text-accent ring-1 ring-accent/40"
-              : "bg-surface-2 text-muted hover:text-fg"
-          }`}
-        >
-          <span className="text-sm leading-none">{r.emoji}</span>
-          {r.count > 1 && <span className="font-medium">{r.count}</span>}
-        </button>
-      ))}
+      {reactions.map((r) => {
+        const label = reactorLabel(r);
+        return (
+          <button
+            key={r.emoji}
+            onClick={() => onToggle(r.emoji, !r.mine)}
+            title={label}
+            // The tooltip is the only place the names are written, so the
+            // accessible name has to carry them too — `title` alone is not
+            // announced consistently, and a chip that reads as "👍 3" to a
+            // screen reader is missing exactly what was added here.
+            aria-label={label}
+            aria-pressed={r.mine}
+            className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] leading-none transition-colors ${
+              r.mine
+                ? "bg-accent-soft text-accent ring-1 ring-accent/40"
+                : "bg-surface-2 text-muted hover:text-fg"
+            }`}
+          >
+            <span className="text-sm leading-none">{r.emoji}</span>
+            {r.count > 1 && <span className="font-medium">{r.count}</span>}
+          </button>
+        );
+      })}
     </div>
   );
 }

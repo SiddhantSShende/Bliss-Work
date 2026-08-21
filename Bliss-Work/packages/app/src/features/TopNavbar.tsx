@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Search, UserPlus, Bell } from "lucide-react";
+import { Search, UserPlus, Bell, X } from "lucide-react";
 import { Button, IconButton, Wordmark } from "@taskboard/ui";
 import { ProfileMenu } from "./ProfileMenu";
 import { GetAppButton } from "./GetAppButton";
@@ -20,7 +20,7 @@ export function TopNavbar({ unread, onOpenNotifs }: { unread: number; onOpenNoti
   return (
     <header className="glass relative z-50 m-2 mb-0 flex h-14 shrink-0 items-center gap-3 rounded-2xl px-3">
       <button
-        onClick={() => nav("/app/chats")}
+        onClick={() => nav("/app/mail")}
         title="BlissWork"
         className="shrink-0 rounded-xl px-1 transition hover:opacity-80"
       >
@@ -36,8 +36,22 @@ export function TopNavbar({ unread, onOpenNotifs }: { unread: number; onOpenNoti
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Search people, channels, chats, tasks…"
-            className="h-9 w-full rounded-xl border border-border bg-surface/70 pl-9 pr-3 text-sm text-fg placeholder:text-muted/70 transition-colors focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/25"
+            className={`h-9 w-full rounded-xl border border-border bg-surface/70 pl-9 text-sm text-fg placeholder:text-muted/70 transition-colors focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/25 ${q ? "pr-9" : "pr-3"}`}
           />
+          {q && (
+            <button
+              type="button"
+              onClick={() => {
+                setQ("");
+                nav("/app/mail");
+              }}
+              title="Clear search"
+              aria-label="Clear search"
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted transition-colors hover:bg-surface-2 hover:text-fg"
+            >
+              <X size={14} />
+            </button>
+          )}
         </div>
       </form>
 

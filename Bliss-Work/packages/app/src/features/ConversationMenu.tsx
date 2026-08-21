@@ -37,6 +37,7 @@ import {
   Users,
 } from "lucide-react";
 import { cn } from "@taskboard/ui";
+import { usePopupDismiss } from "../lib/usePopupDismiss";
 
 /** Said on the row itself, because a disabled row with no explanation reads as
  *  a bug. Matches the wording the channel rows have carried since they were
@@ -108,6 +109,8 @@ export function ConversationMenu({
     setExpanded(false);
   };
 
+  const wrap = usePopupDismiss<HTMLDivElement>(open, close);
+
   /** Every row except More either navigates, opens a panel or fires a request;
    *  none of them wants the menu left behind. */
   const pick = (run: () => void) => () => {
@@ -118,7 +121,7 @@ export function ConversationMenu({
   const label = scope === "channel" ? "Channel options" : "Chat options";
 
   return (
-    <div className="relative">
+    <div ref={wrap} className="relative">
       <button
         type="button"
         onClick={() => (open ? close() : setOpen(true))}
@@ -135,9 +138,13 @@ export function ConversationMenu({
       </button>
       {open && (
         <>
-          {/* Click-away backdrop. One below the panel so it dismisses anything
-              the panel is covering without covering the panel itself. */}
-          <div className="fixed inset-0 z-[999]" onClick={close} aria-hidden />
+          {/* The click-away backdrop that used to sit here is gone. At
+              `fixed inset-0 z-[999]` it covered the entire app, so a click
+              meant for any other control was eaten dismissing this menu and
+              had to be repeated — and because a backdrop only ever closes its
+              own menu, anything else already open stayed open behind it.
+              usePopupDismiss handles outside clicks, Escape, and closing
+              whatever else was open, without a layer over the page. */}
           {/* z-1000 deliberately clears every other layer in the app — the
               tallest elsewhere is z-[200]. This menu opens over a message list
               that renders images, video, file cards and map previews, and a

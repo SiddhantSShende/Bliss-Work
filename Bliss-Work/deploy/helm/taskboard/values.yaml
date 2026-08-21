@@ -660,6 +660,22 @@ livekit:
   emptyTimeoutSeconds: 120
   # A product ceiling rather than a capacity one.
   maxParticipants: 100
+  webhook:
+    # WHERE THE SFU REPORTS ROOM LIFECYCLE. Not optional in practice: this is
+    # the only way messaging-svc hears that a participant's connection died, and
+    # with it empty a meeting whose organiser closed their laptop stays LIVE for
+    # ever and everyone in it stays "Busy" to their colleagues.
+    #
+    # In-cluster Service DNS, not the public Ingress — the SFU pod is
+    # hostNetwork with dnsPolicy ClusterFirstWithHostNet, so it resolves this,
+    # and keeping the callback inside the cluster avoids a round trip out
+    # through the edge and back. NOT the /api/messaging prefix either: that
+    # prefix is the Ingress's, and it is stripped before messaging-svc sees it.
+    #
+    # The signing key comes from the LIVEKIT_API_KEY secret, never from here.
+    # Empty this list to turn callbacks off; nothing else needs changing.
+    urls:
+      - "http://messaging-svc:8004/livekit/webhook"
   redis:
     # THE MULTI-NODE SWITCH. Participants in one room may land on different SFU
     # instances and still see each other, because the nodes coordinate through

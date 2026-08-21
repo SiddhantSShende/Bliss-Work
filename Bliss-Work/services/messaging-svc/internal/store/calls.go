@@ -958,14 +958,19 @@ func rostersTx(
 	if len(ids) == 0 {
 		return out, nil
 	}
-	if err := setBypassGUC(ctx, tx); err != nil {
+	prev, err := beginBypassGUC(ctx, tx)
+	if err != nil {
 		return nil, err
 	}
 	rerr := readRosterRows(ctx, tx, ids, out)
 	// Always attempt the reset, including after a failed read: a read error does
 	// not necessarily abort the server-side transaction, and the statements that
 	// follow this one must not inherit the bypass.
-	_, serr := tx.Exec(ctx, `SELECT set_config('app.bypass_rls', 'off', true)`)
+	//
+	// Back to what it WAS, not to 'off'. Under withBypass the caller's whole
+	// transaction is already widened, and hard-setting 'off' here silently took
+	// that away from every statement after this one — see beginBypassGUC.
+	serr := restoreBypassGUC(ctx, tx, prev)
 	if rerr != nil {
 		return nil, rerr
 	}

@@ -429,6 +429,16 @@ services:
       # livekit-server refuses to start. messaging-svc reads its own copy of
       # LIVEKIT_* from .env.prod, so a mismatch here disables only the SFU.
       LIVEKIT_KEYS: "${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}"
+      # Which of those pairs signs the room-lifecycle callbacks the config file
+      # asks for (infra/livekit/livekit.yaml, `webhook:`). Config-file-only in
+      # LiveKit's own docs, but the server also reads it here — and it must come
+      # from here, because the file is in the repo and this is a credential.
+      #
+      # Not optional: with `webhook.urls` set and no api_key resolved,
+      # livekit-server exits at startup with "api_key is required to use
+      # webhooks". That is the loud failure; the quiet one it replaced was
+      # meetings that never ended.
+      LIVEKIT_WEBHOOK_API_KEY: "${LIVEKIT_API_KEY}"
     volumes:
       - ./infra/livekit/livekit.yaml:/etc/livekit/livekit.yaml:ro
     deploy:

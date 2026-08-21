@@ -1,10 +1,11 @@
-import { useLayoutEffect, useMemo, useRef } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { MessageSquare, Ban, Forward, PhoneMissed, Pin } from "lucide-react";
 import { Avatar } from "@taskboard/ui";
 import { clock, groupMessages } from "../lib/chatFormat";
-import type { MessageDTO, ReactionDTO } from "@taskboard/shared";
+import type { ChannelReadReceiptDTO, MessageDTO, ReactionDTO } from "@taskboard/shared";
 import { readablePrefix, type MediaItem } from "../lib/chatEnvelope";
+import { usePopupDismiss } from "../lib/usePopupDismiss";
 import { waForwardText, waShareLink } from "../lib/waLink";
 import { Composer } from "./Composer";
 import { SystemPill } from "./SystemPill";
@@ -36,6 +37,9 @@ export interface ThreadMessage {
   isForward?: boolean;
   /** Pinned for everyone in the channel. Channels only; DMs never set it. */
   pinned?: boolean;
+  /** Who has read this one. CHANNELS only — a DM's equivalent is `status`,
+   *  which has a single answer because there is a single reader. */
+  channelReceipts?: ChannelReadReceiptDTO[];
 }
 
 /** Is the caller already reacting with this emoji? Drives whether a tap on the
@@ -70,6 +74,61 @@ function quoted(m: ThreadMessage, byId: Map<string, ThreadMessage>) {
   );
 }
 
+/**
+ * "Seen by N" under a channel message, and the list behind it.
+ *
+ * A channel has no single peer, so the DM's Sent/Delivered/Seen badge has
+ * nothing to say here — "seen" is a different number for every member. This
+ * answers the question the badge cannot: exactly who has read this one.
+ *
+ * Rendered ONLY on the caller's own messages, and only in channels — see where
+ * ChannelView builds `channelReceipts`. The sender is never counted among the
+ * readers (the store excludes them), so a message with nobody else caught up
+ * has no receipts and this renders nothing at all rather than "Seen by 0".
+ */
+function SeenBy({ receipts }: { receipts: ChannelReadReceiptDTO[] }) {
+  const [open, setOpen] = useState(false);
+  const wrap = usePopupDismiss<HTMLSpanElement>(open, () => setOpen(false));
+  if (receipts.length === 0) return null;
+  return (
+    <span ref={wrap} className="relative inline-flex">
+      <span aria-hidden className="opacity-50">·</span>
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="ml-1 font-medium text-accent hover:underline"
+        aria-expanded={open}
+        aria-label={`Seen by ${receipts.length} ${receipts.length === 1 ? "person" : "people"}`}
+      >
+        Seen by {receipts.length}
+      </button>
+      {open && (
+        // Above the bubble rather than below it: this row is already at the
+        // bottom of a message, and a panel hanging below the newest message
+        // would open past the end of the thread's scroll box.
+        //
+        // Capped and scrollable — a busy channel has more readers than a popup
+        // anchored to a 10px line has room for.
+        <span
+          role="dialog"
+          aria-label="Seen by"
+          className="absolute bottom-5 left-0 z-[1000] max-h-48 min-w-40 overflow-y-auto rounded-lg border border-border bg-surface p-2 text-xs text-fg shadow-card"
+        >
+          <span className="mb-1 block font-semibold">Seen by</span>
+          {receipts.map((receipt) => (
+            <span key={receipt.readerId} className="flex items-baseline justify-between gap-2 py-0.5">
+              <span className="truncate">{receipt.readerName || "Unknown"}</span>
+              {receipt.readAt && (
+                <span className="shrink-0 tabular-nums text-muted">{clock(receipt.readAt)}</span>
+              )}
+            </span>
+          ))}
+        </span>
+      )}
+    </span>
+  );
+}
+
 /** Presentational chat thread (bubbles + composer). Reused by DMs and channels. */
 export function ChatThread({
   messages,
@@ -86,6 +145,7 @@ export function ChatThread({
   onForward,
   onReply,
   onHide,
+  onMarkUnread,
   onDeleteForAll,
   canModerate,
   onTogglePin,
@@ -127,6 +187,8 @@ export function ChatThread({
   onReply?: (messageId: string) => void;
   /** "Delete for me" — hides it for the caller only. */
   onHide?: (messageId: string) => void;
+  /** Marks the selected message and everything after it as unread. */
+  onMarkUnread?: (messageId: string) => void;
   /** "Delete for everyone" — the menu hides it on others' messages unless
    *  `canModerate` says the caller may remove anyone's. */
   onDeleteForAll?: (messageId: string) => void;
@@ -379,6 +441,7 @@ export function ChatThread({
                           onForward={onForward ? () => onForward(m.id) : undefined}
                           onReply={onReply ? () => onReply(m.id) : undefined}
                           onHide={onHide ? () => onHide(m.id) : undefined}
+                          onMarkUnread={onMarkUnread ? () => onMarkUnread(m.id) : undefined}
                           onDeleteForAll={onDeleteForAll ? () => onDeleteForAll(m.id) : undefined}
                           canDeleteForAll={mine || !!canModerate}
                           pinned={m.pinned}
@@ -402,11 +465,16 @@ export function ChatThread({
                       {/* Sent → Delivered → Seen, spelled out, on my own
                           bubbles only — and on every kind of them, because this
                           row sits BELOW the bubble and so covers media, files
-                          and shared locations as well as text. Channels pass no
-                          status (there is no per-member read cursor behind a
-                          channel message), and the badge renders nothing for an
-                          absent one. */}
+                          and shared locations as well as text.
+
+                          DMs only. A channel message carries no `status`: the
+                          question "have they read it" has one answer per member
+                          there, which is what SeenBy answers instead. The badge
+                          renders nothing for an absent status either way. */}
                       {mine && !m.pending && <MessageStatusBadge status={m.status} />}
+                      {mine && !m.pending && m.channelReceipts && (
+                        <SeenBy receipts={m.channelReceipts} />
+                      )}
                     </span>
                   </div>
                 </motion.div>

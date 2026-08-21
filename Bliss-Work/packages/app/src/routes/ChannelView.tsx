@@ -4,7 +4,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Hash, Users, ChevronLeft, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { EmptyState } from "@taskboard/ui";
-import type { CallDTO, ChannelDTO, ChannelMessageDTO, ReactionDTO } from "@taskboard/shared";
+import type {
+  CallDTO,
+  ChannelDTO,
+  ChannelMessageDTO,
+  ChannelReadReceiptDTO,
+  ReactionDTO,
+} from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
@@ -90,6 +96,70 @@ export function ChannelView() {
     return map;
   }, [reactions]);
 
+  /**
+   * Tell the server how far this reader has got.
+   *
+   * This is what puts anything in the receipts at all — a channel's "seen"
+   * state is a cursor per member, and nothing else moves it. Same shape as
+   * DMView's api.read call, and keyed on the message COUNT for the same
+   * reason: a re-render that changed nothing about what is on screen should
+   * not re-post the same position.
+   *
+   * Failures are swallowed deliberately. A read receipt that does not land is
+   * worth nothing to the reader and an error toast about it would interrupt
+   * them over somebody else's badge.
+   */
+  useEffect(() => {
+    const maxSeq = messages.reduce((m: number, x: ChannelMessageDTO) => Math.max(m, x.seq), 0);
+    if (maxSeq > 0) api.markChannelRead(channelId, maxSeq).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages.length, channelId]);
+
+  /**
+   * Who has read MY messages. Only mine, because "Seen by" renders on the
+   * caller's own bubbles alone — asking about everybody's would be a request
+   * several times the size for receipts nothing draws.
+   *
+   * Optimistic sends are excluded: a `temp:` id is not a message the server has
+   * heard of, and asking about it would spend a slot of the endpoint's id cap
+   * on a row that cannot exist.
+   */
+  const myMessageIds = useMemo(
+    () =>
+      messages
+        .filter((m: ChannelMessageDTO) => m.senderId === me.id && !m.id.startsWith("temp:"))
+        .map((m: ChannelMessageDTO) => m.id),
+    [messages, me.id],
+  );
+  const { data: receipts = [] } = useQuery({
+    queryKey: qk.channelReadReceipts(channelId),
+    queryFn: () => api.channelReadReceipts(channelId, myMessageIds),
+    enabled: !!channelId && myMessageIds.length > 0,
+    // Somebody else catching up is not something this client is told about —
+    // there is no read event on the channel wire — so the only way the badge
+    // ever moves while the sender watches is to ask again. Slow on purpose:
+    // "who has seen it" is not a number anyone needs to the second.
+    refetchInterval: 30_000,
+  });
+
+  // A message of my own that the server now knows about is a message with a
+  // receipt to ask for. Keyed on the ids themselves rather than the count, so
+  // an optimistic send being replaced by its real id also re-asks.
+  const myIdsKey = myMessageIds.join(",");
+  useEffect(() => {
+    if (myIdsKey) void qc.invalidateQueries({ queryKey: qk.channelReadReceipts(channelId) });
+  }, [myIdsKey, channelId, qc]);
+
+  const receiptsByMessage = useMemo(() => {
+    const map = new Map<string, ChannelReadReceiptDTO[]>();
+    for (const r of receipts) {
+      const list = map.get(r.messageId);
+      if (list) list.push(r);
+      else map.set(r.messageId, [r]);
+    }
+    return map;
+  }, [receipts]);
+
   // Whether the caller may moderate: remove anyone's message, and pin for
   // everyone. `myRole` is the caller's standing in THIS channel; an org_admin
   // moderates every channel without needing to be in it, which is the same rule
@@ -111,6 +181,12 @@ export function ChannelView() {
     mutationFn: (id: string) => api.hideChannelMessage(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.channelMessages(channelId) }),
     onError: () => toast.error("Couldn't hide that message"),
+  });
+
+  const markUnread = useMutation({
+    mutationFn: (upToSeq: number) => api.markChannelRead(channelId, upToSeq),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.channels }),
+    onError: () => toast.error("Couldn't mark that channel as unread"),
   });
 
   const clearChat = useMutation({
@@ -256,8 +332,9 @@ export function ChannelView() {
         deletedForAll: m.deletedForAll,
         pinned: m.pinned,
         reactions: reactionsByMessage.get(m.id),
+        channelReceipts: receiptsByMessage.get(m.id),
       })),
-    [messages, reactionsByMessage],
+    [messages, reactionsByMessage, receiptsByMessage],
   );
 
   // The same messages with the reader's own name normalised, for the surfaces
@@ -448,6 +525,10 @@ export function ChannelView() {
         }}
         onForward={recordForward}
         onHide={(id) => hide.mutate(id)}
+        onMarkUnread={(id) => {
+          const message = messages.find((m: ChannelMessageDTO) => m.id === id);
+          if (message) markUnread.mutate(Math.max(0, message.seq - 1));
+        }}
         onDeleteForAll={(id) => removeForAll.mutate(id)}
         canModerate={canModerate}
         // Pinning is a moderation capability: it changes what the whole channel

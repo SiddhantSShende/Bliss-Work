@@ -25,6 +25,7 @@ import {
   ChannelMemberDTO,
   type ChannelRole,
   ChannelMessageDTO,
+  ChannelReadReceiptDTO,
   AppCredentialDTO,
   ConnectStartDTO,
   ConversationDTO,
@@ -159,6 +160,16 @@ function asErrorCode(code: string | undefined): ErrorCode | undefined {
   ];
   return known.find((c) => c === code);
 }
+
+/**
+ * How many message ids one channel-receipts request may carry.
+ *
+ * Mirrors MaxMessagePageSize in messaging-svc, which caps the same list on the
+ * other side. Both ends bound it: the server because a caller decides the size
+ * of that `ANY($2)`, and the client because these ids are a query string and
+ * the thread it draws them from grows without limit as older pages load.
+ */
+const CHANNEL_RECEIPT_IDS_MAX = 100;
 
 export class ApiClient {
   constructor(private readonly cfg: ApiConfig) {}
@@ -708,6 +719,14 @@ export class ApiClient {
     return this.req<void>(
       this.cfg.messagingBase,
       `/api/v1/conversations/${conversationId}/ignore`,
+      { method: "POST" },
+    );
+  }
+  /** Hides the complete DM history for this caller only. */
+  clearConversation(conversationId: string) {
+    return this.req<void>(
+      this.cfg.messagingBase,
+      `/api/v1/conversations/${conversationId}/clear`,
       { method: "POST" },
     );
   }
@@ -1727,6 +1746,32 @@ export class ApiClient {
       `/api/v1/channels/${channelId}/messages?${qs.toString()}`,
       {},
       z.array(ChannelMessageDTO),
+    );
+  }
+  markChannelRead(channelId: string, upToSeq: number) {
+    return this.req<void>(this.cfg.messagingBase, `/api/v1/channels/${channelId}/read`, {
+      method: "POST",
+      body: JSON.stringify({ upToSeq }),
+    });
+  }
+  /**
+   * Who has read each of `messageIds` in this channel.
+   *
+   * The ids ride in the query string, so the caller cannot be allowed to decide
+   * how many there are: the thread grows every time "Load older" runs, and a
+   * few hundred UUIDs is a URL long enough for a proxy to reject outright. The
+   * NEWEST are kept, matching the server's own cap — receipts on the message
+   * somebody just sent are the ones anybody looks at.
+   */
+  channelReadReceipts(channelId: string, messageIds: string[]) {
+    const qs = new URLSearchParams({
+      messageIds: messageIds.slice(-CHANNEL_RECEIPT_IDS_MAX).join(","),
+    });
+    return this.req(
+      this.cfg.messagingBase,
+      `/api/v1/channels/${channelId}/receipts?${qs.toString()}`,
+      {},
+      z.array(ChannelReadReceiptDTO),
     );
   }
   sendChannelMessage(channelId: string, body: string, clientMsgId?: string) {

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { Check, Search, Hash, Lock, Globe } from "lucide-react";
+import { Check, Search, Hash, Lock, Globe, Users } from "lucide-react";
 import { Avatar, Button, Input } from "@taskboard/ui";
 import { toast } from "sonner";
 import { useRuntime } from "../lib/runtime";
@@ -55,6 +55,15 @@ export function CreateChannelDialog({ open, onClose }: { open: boolean; onClose:
     });
 
   const candidates = users.filter((u) => u.id !== me.id && matchUser(u, q));
+  const allMemberIds = users.filter((u) => u.id !== me.id).map((u) => u.id);
+  const allSelected = allMemberIds.length > 0 && allMemberIds.every((id) => selected.has(id));
+
+  const toggleAll = () => {
+    setSelected((current) => {
+      if (allSelected) return new Set();
+      return new Set(allMemberIds);
+    });
+  };
 
   return (
     <Modal open={open} onClose={onClose} title="New channel">
@@ -101,9 +110,14 @@ export function CreateChannelDialog({ open, onClose }: { open: boolean; onClose:
           </div>
         </Field>
         <Field label={`Members${selected.size ? ` (${selected.size})` : ""}`}>
-          <div className="relative mb-2">
-            <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-            <Input className="h-10 pl-9" placeholder="Search people…" value={q} onChange={(e) => setQ(e.target.value)} />
+          <div className="mb-2 flex items-center gap-2">
+            <div className="relative min-w-0 flex-1">
+              <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+              <Input className="h-10 pl-9" placeholder="Search people…" value={q} onChange={(e) => setQ(e.target.value)} />
+            </div>
+            <Button type="button" size="sm" variant="secondary" onClick={toggleAll} disabled={allMemberIds.length === 0}>
+              <Users size={14} /> {allSelected ? "Clear all" : "All members"}
+            </Button>
           </div>
           <div className="max-h-44 overflow-auto rounded-xl border border-border p-1">
             {candidates.length === 0 && <p className="px-2 py-3 text-sm text-muted">No matches.</p>}

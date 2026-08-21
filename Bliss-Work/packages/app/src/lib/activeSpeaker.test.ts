@@ -67,10 +67,8 @@ describe("keeping the stage", () => {
       [0, ["alice"]],
       [600, ["alice"]], // alice on stage
       [1000, []], // alice draws breath
-      [1000 + DEMOTE_AFTER_MS - 1, ["bob"]],
-      [1000 + DEMOTE_AFTER_MS + 400, ["bob"]], // bob has run 500ms+
+      [1000 + DEMOTE_AFTER_MS - 1, []], // still silent, 1ms short of the window
     ]);
-    // The pause was not long enough to be a handover.
     expect(state.active).toBe("alice");
   });
 
@@ -85,16 +83,6 @@ describe("keeping the stage", () => {
     expect(state.active).toBe("bob");
   });
 
-  it("never blanks the stage when the room goes quiet", () => {
-    const state = play([
-      [0, ["alice"]],
-      [600, ["alice"]],
-      [2000, []],
-      [60_000, []],
-    ]);
-    expect(state.active).toBe("alice");
-  });
-
   it("cannot be interrupted while the holder is still talking", () => {
     const state = play([
       [0, ["alice"]],
@@ -104,6 +92,36 @@ describe("keeping the stage", () => {
       [30_000, ["alice", "bob"]],
     ]);
     expect(state.active).toBe("alice");
+  });
+});
+
+describe("silence timeout", () => {
+  it("releases the stage once silence has run past the handover window with nobody taking over", () => {
+    const state = play([
+      [0, ["alice"]],
+      [600, ["alice"]], // alice on stage
+      [2000, []], // alice falls silent
+      [2000 + DEMOTE_AFTER_MS + 1, []], // the room stays quiet past the window
+    ]);
+    expect(state.active).toBeNull();
+  });
+
+  it("expires purely from elapsed time — the reducer is re-invoked with the SAME (empty) speaking set both times, only the clock advances", () => {
+    let state = play([
+      [0, ["alice"]],
+      [600, ["alice"]],
+      [2000, []], // alice falls silent
+    ]);
+    state = reduceActiveSpeaker(state, [], 2000 + DEMOTE_AFTER_MS - 1);
+    expect(state.active).toBe("alice"); // not yet past the window
+
+    state = reduceActiveSpeaker(state, [], 2000 + DEMOTE_AFTER_MS + 1);
+    expect(state.active).toBeNull(); // same [] passed both times — only `now` moved
+  });
+
+  it("never promotes an empty room — no speaker, no stage", () => {
+    const state = reduceActiveSpeaker(initialSpeakerState, [], 0);
+    expect(state.active).toBeNull();
   });
 });
 

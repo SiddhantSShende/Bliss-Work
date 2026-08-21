@@ -276,6 +276,71 @@ describe("patchThreadOnRead", () => {
   });
 });
 
+/**
+ * The DM screen reads a DIFFERENT cache from ThreadView — `qk.messages`, one
+ * flat array — and receipts arrive as websocket events that are never
+ * re-fetched. Patching only the thread cache is therefore not a partial fix but
+ * no fix at all on that screen: the server computed SENT/DELIVERED/SEEN
+ * correctly and the bubble went on saying nothing.
+ */
+describe("receipt patches reach the flat conversation cache", () => {
+  const CONV = "conv-0000-0000-0000-0000-000000000004";
+
+  it("bumps a DM bubble to DELIVERED without downgrading one already SEEN", () => {
+    qc.setQueryData<MessageDTO[]>(qk.messages(CONV), [
+      dto({ id: "m1", seq: 1, senderId: ME, status: "SENT" }),
+      dto({ id: "m2", seq: 2, senderId: ME, status: "SEEN" }),
+    ]);
+
+    patchThreadOnDelivered(qc, {
+      conversationId: CONV,
+      messageId: "m1",
+    } as unknown as MessageDelivered);
+    patchThreadOnDelivered(qc, {
+      conversationId: CONV,
+      messageId: "m2",
+    } as unknown as MessageDelivered);
+
+    const byId = Object.fromEntries(
+      (qc.getQueryData<MessageDTO[]>(qk.messages(CONV)) ?? []).map((m) => [m.id, m.status]),
+    );
+    expect(byId.m1).toBe("DELIVERED");
+    expect(byId.m2).toBe("SEEN"); // a read receipt is never walked back
+  });
+
+  it("flips only MY DM bubbles up to upToSeq to SEEN", () => {
+    qc.setQueryData<MessageDTO[]>(qk.messages(CONV), [
+      dto({ id: "mine1", seq: 1, senderId: ME, status: "SENT" }),
+      dto({ id: "mine2", seq: 2, senderId: ME, status: "DELIVERED" }),
+      dto({ id: "mine3", seq: 3, senderId: ME, status: "SENT" }),
+      dto({ id: "theirs", seq: 2, senderId: PEER, status: "SENT" }),
+    ]);
+
+    patchThreadOnRead(
+      qc,
+      { conversationId: CONV, upToSeq: 2 } as unknown as MessageRead,
+      ME,
+    );
+
+    const byId = Object.fromEntries(
+      (qc.getQueryData<MessageDTO[]>(qk.messages(CONV)) ?? []).map((m) => [m.id, m.status]),
+    );
+    expect(byId.mine1).toBe("SEEN");
+    expect(byId.mine2).toBe("SEEN");
+    expect(byId.mine3).toBe("SENT"); // past the frontier
+    expect(byId.theirs).toBe("SENT"); // a receipt on someone else's message is meaningless
+  });
+
+  it("leaves an unseeded conversation cache alone rather than creating one", () => {
+    patchThreadOnRead(
+      qc,
+      { conversationId: "conv-none", upToSeq: 9 } as unknown as MessageRead,
+      ME,
+    );
+    expect(qc.getQueryData(qk.messages("conv-none"))).toBeUndefined();
+  });
+});
+
 describe("patchOnDismissed", () => {
   it("marks only the dismissed message's bubble dismissedBySender", () => {
     seedThread(qc, THREAD, [[dto({ id: "keep", seq: 1 }), dto({ id: "gone", seq: 2 })]]);

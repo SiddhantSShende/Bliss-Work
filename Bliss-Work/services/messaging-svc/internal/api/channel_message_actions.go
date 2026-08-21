@@ -1,7 +1,9 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -124,6 +126,76 @@ func (s *Server) listChannelReactions(w http.ResponseWriter, r *http.Request) {
 	beforeSeq, limit := pageParams(r, DefaultMessagePageSize, MaxMessagePageSize)
 	out, err := s.store.ReactionsForChannel(
 		r.Context(), claims.OrgID, claims.UserID, channelID, beforeSeq, limit,
+	)
+	if err != nil {
+		s.mapErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// markChannelRead serves POST /api/v1/channels/{id}/read.
+//
+// Mirrors the DM markRead above, including the shared readReq body, because it
+// is the same gesture on the other kind of conversation: the caller says how far
+// they have read and the store moves their cursor to it.
+func (s *Server) markChannelRead(w http.ResponseWriter, r *http.Request) {
+	claims, _ := auth.FromContext(r.Context())
+	channelID := chi.URLParam(r, "id")
+	if !validUUID(channelID) {
+		writeErr(w, http.StatusBadRequest, "invalid channel id")
+		return
+	}
+	var req readReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if req.UpToSeq < 0 {
+		writeErr(w, http.StatusBadRequest, "upToSeq must be >= 0")
+		return
+	}
+	if err := s.store.MarkChannelRead(
+		r.Context(), claims.OrgID, claims.UserID, channelID, req.UpToSeq,
+	); err != nil {
+		s.mapErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// listChannelReadReceipts serves GET /api/v1/channels/{id}/receipts?messageIds=…
+//
+// The ids are a comma-separated list rather than a body because this is a read,
+// and rather than the (before, limit) window its neighbours take because the
+// client asks about the messages it has actually rendered — which, after
+// "Load older" has run a few times, is no longer any single page.
+//
+// BOUNDED at MaxMessagePageSize ids. Without a cap the query's ANY($2) is an
+// unbounded read wearing a query string, and the caller decides its size.
+func (s *Server) listChannelReadReceipts(w http.ResponseWriter, r *http.Request) {
+	claims, _ := auth.FromContext(r.Context())
+	channelID := chi.URLParam(r, "id")
+	if !validUUID(channelID) {
+		writeErr(w, http.StatusBadRequest, "invalid channel id")
+		return
+	}
+	raw := strings.Split(r.URL.Query().Get("messageIds"), ",")
+	ids := make([]string, 0, len(raw))
+	for _, id := range raw {
+		id = strings.TrimSpace(id)
+		// A malformed id is dropped rather than refused: this decorates a
+		// message list that is already on screen, and failing the whole request
+		// over one bad id would blank every receipt on the page.
+		if validUUID(id) {
+			ids = append(ids, id)
+		}
+		if len(ids) == MaxMessagePageSize {
+			break
+		}
+	}
+	out, err := s.store.ChannelReadReceipts(
+		r.Context(), claims.OrgID, claims.UserID, channelID, ids,
 	)
 	if err != nil {
 		s.mapErr(w, err)

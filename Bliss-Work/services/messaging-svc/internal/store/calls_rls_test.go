@@ -37,8 +37,8 @@ func TestMarkExternalComparesAgainstTheCALLSOrg(t *testing.T) {
 	}
 }
 
-// A function handed someone else's transaction must not leave RLS switched off
-// in it.
+// A function handed someone else's transaction must leave RLS exactly as it
+// found it.
 //
 // Two shapes of bypass live in this package and only one of them is safe by
 // construction. A function that opens its OWN transaction and sets bypass at the
@@ -51,7 +51,15 @@ func TestMarkExternalComparesAgainstTheCALLSOrg(t *testing.T) {
 // The consequence would not look like a bug locally. It would look like the
 // roster read working, and some unrelated query further down the same
 // transaction quietly returning another organisation's rows.
-func TestMidTransactionBypassIsAlwaysTurnedBackOff(t *testing.T) {
+//
+// RESTORING, not switching off. The reset used to be a literal
+// `set_config('app.bypass_rls', 'off')`, which is only right when the caller
+// had it off — and endCallTx's callers include the sweeper and the SFU
+// webhooks, which run the whole transaction under withBypass. There the hard
+// 'off' silently stripped the bypass mid-transaction and every statement after
+// it matched nothing. So the requirement is symmetry with beginBypassGUC, which
+// is what this now checks.
+func TestMidTransactionBypassIsAlwaysPutBack(t *testing.T) {
 	files, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatalf("glob: %v", err)
@@ -81,7 +89,14 @@ func TestMidTransactionBypassIsAlwaysTurnedBackOff(t *testing.T) {
 			start := fset.Position(fn.Body.Pos()).Offset
 			end := fset.Position(fn.Body.End()).Offset
 			body := string(src[start:end])
-			if !strings.Contains(body, "setBypassGUC(") {
+			// The helpers themselves are the mechanism, not a use of it.
+			switch fn.Name.Name {
+			case "setBypassGUC", "beginBypassGUC", "restoreBypassGUC":
+				continue
+			}
+			widens := strings.Contains(body, "beginBypassGUC(") ||
+				strings.Contains(body, "setBypassGUC(")
+			if !widens {
 				continue
 			}
 			// Opens its own transaction: the bypass dies with it, and there is
@@ -90,12 +105,15 @@ func TestMidTransactionBypassIsAlwaysTurnedBackOff(t *testing.T) {
 				continue
 			}
 			checked++
-			if !strings.Contains(body, `set_config('app.bypass_rls', 'off', true)`) {
-				t.Errorf("%s: %s turns RLS off inside a transaction it did not open and "+
-					"never turns it back on.\n\n"+
-					"Every statement the caller runs after this one in the same transaction "+
-					"would then see every organisation's rows. Either reset it before "+
-					"returning, or give this function its own transaction.",
+			if !strings.Contains(body, "restoreBypassGUC(") {
+				t.Errorf("%s: %s widens RLS inside a transaction it did not open and "+
+					"never puts the setting back.\n\n"+
+					"Leave it ON and every statement the caller runs after this one sees "+
+					"every organisation's rows; force it OFF and a caller that was already "+
+					"under withBypass loses the bypass for the rest of its transaction, "+
+					"where it fails silently as rows that match nothing. Pair "+
+					"beginBypassGUC with restoreBypassGUC, or give this function its own "+
+					"transaction.",
 					fset.Position(fn.Pos()), fn.Name.Name)
 			}
 		}

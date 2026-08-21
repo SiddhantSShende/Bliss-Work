@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { CalendarClock, ChevronDown, Link, Phone, Video } from "lucide-react";
 import { Button, cn } from "@taskboard/ui";
+import { usePopupDismiss } from "../lib/usePopupDismiss";
 
 /**
  * The single call control in a chat header.
@@ -40,6 +41,7 @@ export function CallMenu({
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const wrap = usePopupDismiss<HTMLDivElement>(open, () => setOpen(false));
 
   /** Every row closes the menu first: each one either navigates away, opens a
    *  dialog, or fires a request, and none of them wants the panel left behind. */
@@ -49,7 +51,7 @@ export function CallMenu({
   };
 
   return (
-    <div className="relative">
+    <div ref={wrap} className="relative">
       <Button
         variant="ghost"
         size="sm"
@@ -64,30 +66,32 @@ export function CallMenu({
         <ChevronDown size={14} className={cn("transition-transform", open && "rotate-180")} />
       </Button>
       {open && (
-        <>
-          {/* click-away backdrop */}
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} aria-hidden />
-          <div
-            role="menu"
-            className="absolute right-0 z-50 mt-1.5 w-56 overflow-hidden rounded-xl border border-border bg-surface p-1 shadow-card"
-          >
-            <Item icon={<Phone size={15} />} label="Voice Call" onClick={pick(onVoiceCall)} />
-            <Item icon={<Video size={15} />} label="Video Call" onClick={pick(onVideoCall)} />
-            {onSendLink && (
-              <Item
-                icon={<Link size={15} />}
-                label="Send Call Link"
-                onClick={pick(onSendLink)}
-                disabled={busy}
-              />
-            )}
+        // No click-away backdrop any more. A `fixed inset-0` layer dismissed
+        // this menu but also SWALLOWED the click that dismissed it, so reaching
+        // any other control took two presses — and it left every other popup on
+        // screen open, since a backdrop only knows about its own menu. Outside
+        // clicks, Escape and the one-popup-at-a-time rule all come from
+        // usePopupDismiss now.
+        <div
+          role="menu"
+          className="absolute right-0 z-50 mt-1.5 w-56 overflow-hidden rounded-xl border border-border bg-surface p-1 shadow-card"
+        >
+          <Item icon={<Phone size={15} />} label="Voice Call" onClick={pick(onVoiceCall)} />
+          <Item icon={<Video size={15} />} label="Video Call" onClick={pick(onVideoCall)} />
+          {onSendLink && (
             <Item
-              icon={<CalendarClock size={15} />}
-              label="Schedule Call"
-              onClick={pick(onSchedule)}
+              icon={<Link size={15} />}
+              label="Send Call Link"
+              onClick={pick(onSendLink)}
+              disabled={busy}
             />
-          </div>
-        </>
+          )}
+          <Item
+            icon={<CalendarClock size={15} />}
+            label="Schedule Call"
+            onClick={pick(onSchedule)}
+          />
+        </div>
       )}
     </div>
   );

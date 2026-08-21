@@ -48,31 +48,54 @@ rtc:
 
 # ── Recording (OFF) ──────────────────────────────────────────────────────────
 # Call recording needs LiveKit Egress, which is a separate process that receives
-# its work from this server over REDIS. Both blocks below are what turn it on,
-# and both are commented out on purpose: with no Redis reachable, adding the
-# first one makes livekit-server FAIL AT STARTUP rather than degrade, and with
-# no egress running the second one is a webhook nothing will ever fire.
+# its work from this server over REDIS. The block below is what turns it on, and
+# it is commented out on purpose: with no Redis reachable, adding it makes
+# livekit-server FAIL AT STARTUP rather than degrade.
 #
-# Enable them together with docker-compose.recording.yml, which publishes Redis
-# on 127.0.0.1:6379 (this container is host-networked, so `redis` does not
-# resolve) and starts the egress worker on the compose bridge. Editing this file
-# needs a container RECREATE — a bind-mounted single file is not re-read on
-# restart alone.
+# Enable it with docker-compose.recording.yml, which publishes Redis on
+# 127.0.0.1:6379 (this container is host-networked, so `redis` does not resolve)
+# and starts the egress worker on the compose bridge. It carries a password, so
+# it is APPENDED to a gitignored copy of this file by
+# scripts/render-livekit-recording-config.sh rather than pasted in here. Editing
+# either file needs a container RECREATE — a bind-mounted single file is not
+# re-read on restart alone.
 #
 # redis:
 #   address: 127.0.0.1:6379
 #   password: <REDIS_PASSWORD>
+
+# ── Room lifecycle callbacks (ON, and NOT part of recording) ─────────────────
+# This is how messaging-svc finds out that somebody's browser vanished.
 #
-# webhook:
-#   # Signs the callback with the same key pair as the room tokens.
-#   # messaging-svc verifies the signature over the body before believing a
-#   # word of it (internal/livekit/egress.go).
-#   api_key: <LIVEKIT_API_KEY>
-#   urls:
-#     # NOT /livekit/webhook — the edge proxies /livekit/* to THIS server, so
-#     # that URL would post the callback back to the SFU. messaging-svc is
-#     # reached under the /api/messaging prefix, which Caddy strips.
-#     - https://<your-host>/api/messaging/livekit/webhook
+# It used to live only in the rendered recording config, and that coupling was a
+# bug with a user-visible face: `docker compose up -d livekit` without the
+# recording overlay silently recreated the SFU against THIS file, webhooks went
+# away, and nothing logged anything. `participant_left` then never arrived,
+# call_participants.left_at stayed NULL for every closed laptop, and
+# ExpireHostlessCalls could not match at any grace value — so a meeting whose
+# organiser shut their lid stayed LIVE and everyone in it stayed "Busy" to their
+# colleagues, indefinitely. See services/messaging-svc/internal/store/
+# calls_lifecycle.go, which is the whole reason these events are wanted.
+#
+# Webhooks need NO Redis and no egress: this server posts them itself. Recording
+# is what needs Redis, which is why only that block is optional above.
+webhook:
+  # api_key is NOT here. It names which of LIVEKIT_KEYS' pairs signs the
+  # callback, and it is supplied as LIVEKIT_WEBHOOK_API_KEY from the environment
+  # (docker-compose.prod.yml) for the same reason the keys themselves are — so
+  # no credential lands on disk in the repo or the image. LiveKit refuses to
+  # start with urls set and no api_key resolved from anywhere, which is the
+  # failure you get if that variable is missing.
+  urls:
+    # THE HOST IS DEPLOYMENT-SPECIFIC. Change it when running this stack
+    # anywhere else; there is no interpolation in a LiveKit config file, and
+    # `webhook.urls` is a list, so unlike api_key it has no environment
+    # equivalent to fall back on.
+    #
+    # NOT /livekit/webhook — the edge proxies /livekit/* to THIS server, so that
+    # URL would post the callback back to the SFU. messaging-svc is reached
+    # under the /api/messaging prefix, which Caddy strips (infra/caddy/Caddyfile).
+    - https://communication.rnrtechs.com/api/messaging/livekit/webhook
 
 # Keys are supplied via the LIVEKIT_KEYS environment variable rather than this
 # file, so the secret never lands on disk in the image or the repo.

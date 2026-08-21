@@ -274,6 +274,7 @@ func (s *Server) Router(webOrigin string) http.Handler {
 			r.Get("/conversations", s.listConversations)
 			r.Post("/conversations/{id}/reply", s.reply)
 			r.Post("/conversations/{id}/ignore", s.ignore)
+			r.Post("/conversations/{id}/clear", s.clearConversation)
 			r.Get("/conversations/{id}/messages", s.listMessages)
 			r.Get("/conversations/{id}/reactions", s.listConversationReactions)
 			r.Post("/conversations/{id}/read", s.markRead)
@@ -378,6 +379,11 @@ func (s *Server) Router(webOrigin string) http.Handler {
 			r.Post("/channels/{id}/join", s.joinChannel)
 			r.Post("/channels/{id}/leave", s.leaveChannel)
 			r.Post("/channels/{id}/clear", s.clearChannel)
+			// Read receipts. `/read` moves the caller's own cursor, `/receipts`
+			// reads everybody's back — the same split the DM side has between
+			// POST /conversations/{id}/read and the `status` on each message.
+			r.Post("/channels/{id}/read", s.markChannelRead)
+			r.Get("/channels/{id}/receipts", s.listChannelReadReceipts)
 			// Moderation. `/members/roster` is registered BEFORE the
 			// `/members/{userId}` routes so chi does not treat the literal
 			// "roster" as a user id — same registration-order rule the
@@ -730,6 +736,20 @@ func (s *Server) ignore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.store.Ignore(r.Context(), claims.OrgID, claims.UserID, convID); err != nil {
+		s.mapErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) clearConversation(w http.ResponseWriter, r *http.Request) {
+	claims, _ := auth.FromContext(r.Context())
+	convID := chi.URLParam(r, "id")
+	if !validUUID(convID) {
+		writeErr(w, http.StatusBadRequest, "invalid conversation id")
+		return
+	}
+	if err := s.store.ClearConversation(r.Context(), claims.OrgID, claims.UserID, convID); err != nil {
 		s.mapErr(w, err)
 		return
 	}

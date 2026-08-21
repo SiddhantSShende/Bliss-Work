@@ -11,6 +11,7 @@ import { ListHeader, rowClass, relTime } from "../features/ListPane";
 import { NewChatDialog } from "../features/NewChatDialog";
 import { usePresence } from "../lib/usePresence";
 import { toggleConversationPref, useConversationPrefs } from "../lib/conversationPrefs";
+import { usePopupDismiss } from "../lib/usePopupDismiss";
 
 const UNAVAILABLE_HINT = "Not available yet — needs a server endpoint";
 
@@ -27,6 +28,7 @@ function ChatListMenu({
 }) {
   const [open, setOpen] = useState(false);
   const close = () => setOpen(false);
+  const wrap = usePopupDismiss<HTMLDivElement>(open, close);
   const pick = (run: () => void) => (event: React.MouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
@@ -35,7 +37,7 @@ function ChatListMenu({
   };
 
   return (
-    <div className="relative shrink-0" onClick={(event) => event.stopPropagation()}>
+    <div ref={wrap} className="relative shrink-0" onClick={(event) => event.stopPropagation()}>
       <button
         type="button"
         title="Chat options"
@@ -51,27 +53,29 @@ function ChatListMenu({
         <MoreVertical size={16} />
       </button>
       {open && (
-        <>
-          <div className="fixed inset-0 z-[999]" onClick={close} aria-hidden />
-          <div
-            role="menu"
-            aria-label="Chat options"
-            className="absolute right-0 z-[1000] mt-1.5 w-52 rounded-xl border border-border bg-surface p-1 shadow-card"
-          >
-            <ChatListMenuItem icon={<Pin size={15} />} label={pinned ? "Unpin Chat" : "Pin Chat"} onClick={pick(onTogglePin)} />
-            <ChatListMenuItem
-              icon={<Trash2 size={15} />}
-              label="Delete Chat"
-              hint={UNAVAILABLE_HINT}
-              danger
-            />
-            <ChatListMenuItem
-              icon={muted ? <Bell size={15} /> : <BellOff size={15} />}
-              label={muted ? "Unmute Notifications" : "Mute Notifications"}
-              onClick={pick(onToggleMute)}
-            />
-          </div>
-        </>
+        // The click-away backdrop this used to carry covered the whole app at
+        // z-[999], so opening one row's menu made every other row — and the
+        // chat list itself — unclickable until you had spent a click closing
+        // it. usePopupDismiss closes on an outside click without a layer in the
+        // way, and closes any other popup that was open.
+        <div
+          role="menu"
+          aria-label="Chat options"
+          className="absolute right-0 z-[1000] mt-1.5 w-52 rounded-xl border border-border bg-surface p-1 shadow-card"
+        >
+          <ChatListMenuItem icon={<Pin size={15} />} label={pinned ? "Unpin Chat" : "Pin Chat"} onClick={pick(onTogglePin)} />
+          <ChatListMenuItem
+            icon={<Trash2 size={15} />}
+            label="Delete Chat"
+            hint={UNAVAILABLE_HINT}
+            danger
+          />
+          <ChatListMenuItem
+            icon={muted ? <Bell size={15} /> : <BellOff size={15} />}
+            label={muted ? "Unmute Notifications" : "Mute Notifications"}
+            onClick={pick(onToggleMute)}
+          />
+        </div>
       )}
     </div>
   );

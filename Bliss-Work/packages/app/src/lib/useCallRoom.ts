@@ -84,8 +84,9 @@ export function useCallRoom(callId: string | null) {
   const { api, ws } = useRuntime();
   const [status, setStatus] = useState<RoomStatus>("idle");
   const [participants, setParticipants] = useState<RoomParticipant[]>([]);
-  const [micOn, setMicOn] = useState(true);
-  const [camOn, setCamOn] = useState(true);
+  // Neither is published on join — see the connect step in `join` below.
+  const [micOn, setMicOn] = useState(false);
+  const [camOn, setCamOn] = useState(false);
   const [sharing, setSharing] = useState(false);
   /** When this participant's own media connected, for the in-call timer. */
   const [connectedAt, setConnectedAt] = useState<number | undefined>(undefined);
@@ -338,9 +339,10 @@ export function useCallRoom(callId: string | null) {
       // We are in, so stop asking whether we may come in.
       if (lobbyTimer.current) clearTimeout(lobbyTimer.current);
       await room.connect(grant.url, grant.token);
-      await room.localParticipant.enableCameraAndMicrophone();
-      setMicOn(true);
-      setCamOn(true);
+      // Camera and mic are NOT published on join — the participant arrives
+      // muted and camera-off, and only the controls below (toggleMic/toggleCam)
+      // ever ask the room to publish either. Nothing here or on reconnect
+      // enables them.
       setConnectedAt(Date.now());
       setStatus("connected");
       sync(room);

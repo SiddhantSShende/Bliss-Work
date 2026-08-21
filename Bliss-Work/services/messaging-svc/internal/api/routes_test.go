@@ -65,6 +65,7 @@ var cappedRoutes = map[string]string{
 	"POST /api/v1/conversations/messages":     "small",
 	"POST /api/v1/conversations/{id}/reply":   "small",
 	"POST /api/v1/conversations/{id}/ignore":  "small",
+	"POST /api/v1/conversations/{id}/clear":   "small",
 	"POST /api/v1/conversations/{id}/read":    "small",
 	"POST /api/v1/users/{id}/block":           "small",
 	"DELETE /api/v1/users/{id}/block":         "small",
@@ -80,6 +81,7 @@ var cappedRoutes = map[string]string{
 	"POST /api/v1/channels/{id}/join":         "small",
 	"POST /api/v1/channels/{id}/leave":        "small",
 	"POST /api/v1/channels/{id}/clear":        "small",
+	"POST /api/v1/channels/{id}/read":         "small",
 	// Channel moderation. The two DELETEs take no body at all and the PATCH/POST
 	// take a tiny JSON object; all four sit inside the same /api/v1 group that
 	// applies mw.MaxBytes, so the cap is inherited rather than per-handler.

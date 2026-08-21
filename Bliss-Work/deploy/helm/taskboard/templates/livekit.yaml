@@ -60,6 +60,22 @@ data:
       db: {{ . }}
       {{- end }}
     {{- end }}
+    {{- with .Values.livekit.webhook.urls }}
+    # ── Room lifecycle callbacks ─────────────────────────────────────────────
+    # How messaging-svc learns that a participant's connection went away. It is
+    # the ONLY signal for a closed laptop or a killed tab, and without it
+    # call_participants.left_at stays NULL, ExpireHostlessCalls can never match,
+    # and a meeting whose organiser vanished stays LIVE with everyone in it
+    # showing as Busy. See services/messaging-svc/internal/store/
+    # calls_lifecycle.go.
+    #
+    # No Redis and no egress needed — this server posts them itself. api_key is
+    # injected as LIVEKIT_WEBHOOK_API_KEY on the container below, because a
+    # ConfigMap is not a secret store.
+    webhook:
+      urls:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
     logging:
       level: {{ .Values.livekit.logLevel }}
       json: true
@@ -148,6 +164,18 @@ spec:
                 secretKeyRef:
                   name: {{ include "taskboard.secretName" . }}
                   key: LIVEKIT_KEYS
+            {{- if .Values.livekit.webhook.urls }}
+            # Names which of LIVEKIT_KEYS' pairs signs the room-lifecycle
+            # callbacks the ConfigMap asks for. From the Secret, not the
+            # ConfigMap: it is the same api key messaging-svc holds, and
+            # livekit-server refuses to start with urls set and no api_key
+            # resolved from anywhere.
+            - name: LIVEKIT_WEBHOOK_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "taskboard.secretName" . }}
+                  key: LIVEKIT_API_KEY
+            {{- end }}
           ports:
             - name: signal
               containerPort: {{ .Values.livekit.signalPort }}

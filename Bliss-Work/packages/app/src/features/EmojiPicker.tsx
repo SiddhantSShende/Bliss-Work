@@ -1,6 +1,8 @@
 import EmojiPicker, { EmojiStyle, Theme } from "emoji-picker-react";
-import { useEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import { Smile } from "lucide-react";
+import { usePopupDismiss } from "../lib/usePopupDismiss";
 
 /**
  * Emoji selection shared by composers and message reactions.
@@ -17,6 +19,112 @@ import { Smile } from "lucide-react";
  *  actually used as a reaction, so the common ones need no aiming. */
 export const QUICK_REACTIONS = ["👍", "❤️", "😂", "🎉", "😮", "🙏"] as const;
 
+/** Breathing room between the anchor and the panel, and the panel and the
+ *  window edge. One constant, so the two never disagree. */
+const POPUP_GAP = 8;
+
+/**
+ * The emoji panel, positioned against its trigger and kept inside the window.
+ *
+ * ── Portalled, because the thread clips ─────────────────────────────────────
+ * The composer and every message bubble sit inside the thread's scroll box. A
+ * panel positioned inside that box is clipped by it, so the picker opened over
+ * a bubble near the top of the list came out half-drawn. Rendering to
+ * document.body takes it out of that box; `fixed` coordinates against the
+ * viewport are then the honest way to place it.
+ *
+ * ── Measured, not guessed ───────────────────────────────────────────────────
+ * This used to take the panel's height as a NUMBER from the caller — 420 in the
+ * composer, 465 on a message, both hard-coded guesses at what the grid would
+ * render as. A guess that runs low places the panel too close to the anchor and
+ * it covers the composer; one that runs high wastes the space it was supposed to
+ * be fitting into. Both call sites had to keep their guess in step with the
+ * grid's real height, and neither did.
+ *
+ * So the panel is mounted hidden, measured once for real, and only then placed.
+ * The measure/place pass is a LAYOUT effect, so it completes before the browser
+ * paints and there is no frame where the panel is visible in the wrong place.
+ *
+ * `maxHeight` is the other half of not covering the composer: when neither side
+ * of the anchor has room for the whole grid, the panel scrolls internally
+ * instead of overhanging the message list and the input.
+ */
+export function EmojiPopup({
+  anchor,
+  popupRef,
+  children,
+}: {
+  anchor: React.RefObject<HTMLElement | null>;
+  /** Owned by the caller, which needs it to tell "inside the popup" from
+   *  "outside" — the panel is portalled, so it is not inside the trigger's
+   *  wrapper in the DOM. See lib/usePopupDismiss. */
+  popupRef: React.RefObject<HTMLDivElement | null>;
+  children: React.ReactNode;
+}) {
+  const [style, setStyle] = useState<CSSProperties>({
+    // Hidden rather than unmounted for the first pass: the panel has to be in
+    // the document to have a height to measure, and `visibility` reserves
+    // layout without painting it.
+    visibility: "hidden",
+    top: 0,
+    left: 0,
+  });
+
+  useLayoutEffect(() => {
+    const place = () => {
+      const a = anchor.current?.getBoundingClientRect();
+      const el = popupRef.current;
+      if (!a || !el) return;
+
+      const height = el.offsetHeight;
+      const width = el.offsetWidth;
+      const spaceAbove = a.top - POPUP_GAP;
+      const spaceBelow = window.innerHeight - a.bottom - POPUP_GAP;
+      // Below when it actually fits below, otherwise whichever side has more
+      // room. A composer sits at the bottom of the window, so this resolves to
+      // "above" there; a message near the top of the thread resolves to "below".
+      const below = spaceBelow >= height || spaceBelow >= spaceAbove;
+
+      setStyle({
+        visibility: "visible",
+        top: below ? a.bottom + POPUP_GAP : Math.max(POPUP_GAP, a.top - height - POPUP_GAP),
+        // Clamped to the window on both sides, so a trigger near the right edge
+        // does not push the panel off it.
+        left: Math.max(
+          POPUP_GAP,
+          Math.min(a.left, window.innerWidth - width - POPUP_GAP),
+        ),
+        maxHeight: Math.max(0, below ? spaceBelow : spaceAbove),
+      });
+    };
+
+    place();
+    window.addEventListener("resize", place);
+    // Capture, so the thread's own scroll box moving the anchor repositions the
+    // panel too — a scroll event from a nested container does not bubble.
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [anchor, popupRef]);
+
+  if (typeof document === "undefined") return null;
+  return createPortal(
+    <div
+      ref={popupRef}
+      // Above the app's own layers (the tallest elsewhere is z-[1000], on
+      // ConversationMenu) — a picker that opens behind the menu that summoned
+      // it is not a picker.
+      className="fixed z-[1100] overflow-y-auto overscroll-contain rounded-xl"
+      style={style}
+    >
+      {children}
+    </div>,
+    document.body,
+  );
+}
+
 /**
  * Composer emoji button. Inserts at the end of the current text — not at the
  * caret, because the textarea is uncontrolled from here and reaching into its
@@ -24,25 +132,11 @@ export const QUICK_REACTIONS = ["👍", "❤️", "😂", "🎉", "😮", "🙏"
  */
 export function EmojiPickerButton({ onPick }: { onPick: (emoji: string) => void }) {
   const [open, setOpen] = useState(false);
-  const wrap = useRef<HTMLDivElement>(null);
-
-  // Close on an outside click or Escape. Both, because a picker that only
-  // closes one way is a picker that gets stuck open.
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (!wrap.current?.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
+  const popupRef = useRef<HTMLDivElement>(null);
+  // The wrapper holds the trigger, so pressing it again closes rather than
+  // being treated as an outside click. The portalled panel is declared inside
+  // too — see lib/usePopupDismiss.
+  const wrap = usePopupDismiss<HTMLDivElement>(open, () => setOpen(false), [popupRef]);
 
   return (
     <div ref={wrap} className="relative shrink-0">
@@ -57,13 +151,14 @@ export function EmojiPickerButton({ onPick }: { onPick: (emoji: string) => void 
         <Smile size={18} />
       </button>
       {open && (
-        <EmojiGrid
-          className="absolute bottom-12 left-0 z-20"
-          onPick={(e) => {
-            onPick(e);
-            setOpen(false);
-          }}
-        />
+        <EmojiPopup anchor={wrap} popupRef={popupRef}>
+          <EmojiGrid
+            onPick={(e) => {
+              onPick(e);
+              setOpen(false);
+            }}
+          />
+        </EmojiPopup>
       )}
     </div>
   );

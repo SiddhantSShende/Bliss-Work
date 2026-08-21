@@ -52,7 +52,8 @@ export function Meetings() {
       .sort((a, b) => whenOf(a) - whenOf(b));
     const past = calls
       .filter((c) => c.status === "ENDED" || c.status === "CANCELLED")
-      .sort((a, b) => whenOf(b) - whenOf(a));
+      .sort((a, b) => whenOf(b) - whenOf(a))
+      .slice(0, 5);
     return { live, upcoming, past };
   }, [calls]);
 

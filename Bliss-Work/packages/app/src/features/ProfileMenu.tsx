@@ -58,7 +58,7 @@ export function ProfileMenu() {
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.96, y: -6 }}
             transition={{ type: "spring", stiffness: 360, damping: 30 }}
-            className="glass absolute right-0 top-12 z-[100] w-60 overflow-hidden rounded-2xl p-1.5 shadow-card"
+            className="glass absolute right-0 top-12 z-[1000] w-60 overflow-hidden rounded-2xl bg-[var(--glass-bg)] p-1.5 shadow-card"
           >
             <div className="flex items-center gap-3 px-2.5 py-2.5">
               <Avatar name={user.displayName} />

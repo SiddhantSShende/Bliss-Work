@@ -24,14 +24,15 @@
 #         redis:
 #           address: 127.0.0.1:6379
 #           password: ${REDIS_PASSWORD}
-#     and the webhook that reports finished files back:
-#         webhook:
-#           api_key: <LIVEKIT_API_KEY>
-#           urls: ["https://<your-host>/api/messaging/livekit/webhook"]
-#     (the /api/messaging prefix matters — /livekit/* at the edge is the SFU
-#     itself, so a callback sent there would arrive back at LiveKit)
-#     Both are commented out there rather than live, because turning them on
-#     without this overlay running makes livekit-server fail at startup.
+#     which scripts/render-livekit-recording-config.sh appends to a gitignored
+#     copy, because it carries a password. It is commented out in the tracked
+#     file rather than live, because turning it on without this overlay running
+#     makes livekit-server fail at startup.
+#     The `webhook:` block that reports finished files back is NOT part of this:
+#     it is in the tracked base config unconditionally, because the room
+#     lifecycle needs the same callback and needs it on every deployment. Having
+#     it here was a bug — a deploy without this -f reverted the SFU to a config
+#     with no callbacks and hostless meetings stopped ending.
 #     REMEMBER: the Caddyfile bind mount needs a container RECREATE, not a
 #     reload, and so does this file.
 #  3. .env.prod sets RECORDINGS_ENABLED=true (and, on MEDIA_BACKEND=fs,
@@ -58,10 +59,11 @@ services:
     ports:
       - "127.0.0.1:6379:6379"
 
-  # The SFU needs a redis: block (to hand work to egress) and a webhook: block
-  # (to report when a recording finished). Both carry secrets, and the base
-  # config file is IN THE REPO — so this mounts a rendered, gitignored copy
-  # instead of asking anyone to paste a password into a tracked file.
+  # The SFU needs a redis: block to hand work to egress, and that block carries
+  # a password while the base config file is IN THE REPO — so this mounts a
+  # rendered, gitignored copy instead of asking anyone to paste a password into
+  # a tracked file. The webhook that reports a finished recording is already in
+  # the base config; only Redis is added here.
   #
   #   set -a; . ./.env; . ./.env.prod; set +a
   #   bash scripts/render-livekit-recording-config.sh

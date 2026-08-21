@@ -91,6 +91,7 @@ export const qk = {
   channels: ["channels"] as const,
   openChannels: ["channels", "open"] as const,
   channelMessages: (id: string) => ["channelMessages", id] as const,
+  channelReadReceipts: (id: string) => ["channelReadReceipts", id] as const,
   /** Reaction tallies for one channel. Kept OFF the message list for the same
    *  reason `reactions` is: the tally is per-viewer and changes far more often
    *  than the messages, so folding it in would invalidate the whole channel on

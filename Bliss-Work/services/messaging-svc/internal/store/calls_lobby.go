@@ -102,14 +102,19 @@ func canStartCallTx(
 // Callers must have decided the caller may do this BEFORE calling — nothing
 // here re-checks it.
 func clearLobbyTx(ctx context.Context, tx pgx.Tx, callID string) ([]string, error) {
-	if err := setBypassGUC(ctx, tx); err != nil {
+	prev, err := beginBypassGUC(ctx, tx)
+	if err != nil {
 		return nil, err
 	}
 	admitted, uerr := callIDsTx(ctx, tx, `
 		UPDATE call_participants SET waiting_since = NULL
 		WHERE call_id = $1 AND waiting_since IS NOT NULL
 		RETURNING user_id`, callID)
-	_, serr := tx.Exec(ctx, `SELECT set_config('app.bypass_rls', 'off', true)`)
+	// Back to what it WAS. endCallTx calls this from BOTH shapes of transaction
+	// — a host's own (bypass off) and the sweeper's (bypass on) — and hard-
+	// setting 'off' here is what stopped the sweeper ever ending a call. See
+	// beginBypassGUC.
+	serr := restoreBypassGUC(ctx, tx, prev)
 	if uerr != nil {
 		return nil, uerr
 	}

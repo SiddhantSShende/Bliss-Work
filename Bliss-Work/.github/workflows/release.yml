@@ -1,5 +1,15 @@
 name: Release Desktop
 
+# ── Why this file lives at the repository root ───────────────────────────────
+# GitHub Actions only ever reads `.github/workflows/` at the TOP of the repo.
+# This monorepo's top level holds Bliss-Work/ and Bliss-Website/ as siblings, and
+# this file used to sit inside Bliss-Work/.github/workflows/ — one directory too
+# deep for GitHub to ever discover it. It had never run: `gh api .../actions/
+# workflows/release.yml` 404s, and every filename below that lives in the repo
+# (scripts/…, apps/desktop/…) carries an explicit `Bliss-Work/` prefix, because
+# checkout still clones from the true root and none of those paths exist there
+# directly.
+#
 # Builds the BlissWork desktop installers on each platform's native runner,
 # CODE-SIGNS them, publishes SHA-256 checksums, and deploys straight to our VPS
 # download host (NOT GitHub Releases — the marketing site + web app link to
@@ -25,9 +35,22 @@ name: Release Desktop
 #      .exe and electron-updater verifies that hash before installing.
 #
 # ── Triggers ─────────────────────────────────────────────────────────────────
-#   - CI passing on `main`  → auto-publishes version 0.1.<run_number>
+#   - every push to `VPS-Shristi` (the production branch — see below) →
+#     auto-publishes version 0.1.<run_number>
 #   - a `v*` tag            → publishes that exact version
 #   - manual dispatch       → 0.1.<run_number>
+#
+# This used to be `workflow_run: workflows: ["CI"]`, gated on CI passing first.
+# CI (`ci.yml`) has the same undiscovered-location problem as this file — it has
+# never run either, registering it is a larger, separate piece of work — so a
+# gate on it would never fire and no release would ever auto-publish. Triggering
+# on push instead means every push actually produces a release, which is the
+# literal, current requirement; the CI gate can be reinstated by swapping this
+# back to `workflow_run` once `ci.yml` is registered and green.
+#
+# The branch is `VPS-Shristi`, not `main`: this repository deploys from
+# VPS-Shristi (also its GitHub default branch); `main` exists only as a stale
+# first commit with no remote pushes. Update this if that ever changes.
 #
 # Every run also uploads the installers as workflow artifacts, so a dry run
 # without secrets still produces (unsigned) builds you can inspect.
@@ -51,11 +74,8 @@ name: Release Desktop
 # is safe to run before you've bought a certificate. See docs/DEPLOY.md.
 
 on:
-  workflow_run:
-    workflows: ["CI"]
-    types: [completed]
-    branches: [main]
   push:
+    branches: [VPS-Shristi]
     tags:
       - "v*"
   workflow_dispatch:
@@ -91,9 +111,6 @@ jobs:
   preflight:
     name: Preflight (secrets)
     runs-on: ubuntu-latest
-    if: >-
-      github.event_name != 'workflow_run' ||
-      github.event.workflow_run.conclusion == 'success'
     env:
       VPS_HOST: ${{ secrets.VPS_HOST }}
       VPS_USER: ${{ secrets.VPS_USER }}
@@ -139,26 +156,27 @@ jobs:
     name: Resolve version
     needs: preflight
     runs-on: ubuntu-latest
-    if: >-
-      github.event_name != 'workflow_run' ||
-      github.event.workflow_run.conclusion == 'success'
     outputs:
       version: ${{ steps.v.outputs.version }}
       sha: ${{ steps.v.outputs.sha }}
     steps:
       - id: v
         run: |
-          if [ "${{ github.event_name }}" = "push" ]; then
+          # `push` now covers BOTH a tag push and an ordinary branch push (see
+          # the trigger block above) — event_name alone no longer distinguishes
+          # them, so check the ref itself.
+          if [ "${{ startsWith(github.ref, 'refs/tags/v') }}" = "true" ]; then
             # Tag push: v1.2.3 → 1.2.3
             VERSION="${GITHUB_REF_NAME#v}"
           else
-            # github.run_number is monotonic across the repo, so successive main
-            # pushes always produce a strictly increasing semver. That is what
-            # makes electron-updater see an update at all.
+            # github.run_number is monotonic across the repo, so successive
+            # pushes to the production branch always produce a strictly
+            # increasing semver. That is what makes electron-updater see an
+            # update at all.
             VERSION="0.1.${{ github.run_number }}"
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "sha=${{ github.event.workflow_run.head_sha || github.sha }}" >> "$GITHUB_OUTPUT"
+          echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
           echo "Releasing $VERSION"
 
   # ───────────────────────────────────────────────────────────────────────────
@@ -175,19 +193,28 @@ jobs:
       fail-fast: false
       matrix:
         os: [windows-latest, macos-latest, ubuntu-latest]
+    # The npm workspace root is Bliss-Work/, not the checkout root — this repo
+    # has Bliss-Work/ and Bliss-Website/ as siblings at the top. Applies to
+    # every plain `run:` step below; a step with its OWN `working-directory:`
+    # (Package installers; Verify update manifests) overrides rather than nests
+    # under this, so those carry the `Bliss-Work/` prefix explicitly instead.
+    defaults:
+      run:
+        working-directory: Bliss-Work
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          # Under `workflow_run` the default ref is the branch tip, which races a
-          # follow-up push — we would ship a commit CI never checked. Pin to the
-          # exact commit that passed.
+          # Pinned rather than left to default to the branch tip: a push that
+          # lands while this run is still building must not be silently picked
+          # up mid-build — this run ships exactly the commit that triggered it.
           ref: ${{ needs.version.outputs.sha }}
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
+          cache-dependency-path: Bliss-Work/package-lock.json
 
       - name: Install Linux packaging tools
         if: runner.os == 'Linux'
@@ -212,7 +239,9 @@ jobs:
         run: npm run build -w @taskboard/desktop
 
       - name: Package installers (mac signed + notarized here)
-        working-directory: apps/desktop
+        # A step's own working-directory replaces the job default rather than
+        # nesting under it, so this needs the full prefix.
+        working-directory: Bliss-Work/apps/desktop
         env:
           # macOS Developer ID signing — scoped to the mac runner. When no cert
           # secret is present, CSC_IDENTITY_AUTO_DISCOVERY=false builds unsigned
@@ -244,7 +273,7 @@ jobs:
       # Fail loudly here rather than shipping a feed users can never read.
       - name: Verify update manifests exist
         shell: bash
-        working-directory: apps/desktop/release
+        working-directory: Bliss-Work/apps/desktop/release
         run: |
           case "${{ runner.os }}" in
             Windows) EXPECT=latest.yml ;;
@@ -268,14 +297,19 @@ jobs:
           # latest*.yml and *.blockmap are part of the release, not incidental
           # build output: the manifests ARE the update feed, and the blockmaps
           # let electron-updater download only the changed bytes.
+          #
+          # upload-artifact resolves `path:` against $GITHUB_WORKSPACE (the
+          # checkout root) regardless of any working-directory — it is a step
+          # input, not a shell command — so these need the full prefix even
+          # though the job default above covers every `run:` step.
           path: |
-            apps/desktop/release/*.exe
-            apps/desktop/release/*.dmg
-            apps/desktop/release/*.AppImage
-            apps/desktop/release/*.deb
-            apps/desktop/release/*.zip
-            apps/desktop/release/*.blockmap
-            apps/desktop/release/latest*.yml
+            Bliss-Work/apps/desktop/release/*.exe
+            Bliss-Work/apps/desktop/release/*.dmg
+            Bliss-Work/apps/desktop/release/*.AppImage
+            Bliss-Work/apps/desktop/release/*.deb
+            Bliss-Work/apps/desktop/release/*.zip
+            Bliss-Work/apps/desktop/release/*.blockmap
+            Bliss-Work/apps/desktop/release/latest*.yml
           if-no-files-found: ignore
           retention-days: 14
 
@@ -350,7 +384,7 @@ jobs:
       # binaries are never re-signed after packaging.
       - name: Regenerate the Windows update manifest
         run: |
-          node scripts/regen-update-manifest.mjs \
+          node Bliss-Work/scripts/regen-update-manifest.mjs \
             installers latest.yml BlissWork-windows-x64.exe
 
       # Which platforms actually made it here. With the `if:` above, a failed
@@ -444,7 +478,10 @@ jobs:
       # which is how /downloads ended up hand-assembled and a month stale while
       # CI looked healthy the whole time.
       - name: Fail if a real release published nothing
-        if: env.VPS_HOST == '' && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_run')
+        # `push` now covers both a tag push and a push to the production
+        # branch — the only two triggers that mean "a real release", as
+        # opposed to a workflow_dispatch dry run.
+        if: env.VPS_HOST == '' && github.event_name == 'push'
         run: |
           echo "::error::VPS_HOST is not set, so this release deployed nothing."
           echo "Set the VPS_HOST / VPS_USER / VPS_PATH / VPS_SSH_KEY repository secrets."
@@ -525,7 +562,7 @@ jobs:
       # web app looks perfectly healthy. Check both hosts agree, byte for byte.
       - name: Verify the website and the web app offer the same installers
         if: env.VPS_HOST != ''
-        run: node scripts/check-download-links.mjs --live
+        run: node Bliss-Work/scripts/check-download-links.mjs --live
 
       - name: Scrub the key
         if: always()

@@ -14,14 +14,19 @@
  * keeping it, so a short interjection is heard without being seen, and drawing
  * breath mid-sentence does not cost the presenter their tile.
  *
- * ── Why the stage never empties ──────────────────────────────────────────────
- * When everyone stops talking the last speaker STAYS. A room where the main
- * tile blanks out every time a sentence ends is worse than one that lags: the
- * viewer loses the person they were listening to, and the layout jumps. The
- * stage is only released when that participant actually leaves.
+ * ── Why the stage eventually empties ─────────────────────────────────────────
+ * A pause shorter than DEMOTE_AFTER_MS is a breath, not a handover, so the
+ * speaker keeps the stage through it. Past that window, with nobody else
+ * sustaining a challenge, the room has genuinely gone quiet — holding a
+ * spotlight on someone who stopped talking a while ago is worse than
+ * releasing it, so the stage clears and the view falls back to the grid.
  *
  * Pure and time-injected — no timers, no LiveKit types, no React. The caller
- * passes `now`, which is what makes every rule here testable.
+ * passes `now`, which is what makes every rule here testable. Note that this
+ * means the DEMOTE_AFTER_MS and silence-release transitions only happen when
+ * the caller actually re-invokes the reducer with a fresh `now` — a caller
+ * that only re-invokes on a change of who is speaking will not see the
+ * silence timeout fire on its own; see the periodic tick in CallRoom.
  */
 
 /** How long a new voice must hold the floor before it takes the stage. */
@@ -96,13 +101,10 @@ export function reduceActiveSpeaker(
     }
   }
 
-  if (challenger === null) {
-    return { active: prev.active, startedAt, silentSince };
-  }
-
   // Nobody holds the stage yet — the first qualifying voice simply takes it.
+  // Without one, the stage stays empty (there is nothing to release).
   if (prev.active === null) {
-    return { active: challenger, startedAt, silentSince: null };
+    return { active: challenger, startedAt, silentSince: challenger ? null : silentSince };
   }
 
   // Someone does hold it, and is quiet. They keep it until the pause is long
@@ -111,7 +113,10 @@ export function reduceActiveSpeaker(
     return { active: prev.active, startedAt, silentSince };
   }
 
-  return { active: challenger, startedAt, silentSince: null };
+  // The pause has run past the handover window. A sustained challenger takes
+  // the stage; with none, the room has gone quiet and the stage releases to
+  // the grid rather than holding a speaker who stopped talking a while ago.
+  return { active: challenger, startedAt, silentSince: challenger ? null : null };
 }
 
 /**

@@ -167,6 +167,12 @@ export function DMView() {
     onError: () => toast.error("Couldn't hide that message"),
   });
 
+  const markUnread = useMutation({
+    mutationFn: (upToSeq: number) => api.read(conversationId, upToSeq),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.conversations }),
+    onError: () => toast.error("Couldn't mark that chat as unread"),
+  });
+
   const removeForAll = useMutation({
     mutationFn: (id: string) => api.deleteMessageForAll(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.messages(conversationId) }),
@@ -190,7 +196,18 @@ export function DMView() {
     },
     onSuccess: (res, _body, ctx) => {
       qc.setQueryData<MessageDTO[]>(qk.messages(conversationId), (prev) =>
-        (prev ?? []).map((m) => (m.id === ctx?.tempId ? { ...m, id: res.messageId, seq: res.seq } : m)),
+        (prev ?? []).map((m) =>
+          m.id === ctx?.tempId
+            ? // SENT is the whole point of the 201, and it has to be written
+              // here: the optimistic row carries no status (it has not reached
+              // the server yet) and `pending` stops being true the moment the
+              // real id lands. Without it the bubble goes from "Sending…" to a
+              // blank — the server says SENT, but nothing refetches this list,
+              // so the badge stayed empty until the receipt for the NEXT state
+              // happened to arrive.
+              { ...m, id: res.messageId, seq: res.seq, status: "SENT" as const }
+            : m,
+        ),
       );
       qc.invalidateQueries({ queryKey: qk.conversations });
     },
@@ -209,8 +226,14 @@ export function DMView() {
   });
 
   const clearChat = () => {
-    if (!window.confirm("Clear this chat from your conversations?")) return;
-    ignore.mutate();
+    if (!window.confirm("Delete this chat history for you?")) return;
+    api.clearConversation(conversationId)
+      .then(() => {
+        void qc.invalidateQueries({ queryKey: qk.messages(conversationId) });
+        return ignore.mutateAsync();
+      })
+      .then(() => nav("/app/chats"))
+      .catch(() => toast.error("Couldn't clear this chat history"));
   };
 
   // Block / unblock toggles the caller's own block on the peer. The WS
@@ -491,6 +514,10 @@ export function DMView() {
         onCancelReply={() => setReplyTo(null)}
         onReply={(id) => setReplyTo(id)}
         onHide={(id) => hide.mutate(id)}
+        onMarkUnread={(id) => {
+          const message = messages.find((m) => m.id === id);
+          if (message) markUnread.mutate(Math.max(0, message.seq - 1));
+        }}
         onDeleteForAll={(id) => removeForAll.mutate(id)}
         onReact={(id, emoji, on) => react.mutate({ id, emoji, on })}
         onType={onType}

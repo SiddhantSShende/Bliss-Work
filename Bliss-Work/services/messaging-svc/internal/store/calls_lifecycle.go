@@ -184,11 +184,22 @@ func (s *Store) ExpireOverdueCalls(ctx context.Context, limit int) ([]*CallDTO, 
 // the other: too short ends meetings under people who refreshed, too long
 // leaves a hostless room open and its participants showing as busy.
 //
-// Two minutes, matching the SFU's own `empty_timeout` — a reload, a brief
-// network drop and a laptop lid closing and reopening all resolve well inside
-// it, and nothing in the product treats a two-minute-stale call as current. It
-// is a ceiling rather than the usual case: pressing Leave still ends the call
-// at once (LeaveCall), and this only covers the departures nobody announced.
+// Ten seconds. It started at two minutes, matching the SFU's own
+// `empty_timeout`, and was cut deliberately (commit 5dc5dfd, "the
+// host-disconnect grace period drops to 10s so hostless rooms close promptly")
+// because the cost of the two mistakes is not symmetric here: a host who
+// reloads and comes back walks into a call they can restart in one click, while
+// a hostless room left standing shows a meeting as LIVE and everybody who was
+// in it as busy, to colleagues who act on that.
+//
+// It is a floor on the delay, not the whole of it. The sweeper is a
+// callSweepInterval ticker, so the real worst case before an abandoned call
+// closes is this plus one interval — about forty seconds today. Cutting this
+// alone below the interval buys nothing; the interval is the other half.
+//
+// A ceiling rather than the usual case either way: pressing Leave still ends
+// the call at once (LeaveCall), and this only covers departures nobody
+// announced.
 const HostGracePeriod = 10 * time.Second
 
 // ExpireHostlessCalls ends live calls whose HOST has been disconnected for

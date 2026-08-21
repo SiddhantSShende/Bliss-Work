@@ -490,8 +490,53 @@ func setOrgGUC(ctx context.Context, tx pgx.Tx, orgID string) error {
 
 // setBypassGUC sets `app.bypass_rls = 'on'` as the first statement inside an
 // already-open tx. Same trust rules as withBypass.
+//
+// For a function that OWNS its transaction. A helper that widens somebody
+// else's for a statement or two wants beginBypassGUC instead, so it can put the
+// setting back rather than assume what it was.
 func setBypassGUC(ctx context.Context, tx pgx.Tx) error {
 	_, err := tx.Exec(ctx, `SELECT set_config('app.bypass_rls', 'on', true)`)
+	return err
+}
+
+// beginBypassGUC turns `app.bypass_rls` on for a few statements in a
+// transaction the caller owns, and reports what it was so restoreBypassGUC can
+// put that value back.
+//
+// ── Why it reads the old value rather than assuming 'off' ────────────────────
+// Assuming was the bug. rostersTx and clearLobbyTx used to end their widening
+// with a hard `set_config(..., 'off')`, which is correct inside withCaller —
+// 'off' IS what it was there — and a silent DOWNGRADE inside withBypass, where
+// the whole transaction is supposed to be widened.
+//
+// It failed invisibly, because losing a bypass is not an error: every statement
+// after the widened one simply matched nothing. endCallTx is the path where
+// that mattered. Called from the sweeper or an SFU webhook it runs under
+// withBypass, its clearLobbyTx cleared the bypass halfway through, and the
+// UPDATE that closes out the roster then hit zero rows and the getCallTx at the
+// end read its own just-ended call as invisible — ErrForbidden, rollback, and a
+// call sweep that had never once succeeded in production.
+//
+// Two round trips rather than one on purpose. Reading and setting in a single
+// target list would depend on Postgres evaluating it left to right, which is
+// not promised, and getting that wrong the other way round leaves a bypass
+// switched ON for the rest of somebody else's request.
+func beginBypassGUC(ctx context.Context, tx pgx.Tx) (string, error) {
+	var prev string
+	if err := tx.QueryRow(ctx,
+		`SELECT COALESCE(current_setting('app.bypass_rls', true), '')`).Scan(&prev); err != nil {
+		return "", err
+	}
+	if err := setBypassGUC(ctx, tx); err != nil {
+		return "", err
+	}
+	return prev, nil
+}
+
+// restoreBypassGUC puts `app.bypass_rls` back to the value beginBypassGUC read,
+// ending the widening exactly where it started.
+func restoreBypassGUC(ctx context.Context, tx pgx.Tx, prev string) error {
+	_, err := tx.Exec(ctx, `SELECT set_config('app.bypass_rls', $1, true)`, prev)
 	return err
 }
 

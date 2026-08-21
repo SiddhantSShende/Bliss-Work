@@ -344,6 +344,15 @@ export const ReactionDTO = z.object({
   count: z.number().int().positive(),
   /** True when the caller is one of the reactors — renders the chip pressed. */
   mine: z.boolean(),
+  /**
+   * Who reacted, oldest first, CAPPED server-side — so this can be shorter than
+   * `count`, and `count` stays the authority on how many there were.
+   *
+   * Optional because it is omitted entirely for a tally with no resolvable
+   * names, and because a client may still hold a cached tally from before the
+   * field existed.
+   */
+  reactors: z.array(z.string()).optional(),
 });
 export type ReactionDTO = z.infer<typeof ReactionDTO>;
 export type MessageDTO = z.infer<typeof MessageDTO>;
@@ -855,6 +864,14 @@ export const ChannelMessageDTO = z.object({
   pinned: z.boolean().optional(),
 });
 export type ChannelMessageDTO = z.infer<typeof ChannelMessageDTO>;
+
+export const ChannelReadReceiptDTO = z.object({
+  messageId: z.string().uuid(),
+  readerId: z.string().uuid(),
+  readerName: z.string(),
+  readAt: z.string(),
+});
+export type ChannelReadReceiptDTO = z.infer<typeof ChannelReadReceiptDTO>;
 
 /**
  * Where an attachment lives, and therefore who may read it.

@@ -89,16 +89,29 @@ describe("CallMenu", () => {
     }
   });
 
+  // Asserted through the BEHAVIOUR — click somewhere else, menu goes away —
+  // rather than through the click-away backdrop that used to implement it. The
+  // backdrop is gone (it covered the whole app and ate the click that dismissed
+  // it, so reaching any other control took two presses); this rule did not
+  // change, and a test written against the mechanism rather than the rule is
+  // what turned removing that layer into a false failure.
   it("closes when the click lands outside it", async () => {
     const user = userEvent.setup();
     menu();
     await user.click(screen.getByRole("button", { name: "Call" }));
     expect(screen.getByRole("menu")).toBeInTheDocument();
 
-    // The click-away backdrop, which is what makes this menu dismissable at all.
-    const backdrop = document.querySelector('[aria-hidden="true"].fixed');
-    expect(backdrop).not.toBeNull();
-    await user.click(backdrop as Element);
+    await user.click(document.body);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
+  it("closes on Escape", async () => {
+    const user = userEvent.setup();
+    menu();
+    await user.click(screen.getByRole("button", { name: "Call" }));
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 });

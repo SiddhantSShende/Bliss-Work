@@ -56,6 +56,28 @@ func (s *Store) HideMessage(ctx context.Context, orgID, callerID, messageID stri
 	})
 }
 
+// ClearConversation hides every message in one DM for this caller only.
+func (s *Store) ClearConversation(ctx context.Context, orgID, callerID, convID string) error {
+	return s.withOrg(ctx, orgID, func(tx pgx.Tx) error {
+		var member bool
+		if err := tx.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM conversation_members
+				WHERE conversation_id = $1 AND user_id = $2
+			)`, convID, callerID).Scan(&member); err != nil {
+			return err
+		}
+		if !member {
+			return ErrForbidden
+		}
+		_, err := tx.Exec(ctx, `
+			INSERT INTO message_hides (message_id, user_id, org_id)
+			SELECT id, $2, $3 FROM messages WHERE conversation_id = $1
+			ON CONFLICT (message_id, user_id) DO NOTHING`, convID, callerID, orgID)
+		return err
+	})
+}
+
 // DeleteMessageForAll tombstones a message for both parties. SENDER ONLY.
 //
 // Emits MessageDeleted so the other side's open thread swaps the bubble for a
@@ -244,35 +266,81 @@ type ReactionDTO struct {
 	Emoji     string `json:"emoji"`
 	Count     int    `json:"count"`
 	Mine      bool   `json:"mine"`
+	// Reactors names the people behind Count, newest reaction last, CAPPED at
+	// maxReactorNames. Count stays authoritative: on a chip with more reactors
+	// than the cap the list is a sample and the client says so, rather than the
+	// tally quietly shrinking to the number of names that fit.
+	Reactors []string `json:"reactors,omitempty"`
 }
 
-// reactionsFor tallies reactions across a whole page of messages in ONE query.
-// Per-message queries would be N+1 on the hottest read in the app.
-func reactionsFor(ctx context.Context, tx pgx.Tx, messageIDs []string, callerID string) ([]ReactionDTO, error) {
-	out := []ReactionDTO{}
-	if len(messageIDs) == 0 {
-		return out, nil
-	}
-	rows, err := tx.Query(ctx, `
-		SELECT message_id, emoji, count(*)::int,
-		       bool_or(user_id = $2) AS mine
-		FROM message_reactions
-		WHERE message_id = ANY($1)
-		GROUP BY message_id, emoji
-		ORDER BY message_id, count(*) DESC, emoji ASC`,
-		messageIDs, callerID)
-	if err != nil {
-		return nil, err
-	}
+// How many names one chip ships. A reaction chip is read at a glance and its
+// popup is a list, so past a few dozen the names stop being information and
+// start being payload — on the hottest read in the app, once per chip, per
+// message, per page.
+//
+// A string because the only place it is used is the array slice bound inside
+// reactionColumns, and a Go int would have to be formatted into that at runtime
+// to say the same thing twice.
+const maxReactorNames = "50"
+
+// reactionColumns is the SELECT list both reaction readers use, in exactly the
+// order scanReactions expects. Shared as a constant for the same reason
+// messageColumns is: one projection between two readers cannot drift into a
+// scan-order bug that only shows up at runtime.
+//
+// The count alone answers "how many", which in a channel is the less useful
+// half of the question — a chip reading 3 with no way to find out who is a chip
+// you have to ask about out loud. The slice bound is applied in SQL so the
+// names are dropped before they cross the wire.
+const reactionColumns = `
+	r.message_id, r.emoji, count(*)::int,
+	bool_or(r.user_id = $2) AS mine,
+	(array_agg(
+	    COALESCE(NULLIF(up.display_name, ''), up.username, '')
+	    ORDER BY r.created_at
+	))[1:` + maxReactorNames + `] AS reactors`
+
+// reactionNameJoin pairs with reactionColumns. LEFT, because a reaction from
+// somebody with no projection row yet is still a reaction — it renders with an
+// empty name rather than dropping the tally it belongs to.
+const reactionNameJoin = `
+	LEFT JOIN user_projection up ON up.user_id = r.user_id`
+
+// reactionGrouping pairs with reactionColumns: same grouping key, and the chip
+// order the UI renders left to right (commonest first, then stable by emoji).
+const reactionGrouping = `
+	GROUP BY r.message_id, r.emoji
+	ORDER BY r.message_id, count(*) DESC, r.emoji ASC`
+
+// scanReactions drains a reactionColumns cursor and closes it.
+func scanReactions(rows pgx.Rows) ([]ReactionDTO, error) {
 	defer rows.Close()
+	out := []ReactionDTO{}
 	for rows.Next() {
 		var r ReactionDTO
-		if err := rows.Scan(&r.MessageID, &r.Emoji, &r.Count, &r.Mine); err != nil {
+		if err := rows.Scan(&r.MessageID, &r.Emoji, &r.Count, &r.Mine, &r.Reactors); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// reactionsFor tallies reactions across a whole page of messages in ONE query.
+// Per-message queries would be N+1 on the hottest read in the app.
+func reactionsFor(ctx context.Context, tx pgx.Tx, messageIDs []string, callerID string) ([]ReactionDTO, error) {
+	if len(messageIDs) == 0 {
+		return []ReactionDTO{}, nil
+	}
+	rows, err := tx.Query(ctx, `
+		SELECT`+reactionColumns+`
+		FROM message_reactions r`+reactionNameJoin+`
+		WHERE r.message_id = ANY($1)`+reactionGrouping,
+		messageIDs, callerID)
+	if err != nil {
+		return nil, err
+	}
+	return scanReactions(rows)
 }
 
 // ReactionsForConversation tallies reactions for ONE PAGE of a conversation the
@@ -314,25 +382,15 @@ func (s *Store) ReactionsForConversation(
 			    ORDER BY m.seq DESC
 			    LIMIT $4
 			)
-			SELECT r.message_id, r.emoji, count(*)::int, bool_or(r.user_id = $2) AS mine
+			SELECT`+reactionColumns+`
 			FROM message_reactions r
-			JOIN page p ON p.id = r.message_id
-			GROUP BY r.message_id, r.emoji
-			ORDER BY r.message_id, count(*) DESC, r.emoji ASC`,
+			JOIN page p ON p.id = r.message_id`+reactionNameJoin+reactionGrouping,
 			convID, callerID, beforeSeq, limit)
 		if err != nil {
 			return err
 		}
-		defer rows.Close()
-		out = []ReactionDTO{}
-		for rows.Next() {
-			var r ReactionDTO
-			if err := rows.Scan(&r.MessageID, &r.Emoji, &r.Count, &r.Mine); err != nil {
-				return err
-			}
-			out = append(out, r)
-		}
-		return rows.Err()
+		out, err = scanReactions(rows)
+		return err
 	})
 	if err != nil {
 		return nil, err
