@@ -11,27 +11,6 @@ _SERVICE_NAME = "task-svc"
 _TRACE_HEADER_KEYS = ("traceparent", "tracestate")
 
 
-def inject_headers(headers=None):
-    """Inject the current trace context as W3C Kafka headers.
-
-    Returns a list of ``(key: str, value: bytes)`` tuples suitable for
-    aiokafka ``send(..., headers=...)``. Any caller-supplied ``headers`` are
-    preserved and the trace headers appended. When tracing is disabled the
-    global propagator is a no-op TraceContext propagator with no active span,
-    so this simply returns the input unchanged (cheap + harmless).
-    """
-    from opentelemetry import propagate
-
-    carrier: dict[str, str] = {}
-    propagate.inject(carrier)
-    result = list(headers) if headers else []
-    for key in _TRACE_HEADER_KEYS:
-        value = carrier.get(key)
-        if value is not None:
-            result.append((key, value.encode("utf-8")))
-    return result
-
-
 def extract_context(headers):
     """Extract a trace context from aiokafka message headers.
 

@@ -1,5 +1,6 @@
 import { useNavigate } from "react-router-dom";
-import { Mail, Calendar, MessageSquare, ListTodo, Hash, Users, Plug, Building2 } from "lucide-react";
+import { Mail, Calendar, MessageSquare, ListTodo, Hash, Users, Plug, Building2, Settings } from "lucide-react";
+import { ProfileMenu } from "../features/ProfileMenu";
 
 const ITEMS = [
   { key: "mail", label: "Mail", icon: Mail, to: "/app/mail" },
@@ -12,6 +13,7 @@ const ITEMS = [
   // External Integrations + forward-tracking. Available to every org (each org
   // supplies its own third-party credentials) — not a Bliss-Work paid tier.
   { key: "integrations", label: "Integrations", icon: Plug, to: "/app/integrations" },
+  { key: "settings", label: "Settings", icon: Settings, to: "/app/settings" },
 ] as const;
 
 /**
@@ -40,7 +42,7 @@ export function Rail({
       className={`glass rounded-2xl ${
         bottom
           ? "flex items-center justify-around px-1 py-1"
-          : "flex w-[84px] shrink-0 flex-col items-center gap-2 py-4"
+          : "relative z-30 flex min-h-0 w-[140px] shrink-0 flex-col items-center gap-1 overflow-y-auto overscroll-contain px-2 py-4 [scrollbar-color:var(--color-border)_transparent] [scrollbar-width:thin]"
       } ${className}`}
     >
       {items.map((it) => (
@@ -54,6 +56,11 @@ export function Rail({
           onClick={() => nav(it.to)}
         />
       ))}
+      {!bottom && (
+        <div className="mt-auto w-full pt-5">
+          <ProfileMenu variant="rail" />
+        </div>
+      )}
     </nav>
   );
 }
@@ -78,7 +85,7 @@ function RailBtn({
       onClick={onClick}
       title={badge > 0 ? `${label} (${badge} new)` : label}
       className={`relative flex flex-col items-center gap-1 rounded-xl text-[11px] font-medium transition-all active:scale-95 ${
-        bottom ? "flex-1 py-1.5" : "w-16 py-2.5"
+        bottom ? "flex-1 py-1.5" : "w-full flex-row justify-start gap-3 px-3 py-3 text-left"
       } ${
         active
           ? "bg-gradient-to-br from-brand-from to-brand-to text-accent-fg shadow-[0_6px_18px_-6px_var(--color-accent)]"

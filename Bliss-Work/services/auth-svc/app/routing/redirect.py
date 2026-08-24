@@ -25,7 +25,7 @@ from __future__ import annotations
 from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import HTTPException, status
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 from starlette.requests import Request
 
 from .decision import Route, RouteDecision
@@ -117,14 +117,4 @@ def enforce(
         # 307: preserves method and body. A 302 here would silently turn an
         # invite redemption's POST into a GET at the far site.
         status_code=status.HTTP_307_TEMPORARY_REDIRECT,
-    )
-
-
-def retry_response(key_kind: str = "resource") -> JSONResponse:
-    """The RETRY answer as a response rather than an exception, for callers
-    outside the request path (background jobs, internal endpoints)."""
-    return JSONResponse(
-        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-        content={"detail": f"{key_kind} is not available at this site yet — retry shortly"},
-        headers={"Retry-After": str(RETRY_AFTER_SECONDS)},
     )

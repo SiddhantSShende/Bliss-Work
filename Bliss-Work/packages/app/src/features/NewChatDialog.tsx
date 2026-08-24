@@ -8,6 +8,7 @@ import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
 import { matchUser, rankUsers } from "../lib/matchUser";
+import { useSelectedChat } from "../lib/selectedChat";
 import { Modal } from "./Modal";
 
 export function NewChatDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -15,6 +16,7 @@ export function NewChatDialog({ open, onClose }: { open: boolean; onClose: () =>
   const qc = useQueryClient();
   const me = useSession((s) => s.user)!;
   const nav = useNavigate();
+  const { openChat } = useSelectedChat();
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -36,7 +38,9 @@ export function NewChatDialog({ open, onClose }: { open: boolean; onClose: () =>
       const { conversationId } = await api.openConversation(u.id);
       await qc.invalidateQueries({ queryKey: qk.conversations });
       onClose();
-      nav(`/app/chats/${conversationId}`);
+      // Selects and moves to the section in one step, so a brand-new chat's id
+      // never reaches the URL — see lib/selectedChat.
+      openChat(conversationId);
     } finally {
       setBusy(false);
     }

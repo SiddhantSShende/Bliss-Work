@@ -49,10 +49,6 @@ func (s *Store) WithReadCache(c *readcache.Cache) *Store {
 	return s
 }
 
-// ReadCacheEnabled reports whether caching is active, for a startup log. The
-// difference is invisible from outside until someone counts queries.
-func (s *Store) ReadCacheEnabled() bool { return s.cache.Enabled() }
-
 // New opens a pgx pool against the given URL. The Cryptor encrypts sensitive
 // columns on write and decrypts on read transparently; it is required (a nil
 // Cryptor would write NULL ciphertext and lose message bodies).
@@ -147,9 +143,6 @@ func (s *Store) Close() {
 	}
 	s.pool.Close()
 }
-
-// Ping checks DB connectivity.
-func (s *Store) Ping(ctx context.Context) error { return s.pool.Ping(ctx) }
 
 // Pool exposes the underlying pgx pool so the idempotency middleware (and the
 // internal-delivery handler in Phase 5) can share it without owning their own.
@@ -637,13 +630,14 @@ type MessageDTO struct {
 // member. `IAmMember` is computed per-caller so the directory and "browse
 // open channels" views can render the right CTA (Join vs Open vs Locked).
 type ChannelDTO struct {
-	ID            string  `json:"id"`
-	Name          string  `json:"name"`
-	MemberCount   int     `json:"memberCount"`
-	LastMessage   *string `json:"lastMessage"`
-	LastMessageAt *string `json:"lastMessageAt"`
-	IsLocked      bool    `json:"isLocked"`
-	IAmMember     bool    `json:"iAmMember"`
+	ID                string  `json:"id"`
+	Name              string  `json:"name"`
+	MemberCount       int     `json:"memberCount"`
+	LastMessage       *string `json:"lastMessage"`
+	LastMessageAt     *string `json:"lastMessageAt"`
+	LastMessageSender string  `json:"lastMessageSender,omitempty"`
+	IsLocked          bool    `json:"isLocked"`
+	IAmMember         bool    `json:"iAmMember"`
 	// Who created the channel. Written since 0002 and, until channel roles
 	// existed, never once read back.
 	CreatedBy string `json:"createdBy"`

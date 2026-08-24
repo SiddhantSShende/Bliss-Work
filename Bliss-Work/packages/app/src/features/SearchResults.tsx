@@ -8,6 +8,16 @@ export interface SearchRow {
   title: string;
   subtitle?: string;
   to: string;
+  /**
+   * Open this hit by doing something rather than by following `to`.
+   *
+   * For results whose destination is not addressable. A chat is the one such
+   * result: which conversation is open is held in memory precisely so its id
+   * stays out of the URL (lib/selectedChat), so there is no per-chat path for a
+   * link to point at. `to` is still required and still used as the fallback —
+   * every other group is a real route.
+   */
+  onSelect?: () => void;
 }
 
 export interface SearchGroup {
@@ -26,15 +36,31 @@ export function SearchResults({ groups }: { groups: SearchGroup[] }) {
             {g.label} · {g.rows.length}
           </h2>
           <div className="space-y-0.5">
-            {g.rows.map((r) => (
-              <NavLink key={r.id} to={r.to} className={rowClass(false)}>
-                <Leading kind={g.key} title={r.title} />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-medium text-fg">{r.title}</div>
-                  {r.subtitle && <div className="truncate text-sm text-muted">{r.subtitle}</div>}
-                </div>
-              </NavLink>
-            ))}
+            {g.rows.map((r) => {
+              const body = (
+                <>
+                  <Leading kind={g.key} title={r.title} />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-medium text-fg">{r.title}</div>
+                    {r.subtitle && <div className="truncate text-sm text-muted">{r.subtitle}</div>}
+                  </div>
+                </>
+              );
+              return r.onSelect ? (
+                <button
+                  key={r.id}
+                  type="button"
+                  onClick={r.onSelect}
+                  className={`${rowClass(false)} w-full`}
+                >
+                  {body}
+                </button>
+              ) : (
+                <NavLink key={r.id} to={r.to} className={rowClass(false)}>
+                  {body}
+                </NavLink>
+              );
+            })}
           </div>
         </section>
       ))}

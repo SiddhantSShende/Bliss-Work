@@ -217,6 +217,23 @@ export function readablePrefix(body: string): string {
   return (i < 0 ? body : body.slice(0, i)).trim();
 }
 
+/** Short list preview for structured messages; plain text stays unchanged. */
+export function listPreview(body: string): string {
+  const envelope = parseChatEnvelope(body);
+  if (!envelope) return readablePrefix(body);
+  if (envelope.kind === "location") return "Location shared";
+  if (envelope.kind === "fileOffer") return "File sent";
+  if (envelope.items.length === 1) {
+    const mime = envelope.items[0]?.mime ?? "";
+    if (mime.startsWith("image/")) return "Image sent";
+    if (mime.startsWith("video/")) return "Video sent";
+    return "File sent";
+  }
+  return envelope.items.every((item) => item.mime.startsWith("image/"))
+    ? `${envelope.items.length} images sent`
+    : `${envelope.items.length} files sent`;
+}
+
 /**
  * True when a message is a media attachment.
  *

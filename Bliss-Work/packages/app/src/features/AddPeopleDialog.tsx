@@ -1,7 +1,10 @@
 import { useState } from "react";
 import { toast } from "sonner";
+import { Button } from "@taskboard/ui";
 import { Modal } from "./Modal";
 import { MemberPicker } from "./MemberPicker";
+import { useRuntime } from "../lib/runtime";
+import { useSession } from "../store/session";
 
 /**
  * "Add People" from inside a call.
@@ -21,20 +24,47 @@ export function AddPeopleDialog({
   onClose,
   exclude,
   onAdd,
+  callId,
 }: {
   open: boolean;
   onClose: () => void;
   /** Who is already on the call. */
   exclude: Set<string>;
   onAdd: (userIds: string[]) => Promise<void>;
+  callId?: string;
 }) {
+  const { api } = useRuntime();
+  const me = useSession((s) => s.user);
   const [busy, setBusy] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
-  const confirm = (ids: string[]) => {
+  const canSendOrganization = (me?.roles as readonly string[] | undefined)?.some(
+    (role) => role === "org_admin" || role === "owner",
+  ) ?? false;
+
+  const sendLink = (ids: string[]) => {
     setBusy(true);
-    onAdd(ids)
+    const deliver = callId
+      ? api.createCallInvite(callId).then(async ({ token }) => {
+          const link = `${window.location.origin}/join?t=${encodeURIComponent(token)}`;
+          await onAdd(ids);
+          const results = await Promise.allSettled(
+            ids.map((id) => api.sendMessage(id, `Join the meeting: ${link}`)),
+          );
+          const failed = results.filter((result) => result.status === "rejected").length;
+          if (failed > 0) {
+            toast.warning("Link sent with some exceptions", {
+              description: `${ids.length - failed} sent, ${failed} could not be reached.`,
+            });
+          } else {
+            toast.success(ids.length > 1 ? `Link sent to ${ids.length} members` : "Link sent");
+          }
+        })
+      : onAdd(ids).then(() => {
+          toast.success(ids.length > 1 ? `Added ${ids.length} people` : "Added to the call");
+        });
+    deliver
       .then(() => {
-        toast.success(ids.length > 1 ? `Added ${ids.length} people` : "Added to the call");
         onClose();
       })
       .catch((e: unknown) =>
@@ -48,9 +78,36 @@ export function AddPeopleDialog({
       .finally(() => setBusy(false));
   };
 
+  const close = () => {
+    if (!busy) {
+      setPickerOpen(false);
+      onClose();
+    }
+  };
+
   return (
-    <Modal open={open} onClose={busy ? () => {} : onClose} title="Add people to this call">
-      <MemberPicker exclude={exclude} busy={busy} onConfirm={confirm} onCancel={onClose} />
-    </Modal>
+    <>
+      <Modal open={open && !pickerOpen} onClose={busy ? () => {} : onClose} title="Share meeting link">
+        <div className="space-y-4">
+          <p className="text-sm text-muted">
+            Invite teammates to join this meeting with a secure link.
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" size="sm" onClick={onClose} disabled={busy}>Cancel</Button>
+            <Button size="sm" onClick={() => setPickerOpen(true)} disabled={busy}>Send link</Button>
+          </div>
+        </div>
+      </Modal>
+      <Modal open={open && pickerOpen} onClose={busy ? () => {} : close} title="Send meeting link">
+        <MemberPicker
+          exclude={exclude}
+          busy={busy}
+          onConfirm={sendLink}
+          onOrganization={canSendOrganization ? sendLink : undefined}
+          confirmLabel="Send link"
+          onCancel={close}
+        />
+      </Modal>
+    </>
   );
 }

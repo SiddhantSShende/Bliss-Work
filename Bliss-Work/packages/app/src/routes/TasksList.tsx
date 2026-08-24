@@ -45,7 +45,7 @@ export function TasksList() {
               <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent-soft text-accent">
                 <c.icon size={17} />
               </span>
-              <span className="flex-1 font-medium text-fg">{c.label}</span>
+              <span className="flex-1 text-sm font-medium text-fg">{c.label}</span>
               {n > 0 && (
                 <span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs font-semibold text-muted">{n}</span>
               )}

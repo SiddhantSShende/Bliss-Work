@@ -1,5 +1,71 @@
 /** Formatting + grouping helpers for the chat thread. */
 
+/** A run of a message body: either literal text or a URL found inside it. */
+export interface MessageSegment {
+  type: "text" | "link";
+  value: string;
+}
+
+/** http(s) only, on purpose — a scheme this app never wants clickable
+ *  (javascript:, data:, …) simply never matches, so there is no need to
+ *  allowlist/denylist schemes separately. Stops at whitespace, angle
+ *  brackets and quotes: those are exactly the characters that would let a
+ *  matched URL run into surrounding punctuation or (if this were ever
+ *  rendered as markup instead of a text child) break out of an attribute —
+ *  excluding them from the match keeps a URL a URL. */
+const URL_PATTERN = /https?:\/\/[^\s<>"']+/g;
+
+/** Trailing characters that read as sentence punctuation rather than part of
+ *  the address — "join here: https://x/y?z=1." must not pull the period into
+ *  the link. A trailing ")" is kept when the URL itself opened at least as
+ *  many "(" as it closes, so a parenthetical URL (Wikipedia-style) is not
+ *  truncated mid-address. */
+function trimTrailingPunctuation(url: string): string {
+  let end = url.length;
+  while (end > 0) {
+    const ch = url.charAt(end - 1);
+    if (ch === ")") {
+      const opens = (url.slice(0, end).match(/\(/g) ?? []).length;
+      const closes = (url.slice(0, end).match(/\)/g) ?? []).length;
+      if (closes <= opens) break;
+      end--;
+      continue;
+    }
+    if (".,;:!?'\"]}".includes(ch)) {
+      end--;
+      continue;
+    }
+    break;
+  }
+  return url.slice(0, end);
+}
+
+/**
+ * Split a message body into text/link segments, in order.
+ *
+ * Pure and React-free on purpose: the renderer maps `text` segments to plain
+ * text children and `link` segments to an anchor's `href` AND text child —
+ * never to markup, never through `dangerouslySetInnerHTML`. A segment's
+ * `value` is always rendered as a text node, so there is no HTML/script
+ * injection surface here regardless of what a message contains: the URL
+ * character class above already excludes the characters that could matter
+ * (`<`, `>`, quotes), and even if it did not, React escapes text children.
+ */
+export function linkifyMessage(body: string): MessageSegment[] {
+  const segments: MessageSegment[] = [];
+  let lastIndex = 0;
+  for (const match of body.matchAll(URL_PATTERN)) {
+    const start = match.index ?? 0;
+    const url = trimTrailingPunctuation(match[0]);
+    if (!url) continue;
+    if (start > lastIndex) segments.push({ type: "text", value: body.slice(lastIndex, start) });
+    segments.push({ type: "link", value: url });
+    lastIndex = start + url.length;
+  }
+  if (lastIndex < body.length) segments.push({ type: "text", value: body.slice(lastIndex) });
+  return segments;
+}
+
 /** HH:MM for a message timestamp. */
 export function clock(iso?: string): string {
   if (!iso) return "";

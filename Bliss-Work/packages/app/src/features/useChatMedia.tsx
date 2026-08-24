@@ -110,11 +110,12 @@ export function useChatMedia(opts: ChatMediaOptions) {
   useEffect(() => {
     setStaged([]);
     setUploads({});
+    setLightbox(null);
     // A pending drop belongs to the conversation it was dropped on. Leaving it
     // open across a navigation would attach those files to whatever chat the
     // user landed in.
     setDropped(null);
-  }, [scopeId]);
+  }, [scope, scopeId]);
 
   // ── uploading ─────────────────────────────────────────────────────────────
 

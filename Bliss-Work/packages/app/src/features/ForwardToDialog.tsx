@@ -9,6 +9,7 @@ import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
 import { matchUser } from "../lib/matchUser";
 import { readablePrefix } from "../lib/chatEnvelope";
+import { useSelectedChat } from "../lib/selectedChat";
 import { Modal } from "./Modal";
 
 /**
@@ -47,6 +48,7 @@ export function ForwardToDialog({
   const { api } = useRuntime();
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const { openChat } = useSelectedChat();
   const me = useSession((s) => s.user);
   const [query, setQuery] = useState("");
   const [target, setTarget] = useState<Target | null>(null);
@@ -94,13 +96,15 @@ export function ForwardToDialog({
       void qc.invalidateQueries({ queryKey: qk.channels });
       void qc.invalidateQueries({ queryKey: ["messages"] });
       void qc.invalidateQueries({ queryKey: ["channelMessages"] });
-      const to_ = res.channelId
-        ? `/app/channels/${res.channelId}`
+      // A channel has a URL to open; a conversation does not — it is selected
+      // instead, so its id never reaches the address bar (lib/selectedChat).
+      const openTarget = res.channelId
+        ? () => navigate(`/app/channels/${res.channelId}`)
         : res.conversationId
-          ? `/app/chats/${res.conversationId}`
+          ? () => openChat(res.conversationId!)
           : null;
       toast.success(`Forwarded to ${to.label}`, {
-        ...(to_ && { action: { label: "Open", onClick: () => navigate(to_) } }),
+        ...(openTarget && { action: { label: "Open", onClick: openTarget } }),
       });
       onClose();
     },

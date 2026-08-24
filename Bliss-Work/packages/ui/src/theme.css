@@ -14,10 +14,10 @@
 
 /* ── Tokens. WHITE default; .dark overrides. Blue→violet brand. ───────────── */
 @theme {
-  --color-bg: oklch(0.985 0.007 285);
+  --color-bg: oklch(0.965 0.025 260);
   --color-surface: oklch(1 0 0);
-  --color-surface-2: oklch(0.972 0.008 285);
-  --color-border: oklch(0.912 0.012 285);
+  --color-surface-2: oklch(0.975 0.015 265);
+  --color-border: oklch(0.91 0.02 270);
   --color-muted: oklch(0.52 0.03 280);
   --color-fg: oklch(0.26 0.045 275);
   --color-accent: oklch(0.58 0.22 285);
@@ -57,8 +57,8 @@
 }
 
 :root {
-  --glass-bg: rgba(255, 255, 255, 0.62);
-  --glass-border: rgba(255, 255, 255, 0.7);
+  --glass-bg: rgba(255, 255, 255, 0.3);
+  --glass-border: rgba(255, 255, 255, 0.66);
   --glass-shadow: 0 8px 32px rgba(60, 40, 120, 0.12);
 }
 
@@ -104,8 +104,6 @@
 /* Frosted-glass surface used across panels, sidebar, cards. */
 .glass {
   background: var(--glass-bg);
-  -webkit-backdrop-filter: blur(20px) saturate(165%);
-  backdrop-filter: blur(20px) saturate(165%);
   border: 1px solid var(--glass-border);
   box-shadow: var(--glass-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.45);
 }
@@ -117,30 +115,54 @@
   overflow: hidden;
   background: var(--color-bg);
 }
+
+:root:not(.dark) .brand-mesh {
+  background:
+    radial-gradient(ellipse 34% 22% at 15% 34%, rgba(255, 255, 255, 0.68), transparent 70%),
+    radial-gradient(ellipse 28% 18% at 27% 38%, rgba(255, 255, 255, 0.56), transparent 72%),
+    radial-gradient(ellipse 38% 24% at 76% 28%, rgba(255, 255, 255, 0.5), transparent 72%),
+    radial-gradient(ellipse 28% 16% at 86% 34%, rgba(255, 255, 255, 0.42), transparent 72%),
+    radial-gradient(ellipse 40% 20% at 48% 78%, rgba(255, 255, 255, 0.38), transparent 74%),
+    radial-gradient(ellipse 78% 105% at 4% 2%, rgba(190, 185, 247, 0.98), transparent 67%),
+    radial-gradient(ellipse 76% 96% at 97% 12%, rgba(170, 232, 235, 0.94), transparent 67%),
+    radial-gradient(ellipse 90% 76% at 52% 108%, rgba(184, 213, 255, 0.94), transparent 65%),
+    linear-gradient(135deg, #e9edff 0%, #f2f3ff 48%, #e4f7f5 100%);
+}
+
+:root:not(.dark) .brand-mesh::before,
+:root:not(.dark) .brand-mesh::after {
+  opacity: 0.28;
+}
+
 .brand-mesh::before,
 .brand-mesh::after {
   content: "";
   position: absolute;
   border-radius: 9999px;
-  filter: blur(90px);
-  opacity: 0.55;
+  opacity: 0.4;
   z-index: -1;
   will-change: transform;
 }
 .brand-mesh::before {
-  width: 36rem;
-  height: 36rem;
-  top: -10rem;
-  left: -6rem;
-  background: radial-gradient(circle, var(--color-brand-from), transparent 68%);
+  width: 48rem;
+  height: 30rem;
+  top: 8rem;
+  left: -10rem;
+  background:
+    radial-gradient(ellipse 20% 35% at 18% 55%, rgba(255, 255, 255, 0.55), transparent 70%),
+    radial-gradient(ellipse 24% 44% at 34% 48%, rgba(255, 255, 255, 0.48), transparent 70%),
+    radial-gradient(ellipse 28% 38% at 52% 58%, rgba(255, 255, 255, 0.38), transparent 72%);
   animation: bw-float-a 20s ease-in-out infinite;
 }
 .brand-mesh::after {
-  width: 40rem;
-  height: 40rem;
-  bottom: -14rem;
-  right: -8rem;
-  background: radial-gradient(circle, var(--color-brand-to), transparent 68%);
+  width: 52rem;
+  height: 32rem;
+  bottom: -6rem;
+  right: -12rem;
+  background:
+    radial-gradient(ellipse 25% 40% at 26% 48%, rgba(255, 255, 255, 0.42), transparent 70%),
+    radial-gradient(ellipse 30% 48% at 46% 40%, rgba(255, 255, 255, 0.34), transparent 70%),
+    radial-gradient(ellipse 24% 34% at 68% 52%, rgba(255, 255, 255, 0.28), transparent 72%);
   animation: bw-float-b 26s ease-in-out infinite;
 }
 @keyframes bw-float-a {

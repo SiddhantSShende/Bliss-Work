@@ -77,13 +77,6 @@ export function toggleMailFavorite(mailId: string): void {
   listeners.forEach((listener) => listener());
 }
 
-/** Test seam: drop everything, in memory and on disk. */
-export function resetMailPrefs(): void {
-  state = EMPTY;
-  save(state);
-  listeners.forEach((listener) => listener());
-}
-
 /**
  * The stars, as a predicate.
  *

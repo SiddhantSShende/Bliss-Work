@@ -17,6 +17,7 @@ import { matchUser, rankUsers } from "../lib/matchUser";
 import { displayNameOf } from "../lib/userLabel";
 import { SearchResults, type SearchGroup } from "../features/SearchResults";
 import { useGoBack } from "../lib/useGoBack";
+import { CHATS_PATH, useSelectedChat } from "../lib/selectedChat";
 
 const bucket = (s: string) =>
   s === "IGNORED" ? "ignored" : s === "COMPLETED" || s === "LEFT" ? "completed" : "allocated";
@@ -25,6 +26,7 @@ export function Search() {
   const { api } = useRuntime();
   const goBack = useGoBack();
   const me = useSession((s) => s.user)!;
+  const { openChat } = useSelectedChat();
   const [params] = useSearchParams();
   const q = (params.get("q") ?? "").trim();
   const ql = q.toLowerCase();
@@ -83,12 +85,24 @@ export function Search() {
             displayNameOf(c).toLowerCase().includes(ql) ||
             c.peerUsername.toLowerCase().includes(ql) ||
             (c.lastMessage ?? "").toLowerCase().includes(ql))
-          .map((c) => ({ id: c.id, title: displayNameOf(c), subtitle: c.lastMessage ?? undefined, to: `/app/chats/${c.id}` })),
+          // Opened by selecting rather than by navigating: a conversation has
+          // no URL of its own (lib/selectedChat), so `to` is the section and
+          // onSelect is what actually opens the chat.
+          .map((c) => ({
+            id: c.id,
+            title: displayNameOf(c),
+            subtitle: c.lastMessage ?? undefined,
+            to: CHATS_PATH,
+            onSelect: () => openChat(c.id),
+          })),
       },
       { key: "tasks", label: "Tasks", rows: [...tasks.values()] },
     ];
     return all.filter((g) => g.rows.length > 0);
-  }, [q, ql, people, channels, chats, assigned, sent, me.id]);
+    // openChat is stable (a useCallback over `navigate`), so listing it costs
+    // nothing — but leaving it out would be a stale closure the day it stops
+    // being stable.
+  }, [q, ql, people, channels, chats, assigned, sent, me.id, openChat]);
 
   const total = groups.reduce((n, g) => n + g.rows.length, 0);
 

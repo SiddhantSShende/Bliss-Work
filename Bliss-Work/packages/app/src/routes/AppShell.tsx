@@ -9,6 +9,7 @@ import { useSession } from "../store/session";
 import { qk, WsEventBridge } from "../lib/queryBridge";
 import { useInboxPeers } from "../lib/useInboxPeers";
 import { listSectionOf, railSectionOf } from "../lib/section";
+import { useSelectedChat } from "../lib/selectedChat";
 import { TelemetryBridge } from "../lib/telemetry";
 import { CallProvider } from "../lib/useCall";
 import { CallUI } from "../features/CallUI";
@@ -54,11 +55,18 @@ export function AppShell() {
   const railSection = railSectionOf(loc.pathname);
 
   // On phones we only have room for ONE pane. A path with a third segment
-  // (/app/chats/:id, /app/members/:userId, /app/tasks/:view) is a "detail" →
-  // show the main content; a bare section index (/app/chats, /app/members) →
-  // show the list pane. md+ shows both panes side by side, so these flags are
-  // ignored there.
-  const hasDetail = loc.pathname.split("/").filter(Boolean).length >= 3;
+  // (/app/members/:userId, /app/tasks/:view) is a "detail" → show the main
+  // content; a bare section index (/app/members) → show the list pane. md+
+  // shows both panes side by side, so these flags are ignored there.
+  //
+  // Chats are the exception, and have to be asked rather than counted: the
+  // section is always at /app/chats now, because a conversation id has no
+  // business being in a URL (lib/selectedChat). Counting segments there would
+  // pin a phone to the chat list and leave a tapped conversation unreachable.
+  const { selectedId } = useSelectedChat();
+  const hasDetail =
+    loc.pathname.split("/").filter(Boolean).length >= 3 ||
+    (section === "chats" && selectedId !== null);
   const showMainOnMobile = section === null || hasDetail;
   const showListOnMobile = section !== null && !showMainOnMobile;
 
@@ -83,7 +91,7 @@ export function AppShell() {
               // (message list + reading pane, see MailLayout), so its folder
               // column is narrower — three panes at 24rem each leaves the mail
               // itself nothing to be read in. Every other section fills the pane.
-              section === "mail" ? "md:w-64 lg:w-72" : "md:w-80 lg:w-96"
+              section === "mail" ? "md:w-72 lg:w-80" : "md:w-80 lg:w-96"
             } ${showListOnMobile ? "flex" : "hidden"} md:flex`}
           >
             {section === "mail" && <MailFolders />}

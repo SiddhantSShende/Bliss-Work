@@ -118,10 +118,6 @@ func (s *Server) WithSharedRateLimits(store *mw.SharedStore) *Server {
 	return s
 }
 
-// RateLimitsAreShared reports whether the limiter is fleet-wide, for a startup
-// log line.
-func (s *Server) RateLimitsAreShared() bool { return s.limiter.Shared() }
-
 // Router builds the chi router with CORS, health, and the authed API group.
 func (s *Server) Router(webOrigin string) http.Handler {
 	r := chi.NewRouter()

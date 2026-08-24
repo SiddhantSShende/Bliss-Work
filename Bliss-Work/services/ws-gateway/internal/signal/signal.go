@@ -52,16 +52,6 @@ type Frame struct {
 	FromName string `json:"fromName,omitempty"`
 }
 
-// IsSignaling tells whether `t` is a gateway-relayed signaling frame (the four
-// rtc.* frames plus the ephemeral typing hint — all routed the same way).
-func IsSignaling(t string) bool {
-	switch t {
-	case "rtc.offer", "rtc.answer", "rtc.ice", "rtc.cancel", "typing",
-		"call.invite", "call.accept", "call.decline", "call.cancel", "call.end":
-		return true
-	}
-	return false
-}
 
 // MarshalFrame writes a Frame back as JSON.
 func MarshalFrame(f Frame) ([]byte, error) { return json.Marshal(f) }

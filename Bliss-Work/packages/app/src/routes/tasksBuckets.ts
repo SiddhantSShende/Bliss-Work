@@ -18,7 +18,7 @@ import type { StickyTaskDTO } from "@taskboard/shared";
  * The active buckets are deliberately NOT capped. Those are work outstanding,
  * and hiding the eleventh item would hide something that still needs doing.
  */
-export const TERMINAL_VIEW_LIMIT = 10;
+export const TERMINAL_VIEW_LIMIT = 5;
 
 /** Whether `view` is an archive (capped) rather than outstanding work. */
 export function isTerminalView(view: string): boolean {

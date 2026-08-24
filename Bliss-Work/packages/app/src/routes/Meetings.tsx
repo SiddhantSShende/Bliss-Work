@@ -31,12 +31,14 @@ import { MeetingCard } from "../features/MeetingCard";
 import { useMeetingSession } from "../lib/MeetingSession";
 
 type View = "upcoming" | "live" | "past";
+const HISTORY_PAGE_SIZE = 5;
 
 export function Meetings() {
   const { api, config } = useRuntime();
   const qc = useQueryClient();
   const goBack = useGoBack();
   const [view, setView] = useState<View>("upcoming");
+  const [pastPage, setPastPage] = useState(1);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const { enter, restore, call: active } = useMeetingSession();
 
@@ -52,8 +54,7 @@ export function Meetings() {
       .sort((a, b) => whenOf(a) - whenOf(b));
     const past = calls
       .filter((c) => c.status === "ENDED" || c.status === "CANCELLED")
-      .sort((a, b) => whenOf(b) - whenOf(a))
-      .slice(0, 5);
+      .sort((a, b) => whenOf(b) - whenOf(a));
     return { live, upcoming, past };
   }, [calls]);
 
@@ -114,7 +115,12 @@ export function Meetings() {
   ];
 
   const shown = buckets[view];
-  const groups = groupByDay(shown);
+  const pageCount = view === "past" ? Math.max(1, Math.ceil(shown.length / HISTORY_PAGE_SIZE)) : 1;
+  const page = Math.min(pastPage, pageCount);
+  const paged = view === "past"
+    ? shown.slice((page - 1) * HISTORY_PAGE_SIZE, page * HISTORY_PAGE_SIZE)
+    : shown;
+  const groups = groupByDay(paged);
 
   return (
     <div className="flex h-full flex-col">
@@ -133,7 +139,15 @@ export function Meetings() {
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
         <div className="mx-auto max-w-3xl pb-8">
-          <Tabs tabs={TABS} active={view} onChange={setView} className="mb-5" />
+          <Tabs
+            tabs={TABS}
+            active={view}
+            onChange={(next) => {
+              setView(next);
+              if (next === "past") setPastPage(1);
+            }}
+            className="mb-5"
+          />
 
           {isLoading ? (
             <div className="flex items-center gap-2 p-4 text-sm text-muted">
@@ -176,6 +190,9 @@ export function Meetings() {
               ))}
             </div>
           )}
+          {view === "past" && pageCount > 1 && (
+            <HistoryPagination page={page} pageCount={pageCount} onPageChange={setPastPage} />
+          )}
         </div>
       </div>
 
@@ -191,6 +208,28 @@ export function Meetings() {
           }}
         />
       )}
+    </div>
+  );
+}
+
+function HistoryPagination({
+  page,
+  pageCount,
+  onPageChange,
+}: {
+  page: number;
+  pageCount: number;
+  onPageChange: (page: number) => void;
+}) {
+  return (
+    <div className="mt-5 flex items-center justify-center gap-3 text-xs text-muted">
+      <Button variant="ghost" size="sm" disabled={page === 1} onClick={() => onPageChange(page - 1)}>
+        Previous
+      </Button>
+      <span>Page {page} of {pageCount}</span>
+      <Button variant="ghost" size="sm" disabled={page === pageCount} onClick={() => onPageChange(page + 1)}>
+        Next
+      </Button>
     </div>
   );
 }

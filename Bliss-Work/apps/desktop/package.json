@@ -7,7 +7,7 @@
   "homepage": "https://blisswork.rnrtechs.com",
   "main": "out/main/index.js",
   "scripts": {
-    "dev": "electron-vite dev",
+    "dev": "unset ELECTRON_RUN_AS_NODE; electron-vite dev",
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json",
@@ -147,7 +147,6 @@
   "devDependencies": {
     "@electron/notarize": "^2.5.0",
     "@tailwindcss/vite": "^4.0.0",
-    "@tanstack/react-query": "^5.62.0",
     "@taskboard/app": "*",
     "@taskboard/shared": "*",
     "@taskboard/ui": "*",

@@ -73,17 +73,6 @@ const (
 	Reject
 )
 
-func (d Decision) String() string {
-	switch d {
-	case Forward:
-		return "forward"
-	case Skip:
-		return "skip"
-	default:
-		return "reject"
-	}
-}
-
 // Provenance is what the two guards read: where an event came from and how far
 // it has travelled. Absent fields are the zero value, which is meaningful —
 // see ExportDecision.

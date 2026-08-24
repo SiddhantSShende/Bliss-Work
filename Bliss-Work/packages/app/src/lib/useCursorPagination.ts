@@ -10,7 +10,7 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import type { ApiClient, InboxItemDTO, InboxItemKind, InboxPageDTO, MessageDTO } from "@taskboard/shared";
 import { qk } from "./queryBridge";
-import { mergeOlderMessages, oldestSeq } from "./threadPagination";
+import { mergeOlderMessages } from "./threadPagination";
 
 /** Server default for thread history is 12 — see services/messaging-svc/internal/api/threads.go */
 export const THREAD_PAGE_SIZE = 12;
@@ -109,7 +109,3 @@ export function flatThreadMessages(
   for (const page of data.pages) out = mergeOlderMessages(out, page);
   return out;
 }
-
-/** Convenience: smallest currently-loaded seq for a thread, used to drive the
- *  next beforeSeq query manually if useInfiniteQuery isn't desired. */
-export const lowestLoadedSeq = oldestSeq;

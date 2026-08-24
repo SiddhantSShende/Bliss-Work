@@ -2,7 +2,7 @@ import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { MessageSquare, Ban, Forward, PhoneMissed, Pin } from "lucide-react";
 import { Avatar } from "@taskboard/ui";
-import { clock, groupMessages } from "../lib/chatFormat";
+import { clock, groupMessages, linkifyMessage } from "../lib/chatFormat";
 import type { ChannelReadReceiptDTO, MessageDTO, ReactionDTO } from "@taskboard/shared";
 import { readablePrefix, type MediaItem } from "../lib/chatEnvelope";
 import { usePopupDismiss } from "../lib/usePopupDismiss";
@@ -58,6 +58,38 @@ function minePressed(m: ThreadMessage, emoji: string): boolean {
  * replying to something" is information, and silence would make the reply look
  * like a non-sequitur.
  */
+/**
+ * A message body with any URLs — a call link chief among them — rendered as
+ * clickable anchors. `target="_blank"` + `rel="noopener noreferrer"` matches
+ * every other external link in the app (MessageActions, ChatAssetsSheet, …).
+ * Never markup: `linkifyMessage` hands back plain-text/link segments, and
+ * each one becomes a text child, exactly like `{m.body}` used to.
+ */
+function renderMessageBody(body: string) {
+  return linkifyMessage(body).map((seg, i) =>
+    seg.type === "link" ? (
+      <a
+        key={i}
+        href={seg.value}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="underline decoration-current/40 underline-offset-2 hover:decoration-current"
+      >
+        {seg.value}
+      </a>
+    ) : (
+      <span key={i}>{seg.value}</span>
+    ),
+  );
+}
+
+function isSingleEmoji(body: string): boolean {
+  const value = body.trim();
+  if (!value || typeof Intl.Segmenter !== "function") return false;
+  const graphemes = [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(value)];
+  return graphemes.length === 1 && /\p{Extended_Pictographic}/u.test(value);
+}
+
 function quoted(m: ThreadMessage, byId: Map<string, ThreadMessage>) {
   if (!m.replyToId) return null;
   const src = byId.get(m.replyToId);
@@ -369,6 +401,7 @@ export function ChatThread({
             // Structured bodies (attachments, shared locations) render their
             // own bubble; anything else falls through to plain text.
             const custom = renderBody?.(m) ?? null;
+            const emojiOnly = !m.replyToId && isSingleEmoji(m.body);
 
             return (
               <div key={m.id}>
@@ -418,13 +451,15 @@ export function ChatThread({
                         <div className={m.pending ? "opacity-60" : ""}>{custom}</div>
                       ) : (
                         <div
-                          className={`whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2 text-sm shadow-[0_2px_10px_-4px_rgba(40,30,90,0.25)] ${mine
-                            ? "rounded-br-md bg-gradient-to-br from-brand-from to-brand-to text-accent-fg"
-                            : "rounded-bl-md bg-surface text-fg ring-1 ring-border/60"
-                            } ${m.pending ? "opacity-60" : ""}`}
+                          className={emojiOnly
+                            ? `whitespace-pre-wrap break-words text-4xl leading-none ${m.pending ? "opacity-60" : ""}`
+                            : `whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2 text-sm shadow-[0_2px_10px_-4px_rgba(40,30,90,0.25)] ${mine
+                              ? "rounded-br-md bg-gradient-to-br from-brand-from to-brand-to text-accent-fg"
+                              : "rounded-bl-md bg-surface text-fg ring-1 ring-border/60"
+                              } ${m.pending ? "opacity-60" : ""}`}
                         >
                           {quoted(m, byId)}
-                          {m.body}
+                          {renderMessageBody(m.body)}
                         </div>
                       )}
                       {!m.pending && !m.deletedForAll && (

@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from ..events.outbox import enqueue_event
 from . import directory
 from .events import KEY_ORG, TOPIC_ROUTING, routing_upserted
-from .policy import REASON_NO_CAPACITY, REASON_UNKNOWN_CAPACITY, Placement, SiteCapacity, choose_site
+from .policy import REASON_UNKNOWN_CAPACITY, SiteCapacity, choose_site
 
 
 class NoCapacityError(RuntimeError):
@@ -215,42 +215,5 @@ async def backfill_local_orgs(conn: AsyncConnection, *, site: str, limit: int = 
             topic=TOPIC_ROUTING,
             kafka_key=row.key_value,
             event=routing_upserted(KEY_ORG, row.key_value, site),
-        )
-    return len(rows)
-
-
-async def sweep_expired_invites(conn: AsyncConnection, *, limit: int = 500) -> int:
-    """Publish a revoke for invites whose directory row has expired, and drop it.
-
-    Without this the directory grows one row per invite ever minted, at every
-    site, forever. Bounded per run so the sweep cannot become a long transaction
-    that blocks the writes it shares tables with.
-    """
-    rows = (
-        await conn.execute(
-            text(
-                """
-                DELETE FROM routing_directory
-                 WHERE (key_type, key_value) IN (
-                       SELECT key_type, key_value FROM routing_directory
-                        WHERE key_type = 'invite'
-                          AND expires_at IS NOT NULL
-                          AND expires_at < now()
-                        LIMIT :lim
-                 )
-                RETURNING key_value
-                """
-            ),
-            {"lim": limit},
-        )
-    ).all()
-    for row in rows:
-        from .events import routing_revoked
-
-        await enqueue_event(
-            conn,
-            topic=TOPIC_ROUTING,
-            kafka_key=row.key_value,
-            event=routing_revoked(row.key_value, "expired"),
         )
     return len(rows)

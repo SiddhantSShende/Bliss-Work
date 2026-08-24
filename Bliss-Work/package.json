@@ -25,21 +25,16 @@
     "reset": "docker compose down -v",
     "logs": "docker compose logs -f",
     "seed": "tsx scripts/seed.ts",
-    "demo": "tsx scripts/demo-e2e.ts",
     "test:authz": "tsx scripts/security-authz.ts",
     "gen:keys": "tsx scripts/gen-keys.ts",
     "setup:branding": "bash scripts/setup-branding.sh"
   },
   "devDependencies": {
-    "@eslint/js": "^10.0.1",
     "@types/node": "^22.10.2",
-    "electron": "42.5.2",
-    "electron-builder": "^26.15.3",
     "eslint": "^9.39.4",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.7.0",
-    "playwright": "^1.61.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.62.0"

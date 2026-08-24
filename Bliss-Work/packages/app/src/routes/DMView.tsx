@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { X, MessageSquare, ChevronLeft, Ban } from "lucide-react";
 import { toast } from "sonner";
@@ -27,9 +27,15 @@ import { useChatTyping } from "../lib/useChatTyping";
 import { useCall } from "../lib/useCall";
 import { useOlderMessages } from "../lib/useOlderMessages";
 import { useUserStatus } from "../lib/usePresence";
+import { useSelectedChat } from "../lib/selectedChat";
 
 export function DMView() {
-  const { conversationId = "" } = useParams();
+  // From memory, not from the path: the conversation id is deliberately absent
+  // from the URL (see lib/selectedChat). Everything below is unchanged — this
+  // is still one conversation's worth of state, it is just told which one by
+  // the shell rather than by the router.
+  const { selectedId, closeChat } = useSelectedChat();
+  const conversationId = selectedId ?? "";
   const { api } = useRuntime();
   const qc = useQueryClient();
   const me = useSession((s) => s.user)!;
@@ -221,7 +227,10 @@ export function DMView() {
     mutationFn: () => api.ignoreConversation(conversationId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.conversations });
-      nav("/app/chats");
+      // Closing the selection IS returning to the list now that the section has
+      // one URL — navigating to /app/chats from /app/chats would leave the
+      // ignored conversation open on screen.
+      closeChat();
     },
   });
 
@@ -232,7 +241,7 @@ export function DMView() {
         void qc.invalidateQueries({ queryKey: qk.messages(conversationId) });
         return ignore.mutateAsync();
       })
-      .then(() => nav("/app/chats"))
+      .then(() => closeChat())
       .catch(() => toast.error("Couldn't clear this chat history"));
   };
 
@@ -423,7 +432,7 @@ export function DMView() {
             block buttons off the right edge on a narrow window. */}
         <div className="flex min-w-0 items-center gap-3">
           <button
-            onClick={() => nav("/app/chats")}
+            onClick={closeChat}
             title="Back to chats"
             className="-ml-1 shrink-0 rounded-lg p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg md:hidden"
           >

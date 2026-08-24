@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, NavLink } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
@@ -107,6 +107,11 @@ function AssignedBucket({ view }: { view: string }) {
   const { api, config } = useRuntime();
   const qc = useQueryClient();
   const { data: all = [] } = useQuery({ queryKey: qk.assigned, queryFn: () => api.taskAssigned() });
+  const [page, setPage] = useState(1);
+
+  useEffect(() => {
+    setPage(1);
+  }, [view]);
 
   // Desktop-only: which tasks the user has pinned to the desktop. Source of
   // truth is the Electron main process; absent on web so the button hides.
@@ -120,7 +125,7 @@ function AssignedBucket({ view }: { view: string }) {
   // LEFT is its OWN terminal bucket — never folded into "Completed". Leaving a
   // task is a distinct outcome from completing it, and the user must see it
   // labelled "left" (to both parties), not "completed".
-  const tasks = useMemo(() => {
+  const filteredTasks = useMemo(() => {
     const matched = all.filter((t: StickyTaskDTO) =>
       view === "ignored" ? t.myStatus === "IGNORED"
         : view === "left" ? t.myStatus === "LEFT"
@@ -135,10 +140,15 @@ function AssignedBucket({ view }: { view: string }) {
     // assigned: a task handed over in January and completed today is the
     // newest thing in Completed, and ordering by assignedAt would bury it
     // under nine tasks nobody has touched since.
-    return [...matched]
-      .sort((a, b) => terminalAt(b).localeCompare(terminalAt(a)))
-      .slice(0, TERMINAL_VIEW_LIMIT);
+    return [...matched].sort((a, b) => terminalAt(b).localeCompare(terminalAt(a)));
   }, [all, view]);
+  const pageCount = isTerminalView(view)
+    ? Math.max(1, Math.ceil(filteredTasks.length / TERMINAL_VIEW_LIMIT))
+    : 1;
+  const currentPage = Math.min(page, pageCount);
+  const tasks = isTerminalView(view)
+    ? filteredTasks.slice((currentPage - 1) * TERMINAL_VIEW_LIMIT, currentPage * TERMINAL_VIEW_LIMIT)
+    : filteredTasks;
 
   const act = useMutation({
     mutationFn: ({ taskId, action }: { taskId: string; action: TaskAction }) =>
@@ -247,9 +257,10 @@ function AssignedBucket({ view }: { view: string }) {
     return <EmptyState icon={<ListTodo size={24} />} title="Nothing here" hint="Tasks appear here as they arrive." />;
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-      <AnimatePresence initial={false}>
-        {tasks.map((t) => {
+    <>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <AnimatePresence initial={false}>
+          {tasks.map((t) => {
           // Lock + "Pinned" chip track exactly what floats: pinned AND still
           // acknowledged. Keeps the in-app card in lockstep with the desktop
           // note and avoids a dead/locked card for a non-acknowledged status.
@@ -265,9 +276,21 @@ function AssignedBucket({ view }: { view: string }) {
               />
             </motion.div>
           );
-        })}
-      </AnimatePresence>
-    </div>
+          })}
+        </AnimatePresence>
+      </div>
+      {isTerminalView(view) && pageCount > 1 && (
+        <div className="mt-5 flex items-center justify-center gap-3 text-xs text-muted">
+          <Button variant="ghost" size="sm" disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>
+            Previous
+          </Button>
+          <span>Page {currentPage} of {pageCount}</span>
+          <Button variant="ghost" size="sm" disabled={currentPage === pageCount} onClick={() => setPage(currentPage + 1)}>
+            Next
+          </Button>
+        </div>
+      )}
+    </>
   );
 }
 

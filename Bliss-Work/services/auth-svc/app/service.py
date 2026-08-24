@@ -726,29 +726,6 @@ async def revoke_all_identity_tokens(conn: AsyncConnection, identity_id: str) ->
     )
 
 
-async def find_or_create_identity(
-    conn: AsyncConnection, email_bidx: bytes, password_hash: str, email_verified: bool
-) -> str:
-    """Return the identity id for an email, creating it (with the given credential)
-    if it doesn't exist yet. New memberships link to the returned id."""
-    existing = (
-        await conn.execute(
-            text("SELECT id FROM identities WHERE email_bidx = :b"), {"b": email_bidx}
-        )
-    ).first()
-    if existing:
-        return str(existing.id)
-    iid = new_uuid()
-    await conn.execute(
-        text(
-            "INSERT INTO identities (id, email_bidx, password_hash, email_verified) "
-            "VALUES (:id, :b, :ph, :ev)"
-        ),
-        {"id": iid, "b": email_bidx, "ph": password_hash, "ev": email_verified},
-    )
-    return iid
-
-
 # ── Tamper-evident audit log (hash chain) ─────────────────────────────────────
 # Each entry chains to the previous one for its org:
 #   entry_hash = SHA256(prev_hash || canonical(org, actor, action, target, meta, at))

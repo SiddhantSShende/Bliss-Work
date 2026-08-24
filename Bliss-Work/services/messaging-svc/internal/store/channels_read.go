@@ -14,10 +14,11 @@ import (
 // Decrypt query runs on the same tx ("conn busy" otherwise). Shared by
 // ListChannels and ListOpenChannels (identical projection).
 type rawChannelRow struct {
-	d       ChannelDTO
-	lastMsg *string
-	lastEnc []byte
-	lastAt  *time.Time
+	d          ChannelDTO
+	lastMsg    *string
+	lastEnc    []byte
+	lastAt     *time.Time
+	lastSender string
 }
 
 // scanRawChannelRows drains a channel-list cursor into rawChannelRow values and
@@ -32,7 +33,7 @@ func scanRawChannelRows(rows pgx.Rows) ([]rawChannelRow, error) {
 		// both are scanned through pointers rather than assumed present.
 		var createdBy, role *string
 		if err := rows.Scan(&rc.d.ID, &rc.d.Name, &rc.d.MemberCount,
-			&rc.lastMsg, &rc.lastEnc, &rc.lastAt, &rc.d.IsLocked,
+			&rc.lastMsg, &rc.lastEnc, &rc.lastAt, &rc.lastSender, &rc.d.IsLocked,
 			&createdBy, &role); err != nil {
 			return nil, err
 		}
@@ -66,6 +67,7 @@ func (s *Store) decryptChannelRow(ctx context.Context, q crypto.Querier, orgID s
 		iso := rc.lastAt.UTC().Format("2006-01-02T15:04:05.000Z")
 		d.LastMessageAt = &iso
 	}
+	d.LastMessageSender = rc.lastSender
 	d.IAmMember = iAmMember
 	return d, nil
 }
@@ -107,6 +109,7 @@ func (s *Store) ListChannels(ctx context.Context, orgID, callerID string) ([]Cha
 			    lm.body,
 			    lm.body_enc,
 			    c.last_msg_at,
+			    COALESCE(NULLIF(up.display_name, ''), up.username, '') AS last_message_sender,
 			    c.is_locked,
 			    c.created_by,
 			    mine.role
@@ -114,10 +117,11 @@ func (s *Store) ListChannels(ctx context.Context, orgID, callerID string) ([]Cha
 			JOIN mine ON mine.channel_id = c.id
 			LEFT JOIN counts ON counts.channel_id = c.id
 			LEFT JOIN LATERAL (
-			    SELECT body, body_enc FROM channel_messages m
+			    SELECT body, body_enc, sender_id FROM channel_messages m
 			    WHERE m.channel_id = c.id
 			    ORDER BY m.seq DESC LIMIT 1
 			) lm ON true
+			LEFT JOIN user_projection up ON up.user_id = lm.sender_id
 			WHERE c.org_id = $1
 			ORDER BY c.last_msg_at DESC NULLS LAST, c.created_at DESC`,
 			orgID, callerID)

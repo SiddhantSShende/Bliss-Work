@@ -84,16 +84,12 @@ export function MailFolders() {
               aria-label={showRollup ? `${box.label}, ${unread} unread` : undefined}
               className={rowClass(active)}
             >
-              <div
-                className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${
-                  active ? "bg-accent text-accent-fg shadow-[0_4px_12px_-4px_var(--color-accent)]" : "bg-surface-2 text-muted"
-                }`}
-              >
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent-soft text-accent">
                 <Icon size={15} />
               </div>
               <span
-                className={`min-w-0 flex-1 truncate text-sm ${
-                  active ? "font-semibold text-fg" : "text-fg/90"
+                className={`min-w-0 flex-1 truncate text-sm font-semibold ${
+                  active ? "text-fg" : "text-fg/90"
                 }`}
               >
                 {box.label}

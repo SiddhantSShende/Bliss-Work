@@ -8,7 +8,7 @@ headers, error envelopes, panic recovery, DB retry, request-id correlation,
 pagination, and a comprehensive test suite.
 
 **That is not enough to serve 1 billion DAU.** No single Postgres / Kafka /
-Redis cluster does. The work in this document is the infrastructure-layer
+Redis cluster does. The work in this document is the infrastructure-layerSiddhant@2005*#
 follow-up. None of it is achievable inside the application repository alone —
 it requires platform tooling, deployment automation, and SRE involvement.
 
@@ -26,7 +26,6 @@ magnitude estimates to help capacity-plan, not commitments.
 | Refresh-cookie traffic | All session bootstrap goes through auth-svc; size that fleet for peak sign-ins, not steady DAU |
 
 ## What needs deliberate sharding
-
 ### Postgres (the actual bottleneck)
 
 A single Postgres instance handles ~10k writes/sec on premium hardware. At
@@ -54,14 +53,8 @@ service pods aren't capped on Postgres backend slots.
 The notification topic fans out to every subscriber of every event — at
 1B DAU this is the highest-volume topic by orders of magnitude.
 
-- **Cross-region replication is NATS JetStream, not MirrorMaker2** — see
-  `docs/CROSS-REGION.md` and `services/region-bridge`. Producers write to the
-  region-local Kafka cluster; the bridge exports locally-produced events onto a
-  per-region JetStream stream, and every peer sources it. Kafka stays the
-  in-region bus and no service knows the bridge exists, which is also how it is
-  rolled back (turn it off). Loop freedom is structural — a region's outbound
-  stream carries only its own subject space — and re-asserted per message by an
-  origin stamp, so an active-active mesh cannot replicate in circles.
+- **Multi-cluster + MirrorMaker2** across regions: producers write to the
+  region-local cluster, MirrorMaker2 mirrors to peers.
 - **Tiered storage** (Confluent Tiered Storage or Apache Kafka 3.6+ KIP-405):
   long retention without paying for hot disk.
 - **Partition counts**: notification topic 200+ partitions sized for the
@@ -191,22 +184,9 @@ and this document previously only made the first one.
   replacing SADD/SREM plus a startup sweep of every `presence:*` key. That sweep
   was the single hardest blocker to a second gateway pod: it would have logged
   out everyone connected to the first.
-- **Load-balanced edge, and a fleet behind it.** The edge used to name exactly
-  one container per service, so every request in the platform reached a single
-  process and the only lever against load was a bigger box. Both Caddyfiles now
-  resolve each compose service name to the address of *every* container behind
-  it (`dynamic a`, refreshed every 10s) and distribute with `least_conn`, and
-  `docker-compose.prod.yml` runs two replicas of each stateless HTTP service —
-  so a restart is a rebalance rather than an outage, and
-  `up -d --scale task-svc=4` is picked up at the edge with no config change.
-
-  The trade is explicit: Caddy does not run ACTIVE health probes against
-  dynamically-resolved upstreams, so the `/readyz` polling this bullet used to
-  describe is gone. It is replaced by passive ejection (`max_fails` /
-  `fail_duration`) plus `lb_try_duration`, which re-dispatches a refused request
-  to another replica instead of returning a 502 — worse than a probe at one
-  replica, much better at two, and two is the point. `/readyz` still gates
-  compose dependency ordering and the Kubernetes readiness probe.
+- **Health-checked edge.** Both Caddyfiles probe `/readyz` and eject a wedged
+  upstream in ~5s instead of returning 502s until someone notices. Multi-upstream
+  `least_conn` is configured and takes effect as soon as there is more than one.
 - **Helm chart completed.** telemetry-svc and integrations-svc were missing
   entirely; `/presence`, `/turn-credentials` and the JWKS path had no ingress
   route at all, so a Kubernetes deploy had no presence and no WebRTC calls.
@@ -218,18 +198,16 @@ and this document previously only made the first one.
 - **PgBouncer on by default — ON KUBERNETES ONLY.** `pgbouncer.enabled: true` in
   `values.yaml`. The compose stack has **no pooler at all**, and compose is what
   the VPS actually runs, so the live system connects services straight to
-  Postgres. Connection slots are therefore the budget that bounds the compose
-  fleet. At the two replicas each now runs, the pools sum to 128 against
-  `max_connections=200` (6 HTTP services x 10 x 2, plus email-worker's 8) — real
-  headroom, and a hard ceiling not far above it: each additional replica of a
-  service costs another 10 slots, so roughly 4 replicas each exhausts the budget.
+  Postgres. That is fine at one replica per service (the pools sum to 68 against
+  `max_connections=200`) and it is a hard ceiling the moment you scale out:
+  ~20 service replicas platform-wide exhausts the budget, which is well below
+  what the HPA maxima assume.
 
-  Still deliberately not "fixed" by adding PgBouncer to compose, but the reason
-  has narrowed. It used to be "on a single box you do not scale replicas", which
-  is no longer true. It is now simply that 200 backends would not be healthy on
-  8 cores anyway: past ~4 replicas each, the box is the constraint and the answer
-  is the Helm path (where the pooler already exists), not a pooler bolted onto
-  compose at the cost of a second TLS hop.
+  Deliberately not "fixed" by adding PgBouncer to compose. On a single box you
+  do not scale replicas — the answer to needing a pooler there is to move to the
+  Helm path, where it already exists. Adding it to compose would mean a second
+  TLS hop (services connect `sslmode=verify-full`) for a deployment that runs
+  one replica of everything.
 
   Safe in either path because every org-scope GUC is
   `set_config(..., is_local => true)` and every advisory lock is `_xact_`-scoped.

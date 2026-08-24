@@ -19,6 +19,3 @@ const VITE_ENV = (import.meta as unknown as { env?: Record<string, string | unde
 
 /** Deployed commit SHA (short), or "dev" outside a deployed build. */
 export const BUILD_SHA = VITE_ENV.VITE_BUILD_SHA?.trim() || "dev";
-
-/** True when this bundle came out of the production deploy pipeline. */
-export const IS_RELEASE_BUILD = BUILD_SHA !== "dev";

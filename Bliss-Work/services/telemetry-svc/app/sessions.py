@@ -173,18 +173,6 @@ async def close(
     )
 
 
-async def close_all_for_user(db: AsyncSession, *, org_id: str, user_id: str, reason: str) -> None:
-    """Close every open session for one member — used when auth-svc reports a
-    logout, since the client may never get the chance to say goodbye itself."""
-    await db.execute(
-        text(
-            "UPDATE user_sessions SET ended_at = now(), end_reason = :reason "
-            "WHERE org_id = :org AND user_id = :uid AND ended_at IS NULL"
-        ),
-        {"org": org_id, "uid": user_id, "reason": reason},
-    )
-
-
 class Sweeper:
     """Closes sessions nobody said goodbye for.
 

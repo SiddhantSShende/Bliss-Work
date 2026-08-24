@@ -122,7 +122,11 @@ export function CallTile({
           // Muting the local tile is not cosmetic: an unmuted local video
           // element is an echo loop.
           muted={p.isLocal}
-          className={cn("h-full w-full", p.sharing ? "bg-black object-contain" : "object-cover")}
+          className={cn(
+            "h-full w-full",
+            p.sharing ? "bg-black object-contain" : "object-cover",
+            p.isLocal && "-scale-x-100",
+          )}
         />
       ) : (
         <div className="flex h-full w-full items-center justify-center">

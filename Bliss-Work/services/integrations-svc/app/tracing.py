@@ -32,23 +32,6 @@ def inject_headers(headers=None):
     return result
 
 
-def extract_context(headers):
-    """Extract a trace context from aiokafka message headers.
-
-    ``headers`` is the ``msg.headers`` list of ``(key: str, value: bytes)``
-    tuples (may be None). Returns an OpenTelemetry context that can be passed
-    to ``tracer.start_as_current_span(context=...)`` so the consumer span
-    continues the producer's trace. No-op-safe when tracing is disabled.
-    """
-    from opentelemetry import propagate
-
-    carrier: dict[str, str] = {}
-    for key, value in headers or []:
-        if key in _TRACE_HEADER_KEYS and value is not None:
-            carrier[key] = value.decode("utf-8") if isinstance(value, bytes) else str(value)
-    return propagate.extract(carrier)
-
-
 def setup_tracing(app=None) -> None:
     """Wire OpenTelemetry distributed tracing — gated on configuration.
 

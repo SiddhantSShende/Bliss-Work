@@ -12,7 +12,7 @@ import httpx
 import jwt
 import structlog
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-from fastapi import Depends, HTTPException, Header, Request, status
+from fastapi import HTTPException, Header, Request, status
 
 from .config import settings
 from .logging_setup import log
@@ -193,7 +193,4 @@ async def require_principal(
     if isinstance(cached, Principal):
         return cached
     return await verify_bearer(authorization)
-
-
-PrincipalDep = Depends(require_principal)
 

@@ -135,7 +135,7 @@ and publish with `bash scripts/publish-desktop.sh <dir>`.
 packages/{shared,ui,app}          apps/{web,desktop,extension}
 services/{auth-svc,email-worker,task-svc,notification-svc,messaging-svc,integrations-svc,telemetry-svc,ws-gateway,graph-gw}
 infra/{postgres,kafka,nginx,caddy}
-scripts/   (seed.ts, demo-e2e.ts, gen-keys.ts, wait-for.sh, deploy-prod.sh, responsive-check.ts)
+scripts/   (seed.ts, gen-keys.ts, wait-for.sh, deploy-prod.sh, security-authz.ts)
 ```
 
 Every source file is kept under 250 lines.

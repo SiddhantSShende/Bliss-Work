@@ -290,7 +290,9 @@
 		# Presence (online-user set) HTTP endpoint → ws-gateway. Polled by the SPA
 		# every 20s; without this it falls to the SPA catch-all below and returns
 		# HTML, breaking online-status. Terminal, JWT-authed in the handler.
-		@presence path /presence
+		# /presence/query is the bounded POST counterpart (see client.ts) and must
+		# be matched too, or it falls to the nginx catch-all, which 405s POST.
+		@presence path /presence /presence/query
 		reverse_proxy @presence {
 			import upstream ws-gateway 8080
 		}

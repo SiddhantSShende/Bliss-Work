@@ -21,11 +21,16 @@ export function MemberPicker({
   busy,
   onConfirm,
   onCancel,
+  onOrganization,
+  confirmLabel = "Add",
 }: {
   exclude: Set<string>;
   busy?: boolean;
   onConfirm: (userIds: string[]) => void;
   onCancel: () => void;
+  /** Optional organization-wide action, offered to organization owners/admins. */
+  onOrganization?: (userIds: string[]) => void;
+  confirmLabel?: string;
 }) {
   const { api } = useRuntime();
   const me = useSession((s) => s.user)!;
@@ -36,6 +41,10 @@ export function MemberPicker({
   const candidates = users.filter(
     (u) => u.id !== me.id && !exclude.has(u.id) && matchUser(u, q),
   );
+  const allSelected = candidates.length > 0 && candidates.every((u) => selected.has(u.id));
+
+  const toggleAll = () =>
+    setSelected(allSelected ? new Set() : new Set(candidates.map((u) => u.id)));
 
   const toggle = (id: string) =>
     setSelected((s) => {
@@ -57,6 +66,15 @@ export function MemberPicker({
           autoFocus
         />
       </div>
+      {candidates.length > 0 && (
+        <button
+          type="button"
+          onClick={toggleAll}
+          className="text-xs font-medium text-accent hover:text-accent-strong"
+        >
+          {allSelected ? "Clear all" : "Select all"}
+        </button>
+      )}
       <div className="max-h-56 space-y-0.5 overflow-auto">
         {candidates.length === 0 ? (
           <p className="px-1 py-3 text-sm text-muted">Everyone matching is already here.</p>
@@ -91,8 +109,18 @@ export function MemberPicker({
           disabled={selected.size === 0}
           onClick={() => onConfirm([...selected])}
         >
-          Add {selected.size || ""}
+          {confirmLabel} {selected.size || ""}
         </Button>
+        {onOrganization && candidates.length > 0 && (
+          <Button
+            variant="subtle"
+            size="sm"
+            disabled={busy}
+            onClick={() => onOrganization(candidates.map((u) => u.id))}
+          >
+            Send organization
+          </Button>
+        )}
       </div>
     </div>
   );

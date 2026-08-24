@@ -238,9 +238,3 @@ export function initScreenshotGuard(onDetected: AttemptListener): void {
   app.on("will-quit", releaseShortcuts);
 }
 
-/** Release everything. Must run before quit, or the keys stay claimed. */
-export function disposeScreenshotGuard(): void {
-  releaseShortcuts();
-}
-
-export { acquireShortcuts, releaseShortcuts };

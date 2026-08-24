@@ -40,22 +40,6 @@ def inject_headers(headers=None):
     return result
 
 
-def extract_context(headers):
-    """Extract a trace context from aiokafka message headers.
-
-    ``headers`` is ``msg.headers`` — a list of ``(key: str, value: bytes)``
-    tuples (may be None). Returns an OpenTelemetry context to pass to
-    ``tracer.start_as_current_span(context=...)``. No-op-safe when disabled.
-    """
-    from opentelemetry import propagate
-
-    carrier: dict[str, str] = {}
-    for key, value in headers or []:
-        if key in _TRACE_HEADER_KEYS and value is not None:
-            carrier[key] = value.decode("utf-8") if isinstance(value, bytes) else str(value)
-    return propagate.extract(carrier)
-
-
 def setup_tracing(app=None) -> None:
     """Initialize tracing iff OTEL_EXPORTER_OTLP_ENDPOINT is configured.
 
@@ -126,7 +110,7 @@ def setup_tracing(app=None) -> None:
     # aiokafka 0.12's send() signature (passes `headers` twice -> TypeError on
     # every produce). Kafka producer/consumer spans + W3C traceparent
     # propagation are instead done manually (see app/events/poller.py and the
-    # inject_headers/extract_context helpers above).
+    # inject_headers helper above).
 
     log.info("otel_tracing_enabled", service=SERVICE_NAME, endpoint=endpoint)
 

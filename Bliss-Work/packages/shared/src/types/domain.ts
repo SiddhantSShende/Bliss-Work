@@ -491,6 +491,7 @@ export const ConversationDTO = z.object({
   peerDisplayName: z.string().optional(),
   lastMessage: z.string().nullable(),
   lastMessageAt: z.string().nullable(),
+  lastMessageSender: z.string().default(""),
   unread: z.number().int(),
   /** The caller blocked the peer ("You blocked this user"). */
   blockedByMe: z.boolean().default(false),

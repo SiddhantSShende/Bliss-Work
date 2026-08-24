@@ -8,6 +8,7 @@ import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
 import { relativeTime } from "../lib/relativeTime";
+import { useSelectedChat } from "../lib/selectedChat";
 import { Tabs, type TabSpec } from "../features/Tabs";
 import { ExportActivityDialog } from "../features/ExportActivityDialog";
 import { MemberAdmin } from "../features/member/MemberAdmin";
@@ -25,6 +26,7 @@ export function MemberDetail() {
   const { api } = useRuntime();
   const qc = useQueryClient();
   const nav = useNavigate();
+  const { openChat } = useSelectedChat();
   const me = useSession((s) => s.user)!;
   const isAdmin = me.roles.includes("org_admin");
   const isSelf = userId === me.id;
@@ -80,14 +82,17 @@ export function MemberDetail() {
   // because sending was the only way to create a conversation row.
   const openDm = async () => {
     const existing = conversations.find((c) => c.peerId === userId);
-    if (existing) return nav(`/app/chats/${existing.id}`);
+    // openChat rather than a nav to /app/chats/<id>: it selects and moves to
+    // the section in one step, so the id is never put in the URL at all rather
+    // than put there and redirected away.
+    if (existing) return openChat(existing.id);
     setOpening(true);
     try {
       const { conversationId } = await api.openConversation(userId);
       // DMView reads its header from the conversation list, so refresh it before
       // navigating or a brand-new chat flashes "Conversation not found".
       await qc.invalidateQueries({ queryKey: qk.conversations });
-      nav(`/app/chats/${conversationId}`);
+      openChat(conversationId);
     } finally {
       setOpening(false);
     }

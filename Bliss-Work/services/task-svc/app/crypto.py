@@ -22,7 +22,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
-import hmac
 import os
 import struct
 import time
@@ -221,11 +220,6 @@ class Cryptor:
         self._current: dict[str, tuple[bytes, int, float]] = {}  # org -> (dek, version, expiry)
         self._locks: dict[str, asyncio.Lock] = {}
 
-    # blind index is pure (no DB / no DEK) so it's usable pre-org-context (login).
-    def blind_index(self, value: str) -> bytes:
-        norm = value.strip().lower().encode("utf-8")
-        return hmac.new(self._bidx_key, norm, hashlib.sha256).digest()
-
     # ── Keeping KEK I/O off the event loop ───────────────────────────────────
     #
     # These services run ONE uvicorn worker, so there is one event loop per pod.
@@ -355,51 +349,6 @@ class Cryptor:
         if row is None:
             return dek, version  # our INSERT is in-flight in this same tx
         return await self._unwrap(org_id, bytes(row.wrapped_dek), int(row.key_version)), int(row.key_version)
-
-    async def rotate_dek(self, conn: AsyncConnection, org_id: str) -> tuple[int, int]:
-        """Rotate the org's DEK: create a new generation and retire the current one.
-        Rotation is LAZY — existing ciphertext keeps decrypting via its embedded
-        key_version (old DEK rows are retained, just marked retired); only NEW writes
-        use the new DEK. Returns (old_version, new_version)."""
-        async with self._lock(org_id):
-            cur = (
-                await conn.execute(
-                    text(
-                        "SELECT key_version FROM org_keys WHERE org_id = :o "
-                        "AND retired_at IS NULL ORDER BY key_version DESC LIMIT 1"
-                    ),
-                    {"o": org_id},
-                )
-            ).first()
-            max_v = (
-                await conn.execute(
-                    text("SELECT COALESCE(MAX(key_version), 0) FROM org_keys WHERE org_id = :o"),
-                    {"o": org_id},
-                )
-            ).scalar()
-            old_version = int(cur.key_version) if cur is not None else 0
-            new_version = int(max_v) + 1
-            new_dek = os.urandom(32)
-            wrapped, _ = await self._wrap(org_id, new_dek)
-            await conn.execute(
-                text(
-                    "INSERT INTO org_keys (org_id, key_version, wrapped_dek) VALUES (:o, :v, :w)"
-                ),
-                {"o": org_id, "v": new_version, "w": wrapped},
-            )
-            if cur is not None:
-                await conn.execute(
-                    text(
-                        "UPDATE org_keys SET retired_at = now() "
-                        "WHERE org_id = :o AND key_version = :v AND retired_at IS NULL"
-                    ),
-                    {"o": org_id, "v": old_version},
-                )
-            # Bust caches so the next encrypt picks up the new generation.
-            self._current.pop(org_id, None)
-            self._dek_cache[(org_id, new_version)] = (new_dek, time.monotonic() + self._ttl)
-            return old_version, new_version
-
 
 # ── Process singleton ────────────────────────────────────────────────────────
 _cryptor: Cryptor | None = None

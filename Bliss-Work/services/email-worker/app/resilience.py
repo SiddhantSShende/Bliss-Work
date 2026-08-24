@@ -61,10 +61,6 @@ class CircuitBreaker:
         self._opened_at = 0.0
         self._state = "closed"  # closed | open | half_open
 
-    @property
-    def state(self) -> str:
-        return self._state
-
     def before(self) -> None:
         """Raise ``CircuitOpenError`` if OPEN; transition to HALF_OPEN once the
         cooldown has elapsed so a single probe is allowed through."""

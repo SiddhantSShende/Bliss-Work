@@ -3,15 +3,7 @@
  * Thread views. Kept dependency-free so it can run inside a worker if we
  * ever need to move history hydration off the main thread at scale.
  */
-import type { InboxItemDTO, MessageDTO } from "@taskboard/shared";
-
-/** Inbox cursor encodes (lastEventAt, refId). Decoders are server-side; the
- *  renderer just needs to derive the next cursor from a page tail. */
-export function nextInboxCursor(items: InboxItemDTO[]): string | undefined {
-  const last = items[items.length - 1];
-  if (!last) return undefined;
-  return btoa(JSON.stringify({ ts: last.lastEventAt, refId: last.refId }));
-}
+import type { MessageDTO } from "@taskboard/shared";
 
 /** Merge a newly-fetched older page into the existing seq-asc page array,
  *  deduping by id. Older messages prepend; equal seq is dropped. */
@@ -41,9 +33,4 @@ export function reconcileOptimistic(
   if (!next.some((m) => m.id === real.id)) next.push(real);
   next.sort((a, b) => a.seq - b.seq);
   return next;
-}
-
-/** Lowest seq currently in the page — used as the next beforeSeq query. */
-export function oldestSeq(messages: MessageDTO[]): number | undefined {
-  return messages[0]?.seq;
 }

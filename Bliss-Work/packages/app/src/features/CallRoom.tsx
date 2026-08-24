@@ -22,21 +22,24 @@
  * channel is: the same audience, the same lifetime, and no table anywhere.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
 import {
   Circle,
   Clock,
   Globe,
   Hand,
+  Mic,
+  MicOff,
   MessageSquare,
   Minimize2,
   NotebookPen,
   PictureInPicture2,
   Users,
+  Video,
+  VideoOff,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@taskboard/ui";
-import { ApiError, type CallDTO } from "@taskboard/shared";
+import { type CallDTO } from "@taskboard/shared";
 import { useSession } from "../store/session";
 import { useRuntime } from "../lib/runtime";
 import { useCallRoom } from "../lib/useCallRoom";
@@ -69,7 +72,9 @@ import {
 } from "../lib/activeSpeaker";
 import { useMeetingSessionOptional } from "../lib/MeetingSession";
 import { useMeetingPiP } from "../lib/useMeetingPiP";
+import { useCallDuration } from "../lib/callTimer";
 import { downloadBlob } from "../lib/download";
+import { useLocalRecording } from "../lib/useLocalRecording";
 import { MiniMeeting } from "./MiniMeeting";
 import { CallControls, CallControlButton } from "./CallControls";
 import { CallTile, UnpinButton } from "./CallTile";
@@ -123,6 +128,11 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
   const session = useMeetingSessionOptional();
   const minimized = session?.minimized ?? false;
   const [addOpen, setAddOpen] = useState(false);
+  const [preJoin, setPreJoin] = useState(true);
+  const [previewStream, setPreviewStream] = useState<MediaStream | null>(null);
+  const [previewMicOn, setPreviewMicOn] = useState(true);
+  const [previewCamOn, setPreviewCamOn] = useState(true);
+  const previewVideoRef = useRef<HTMLVideoElement>(null);
   const [starting, setStarting] = useState(false);
   const [panel, setPanel] = useState<Panel>(null);
   const [pinned, setPinned] = useState<string | null>(null);
@@ -134,10 +144,15 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
   const [chatSeenAt, setChatSeenAt] = useState(() => Date.now());
   /** Who the room is listening to, filtered so a cough cannot take the stage. */
   const [speakers, setSpeakers] = useState<SpeakerState>(initialSpeakerState);
-  const [recording, setRecording] = useState(call.recordingStatus === "RECORDING");
-  // Latched once the server says it cannot record. Deployment config does not
-  // change mid-call, so one refusal is enough to stop asking.
-  const [recordingUnavailable, setRecordingUnavailable] = useState(false);
+  /** THE ROOM is being recorded — by whoever pressed the button, which is not
+   *  necessarily this client. Drives the notice everyone sees. The button's own
+   *  state comes from `localRec` instead, because the recording is a file on
+   *  one person's machine and only they can stop it.
+   *
+   *  Starts false even for a call already under way: a late joiner is told by
+   *  the `recording` datagram the room answers their notes-request with, which
+   *  is the same mechanism that carries a raised hand. */
+  const [recording, setRecording] = useState(false);
 
   /**
    * Who is on the stage: the viewer's own pin if they made one, otherwise
@@ -169,6 +184,58 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
   const pip = useMeetingPiP(pipTrack, status === "connected" || status === "reconnecting");
 
   const title = call.title || (call.kind === "CHANNEL" ? "Channel call" : "Meeting");
+  const meetingDuration = useCallDuration(connectedAt);
+
+  /** Recording writes a file on THIS machine — see lib/localRecording.ts. The
+   *  meeting is composited and encoded here rather than server-side, so the
+   *  recording never leaves the organiser's computer. */
+  const localRec = useLocalRecording(participants, title);
+
+  useEffect(() => {
+    if (!preJoin || !navigator.mediaDevices?.getUserMedia) return;
+    let cancelled = false;
+    navigator.mediaDevices
+      .getUserMedia({ audio: true, video: true })
+      .then((stream) => {
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        setPreviewStream(stream);
+        if (previewVideoRef.current) previewVideoRef.current.srcObject = stream;
+      })
+      .catch(() => {
+        setPreviewCamOn(false);
+        setPreviewMicOn(false);
+      });
+    return () => {
+      cancelled = true;
+      setPreviewStream((stream) => {
+        stream?.getTracks().forEach((track) => track.stop());
+        return null;
+      });
+    };
+  }, [preJoin]);
+
+  useEffect(() => {
+    if (previewVideoRef.current && previewStream) {
+      previewVideoRef.current.srcObject = previewStream;
+    }
+  }, [previewStream]);
+
+  const togglePreviewMic = () => {
+    previewStream?.getAudioTracks().forEach((track) => {
+      track.enabled = !previewMicOn;
+    });
+    setPreviewMicOn((on) => !on);
+  };
+
+  const togglePreviewCam = () => {
+    previewStream?.getVideoTracks().forEach((track) => {
+      track.enabled = !previewCamOn;
+    });
+    setPreviewCamOn((on) => !on);
+  };
   const myName = participants.find((p) => p.isLocal)?.name || me?.displayName || "You";
   const handRaised = identity ? hands.has(identity) : false;
   // Only a HOST may record, and the server says so too — this gate exists so
@@ -188,11 +255,12 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
   const pinnedRef = useRef(pinned);
   pinnedRef.current = pinned;
 
-  // Join once, on mount. The hook guards re-entry.
+  // Join once, after the pre-join lobby. The hook guards re-entry.
   useEffect(() => {
+    if (preJoin) return;
     void join();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [call.id]);
+  }, [call.id, preJoin]);
 
   // The host ended it. The hook has already disconnected and told the server we
   // are out, so this only has to close the screen — going through hangUp would
@@ -433,44 +501,112 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
     );
   };
 
-  const toggleRecording = useMutation({
-    mutationFn: async () => {
-      if (recording) {
-        await api.stopCallRecording(call.id);
-        return false;
-      }
-      await api.startCallRecording(call.id);
-      return true;
-    },
-    onSuccess: (on) => {
-      setRecording(on);
-      // Everyone else hears it now rather than at their next refetch, which
-      // matters for the one notice nobody should see late.
-      sendData({ t: "recording", on });
-      toast(on ? "Recording started" : "Recording stopped");
-    },
-    onError: (e) => {
-      // Switch on the CODE, not on the words in the message. The message is
-      // prose the server is free to reword; matching it meant that the day the
-      // server started answering "internal error" for an unconfigured recorder,
-      // this silently fell through to the generic branch and told the user
-      // nothing they could act on.
-      const notEnabled = e instanceof ApiError && e.code === "service_unavailable";
-      // Nothing the user does will make an unconfigured deployment record, so
-      // stop offering it rather than letting them press it again.
-      if (notEnabled) setRecordingUnavailable(true);
-      toast.error(
-        notEnabled
-          ? "Recording isn't enabled on this server"
-          : "Couldn't change the recording",
-      );
-    },
-  });
+  /**
+   * Start or stop recording the meeting to this machine.
+   *
+   * Local, so there is no request to fail and no deployment that can be
+   * "unconfigured" — the only way this cannot work is a browser without
+   * MediaRecorder, which `localRec.supported` answers before the click.
+   *
+   * The notice is broadcast either way, and separately from the capture: being
+   * recorded is something the room must be told, and it must not depend on the
+   * file having been written successfully.
+   */
+  const toggleRecording = async () => {
+    if (localRec.recording) {
+      setRecording(false);
+      sendData({ t: "recording", on: false });
+      await localRec.stop();
+      toast("Recording saved to your downloads");
+      return;
+    }
+    try {
+      localRec.start();
+    } catch {
+      toast.error("This browser can't record meetings");
+      return;
+    }
+    setRecording(true);
+    sendData({ t: "recording", on: true });
+    toast("Recording started — it will save to this device");
+  };
 
   const hangUp = async () => {
     await leave();
     onClose();
   };
+
+  if (preJoin) {
+    const scheduledAt = call.scheduledAt;
+    const scheduled = scheduledAt == null ? null : new Date(scheduledAt);
+    const scheduledLabel = scheduled
+      ? scheduled.toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+      : "Ready to join";
+
+    return (
+      <div className="fixed inset-0 z-[100] flex flex-col bg-surface text-fg">
+        <header className="flex shrink-0 items-center justify-between border-b border-border/70 px-5 py-3">
+          <div className="min-w-0">
+            <div className="truncate font-semibold">{title}</div>
+            <div className="text-xs text-muted">{scheduledLabel}</div>
+          </div>
+          <Button variant="ghost" size="sm" onClick={() => void hangUp()}>
+            Leave
+          </Button>
+        </header>
+        <main className="flex min-h-0 flex-1 items-center justify-center p-6">
+          <div className="w-full max-w-3xl rounded-2xl border border-border bg-surface-2/60 p-6 shadow-card">
+            <div className="relative flex aspect-video items-center justify-center overflow-hidden rounded-xl bg-bg ring-1 ring-border/60">
+              <video
+                ref={previewVideoRef}
+                autoPlay
+                muted
+                playsInline
+                className={`h-full w-full object-cover -scale-x-100 ${previewCamOn ? "" : "hidden"}`}
+              />
+              {!previewCamOn && (
+                <div className="text-center text-muted">
+                  <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-accent-soft text-2xl font-semibold text-accent">
+                    {myName.slice(0, 2).toUpperCase()}
+                  </div>
+                  <div className="text-sm">Your camera is off</div>
+                </div>
+              )}
+              <div className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-surface/95 p-1.5 shadow-card">
+                <button
+                  type="button"
+                  onClick={togglePreviewMic}
+                  title={previewMicOn ? "Mute microphone" : "Unmute microphone"}
+                  aria-label={previewMicOn ? "Mute microphone" : "Unmute microphone"}
+                  className={`flex h-10 w-10 items-center justify-center rounded-full transition-colors ${previewMicOn ? "bg-surface-2 text-fg hover:bg-border" : "bg-danger text-white hover:brightness-110"}`}
+                >
+                  {previewMicOn ? <Mic size={17} /> : <MicOff size={17} />}
+                </button>
+                <button
+                  type="button"
+                  onClick={togglePreviewCam}
+                  title={previewCamOn ? "Turn camera off" : "Turn camera on"}
+                  aria-label={previewCamOn ? "Turn camera off" : "Turn camera on"}
+                  className={`flex h-10 w-10 items-center justify-center rounded-full transition-colors ${previewCamOn ? "bg-surface-2 text-fg hover:bg-border" : "bg-danger text-white hover:brightness-110"}`}
+                >
+                  {previewCamOn ? <Video size={17} /> : <VideoOff size={17} />}
+                </button>
+              </div>
+            </div>
+            <div className="mt-5 flex flex-col items-center gap-3 text-center">
+              <div>
+                <h1 className="text-xl font-semibold">Ready to join?</h1>
+                <p className="mt-1 text-sm text-muted">Check your camera and microphone before entering the meeting.</p>
+              </div>
+              <Button size="lg" onClick={() => setPreJoin(false)}>
+                Join meeting
+              </Button>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   /**
    * The waiting room, rendered rather than merely tolerated.
@@ -520,6 +656,7 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
         </div>
       </div>
     );
+
   }
 
   // Already on the roster, plus ourselves — nobody the picker offers should be
@@ -566,9 +703,11 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
         <div className="min-w-0">
           <div className="truncate font-semibold text-fg">{title}</div>
           <div className="flex flex-wrap items-center gap-x-3 text-xs text-muted">
-            <span className="flex items-center gap-1">
-              <Users size={12} /> {participants.length}
-            </span>
+            {meetingDuration && (
+              <span className="flex items-center gap-1">
+                <Clock size={12} /> {meetingDuration}
+              </span>
+            )}
             {externals > 0 && (
               // Worth stating plainly: someone outside the organisation is in
               // the room, and that should never be something you have to infer.
@@ -663,24 +802,30 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
                 </span>
               </CallControlButton>
 
-              {/* Offered to hosts alone, because the server allows nobody else
-                  to start or stop one. Everyone still SEES the notice above. */}
+              {/* Offered to hosts alone — the organiser records the meeting.
+                  Everyone still SEES the notice above.
+
+                  `pressed` follows localRec, not `recording`: the latter is true
+                  for everyone once anybody starts, and a host who is merely
+                  being recorded by someone else has no file to stop. */}
               {isHost && (
                 <CallControlButton
                   variant="surface"
                   title={
-                    recordingUnavailable
-                      ? "Recording isn't enabled on this server"
-                      : recording
-                        ? "Stop recording"
-                        : "Record this meeting"
+                    !localRec.supported
+                      ? "This browser can't record meetings"
+                      : localRec.recording
+                        ? "Stop recording and save it to this device"
+                        : "Record this meeting to this device"
                   }
-                  pressed={recording}
-                  disabled={toggleRecording.isPending || recordingUnavailable}
-                  onClick={() => toggleRecording.mutate()}
-                  className={recording ? "bg-red-500 text-white hover:bg-red-600" : undefined}
+                  pressed={localRec.recording}
+                  disabled={!localRec.supported}
+                  onClick={() => void toggleRecording()}
+                  className={
+                    localRec.recording ? "bg-red-500 text-white hover:bg-red-600" : undefined
+                  }
                 >
-                  <Circle size={17} className={recording ? "fill-current" : undefined} />
+                  <Circle size={17} className={localRec.recording ? "fill-current" : undefined} />
                 </CallControlButton>
               )}
 
@@ -805,6 +950,7 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
         onClose={() => setAddOpen(false)}
         exclude={onTheCall}
         onAdd={addPeople}
+        callId={call.id}
       />
       </div>
     </>

@@ -113,17 +113,6 @@ async def _request(
     return await retry_async(_attempt, attempts=3, breaker=_ms_breaker)
 
 
-# ── identity ──────────────────────────────────────────────────────────────────
-async def me(token: str) -> dict:
-    """The signed-in user: id (AAD object id), mail, userPrincipalName.
-
-    The `id` matters as much as the address — Teams mentions reference the AAD
-    object id, so a connection that registered only the mailbox would never
-    match a Teams mention.
-    """
-    return await _request(token, "GET", "/me")
-
-
 # ── subscriptions ─────────────────────────────────────────────────────────────
 def subscription_expiry(minutes: int, *, now: datetime | None = None) -> str:
     """Graph wants an ISO-8601 UTC instant with a trailing Z."""
@@ -169,11 +158,6 @@ async def renew_subscription(token: str, subscription_id: str, *, minutes: int) 
         f"/subscriptions/{subscription_id}",
         json={"expirationDateTime": subscription_expiry(minutes)},
     )
-
-
-async def delete_subscription(token: str, subscription_id: str) -> None:
-    """Unsubscribe on disconnect so Graph stops posting to a dead endpoint."""
-    await _request(token, "DELETE", f"/subscriptions/{subscription_id}")
 
 
 def verify_client_state(expected: str, received: str | None) -> bool:
@@ -242,17 +226,6 @@ async def get_message(token: str, message_id: str, *, as_text: bool = False) -> 
     """
     headers = {"Prefer": 'outlook.body-content-type="text"'} if as_text else None
     return await _request(token, "GET", f"/me/messages/{message_id}", extra_headers=headers)
-
-
-async def list_chats(token: str, *, top: int = 50) -> list[dict]:
-    """The user's chats. Each needs its own subscription — see the module note
-    about /chats/getAllMessages requiring Protected API approval."""
-    page = await _request(token, "GET", f"/me/chats?$top={top}")
-    return page.get("value", []) or []
-
-
-async def get_chat_message(token: str, chat_id: str, message_id: str) -> dict:
-    return await _request(token, "GET", f"/chats/{chat_id}/messages/{message_id}")
 
 
 # ── sending ───────────────────────────────────────────────────────────────────

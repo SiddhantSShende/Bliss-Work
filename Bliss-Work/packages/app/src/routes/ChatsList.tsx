@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
-import { NavLink } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Bell, BellOff, MessageSquarePlus, MoreVertical, Pin, Plus, Trash2 } from "lucide-react";
+import { Bell, BellOff, MessageSquarePlus, MoreVertical, Pin, Plus, Search, Trash2 } from "lucide-react";
 import { Avatar, EmptyState } from "@taskboard/ui";
 import type { ConversationDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
@@ -12,6 +11,8 @@ import { NewChatDialog } from "../features/NewChatDialog";
 import { usePresence } from "../lib/usePresence";
 import { toggleConversationPref, useConversationPrefs } from "../lib/conversationPrefs";
 import { usePopupDismiss } from "../lib/usePopupDismiss";
+import { useSelectedChat } from "../lib/selectedChat";
+import { listPreview } from "../lib/chatEnvelope";
 
 const UNAVAILABLE_HINT = "Not available yet — needs a server endpoint";
 
@@ -113,7 +114,10 @@ function ChatListMenuItem({
 
 export function ChatsList() {
   const { api } = useRuntime();
+  const { selectedId, openChat } = useSelectedChat();
   const [newOpen, setNewOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<"all" | "unread" | "mentions">("all");
   const { data: conversations = [] } = useQuery({ queryKey: qk.conversations, queryFn: () => api.conversations() });
   // Mute and "add shortcut", set from a chat's own overflow menu, are read back
   // here — this list is the only place either one is observable. Both are
@@ -132,6 +136,19 @@ export function ChatsList() {
     return [...pinned, ...conversations.filter((c: ConversationDTO) => !prefs.hasShortcut("chat", c.id))];
   }, [conversations, prefs]);
 
+  const visibleChats = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return ordered.filter((conversation: ConversationDTO) => {
+      const searchableText = `${displayNameOf(conversation)} ${conversation.lastMessage ?? ""}`.toLowerCase();
+      const matchesSearch = !query || searchableText.includes(query);
+      const matchesFilter =
+        filter === "all" ||
+        (filter === "unread" && conversation.unread > 0) ||
+        (filter === "mentions" && (conversation.lastMessage ?? "").includes("@"));
+      return matchesSearch && matchesFilter;
+    });
+  }, [filter, ordered, search]);
+
   return (
     <>
       <ListHeader
@@ -146,15 +163,65 @@ export function ChatsList() {
           </button>
         }
       />
+      <div className="space-y-2 border-b border-border/60 px-3 py-2">
+        <label className="relative block">
+          <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+          <input
+            type="search"
+            aria-label="Search chats"
+            placeholder="Search chats..."
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            className="h-9 w-full rounded-lg border border-border bg-surface-2 pl-9 pr-3 text-sm text-fg outline-none placeholder:text-muted focus:border-accent"
+          />
+        </label>
+        <div className="flex items-center" role="tablist" aria-label="Chat filters">
+          {(["all", "unread", "mentions"] as const).map((value) => (
+            <button
+              key={value}
+              type="button"
+              role="tab"
+              aria-selected={filter === value}
+              onClick={() => setFilter(value)}
+              className={`relative flex-1 px-2 py-1.5 text-xs font-medium capitalize transition-colors ${
+                filter === value ? "text-accent after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:rounded-full after:bg-accent" : "text-muted hover:text-fg"
+              }`}
+            >
+              {value}
+              {value === "unread" && (
+                <span className="ml-1.5 rounded-full bg-accent px-1.5 text-[10px] text-accent-fg">
+                  {conversations.filter((conversation: ConversationDTO) => conversation.unread > 0).length}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
       <div className="min-h-0 flex-1 space-y-0.5 overflow-auto p-2">
         {conversations.length === 0 ? (
           <EmptyState icon={<MessageSquarePlus size={22} />} title="No chats yet" hint="Tap + to start a conversation." />
+        ) : visibleChats.length === 0 ? (
+          <EmptyState icon={<Search size={22} />} title="No matching chats" hint="Try another search or filter." />
         ) : (
-          ordered.map((c: ConversationDTO) => {
+          visibleChats.map((c: ConversationDTO) => {
             const muted = prefs.isMuted("chat", c.id);
             const pinned = prefs.hasShortcut("chat", c.id);
             return (
-              <NavLink key={c.id} to={`/app/chats/${c.id}`} className={({ isActive }) => rowClass(isActive)}>
+              // No longer a NavLink: there is no per-chat URL to link to, and
+              // "active" is now the selection rather than a route match.
+              //
+              // Shaped as MembersList shapes its rows — a div carrying the row
+              // styling, one button for the row itself and the overflow menu as
+              // its SIBLING. The menu is a button, and a button inside a button
+              // is invalid markup that React refuses to nest; as an anchor's
+              // child it merely got away with it.
+              <div key={c.id} className={rowClass(selectedId === c.id)}>
+                <button
+                  type="button"
+                  onClick={() => openChat(c.id)}
+                  aria-current={selectedId === c.id ? "true" : undefined}
+                  className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                >
                 <Avatar name={displayNameOf(c)} online={onlineSet.has(c.peerId)} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-2">
@@ -168,7 +235,9 @@ export function ChatsList() {
                     </span>
                   </div>
                   <div className="flex items-center justify-between gap-2">
-                    <span className="truncate text-sm text-muted">{c.lastMessage ?? "Start chatting"}</span>
+                    <span className="truncate text-sm text-muted">
+                      {c.lastMessage ? listPreview(c.lastMessage) : "Start chatting"}
+                    </span>
                     {c.unread > 0 && (
                       // A muted chat still says how much is waiting; it just
                       // stops asking for attention while it does. That is the
@@ -184,13 +253,14 @@ export function ChatsList() {
                     )}
                   </div>
                 </div>
+                </button>
                 <ChatListMenu
                   muted={muted}
                   pinned={pinned}
                   onToggleMute={() => toggleConversationPref("muted", "chat", c.id)}
                   onTogglePin={() => toggleConversationPref("shortcut", "chat", c.id)}
                 />
-              </NavLink>
+              </div>
             );
           })
         )}

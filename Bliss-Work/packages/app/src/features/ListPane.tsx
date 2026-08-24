@@ -1,8 +1,24 @@
+import { useNavigate } from "react-router-dom";
+import { ChevronLeft } from "lucide-react";
+
 /** Shared building blocks for the WhatsApp-style middle list pane. */
 export function ListHeader({ title, action }: { title: string; action?: React.ReactNode }) {
+  const navigate = useNavigate();
+
   return (
     <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
-      <h2 className="text-base font-semibold tracking-tight text-fg">{title}</h2>
+      <div className="flex min-w-0 items-center gap-1">
+        <button
+          type="button"
+          title="Back"
+          aria-label="Back"
+          onClick={() => navigate(-1)}
+          className="-ml-2 rounded-lg p-1 text-muted transition-colors hover:bg-surface-2 hover:text-fg"
+        >
+          <ChevronLeft size={18} />
+        </button>
+        <h2 className="text-base font-semibold tracking-tight text-fg">{title}</h2>
+      </div>
       {action}
     </div>
   );

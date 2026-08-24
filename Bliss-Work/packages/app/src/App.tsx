@@ -12,6 +12,7 @@ import { refreshSession } from "./lib/refresh";
 import { installGlobalErrorHandlers } from "./lib/globalErrorHandlers";
 import { installAuthChannel } from "./lib/authChannel";
 import { legacyInboxTarget } from "./lib/mailView";
+import { SelectedChatProvider, useSelectedChat } from "./lib/selectedChat";
 import { MessageSquare, Hash, Users } from "lucide-react";
 import { EmptyState } from "@taskboard/ui";
 import { ErrorBoundary, RouteErrorBoundary } from "./features/ErrorBoundary";
@@ -199,7 +200,14 @@ export function App({ config }: { config: PlatformConfig }) {
                     path="/app"
                     element={
                       <Protected>
-                        <AppShell />
+                        {/* OUTSIDE AppShell, not inside it: the shell reads the
+                            selection too (a chat being open is what makes the
+                            phone layout show the conversation instead of the
+                            list), and a component cannot consume a context it
+                            is itself providing. */}
+                        <SelectedChatProvider>
+                          <AppShell />
+                        </SelectedChatProvider>
                       </Protected>
                     }
                   >
@@ -235,8 +243,17 @@ export function App({ config }: { config: PlatformConfig }) {
                     {/* Everything this section was called before Mail. */}
                     <Route path="inbox/*" element={<LegacyInboxRedirect />} />
                     <Route path="meetings" element={<Meetings />} />
-                    <Route path="chats" element={<ChatsEmpty />} />
-                    <Route path="chats/:conversationId" element={<DMView />} />
+                    {/* ONE route for the whole section. Which conversation is
+                        open is held in memory (lib/selectedChat) rather than in
+                        the path, so a private chat's UUID never reaches the
+                        address bar, the history entry or the referrer. */}
+                    <Route path="chats" element={<ChatsPane />} />
+                    {/* Kept for links minted before that changed — bookmarks,
+                        notification targets, a URL someone pasted to
+                        themselves. It opens the chat and replaces itself, so
+                        the id is gone from the bar and from history by the time
+                        anything renders. */}
+                    <Route path="chats/:conversationId" element={<ChatDeepLink />} />
                     <Route path="channels" element={<ChannelsEmpty />} />
                     <Route path="channels/:channelId" element={<ChannelView />} />
                     <Route path="members" element={<MembersEmpty />} />
@@ -334,6 +351,45 @@ function LegacyInboxRedirect() {
   const { search } = useLocation();
   // "*" is the whole tail of /app/inbox/…, which is what this has to re-point.
   return <Navigate to={legacyInboxTarget(useParams()["*"] ?? "", search)} replace />;
+}
+
+/**
+ * The chats pane: the open conversation, or the welcome state when there is
+ * none.
+ *
+ * This is the whole of what the `/app/chats/:conversationId` route used to do,
+ * moved off the URL — the selection is read from memory instead of from a path
+ * param. Nothing else about DMView changes: it is the same component, mounted
+ * in the same place, keyed so that switching chats remounts it exactly as a
+ * route change used to.
+ */
+function ChatsPane() {
+  const { selectedId } = useSelectedChat();
+  if (!selectedId) return <ChatsEmpty />;
+  // NOT keyed on the id. React Router reused this component across a change of
+  // :conversationId rather than remounting it, which is why DMView carries its
+  // own reset effects for the reply draft, the search box and the staged
+  // attachments. Keying it here would remount instead — a different behaviour
+  // that would quietly make those effects dead code.
+  return <DMView />;
+}
+
+/**
+ * A `/app/chats/:conversationId` link, opened and then erased.
+ *
+ * `openChat(..., { replace: true })` does both halves in one go: it records the
+ * selection and REPLACES this entry with `/app/chats`, so the id leaves the
+ * address bar and leaves history rather than sitting one Back press away.
+ */
+function ChatDeepLink() {
+  const { conversationId = "" } = useParams();
+  const { openChat } = useSelectedChat();
+  useEffect(() => {
+    if (conversationId) openChat(conversationId, { replace: true });
+  }, [conversationId, openChat]);
+  // Until the effect runs, this is the same neutral state a reload lands on —
+  // never a flash of somebody else's conversation.
+  return <ChatsEmpty />;
 }
 
 function ChatsEmpty() {
