@@ -1258,11 +1258,24 @@ services:
     image: gcr.io/cadvisor/cadvisor:v0.49.1
     restart: unless-stopped
     # Read-only host mounts: this reports on containers, it never changes them.
+    #
+    # Docker root is NOT /var/lib/docker on this host — Docker runs as a snap
+    # package here, with its real data-root at
+    # /var/snap/docker/common/var-lib-docker (see `docker info` -> "Docker
+    # Root Dir"). /var/lib/docker is a leftover symlink to /tmp/docker, and
+    # /tmp is tmpfs (wiped every reboot), so that mount source often doesn't
+    # exist and Docker can't always recreate it — `docker compose up` with no
+    # service filter (which recreates cadvisor along with everything else)
+    # then fails outright with "mkdir /var/lib/docker: read-only file
+    # system" before touching anything else. Mounted at its REAL path (not
+    # remapped to /var/lib/docker) so cadvisor's own container introspection
+    # — which correlates a container's GraphDriver path from the Docker API
+    # against what it sees mounted — still lines up.
     volumes:
       - /:/rootfs:ro
       - /var/run:/var/run:ro
       - /sys:/sys:ro
-      - /var/lib/docker/:/var/lib/docker:ro
+      - /var/snap/docker/common/var-lib-docker/:/var/snap/docker/common/var-lib-docker/:ro
       - /dev/disk/:/dev/disk:ro
     devices:
       - /dev/kmsg
