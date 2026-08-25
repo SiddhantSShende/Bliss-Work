@@ -20,6 +20,7 @@ from .logging_setup import configure_logging, get_logger
 from .relay_consumer import RelayConsumer
 from .tracing import setup_tracing
 from .worker import EmailWorker
+from tracing import shutdown_tracing
 
 
 async def _amain() -> None:
@@ -43,7 +44,10 @@ async def _amain() -> None:
 
     log.info("starting workers", invite_group=settings.consumer_group,
              relay_group=settings.relay_consumer_group)
-    await asyncio.gather(invite_worker.run(), relay_worker.run())
+    try:
+        await asyncio.gather(invite_worker.run(), relay_worker.run())
+    finally:
+        shutdown_tracing(log=log)  # flush any buffered spans (no-op when disabled)
 
 
 def main() -> None:

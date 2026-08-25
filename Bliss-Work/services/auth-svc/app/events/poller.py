@@ -10,11 +10,13 @@ from opentelemetry import trace
 from opentelemetry.trace import SpanKind
 from sqlalchemy import text
 
+from kafka_security import kafka_security_kwargs
+
 from ..config import settings
 from ..db import engine
 from ..logging_config import log
-from ..tracing import inject_headers
-from ..kafka_security import kafka_security_kwargs
+from tracing import inject_headers
+from .outbox import SECRET_EVENT_TYPES
 from .outbox_dlq import (
     MAX_PUBLISH_ATTEMPTS,
     MAX_PUBLISH_BYTES,
@@ -27,6 +29,26 @@ _tracer = trace.get_tracer(__name__)
 
 POLL_INTERVAL_SECONDS = 0.5
 BATCH_LIMIT = 100
+
+# Raw secret URL fields stripped from SECRET_EVENT_TYPES payloads before
+# Kafka publish — email-worker pulls the secret back via an authenticated
+# internal call instead (see auth-svc/app/routes/internal.py's outbox-events
+# endpoint). See docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 3.
+_SECRET_URL_FIELDS = ("resetUrl", "verifyUrl", "inviteUrl")
+
+
+def _redact_for_publish(row_id, payload):
+    """Strip the raw secret URL from the three secret-bearing event types
+    before they're published to Kafka, adding `outboxId` so email-worker can
+    pull the secret back via GET /internal/outbox-events/{outboxId}. Every
+    other event type (and the stored outbox row itself) is unaffected — the
+    row keeps its full payload until the redact-on-expiry sweep removes it.
+    """
+    if not isinstance(payload, dict) or payload.get("type") not in SECRET_EVENT_TYPES:
+        return payload
+    redacted = {k: v for k, v in payload.items() if k not in _SECRET_URL_FIELDS}
+    redacted["outboxId"] = str(row_id)
+    return redacted
 
 # Backoff applied on consecutive drain failures (e.g. broker down) so we stop
 # hammering Kafka / flooding logs. Doubles from POLL_INTERVAL up to the cap.
@@ -177,7 +199,7 @@ class OutboxPoller:
 
             published_ids: list[str] = []
             for row in sendable:
-                payload = row.payload
+                payload = _redact_for_publish(row.id, row.payload)
                 if isinstance(payload, (dict, list)):
                     value = json.dumps(payload).encode("utf-8")
                 else:

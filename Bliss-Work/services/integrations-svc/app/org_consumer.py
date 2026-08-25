@@ -24,11 +24,11 @@ import json
 
 from aiokafka import AIOKafkaConsumer
 from sqlalchemy import text
+from kafka_security import kafka_security_kwargs
 
 from .config import settings
 from .db import session, set_bypass_rls
 from .logging_setup import log
-from .kafka_security import kafka_security_kwargs
 
 _TOPIC = "auth.events"
 _GROUP_ID = "integrations-svc"

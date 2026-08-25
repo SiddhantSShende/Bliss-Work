@@ -17,7 +17,7 @@ from sqlalchemy import text
 
 from .. import app_credentials
 from ..config import settings
-from ..crypto import cryptor
+from crypto import cryptor
 from ..db import session, set_bypass_rls
 from ..identities import upsert_oauth_identity
 from ..providers import oauth

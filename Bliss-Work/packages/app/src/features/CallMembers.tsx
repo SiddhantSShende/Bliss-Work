@@ -18,15 +18,15 @@ import type { RoomParticipant } from "../lib/useCallRoom";
 import { CallTile } from "./CallTile";
 
 /** A full page of the member grid. */
-export const MEMBERS_PER_PAGE = 12;
+const MEMBERS_PER_PAGE = 12;
 
-/** A page of the strip that runs above a pinned view. Fewer, because they share
- *  the height of one row and six is where a face stops being a face. */
-export const STRIP_PER_PAGE = 6;
+/** A page of the grid beside a pinned stage. Fewer, and always two across —
+ *  the column's own width doesn't have room to spare for a third. */
+const SIDEBAR_PER_PAGE = 6;
 
 /** How many pages `total` members need. Always at least one, so an empty room
  *  still renders its (empty) page rather than a divide-by-zero. */
-export function pageCount(total: number, perPage: number): number {
+function pageCount(total: number, perPage: number): number {
   return Math.max(1, Math.ceil(total / perPage));
 }
 
@@ -43,10 +43,10 @@ export function CallMembers({
   /** The pinned participant's identity, if any. */
   pinned: string | null;
   onTogglePin: (identity: string) => void;
-  /** "grid" fills the room; "strip" is the row above a pinned view. */
-  layout?: "grid" | "strip";
+  /** "grid" fills the room; "sidebar" is the column beside a pinned stage. */
+  layout?: "grid" | "sidebar";
 }) {
-  const perPage = layout === "strip" ? STRIP_PER_PAGE : MEMBERS_PER_PAGE;
+  const perPage = layout === "sidebar" ? SIDEBAR_PER_PAGE : MEMBERS_PER_PAGE;
   const [page, setPage] = useState(0);
   const pages = pageCount(participants.length, perPage);
 
@@ -59,28 +59,51 @@ export function CallMembers({
   const current = Math.min(page, pages - 1);
   const shown = participants.slice(current * perPage, current * perPage + perPage);
 
+  // Three or four tiles read better as a small, deliberate 2-up arrangement —
+  // centered under an even top row — than left-aligned in whatever column
+  // count the area's width happens to offer. Five and up keep the responsive
+  // grid, where a half-empty last row is rare enough not to matter.
+  const centered = shown.length === 3 || shown.length === 4;
+  const orphan = centered && shown.length === 3;
+
   return (
-    <div className={cn("flex min-h-0 flex-col gap-2", layout === "grid" && "flex-1")}>
+    <div
+      className={cn(
+        "flex min-h-0 flex-col gap-2",
+        layout === "grid" ? "flex-1" : "h-28 w-full shrink-0 sm:h-auto sm:w-64",
+      )}
+    >
       <div
         className={cn(
           // overflow-hidden, not auto: this area is the thing that must not
           // scroll. If tiles do not fit, that is what the pager is for.
-          "grid min-h-0 gap-2 overflow-hidden",
-          layout === "grid"
-            ? "h-full flex-1 auto-rows-fr grid-cols-2 sm:grid-cols-3 xl:grid-cols-4"
-            : "h-24 shrink-0 auto-cols-fr grid-flow-col sm:h-28",
+          "grid min-h-0 flex-1 gap-2 overflow-hidden",
+          centered
+            ? "grid-cols-2 grid-rows-2"
+            : layout === "grid"
+              ? "auto-rows-fr grid-cols-2 sm:grid-cols-3 xl:grid-cols-4"
+              : "auto-rows-fr grid-cols-2",
         )}
       >
-        {shown.map((p) => (
-          <CallTile
-            key={p.identity}
-            p={p}
-            size={layout === "strip" ? "strip" : "grid"}
-            pinned={pinned === p.identity}
-            handRaised={hands.has(p.identity)}
-            onTogglePin={() => onTogglePin(p.identity)}
-          />
-        ))}
+        {shown.map((p, i) => {
+          const isOrphan = orphan && i === 2;
+          return (
+            <div
+              key={p.identity}
+              className={cn("min-h-0", isOrphan && "col-span-2 flex justify-center")}
+            >
+              <div className={cn("h-full min-h-0", isOrphan && "w-1/2")}>
+                <CallTile
+                  p={p}
+                  size="grid"
+                  pinned={pinned === p.identity}
+                  handRaised={hands.has(p.identity)}
+                  onTogglePin={() => onTogglePin(p.identity)}
+                />
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       {pages > 1 && (

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { StickyWidget, type StickyTaskDTO, type TaskAction } from "@taskboard/app";
+import { isThemeId, themeClasses } from "@taskboard/ui";
 import { Pin, Maximize2 } from "lucide-react";
 import "@taskboard/ui/styles.css";
 import "./index.css";
@@ -37,10 +38,11 @@ const VERB: Record<TaskAction, string> = {
 function useSyncedTheme(): void {
   useEffect(() => {
     const apply = () => {
-      const theme = (localStorage.getItem("tb-theme") as "light" | "dark" | null) ?? "light";
+      const stored = localStorage.getItem("tb-theme");
+      const classes = themeClasses(stored && isThemeId(stored) ? stored : "light");
       const root = document.documentElement;
-      root.classList.remove("light", "dark");
-      root.classList.add(theme);
+      root.classList.remove("light", "dark", "lime");
+      root.classList.add(...classes);
     };
     apply();
     window.addEventListener("storage", apply);

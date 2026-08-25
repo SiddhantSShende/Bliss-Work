@@ -11,10 +11,10 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/task-board/messaging-svc/internal/kafkaauth"
 	"github.com/task-board/messaging-svc/internal/metrics"
 	"github.com/task-board/messaging-svc/internal/store"
 	"github.com/task-board/messaging-svc/internal/tracing"
+	"github.com/task-board/shared-kafkaauth"
 )
 
 // outboxBatchSize is how many rows one drain claims and produces together.

@@ -4,7 +4,7 @@
  * upstream call for the whole field.
  *
  * No resolver may make a call per item. That rule is what separates this
- * gateway from an N+1 generator, and `test/schema.test.ts` asserts it by
+ * gateway from an N+1 generator, and `test/gateway.test.ts` asserts it by
  * counting upstream calls rather than by inspecting the code.
  */
 import { InboxItemKind, InboxPeerDTO, UserDTO } from "@taskboard/shared";
@@ -18,16 +18,6 @@ type PeerSource = z.infer<typeof InboxPeerDTO>;
 
 export const resolvers = {
   Query: {
-    async me(_root: unknown, _args: unknown, ctx: GraphContext) {
-      const raw = await ctx.upstream.get<unknown>(
-        "auth-svc",
-        ctx.cfg.authBase,
-        "/auth/me",
-        ctx.caller,
-      );
-      return UserDTO.parse(raw);
-    },
-
     async users(_root: unknown, args: { ids: string[] }, ctx: GraphContext) {
       // loadMany resolves through the same per-request batch as every other
       // user reference in this operation, so asking for people the page already

@@ -8,13 +8,14 @@ import type { ConversationDTO, MessageDTO, ReactionDTO } from "@taskboard/shared
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
-import { displayNameOf } from "../lib/userLabel";
+import { displayNameOf, useUserLabels } from "../lib/userLabel";
 import { CallMenu } from "../features/CallMenu";
 import { ScheduleCallDialog } from "../features/ScheduleCallDialog";
 import { SendCallLinkDialog } from "../features/SendCallLinkDialog";
 import { deliverCallLink } from "../lib/deliverCallLink";
 import { ChatThread } from "../features/ChatThread";
 import { ConversationMenu } from "../features/ConversationMenu";
+import { ConfirmDialog } from "../features/ConfirmDialog";
 import { ChatSearchBar } from "../features/ChatSearchBar";
 import { ChatAssetsSheet } from "../features/ChatAssetsSheet";
 import { searchMessages } from "../lib/chatSearch";
@@ -48,6 +49,9 @@ export function DMView() {
   // every 20 seconds to light a single dot — see lib/usePresence.
   const statusOf = useUserStatus(conv ? [conv.peerId] : []);
   const peerStatus = conv ? statusOf(conv.peerId) : "offline";
+  // Resolved live rather than trusted from the conversation row — see
+  // displayNameOf's docstring on why the embedded copy can lag a change.
+  const { avatarUrlOf } = useUserLabels(conv ? [conv.peerId] : []);
   // Reachable, not "shows a green dot". Someone on a call is connected and can
   // be rung — Busy tells the caller what they are interrupting, it does not
   // put the peer behind glass.
@@ -103,6 +107,7 @@ export function DMView() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [assetsOpen, setAssetsOpen] = useState(false);
+  const [clearChatOpen, setClearChatOpen] = useState(false);
 
   // Same route-reuse trap as ChannelView's members sheet: navigating to another
   // conversation keeps this component mounted, so the scheduler — which is
@@ -115,6 +120,7 @@ export function DMView() {
     setSearchOpen(false);
     setQuery("");
     setAssetsOpen(false);
+    setClearChatOpen(false);
   }, [conversationId]);
 
   useEffect(() => {
@@ -234,14 +240,16 @@ export function DMView() {
     },
   });
 
+  // Clears the caller's own history only — unlike "Ignore" above, the
+  // conversation stays in the list (with a blank preview) rather than
+  // disappearing from both inboxes. Mirrors ChannelView's clearChat.
   const clearChat = () => {
-    if (!window.confirm("Delete this chat history for you?")) return;
     api.clearConversation(conversationId)
       .then(() => {
         void qc.invalidateQueries({ queryKey: qk.messages(conversationId) });
-        return ignore.mutateAsync();
+        void qc.invalidateQueries({ queryKey: qk.conversations });
+        toast.success("Chat cleared for you");
       })
-      .then(() => closeChat())
       .catch(() => toast.error("Couldn't clear this chat history"));
   };
 
@@ -438,7 +446,7 @@ export function DMView() {
           >
             <ChevronLeft size={20} />
           </button>
-          <Avatar name={peerName} status={peerStatus} />
+          <Avatar name={peerName} src={avatarUrlOf(conv.peerId)} status={peerStatus} />
           <div className="min-w-0 leading-tight">
             <div className="truncate font-semibold text-fg">{peerName}</div>
             <div
@@ -474,11 +482,6 @@ export function DMView() {
           <Button variant="ghost" size="sm" onClick={() => ignore.mutate()} title="Remove from both inboxes">
             <X size={15} /> Ignore
           </Button>
-          {/* Clear Chat is deliberately left unwired: messaging-svc hides one
-              message at a time and has no bulk route, so clearing what happens
-              to be loaded and calling the chat cleared would be a promise the
-              server cannot keep. The menu renders that row disabled with the
-              reason on hover; everything else here works today. */}
           <ConversationMenu
             scope="chat"
             onViewProfile={() => nav(`/app/members/${conv.peerId}`)}
@@ -489,7 +492,7 @@ export function DMView() {
             shortcut={prefs.hasShortcut("chat", conversationId)}
             onToggleShortcut={() => toggleConversationPref("shortcut", "chat", conversationId)}
             onExport={exportChat}
-            onClearChat={clearChat}
+            onClearChat={() => setClearChatOpen(true)}
             // Sits alongside two `Button variant="ghost" size="sm"` controls,
             // so it takes their height and radius rather than the bare
             // icon-button styling the channel header's neighbours use.
@@ -591,6 +594,19 @@ export function DMView() {
         exclude={new Set([conv.peerId])}
         busy={sendLink.isPending}
         onSend={(ids) => sendLink.mutate(ids)}
+      />
+      <ConfirmDialog
+        open={clearChatOpen}
+        onClose={() => setClearChatOpen(false)}
+        title="Clear chat history?"
+        message="This will delete this chat history for you. The other person will keep their copy."
+        confirmLabel="Clear chat"
+        danger
+        busy={false}
+        onConfirm={() => {
+          setClearChatOpen(false);
+          clearChat();
+        }}
       />
     </div>
   );

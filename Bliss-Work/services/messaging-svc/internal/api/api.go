@@ -195,6 +195,10 @@ func (s *Server) Router(webOrigin string) http.Handler {
 		// the upload cap that let it exist and by what the relay agrees to ask
 		// for in the first place.
 		g.Get("/internal/mail/{mailId}/attachments/{id}", s.internalMailAttachment)
+		// DEK rotation for messagingdb's org_keys. Ops / incident-response only;
+		// mirrors auth-svc's POST /internal/keys/rotate/{org_id} — rotate every
+		// service's copy to fully rotate an org.
+		g.Post("/internal/keys/rotate/{orgId}", s.rotateOrgDEK)
 	})
 
 	// ── Signed attachment download ───────────────────────────────────────────

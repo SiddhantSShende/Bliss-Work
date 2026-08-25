@@ -1,11 +1,7 @@
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { Search } from "lucide-react";
 import { Avatar, Button, Input } from "@taskboard/ui";
-import { useRuntime } from "../lib/runtime";
-import { useSession } from "../store/session";
-import { qk } from "../lib/queryBridge";
-import { matchUser } from "../lib/matchUser";
+import { usePeopleSearch } from "../lib/usePeopleCandidates";
+import { useToggleSet } from "../lib/useToggleSet";
 
 /**
  * Pick teammates. Used to add people to an existing channel; the same shape as
@@ -32,27 +28,11 @@ export function MemberPicker({
   onOrganization?: (userIds: string[]) => void;
   confirmLabel?: string;
 }) {
-  const { api } = useRuntime();
-  const me = useSession((s) => s.user)!;
-  const [q, setQ] = useState("");
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-
-  const { data: users = [] } = useQuery({ queryKey: qk.directory, queryFn: () => api.directory() });
-  const candidates = users.filter(
-    (u) => u.id !== me.id && !exclude.has(u.id) && matchUser(u, q),
-  );
+  const { q, setQ, candidates } = usePeopleSearch(exclude);
+  const { selected, toggle, setAll, clear } = useToggleSet();
   const allSelected = candidates.length > 0 && candidates.every((u) => selected.has(u.id));
 
-  const toggleAll = () =>
-    setSelected(allSelected ? new Set() : new Set(candidates.map((u) => u.id)));
-
-  const toggle = (id: string) =>
-    setSelected((s) => {
-      const n = new Set(s);
-      if (n.has(id)) n.delete(id);
-      else n.add(id);
-      return n;
-    });
+  const toggleAll = () => (allSelected ? clear() : setAll(candidates.map((u) => u.id)));
 
   return (
     <div className="space-y-2 rounded-xl border border-border/60 p-3">
@@ -91,7 +71,7 @@ export function MemberPicker({
                   on ? "bg-accent-soft" : "hover:bg-surface-2"
                 }`}
               >
-                <Avatar name={u.displayName} size="sm" />
+                <Avatar name={u.displayName} src={u.avatarUrl} size="sm" />
                 <span className="min-w-0 flex-1 truncate text-sm text-fg">{u.displayName}</span>
                 <span className="truncate text-xs text-muted">@{u.username}</span>
               </button>

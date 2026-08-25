@@ -3,6 +3,28 @@
 # .env.example); the collector fans traces -> Tempo, metrics -> Prometheus
 # (scraped off :8889), logs -> Loki. Vendor-neutral: repoint an exporter to
 # Datadog/Honeycomb/Grafana Cloud without touching service code.
+#
+# ── The activity pipeline (logs/activity) ────────────────────────────────────
+# A SECOND, separate use of the logs signal: BlissWork activity events
+# (desktop app-focus spans, browser site-visit spans, web beacon events) as
+# OTLP log records, routed to telemetry-svc's ingest bridge instead of Loki.
+#
+# This is deliberately NOT the same `logs` pipeline the rest of the stack's
+# service logs already use — both pipelines read from the same `otlp`
+# receiver (there is only one OTLP listener in this process), so a `filter`
+# processor on EACH pipeline splits the stream by the resource attribute a
+# producer stamps on itself: `blisswork.signal = "activity"`. Infra service
+# logs never carry that attribute, so `logs` (below) drops anything that DOES
+# carry it before it reaches Loki, and `logs/activity` drops anything that
+# does NOT before it reaches the bridge. Two log pipelines sharing one
+# receiver and disagreeing about what they each want, not two receivers.
+#
+# The Collector is a transport here, nothing more: it receives, filters,
+# batches, and forwards. It holds no activity history of its own — the
+# in-memory queue on otlphttp/activity is retry buffering during a transient
+# outage, not storage, and telemetry-svc's Postgres remains the only durable
+# record (see the deploy note on that exporter below for why persistent
+# queueing is deliberately NOT used here).
 receivers:
   otlp:
     protocols:
@@ -10,13 +32,67 @@ receivers:
         endpoint: 0.0.0.0:4317
       http:
         endpoint: 0.0.0.0:4318
+        # Exposes inbound HTTP headers (X-Ingest-Token, the desktop agent's
+        # and browser extension's pairing-token credential) to the pipeline
+        # as request metadata — the headers_setter extension's `from_context`
+        # below reads it from here. Without this, the header is invisible to
+        # everything downstream of the receiver.
+        include_metadata: true
+
+extensions:
+  # Re-attaches the caller's OWN X-Ingest-Token to the outbound request to
+  # telemetry-svc, per request — the collector does not hold or interpret the
+  # token, only relays it, so activity auth stays exactly what it is today
+  # (routes/agent.py's per-agent pairing secret, looked up server-side).
+  #
+  # DELIBERATELY not paired with a persistent (disk-backed) sending_queue on
+  # the exporter that uses it: the dynamic header this extension injects is
+  # request-context state, and a persistent queue serializes/replays the
+  # request WITHOUT that context surviving the round trip — the request goes
+  # out with no token and the backend 401s it. This is a documented
+  # Collector limitation (open-telemetry/opentelemetry-collector#10110), not
+  # a BlissWork-specific workaround; see otlphttp/activity below.
+  headers_setter:
+    headers:
+      - key: X-Ingest-Token
+        action: upsert
+        from_context: x-ingest-token
 
 processors:
   batch: {}
+  # The activity batch processor additionally has to be told to carry the
+  # per-request metadata key through batching — by default a batch merges
+  # requests and metadata does NOT survive that merge, which would make
+  # headers_setter's from_context above silently see nothing.
+  batch/activity:
+    metadata_keys: [x-ingest-token]
   memory_limiter:
     check_interval: 1s
-    limit_percentage: 80
-    spike_limit_percentage: 25
+    # Absolute MiB, not limit_percentage/spike_limit_percentage: a percentage
+    # is computed against the HOST's total memory as the collector process
+    # sees it — confirmed live in this dev environment, where 80% of the
+    # HOST's ~23 GiB (18.7 GiB) was what the processor actually configured
+    # itself with, nothing like the 256M this container is meant to run in
+    # (docker-compose.prod.yml's `deploy.resources.limits`, which is itself
+    # a Swarm-orchestration construct that plain `docker compose up` does not
+    # enforce — a pre-existing characteristic of every service in that file,
+    # not something specific to this pipeline). An absolute cap is correct
+    # regardless of whether the outer container limit is ever enforced: the
+    # collector refuses more work once ITS OWN configured ceiling is
+    # reached, rather than only when the host coincidentally runs low.
+    limit_mib: 200
+    spike_limit_mib: 50
+  # Splits the ONE otlp receiver's log stream in two. See the header comment.
+  filter/infra_logs_only:
+    error_mode: ignore
+    logs:
+      log_record:
+        - 'resource.attributes["blisswork.signal"] == "activity"'
+  filter/activity_only:
+    error_mode: ignore
+    logs:
+      log_record:
+        - 'resource.attributes["blisswork.signal"] != "activity"'
 
 exporters:
   # Traces -> Tempo (OTLP gRPC)
@@ -30,8 +106,46 @@ exporters:
   # Logs -> Loki via its native OTLP endpoint
   otlphttp/loki:
     endpoint: http://loki:3100/otlp
+  # Activity logs -> telemetry-svc's OTLP bridge (routes/otlp_bridge.py),
+  # which unwraps each log record back into the SAME Beacon/AgentEvent shape
+  # the existing REST ingest routes already validate and write through
+  # insert_events/sessionize_inserted — no second activity schema, no second
+  # write path; the collector only changes how the bytes travel.
+  #
+  # sending_queue uses the DEFAULT in-memory queue (never storage: — see the
+  # headers_setter extension's comment above for why persistent queueing
+  # would silently break auth on this specific exporter). In-memory queueing
+  # still absorbs a brief telemetry-svc restart or blip; it does not survive
+  # the collector process itself restarting, which is the correct trade for
+  # a transport component that is explicitly NOT the system of record.
+  otlphttp/activity:
+    # logs_endpoint, NOT endpoint: the otlphttp exporter appends its own
+    # per-signal suffix (/v1/logs) to a bare `endpoint`, which would have
+    # produced .../telemetry/otlp/logs/v1/logs against a plain `endpoint:`
+    # here — confirmed by an actual 404 while validating this config against
+    # a live collector + bridge. logs_endpoint takes the exact path as-is.
+    logs_endpoint: http://telemetry-svc:8006/telemetry/otlp/logs
+    # JSON, not the default protobuf: the bridge is a small FastAPI route,
+    # not a full OTLP collector, and JSON keeps it free of an
+    # opentelemetry-proto/protobuf dependency for what is otherwise a
+    # deliberately thin unwrap-and-reuse-insert_events step. Still standard
+    # OTLP — the spec defines both proto and JSON as valid OTLP/HTTP encodings.
+    encoding: json
+    auth:
+      authenticator: headers_setter
+    timeout: 10s
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 5m
+    sending_queue:
+      enabled: true
+      num_consumers: 10
+      queue_size: 1000
 
 service:
+  extensions: [headers_setter]
   pipelines:
     traces:
       receivers: [otlp]
@@ -43,5 +157,9 @@ service:
       exporters: [prometheus]
     logs:
       receivers: [otlp]
-      processors: [memory_limiter, batch]
+      processors: [memory_limiter, filter/infra_logs_only, batch]
       exporters: [otlphttp/loki]
+    logs/activity:
+      receivers: [otlp]
+      processors: [memory_limiter, filter/activity_only, batch/activity]
+      exporters: [otlphttp/activity]

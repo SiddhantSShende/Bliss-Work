@@ -14,9 +14,9 @@ import (
 
 	"github.com/task-board/messaging-svc/internal/blob"
 	"github.com/task-board/messaging-svc/internal/events"
-	"github.com/task-board/messaging-svc/internal/kafkaauth"
 	"github.com/task-board/messaging-svc/internal/store"
 	"github.com/task-board/messaging-svc/internal/tracing"
+	"github.com/task-board/shared-kafkaauth"
 )
 
 // startConsumeSpan extracts W3C trace context from a Kafka message's headers and

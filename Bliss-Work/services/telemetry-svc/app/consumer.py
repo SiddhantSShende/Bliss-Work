@@ -27,6 +27,7 @@ from opentelemetry import trace
 from opentelemetry.trace import SpanKind
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
+from kafka_security import kafka_security_kwargs
 
 from .config import settings
 from .db import session, set_bypass_rls
@@ -34,8 +35,7 @@ from .event_map import MAPPINGS, preview_of
 from .ingest import ActivityRow, clamp_occurred_at, insert_events
 from .logging_setup import log
 from .org_purge import purge_org
-from .tracing import extract_context
-from .kafka_security import kafka_security_kwargs
+from tracing import extract_context
 
 _tracer = trace.get_tracer(__name__)
 

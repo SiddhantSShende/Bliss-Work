@@ -117,6 +117,7 @@ export function MemberDetail() {
           emailVerified: fromDirectory.emailVerified ?? true,
           createdAt: "",
           removedAt: null,
+          avatarUrl: fromDirectory.avatarUrl,
         }
       : null);
 
@@ -180,7 +181,7 @@ export function MemberDetail() {
           <ChevronLeft size={20} />
         </button>
         {/* No `online` prop, so no presence dot — see lastSeen above. */}
-        <Avatar name={member.displayName} size="lg" />
+        <Avatar name={member.displayName} src={member.avatarUrl} size="lg" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="truncate font-semibold text-fg">{member.displayName}</span>

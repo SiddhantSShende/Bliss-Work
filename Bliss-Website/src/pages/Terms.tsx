@@ -4,19 +4,9 @@ import { Container, Section, Button, button } from "@/components/ui";
 import { Reveal } from "@/components/Reveal";
 import { PageHero } from "@/components/layout/PageHero";
 import { useDownload } from "@/components/download/DownloadProvider";
-import { LegalIntro, LegalSections, type LegalSection } from "@/components/legal/LegalDoc";
+import { LegalIntro, LegalSections, MailLink, type LegalSection } from "@/components/legal/LegalDoc";
 
-const CONTACT_EMAIL = "siddhant.shende@consultrnr.com";
 const LAST_UPDATED = "3 July 2026";
-
-const MailLink = () => (
-  <a
-    href={`mailto:${CONTACT_EMAIL}`}
-    className="font-medium text-accent underline decoration-accent/30 underline-offset-2 transition-colors hover:decoration-accent"
-  >
-    {CONTACT_EMAIL}
-  </a>
-);
 
 const DocLink = ({ to, children }: { to: string; children: React.ReactNode }) => (
   <Link

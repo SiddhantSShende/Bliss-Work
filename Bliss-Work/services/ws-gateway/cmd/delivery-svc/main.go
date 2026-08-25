@@ -38,8 +38,8 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
+	"github.com/task-board/shared-kafkaauth"
 	"github.com/task-board/ws-gateway/internal/config"
-	"github.com/task-board/ws-gateway/internal/kafkaauth"
 	"github.com/task-board/ws-gateway/internal/push"
 	"github.com/task-board/ws-gateway/internal/router"
 	"github.com/task-board/ws-gateway/internal/store"
@@ -97,12 +97,12 @@ func main() {
 	// holding it means being able to deliver any payload to any connected user.
 	// Refusing to start without one is better than running with the built-in
 	// development default and having every push rejected as unauthorized.
-	if cfg.InternalToken == "" {
-		log.Error("TB_INTERNAL_TOKEN is required — it authorizes every push to a gateway")
+	if cfg.WSGatewayInternalToken == "" {
+		log.Error("WS_GATEWAY_INTERNAL_TOKEN is required — it authorizes every push to a gateway")
 		os.Exit(1)
 	}
 
-	r := router.New(st, push.NewClient(cfg.InternalToken), log)
+	r := router.New(st, push.NewClient(cfg.WSGatewayInternalToken), log)
 	consumer := router.NewConsumer(cfg.KafkaBrokers, r, log)
 	go consumer.Run(rootCtx)
 

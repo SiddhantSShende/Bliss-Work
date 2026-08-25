@@ -20,9 +20,17 @@ type Config struct {
 	// service so messaging-svc can emit MessageDelivered through its outbox
 	// (preserves the outbox-then-Kafka invariant — gateway never produces).
 	MessagingBaseInternal string
-	// Shared secret presented in the X-Internal-Token header. Both processes
-	// pick this up from the same env var (TB_INTERNAL_TOKEN) — never log it.
-	InternalToken string
+	// MessagingInternalToken authenticates the OUTBOUND delivery-ack POST to
+	// messaging-svc above — messaging-svc's OWN secret, not this service's.
+	MessagingInternalToken string
+	// WSGatewayInternalToken authenticates callers of THIS service's own
+	// /internal/push (see push.go) — presented in the X-Internal-Token
+	// header by delivery-svc, the only trusted caller. Distinct from
+	// MessagingInternalToken above: each service now validates against its
+	// own secret rather than one token shared platform-wide (previously both
+	// were the same TB_INTERNAL_TOKEN value) — see
+	// docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 2. Never log it.
+	WSGatewayInternalToken string
 	// MaxConnections caps the number of concurrent WebSockets this node accepts.
 	// Beyond it the upgrade is rejected (1013 Try Again Later) so a connection
 	// storm can't OOM the pod. 0 = unlimited.
@@ -122,17 +130,18 @@ func Load() Config {
 	}
 	return Config{
 		// The container always listens on 8080 (compose maps ${WS_GATEWAY_PORT}:8080).
-		Port:                  "8080",
-		JWKSURL:               getenv("JWKS_URL", "http://auth-svc:8001/.well-known/jwks.json"),
-		JWTIssuer:             getenv("JWT_ISSUER", "task-board"),
-		RedisURL:              getenv("REDIS_URL", "redis://redis:6379/0"),
-		KafkaBrokers:          brokers,
-		WebOrigin:             getenv("WEB_ORIGIN", "http://localhost:5173"),
-		LogLevel:              getenv("LOG_LEVEL", "info"),
-		MessagingBaseInternal: getenv("TB_MESSAGING_INTERNAL_BASE", "http://messaging-svc:8004"),
-		InternalToken:         getenv("TB_INTERNAL_TOKEN", "dev-internal-token"),
-		MaxConnections:        getenvInt("WS_MAX_CONNECTIONS", 50000),
-		MaxConnsPerUser:       getenvInt("WS_MAX_CONNS_PER_USER", 20),
+		Port:                   "8080",
+		JWKSURL:                getenv("JWKS_URL", "http://auth-svc:8001/.well-known/jwks.json"),
+		JWTIssuer:              getenv("JWT_ISSUER", "task-board"),
+		RedisURL:               getenv("REDIS_URL", "redis://redis:6379/0"),
+		KafkaBrokers:           brokers,
+		WebOrigin:              getenv("WEB_ORIGIN", "http://localhost:5173"),
+		LogLevel:               getenv("LOG_LEVEL", "info"),
+		MessagingBaseInternal:  getenv("TB_MESSAGING_INTERNAL_BASE", "http://messaging-svc:8004"),
+		MessagingInternalToken: getenv("MESSAGING_INTERNAL_TOKEN", "dev-internal-token"),
+		WSGatewayInternalToken: getenv("WS_GATEWAY_INTERNAL_TOKEN", "dev-internal-token"),
+		MaxConnections:         getenvInt("WS_MAX_CONNECTIONS", 50000),
+		MaxConnsPerUser:        getenvInt("WS_MAX_CONNS_PER_USER", 20),
 		// Defaults to the existing behaviour. Routed delivery is opt-in, and
 		// stays that way until an operator has delivery-svc running.
 		FanoutMode:       normalizeFanoutMode(getenv("WS_FANOUT_MODE", FanoutBroadcast)),
@@ -164,14 +173,6 @@ func broadcastGroupID() string {
 	return ""
 }
 
-// normalizeFanoutMode accepts either mode case-insensitively and falls back to
-// broadcast for anything unrecognised.
-//
-// Fails SAFE rather than loudly, which is the opposite of the choice made for
-// Kafka security, and for a reason: a typo here should leave the gateway
-// serving traffic the way it always has, not refuse to start. The mode is
-// logged at boot so a misspelling is visible in the first line of the log
-// instead of silently doing the wrong thing.
 // normalizeAddr makes an advertise address usable as a base URL.
 //
 // The value is joined to a path and used as a URL, so a bare host:port — the
@@ -192,6 +193,14 @@ func normalizeAddr(v string) string {
 	return strings.TrimRight(v, "/")
 }
 
+// normalizeFanoutMode accepts either mode case-insensitively and falls back to
+// broadcast for anything unrecognised.
+//
+// Fails SAFE rather than loudly, which is the opposite of the choice made for
+// Kafka security, and for a reason: a typo here should leave the gateway
+// serving traffic the way it always has, not refuse to start. The mode is
+// logged at boot so a misspelling is visible in the first line of the log
+// instead of silently doing the wrong thing.
 func normalizeFanoutMode(v string) string {
 	switch strings.ToLower(strings.TrimSpace(v)) {
 	case FanoutRouted:

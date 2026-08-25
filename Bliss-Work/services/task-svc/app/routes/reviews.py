@@ -5,7 +5,7 @@ from sqlalchemy import text
 
 from .. import events
 from ..auth import Principal, PrincipalDep
-from ..crypto import cryptor
+from crypto import cryptor
 from ..db import session, set_org_context
 from ..schemas import ReviewRequest, ReviewResponse
 from .helpers import enqueue_outbox, iso, resolve_username, task_sender

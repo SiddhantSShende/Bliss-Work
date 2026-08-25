@@ -57,19 +57,19 @@ export function CallRoster({
               </div>
               <div className="flex items-center gap-2 text-[11px] text-muted">
                 {p.sharing && (
-                  <span className="flex items-center gap-1 text-red-500">
+                  <span className="flex items-center gap-1 text-danger">
                     <ScreenShare size={11} /> Sharing
                   </span>
                 )}
                 {hands.has(p.identity) && (
-                  <span className="flex items-center gap-1 text-amber-600">
+                  <span className="flex items-center gap-1 text-warning">
                     <Hand size={11} /> Hand up
                   </span>
                 )}
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-1 text-muted">
-              {p.micOn ? <Mic size={13} /> : <MicOff size={13} className="text-red-500" />}
+              {p.micOn ? <Mic size={13} /> : <MicOff size={13} className="text-danger" />}
               {p.camOn ? <Video size={13} /> : <VideoOff size={13} />}
               <button
                 type="button"

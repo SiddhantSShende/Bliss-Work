@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "internal-auth"
+version = "0.1.0"
+description = "Constant-time internal-service-secret comparison, shared across this repo's Python services."
+requires-python = ">=3.13"
+
+[tool.setuptools]
+py-modules = ["internal_auth"]

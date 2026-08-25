@@ -3,22 +3,23 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncConnection
 
 from .. import service
 from ..config import settings
-from ..crypto import cryptor
+from crypto import cryptor
 from ..db import engine
 from ..events.outbox import TOPIC_AUTH, build_event, enqueue_event
 from ..logging_config import log
+from ..net import request_context
 from ..routing.notify import notify_capacity_alerts, notify_ops_no_capacity
 from ..routing.placement import NoCapacityError, no_capacity_message, place_org
 from ..schemas import (
     CreateOrgRequest,
     LoginRequest,
+    MfaPendingDTO,
     OrgMembershipDTO,
     RefreshRequest,
     SessionDTO,
@@ -34,36 +35,13 @@ from ..security.passwords import (
     password_meets_policy,
     verify_password_async,
 )
-from . import session_events
+from . import mfa_service, session_events
 from .account_service import create_email_verification_tx
 from .cookies import REFRESH_COOKIE, clear_refresh_cookie, set_refresh_cookie
 from .directory_service import InvalidUserIds, parse_user_ids
 from .members_service import leave_org_tx
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-
-
-async def _register_failed_login(conn: AsyncConnection, ident) -> int:
-    """Bump an IDENTITY's failed-login counter; lock the identity once it reaches
-    `login_max_failed_attempts`. Returns the lockout duration in seconds if it just
-    locked, else 0. The caller must let the transaction COMMIT (raise the auth error
-    AFTER the `engine.begin()` block) so the increment persists. Lockout lives on the
-    identity so a shared credential is throttled uniformly across all its orgs."""
-    new_count = int(ident.failed_login_count) + 1
-    if new_count >= settings.login_max_failed_attempts:
-        await conn.execute(
-            text(
-                "UPDATE identities SET failed_login_count = 0, "
-                "locked_until = now() + make_interval(mins => :m) WHERE id = :id"
-            ),
-            {"m": settings.lockout_minutes, "id": str(ident.id)},
-        )
-        return settings.lockout_minutes * 60
-    await conn.execute(
-        text("UPDATE identities SET failed_login_count = :c WHERE id = :id"),
-        {"c": new_count, "id": str(ident.id)},
-    )
-    return 0
 
 
 @router.post(
@@ -225,7 +203,7 @@ async def create_org(body: CreateOrgRequest, response: Response) -> SessionDTO:
         if new_identity:
             await create_email_verification_tx(conn, user_id, org_id, str(body.email))
 
-        session, raw_refresh = await service.build_session(conn, user_id)
+        session, raw_refresh, _ = await service.build_session(conn, user_id)
 
     set_refresh_cookie(response, raw_refresh)
     # AFTER the commit, and deliberately not awaited. A site crossing 80% is an
@@ -244,15 +222,19 @@ async def create_org(body: CreateOrgRequest, response: Response) -> SessionDTO:
     return session
 
 
-@router.post("/login", response_model=SessionDTO, dependencies=[Depends(enforce_origin)])
-async def login(body: LoginRequest, response: Response) -> SessionDTO:
+@router.post(
+    "/login", response_model=SessionDTO | MfaPendingDTO, dependencies=[Depends(enforce_origin)]
+)
+async def login(body: LoginRequest, response: Response, request: Request) -> SessionDTO | MfaPendingDTO:
     generic = HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid credentials")
     now = datetime.now(timezone.utc)
+    ip, user_agent, request_id = request_context(request)
     # Outcome is carried OUT of the transaction: a failed-login increment must be
     # committed, so we raise the auth error only after `engine.begin()` exits
     # normally (raising inside would roll the counter back).
     session: SessionDTO | None = None
     raw_refresh: str | None = None
+    mfa_pending: MfaPendingDTO | None = None
     failed = False
     deactivated = False  # correct password, but every membership is suspended/removed
     locked_secs = 0  # >0 => the account just crossed the lockout threshold
@@ -278,11 +260,13 @@ async def login(body: LoginRequest, response: Response) -> SessionDTO:
             )
 
         if not await verify_password_async(ident.password_hash, body.password):
-            locked_secs = await _register_failed_login(conn, ident)
+            locked_secs = await service.register_failed_login(conn, ident)
             # Recorded in the same transaction as the counter increment, so the
             # audit trail and the lockout state can never disagree about how many
             # attempts there were.
-            await session_events.login_failed(conn, str(ident.id))
+            await session_events.login_failed(
+                conn, str(ident.id), ip=ip, user_agent=user_agent, request_id=request_id
+            )
             failed = True  # commit the increment, then raise below
         elif settings.require_email_verification and not ident.email_verified:
             # Correct password but unverified and the gate is enabled. Not a
@@ -309,13 +293,39 @@ async def login(body: LoginRequest, response: Response) -> SessionDTO:
                 if ident.failed_login_count or ident.locked_until is not None:
                     await service.reset_identity_lockout(conn, str(ident.id))
                 await service.touch_last_user(conn, str(ident.id), membership_id)
-                session, raw_refresh = await service.build_session(conn, membership_id)
-                # Only in the SUCCESS branch. The failed path above commits its
-                # counter and raises afterwards, so anything enqueued before this
-                # point would be published for sign-ins that never happened.
-                await session_events.session_started(
-                    conn, session.user.orgId, membership_id
+
+                # MFA gate, evaluated against exactly this membership (never
+                # across the identity's other orgs) — see
+                # docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 7.
+                dto = await service.user_dto(conn, membership_id)
+                assert dto is not None
+                mfa_required_now, must_enroll_first = await mfa_service.mfa_gate(
+                    conn, membership_id, dto.orgId, dto.roles
                 )
+                if mfa_required_now:
+                    pending_raw = await mfa_service.mint_mfa_pending(conn, dto.orgId, membership_id)
+                    methods = (
+                        [] if must_enroll_first else await mfa_service.enrolled_methods(conn, membership_id)
+                    )
+                    mfa_pending = MfaPendingDTO(
+                        pendingToken=pending_raw,
+                        methods=methods,  # type: ignore[arg-type]
+                        enrollmentRequired=must_enroll_first,
+                    )
+                else:
+                    session, raw_refresh, family_id = await service.build_session(conn, membership_id)
+                    # Only in the SUCCESS branch. The failed path above commits its
+                    # counter and raises afterwards, so anything enqueued before this
+                    # point would be published for sign-ins that never happened.
+                    await session_events.session_started(
+                        conn,
+                        session.user.orgId,
+                        membership_id,
+                        session_id=family_id,
+                        ip=ip,
+                        user_agent=user_agent,
+                        request_id=request_id,
+                    )
     # Transaction committed. Any persisted failed-login increment is durable now.
 
     if failed:
@@ -332,6 +342,13 @@ async def login(body: LoginRequest, response: Response) -> SessionDTO:
             status.HTTP_403_FORBIDDEN,
             "your account has been deactivated; contact your workspace admin",
         )
+
+    if mfa_pending is not None:
+        # No session minted yet — no refresh cookie to set. The client calls
+        # mfa_challenge.py's verify endpoint (or, if enrollmentRequired, the
+        # enroll-start/enroll-confirm endpoints) with this pendingToken next.
+        log.info("login_mfa_pending", enrollment_required=mfa_pending.enrollmentRequired)
+        return mfa_pending
 
     assert session is not None and raw_refresh is not None
     set_refresh_cookie(response, raw_refresh)
@@ -406,6 +423,7 @@ async def refresh(
 )
 async def logout(
     response: Response,
+    request: Request,
     refresh_token: str | None = Cookie(default=None, alias=REFRESH_COOKIE),
 ) -> Response:
     if refresh_token:
@@ -418,7 +436,7 @@ async def logout(
             row = (
                 await conn.execute(
                     text(
-                        "SELECT u.id, u.org_id FROM refresh_tokens rt "
+                        "SELECT u.id, u.org_id, rt.family_id FROM refresh_tokens rt "
                         "JOIN users u ON u.id = rt.user_id WHERE rt.token_hash = :h"
                     ),
                     {"h": service.sha256_bytes(refresh_token)},
@@ -426,7 +444,16 @@ async def logout(
             ).first()
             await service.revoke_family_by_token(conn, refresh_token)
             if row is not None:
-                await session_events.session_ended(conn, str(row.org_id), str(row.id))
+                ip, user_agent, request_id = request_context(request)
+                await session_events.session_ended(
+                    conn,
+                    str(row.org_id),
+                    str(row.id),
+                    session_id=str(row.family_id),
+                    ip=ip,
+                    user_agent=user_agent,
+                    request_id=request_id,
+                )
     clear_refresh_cookie(response)
     response.status_code = status.HTTP_204_NO_CONTENT
     return response
@@ -460,15 +487,32 @@ async def my_orgs(principal: Principal = Depends(get_principal)) -> list[OrgMemb
 
 @router.post(
     "/orgs/{org_id}/switch",
-    response_model=SessionDTO,
+    response_model=SessionDTO | MfaPendingDTO,
     dependencies=[Depends(enforce_origin)],
 )
 async def switch_org(
-    org_id: str, response: Response, principal: Principal = Depends(get_principal)
-) -> SessionDTO:
+    org_id: str,
+    response: Response,
+    request: Request,
+    principal: Principal = Depends(get_principal),
+) -> SessionDTO | MfaPendingDTO:
     """Switch the active organization: re-mint a session for the caller's membership
     in `org_id` (only orgs their identity belongs to). Rotates the refresh cookie to
-    the target membership's family."""
+    the target membership's family.
+
+    Runs the IDENTICAL mandatory-MFA gate `login()` does, evaluated against the
+    TARGET membership only: a user fully enrolled and clear in the org they are
+    leaving can still be blocked entering an org that mandates MFA past its
+    grace period, if they have never enrolled under that specific membership
+    (MFA state does not carry across org boundaries — see
+    docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 7). When gated, the source
+    org's session is deliberately left untouched — the switch never happened —
+    and the caller retries via mfa_challenge.py's verify endpoint exactly as a
+    fresh login would. One accepted narrowing versus a plain login: that path
+    mints a session for the target membership on success but does not also
+    emit this org's `session_ended` bookkeeping event, since the generic
+    verify endpoint has no notion of "the org being left".
+    """
     async with engine.begin() as conn:
         await service.set_bypass_rls(conn)  # cross-org: resolve identity + target membership
         iid = await service.identity_id_for_user(conn, principal.user_id)
@@ -477,15 +521,41 @@ async def switch_org(
         target_user = await service.membership_in_org(conn, iid, org_id)
         if target_user is None:
             raise HTTPException(status.HTTP_403_FORBIDDEN, "not a member of that organization")
+
+        target_roles = await service.roles_for_user(conn, target_user)
+        mfa_required_now, must_enroll_first = await mfa_service.mfa_gate(
+            conn, target_user, org_id, target_roles
+        )
+        if mfa_required_now:
+            pending_raw = await mfa_service.mint_mfa_pending(conn, org_id, target_user)
+            methods = (
+                [] if must_enroll_first else await mfa_service.enrolled_methods(conn, target_user)
+            )
+            return MfaPendingDTO(
+                pendingToken=pending_raw,
+                methods=methods,  # type: ignore[arg-type]
+                enrollmentRequired=must_enroll_first,
+            )
+
         await service.touch_last_user(conn, iid, target_user)
-        session, raw_refresh = await service.build_session(conn, target_user)
+        session, raw_refresh, family_id = await service.build_session(conn, target_user)
         # Ends the activity session in the org being left and opens one in the
         # org being entered — they are separate rows, because activity is scoped
         # per membership, not per person.
         await session_events.session_ended(
             conn, principal.org_id, principal.user_id, audit=False
         )
-        await session_events.org_switched(conn, org_id, target_user, principal.org_id)
+        ip, user_agent, request_id = request_context(request)
+        await session_events.org_switched(
+            conn,
+            org_id,
+            target_user,
+            principal.org_id,
+            session_id=family_id,
+            ip=ip,
+            user_agent=user_agent,
+            request_id=request_id,
+        )
     set_refresh_cookie(response, raw_refresh)
     log.info("org_switched", user_id=session.user.id, org_id=org_id)
     return session
@@ -547,16 +617,23 @@ async def update_me(
         # Writes users + audit_log and decrypts via org_keys (all RLS) — scope to
         # the caller's verified org so both the WHERE filter and WITH CHECK pass.
         await service.set_org_guc(conn, principal.org_id)
-        await service.update_display_name(
-            conn, principal.org_id, principal.user_id, body.displayName.strip()
-        )
-        await service.write_audit(
-            conn,
-            org_id=principal.org_id,
-            actor_id=principal.user_id,
-            action="user.profile_updated",
-            target=principal.user_id,
-        )
+        # Independently optional: the Profile page saves a display-name edit and
+        # an avatar upload as two separate actions that happen to share this
+        # endpoint, so only the field the caller actually sent is touched.
+        if body.displayName is not None:
+            await service.update_display_name(
+                conn, principal.org_id, principal.user_id, body.displayName.strip()
+            )
+        if body.avatarUrl is not None:
+            await service.update_avatar(conn, principal.org_id, principal.user_id, body.avatarUrl)
+        if body.displayName is not None or body.avatarUrl is not None:
+            await service.write_audit(
+                conn,
+                org_id=principal.org_id,
+                actor_id=principal.user_id,
+                action="user.profile_updated",
+                target=principal.user_id,
+            )
         dto = await service.user_dto(conn, principal.user_id)
     if dto is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "user not found")

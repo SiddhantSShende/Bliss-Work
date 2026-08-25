@@ -2,11 +2,36 @@
 FROM golang:1.26-alpine@sha256:3ad57304ad93bbec8548a0437ad9e06a455660655d9af011d58b993f6f615648 AS build
 WORKDIR /src
 
-# Cache module downloads.
-COPY go.mod go.sum ./
+# ── BUILD CONTEXT IS THE REPOSITORY ROOT, not services/messaging-svc ────────
+# go.mod points its github.com/task-board/shared-kafkaauth,
+# github.com/task-board/shared-internalauth and
+# github.com/task-board/shared-jwtauth requirements at the sibling modules
+# services/shared/kafkaauth (Kafka SASL/TLS config, also used by
+# notification-svc and ws-gateway), services/shared/internalauth
+# (constant-time internal-service-secret comparison, also used by
+# ws-gateway) and services/shared/jwtauth via `replace ... => ../shared/X`
+# directives, so the build needs all three directories too:
+#
+#     docker build -f services/messaging-svc/Dockerfile .
+#
+# .dockerignore at the repo root keeps that context to roughly source size.
+
+# Cache module downloads: manifests first, so this layer is reused until a
+# dependency actually changes.
+COPY services/messaging-svc/go.mod services/messaging-svc/go.sum services/messaging-svc/
+COPY services/shared/kafkaauth/go.mod services/shared/kafkaauth/
+COPY services/shared/internalauth/go.mod services/shared/internalauth/
+COPY services/shared/jwtauth/go.mod services/shared/jwtauth/
+WORKDIR /src/services/messaging-svc
 RUN go mod download
 
-COPY . .
+WORKDIR /src
+COPY services/messaging-svc services/messaging-svc
+COPY services/shared/kafkaauth services/shared/kafkaauth
+COPY services/shared/internalauth services/shared/internalauth
+COPY services/shared/jwtauth services/shared/jwtauth
+WORKDIR /src/services/messaging-svc
+
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/messaging-svc ./cmd/server
 # Attachment garbage collector — run as a cron/one-shot, not by the server.
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/gc-attachments ./cmd/gc-attachments

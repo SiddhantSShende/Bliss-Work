@@ -270,7 +270,7 @@ async def test_the_oauth_state_is_pinned_to_the_credential_row(db_app):
 async def _make_connection(org_id: str, provider: str, token: str, account: str) -> str:
     """Insert a connected row directly — the connect endpoint would call out to
     Slack/Meta to validate credentials, which this test isn't about."""
-    from app.crypto import cryptor
+    from crypto import cryptor
     from app.db import get_engine
 
     conn_id = str(uuid6.uuid7())

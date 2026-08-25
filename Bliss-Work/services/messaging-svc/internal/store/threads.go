@@ -153,72 +153,74 @@ func bumpThread(ctx context.Context, tx pgx.Tx, threadID string, seq int64) erro
 // ConversationIgnored event. A subsequent reply revives both members through
 // the dual-write path in appendMessage.
 func (s *Store) IgnoreThread(ctx context.Context, orgID, callerID, threadID string) error {
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
+	return RetryOnSerializationFailure(ctx, 3, func(ctx context.Context) error {
+		tx, err := s.pool.Begin(ctx)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback(ctx)
 
-	// RLS: scope this tx to the caller's org before any RLS table is touched.
-	if err := setOrgGUC(ctx, tx, orgID); err != nil {
-		return err
-	}
+		// RLS: scope this tx to the caller's org before any RLS table is touched.
+		if err := setOrgGUC(ctx, tx, orgID); err != nil {
+			return err
+		}
 
-	var convID, senderID, recipientID, tOrg string
-	var lastSeq int64
-	err = tx.QueryRow(ctx, `
-		SELECT t.org_id, t.conversation_id, t.sender_id, t.recipient_id, t.last_message_seq
-		FROM threads t WHERE t.id = $1`, threadID).
-		Scan(&tOrg, &convID, &senderID, &recipientID, &lastSeq)
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && tOrg != orgID) {
-		return ErrForbidden
-	}
-	if err != nil {
-		return err
-	}
-	if callerID != senderID && callerID != recipientID {
-		return ErrForbidden
-	}
+		var convID, senderID, recipientID, tOrg string
+		var lastSeq int64
+		err = tx.QueryRow(ctx, `
+			SELECT t.org_id, t.conversation_id, t.sender_id, t.recipient_id, t.last_message_seq
+			FROM threads t WHERE t.id = $1`, threadID).
+			Scan(&tOrg, &convID, &senderID, &recipientID, &lastSeq)
+		if errors.Is(err, pgx.ErrNoRows) || (err == nil && tOrg != orgID) {
+			return ErrForbidden
+		}
+		if err != nil {
+			return err
+		}
+		if callerID != senderID && callerID != recipientID {
+			return ErrForbidden
+		}
 
-	// Hide BOTH member rows.
-	if _, err = tx.Exec(ctx, `
-		UPDATE thread_members
-		SET hidden_for_owner = true, hidden_at = now()
-		WHERE thread_id = $1`, threadID); err != nil {
-		return err
-	}
+		// Hide BOTH member rows.
+		if _, err = tx.Exec(ctx, `
+			UPDATE thread_members
+			SET hidden_for_owner = true, hidden_at = now()
+			WHERE thread_id = $1`, threadID); err != nil {
+			return err
+		}
 
-	// Mirror into the inbox_items projection so the unified inbox query
-	// excludes the row immediately (avoids one-cycle of stale UI).
-	//
-	// owner_user_id is NOT optional here: inbox_items is HASH-partitioned on it
-	// (0003_threads_inbox.sql), so a predicate without it prunes nothing and
-	// sequential-scans all 64 partitions — plus per-row RLS — to touch the two
-	// rows this thread actually has. Both owners are already in scope.
-	if _, err = tx.Exec(ctx, `
-		UPDATE inbox_items
-		SET hidden_for_owner = true, updated_at = now()
-		WHERE owner_user_id = ANY($2::uuid[])
-		  AND item_kind = 'THREAD' AND ref_id = $1`,
-		threadID, []string{senderID, recipientID}); err != nil {
-		return err
-	}
+		// Mirror into the inbox_items projection so the unified inbox query
+		// excludes the row immediately (avoids one-cycle of stale UI).
+		//
+		// owner_user_id is NOT optional here: inbox_items is HASH-partitioned on it
+		// (0003_threads_inbox.sql), so a predicate without it prunes nothing and
+		// sequential-scans all 64 partitions — plus per-row RLS — to touch the two
+		// rows this thread actually has. Both owners are already in scope.
+		if _, err = tx.Exec(ctx, `
+			UPDATE inbox_items
+			SET hidden_for_owner = true, updated_at = now()
+			WHERE owner_user_id = ANY($2::uuid[])
+			  AND item_kind = 'THREAD' AND ref_id = $1`,
+			threadID, []string{senderID, recipientID}); err != nil {
+			return err
+		}
 
-	evt := events.ConversationIgnored{
-		Type:           events.TypeConversationIgnored,
-		EventID:        uuid.Must(uuid.NewV7()).String(),
-		OrgID:          orgID,
-		OccurredAt:     nowISO(),
-		ConversationID: convID,
-		IgnoredBy:      callerID,
-		Members:        []string{senderID, recipientID},
-		AtSeq:          lastSeq,
-		ThreadID:       &threadID,
-	}
-	if err = insertOutbox(ctx, tx, convID, evt); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
+		evt := events.ConversationIgnored{
+			Type:           events.TypeConversationIgnored,
+			EventID:        uuid.Must(uuid.NewV7()).String(),
+			OrgID:          orgID,
+			OccurredAt:     nowISO(),
+			ConversationID: convID,
+			IgnoredBy:      callerID,
+			Members:        []string{senderID, recipientID},
+			AtSeq:          lastSeq,
+			ThreadID:       &threadID,
+		}
+		if err = insertOutbox(ctx, tx, convID, evt); err != nil {
+			return err
+		}
+		return tx.Commit(ctx)
+	})
 }
 
 // GetThread returns the thread header for the caller. Returns ErrForbidden if
@@ -365,74 +367,76 @@ func (s *Store) ListThreadMessages(
 // DismissMessage sets sender_dismissed_at on a message the caller authored.
 // Hides only from the sender's own view; the recipient is unaffected.
 func (s *Store) DismissMessage(ctx context.Context, orgID, callerID, messageID string) error {
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-
-	// RLS: scope this tx to the caller's org before any RLS table is touched.
-	if err := setOrgGUC(ctx, tx, orgID); err != nil {
-		return err
-	}
-
-	var msgOrg, msgSender, convID string
-	var threadIDNullable *string
-	err = tx.QueryRow(ctx,
-		`SELECT org_id, sender_id, conversation_id, thread_id FROM messages WHERE id = $1`,
-		messageID).Scan(&msgOrg, &msgSender, &convID, &threadIDNullable)
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && msgOrg != orgID) {
-		return ErrForbidden
-	}
-	if err != nil {
-		return err
-	}
-	if msgSender != callerID {
-		return ErrForbidden
-	}
-
-	if _, err = tx.Exec(ctx,
-		`UPDATE messages SET sender_dismissed_at = now()
-		 WHERE id = $1 AND sender_dismissed_at IS NULL`, messageID); err != nil {
-		return err
-	}
-
-	// Recompute the sender's inbox_items.last_event_at to the second-newest
-	// non-dismissed message in the same thread. If no other messages remain,
-	// the row stays at its last value (the projector will overwrite on next
-	// activity).
-	if threadIDNullable != nil {
-		if _, err = tx.Exec(ctx, `
-			UPDATE inbox_items i
-			SET last_event_at = COALESCE((
-			    SELECT max(m.created_at)
-			    FROM messages m
-			    WHERE m.thread_id = $1
-			      AND (m.sender_id <> $2 OR m.sender_dismissed_at IS NULL)
-			), i.last_event_at),
-			updated_at = now()
-			WHERE i.owner_user_id = $2
-			  AND i.item_kind = 'THREAD'
-			  AND i.ref_id = $1`,
-			*threadIDNullable, callerID); err != nil {
+	return RetryOnSerializationFailure(ctx, 3, func(ctx context.Context) error {
+		tx, err := s.pool.Begin(ctx)
+		if err != nil {
 			return err
 		}
-	}
+		defer tx.Rollback(ctx)
 
-	evt := events.MessageDismissed{
-		Type:           events.TypeMessageDismissed,
-		EventID:        uuid.Must(uuid.NewV7()).String(),
-		OrgID:          orgID,
-		OccurredAt:     nowISO(),
-		ConversationID: convID,
-		ThreadID:       threadIDNullable,
-		MessageID:      messageID,
-		DismissedBy:    callerID,
-	}
-	if err = insertOutbox(ctx, tx, convID, evt); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
+		// RLS: scope this tx to the caller's org before any RLS table is touched.
+		if err := setOrgGUC(ctx, tx, orgID); err != nil {
+			return err
+		}
+
+		var msgOrg, msgSender, convID string
+		var threadIDNullable *string
+		err = tx.QueryRow(ctx,
+			`SELECT org_id, sender_id, conversation_id, thread_id FROM messages WHERE id = $1`,
+			messageID).Scan(&msgOrg, &msgSender, &convID, &threadIDNullable)
+		if errors.Is(err, pgx.ErrNoRows) || (err == nil && msgOrg != orgID) {
+			return ErrForbidden
+		}
+		if err != nil {
+			return err
+		}
+		if msgSender != callerID {
+			return ErrForbidden
+		}
+
+		if _, err = tx.Exec(ctx,
+			`UPDATE messages SET sender_dismissed_at = now()
+			 WHERE id = $1 AND sender_dismissed_at IS NULL`, messageID); err != nil {
+			return err
+		}
+
+		// Recompute the sender's inbox_items.last_event_at to the second-newest
+		// non-dismissed message in the same thread. If no other messages remain,
+		// the row stays at its last value (the projector will overwrite on next
+		// activity).
+		if threadIDNullable != nil {
+			if _, err = tx.Exec(ctx, `
+				UPDATE inbox_items i
+				SET last_event_at = COALESCE((
+				    SELECT max(m.created_at)
+				    FROM messages m
+				    WHERE m.thread_id = $1
+				      AND (m.sender_id <> $2 OR m.sender_dismissed_at IS NULL)
+				), i.last_event_at),
+				updated_at = now()
+				WHERE i.owner_user_id = $2
+				  AND i.item_kind = 'THREAD'
+				  AND i.ref_id = $1`,
+				*threadIDNullable, callerID); err != nil {
+				return err
+			}
+		}
+
+		evt := events.MessageDismissed{
+			Type:           events.TypeMessageDismissed,
+			EventID:        uuid.Must(uuid.NewV7()).String(),
+			OrgID:          orgID,
+			OccurredAt:     nowISO(),
+			ConversationID: convID,
+			ThreadID:       threadIDNullable,
+			MessageID:      messageID,
+			DismissedBy:    callerID,
+		}
+		if err = insertOutbox(ctx, tx, convID, evt); err != nil {
+			return err
+		}
+		return tx.Commit(ctx)
+	})
 }
 
 // envelopeSentinel (U+001F, Unit Separator) marks the boundary between the

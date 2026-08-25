@@ -60,7 +60,8 @@ export function Search() {
           id: u.id,
           title: u.displayName,
           subtitle: `@${u.username}`,
-          to: "/app/chats",
+          avatarUrl: u.avatarUrl,
+          to: `/app/members/${u.id}`,
         })),
       },
       {

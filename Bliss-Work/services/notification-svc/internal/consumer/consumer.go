@@ -16,9 +16,9 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/task-board/notification-svc/internal/events"
-	"github.com/task-board/notification-svc/internal/kafkaauth"
 	"github.com/task-board/notification-svc/internal/outbox"
 	"github.com/task-board/notification-svc/internal/tracing"
+	"github.com/task-board/shared-kafkaauth"
 )
 
 // errMalformed marks a message whose payload could not be unmarshaled. It is the

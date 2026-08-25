@@ -129,7 +129,7 @@ export function MembersList() {
             onClick={() => nav(`/app/members/${me.id}`)}
             className={`w-full ${rowClass(me.id === userId)} text-left`}
           >
-            <Avatar name={meUser.displayName} />
+            <Avatar name={meUser.displayName} src={meUser.avatarUrl} />
             <div className="min-w-0 flex-1">
               <div className="truncate font-medium text-fg">{meUser.displayName} (you)</div>
               <div className="truncate text-sm text-muted">Your activity and sessions</div>
@@ -150,6 +150,7 @@ export function MembersList() {
                     still discloses that we are tracking them. */}
                 <Avatar
                   name={u.displayName}
+                  src={u.avatarUrl}
                   online={hideStatusFor(u) ? undefined : onlineSet.has(u.id)}
                 />
                 <div className="min-w-0 flex-1">

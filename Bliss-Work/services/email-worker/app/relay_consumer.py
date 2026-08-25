@@ -37,6 +37,7 @@ from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from aiokafka.errors import KafkaConnectionError, KafkaError
 from opentelemetry import trace
 from opentelemetry.trace import SpanKind
+from kafka_security import kafka_security_kwargs
 
 from .attachments import Attachment, fetch as fetch_attachment, within_budget
 from .config import Settings
@@ -45,8 +46,7 @@ from .presence import Presence
 from .provider_mail import ProviderMailUnavailable, send as provider_send
 from .resilience import CircuitBreaker, CircuitOpenError, retry_async
 from .templates import render_new_message_email, render_new_task_email, render_user_mail
-from .tracing import extract_context, inject_headers
-from .kafka_security import kafka_security_kwargs
+from tracing import extract_context, inject_headers
 
 _log = structlog.get_logger("relay")
 
@@ -459,7 +459,7 @@ class RelayConsumer:
         sent = await provider_send(
             self._http,
             self._settings.integrations_internal_base,
-            self._settings.internal_token,
+            self._settings.integrations_internal_token,
             org_id=str(event.get("orgId") or ""),
             author_id=author_id,
             subject=subject,
@@ -537,7 +537,7 @@ class RelayConsumer:
                 data = await fetch_attachment(
                     self._http,
                     base_url=self._settings.messaging_internal_base,
-                    token=self._settings.internal_token,
+                    token=self._settings.messaging_internal_token,
                     org_id=org_id,
                     mail_id=mail_id,
                     attachment=att,
@@ -618,7 +618,7 @@ class RelayConsumer:
         """
         assert self._http is not None
         url = f"{self._settings.auth_internal_base}/internal/users/{user_id}"
-        headers = {"X-Internal-Token": self._settings.internal_token}
+        headers = {"X-Internal-Token": self._settings.auth_internal_token}
         # Best-effort: propagate the originating event id as the request id so
         # the lookup can be correlated in auth-svc's logs.
         if request_id:

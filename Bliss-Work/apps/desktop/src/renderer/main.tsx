@@ -38,9 +38,12 @@ declare global {
           paired: boolean;
           appTracking: boolean;
           reason: string | null;
+          titleTracking: boolean;
+          titleTrackingReason: string | null;
         } | null>;
         setEnabled: (enabled: boolean) => Promise<{ enabled: boolean; paired: boolean } | null>;
         pair: (token: string | null) => Promise<{ enabled: boolean; paired: boolean } | null>;
+        openScreenRecordingSettings: () => Promise<boolean>;
       };
       rtc: RtcTransport;
       fileSink: FileSink;

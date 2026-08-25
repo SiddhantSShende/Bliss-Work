@@ -9,11 +9,11 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/segmentio/kafka-go"
 
-	"github.com/task-board/region-bridge/internal/backoff"
 	"github.com/task-board/region-bridge/internal/config"
 	"github.com/task-board/region-bridge/internal/health"
 	"github.com/task-board/region-bridge/internal/loop"
 	"github.com/task-board/region-bridge/internal/metrics"
+	"github.com/task-board/shared-backoff"
 )
 
 // maxRedeliveries is how many times one event may be handed back before it is

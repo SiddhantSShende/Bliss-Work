@@ -25,10 +25,27 @@ everything else is a claim made by software running on the member's machine.
 **That distinction is load-bearing the moment anyone uses this screen to make a
 decision about a person.**
 
+### Window titles — collected, with explicit consent, encrypted
+
+Window titles routinely contain document names, customer names and
+password-manager entries, so they are held to a higher bar than the rest of
+this feature:
+
+- Carried only in `detail_enc` (encrypted per-org, read one row at a time on
+  the timeline) — never in `targetId`, which stays the coarse, plaintext,
+  aggregatable application name every rollup groups by. `app_usage_daily`
+  still stores an application name only; no rollup ever sees a title.
+- Gated by the SAME explicit, versioned, per-machine consent as everything
+  else in §7 — turning on activity tracking for a device is what allows
+  titles, not a separate switch, and DeviceActivitySettings.tsx says so in the
+  disclosure list before anyone connects a device.
+- On macOS specifically, reading a title ALSO requires the OS's own Screen
+  Recording permission, independently of BlissWork's consent above. See
+  §8 for the full breakdown — application-name tracking works on macOS
+  without it; only the title half is gated.
+
 ### Not collected, deliberately
 
-- **Window titles.** They routinely contain document names, customer names and
-  password-manager entries. `app_usage_daily` stores an application name only.
 - **Full URLs in aggregates.** The registrable domain is stored in the clear
   because every aggregate groups by it; the path lives encrypted and is only
   ever read one row at a time on the timeline.
@@ -171,7 +188,169 @@ not expose the active window — the Settings screen says so. An empty "Apps use
 panel would otherwise read to an admin as "they did no work", which is a
 materially different claim.
 
-## 8. Right to erasure
+## 8. macOS desktop sensor — permissions, onboarding, degradation
+
+The desktop activity sensor (`apps/desktop/src/main/activity-agent.ts`) uses
+the SAME code path on Windows, macOS and Linux — it calls `get-windows`
+identically on every platform, and `get-windows` itself is what differs
+underneath. macOS is the one platform with an OS-level permission gate on
+part of what the sensor reads, handled in its own module,
+`apps/desktop/src/main/macos-permissions.ts`, kept isolated from the shared
+sampling logic for the same reason `foreground.ts`'s `isDesktopExposed`
+already isolates its own platform branches: it is the part that cannot be
+verified without the real operating system in front of you.
+
+### 8.1 Required permission
+
+| Permission | Required for | NOT required for |
+|---|---|---|
+| **Screen Recording** (macOS System Settings → Privacy & Security → Screen Recording) | Window **title** ("activity.go - BlissWork") | Application **name/process** ("Switched to VS Code") — this works unconditionally |
+
+Only one macOS permission is requested by this feature. `get-windows` also
+supports an **Accessibility** permission (for browser-tab URL detection), but
+this sensor never enables that option — page-level browser context is the
+browser extension's job (see §7 and `apps/extension/README.md`), not the
+desktop sensor's, so Accessibility is never requested here at all.
+
+**Why Screen Recording, specifically:** macOS treats reading another
+application's window title as screen content, gated behind the same TCC
+permission family used for actual screen capture, regardless of whether any
+pixel is ever read. There is no narrower "just the title" permission on
+macOS. Apple's own `get-windows` dependency (`screenRecordingPermission`
+option) documents this exact behavior: with the permission absent, `title`
+comes back as an empty string — never an exception.
+
+### 8.2 First-run behavior
+
+macOS shows its OWN native Screen Recording prompt automatically, the first
+time any gated API is actually called — there is no Electron or BlissWork API
+to trigger that prompt early or suppress it (confirmed: Electron's
+`systemPreferences.askForMediaAccess` explicitly does not accept `'screen'` as
+a media type; only `'microphone' | 'camera'` are supported there). This means:
+
+1. The person clicks **"Turn on for this device"** in Settings → Activity.
+2. `DeviceActivitySettings.tsx` pairs the device, enables the agent, and — on
+   a macOS build specifically — the success toast says *"macOS may ask for
+   Screen Recording access — allow it to include window titles"*, so the
+   native OS dialog that appears moments later reads as expected rather than
+   as something going wrong.
+3. The agent's first sample runs `get-windows`' underlying window-list call,
+   which is what actually triggers the OS prompt.
+4. Whatever the person chooses, application-name tracking is unaffected
+   either way — it does not wait on this decision.
+
+### 8.3 Permission denied (at any point)
+
+`get-windows` never throws for a denied Screen Recording permission; it
+returns `title: ""` silently. `activity-agent.ts`'s `sample()` already treats
+an empty/absent title as "no `detail.title` for this row" (this was already
+true before macOS existed as a target — the same code path handles a
+Windows/Linux window that legitimately has no title). The practical effect:
+
+- **Rows keep recording.** "Switched to VS Code" / duration still appears.
+- **No second line.** The title line ("activity.go - BlissWork") is simply
+  absent — not blank, not a placeholder, not an error string.
+- **The Settings screen says so.** `capability()` returns
+  `titleTracking: false` with a `titleTrackingReason` describing WHY
+  (not-determined / denied / restricted), rendered as a narrow warning
+  distinct from the broader "app tracking isn't available at all" banner —
+  conflating the two would tell someone whose titles are merely ungranted
+  that their whole activity record is broken, which is not true.
+- **A one-click path back.** The same panel offers "Open Screen Recording
+  settings", which deep-links to the exact System Settings pane
+  (`x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture`
+  — confirmed stable across Ventura/Sonoma/Sequoia; NOT independently
+  confirmed on macOS Tahoe, which reportedly relabels the pane in its UI —
+  see §8.5).
+
+### 8.4 Permission revoked while the app is running
+
+This is the genuinely subtle case, and it is handled deliberately rather than
+assumed away:
+
+- Electron's own `systemPreferences.getMediaAccessStatus('screen')` is
+  **documented to go stale** after a change made in System Settings while the
+  app keeps running (tracked upstream as `electron/electron#36722`) — it does
+  not reliably reflect a revocation until the app restarts.
+- So `macos-permissions.ts` does not trust that status alone. Every
+  foreground sample already reads whether a title came back
+  (`recordTitleObservation`, called from `activity-agent.ts`'s existing
+  `sample()` loop — no new sampling, just an interpretation of data already
+  being read); `titleReadWorking()` combines the OS's cached status with the
+  last 5 minutes of REAL observations, and a real "no title" observation
+  overrides a stale "granted" status.
+- The Settings screen polls this every 30 seconds while open, so a
+  revocation is discoverable without needing to close and reopen Settings —
+  see `DeviceActivitySettings.tsx`'s periodic `load()`.
+- Either way — believed-granted-but-actually-revoked, or correctly-detected
+  — the agent never crashes or stops recording application names; the
+  degradation is always "titles silently absent for new rows going forward",
+  never "the whole feature breaks".
+
+### 8.5 What was — and was NOT — verified
+
+**This environment could not run Electron on macOS, sign a build, or trigger
+a real TCC prompt.** No Mac hardware, no Xcode/codesign, no Apple Developer
+identity was available. Saying this feature "supports macOS" on the strength
+of TypeScript compiling for a `darwin` target would be exactly the false
+claim this feature's own requirements warn against, so the honest state is
+recorded here rather than implied by silence.
+
+**Actually verified, in this environment:**
+
+- `apps/desktop` typechecks clean against the extended `capability()`/IPC
+  contract (`tsc --noEmit`, zero new errors).
+- `macos-permissions.ts`'s logic is unit-tested (20 tests,
+  `src/main/macos-permissions.test.ts`) against a mocked
+  `systemPreferences.getMediaAccessStatus`, covering: every documented status
+  value, the platform guard on Windows/Linux, the API-throws case, and —
+  specifically — the `#36722` staleness scenario (a stale "granted" status
+  overridden by a real recent "no title" observation).
+- `DeviceActivitySettings.tsx`'s new branches are tested (9 tests,
+  `DeviceActivitySettings.test.tsx`): the narrow vs. broad warning
+  distinction, the settings-deep-link button, the macOS-only onboarding
+  toast copy, and the 30-second re-poll actually surfacing a state change.
+- The type contract between `get-windows`' documented `MacOSResult`/
+  `MacOSOwner` shape and this codebase's `ForegroundWindow` interface was
+  checked field-by-field against the library's own `.d.ts` (`name`,
+  `processId`, `path` on `BaseOwner`; `title` on `BaseResult`) — structurally
+  compatible, not merely "TypeScript did not complain".
+- The `x-apple.systempreferences:...Privacy_ScreenCapture` deep link and the
+  Screen-Recording-vs-Accessibility permission split were checked against
+  Electron's and `get-windows`' own documentation, not assumed.
+
+**NOT verified — required before this can be called production-ready on
+macOS:**
+
+- A real Screen Recording TCC prompt has never actually been triggered or
+  observed on macOS hardware.
+- `get-windows`' real runtime behavior on macOS (title empty-string-on-denial,
+  `owner.name`/`owner.path` working unconditionally) is taken from its
+  documentation, not independently confirmed by running it.
+- Real revocation timing — whether `titleReadWorking()`'s 5-minute
+  observation window is well-tuned against ACTUAL `getMediaAccessStatus`
+  staleness on current macOS, rather than the general behavior described in
+  the upstream issue — is unverified.
+- Code-signing/notarization interaction: per Apple Developer Forum reports,
+  some Screen-Recording-adjacent preflight checks on macOS Sequoia+ reportedly
+  require a Developer ID–signed binary and can behave inconsistently under
+  ad-hoc signing. This repo's dev builds are not notarized
+  (`electron-builder.mac.notarize: false`); whether that affects THIS specific
+  permission (Screen Recording via `get-windows`, not ScreenCaptureKit
+  directly) has not been tested.
+- The Screen Recording pane's identifier on macOS Tahoe (reportedly relabeled
+  "Screen & System Audio Recording" in Apple's UI) is unconfirmed to still
+  resolve via the same deep link.
+- Universal (arm64 + x64) build behavior is unverified — the `get-windows`
+  native module's prebuilt binaries are assumed to cover both, per the
+  package's own published platform support, not independently confirmed here.
+
+**Required before shipping:** a real macOS test pass — first run (fresh TCC
+database, e.g. via `tccutil reset ScreenCapture com.blisswork.desktop`),
+explicit denial, and revocation-while-running — on an actual, at minimum
+ad-hoc-signed build, ideally on both Intel and Apple Silicon.
+
+## 9. Right to erasure
 
 The per-org DEK model applies here as it does elsewhere: deleting an org's
 `org_keys` row makes every `detail_enc`, `ip_enc` and `user_agent_enc` value

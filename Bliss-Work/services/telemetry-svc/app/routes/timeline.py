@@ -9,7 +9,7 @@ from sqlalchemy import text
 
 from ..auth import Principal, require_principal
 from ..config import settings
-from ..crypto import CryptoError, cryptor
+from crypto import CryptoError, cryptor
 from ..cursor import decode_cursor, encode_cursor
 from ..db import session, set_org_context
 from ..ingest import NON_EVENT_ACTIONS

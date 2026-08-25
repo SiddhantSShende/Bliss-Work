@@ -16,7 +16,7 @@ const testToken = "test-internal-token"
 
 func newPushServer(h *hub.Hub, token string) *Server {
 	return &Server{
-		cfg: Config{InternalToken: token},
+		cfg: Config{WSGatewayInternalToken: token},
 		hub: h,
 		log: discardLog(),
 	}

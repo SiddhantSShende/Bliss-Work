@@ -11,15 +11,15 @@
  * they sync across devices.
  */
 import { useEffect, useState } from "react";
-import { Sun, Moon, Bell, BellOff, Info, RefreshCw, Eye } from "lucide-react";
+import { Palette, MoreVertical, Check, Bell, BellOff, Info, RefreshCw, Eye, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
-import { Button, PageHeader } from "@taskboard/ui";
+import { Button, PageHeader, useTheme, THEMES, themeClasses, themeName, type ThemeId } from "@taskboard/ui";
 import { Link } from "react-router-dom";
 import { DeviceActivitySettings } from "../features/DeviceActivitySettings";
-import { useTheme } from "@taskboard/ui";
 import { BUILD_SHA } from "../lib/buildInfo";
 import { useRuntime } from "../lib/runtime";
 import { useGoBack } from "../lib/useGoBack";
+import { usePopupDismiss } from "../lib/usePopupDismiss";
 
 const NOTIF_KEY = "tb.notifications.desktop";
 
@@ -40,7 +40,7 @@ function saveDesktopNotifs(on: boolean) {
 }
 
 export function Settings() {
-  const { theme, toggle } = useTheme();
+  const { theme } = useTheme();
   const goBack = useGoBack();
   const [desktopNotifs, setDesktopNotifs] = useState(loadDesktopNotifs);
 
@@ -60,13 +60,20 @@ export function Settings() {
       <div className="min-h-0 flex-1 overflow-auto p-6">
         <div className="mx-auto max-w-xl space-y-4">
           <SettingRow
-            icon={theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
-            title="Appearance"
-            description={`Currently in ${theme === "dark" ? "dark" : "light"} mode.`}
+            icon={<Palette size={18} />}
+            title="Theme"
+            description={`Currently using ${themeName(theme)}.`}
+            action={<ThemeMenu />}
+          />
+
+          <SettingRow
+            icon={<ShieldCheck size={18} />}
+            title="Two-factor authentication"
+            description="Add an authenticator app or a passkey as a second sign-in step."
             action={
-              <Button variant="subtle" size="sm" onClick={toggle}>
-                Use {theme === "dark" ? "light" : "dark"} mode
-              </Button>
+              <Link to="/app/settings/security">
+                <Button variant="subtle" size="sm">Manage</Button>
+              </Link>
             }
           />
 
@@ -106,6 +113,74 @@ export function Settings() {
         </div>
       </div>
     </div>
+  );
+}
+
+/** 3-dot menu next to "Theme": pick one of the app's named themes. Each row's
+ *  swatch is a live miniature rendered with that theme's own CSS classes, so
+ *  it reads straight off theme.css instead of a colour list duplicated here. */
+function ThemeMenu() {
+  const { theme, setTheme } = useTheme();
+  const [open, setOpen] = useState(false);
+  const close = () => setOpen(false);
+  const wrap = usePopupDismiss<HTMLDivElement>(open, close);
+
+  return (
+    <div ref={wrap} className="relative">
+      <button
+        type="button"
+        onClick={() => (open ? close() : setOpen(true))}
+        title="Change theme"
+        aria-label="Change theme"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="flex items-center rounded-lg p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg"
+      >
+        <MoreVertical size={18} />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          aria-label="Theme"
+          className="absolute right-0 z-[1000] mt-1.5 w-72 rounded-xl border border-border bg-surface p-1.5 shadow-card"
+        >
+          {THEMES.map((opt) => (
+            <button
+              key={opt.id}
+              type="button"
+              role="menuitemradio"
+              aria-checked={opt.id === theme}
+              onClick={() => {
+                setTheme(opt.id);
+                close();
+              }}
+              className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-surface-2"
+            >
+              <ThemeSwatch themeId={opt.id} />
+              <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg">{opt.name}</span>
+              {opt.id === theme && <Check size={16} className="shrink-0 text-accent" />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Miniature bg/sidebar/surface/accent preview for one theme, independent of
+ *  whichever theme is currently active on <html> — it carries its own theme
+ *  classes so the CSS variables it reads resolve to that theme's palette. */
+function ThemeSwatch({ themeId }: { themeId: ThemeId }) {
+  return (
+    <span
+      className={`flex h-9 w-14 shrink-0 overflow-hidden rounded-md border border-border ${themeClasses(themeId).join(" ")}`}
+      style={{ background: "var(--color-bg)" }}
+    >
+      <span className="h-full w-3 shrink-0" style={{ background: "var(--color-surface-2)" }} />
+      <span className="flex flex-1 items-end justify-end p-1" style={{ background: "var(--color-surface)" }}>
+        <span className="h-2 w-2 rounded-full" style={{ background: "var(--color-accent)" }} />
+      </span>
+    </span>
   );
 }
 

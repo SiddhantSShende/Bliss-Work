@@ -2,6 +2,20 @@ import { type ReactNode } from "react";
 import { Card } from "@/components/ui";
 import { Reveal } from "@/components/Reveal";
 
+export const CONTACT_EMAIL = "siddhant.shende@consultrnr.com";
+
+/** The one mailto: link every legal page uses for its contact address. */
+export function MailLink() {
+  return (
+    <a
+      href={`mailto:${CONTACT_EMAIL}`}
+      className="font-medium text-accent underline decoration-accent/30 underline-offset-2 transition-colors hover:decoration-accent"
+    >
+      {CONTACT_EMAIL}
+    </a>
+  );
+}
+
 /** A block of legal content. Pages describe their document as data and this
  *  module renders it, so Privacy / Terms / DPA all read and look identical. */
 export type Block =

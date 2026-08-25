@@ -83,7 +83,7 @@ async def db_app(database_url):
 
     settings.integrations_database_url = database_url
 
-    from app.crypto import init_cryptor
+    from crypto import init_cryptor
     from app.db import dispose_engine, get_engine, init_engine, run_migrations
 
     init_engine()

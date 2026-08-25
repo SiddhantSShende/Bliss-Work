@@ -7,20 +7,11 @@ import { useDownload } from "@/components/download/DownloadProvider";
 import {
   LegalIntro,
   LegalSections,
+  MailLink,
   type LegalSection,
 } from "@/components/legal/LegalDoc";
 
-const CONTACT_EMAIL = "siddhant.shende@consultrnr.com";
 const LAST_UPDATED = "3 July 2026";
-
-const MailLink = () => (
-  <a
-    href={`mailto:${CONTACT_EMAIL}`}
-    className="font-medium text-accent underline decoration-accent/30 underline-offset-2 transition-colors hover:decoration-accent"
-  >
-    {CONTACT_EMAIL}
-  </a>
-);
 
 const INTRO: string[] = [
   `BlissWork is offered internationally. This Privacy Policy applies to all users of the Service worldwide, regardless of the country from which you access it, and explains how AEIV Global Private Limited (“AEIV Global”, “we”, “us”, or “our”), a company incorporated in India, collects, uses, discloses, and protects your personal information when you use BlissWork — our team collaboration platform, including its web application and desktop application distributed through the Microsoft Store (the “Service”).`,

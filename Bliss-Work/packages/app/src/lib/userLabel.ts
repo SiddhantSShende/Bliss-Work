@@ -5,13 +5,16 @@ import type { ApiClient } from "@taskboard/shared";
 import { useRuntime } from "./runtime";
 import { qk } from "./queryBridge";
 
-/** Only the four fields a label needs. The gateway is asked for exactly these,
- *  which is the whole point of asking it rather than the directory. */
+/** Only the fields a label (or avatar) needs. The gateway is asked for exactly
+ *  these, which is the whole point of asking it rather than the directory.
+ *  `avatarUrl` is optional so a GraphQL gateway that predates it still
+ *  validates — a caller then just gets no image, same as never uploading one. */
 const LabelUser = z.object({
   id: z.string(),
   username: z.string(),
   displayName: z.string(),
   email: z.string(),
+  avatarUrl: z.string().nullable().optional(),
 });
 type LabelUser = z.infer<typeof LabelUser>;
 const UsersByIdsData = z.object({ users: z.array(LabelUser) });
@@ -102,6 +105,12 @@ export function useUserLabels(ids?: readonly string[]) {
       /** Email address for a user id — the Inbox's primary identifier. */
       emailOf: (userId: string | null | undefined, fallback?: string | null) =>
         (userId ? byId.get(userId)?.email : undefined) || fallback || "—",
+      /** Profile picture for a user id, resolved live rather than trusting a
+       *  DTO-embedded copy — the same staleness this hook already closes for
+       *  names (see the module docstring). No fallback: an unresolved id just
+       *  renders initials, same as a user who never set a photo. */
+      avatarUrlOf: (userId: string | null | undefined): string | null | undefined =>
+        userId ? byId.get(userId)?.avatarUrl : undefined,
     }),
     [byId],
   );

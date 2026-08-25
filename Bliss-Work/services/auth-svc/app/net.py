@@ -69,6 +69,19 @@ def client_ip(request: Request) -> str:
     return _peer_ip(request)
 
 
+def request_context(request: Request) -> tuple[str, str | None, str | None]:
+    """(ip, user_agent, request_id), for audit-log enrichment — see
+    docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 9. `ip` reuses `client_ip`
+    above so the audited address is exactly the one rate limiting already
+    trusts, never a second IP-extraction path. `request_id` reads the same
+    `X-Request-Id` header `rate_limit.py`'s handler already reads."""
+    return (
+        client_ip(request),
+        request.headers.get("user-agent"),
+        request.headers.get("x-request-id"),
+    )
+
+
 def rate_limit_key(request: Request) -> str:
     """slowapi bucket key: the verified user when we have one, else the caller IP.
 

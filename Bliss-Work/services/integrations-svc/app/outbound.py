@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .crypto import cryptor
+from crypto import cryptor
 from .providers import gmail, microsoft as ms, slack
 
 

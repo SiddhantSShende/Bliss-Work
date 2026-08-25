@@ -133,7 +133,7 @@ export function CallChat({
             onChange={(e) => setTo(e.target.value)}
             aria-label="Who this message goes to"
             className={`min-w-0 flex-1 rounded-lg border bg-surface-2 px-2 py-1 text-xs outline-none focus:border-accent ${
-              privateTo ? "border-amber-500/60 text-amber-600" : "border-border text-fg"
+              privateTo ? "border-warning/60 text-warning" : "border-border text-fg"
             }`}
           >
             <option value={EVERYONE}>Everyone</option>
@@ -166,8 +166,8 @@ export function CallChat({
           <span className="inline-flex items-center gap-1 text-[11px] text-muted">
             {privateTo ? (
               <>
-                <Lock size={10} className="text-amber-600" />
-                <span className="text-amber-600">Only {privateTo} will see this</span>
+                <Lock size={10} className="text-warning" />
+                <span className="text-warning">Only {privateTo} will see this</span>
               </>
             ) : (
               "Enter to send"
@@ -204,7 +204,7 @@ function ChatBubble({
       <div
         className={`max-w-[85%] rounded-xl px-3 py-2 ${
           isPrivate
-            ? "bg-amber-500/10 ring-1 ring-amber-500/30"
+            ? "bg-warning/10 ring-1 ring-warning/30"
             : mine
               ? "bg-accent-soft"
               : "bg-surface-2"
@@ -223,7 +223,7 @@ function ChatBubble({
           // Said on every private message, on both sides. The sender needs to
           // know it stayed private; the recipient needs to know the room did
           // not see it before they reply to it in front of everyone.
-          <div className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-medium text-amber-600">
+          <div className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-medium text-warning">
             <Lock size={9} />
             {mine ? `Private to ${nameOf(entry.to!)}` : "Private to you"}
           </div>

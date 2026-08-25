@@ -12,9 +12,13 @@
  * growing a scrollbar — a call is a place you are in, and hunting for a face by
  * scrolling is not a thing to ask of someone who is also talking.
  *
+ * With nobody on the stage, three or four members sit in a small centered
+ * grid rather than the wider room's responsive columns — see CallMembers.
+ *
  * When anything is pinned — a shared screen automatically, or a person by
- * hand — it takes the stage and the members compress into a strip ABOVE it, so
- * the room never disappears behind what it is looking at.
+ * hand — it takes the stage on the left, and everyone else moves into a grid
+ * of their own on the right, so the room stays visible beside whatever it is
+ * looking at instead of disappearing behind it.
  *
  * Raised hands, the shared notes and the recording notice travel directly
  * between participants over the SFU's data channel (lib/roomMessages). They are
@@ -175,13 +179,34 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
   // the stage tile — a shared screen over a camera, and nothing at all when
   // the stage participant has neither on, mirroring CallTile's own showVideo
   // gate so the PiP button never claims to work for an avatar tile.
+  //
+  // Excludes the local sharer's own screen for the same reason CallTile
+  // replaces it with a placeholder: a floating, always-on-top window showing
+  // your own "Entire screen" capture sits inside the region being captured,
+  // turning PiP into a second, worse copy of the video-feedback mirror.
   const pipTrack =
-    stage && (stage.camOn || stage.sharing)
+    stage && !(stage.isLocal && stage.sharing) && (stage.camOn || stage.sharing)
       ? stage.sharing
         ? stage.screenTrack
         : stage.videoTrack
       : null;
-  const pip = useMeetingPiP(pipTrack, status === "connected" || status === "reconnecting");
+  // Whether THIS effect was what minimised the room — read by onBack below so
+  // returning to the window only restores an auto-minimise. A meeting the
+  // user minimised on purpose before switching away must stay minimised when
+  // they come back; the point of the button is that it stays their choice.
+  const autoMinimizedRef = useRef(false);
+  const pip = useMeetingPiP(pipTrack, status === "connected" || status === "reconnecting", {
+    onAway: useCallback(() => {
+      if (!session || minimized) return;
+      autoMinimizedRef.current = true;
+      session.minimize();
+    }, [session, minimized]),
+    onBack: useCallback(() => {
+      if (!autoMinimizedRef.current) return;
+      autoMinimizedRef.current = false;
+      session?.restore();
+    }, [session]),
+  });
 
   const title = call.title || (call.kind === "CHANNEL" ? "Channel call" : "Meeting");
   const meetingDuration = useCallDuration(connectedAt);
@@ -562,7 +587,7 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
                 autoPlay
                 muted
                 playsInline
-                className={`h-full w-full object-cover -scale-x-100 ${previewCamOn ? "" : "hidden"}`}
+                className={`h-full w-full object-cover ${previewCamOn ? "" : "hidden"}`}
               />
               {!previewCamOn && (
                 <div className="text-center text-muted">
@@ -711,20 +736,20 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
             {externals > 0 && (
               // Worth stating plainly: someone outside the organisation is in
               // the room, and that should never be something you have to infer.
-              <span className="flex items-center gap-1 text-amber-600">
+              <span className="flex items-center gap-1 text-warning">
                 <Globe size={12} /> {externals} external
               </span>
             )}
             {recording && (
               // Shown to EVERYONE, not only whoever pressed the button. Being
               // recorded is not something anyone should have to work out.
-              <span className="flex items-center gap-1 font-medium text-red-500">
+              <span className="flex items-center gap-1 font-medium text-danger">
                 <Circle size={9} className="animate-pulse fill-current" /> Recording
               </span>
             )}
-            {status === "reconnecting" && <span className="text-amber-600">Reconnecting…</span>}
+            {status === "reconnecting" && <span className="text-warning">Reconnecting…</span>}
             {status === "connecting" && <span>Connecting…</span>}
-            {status === "failed" && <span className="text-red-500">Couldn't connect</span>}
+            {status === "failed" && <span className="text-danger">Couldn't connect</span>}
           </div>
         </div>
 
@@ -758,7 +783,7 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
                 pressed={handRaised}
                 disabled={!identity}
                 onClick={toggleHand}
-                className={handRaised ? "bg-amber-400 text-amber-950 hover:bg-amber-300" : undefined}
+                className={handRaised ? "bg-warning text-amber-950 hover:brightness-95" : undefined}
               >
                 <Hand size={17} />
               </CallControlButton>
@@ -822,7 +847,7 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
                   disabled={!localRec.supported}
                   onClick={() => void toggleRecording()}
                   className={
-                    localRec.recording ? "bg-red-500 text-white hover:bg-red-600" : undefined
+                    localRec.recording ? "bg-danger text-white hover:brightness-90" : undefined
                   }
                 >
                   <Circle size={17} className={localRec.recording ? "fill-current" : undefined} />
@@ -881,34 +906,40 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
             <div className="flex h-full items-center justify-center text-sm text-muted">
               {status === "failed" ? "Couldn't join this call." : "Connecting…"}
             </div>
-          ) : (
-            <>
-              {/* Members stay visible above whatever is pinned — the room does
-                  not vanish behind the screen it is looking at. */}
+          ) : stage ? (
+            <div className="flex min-h-0 flex-1 flex-col gap-3 sm:flex-row">
+              <div className="relative min-h-0 flex-1">
+                {/* Offered only for a pin somebody MADE. The stage following
+                    the speaker is the room's normal behaviour, and "unpin"
+                    over a tile nobody pinned is a control with nothing to
+                    undo. */}
+                {pinned ? (
+                  <UnpinButton name={stage.name} onClick={() => setPinned(null)} />
+                ) : (
+                  <span className="pointer-events-none absolute left-3 top-3 z-10 rounded-full bg-black/55 px-2 py-1 text-[11px] font-medium text-white backdrop-blur">
+                    Speaking
+                  </span>
+                )}
+                <CallTile p={stage} size="stage" pinned />
+              </div>
+              {/* Everyone else, beside the stage rather than above it — the
+                  room stays visible next to whatever it is looking at. */}
               <CallMembers
-                participants={participants}
+                participants={participants.filter((p) => p.identity !== stage.identity)}
                 hands={hands}
                 pinned={pinned}
                 onTogglePin={togglePin}
-                layout={stage ? "strip" : "grid"}
+                layout="sidebar"
               />
-              {stage && (
-                <div className="relative min-h-0 flex-1">
-                  {/* Offered only for a pin somebody MADE. The stage following
-                      the speaker is the room's normal behaviour, and "unpin"
-                      over a tile nobody pinned is a control with nothing to
-                      undo. */}
-                  {pinned ? (
-                    <UnpinButton name={stage.name} onClick={() => setPinned(null)} />
-                  ) : (
-                    <span className="pointer-events-none absolute left-3 top-3 z-10 rounded-full bg-black/55 px-2 py-1 text-[11px] font-medium text-white backdrop-blur">
-                      Speaking
-                    </span>
-                  )}
-                  <CallTile p={stage} size="stage" pinned />
-                </div>
-              )}
-            </>
+            </div>
+          ) : (
+            <CallMembers
+              participants={participants}
+              hands={hands}
+              pinned={pinned}
+              onTogglePin={togglePin}
+              layout="grid"
+            />
           )}
         </main>
 

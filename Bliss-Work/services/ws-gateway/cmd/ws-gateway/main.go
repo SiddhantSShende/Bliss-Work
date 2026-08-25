@@ -12,12 +12,12 @@ import (
 	"github.com/google/uuid"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
+	"github.com/task-board/shared-kafkaauth"
 	"github.com/task-board/ws-gateway/internal/auth"
 	"github.com/task-board/ws-gateway/internal/config"
 	"github.com/task-board/ws-gateway/internal/delivery"
 	"github.com/task-board/ws-gateway/internal/fanout"
 	"github.com/task-board/ws-gateway/internal/hub"
-	"github.com/task-board/ws-gateway/internal/kafkaauth"
 	"github.com/task-board/ws-gateway/internal/presence"
 	"github.com/task-board/ws-gateway/internal/push"
 	"github.com/task-board/ws-gateway/internal/server"
@@ -109,7 +109,7 @@ func main() {
 	// bare *push.Client used to compile — the signatures matched — and then posted
 	// every cross-node delivery to "<node-id>/internal/push", so RTC signalling and
 	// presence never crossed a pod boundary. See push.Client.SendTo.
-	pushTransport := push.NewHTTPTransport(push.NewClient(cfg.InternalToken), st)
+	pushTransport := push.NewHTTPTransport(push.NewClient(cfg.WSGatewayInternalToken), st)
 	var nodeFanout *push.Fanout
 	if cfg.AdvertiseAddr != "" {
 		startNodeRegistration(rootCtx, st, nodeID, cfg.AdvertiseAddr, log)
@@ -197,7 +197,7 @@ func main() {
 	// Phase 5: delivery-ack dispatcher. Batches client message.ack frames
 	// per recipient over 500ms windows and POSTs to messaging-svc, which
 	// emits MessageDelivered through its outbox (gateway never produces).
-	dispatcher := delivery.New(cfg.MessagingBaseInternal, cfg.InternalToken, log)
+	dispatcher := delivery.New(cfg.MessagingBaseInternal, cfg.MessagingInternalToken, log)
 	go dispatcher.Run(rootCtx)
 
 	// WebRTC signaling dispatcher (rtc.offer/answer/ice/cancel). Local
@@ -212,10 +212,10 @@ func main() {
 	presenceBroadcaster := presence.New(h, st, nodeFanout, log)
 
 	srv := server.New(server.Config{
-		WebOrigin:       cfg.WebOrigin,
-		MaxConnections:  cfg.MaxConnections,
-		MaxConnsPerUser: cfg.MaxConnsPerUser,
-		InternalToken:   cfg.InternalToken,
+		WebOrigin:              cfg.WebOrigin,
+		MaxConnections:         cfg.MaxConnections,
+		MaxConnsPerUser:        cfg.MaxConnsPerUser,
+		WSGatewayInternalToken: cfg.WSGatewayInternalToken,
 	}, verifier, h, st, dispatcher, signalDispatcher, presenceBroadcaster, nodeID, log)
 
 	// Wrap the root handler with otelhttp so every request becomes a server span

@@ -24,3 +24,22 @@ opentelemetry-instrumentation-fastapi==0.65b0
 opentelemetry-instrumentation-sqlalchemy==0.65b0
 opentelemetry-instrumentation-httpx==0.65b0
 opentelemetry-instrumentation-asyncpg==0.65b0
+
+# Kafka SASL/TLS config, shared with every other Python service. See
+# services/shared/kafka_security/kafka_security.py for why this is a local
+# package instead of a copy.
+../shared/kafka_security
+
+# At-rest column encryption, shared with every other Python service that
+# encrypts columns. See services/shared/crypto/crypto.py for why this is a
+# local package instead of a copy.
+../shared/crypto
+
+# OTel Kafka context-propagation + shutdown helpers, shared with every other
+# Python service. See services/shared/tracing/tracing.py for why this is a
+# local package instead of a copy.
+../shared/tracing
+
+# structlog -> stdout JSON bootstrap, shared with every other Python service.
+# See services/shared/logging_setup/shared_logging_setup.py.
+../shared/logging_setup

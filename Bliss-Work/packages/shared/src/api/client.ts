@@ -43,14 +43,20 @@ import {
   MailDraftDTO,
   SendMailResultDTO,
   InviteDTO,
+  LoginResult,
   MemberActivityDTO,
   MemberDTO,
   MessageDTO,
   type MessageKind,
+  MfaBackupCodesResult,
+  MfaTotpEnrollConfirmResult,
+  MfaTotpEnrollStartResult,
+  MfaWebauthnRegisterFinishResult,
   type ThreadOrigin,
   NotificationDTO,
   OrgMembershipDTO,
   OrgLifecycleDTO,
+  OrgMfaSettingsDTO,
   ReviewResponse,
   SentTaskDTO,
   StickyTaskDTO,
@@ -308,11 +314,14 @@ export class ApiClient {
       body: JSON.stringify(body),
     }, SessionDTO);
   }
+  /** Returns either a session, or an MfaPendingDTO when a second factor is
+   *  still owed — check with `isMfaPending()` before treating the result as
+   *  a session. */
   login(body: { email: string; password: string }) {
     return this.req(this.cfg.authBase, "/auth/login", {
       method: "POST",
       body: JSON.stringify(body),
-    }, SessionDTO);
+    }, LoginResult);
   }
   verifyInvite(token: string) {
     return this.req(
@@ -525,7 +534,11 @@ export class ApiClient {
   me() {
     return this.req(this.cfg.authBase, "/auth/me", {}, UserDTO);
   }
-  updateProfile(body: { displayName: string }) {
+  /** Both fields are independently optional — the Profile page saves a
+   *  display-name edit and an avatar upload as two separate actions that
+   *  happen to share this endpoint. `avatarUrl` is a client-resized
+   *  `data:image/(jpeg|png|webp);base64,...` URI (see lib/thumbnail.ts). */
+  updateProfile(body: { displayName?: string; avatarUrl?: string }) {
     return this.req(this.cfg.authBase, "/auth/me", {
       method: "PATCH",
       body: JSON.stringify(body),
@@ -567,13 +580,15 @@ export class ApiClient {
     );
   }
   /** Switch the active organization — returns a fresh session (new access token +
-   *  org-scoped user) for the caller's membership in `orgId`. */
+   *  org-scoped user) for the caller's membership in `orgId`, or an
+   *  MfaPendingDTO if that membership requires a second factor first (its own
+   *  policy, evaluated independently of the org being left). */
   switchOrg(orgId: string) {
     return this.req(
       this.cfg.authBase,
       `/auth/orgs/${orgId}/switch`,
       { method: "POST" },
-      SessionDTO,
+      LoginResult,
     );
   }
   /**
@@ -614,6 +629,15 @@ export class ApiClient {
       body: JSON.stringify(body),
     });
   }
+  /** Cheap validity probe for the email-verify landing page (does not consume). */
+  verifyEmailToken(token: string) {
+    return this.req(
+      this.cfg.authBase,
+      `/auth/email/verify/peek?token=${encodeURIComponent(token)}`,
+      {},
+      z.object({ valid: z.boolean() }),
+    );
+  }
   /** Confirm an email address from the emailed verification link (public). */
   verifyEmail(token: string) {
     return this.req<void>(this.cfg.authBase, "/auth/email/verify", {
@@ -624,6 +648,102 @@ export class ApiClient {
   /** Re-send the verification link for the authenticated caller's own email. */
   resendVerification() {
     return this.req<void>(this.cfg.authBase, "/auth/email/resend", { method: "POST" });
+  }
+
+  // ── MFA (TOTP + WebAuthn) ─────────────────────────────────────────────────────
+  /** Verify the second factor a pending login is waiting on. Exactly one of
+   *  totpCode/backupCode/webauthnCredential should be set. On success this
+   *  IS the session — nothing further to call. */
+  mfaChallengeVerify(body: {
+    pendingToken: string;
+    totpCode?: string;
+    backupCode?: string;
+    webauthnCredential?: unknown;
+  }) {
+    return this.req(
+      this.cfg.authBase,
+      "/auth/mfa/challenge/verify",
+      { method: "POST", body: JSON.stringify(body) },
+      SessionDTO,
+    );
+  }
+  /** Step-up re-auth (password + a still-valid second factor) to turn MFA off. */
+  mfaDisable(body: { password: string; totpCode?: string; backupCode?: string }) {
+    return this.req<void>(this.cfg.authBase, "/auth/mfa/disable", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+  /** Generate a TOTP secret + otpauth:// URI. `pendingToken` only when
+   *  authenticating via the restricted enrollment credential (no session yet). */
+  mfaTotpEnrollStart(pendingToken?: string) {
+    return this.req(
+      this.cfg.authBase,
+      "/auth/mfa/totp/enroll/start",
+      { method: "POST", body: JSON.stringify({ pendingToken }) },
+      MfaTotpEnrollStartResult,
+    );
+  }
+  /** Confirm enrollment: verifies `code` against `secret` and only then
+   *  persists it. `session` is set only when reached via the restricted
+   *  enrollment credential — otherwise the caller already has one. */
+  mfaTotpEnrollConfirm(body: { secret: string; code: string; pendingToken?: string }) {
+    return this.req(
+      this.cfg.authBase,
+      "/auth/mfa/totp/enroll/confirm",
+      { method: "POST", body: JSON.stringify(body) },
+      MfaTotpEnrollConfirmResult,
+    );
+  }
+  /** Step-up re-auth; invalidates every unused prior code before minting the
+   *  new batch — the old codes stop working immediately. */
+  mfaRegenerateBackupCodes(body: { password: string; totpCode?: string; backupCode?: string }) {
+    return this.req(
+      this.cfg.authBase,
+      "/auth/mfa/totp/backup-codes/regenerate",
+      { method: "POST", body: JSON.stringify(body) },
+      MfaBackupCodesResult,
+    );
+  }
+  /** WebAuthn registration ceremony options (PublicKeyCredentialCreationOptions,
+   *  base64url-encoded per the spec) — feed straight to the enrollment page's
+   *  `navigator.credentials.create()` call after decoding. */
+  mfaWebauthnRegisterStart(pendingToken?: string) {
+    return this.req<Record<string, unknown>>(
+      this.cfg.authBase,
+      "/auth/mfa/webauthn/register/start",
+      { method: "POST", body: JSON.stringify({ pendingToken }) },
+    );
+  }
+  mfaWebauthnRegisterFinish(body: { credential: unknown; nickname?: string; pendingToken?: string }) {
+    return this.req(
+      this.cfg.authBase,
+      "/auth/mfa/webauthn/register/finish",
+      { method: "POST", body: JSON.stringify(body) },
+      MfaWebauthnRegisterFinishResult,
+    );
+  }
+  /** WebAuthn authentication ceremony options for a pending login — feed to
+   *  `navigator.credentials.get()`, then pass the result as
+   *  `mfaChallengeVerify`'s `webauthnCredential`. */
+  mfaWebauthnAuthStart(pendingToken: string) {
+    return this.req<Record<string, unknown>>(
+      this.cfg.authBase,
+      "/auth/mfa/webauthn/auth/start",
+      { method: "POST", body: JSON.stringify({ pendingToken }) },
+    );
+  }
+  /** The org's mandatory-MFA-for-admins policy + grace-period deadline. */
+  orgMfaSettings() {
+    return this.req(this.cfg.authBase, "/auth/org/mfa", {}, OrgMfaSettingsDTO);
+  }
+  setOrgMfaSettings(body: { requireMfaForAdmins: boolean }) {
+    return this.req(
+      this.cfg.authBase,
+      "/auth/org/mfa",
+      { method: "POST", body: JSON.stringify(body) },
+      OrgMfaSettingsDTO,
+    );
   }
 
   // ── messaging ─────────────────────────────────────────────────────────────────

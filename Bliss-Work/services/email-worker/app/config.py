@@ -37,9 +37,15 @@ class Settings(BaseSettings):
 
     # Phase 6 offline-relay — strict microservice boundaries:
     #  * email_db_url   → email-worker's OWN database (emaildb) for dedup state.
-    #  * auth_internal_base + internal_token → resolve recipient e-mail/username
-    #    by ASKING auth-svc's internal API (the identity owner), never by reading
-    #    another service's database.
+    #  * auth_internal_base + auth_internal_token → resolve recipient e-mail/
+    #    username by ASKING auth-svc's internal API (the identity owner), never
+    #    by reading another service's database.
+    #
+    # Each callee below is authenticated with ITS OWN secret rather than one
+    # shared platform-wide token — see docs/AUTH_AUTHZ_REMEDIATION_PLAN.md,
+    # Phase 2. email-worker calls three different services' /internal/* routes
+    # and needs all three of their secrets, but a compromise of any one of
+    # them no longer hands out the other two.
     email_db_url: str = Field(
         default="postgres://postgres:postgres@postgres:5432/emaildb",
         validation_alias=AliasChoices("EMAIL_DATABASE_URL", "email_db_url"),
@@ -48,9 +54,9 @@ class Settings(BaseSettings):
         default="http://auth-svc:8001",
         validation_alias=AliasChoices("AUTH_INTERNAL_BASE", "auth_internal_base"),
     )
-    internal_token: str = Field(
+    auth_internal_token: str = Field(
         default="dev-internal-token",
-        validation_alias=AliasChoices("TB_INTERNAL_TOKEN", "internal_token"),
+        validation_alias=AliasChoices("AUTH_INTERNAL_TOKEN", "auth_internal_token"),
     )
     #  * messaging_internal_base → fetch the bytes of a file attached to an
     #    outbound mail. The blob volume is mounted into messaging-svc alone, so
@@ -58,6 +64,10 @@ class Settings(BaseSettings):
     messaging_internal_base: str = Field(
         default="http://messaging-svc:8004",
         validation_alias=AliasChoices("MESSAGING_INTERNAL_BASE", "messaging_internal_base"),
+    )
+    messaging_internal_token: str = Field(
+        default="dev-internal-token",
+        validation_alias=AliasChoices("MESSAGING_INTERNAL_TOKEN", "messaging_internal_token"),
     )
     #  * integrations_internal_base → ask whether the member who composed a mail
     #    has a connected mailbox to send it through, and send it there. Mail sent
@@ -69,6 +79,12 @@ class Settings(BaseSettings):
         default="http://integrations-svc:8005",
         validation_alias=AliasChoices(
             "INTEGRATIONS_INTERNAL_BASE", "integrations_internal_base"
+        ),
+    )
+    integrations_internal_token: str = Field(
+        default="dev-internal-token",
+        validation_alias=AliasChoices(
+            "INTEGRATIONS_INTERNAL_TOKEN", "integrations_internal_token"
         ),
     )
     # Total RAW bytes of attachments carried on one outbound email. Base64 adds
@@ -149,8 +165,15 @@ class Settings(BaseSettings):
         if self.tb_env.strip().lower() not in {"production", "prod"}:
             return self
         problems: list[str] = []
-        if not self.internal_token or self.internal_token == "dev-internal-token":
-            problems.append("TB_INTERNAL_TOKEN must be set to a real value in production")
+        if not self.auth_internal_token or self.auth_internal_token == "dev-internal-token":
+            problems.append("AUTH_INTERNAL_TOKEN must be set to a real value in production")
+        if not self.messaging_internal_token or self.messaging_internal_token == "dev-internal-token":
+            problems.append("MESSAGING_INTERNAL_TOKEN must be set to a real value in production")
+        if (
+            not self.integrations_internal_token
+            or self.integrations_internal_token == "dev-internal-token"
+        ):
+            problems.append("INTEGRATIONS_INTERNAL_TOKEN must be set to a real value in production")
         if "sslmode=verify-full" not in self.email_db_url:
             problems.append("EMAIL_DATABASE_URL must use sslmode=verify-full in production")
         if "taskboard_dev_pw" in self.email_db_url or "postgres:postgres@" in self.email_db_url:

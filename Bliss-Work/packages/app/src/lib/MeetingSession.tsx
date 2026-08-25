@@ -52,6 +52,21 @@ const APP_HOME = "/app/meetings";
 
 /** Remembers "you were in a meeting" across a reload. See useResumableMeeting. */
 const RESUME_KEY = "tb.meeting-resume.v1";
+const JOIN_REQUEST_EVENT = "taskboard:join-meeting";
+
+/** Ask the global meeting host to open a call's pre-join screen. */
+export function requestMeetingJoin(callId: string) {
+  window.dispatchEvent(new CustomEvent(JOIN_REQUEST_EVENT, { detail: { callId } }));
+}
+
+export function onMeetingJoinRequest(listener: (callId: string) => void) {
+  const handle = (event: Event) => {
+    const callId = (event as CustomEvent<{ callId?: unknown }>).detail?.callId;
+    if (typeof callId === "string" && callId) listener(callId);
+  };
+  window.addEventListener(JOIN_REQUEST_EVENT, handle);
+  return () => window.removeEventListener(JOIN_REQUEST_EVENT, handle);
+}
 
 export interface MeetingSessionApi {
   /** The meeting in progress, or null. */

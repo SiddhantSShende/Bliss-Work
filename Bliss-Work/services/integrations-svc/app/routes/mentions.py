@@ -21,7 +21,7 @@ from fastapi import APIRouter, Header, HTTPException, Query, Response, status
 from sqlalchemy import text
 
 from ..auth import Principal, PrincipalDep
-from ..crypto import cryptor
+from crypto import cryptor
 from ..cursor import decode_cursor, encode_cursor
 from ..db import session, set_org_context
 from ..identities import (

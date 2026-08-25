@@ -106,6 +106,25 @@ describe("CallTile video attach", () => {
     expect(screen.attach).toHaveBeenCalledTimes(1);
   });
 
+  it("never plays the LOCAL user's own shared screen back at them — that is a video-feedback mirror, not a picture", () => {
+    const screen = fakeTrack("screen-1");
+    const { container } = render(
+      <CallTile p={participant({ screenTrack: screen, sharing: true, isLocal: true })} />,
+    );
+    expect(screen.attach).not.toHaveBeenCalled();
+    expect(container.querySelector("video")).toBeNull();
+    expect(container.textContent).toContain("You're presenting your screen");
+  });
+
+  it("still shows a REMOTE participant's shared screen live, even when it happens to be pinned to the stage", () => {
+    const screen = fakeTrack("screen-1");
+    const { container } = render(
+      <CallTile p={participant({ screenTrack: screen, sharing: true, isLocal: false })} size="stage" pinned />,
+    );
+    expect(screen.attach).toHaveBeenCalledTimes(1);
+    expect(container.querySelector("video")).not.toBeNull();
+  });
+
   it("detaches when the tile goes away, so the element is not left bound", () => {
     const track = fakeTrack();
     const { unmount } = render(<CallTile p={participant({ videoTrack: track })} />);

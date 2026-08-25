@@ -160,9 +160,20 @@ export interface PlatformConfig {
       paired: boolean;
       appTracking: boolean;
       reason: string | null;
+      /** Whether window-TITLE capture works, separately from `appTracking` —
+       *  always true on Windows/Linux; on macOS reflects the Screen Recording
+       *  grant. App-name-level tracking ("Switched to VS Code") works on
+       *  macOS regardless of this — only the second line ("activity.go -
+       *  BlissWork") needs it. See apps/desktop/src/main/macos-permissions.ts. */
+      titleTracking: boolean;
+      titleTrackingReason: string | null;
     } | null>;
     setEnabled: (enabled: boolean) => Promise<{ enabled: boolean; paired: boolean } | null>;
     pair: (token: string | null) => Promise<{ enabled: boolean; paired: boolean } | null>;
+    /** Open the OS page where Screen Recording access is granted. Resolves
+     *  false on a platform with no such page (Windows/Linux) — a caller
+     *  should not offer the button when `titleTracking` is already true. */
+    openScreenRecordingSettings: () => Promise<boolean>;
   };
   /** Present only in Electron: open a URL in the user's DEFAULT browser.
    *  Google refuses OAuth inside an embedded webview (`disallowed_useragent`),

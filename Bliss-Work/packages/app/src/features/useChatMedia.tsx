@@ -55,7 +55,7 @@ import { DropConfirm } from "./DropConfirm";
  * the bytes never leave the machine and there is no orphaned upload to lapse.
  */
 
-export interface ChatMediaOptions {
+interface ChatMediaOptions {
   scope: AttachmentScope;
   scopeId: string;
   meId: string;

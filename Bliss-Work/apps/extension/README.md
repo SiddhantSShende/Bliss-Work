@@ -4,11 +4,18 @@ Adds the sites a member uses to their BlissWork activity record. Manifest V3,
 no framework, ~6 KB built.
 
 ```bash
-npm run build -w @taskboard/extension   # → apps/extension/dist
+npm run build -w @taskboard/extension            # → apps/extension/dist (Chrome, Edge, Brave)
+npm run build:firefox -w @taskboard/extension    # → apps/extension/dist-firefox
 ```
 
 Load `apps/extension/dist` via `chrome://extensions` → Developer mode → Load
-unpacked. Works in Chrome, Edge and any Chromium browser at 116+.
+unpacked. Works in Chrome, Edge, Brave and any Chromium browser at 116+ —
+same bundle, same manifest, no per-browser code. See
+**[`docs/BROWSERS.md`](docs/BROWSERS.md)** for the full breakdown of what is
+shared vs. isolated per browser, the Firefox build, and why Safari is a
+distinct implementation concern (native Xcode wrapper, not a fourth
+manifest) — including an honest account of what has and has not actually
+been run on each platform.
 
 ## How it authenticates
 
@@ -112,5 +119,11 @@ Two boundaries that are baked into those templates, not left to discipline:
 - The templates set **no incognito allowance** and nothing that hides the "Installed
   by your organization" banner. It is disclosed and detectable.
 
-Edge Add-ons accepts the same package under a similar review. Firefox needs a
-separate AMO submission; the code is MV3-compatible but untested there.
+Edge Add-ons accepts the same package under a similar review; Brave installs
+from the Chrome Web Store directly, with no separate store of its own.
+Firefox needs a separate AMO submission using `dist-firefox/` (see
+`npm run build:firefox`) — the manifest and API differences are isolated per
+[`docs/BROWSERS.md`](docs/BROWSERS.md)'s §5, which also states plainly what
+has and has not been verified against a real Firefox install. Safari is not
+a manifest variant of this build at all — see that document's §6 for why it
+needs a distinct native packaging pipeline.

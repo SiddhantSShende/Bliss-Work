@@ -166,6 +166,101 @@ describe("visibility-driven behaviour", () => {
   });
 });
 
+describe("window blur/focus — the signal visibilitychange misses on desktop", () => {
+  // Electron does not flip document.hidden just because the user switched to
+  // a different application while the window stays open and un-minimised —
+  // only window blur/focus fire there. This mirrors useWhatsAppForward.ts's
+  // own reason for needing both signals.
+  function blur() {
+    window.dispatchEvent(new Event("blur"));
+  }
+  function focus() {
+    window.dispatchEvent(new Event("focus"));
+  }
+
+  it("attempts PiP on window blur, with the document itself never reporting hidden", async () => {
+    renderHook(() => useMeetingPiP(fakeTrack(), true));
+    await act(async () => {
+      blur();
+      await Promise.resolve();
+    });
+    expect(HTMLVideoElement.prototype.requestPictureInPicture).toHaveBeenCalledTimes(1);
+  });
+
+  it("exits an active PiP session on window focus", async () => {
+    const { result } = renderHook(() => useMeetingPiP(fakeTrack(), true));
+    await act(async () => {
+      result.current.toggle();
+    });
+    expect(result.current.active).toBe(true);
+
+    await act(async () => {
+      focus();
+      await Promise.resolve();
+    });
+    expect(result.current.active).toBe(false);
+  });
+});
+
+describe("onAway / onBack", () => {
+  afterEach(() => {
+    Object.defineProperty(document, "hidden", { value: false, configurable: true });
+  });
+
+  it("fires onAway once for a real transition, even though a tab switch fires both visibilitychange and blur", async () => {
+    const onAway = vi.fn();
+    const onBack = vi.fn();
+    renderHook(() => useMeetingPiP(fakeTrack(), true, { onAway, onBack }));
+
+    await act(async () => {
+      Object.defineProperty(document, "hidden", { value: true, configurable: true });
+      document.dispatchEvent(new Event("visibilitychange"));
+      window.dispatchEvent(new Event("blur"));
+      await Promise.resolve();
+    });
+    expect(onAway).toHaveBeenCalledTimes(1);
+    expect(onBack).not.toHaveBeenCalled();
+
+    await act(async () => {
+      Object.defineProperty(document, "hidden", { value: false, configurable: true });
+      document.dispatchEvent(new Event("visibilitychange"));
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+    });
+    expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
+  it("fires onAway even with no Picture-in-Picture support at all — the caller's own fallback must still run", async () => {
+    uninstallPiPGlobals();
+    const onAway = vi.fn();
+    renderHook(() => useMeetingPiP(fakeTrack(), true, { onAway }));
+
+    await act(async () => {
+      window.dispatchEvent(new Event("blur"));
+      await Promise.resolve();
+    });
+    expect(onAway).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not fire onBack for a focus with no matching onAway before it — a manual toggle is not an auto-minimise to undo", async () => {
+    const onAway = vi.fn();
+    const onBack = vi.fn();
+    const { result } = renderHook(() => useMeetingPiP(fakeTrack(), true, { onAway, onBack }));
+    await act(async () => {
+      result.current.toggle();
+    });
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+    });
+    expect(onBack).not.toHaveBeenCalled();
+    // PiP itself still closes on return, regardless — see "returning to the
+    // meeting exits an active PiP session" above.
+    expect(result.current.active).toBe(false);
+  });
+});
+
 describe("leaving or ending the call", () => {
   it("exits an active PiP session as soon as `enabled` goes false, without waiting for unmount", async () => {
     const track = fakeTrack();

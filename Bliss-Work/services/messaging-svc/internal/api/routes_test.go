@@ -59,6 +59,10 @@ var cappedRoutes = map[string]string{
 	// the subject and body to their rune limits — so a large message is
 	// rejected by the cap long before anything is stored.
 	"POST /internal/mail/inbound": "small",
+	// DEK rotation. No body at all — the org id is in the path — but it is a
+	// POST, so it inherits the same small-body group and is listed here for
+	// the walk to find.
+	"POST /internal/keys/rotate/{orgId}": "small",
 
 	// /api/v1 — everything small except the one upload route.
 	"POST /api/v1/conversations":              "small",

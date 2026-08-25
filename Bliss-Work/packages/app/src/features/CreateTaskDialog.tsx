@@ -23,9 +23,8 @@ import { Avatar, Button, Input, Textarea } from "@taskboard/ui";
 import { toast } from "sonner";
 import type { ChannelDTO, UserDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
-import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
-import { matchUser } from "../lib/matchUser";
+import { usePeopleSearch } from "../lib/usePeopleCandidates";
 import { Modal } from "./Modal";
 import { Field } from "../routes/Onboarding";
 
@@ -42,18 +41,13 @@ export function CreateTaskDialog({
 }) {
   const { api } = useRuntime();
   const qc = useQueryClient();
-  const me = useSession((s) => s.user)!;
   const [mode, setMode] = useState<Mode>("people");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [q, setQ] = useState("");
   const [selectedPeople, setSelectedPeople] = useState<Set<string>>(new Set());
   const [selectedChannel, setSelectedChannel] = useState<string>("");
 
-  const { data: users = [] } = useQuery({
-    queryKey: qk.directory,
-    queryFn: () => api.directory(),
-  });
+  const { q, setQ, candidates, me } = usePeopleSearch();
   const { data: channels = [] } = useQuery({
     queryKey: qk.channels,
     queryFn: () => api.channels(),
@@ -63,7 +57,10 @@ export function CreateTaskDialog({
   useEffect(() => {
     if (open) {
       setMode("people");
-      setSelectedPeople(new Set(preselect.map((u) => u.id)));
+      // Defense in depth: a caller passing `me` in preselect (there isn't one
+      // today, but nothing enforces that) must not seed a self-assignment
+      // that the picker below never gets a chance to filter out.
+      setSelectedPeople(new Set(preselect.filter((u) => u.id !== me.id).map((u) => u.id)));
       setSelectedChannel("");
       setQ("");
     }
@@ -118,8 +115,6 @@ export function CreateTaskDialog({
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
-
-  const candidates = users.filter((u) => matchUser(u, q));
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -190,11 +185,8 @@ export function CreateTaskDialog({
                       on ? "bg-accent-soft" : "hover:bg-surface-2"
                     }`}
                   >
-                    <Avatar name={u.displayName} size="sm" />
-                    <span className="flex-1 truncate text-sm text-fg">
-                      {u.displayName}
-                      {u.id === me.id && <span className="text-muted"> (you)</span>}
-                    </span>
+                    <Avatar name={u.displayName} src={u.avatarUrl} size="sm" />
+                    <span className="flex-1 truncate text-sm text-fg">{u.displayName}</span>
                     {on && <Check size={15} className="text-accent" />}
                   </button>
                 );

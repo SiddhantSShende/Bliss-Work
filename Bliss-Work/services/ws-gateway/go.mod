@@ -10,6 +10,9 @@ require (
 	github.com/prometheus/client_model v0.6.2
 	github.com/redis/go-redis/v9 v9.7.3
 	github.com/segmentio/kafka-go v0.4.48
+	github.com/task-board/shared-backoff v0.0.0-00010101000000-000000000000
+	github.com/task-board/shared-internalauth v0.0.0-00010101000000-000000000000
+	github.com/task-board/shared-kafkaauth v0.0.0-00010101000000-000000000000
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.69.0
 	go.opentelemetry.io/otel v1.44.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.44.0
@@ -57,3 +60,9 @@ require (
 	google.golang.org/grpc v1.82.1 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
+
+replace github.com/task-board/shared-kafkaauth => ../shared/kafkaauth
+
+replace github.com/task-board/shared-backoff => ../shared/backoff
+
+replace github.com/task-board/shared-internalauth => ../shared/internalauth

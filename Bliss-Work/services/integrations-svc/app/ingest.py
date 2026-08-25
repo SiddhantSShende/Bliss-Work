@@ -22,7 +22,7 @@ from datetime import datetime
 import uuid6
 from sqlalchemy import text
 
-from .crypto import cryptor
+from crypto import cryptor
 from .events import emit_activity_created, emit_mention_created
 from .identities import resolve_users
 from .mentions import detect_mentions

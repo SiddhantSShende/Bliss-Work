@@ -41,7 +41,12 @@ export function buildAppMenu(opts: { onShow: () => void; onQuit: () => void }): 
         { role: "toggleDevTools" },
         { type: "separator" },
         { role: "resetZoom" },
-        { role: "zoomIn" },
+        // Electron's default zoomIn accelerator is "CmdOrCtrl+Plus", which
+        // only matches Shift+=. Add "CmdOrCtrl+=" so the unshifted key users
+        // instinctively press (as in Chrome/VS Code) also zooms in; keep the
+        // default bound too (hidden) for numpad "+".
+        { role: "zoomIn", accelerator: "CmdOrCtrl+=" },
+        { role: "zoomIn", accelerator: "CmdOrCtrl+Plus", visible: false },
         { role: "zoomOut" },
         { type: "separator" },
         { role: "togglefullscreen" },

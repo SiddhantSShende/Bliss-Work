@@ -1,31 +1,20 @@
+"""OpenTelemetry distributed tracing for telemetry-svc.
+
+``setup_tracing`` below is service-specific (it wires FastAPI/SQLAlchemy/httpx/
+asyncpg instrumentation against telemetry-svc's own ``db.py`` engine and
+``logging_setup`` logger), so it stays here. ``inject_headers``,
+``extract_context`` and ``shutdown_tracing`` have no such coupling and are
+byte-identical across every service that uses them — see the shared
+``tracing`` package (``services/shared/tracing/tracing.py``) and import them
+from there, e.g. ``from tracing import extract_context``.
+"""
 from __future__ import annotations
 
 import os
 
 from .logging_setup import log
 
-_SERVICE_NAME = "task-svc"
-
-# W3C trace-context header keys we propagate over Kafka. Kept lowercase to match
-# what the propagator emits and so consumer-side lookups are case-stable.
-_TRACE_HEADER_KEYS = ("traceparent", "tracestate")
-
-
-def extract_context(headers):
-    """Extract a trace context from aiokafka message headers.
-
-    ``headers`` is the ``msg.headers`` list of ``(key: str, value: bytes)``
-    tuples (may be None). Returns an OpenTelemetry context that can be passed
-    to ``tracer.start_as_current_span(context=...)`` so the consumer span
-    continues the producer's trace. No-op-safe when tracing is disabled.
-    """
-    from opentelemetry import propagate
-
-    carrier: dict[str, str] = {}
-    for key, value in headers or []:
-        if key in _TRACE_HEADER_KEYS and value is not None:
-            carrier[key] = value.decode("utf-8") if isinstance(value, bytes) else str(value)
-    return propagate.extract(carrier)
+_SERVICE_NAME = "telemetry-svc"
 
 
 def setup_tracing(app=None) -> None:

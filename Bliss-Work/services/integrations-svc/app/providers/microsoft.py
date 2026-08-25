@@ -352,7 +352,7 @@ def mentioned_user_ids(chat_message: dict) -> list[str]:
     ids: list[str] = []
     seen: set[str] = set()
     for m in chat_message.get("mentions", []) or []:
-        user = (m.get("mentioned") or {}).get("user") or {}
+        user = ((m or {}).get("mentioned") or {}).get("user") or {}
         uid = str(user.get("id") or "")
         if uid and uid not in seen:
             seen.add(uid)

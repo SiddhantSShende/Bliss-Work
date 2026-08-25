@@ -75,54 +75,56 @@ func (s *Store) OpenConversation(ctx context.Context, orgID, callerID, peerID st
 
 // Ignore hides the conversation for BOTH members and emits conversation.ignored.
 func (s *Store) Ignore(ctx context.Context, orgID, callerID, convID string) error {
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
+	return RetryOnSerializationFailure(ctx, 3, func(ctx context.Context) error {
+		tx, err := s.pool.Begin(ctx)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback(ctx)
 
-	// RLS: scope this tx to the caller's org before any RLS table is touched.
-	if err := setOrgGUC(ctx, tx, orgID); err != nil {
-		return err
-	}
+		// RLS: scope this tx to the caller's org before any RLS table is touched.
+		if err := setOrgGUC(ctx, tx, orgID); err != nil {
+			return err
+		}
 
-	var low, high, cOrg string
-	var seq int64
-	err = tx.QueryRow(ctx,
-		`SELECT org_id, user_low, user_high, seq_counter FROM conversations WHERE id = $1`, convID).
-		Scan(&cOrg, &low, &high, &seq)
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && cOrg != orgID) {
-		return ErrForbidden
-	}
-	if err != nil {
-		return err
-	}
-	if callerID != low && callerID != high {
-		return ErrForbidden
-	}
+		var low, high, cOrg string
+		var seq int64
+		err = tx.QueryRow(ctx,
+			`SELECT org_id, user_low, user_high, seq_counter FROM conversations WHERE id = $1`, convID).
+			Scan(&cOrg, &low, &high, &seq)
+		if errors.Is(err, pgx.ErrNoRows) || (err == nil && cOrg != orgID) {
+			return ErrForbidden
+		}
+		if err != nil {
+			return err
+		}
+		if callerID != low && callerID != high {
+			return ErrForbidden
+		}
 
-	// Hide BOTH member rows at the current seq (no user filter).
-	_, err = tx.Exec(ctx,
-		`UPDATE conversation_members SET visible = false, hidden_at_seq = $2
-		 WHERE conversation_id = $1`, convID, seq)
-	if err != nil {
-		return err
-	}
+		// Hide BOTH member rows at the current seq (no user filter).
+		_, err = tx.Exec(ctx,
+			`UPDATE conversation_members SET visible = false, hidden_at_seq = $2
+			 WHERE conversation_id = $1`, convID, seq)
+		if err != nil {
+			return err
+		}
 
-	evt := events.ConversationIgnored{
-		Type:           events.TypeConversationIgnored,
-		EventID:        uuid.Must(uuid.NewV7()).String(),
-		OrgID:          orgID,
-		OccurredAt:     nowISO(),
-		ConversationID: convID,
-		IgnoredBy:      callerID,
-		Members:        []string{low, high},
-		AtSeq:          seq,
-	}
-	if err := insertOutbox(ctx, tx, convID, evt); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
+		evt := events.ConversationIgnored{
+			Type:           events.TypeConversationIgnored,
+			EventID:        uuid.Must(uuid.NewV7()).String(),
+			OrgID:          orgID,
+			OccurredAt:     nowISO(),
+			ConversationID: convID,
+			IgnoredBy:      callerID,
+			Members:        []string{low, high},
+			AtSeq:          seq,
+		}
+		if err := insertOutbox(ctx, tx, convID, evt); err != nil {
+			return err
+		}
+		return tx.Commit(ctx)
+	})
 }
 
 // ── Block ───────────────────────────────────────────────────────────────────
@@ -134,54 +136,56 @@ func (s *Store) Block(ctx context.Context, orgID, callerID, peerID string) error
 	}
 	low, high := orderedPair(callerID, peerID)
 
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
+	return RetryOnSerializationFailure(ctx, 3, func(ctx context.Context) error {
+		tx, err := s.pool.Begin(ctx)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback(ctx)
 
-	// RLS: scope this tx to the caller's org before any RLS table is touched.
-	if err := setOrgGUC(ctx, tx, orgID); err != nil {
-		return err
-	}
+		// RLS: scope this tx to the caller's org before any RLS table is touched.
+		if err := setOrgGUC(ctx, tx, orgID); err != nil {
+			return err
+		}
 
-	// Ensure conversation + caller member row exist so the block sticks.
-	convID := uuid.Must(uuid.NewV7()).String()
-	err = tx.QueryRow(ctx,
-		`INSERT INTO conversations (id, org_id, user_low, user_high)
-		 VALUES ($1, $2, $3, $4)
-		 ON CONFLICT (org_id, user_low, user_high) DO UPDATE SET org_id = EXCLUDED.org_id
-		 RETURNING id`,
-		convID, orgID, low, high).Scan(&convID)
-	if err != nil {
-		return err
-	}
+		// Ensure conversation + caller member row exist so the block sticks.
+		convID := uuid.Must(uuid.NewV7()).String()
+		err = tx.QueryRow(ctx,
+			`INSERT INTO conversations (id, org_id, user_low, user_high)
+			 VALUES ($1, $2, $3, $4)
+			 ON CONFLICT (org_id, user_low, user_high) DO UPDATE SET org_id = EXCLUDED.org_id
+			 RETURNING id`,
+			convID, orgID, low, high).Scan(&convID)
+		if err != nil {
+			return err
+		}
 
-	_, err = tx.Exec(ctx,
-		`INSERT INTO conversation_members (conversation_id, org_id, user_id, blocked)
-		 VALUES ($1, $2, $3, true)
-		 ON CONFLICT (conversation_id, user_id) DO UPDATE SET blocked = true`,
-		convID, orgID, callerID)
-	if err != nil {
-		return err
-	}
+		_, err = tx.Exec(ctx,
+			`INSERT INTO conversation_members (conversation_id, org_id, user_id, blocked)
+			 VALUES ($1, $2, $3, true)
+			 ON CONFLICT (conversation_id, user_id) DO UPDATE SET blocked = true`,
+			convID, orgID, callerID)
+		if err != nil {
+			return err
+		}
 
-	// Fan out to BOTH members so the peer's composer flips to "You have been
-	// blocked" live and the blocker's other devices sync. Same outbox→Kafka→
-	// gateway path as ConversationIgnored.
-	evt := events.ConversationBlocked{
-		Type:           events.TypeConversationBlocked,
-		EventID:        uuid.Must(uuid.NewV7()).String(),
-		OrgID:          orgID,
-		OccurredAt:     nowISO(),
-		ConversationID: convID,
-		BlockedBy:      callerID,
-		Members:        []string{low, high},
-	}
-	if err := insertOutbox(ctx, tx, convID, evt); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
+		// Fan out to BOTH members so the peer's composer flips to "You have been
+		// blocked" live and the blocker's other devices sync. Same outbox→Kafka→
+		// gateway path as ConversationIgnored.
+		evt := events.ConversationBlocked{
+			Type:           events.TypeConversationBlocked,
+			EventID:        uuid.Must(uuid.NewV7()).String(),
+			OrgID:          orgID,
+			OccurredAt:     nowISO(),
+			ConversationID: convID,
+			BlockedBy:      callerID,
+			Members:        []string{low, high},
+		}
+		if err := insertOutbox(ctx, tx, convID, evt); err != nil {
+			return err
+		}
+		return tx.Commit(ctx)
+	})
 }
 
 // Unblock clears blocked on the caller's member row of the conversation with
@@ -193,50 +197,52 @@ func (s *Store) Unblock(ctx context.Context, orgID, callerID, peerID string) err
 	}
 	low, high := orderedPair(callerID, peerID)
 
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
+	return RetryOnSerializationFailure(ctx, 3, func(ctx context.Context) error {
+		tx, err := s.pool.Begin(ctx)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback(ctx)
 
-	// RLS: scope this tx to the caller's org before any RLS table is touched.
-	if err := setOrgGUC(ctx, tx, orgID); err != nil {
-		return err
-	}
+		// RLS: scope this tx to the caller's org before any RLS table is touched.
+		if err := setOrgGUC(ctx, tx, orgID); err != nil {
+			return err
+		}
 
-	// Look up the conversation; if it never existed there's nothing to unblock.
-	var convID string
-	err = tx.QueryRow(ctx,
-		`SELECT id FROM conversations WHERE org_id = $1 AND user_low = $2 AND user_high = $3`,
-		orgID, low, high).Scan(&convID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		// No conversation → no block to clear. Idempotent success.
+		// Look up the conversation; if it never existed there's nothing to unblock.
+		var convID string
+		err = tx.QueryRow(ctx,
+			`SELECT id FROM conversations WHERE org_id = $1 AND user_low = $2 AND user_high = $3`,
+			orgID, low, high).Scan(&convID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			// No conversation → no block to clear. Idempotent success.
+			return tx.Commit(ctx)
+		}
+		if err != nil {
+			return err
+		}
+
+		if _, err := tx.Exec(ctx,
+			`UPDATE conversation_members SET blocked = false
+			 WHERE conversation_id = $1 AND user_id = $2`,
+			convID, callerID); err != nil {
+			return err
+		}
+
+		evt := events.ConversationUnblocked{
+			Type:           events.TypeConversationUnblocked,
+			EventID:        uuid.Must(uuid.NewV7()).String(),
+			OrgID:          orgID,
+			OccurredAt:     nowISO(),
+			ConversationID: convID,
+			UnblockedBy:    callerID,
+			Members:        []string{low, high},
+		}
+		if err := insertOutbox(ctx, tx, convID, evt); err != nil {
+			return err
+		}
 		return tx.Commit(ctx)
-	}
-	if err != nil {
-		return err
-	}
-
-	if _, err := tx.Exec(ctx,
-		`UPDATE conversation_members SET blocked = false
-		 WHERE conversation_id = $1 AND user_id = $2`,
-		convID, callerID); err != nil {
-		return err
-	}
-
-	evt := events.ConversationUnblocked{
-		Type:           events.TypeConversationUnblocked,
-		EventID:        uuid.Must(uuid.NewV7()).String(),
-		OrgID:          orgID,
-		OccurredAt:     nowISO(),
-		ConversationID: convID,
-		UnblockedBy:    callerID,
-		Members:        []string{low, high},
-	}
-	if err := insertOutbox(ctx, tx, convID, evt); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
+	})
 }
 
 // ── Reads ─────────────────────────────────────────────────────────────────────
@@ -259,6 +265,14 @@ func (s *Store) ListConversations(ctx context.Context, orgID, callerID string) (
 			    lm.body,
 			    lm.body_enc,
 			    c.last_msg_at,
+			    -- True when the caller has hidden every message up to the newest one
+			    -- (Clear Chat, or hiding each message individually) but the
+			    -- conversation genuinely has history — distinct from a conversation
+			    -- that has never had a message at all, which keeps its usual
+			    -- "Start chatting" placeholder client-side. last_msg_at is set once,
+			    -- on the first message (messages.go), and clearing never resets it,
+			    -- so "not null" is a free stand-in for "has ever had a message".
+			    (lm.body IS NULL AND lm.body_enc IS NULL AND c.last_msg_at IS NOT NULL) AS cleared,
 			    COALESCE((
 			        SELECT count(*) FROM messages m2
 			        WHERE m2.conversation_id = c.id
@@ -276,6 +290,13 @@ func (s *Store) ListConversations(ctx context.Context, orgID, callerID string) (
 			LEFT JOIN LATERAL (
 			    SELECT body, body_enc FROM messages m
 			    WHERE m.conversation_id = c.id
+			      -- Skips messages THIS caller cleared/hid, so the preview shows the
+			      -- newest message the caller can actually still see rather than one
+			      -- they deliberately hid (see ClearConversation/HideMessage).
+			      AND NOT EXISTS (
+			          SELECT 1 FROM message_hides h
+			          WHERE h.message_id = m.id AND h.user_id = $2
+			      )
 			    ORDER BY m.seq DESC LIMIT 1
 			) lm ON true
 			LEFT JOIN user_projection up
@@ -294,12 +315,13 @@ func (s *Store) ListConversations(ctx context.Context, orgID, callerID string) (
 			lastMsg *string
 			lastEnc []byte
 			lastAt  *time.Time
+			cleared bool
 		}
 		var raws []rawConv
 		for rows.Next() {
 			var rc rawConv
 			if err := rows.Scan(&rc.d.ID, &rc.d.PeerID, &rc.d.PeerUsername, &rc.d.PeerDisplayName,
-				&rc.lastMsg, &rc.lastEnc, &rc.lastAt, &rc.d.Unread,
+				&rc.lastMsg, &rc.lastEnc, &rc.lastAt, &rc.cleared, &rc.d.Unread,
 				&rc.d.BlockedByMe, &rc.d.BlockedByPeer); err != nil {
 				rows.Close()
 				return err
@@ -313,6 +335,7 @@ func (s *Store) ListConversations(ctx context.Context, orgID, callerID string) (
 
 		for _, rc := range raws {
 			d := rc.d
+			d.Cleared = rc.cleared
 			// Decrypt the single last-message preview; legacy plaintext is fallback.
 			if rc.lastEnc != nil {
 				dec, derr := s.crypto.Decrypt(ctx, tx, orgID, rc.lastEnc)

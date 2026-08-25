@@ -23,7 +23,7 @@ from sqlalchemy.exc import IntegrityError
 from .. import app_credentials
 from ..auth import PrincipalDep, Principal
 from ..config import settings
-from ..crypto import cryptor
+from crypto import cryptor
 from ..db import session, set_org_context
 from ..providers import get_provider, oauth, slack
 from ..schemas import ConnectionOut, ConnectStartOut, ProviderActivityOut

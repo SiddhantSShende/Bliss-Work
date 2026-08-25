@@ -1,11 +1,12 @@
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { Bell, BellOff, MessageSquarePlus, MoreVertical, Pin, Plus, Search, Trash2 } from "lucide-react";
 import { Avatar, EmptyState } from "@taskboard/ui";
 import type { ConversationDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
-import { displayNameOf } from "../lib/userLabel";
+import { displayNameOf, useUserLabels } from "../lib/userLabel";
 import { ListHeader, rowClass, relTime } from "../features/ListPane";
 import { NewChatDialog } from "../features/NewChatDialog";
 import { usePresence } from "../lib/usePresence";
@@ -13,19 +14,20 @@ import { toggleConversationPref, useConversationPrefs } from "../lib/conversatio
 import { usePopupDismiss } from "../lib/usePopupDismiss";
 import { useSelectedChat } from "../lib/selectedChat";
 import { listPreview } from "../lib/chatEnvelope";
-
-const UNAVAILABLE_HINT = "Not available yet — needs a server endpoint";
+import { ConfirmDialog } from "../features/ConfirmDialog";
 
 function ChatListMenu({
   muted,
   pinned,
   onToggleMute,
   onTogglePin,
+  onDelete,
 }: {
   muted: boolean;
   pinned: boolean;
   onToggleMute: () => void;
   onTogglePin: () => void;
+  onDelete: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const close = () => setOpen(false);
@@ -68,7 +70,7 @@ function ChatListMenu({
           <ChatListMenuItem
             icon={<Trash2 size={15} />}
             label="Delete Chat"
-            hint={UNAVAILABLE_HINT}
+            onClick={pick(onDelete)}
             danger
           />
           <ChatListMenuItem
@@ -86,22 +88,19 @@ function ChatListMenuItem({
   icon,
   label,
   onClick,
-  hint,
   danger = false,
 }: {
   icon: React.ReactNode;
   label: string;
-  onClick?: (event: React.MouseEvent) => void;
-  hint?: string;
+  onClick: (event: React.MouseEvent) => void;
   danger?: boolean;
 }) {
-  const item = (
+  return (
     <button
       type="button"
       role="menuitem"
       onClick={onClick}
-      disabled={!onClick}
-      className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors disabled:pointer-events-none disabled:opacity-45 ${
+      className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors ${
         danger ? "text-danger hover:bg-danger/10" : "text-fg hover:bg-surface-2"
       }`}
     >
@@ -109,15 +108,16 @@ function ChatListMenuItem({
       <span className="font-medium">{label}</span>
     </button>
   );
-  return onClick || !hint ? item : <span title={hint}>{item}</span>;
 }
 
 export function ChatsList() {
   const { api } = useRuntime();
-  const { selectedId, openChat } = useSelectedChat();
+  const qc = useQueryClient();
+  const { selectedId, openChat, closeChat } = useSelectedChat();
   const [newOpen, setNewOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "unread" | "mentions">("all");
+  const [deleteTarget, setDeleteTarget] = useState<ConversationDTO | null>(null);
   const { data: conversations = [] } = useQuery({ queryKey: qk.conversations, queryFn: () => api.conversations() });
   // Mute and "add shortcut", set from a chat's own overflow menu, are read back
   // here — this list is the only place either one is observable. Both are
@@ -126,6 +126,23 @@ export function ChatsList() {
   // Presence for the peers on screen, not for the whole organisation — see
   // lib/usePresence. This list is bounded by how many chats a person has.
   const onlineSet = usePresence(conversations.map((c: ConversationDTO) => c.peerId));
+  // Peer avatars resolved live rather than trusted from the conversation row —
+  // see displayNameOf's docstring on why the embedded copy can lag a change.
+  const { avatarUrlOf } = useUserLabels(conversations.map((c: ConversationDTO) => c.peerId));
+
+  // Same two calls DMView's own "Clear Chat" makes from inside the
+  // conversation: hide the history for this caller, then drop the
+  // conversation off their list. There is no separate "delete" endpoint —
+  // clearing and ignoring together is what deleting a 1:1 chat means here.
+  const deleteChat = useMutation({
+    mutationFn: (conversationId: string) =>
+      api.clearConversation(conversationId).then(() => api.ignoreConversation(conversationId)),
+    onSuccess: (_result, conversationId) => {
+      void qc.invalidateQueries({ queryKey: qk.conversations });
+      if (selectedId === conversationId) closeChat();
+    },
+    onError: () => toast.error("Couldn't delete this chat"),
+  });
 
   // Shortcuts float to the top; everything else keeps the server's order (most
   // recent first). A stable partition rather than a sort, so two pinned chats
@@ -188,11 +205,12 @@ export function ChatsList() {
               }`}
             >
               {value}
-              {value === "unread" && (
-                <span className="ml-1.5 rounded-full bg-accent px-1.5 text-[10px] text-accent-fg">
-                  {conversations.filter((conversation: ConversationDTO) => conversation.unread > 0).length}
-                </span>
-              )}
+              {value === "unread" &&
+                conversations.filter((conversation: ConversationDTO) => conversation.unread > 0).length > 0 && (
+                  <span className="ml-1.5 rounded-full bg-accent px-1.5 text-[10px] text-accent-fg">
+                    {conversations.filter((conversation: ConversationDTO) => conversation.unread > 0).length}
+                  </span>
+                )}
             </button>
           ))}
         </div>
@@ -222,7 +240,7 @@ export function ChatsList() {
                   aria-current={selectedId === c.id ? "true" : undefined}
                   className="flex min-w-0 flex-1 items-center gap-3 text-left"
                 >
-                <Avatar name={displayNameOf(c)} online={onlineSet.has(c.peerId)} />
+                <Avatar name={displayNameOf(c)} src={avatarUrlOf(c.peerId)} online={onlineSet.has(c.peerId)} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-2">
                     <span className="truncate font-medium text-fg">{displayNameOf(c)}</span>
@@ -236,7 +254,7 @@ export function ChatsList() {
                   </div>
                   <div className="flex items-center justify-between gap-2">
                     <span className="truncate text-sm text-muted">
-                      {c.lastMessage ? listPreview(c.lastMessage) : "Start chatting"}
+                      {c.cleared ? "" : c.lastMessage ? listPreview(c.lastMessage) : "Start chatting"}
                     </span>
                     {c.unread > 0 && (
                       // A muted chat still says how much is waiting; it just
@@ -259,6 +277,7 @@ export function ChatsList() {
                   pinned={pinned}
                   onToggleMute={() => toggleConversationPref("muted", "chat", c.id)}
                   onTogglePin={() => toggleConversationPref("shortcut", "chat", c.id)}
+                  onDelete={() => setDeleteTarget(c)}
                 />
               </div>
             );
@@ -266,6 +285,19 @@ export function ChatsList() {
         )}
       </div>
       <NewChatDialog open={newOpen} onClose={() => setNewOpen(false)} />
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        title="Delete chat history?"
+        message="This will delete this chat history for you. The other person will keep their copy."
+        confirmLabel="Delete chat"
+        danger
+        busy={deleteChat.isPending}
+        onConfirm={() => {
+          if (!deleteTarget) return;
+          deleteChat.mutate(deleteTarget.id, { onSuccess: () => setDeleteTarget(null) });
+        }}
+      />
     </>
   );
 }

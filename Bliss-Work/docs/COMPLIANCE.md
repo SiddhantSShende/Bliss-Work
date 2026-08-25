@@ -29,17 +29,18 @@ claim.
 | Per-org isolation (app layer) | Every query scoped by `org_id` from the token | `scripts/security-authz.ts` (cross-org IDOR suite) |
 | Per-org isolation (DB backstop) | Postgres **RLS ENABLE + FORCE** on every org-bearing table; fail-closed on unset GUC | `services/auth-svc/migrations/0003_rls.sql`, `services/task-svc/migrations/003_rls.sql`, `services/messaging-svc/migrations/0007_rls.sql` |
 | Least-privilege DB roles | One login role per database, `CONNECT` revoked from `PUBLIC`, superuser for init only | `infra/postgres/init/02-create-roles.sh`; [`OPERATIONS.md`](./OPERATIONS.md) §3 |
-| IDOR / cross-org regression test | Two real orgs; user-lookup, directory, tasks, inbox asserted isolated | `scripts/security-authz.ts`; CI test jobs |
+| IDOR / cross-org regression test | Two real orgs; user-lookup, directory, tasks, inbox asserted isolated — one entry in a broader CI coverage table, not the sole authz proof | `scripts/security-authz.ts`; CI test jobs; full property → test mapping in `docs/AUTH_AUTHZ_REMEDIATION_PLAN.md`'s Phase 0 |
+| Multi-factor authentication | TOTP + WebAuthn, opt-in per member; org-admin-mandatory policy with a grace-period rollout before login blocks an unenrolled admin | `services/auth-svc/app/routes/mfa_totp.py`, `mfa_webauthn.py`, `mfa_challenge.py`; `mfa_service.mfa_gate` |
 
 ## 2. Encryption — at rest & in transit (SOC 2 CC6.7 / ISO A.8.24, A.5.33)
 
 | Control | Implementation | Evidence |
 |---|---|---|
-| Column encryption at rest | AES-256-GCM, random 96-bit nonce, **AAD = `org_id`**, self-describing blob with embedded `key_version` | `services/auth-svc/app/crypto.py`, `services/task-svc/app/crypto.py`, messaging-svc crypto |
-| Envelope keys, per-org DEK | 32-byte DEK per org, wrapped by a KEK, stored in `org_keys` | `*/app/crypto.py::Cryptor`; `org_keys` table in `*/migrations/*column_encryption*.sql` |
-| KEK provider (prod vs dev) | `KMSKEKProvider` (KMS/Vault interface) vs `DevKEKProvider` (Argon2id-derived) | `services/auth-svc/app/crypto.py`; `DATA_KEK_PROVIDER` in `.env.prod.example` |
-| Lazy key rotation | `key_version` embedded per ciphertext; old rows decrypt with their generation | `crypto.py::decrypt` / `_dek_for_version` |
-| Blind index for encrypted lookup | `HMAC-SHA256(static_key, normalized(value))` for login-by-email | `crypto.py::blind_index`; [`SECURITY.md`](./SECURITY.md) §2 |
+| Column encryption at rest | AES-256-GCM, random 96-bit nonce, **AAD = `org_id`**, self-describing blob with embedded `key_version` | `services/shared/crypto/crypto.py` (shared by auth-svc, task-svc, integrations-svc, telemetry-svc), messaging-svc crypto (Go, independent implementation of the same format) |
+| Envelope keys, per-org DEK | 32-byte DEK per org, wrapped by a KEK, stored in `org_keys` | `services/shared/crypto/crypto.py::Cryptor`; each service keeps its OWN `org_keys` table in `*/migrations/*column_encryption*.sql` |
+| KEK provider (prod vs dev) | `KMSKEKProvider` (KMS/Vault interface) vs `DevKEKProvider` (Argon2id-derived) | `services/shared/crypto/crypto.py`; `DATA_KEK_PROVIDER` in `.env.prod.example` |
+| Lazy key rotation | `key_version` embedded per ciphertext; old rows decrypt with their generation | `services/shared/crypto/crypto.py::decrypt` / `_dek_for_version` |
+| Blind index for encrypted lookup | `HMAC-SHA256(static_key, normalized(value))` for login-by-email | `services/shared/crypto/crypto.py::Cryptor.blind_index`; [`SECURITY.md`](./SECURITY.md) §2 |
 | TLS in transit | Caddy terminates TLS (ACME); Postgres `sslmode=require`, Redis auth in prod | `infra/caddy/Caddyfile`; [`OPERATIONS.md`](./OPERATIONS.md) §2–§3 |
 | OWASP transport headers | HSTS, `X-Frame-Options: DENY`, nosniff, CSP, Referrer/Permissions-Policy on every response | `services/auth-svc/app/middleware.py::SECURITY_HEADERS` (mirrored in Go) |
 
@@ -95,13 +96,16 @@ claim.
 |---|---|---|
 | No secrets in VCS | `keys/*.pem`, `.env*` gitignored; gitleaks enforces | `.gitignore`; `.github/workflows/security-extra.yml` |
 | Runtime secret injection | Vault / cloud secret manager / External Secrets Operator | [`OPERATIONS.md`](./OPERATIONS.md) §1 |
-| Internal service auth | `TB_INTERNAL_TOKEN` via `X-Internal-Token`; auth-svc **fails closed** + constant-time compare | `services/auth-svc/app/routes/internal.py` (`secrets.compare_digest`) |
+| Internal service auth | One secret **per exposing service** (`AUTH_INTERNAL_TOKEN`, `TASK_INTERNAL_TOKEN`, `MESSAGING_INTERNAL_TOKEN`, `WS_GATEWAY_INTERNAL_TOKEN`, `INTEGRATIONS_INTERNAL_TOKEN`) via `X-Internal-Token`, replacing the single shared `TB_INTERNAL_TOKEN`; every checker **fails closed** + constant-time compare in both languages | `services/shared/internal_auth` (Python), `services/shared/internalauth` (Go); `services/auth-svc/app/routes/internal.py` |
+| Raw secrets never reach Kafka | Password-reset/email-verify/invite links are redacted from the published event (`outboxId` substituted); `email-worker` pulls the real link via a token-gated, allow-listed internal endpoint instead | `services/auth-svc/app/events/poller.py`; `GET /internal/outbox-events/{outbox_id}` (`internal.py`) |
 | Key provisioning per env | fresh Ed25519 keypair per environment; never ship dev keys | [`OPERATIONS.md`](./OPERATIONS.md) §4 |
 
-> Audit finding to track: the **Go** services' `X-Internal-Token` check is gated
-> on a non-empty env (fails *open* if unset) and is not constant-time — see
-> [`THREAT_MODEL.md`](./THREAT_MODEL.md) §4 / §8. The Python `auth-svc` path is the
-> correct fail-closed reference.
+> Resolved: the **Go** services' `X-Internal-Token` check now fails closed and
+> is constant-time, matching the Python `auth-svc` reference — see
+> [`THREAT_MODEL.md`](./THREAT_MODEL.md) §4. The remaining residual is that
+> every one of these per-service secrets is still a static, long-lived shared
+> secret rather than short-lived/mTLS workload identity — see
+> [`THREAT_MODEL.md`](./THREAT_MODEL.md) §8.
 
 ## 8. Data retention, DSAR & privacy (GDPR/CCPA; SOC 2 P-series / ISO A.5.34, A.8.10–A.8.11)
 

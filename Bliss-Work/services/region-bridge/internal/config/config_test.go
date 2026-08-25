@@ -142,6 +142,29 @@ func TestRollbackSwitchesDefaultOnAndParseOff(t *testing.T) {
 	}
 }
 
+func TestTLSCertRequiresKeyAndViceVersa(t *testing.T) {
+	// Each case runs in its own subtest so t.Setenv's cleanup (which fires at
+	// the end of the ENCLOSING test, not between statements) can't leak one
+	// case's env into the next — sequential loadErr calls sharing a single t
+	// would otherwise leave NATS_TLS_CERT set while asserting about a bare key.
+	t.Run("cert without key", func(t *testing.T) {
+		if err := loadErr(t, map[string]string{"NATS_TLS_CERT": "/certs/client.crt"}); err == nil {
+			t.Error("a cert with no key was accepted; nats.go would fail to connect with a less useful error")
+		}
+	})
+	t.Run("key without cert", func(t *testing.T) {
+		if err := loadErr(t, map[string]string{"NATS_TLS_KEY": "/certs/client.key"}); err == nil {
+			t.Error("a key with no cert was accepted")
+		}
+	})
+	t.Run("both set is legal", func(t *testing.T) {
+		c := withEnv(t, map[string]string{"NATS_TLS_CERT": "/certs/client.crt", "NATS_TLS_KEY": "/certs/client.key"})
+		if c.NATSTLSCert != "/certs/client.crt" || c.NATSTLSKey != "/certs/client.key" {
+			t.Fatalf("cert/key = %q/%q", c.NATSTLSCert, c.NATSTLSKey)
+		}
+	})
+}
+
 func TestPeerAPIPrefixesParse(t *testing.T) {
 	c := withEnv(t, map[string]string{
 		"BRIDGE_PEER_REGIONS":      "eu-west-1,ap-south-1",

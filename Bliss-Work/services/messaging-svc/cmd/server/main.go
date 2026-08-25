@@ -20,13 +20,13 @@ import (
 	"github.com/task-board/messaging-svc/internal/config"
 	"github.com/task-board/messaging-svc/internal/crypto"
 	"github.com/task-board/messaging-svc/internal/kafka"
-	"github.com/task-board/messaging-svc/internal/kafkaauth"
 	"github.com/task-board/messaging-svc/internal/livekit"
 	"github.com/task-board/messaging-svc/internal/media"
 	mw "github.com/task-board/messaging-svc/internal/middleware"
 	"github.com/task-board/messaging-svc/internal/readcache"
 	"github.com/task-board/messaging-svc/internal/store"
 	"github.com/task-board/messaging-svc/internal/tracing"
+	"github.com/task-board/shared-kafkaauth"
 )
 
 func main() {

@@ -49,6 +49,7 @@ export function listSectionOf(pathname: string): ListSection | null {
  */
 export function railSectionOf(pathname: string): string | null {
   if (pathname.startsWith("/app/integrations")) return "integrations";
+  if (pathname.startsWith("/app/settings")) return "settings";
   if (pathname.startsWith("/app/meetings")) return "meetings";
   if (pathname.startsWith("/app/org")) return "org";
   return listSectionOf(pathname);

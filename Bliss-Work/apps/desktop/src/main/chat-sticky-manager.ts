@@ -1,15 +1,8 @@
 import { BrowserWindow, screen } from "electron";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  clampToPrimary,
-  forget,
-  gc,
-  getGeometry,
-  isOnPrimary,
-  saveGeometry,
-  touch,
-} from "./sticky-state";
+import { clampToPrimary, forget, gc, getGeometry, saveGeometry, touch } from "./sticky-state";
+import { normalizeZOrder, reclampGroupToPrimary, snapBackIfOffPrimary } from "./sticky-window-group";
 import { appIcon } from "./assets";
 import { hardenWindow } from "./harden";
 
@@ -129,24 +122,18 @@ export class ChatStickyManager {
    *  the app. Paired with raiseZOrder on blur. (Matches StickyManager so the
    *  whole sticky surface moves together.) */
   lowerZOrder(): void {
-    for (const [, w] of this.widgets) if (!w.isDestroyed()) w.setAlwaysOnTop(false);
+    normalizeZOrder(this.widgets.values());
   }
 
   /** Main window blurred: float chat notes back over the desktop at the lightest
    *  always-on-top level so they stay visible on the main screen. */
   raiseZOrder(): void {
-    for (const [, w] of this.widgets) if (!w.isDestroyed()) w.setAlwaysOnTop(false);
+    normalizeZOrder(this.widgets.values());
   }
 
   /** Re-confine every live chat note to the primary display (display change). */
   reclampAll(): void {
-    for (const [, w] of this.widgets) {
-      if (w.isDestroyed()) continue;
-      const b = w.getBounds();
-      if (isOnPrimary(b)) continue;
-      const g = clampToPrimary({ ...b, minimized: false, lastSeenAt: 0 });
-      w.setBounds({ x: g.x, y: g.y, width: b.width, height: b.height });
-    }
+    reclampGroupToPrimary(this.widgets.values());
   }
 
   destroyAll(): void {
@@ -235,12 +222,7 @@ export class ChatStickyManager {
     // Keep chat notes on the main desktop screen: snap back to the primary
     // display if dragged onto another monitor (once the move finishes).
     w.on("moved", () => {
-      if (w.isDestroyed()) return;
-      const b = w.getBounds();
-      if (!isOnPrimary(b)) {
-        const g = clampToPrimary({ ...b, minimized: false, lastSeenAt: 0 });
-        w.setBounds({ x: g.x, y: g.y, width: b.width, height: b.height });
-      }
+      snapBackIfOffPrimary(w);
       persist();
     });
     w.on("close", () => {

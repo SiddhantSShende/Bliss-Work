@@ -229,6 +229,47 @@ PRUNE_DRY_RUN=1 bash scripts/refresh-token-prune.sh   # count only, delete nothi
 sudo journalctl -u blisswork-refresh-token-prune.service
 ```
 
+## blisswork-redact-expired-secrets.{service,timer}
+
+Strips the raw secret URL from outbox rows once their token has expired, via
+`scripts/redact-expired-secrets.sh` → `python -m app.jobs.redact_expired_secrets`
+inside `auth-svc`. Every **15 minutes**, `Persistent=true`.
+
+**Why this exists.** Three event types — `password.reset.requested`,
+`email.verification.requested`, `invite.created` — carry a raw single-use
+secret (a reset/verify/invite URL) in `outbox.payload`. The outbox poller
+already strips that field before publishing to Kafka (email-worker pulls it
+back via an authenticated internal call instead — see
+`docs/AUTH_AUTHZ_REMEDIATION_PLAN.md`, Phase 3), but the STORED row was
+untouched by that change and would otherwise carry the secret for the
+outbox's full multi-day retention window
+(`blisswork-prune-event-tables.{service,timer}`), long after the token itself
+stopped being useful. This job closes that gap on its own schedule: once a
+row's `expiresAt` has passed, the URL fields are nulled. It never deletes the
+row — `prune_event_tables.py` still owns that.
+
+**Why every 15 minutes and not hourly/nightly like everything else here.**
+This is a security-hygiene bound, not disk cleanup — password-reset and
+email-verification tokens expire in 30-60 minutes, and the point is to keep
+the row's exposure window close to the token's own lifetime rather than to
+the outbox's multi-day retention.
+
+**Why no batching.** Every other job here batches because it deletes from a
+table that grows with platform-wide use over the deployment's entire
+lifetime. This one only ever touches rows for three event types in the
+narrow window between "pending or just-published" and "past its own
+expiresAt" — a handful at any moment, not a backlog. A single `UPDATE` is the
+right size for that.
+
+```sh
+sudo cp infra/systemd/blisswork-redact-expired-secrets.* /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now blisswork-redact-expired-secrets.timer
+
+PRUNE_DRY_RUN=1 bash scripts/redact-expired-secrets.sh   # count only, redact nothing
+sudo journalctl -u blisswork-redact-expired-secrets.service
+```
+
 ## blisswork-org-purge.{service,timer}
 
 Destroys organizations whose deletion grace period has elapsed, via

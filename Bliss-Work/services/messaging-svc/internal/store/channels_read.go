@@ -19,6 +19,7 @@ type rawChannelRow struct {
 	lastEnc    []byte
 	lastAt     *time.Time
 	lastSender string
+	cleared    bool
 }
 
 // scanRawChannelRows drains a channel-list cursor into rawChannelRow values and
@@ -33,7 +34,7 @@ func scanRawChannelRows(rows pgx.Rows) ([]rawChannelRow, error) {
 		// both are scanned through pointers rather than assumed present.
 		var createdBy, role *string
 		if err := rows.Scan(&rc.d.ID, &rc.d.Name, &rc.d.MemberCount,
-			&rc.lastMsg, &rc.lastEnc, &rc.lastAt, &rc.lastSender, &rc.d.IsLocked,
+			&rc.lastMsg, &rc.lastEnc, &rc.lastAt, &rc.lastSender, &rc.cleared, &rc.d.IsLocked,
 			&createdBy, &role); err != nil {
 			return nil, err
 		}
@@ -68,6 +69,7 @@ func (s *Store) decryptChannelRow(ctx context.Context, q crypto.Querier, orgID s
 		d.LastMessageAt = &iso
 	}
 	d.LastMessageSender = rc.lastSender
+	d.Cleared = rc.cleared
 	d.IAmMember = iAmMember
 	return d, nil
 }
@@ -110,6 +112,14 @@ func (s *Store) ListChannels(ctx context.Context, orgID, callerID string) ([]Cha
 			    lm.body_enc,
 			    c.last_msg_at,
 			    COALESCE(NULLIF(up.display_name, ''), up.username, '') AS last_message_sender,
+			    -- True when the caller has hidden every message up to the newest one
+			    -- (Clear Chat, or hiding each message individually) but the channel
+			    -- genuinely has history — distinct from a channel that has never had
+			    -- a message at all, which keeps its usual member-count placeholder
+			    -- client-side. last_msg_at is set once, on the first message
+			    -- (append_channel.go/channels.go), and clearing never resets it, so
+			    -- "not null" is a free stand-in for "has ever had a message".
+			    (lm.body IS NULL AND lm.body_enc IS NULL AND c.last_msg_at IS NOT NULL) AS cleared,
 			    c.is_locked,
 			    c.created_by,
 			    mine.role
@@ -119,6 +129,13 @@ func (s *Store) ListChannels(ctx context.Context, orgID, callerID string) ([]Cha
 			LEFT JOIN LATERAL (
 			    SELECT body, body_enc, sender_id FROM channel_messages m
 			    WHERE m.channel_id = c.id
+			      -- Skips messages THIS caller cleared/hid, so the preview shows the
+			      -- newest message the caller can actually still see rather than one
+			      -- they deliberately hid (see ClearChannel/HideChannelMessage).
+			      AND NOT EXISTS (
+			          SELECT 1 FROM message_hides h
+			          WHERE h.message_id = m.id AND h.user_id = $2
+			      )
 			    ORDER BY m.seq DESC LIMIT 1
 			) lm ON true
 			LEFT JOIN user_projection up ON up.user_id = lm.sender_id
@@ -163,112 +180,120 @@ func (s *Store) ChannelMessages(
 	limit = clampMessagePage(limit)
 	beforeSeq = beforeSeqOrNewest(beforeSeq)
 
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback(ctx)
-
-	// RLS: scope this tx to the caller's org before any RLS table is touched.
-	if err := setOrgGUC(ctx, tx, orgID); err != nil {
-		return nil, err
-	}
-
-	if err := requireChannelMember(ctx, tx, orgID, channelID, callerID); err != nil {
-		return nil, err
-	}
-
-	rows, err := tx.Query(ctx,
-		// display_name alongside username: `username` is the email local-part, so
-		// on its own it renders "j.okafor" over every channel message.
-		//
-		// NOT EXISTS on message_hides drops the caller's "Delete for me" rows.
-		// A filter rather than a flag: a hidden message is one this reader has
-		// said they do not want to see, so shipping it with a boolean would put
-		// the body on their device for the client to be trusted to conceal.
-		//
-		// A message deleted for everyone is still SELECTED — it renders as a
-		// tombstone, and the body is dropped below rather than here, because
-		// `seq` ordering and the "this message was deleted" placeholder both
-		// need the row to survive.
-		`SELECT m.id, m.channel_id, m.seq, m.sender_id,
-		        COALESCE(up.username, ''), COALESCE(up.display_name, ''),
-		        m.body, m.body_enc, m.created_at, m.kind, m.is_forward,
-		        m.deleted_for_all_at IS NOT NULL AS deleted_for_all,
-		        m.pinned_at IS NOT NULL AS pinned
-		 FROM channel_messages m
-		 LEFT JOIN user_projection up ON up.user_id = m.sender_id
-		 WHERE m.channel_id = $1 AND m.seq < $2
-		   AND NOT EXISTS (
-		       SELECT 1 FROM message_hides h
-		       WHERE h.message_id = m.id AND h.user_id = $4
-		   )
-		 ORDER BY m.seq DESC
-		 LIMIT $3`, channelID, beforeSeq, limit, callerID)
-	if err != nil {
-		return nil, err
-	}
-
-	// Buffer raw rows, then close the cursor BEFORE decrypting on the same tx
-	// (a Decrypt query while rows is open would error with "conn busy").
-	type rawChMsg struct {
-		m       ChannelMessageDTO
-		created time.Time
-		bodyTxt *string
-		bodyEnc []byte
-		kind    string
-	}
-	var raws []rawChMsg
-	for rows.Next() {
-		var r rawChMsg
-		if err := rows.Scan(&r.m.ID, &r.m.ChannelID, &r.m.Seq, &r.m.SenderID,
-			&r.m.SenderUsername, &r.m.SenderDisplayName,
-			&r.bodyTxt, &r.bodyEnc, &r.created, &r.kind, &r.m.IsForward,
-			&r.m.DeletedForAll, &r.m.Pinned); err != nil {
-			rows.Close()
-			return nil, err
+	var out []ChannelMessageDTO
+	err := RetryOnSerializationFailure(ctx, 3, func(ctx context.Context) error {
+		tx, err := s.pool.Begin(ctx)
+		if err != nil {
+			return err
 		}
-		raws = append(raws, r)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	// Selected newest-first so the index could serve the LIMIT; the wire format
-	// is oldest-first.
-	reverseRaw(raws)
+		defer tx.Rollback(ctx)
 
-	out := []ChannelMessageDTO{}
-	for _, r := range raws {
-		m := r.m
-		// A tombstone never ships its body. Skipping the decrypt IS the point:
-		// "deleted" that still sends the text to every client and hides it in
-		// CSS is not deletion. Same rule as decryptMessage on the DM side.
-		if m.DeletedForAll {
-			m.Body = ""
-			m.CreatedAt = r.created.UTC().Format("2006-01-02T15:04:05.000Z")
-			out = append(out, m)
-			continue
+		// RLS: scope this tx to the caller's org before any RLS table is touched.
+		if err := setOrgGUC(ctx, tx, orgID); err != nil {
+			return err
 		}
-		// body_enc is the source of truth; legacy plaintext body is the fallback.
-		if r.bodyEnc != nil {
-			dec, derr := s.crypto.Decrypt(ctx, tx, orgID, r.bodyEnc)
-			if derr != nil {
-				return nil, derr
+
+		if err := requireChannelMember(ctx, tx, orgID, channelID, callerID); err != nil {
+			return err
+		}
+
+		rows, err := tx.Query(ctx,
+			// display_name alongside username: `username` is the email local-part, so
+			// on its own it renders "j.okafor" over every channel message.
+			//
+			// NOT EXISTS on message_hides drops the caller's "Delete for me" rows.
+			// A filter rather than a flag: a hidden message is one this reader has
+			// said they do not want to see, so shipping it with a boolean would put
+			// the body on their device for the client to be trusted to conceal.
+			//
+			// A message deleted for everyone is still SELECTED — it renders as a
+			// tombstone, and the body is dropped below rather than here, because
+			// `seq` ordering and the "this message was deleted" placeholder both
+			// need the row to survive.
+			`SELECT m.id, m.channel_id, m.seq, m.sender_id,
+			        COALESCE(up.username, ''), COALESCE(up.display_name, ''),
+			        m.body, m.body_enc, m.created_at, m.kind, m.is_forward,
+			        m.deleted_for_all_at IS NOT NULL AS deleted_for_all,
+			        m.pinned_at IS NOT NULL AS pinned
+			 FROM channel_messages m
+			 LEFT JOIN user_projection up ON up.user_id = m.sender_id
+			 WHERE m.channel_id = $1 AND m.seq < $2
+			   AND NOT EXISTS (
+			       SELECT 1 FROM message_hides h
+			       WHERE h.message_id = m.id AND h.user_id = $4
+			   )
+			 ORDER BY m.seq DESC
+			 LIMIT $3`, channelID, beforeSeq, limit, callerID)
+		if err != nil {
+			return err
+		}
+
+		// Buffer raw rows, then close the cursor BEFORE decrypting on the same tx
+		// (a Decrypt query while rows is open would error with "conn busy").
+		type rawChMsg struct {
+			m       ChannelMessageDTO
+			created time.Time
+			bodyTxt *string
+			bodyEnc []byte
+			kind    string
+		}
+		var raws []rawChMsg
+		for rows.Next() {
+			var r rawChMsg
+			if err := rows.Scan(&r.m.ID, &r.m.ChannelID, &r.m.Seq, &r.m.SenderID,
+				&r.m.SenderUsername, &r.m.SenderDisplayName,
+				&r.bodyTxt, &r.bodyEnc, &r.created, &r.kind, &r.m.IsForward,
+				&r.m.DeletedForAll, &r.m.Pinned); err != nil {
+				rows.Close()
+				return err
 			}
-			m.Body = dec
-		} else if r.bodyTxt != nil {
-			m.Body = *r.bodyTxt
+			raws = append(raws, r)
 		}
-		// 'text' is the overwhelming majority; omit it so an ordinary channel
-		// message serializes exactly as it did before kinds existed here.
-		if r.kind != MessageKindText {
-			m.Kind = r.kind
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
 		}
-		m.CreatedAt = r.created.UTC().Format("2006-01-02T15:04:05.000Z")
-		out = append(out, m)
-	}
-	if err := tx.Commit(ctx); err != nil {
+		// Selected newest-first so the index could serve the LIMIT; the wire format
+		// is oldest-first.
+		reverseRaw(raws)
+
+		result := []ChannelMessageDTO{}
+		for _, r := range raws {
+			m := r.m
+			// A tombstone never ships its body. Skipping the decrypt IS the point:
+			// "deleted" that still sends the text to every client and hides it in
+			// CSS is not deletion. Same rule as decryptMessage on the DM side.
+			if m.DeletedForAll {
+				m.Body = ""
+				m.CreatedAt = r.created.UTC().Format("2006-01-02T15:04:05.000Z")
+				result = append(result, m)
+				continue
+			}
+			// body_enc is the source of truth; legacy plaintext body is the fallback.
+			if r.bodyEnc != nil {
+				dec, derr := s.crypto.Decrypt(ctx, tx, orgID, r.bodyEnc)
+				if derr != nil {
+					return derr
+				}
+				m.Body = dec
+			} else if r.bodyTxt != nil {
+				m.Body = *r.bodyTxt
+			}
+			// 'text' is the overwhelming majority; omit it so an ordinary channel
+			// message serializes exactly as it did before kinds existed here.
+			if r.kind != MessageKindText {
+				m.Kind = r.kind
+			}
+			m.CreatedAt = r.created.UTC().Format("2006-01-02T15:04:05.000Z")
+			result = append(result, m)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
+		out = result
+		return nil
+	})
+	if err != nil {
 		return nil, err
 	}
 	return out, nil

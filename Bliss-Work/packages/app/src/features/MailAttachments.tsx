@@ -273,7 +273,7 @@ function fileGlyph(mime: string, filename: string): { Icon: typeof FileIcon; ton
   return { Icon: FileIcon, tone: "bg-surface-2 text-muted" };
 }
 
-export function formatBytes(n: number): string {
+function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;

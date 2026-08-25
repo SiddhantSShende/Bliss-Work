@@ -84,86 +84,88 @@ func (s *Store) ClearConversation(ctx context.Context, orgID, callerID, convID s
 // tombstone immediately — a delete the recipient only learns about on their
 // next refetch is one they may well screenshot first.
 func (s *Store) DeleteMessageForAll(ctx context.Context, orgID, callerID, messageID string) error {
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	if err := setOrgGUC(ctx, tx, orgID); err != nil {
-		return err
-	}
-
-	var convID, senderID string
-	var threadID *string
-	err = tx.QueryRow(ctx,
-		`SELECT conversation_id, sender_id, thread_id FROM messages
-		 WHERE id = $1 AND org_id = $2`,
-		messageID, orgID).Scan(&convID, &senderID, &threadID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return ErrForbidden
-	}
-	if err != nil {
-		return err
-	}
-	// Only the author. Unbounded in time on purpose: a time limit ("you may
-	// unsend for 15 minutes") is a policy this product has not asked for, and
-	// guessing one would be worse than not having it.
-	if senderID != callerID {
-		return ErrForbidden
-	}
-
-	// Idempotent: re-deleting keeps the FIRST timestamp rather than moving it.
-	if _, err = tx.Exec(ctx, `
-		UPDATE messages
-		SET deleted_for_all_at = COALESCE(deleted_for_all_at, now()),
-		    deleted_by         = COALESCE(deleted_by, $2)
-		WHERE id = $1`,
-		messageID, callerID); err != nil {
-		return err
-	}
-
-	// Resolved before the projection write rather than after: the event needs
-	// the members anyway, and the inbox_items UPDATE below needs them as its
-	// partition key.
-	members, err := conversationMemberIDs(ctx, tx, convID)
-	if err != nil {
-		return err
-	}
-
-	// The Inbox preview quotes the body, so a mail thread whose latest message
-	// was just deleted would keep showing the deleted text in the feed.
-	//
-	// owner_user_id is NOT optional here: inbox_items is HASH-partitioned on it
-	// (0003_threads_inbox.sql), so a predicate without it prunes nothing and
-	// sequential-scans all 64 partitions to touch at most two rows.
-	if threadID != nil {
-		if _, err = tx.Exec(ctx, `
-			UPDATE inbox_items
-			SET preview = '', preview_enc = NULL, updated_at = now()
-			WHERE owner_user_id = ANY($2::uuid[])
-			  AND item_kind = 'THREAD' AND ref_id = $1`,
-			*threadID, members); err != nil {
+	return RetryOnSerializationFailure(ctx, 3, func(ctx context.Context) error {
+		tx, err := s.pool.Begin(ctx)
+		if err != nil {
 			return err
 		}
-	}
+		defer tx.Rollback(ctx)
+		if err := setOrgGUC(ctx, tx, orgID); err != nil {
+			return err
+		}
 
-	evt := events.MessageDeleted{
-		Type:           events.TypeMessageDeleted,
-		EventID:        uuid.Must(uuid.NewV7()).String(),
-		OrgID:          orgID,
-		OccurredAt:     nowISO(),
-		ConversationID: convID,
-		MessageID:      messageID,
-		DeletedBy:      callerID,
-		Members:        members,
-	}
-	if threadID != nil {
-		evt.ThreadID = threadID
-	}
-	if err := insertOutbox(ctx, tx, convID, evt); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
+		var convID, senderID string
+		var threadID *string
+		err = tx.QueryRow(ctx,
+			`SELECT conversation_id, sender_id, thread_id FROM messages
+			 WHERE id = $1 AND org_id = $2`,
+			messageID, orgID).Scan(&convID, &senderID, &threadID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrForbidden
+		}
+		if err != nil {
+			return err
+		}
+		// Only the author. Unbounded in time on purpose: a time limit ("you may
+		// unsend for 15 minutes") is a policy this product has not asked for, and
+		// guessing one would be worse than not having it.
+		if senderID != callerID {
+			return ErrForbidden
+		}
+
+		// Idempotent: re-deleting keeps the FIRST timestamp rather than moving it.
+		if _, err = tx.Exec(ctx, `
+			UPDATE messages
+			SET deleted_for_all_at = COALESCE(deleted_for_all_at, now()),
+			    deleted_by         = COALESCE(deleted_by, $2)
+			WHERE id = $1`,
+			messageID, callerID); err != nil {
+			return err
+		}
+
+		// Resolved before the projection write rather than after: the event needs
+		// the members anyway, and the inbox_items UPDATE below needs them as its
+		// partition key.
+		members, err := conversationMemberIDs(ctx, tx, convID)
+		if err != nil {
+			return err
+		}
+
+		// The Inbox preview quotes the body, so a mail thread whose latest message
+		// was just deleted would keep showing the deleted text in the feed.
+		//
+		// owner_user_id is NOT optional here: inbox_items is HASH-partitioned on it
+		// (0003_threads_inbox.sql), so a predicate without it prunes nothing and
+		// sequential-scans all 64 partitions to touch at most two rows.
+		if threadID != nil {
+			if _, err = tx.Exec(ctx, `
+				UPDATE inbox_items
+				SET preview = '', preview_enc = NULL, updated_at = now()
+				WHERE owner_user_id = ANY($2::uuid[])
+				  AND item_kind = 'THREAD' AND ref_id = $1`,
+				*threadID, members); err != nil {
+				return err
+			}
+		}
+
+		evt := events.MessageDeleted{
+			Type:           events.TypeMessageDeleted,
+			EventID:        uuid.Must(uuid.NewV7()).String(),
+			OrgID:          orgID,
+			OccurredAt:     nowISO(),
+			ConversationID: convID,
+			MessageID:      messageID,
+			DeletedBy:      callerID,
+			Members:        members,
+		}
+		if threadID != nil {
+			evt.ThreadID = threadID
+		}
+		if err := insertOutbox(ctx, tx, convID, evt); err != nil {
+			return err
+		}
+		return tx.Commit(ctx)
+	})
 }
 
 // conversationMemberIDs lists both sides of a 1:1, so the gateway can route an

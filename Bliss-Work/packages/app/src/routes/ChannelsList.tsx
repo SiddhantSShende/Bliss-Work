@@ -1,15 +1,18 @@
 import { useMemo, useState } from "react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Plus, Hash, Lock, Globe, LogIn, Compass, BellOff, Bookmark } from "lucide-react";
+import { AlertCircle, Bell, BellOff, Compass, Globe, Hash, LogIn, LogOut, Lock, MoreVertical, Pin, Plus } from "lucide-react";
 import { Button, EmptyState } from "@taskboard/ui";
 import type { ChannelDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { ListHeader, rowClass, relTime } from "../features/ListPane";
 import { CreateChannelDialog } from "../features/CreateChannelDialog";
-import { useConversationPrefs } from "../lib/conversationPrefs";
+import { toggleConversationPref, useConversationPrefs } from "../lib/conversationPrefs";
+import { usePopupDismiss } from "../lib/usePopupDismiss";
+import { listPreview } from "../lib/chatEnvelope";
+import { ConfirmDialog } from "../features/ConfirmDialog";
 
 /**
  * Middle pane of /app/channels.
@@ -35,6 +38,7 @@ export function ChannelsList() {
   const qc = useQueryClient();
   const [newOpen, setNewOpen] = useState(false);
   const [tab, setTab] = useState<Tab>("mine");
+  const [leaveTarget, setLeaveTarget] = useState<ChannelDTO | null>(null);
 
   const { data: mine = [] } = useQuery({
     queryKey: qk.channels,
@@ -65,6 +69,8 @@ export function ChannelsList() {
     fetchNextPage: fetchMoreOpen,
     hasNextPage: hasMoreOpen,
     isFetchingNextPage: fetchingMoreOpen,
+    isError: openFailed,
+    refetch: retryOpen,
   } = useInfiniteQuery({
     queryKey: qk.openChannels,
     initialPageParam: 0,
@@ -84,6 +90,21 @@ export function ChannelsList() {
     },
     onError: (e) => toast.error("Couldn't join", { description: String(e) }),
   });
+
+  // Same call and confirmation ChannelView's header menu makes when leaving
+  // from inside the channel — see confirmLeave there.
+  const leaveMut = useMutation({
+    mutationFn: (channelId: string) => api.leaveChannel(channelId),
+    onSuccess: () => {
+      toast.success("Left the channel.");
+      void qc.invalidateQueries({ queryKey: qk.channels });
+      void qc.invalidateQueries({ queryKey: qk.openChannels });
+    },
+    onError: (e) => toast.error("Couldn't leave", { description: String(e) }),
+  });
+  const confirmLeave = (c: ChannelDTO) => {
+    setLeaveTarget(c);
+  };
 
   return (
     <>
@@ -122,9 +143,24 @@ export function ChannelsList() {
                 channel={c}
                 muted={prefs.isMuted("channel", c.id)}
                 shortcut={prefs.hasShortcut("channel", c.id)}
+                onToggleMute={() => toggleConversationPref("muted", "channel", c.id)}
+                onTogglePin={() => toggleConversationPref("shortcut", "channel", c.id)}
+                onLeave={() => confirmLeave(c)}
+                leaving={leaveMut.isPending && leaveMut.variables === c.id}
               />
             ))
           )
+        ) : openFailed ? (
+          <div className="flex flex-col items-center gap-3">
+            <EmptyState
+              icon={<AlertCircle size={22} />}
+              title="Couldn't load open channels"
+              hint="Something went wrong fetching the directory."
+            />
+            <Button variant="ghost" size="sm" onClick={() => void retryOpen()}>
+              Try again
+            </Button>
+          </div>
         ) : open.length === 0 ? (
           <EmptyState
             icon={<Compass size={22} />}
@@ -157,6 +193,23 @@ export function ChannelsList() {
         )}
       </div>
       <CreateChannelDialog open={newOpen} onClose={() => setNewOpen(false)} />
+      <ConfirmDialog
+        open={!!leaveTarget}
+        onClose={() => setLeaveTarget(null)}
+        title={leaveTarget ? `Leave #${leaveTarget.name}?` : "Leave channel?"}
+        message={
+          leaveTarget?.isLocked
+            ? "This is a locked channel. A member will need to re-invite you to come back."
+            : "You can re-join from the Browse tab whenever you want."
+        }
+        confirmLabel="Leave channel"
+        danger
+        busy={leaveMut.isPending}
+        onConfirm={() => {
+          if (!leaveTarget) return;
+          leaveMut.mutate(leaveTarget.id, { onSuccess: () => setLeaveTarget(null) });
+        }}
+      />
     </>
   );
 }
@@ -165,36 +218,160 @@ function ChannelRow({
   channel: c,
   muted,
   shortcut,
+  onToggleMute,
+  onTogglePin,
+  onLeave,
+  leaving,
 }: {
   channel: ChannelDTO;
   /** Muted on this device. A channel carries no unread count, so the icon is
    *  the whole of what muting shows here. */
   muted: boolean;
   shortcut: boolean;
+  onToggleMute: () => void;
+  onTogglePin: () => void;
+  onLeave: () => void;
+  leaving: boolean;
 }) {
   const Icon = c.isLocked ? Lock : Hash;
+  // Not a NavLink around the whole row any more — see the same note on
+  // ChatsList's row: the overflow menu is a button, and a button inside a
+  // link's click target fights the link for the click. isActive is read
+  // separately here because it drove the wrapper's rowClass, not just the
+  // link's own styling.
+  const isActive = useLocation().pathname === `/app/channels/${c.id}`;
   return (
-    <NavLink
-      to={`/app/channels/${c.id}`}
-      className={({ isActive }) => rowClass(isActive)}
+    <div className={rowClass(isActive)}>
+      <NavLink to={`/app/channels/${c.id}`} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+        <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent-soft text-accent">
+          <Icon size={17} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-2">
+            <span className="truncate font-medium text-fg">{c.name}</span>
+            <span className="flex shrink-0 items-center gap-1 text-[10px] text-muted">
+              {shortcut && <Pin size={11} aria-label="Pinned" className="text-accent" />}
+              {muted && <BellOff size={11} aria-label="Muted" />}
+              {relTime(c.lastMessageAt)}
+            </span>
+          </div>
+          <div className="truncate text-sm text-muted">
+            {c.cleared
+              ? ""
+              : c.lastMessage
+                ? listPreview(c.lastMessage)
+                : `${c.memberCount} member${c.memberCount === 1 ? "" : "s"}`}
+          </div>
+        </div>
+      </NavLink>
+      <ChannelListMenu
+        muted={muted}
+        pinned={shortcut}
+        onToggleMute={onToggleMute}
+        onTogglePin={onTogglePin}
+        onLeave={onLeave}
+        leaving={leaving}
+      />
+    </div>
+  );
+}
+
+/** Overflow menu on a "My channels" row. Mirrors ChatsList's ChatListMenu —
+ *  same trigger, same popup shell — with Leave in place of Delete: a channel
+ *  is shared state you exit, not a thread only you own. */
+function ChannelListMenu({
+  muted,
+  pinned,
+  onToggleMute,
+  onTogglePin,
+  onLeave,
+  leaving,
+}: {
+  muted: boolean;
+  pinned: boolean;
+  onToggleMute: () => void;
+  onTogglePin: () => void;
+  onLeave: () => void;
+  leaving: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const close = () => setOpen(false);
+  const wrap = usePopupDismiss<HTMLDivElement>(open, close);
+  const pick = (run: () => void) => (event: React.MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    close();
+    run();
+  };
+
+  return (
+    <div ref={wrap} className="relative shrink-0" onClick={(event) => event.stopPropagation()}>
+      <button
+        type="button"
+        title="Channel options"
+        aria-label="Channel options"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={(event) => {
+          event.preventDefault();
+          setOpen((value) => !value);
+        }}
+        className="flex items-center rounded-lg px-1.5 py-1 text-muted transition-colors hover:bg-surface-2 hover:text-fg"
+      >
+        <MoreVertical size={16} />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          aria-label="Channel options"
+          className="absolute right-0 z-[1000] mt-1.5 w-52 rounded-xl border border-border bg-surface p-1 shadow-card"
+        >
+          <ChannelListMenuItem
+            icon={<Pin size={15} />}
+            label={pinned ? "Unpin Channel" : "Pin Channel"}
+            onClick={pick(onTogglePin)}
+          />
+          <ChannelListMenuItem
+            icon={<LogOut size={15} />}
+            label={leaving ? "Leaving…" : "Leave Channel"}
+            onClick={leaving ? undefined : pick(onLeave)}
+            danger
+          />
+          <ChannelListMenuItem
+            icon={muted ? <Bell size={15} /> : <BellOff size={15} />}
+            label={muted ? "Unmute Notifications" : "Mute Notifications"}
+            onClick={pick(onToggleMute)}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ChannelListMenuItem({
+  icon,
+  label,
+  onClick,
+  danger = false,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick?: (event: React.MouseEvent) => void;
+  danger?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      disabled={!onClick}
+      className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors disabled:pointer-events-none disabled:opacity-45 ${
+        danger ? "text-danger hover:bg-danger/10" : "text-fg hover:bg-surface-2"
+      }`}
     >
-      <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent-soft text-accent">
-        <Icon size={17} />
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center justify-between gap-2">
-          <span className="truncate font-medium text-fg">{c.name}</span>
-          <span className="flex shrink-0 items-center gap-1 text-[10px] text-muted">
-            {shortcut && <Bookmark size={11} aria-label="Shortcut" className="text-accent" />}
-            {muted && <BellOff size={11} aria-label="Muted" />}
-            {relTime(c.lastMessageAt)}
-          </span>
-        </div>
-        <div className="truncate text-sm text-muted">
-          {c.lastMessage ?? `${c.memberCount} member${c.memberCount === 1 ? "" : "s"}`}
-        </div>
-      </div>
-    </NavLink>
+      <span className={danger ? "" : "text-muted"}>{icon}</span>
+      <span className="font-medium">{label}</span>
+    </button>
   );
 }
 

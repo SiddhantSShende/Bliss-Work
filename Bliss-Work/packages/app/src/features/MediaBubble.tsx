@@ -168,14 +168,14 @@ function FileCard({
     >
       <div
         className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
-          mine ? "bg-white/15" : "bg-accent-soft text-accent"
+          mine ? "bg-accent-fg/15" : "bg-accent-soft text-accent"
         }`}
       >
         <FileIcon size={18} />
       </div>
       <div className="min-w-0 flex-1">
         <div className="truncate font-medium">{item.name}</div>
-        <div className={`text-xs ${mine ? "text-white/70" : "text-muted"}`}>
+        <div className={`text-xs ${mine ? "text-accent-fg/70" : "text-muted"}`}>
           {progress?.error ? (
             <span className="text-danger">{progress.error}</span>
           ) : progress?.ratio !== undefined ? (

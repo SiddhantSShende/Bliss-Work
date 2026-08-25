@@ -5,7 +5,11 @@ export const BASE = {
   task: process.env.TB_TASK ?? "http://localhost:8002",
   notif: process.env.TB_NOTIF ?? "http://localhost:8003",
   msg: process.env.TB_MSG ?? "http://localhost:8004",
+  integrations: process.env.TB_INTEGRATIONS ?? "http://localhost:8005",
   ws: process.env.TB_WS ?? "ws://localhost:8090/ws",
+  // The same port as `ws` above, over plain HTTP — for hitting ws-gateway's
+  // non-websocket routes (e.g. the internal push endpoint).
+  wsGatewayHttp: process.env.TB_WS_GATEWAY_HTTP ?? "http://localhost:8090",
   mailpit: process.env.TB_MAILPIT ?? "http://localhost:8025",
 };
 

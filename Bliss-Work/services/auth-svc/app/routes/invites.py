@@ -157,7 +157,7 @@ async def accept_invite(
     """
     try:
         async with engine.begin() as conn:
-            session, raw_refresh, user_id = await accept_invite_tx(conn, body)
+            session, raw_refresh, user_id = await accept_invite_tx(conn, body, request)
             org_id = session.user.orgId
     except InviteAtAnotherSite as elsewhere:
         # 307, not 302: the redemption is a POST carrying a password, and a 302

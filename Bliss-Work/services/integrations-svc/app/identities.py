@@ -25,7 +25,7 @@ from typing import Sequence
 import uuid6
 from sqlalchemy import text
 
-from .crypto import cryptor
+from crypto import cryptor
 
 
 async def resolve_users(

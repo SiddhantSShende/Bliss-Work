@@ -92,8 +92,15 @@
 # ─────────────────────────────────────────────────────────────────────────────
 name: task-board-prod
 
-# Shared defaults for the application services. Each reads ALL config (incl.
-# secrets) from .env.prod — nothing sensitive is inlined in this file.
+# Shared defaults for the application services. Each reads its non-secret
+# config plus most secrets from .env.prod — nothing sensitive is inlined in
+# this file. auth-svc, task-svc, messaging-svc, integrations-svc, ws-gateway,
+# delivery-svc and email-worker additionally re-list `env_file:` (below, per
+# service) to layer in ONLY the internal-service-secret file(s) they actually
+# need — `<<:` REPLACES the env_file list rather than merging it, which is
+# exactly what makes this work: a service that doesn't re-list a given
+# .env.prod.*-internal-token file never receives that secret. See
+# docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 2.
 x-svc-defaults: &svc-defaults
   restart: unless-stopped
   env_file:
@@ -765,8 +772,23 @@ services:
   # ${IMAGE_TAG} so a host can pull a known-good build instead of building.
   auth-svc:
     <<: *svc-defaults
-    build: ./services/auth-svc
+    build:
+      # Repository root, not services/auth-svc: the Dockerfile needs the
+      # sibling services/shared/* packages as local path dependencies.
+      context: .
+      dockerfile: services/auth-svc/Dockerfile
     image: ${REGISTRY_PREFIX:-task-board}/auth-svc:${IMAGE_TAG:-latest}
+    # Re-listed (not inherited) — see the x-svc-defaults note: `<<:` replaces
+    # the `env_file:` list rather than merging it. This service's OWN internal
+    # secret (validates callers of /internal/*) is a separate file from the
+    # shared .env.prod so notification-svc/graph-gw/telemetry-svc — which
+    # never call it — never receive it. See
+    # docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 2.
+    env_file:
+      - path: .env.prod
+        required: false
+      - path: .env.prod.auth-internal-token
+        required: false
     volumes:
       - ./keys:/keys:ro   # Ed25519 keypair — provisioned per-env, gitignored.
       # Re-listed (not inherited) — see the x-svc-defaults note: `<<:` replaces
@@ -791,8 +813,24 @@ services:
 
   email-worker:
     <<: *svc-defaults
-    build: ./services/email-worker
+    build:
+      # Repository root, not services/email-worker: the Dockerfile needs the
+      # sibling services/shared/* packages as local path dependencies.
+      context: .
+      dockerfile: services/email-worker/Dockerfile
     image: ${REGISTRY_PREFIX:-task-board}/email-worker:${IMAGE_TAG:-latest}
+    # email-worker CALLS auth-svc, messaging-svc and integrations-svc's
+    # /internal/* routes — it needs exactly those three secrets, and only
+    # those three. See docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 2.
+    env_file:
+      - path: .env.prod
+        required: false
+      - path: .env.prod.auth-internal-token
+        required: false
+      - path: .env.prod.messaging-internal-token
+        required: false
+      - path: .env.prod.integrations-internal-token
+        required: false
     # Pure Kafka consumer — no HTTP port, no /readyz. Liveness is process-up.
     depends_on:
       postgres: { condition: service_healthy }
@@ -804,8 +842,22 @@ services:
 
   task-svc:
     <<: *svc-defaults
-    build: ./services/task-svc
+    build:
+      # Repository root, not services/task-svc: the Dockerfile needs the
+      # sibling services/shared/* packages as local path dependencies.
+      context: .
+      dockerfile: services/task-svc/Dockerfile
     image: ${REGISTRY_PREFIX:-task-board}/task-svc:${IMAGE_TAG:-latest}
+    # This service's OWN internal secret (validates /internal/tasks/by-title)
+    # plus messaging-svc's (it CALLS /internal/channels/{id}/members) — see
+    # docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 2.
+    env_file:
+      - path: .env.prod
+        required: false
+      - path: .env.prod.task-internal-token
+        required: false
+      - path: .env.prod.messaging-internal-token
+        required: false
     depends_on:
       postgres: { condition: service_healthy }
       kafka-init: { condition: service_completed_successfully }
@@ -824,7 +876,11 @@ services:
 
   notification-svc:
     <<: *svc-defaults
-    build: ./services/notification-svc
+    build:
+      # Repository root, not services/notification-svc: the Dockerfile needs the
+      # sibling services/shared/* packages as local path dependencies.
+      context: .
+      dockerfile: services/notification-svc/Dockerfile
     image: ${REGISTRY_PREFIX:-task-board}/notification-svc:${IMAGE_TAG:-latest}
     depends_on:
       postgres: { condition: service_healthy }
@@ -845,8 +901,20 @@ services:
 
   messaging-svc:
     <<: *svc-defaults
-    build: ./services/messaging-svc
+    build:
+      # Repository root, not services/messaging-svc: the Dockerfile needs the
+      # sibling services/shared/* packages as local path dependencies.
+      context: .
+      dockerfile: services/messaging-svc/Dockerfile
     image: ${REGISTRY_PREFIX:-task-board}/messaging-svc:${IMAGE_TAG:-latest}
+    # This service's OWN internal secret — validates callers of its 5
+    # /internal/* routes (task-svc, ws-gateway, integrations-svc,
+    # email-worker). See docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 2.
+    env_file:
+      - path: .env.prod
+        required: false
+      - path: .env.prod.messaging-internal-token
+        required: false
     # Chat attachment bytes live on a named volume. `read_only: true` from the
     # anchor still applies — a volume mount stays writable regardless — and it is
     # the ONLY writable path in the container (/tmp is a small in-memory tmpfs,
@@ -880,8 +948,22 @@ services:
 
   integrations-svc:
     <<: *svc-defaults
-    build: ./services/integrations-svc
+    build:
+      # Repository root, not services/integrations-svc: the Dockerfile needs the
+      # sibling services/shared/* packages as local path dependencies.
+      context: .
+      dockerfile: services/integrations-svc/Dockerfile
     image: ${REGISTRY_PREFIX:-task-board}/integrations-svc:${IMAGE_TAG:-latest}
+    # This service's OWN internal secret (validates /internal/messages/send,
+    # /internal/mail/send) plus messaging-svc's (it CALLS /internal/mail/
+    # inbound) — see docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 2.
+    env_file:
+      - path: .env.prod
+        required: false
+      - path: .env.prod.integrations-internal-token
+        required: false
+      - path: .env.prod.messaging-internal-token
+        required: false
     depends_on:
       postgres: { condition: service_healthy }
       kafka-init: { condition: service_completed_successfully }
@@ -900,7 +982,11 @@ services:
 
   telemetry-svc:
     <<: *svc-defaults
-    build: ./services/telemetry-svc
+    build:
+      # Repository root, not services/telemetry-svc: the Dockerfile needs the
+      # sibling services/shared/* packages as local path dependencies.
+      context: .
+      dockerfile: services/telemetry-svc/Dockerfile
     image: ${REGISTRY_PREFIX:-task-board}/telemetry-svc:${IMAGE_TAG:-latest}
     depends_on:
       postgres: { condition: service_healthy }
@@ -920,8 +1006,23 @@ services:
 
   ws-gateway:
     <<: *svc-defaults
-    build: ./services/ws-gateway
+    build:
+      # Repository root, not services/ws-gateway: the Dockerfile needs the
+      # sibling services/shared/* packages as local path dependencies.
+      context: .
+      dockerfile: services/ws-gateway/Dockerfile
     image: ${REGISTRY_PREFIX:-task-board}/ws-gateway:${IMAGE_TAG:-latest}
+    # This service's OWN internal secret (validates /internal/push, and is
+    # also what delivery-svc below uses to call it) plus messaging-svc's (the
+    # delivery-ack dispatcher CALLS /internal/messages/delivered) — see
+    # docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 2.
+    env_file:
+      - path: .env.prod
+        required: false
+      - path: .env.prod.ws-gateway-internal-token
+        required: false
+      - path: .env.prod.messaging-internal-token
+        required: false
     depends_on:
       redis: { condition: service_healthy }
       kafka-init: { condition: service_completed_successfully }
@@ -985,9 +1086,21 @@ services:
   delivery-svc:
     <<: *svc-defaults
     profiles: [routed]
-    build: ./services/ws-gateway
+    build:
+      # Repository root, not services/ws-gateway: the Dockerfile needs the
+      # sibling services/shared/* packages as local path dependencies.
+      context: .
+      dockerfile: services/ws-gateway/Dockerfile
     image: ${REGISTRY_PREFIX:-task-board}/ws-gateway:${IMAGE_TAG:-latest}
     entrypoint: ["/usr/local/bin/delivery-svc"]
+    # delivery-svc only CALLS ws-gateway nodes' /internal/push — it needs the
+    # gateway's secret and nothing else (not messaging-svc's — it never talks
+    # to messaging-svc). See docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 2.
+    env_file:
+      - path: .env.prod
+        required: false
+      - path: .env.prod.ws-gateway-internal-token
+        required: false
     depends_on:
       redis: { condition: service_healthy }
       kafka-init: { condition: service_completed_successfully }

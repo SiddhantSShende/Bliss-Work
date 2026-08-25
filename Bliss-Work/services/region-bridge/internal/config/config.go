@@ -43,6 +43,16 @@ type Config struct {
 	// NATSCredentials is a path to a NATS credentials file (JWT/nkey). Empty
 	// means an unauthenticated connection, which is for dev only.
 	NATSCredentials string
+	// NATSTLSCA/NATSTLSCert/NATSTLSKey configure TLS on the bridge's connection
+	// to its LOCAL NATS cluster. This is a distinct concern from the
+	// cluster/gateway TLS in infra/nats/*.conf, which secures NATS-server-to-
+	// NATS-server traffic (intra-region routes and the cross-region gateway) —
+	// that half is entirely server config and this process is not a party to
+	// it. All three empty means an unencrypted client connection, which is what
+	// the single-node dev server expects and is not fine anywhere else.
+	NATSTLSCA   string
+	NATSTLSCert string
+	NATSTLSKey  string
 	// PeerAPIPrefixes maps a peer region to the JetStream API prefix its
 	// streams live behind, for the topologies where regions are separate
 	// JetStream DOMAINS (leaf nodes) rather than one super-cluster account.
@@ -107,6 +117,9 @@ func Load() (*Config, error) {
 		KafkaGroupID:    envOr("BRIDGE_KAFKA_GROUP", "region-bridge"),
 		NATSURL:         envOr("NATS_URL", "nats://nats:4222"),
 		NATSCredentials: os.Getenv("NATS_CREDENTIALS"),
+		NATSTLSCA:       os.Getenv("NATS_TLS_CA"),
+		NATSTLSCert:     os.Getenv("NATS_TLS_CERT"),
+		NATSTLSKey:      os.Getenv("NATS_TLS_KEY"),
 		PeerAPIPrefixes: parseMap(os.Getenv("BRIDGE_PEER_API_PREFIXES")),
 		ExportEnabled:   boolOr("BRIDGE_EXPORT_ENABLED", true),
 		ImportEnabled:   boolOr("BRIDGE_IMPORT_ENABLED", true),
@@ -185,6 +198,12 @@ func Load() (*Config, error) {
 	if c.DedupeWindow <= 0 {
 		return nil, fmt.Errorf("BRIDGE_DEDUPE_WINDOW must be positive: retries rely on it to be idempotent")
 	}
+	// A cert without its key (or vice versa) is not "half configured" — it is a
+	// connection that nats.go will refuse to make, and refusing here says why in
+	// one line instead of in whatever nats.Connect's wrapped error happens to be.
+	if (c.NATSTLSCert == "") != (c.NATSTLSKey == "") {
+		return nil, fmt.Errorf("NATS_TLS_CERT and NATS_TLS_KEY must be set together, or not at all")
+	}
 	return c, nil
 }
 
@@ -199,12 +218,12 @@ func Load() (*Config, error) {
 const defaultTopics = "messaging.events.v1,task.events.v1,notification.events.v1,integration.events.v1,auth.events,routing.events.v1"
 
 // OutboundStream is the name of the stream this region publishes into.
-func (c *Config) OutboundStream() string { return "EVENTS_OUT_" + upper(c.Region) }
+func (c *Config) OutboundStream() string { return "EVENTS_OUT_" + Upper(c.Region) }
 
 // InboundStream is the name of the stream this region imports from. It sources
 // every peer's OUTBOUND stream and never its inbound one — sourcing an inbound
 // stream is precisely how a mesh becomes a cycle.
-func (c *Config) InboundStream() string { return "EVENTS_IN_" + upper(c.Region) }
+func (c *Config) InboundStream() string { return "EVENTS_IN_" + Upper(c.Region) }
 
 // SubjectPrefix is the root of every subject this region publishes.
 func (c *Config) SubjectPrefix() string { return "evt." + c.Region }
@@ -212,7 +231,9 @@ func (c *Config) SubjectPrefix() string { return "evt." + c.Region }
 // SubjectFor is where one Kafka topic's events are published.
 func (c *Config) SubjectFor(topic string) string { return c.SubjectPrefix() + "." + topic }
 
-func upper(s string) string { return strings.ToUpper(strings.ReplaceAll(s, "-", "_")) }
+// Upper normalizes a region name into the token used inside stream and
+// subject names (uppercase, hyphens folded to underscores).
+func Upper(s string) string { return strings.ToUpper(strings.ReplaceAll(s, "-", "_")) }
 
 // parseMap reads a `k=v,k=v` list. A malformed entry is skipped rather than
 // fatal: the field is optional, and the only deployments that set it are the

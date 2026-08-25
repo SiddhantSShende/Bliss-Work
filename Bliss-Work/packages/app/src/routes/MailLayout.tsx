@@ -29,19 +29,19 @@ export function MailLayout() {
   const backToList = { pathname: "/app/mail/all", search: mailSearch(folderOf(params), peerOf(params)) };
 
   return (
-    <div className="flex h-full min-w-0">
+    <div className="flex h-full min-w-0 gap-2">
       <div
         className={
           detailOpen
-            ? "hidden min-w-0 flex-col border-border/60 xl:flex xl:w-[21rem] xl:shrink-0 xl:border-r 2xl:w-[24rem]"
-            : "flex min-w-0 flex-1 flex-col border-border/60 xl:w-[21rem] xl:flex-none xl:border-r 2xl:w-[24rem]"
+            ? "glass hidden min-w-0 flex-col overflow-hidden rounded-2xl xl:flex xl:w-[21rem] xl:shrink-0 2xl:w-[24rem]"
+            : "glass flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl xl:w-[21rem] xl:flex-none 2xl:w-[24rem]"
         }
       >
         <MailList />
       </div>
 
       <section
-        className={`min-w-0 flex-col ${detailOpen ? "flex flex-1" : "hidden flex-1 xl:flex"}`}
+        className={`glass min-w-0 flex-col overflow-hidden rounded-2xl ${detailOpen ? "flex flex-1" : "hidden flex-1 xl:flex"}`}
       >
         {detailOpen && (
           // Narrow windows put the reading pane OVER the list, so it needs its

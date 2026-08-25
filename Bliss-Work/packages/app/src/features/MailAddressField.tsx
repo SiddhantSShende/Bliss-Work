@@ -156,7 +156,7 @@ export function MailAddressField({
               }}
               className="flex w-full items-center gap-2.5 rounded-lg p-2 text-left hover:bg-surface-2"
             >
-              <Avatar name={u.displayName} size="sm" />
+              <Avatar name={u.displayName} src={u.avatarUrl} size="sm" />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm text-fg">{u.displayName}</span>
                 <span className="block truncate text-xs text-muted">{u.email}</span>

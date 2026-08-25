@@ -36,7 +36,7 @@ from ..config import settings
 from ..db import engine
 from ..events.outbox import TOPIC_AUTH, build_event, enqueue_event
 from ..logging_config import log
-from ..schemas import DeleteOrgRequest, OrgLifecycleDTO
+from ..schemas import DeleteOrgRequest, OrgLifecycleDTO, OrgMfaSettingsDTO, OrgMfaSettingsRequest
 from ..security.auth_dep import Principal, require_org_admin
 from ..security.origin import enforce_origin
 from .invites_service import iso_z
@@ -222,3 +222,76 @@ async def cancel_delete(
         )
         log.info("org_delete_cancelled", org_id=principal.org_id, actor_id=principal.user_id)
         return await _load(conn, principal.org_id)
+
+
+async def _load_mfa_settings(conn, org_id: str) -> OrgMfaSettingsDTO:
+    row = (
+        await conn.execute(
+            text("SELECT require_mfa_for_admins, mfa_grace_period_ends_at FROM orgs WHERE id = :org"),
+            {"org": org_id},
+        )
+    ).first()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "organization not found")
+    return OrgMfaSettingsDTO(
+        requireMfaForAdmins=bool(row.require_mfa_for_admins),
+        mfaGracePeriodEndsAt=iso_z(row.mfa_grace_period_ends_at) if row.mfa_grace_period_ends_at else None,
+    )
+
+
+@router.get("/org/mfa", response_model=OrgMfaSettingsDTO)
+async def get_mfa_settings(principal: Principal = Depends(require_org_admin)) -> OrgMfaSettingsDTO:
+    """The mandatory-MFA-for-admins policy + grace-period deadline, for the
+    settings screen (see docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 7)."""
+    async with engine.connect() as conn:
+        await service.set_org_guc(conn, principal.org_id)
+        return await _load_mfa_settings(conn, principal.org_id)
+
+
+@router.post(
+    "/org/mfa",
+    response_model=OrgMfaSettingsDTO,
+    dependencies=[Depends(enforce_origin)],
+)
+async def set_mfa_settings(
+    body: OrgMfaSettingsRequest, principal: Principal = Depends(require_org_admin)
+) -> OrgMfaSettingsDTO:
+    """Toggle the mandatory-MFA-for-admins policy.
+
+    Turning it ON stamps a fresh grace-period deadline (mfa_grace_period_days
+    out) — non-enrolled admins see a banner during the window and are blocked
+    at the password step only once it passes (see mfa_service.mfa_gate).
+    Turning it OFF clears the deadline outright: a policy that is off again
+    should not leave a stale future date around for the next time it's
+    switched back on.
+    """
+    async with engine.begin() as conn:
+        await service.set_org_guc(conn, principal.org_id)
+        await require_live_admin(conn, principal)
+        grace_ends = (
+            datetime.now(timezone.utc) + timedelta(days=settings.mfa_grace_period_days)
+            if body.requireMfaForAdmins
+            else None
+        )
+        await conn.execute(
+            text(
+                "UPDATE orgs SET require_mfa_for_admins = :req, mfa_grace_period_ends_at = :ends "
+                "WHERE id = :org"
+            ),
+            {"req": body.requireMfaForAdmins, "ends": grace_ends, "org": principal.org_id},
+        )
+        await service.write_audit(
+            conn,
+            org_id=principal.org_id,
+            actor_id=principal.user_id,
+            action="org.mfa_policy_changed",
+            target=principal.org_id,
+            meta={"requireMfaForAdmins": body.requireMfaForAdmins},
+        )
+        log.info(
+            "org_mfa_policy_changed",
+            org_id=principal.org_id,
+            actor_id=principal.user_id,
+            require_mfa_for_admins=body.requireMfaForAdmins,
+        )
+        return await _load_mfa_settings(conn, principal.org_id)

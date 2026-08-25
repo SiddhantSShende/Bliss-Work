@@ -11,12 +11,12 @@
  * been republished.
  */
 import { useEffect, useRef } from "react";
-import { Hand, MicOff, Pin, PinOff, ScreenShare } from "lucide-react";
+import { Hand, MicOff, Monitor, Pin, PinOff, ScreenShare } from "lucide-react";
 import { cn } from "@taskboard/ui";
 import type { RoomParticipant } from "../lib/useCallRoom";
 
 /** How big this tile is, which decides what it has room to say. */
-export type TileSize = "stage" | "grid" | "strip";
+type TileSize = "stage" | "grid" | "strip";
 
 const NAME_TEXT: Record<TileSize, string> = {
   stage: "text-sm",
@@ -63,6 +63,14 @@ export function CallTile({
   const shown = p.sharing ? p.screenTrack : p.videoTrack;
   // Mirrors the condition the <video> element is rendered under, below.
   const showVideo = p.camOn || p.sharing;
+  // The sharer's OWN capture, played back to themselves, is a video-feedback
+  // loop rather than a picture: "Entire screen" (or a window/tab that includes
+  // this app) captures the very tile that is showing the capture, so every
+  // frame contains the previous one — a mirror that gets worse, not better,
+  // once native Picture-in-Picture puts a second copy on top (see CallRoom's
+  // pipTrack, which excludes this same case). A static reminder replaces the
+  // live feed instead; everyone else still sees the real thing.
+  const selfSharePreview = p.isLocal && p.sharing;
 
   // ── Why these deps, and not just the track ──────────────────────────────────
   // The <video> element is CONDITIONALLY RENDERED. Turning the camera off
@@ -84,12 +92,12 @@ export function CallTile({
   useEffect(() => {
     const el = videoRef.current;
     const track = shown;
-    if (!el || !track || !showVideo) return;
+    if (!el || !track || !showVideo || selfSharePreview) return;
     track.attach(el);
     return () => {
       track.detach(el);
     };
-  }, [shown, showVideo, streamId]);
+  }, [shown, showVideo, streamId, selfSharePreview]);
 
   const audioStreamId = p.audioTrack?.mediaStreamTrack?.id;
 
@@ -114,7 +122,12 @@ export function CallTile({
         pinned && size !== "stage" && "ring-accent/60",
       )}
     >
-      {p.camOn || p.sharing ? (
+      {selfSharePreview ? (
+        <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-black px-2 text-center text-white">
+          <Monitor size={size === "strip" ? 18 : 28} className="text-red-400" />
+          <span className={cn("font-medium", NAME_TEXT[size])}>You're presenting your screen</span>
+        </div>
+      ) : p.camOn || p.sharing ? (
         <video
           ref={videoRef}
           autoPlay
@@ -125,7 +138,6 @@ export function CallTile({
           className={cn(
             "h-full w-full",
             p.sharing ? "bg-black object-contain" : "object-cover",
-            p.isLocal && "-scale-x-100",
           )}
         />
       ) : (

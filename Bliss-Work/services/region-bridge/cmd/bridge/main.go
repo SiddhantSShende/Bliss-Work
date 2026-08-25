@@ -161,6 +161,14 @@ func connectNATS(cfg *config.Config, state *health.State, log *slog.Logger) (*na
 	if cfg.NATSCredentials != "" {
 		opts = append(opts, nats.UserCredentials(cfg.NATSCredentials))
 	}
+	if cfg.NATSTLSCA != "" {
+		opts = append(opts, nats.RootCAs(cfg.NATSTLSCA))
+	}
+	if cfg.NATSTLSCert != "" {
+		// config.Load already refused a cert without its key, so this is safe to
+		// pair unconditionally.
+		opts = append(opts, nats.ClientCert(cfg.NATSTLSCert, cfg.NATSTLSKey))
+	}
 	nc, err := nats.Connect(cfg.NATSURL, opts...)
 	if err != nil {
 		return nil, nil, err

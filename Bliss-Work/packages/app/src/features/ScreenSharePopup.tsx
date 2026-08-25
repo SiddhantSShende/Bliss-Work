@@ -46,13 +46,13 @@ export function ScreenSharePopup({
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: 40, opacity: 0 }}
             transition={{ type: "spring", stiffness: 420, damping: 34 }}
-            className="flex items-center gap-1.5 rounded-l-xl border border-r-0 border-red-500/40 bg-surface/95 py-2.5 pl-3 pr-2.5 shadow-card backdrop-blur"
+            className="flex items-center gap-1.5 rounded-l-xl border border-r-0 border-danger/40 bg-surface/95 py-2.5 pl-3 pr-2.5 shadow-card backdrop-blur"
           >
             <span className="relative flex h-2 w-2 shrink-0">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-70" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-danger opacity-70" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-danger" />
             </span>
-            <ScreenShare size={16} className="text-red-500" />
+            <ScreenShare size={16} className="text-danger" />
           </motion.button>
         ) : (
           <motion.div
@@ -63,9 +63,9 @@ export function ScreenSharePopup({
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: 40, opacity: 0 }}
             transition={{ type: "spring", stiffness: 420, damping: 34 }}
-            className="mr-4 flex max-w-[calc(100vw-2rem)] items-center gap-3 rounded-xl border border-red-500/40 bg-surface/95 py-2.5 pl-3.5 pr-2.5 shadow-card backdrop-blur"
+            className="mr-4 flex max-w-[calc(100vw-2rem)] items-center gap-3 rounded-xl border border-danger/40 bg-surface/95 py-2.5 pl-3.5 pr-2.5 shadow-card backdrop-blur"
           >
-            <ScreenShare size={18} className="shrink-0 text-red-500" />
+            <ScreenShare size={18} className="shrink-0 text-danger" />
             <div className="min-w-0 leading-tight">
               <div className="truncate text-sm font-semibold text-fg">
                 You're sharing your screen
@@ -77,7 +77,7 @@ export function ScreenSharePopup({
               onClick={onStop}
               title="Stop sharing"
               aria-label="Stop sharing"
-              className="flex shrink-0 items-center gap-1.5 rounded-lg bg-red-500 px-2.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-red-600"
+              className="flex shrink-0 items-center gap-1.5 rounded-lg bg-danger px-2.5 py-1.5 text-xs font-semibold text-white transition-colors hover:brightness-90"
             >
               <Square size={12} fill="currentColor" />
               Stop

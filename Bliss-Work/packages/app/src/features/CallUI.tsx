@@ -94,8 +94,8 @@ function RoundButton({
 }) {
   const tones = {
     neutral: "bg-white/15 hover:bg-white/25 text-white",
-    green: "bg-emerald-500 hover:bg-emerald-600 text-white",
-    red: "bg-red-500 hover:bg-red-600 text-white",
+    green: "bg-success hover:brightness-90 text-white",
+    red: "bg-danger hover:brightness-90 text-white",
   };
   return (
     <button

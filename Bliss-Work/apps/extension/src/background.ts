@@ -17,6 +17,25 @@
  */
 import { recordableSite, selfDomain, SELF, toAgentEvent, toVisit, type Candidate } from "./tracker";
 
+/**
+ * Which browser this build reports as, for `detail.browser`.
+ *
+ * Injected by esbuild's `define` at BUILD time (see build.mjs's `--target`
+ * flag), never sniffed from a user agent or feature-detected at runtime — a
+ * build's own identity is a fact the build process already knows, and
+ * runtime sniffing is the kind of thing that quietly drifts (a new Chromium
+ * fork ships, the UA string changes format, an extension update lags a
+ * rename) in a way a compile-time constant cannot. `__BROWSER__` is replaced
+ * with a literal string during bundling; there is no such global at runtime,
+ * so running this file un-bundled (e.g. under vitest) would throw — which is
+ * why background.ts itself is never imported directly by a test, only
+ * tracker.ts and siteEnrichment.ts are (see their own "free of chrome.*"
+ * docblocks). Defaults to "chrome" only via build.mjs's own `--target`
+ * default, not via a runtime fallback in this file.
+ */
+declare const __BROWSER__: string;
+const BROWSER = __BROWSER__;
+
 const FLUSH_ALARM = "blisswork-flush";
 const FLUSH_MINUTES = 1;
 const MAX_QUEUED = 300;
@@ -38,6 +57,15 @@ interface OpenSpan {
    * does not survive to the moment the row is built.
    */
   from?: string;
+  /**
+   * The tab's title, refreshed on every event that touches this span (a title
+   * that changes without a URL change — a SPA setting `document.title`, a page
+   * finishing its load — updates this in place rather than waiting for the
+   * next navigation). What closeSpan reports is therefore the freshest title
+   * seen while the span was open, not necessarily the one present at the very
+   * first moment it opened.
+   */
+  title?: string;
 }
 
 interface Config {
@@ -118,11 +146,16 @@ async function closeSpan(now = Date.now()): Promise<void> {
   await setOpen(null);
   if (!open) return;
   const cfg = await config();
-  const candidate: Candidate = { url: open.url, incognito: open.incognito };
+  const candidate: Candidate = { url: open.url, incognito: open.incognito, title: open.title };
   const visit = toVisit(
     candidate, open.startedAt, now - open.startedAt, captureOpts(cfg), open.from,
   );
-  if (visit) await enqueue([toAgentEvent(visit)]);
+  if (!visit) return;
+  const event = toAgentEvent(visit);
+  // `browser` is a per-BUILD fact, not something tracker.ts's pure functions
+  // can know — set here rather than threading it through Visit/toAgentEvent,
+  // which stay browser-agnostic so the same tracker.ts serves every build.
+  await enqueue([{ ...event, detail: { ...event.detail, browser: BROWSER } }]);
 }
 
 /**
@@ -145,7 +178,7 @@ function sourceName(open: OpenSpan | null, cfg: Config): string | undefined {
 }
 
 /** Point the tracker at a new tab, closing whatever was open. */
-async function focus(url: string | undefined, incognito: boolean): Promise<void> {
+async function focus(url: string | undefined, incognito: boolean, title?: string): Promise<void> {
   const cfg = await config();
   if (!cfg.token || cfg.paused) return;
   // Read the outgoing span BEFORE closeSpan clears it — that tab is the answer
@@ -153,7 +186,24 @@ async function focus(url: string | undefined, incognito: boolean): Promise<void>
   const from = sourceName(await getOpen(), cfg);
   await closeSpan();
   if (!url) return;
-  await setOpen({ url, incognito, startedAt: Date.now(), ...(from ? { from } : {}) });
+  await setOpen({
+    url, incognito, startedAt: Date.now(),
+    ...(from ? { from } : {}), ...(title ? { title } : {}),
+  });
+}
+
+/**
+ * Refresh the open span's title without touching its URL, start time, or
+ * `from` — the same tab, later, with a title the page changed after it loaded
+ * (a SPA setting `document.title`, a page whose <title> was empty at first
+ * paint and filled in afterward). Silently a no-op if the update is for some
+ * OTHER tab than the one currently open, or if the title is unchanged.
+ */
+async function refreshTitle(url: string | undefined, title: string | undefined): Promise<void> {
+  if (!title) return;
+  const open = await getOpen();
+  if (!open || open.url !== url || open.title === title) return;
+  await setOpen({ ...open, title });
 }
 
 async function flush(): Promise<void> {
@@ -200,17 +250,29 @@ async function setBadge(text: string): Promise<void> {
 chrome.tabs.onActivated.addListener(async ({ tabId }) => {
   try {
     const tab = await chrome.tabs.get(tabId);
-    await focus(tab.url, tab.incognito === true);
+    await focus(tab.url, tab.incognito === true, tab.title);
   } catch {
     /* the tab closed between the event and the lookup */
   }
 });
 
 chrome.tabs.onUpdated.addListener(async (_id, change, tab) => {
-  // Only a committed URL change matters. `status: loading` fires for every
-  // in-page state change on modern sites and would shred one visit into dozens.
-  if (!change.url || !tab.active) return;
-  await focus(change.url, tab.incognito === true);
+  // A committed URL change opens a new span. `status: loading` fires for every
+  // in-page state change on modern sites and would shred one visit into
+  // dozens, so only `change.url` triggers a switch.
+  if (change.url && tab.active) {
+    await focus(change.url, tab.incognito === true, tab.title);
+    return;
+  }
+  // A title change with NO url change is the same page updating its own
+  // title after the span already opened — a SPA route, a page whose <title>
+  // fills in after first paint, a YouTube tab reaching the point where the
+  // video's real title replaces a loading placeholder. Refreshed in place
+  // rather than opening a new span, which would record one video as several
+  // shorter, less accurate visits.
+  if (change.title && tab.active && tab.url) {
+    await refreshTitle(tab.url, change.title);
+  }
 });
 
 chrome.windows.onFocusChanged.addListener(async (windowId) => {
@@ -223,7 +285,7 @@ chrome.windows.onFocusChanged.addListener(async (windowId) => {
   }
   try {
     const [tab] = await chrome.tabs.query({ active: true, windowId });
-    if (tab) await focus(tab.url, tab.incognito === true);
+    if (tab) await focus(tab.url, tab.incognito === true, tab.title);
   } catch {
     /* window vanished */
   }

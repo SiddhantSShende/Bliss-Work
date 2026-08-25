@@ -276,9 +276,10 @@ instead of relieving it. The work below is staged around removing that.
   now move with the cap and both files say so.
 - **Kafka SASL_SSL wired at every client.** All 17 of them across 8 services,
   which is rather more than the "five call sites" an earlier note estimated:
-  Go via `internal/kafkaauth`, Python via `app/kafka_security.py`. Unset means
-  PLAINTEXT; a SASL protocol with no credentials is a startup error rather than
-  a silent fallback.
+  Go via the shared `services/shared/kafkaauth` module, Python via the shared
+  `services/shared/kafka_security` package. Unset means PLAINTEXT; a SASL
+  protocol with no credentials is a startup error rather than a silent
+  fallback.
 
 **Stage 2 — instrumentation.** Done. The gateway had two metrics, neither of
 which said anything about the constraint above. It now exports the fan-out

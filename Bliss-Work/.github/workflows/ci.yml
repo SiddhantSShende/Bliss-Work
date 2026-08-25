@@ -38,7 +38,11 @@ jobs:
             services/auth-svc \
             services/task-svc \
             services/email-worker \
-            services/integrations-svc
+            services/integrations-svc \
+            services/shared/kafka_security \
+            services/shared/crypto \
+            services/shared/tracing \
+            services/shared/internal_auth
       - name: ruff format --check
         # Formatting drift is surfaced but does not fail the build (no repo
         # style config committed yet); flip to blocking once a style is agreed.
@@ -48,7 +52,11 @@ jobs:
             services/auth-svc \
             services/task-svc \
             services/email-worker \
-            services/integrations-svc
+            services/integrations-svc \
+            services/shared/kafka_security \
+            services/shared/crypto \
+            services/shared/tracing \
+            services/shared/internal_auth
 
   lint-go:
     name: Lint (Go · golangci-lint)
@@ -56,7 +64,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [notification-svc, messaging-svc, ws-gateway]
+        service: [notification-svc, messaging-svc, ws-gateway, shared/kafkaauth, shared/internalauth]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -193,6 +201,35 @@ jobs:
           . .venv/bin/activate
           pytest -m "not integration" --cov=app --cov-report=term-missing
 
+  test-python-shared:
+    # Each services/shared/<pkg> is its own local package (installed by every
+    # service that needs it via a local path requirement, not copied), so its
+    # own suite needs its own job — it has no app/ directory and
+    # pytest --cov=app above would not reach it.
+    name: Test (Python · shared ${{ matrix.pkg }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pkg: [kafka_security, crypto, tracing, internal_auth]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Create venv and install deps
+        working-directory: services/shared/${{ matrix.pkg }}
+        run: |
+          python -m venv .venv
+          . .venv/bin/activate
+          python -m pip install --upgrade pip
+          pip install -e . -r requirements-dev.txt
+      - name: pytest
+        working-directory: services/shared/${{ matrix.pkg }}
+        run: |
+          . .venv/bin/activate
+          pytest
+
   test-integration:
     name: Test (Python · integration / testcontainers)
     runs-on: ubuntu-latest
@@ -201,8 +238,10 @@ jobs:
       fail-fast: false
       matrix:
         # auth-svc: RLS isolation. integrations-svc: mentions API + claim→task
-        # idempotency against a real Postgres. Extend as integration suites grow.
-        service: [auth-svc, integrations-svc]
+        # idempotency against a real Postgres. task-svc: the internal by-title
+        # delete endpoint's org-scoping (see docs/AUTH_AUTHZ_REMEDIATION_PLAN.md
+        # Phase 1). Extend as integration suites grow.
+        service: [auth-svc, integrations-svc, task-svc]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
@@ -227,7 +266,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [notification-svc, messaging-svc, ws-gateway]
+        service: [notification-svc, messaging-svc, ws-gateway, shared/kafkaauth, shared/internalauth]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -410,7 +449,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [notification-svc, messaging-svc, ws-gateway]
+        service: [notification-svc, messaging-svc, ws-gateway, shared/kafkaauth, shared/internalauth]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -509,11 +548,11 @@ jobs:
             -kubernetes-version 1.30.0 /tmp/rendered.yaml
 
   # ───────────────────────────────────────────────────────────────────────────
-  # E2E — full stack via docker compose, seeded, then the demo flow.
+  # E2E — full stack via docker compose, seeded, then the cross-org authz suite.
   # (Preserved from the original pipeline; gated behind cheaper checks.)
   # ───────────────────────────────────────────────────────────────────────────
   e2e:
-    name: E2E (compose · seed · demo)
+    name: E2E (compose · seed · security-authz)
     runs-on: ubuntu-latest
     needs: [lint-js, test-go]
     steps:
@@ -538,7 +577,10 @@ jobs:
       - run: docker compose up -d --build
       - run: bash scripts/wait-for.sh
       - run: npm run seed
-      - run: npm run demo
+      - name: Cross-org authorization regression
+        run: npm run test:authz
+      - name: Internal-service-secret identity regression
+        run: npm run test:internal-token-identity
       - if: always()
         run: docker compose logs --no-color > compose-logs.txt
       - if: always()

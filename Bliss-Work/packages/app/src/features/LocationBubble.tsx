@@ -58,7 +58,7 @@ export function LocationBubble({
         {!url && (
           <div
             className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
-              mine ? "bg-white/15" : "bg-accent-soft text-accent"
+              mine ? "bg-accent-fg/15" : "bg-accent-soft text-accent"
             }`}
           >
             <MapPin size={18} />
@@ -66,7 +66,7 @@ export function LocationBubble({
         )}
         <div className="min-w-0 flex-1">
           <div className="truncate font-medium">{title}</div>
-          <div className={`truncate text-xs ${mine ? "text-white/70" : "text-muted"}`}>
+          <div className={`truncate text-xs ${mine ? "text-accent-fg/70" : "text-muted"}`}>
             {formatCoords(env.lat, env.lng)}
             {env.accuracy !== undefined && env.accuracy > 0
               ? ` · ±${Math.round(env.accuracy)} m`
@@ -79,7 +79,7 @@ export function LocationBubble({
           rel="noopener noreferrer"
           title="Open in Maps"
           className={`inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[12px] font-medium transition-colors ${
-            mine ? "bg-white/15 hover:bg-white/25" : "border border-border text-fg hover:bg-surface-2"
+            mine ? "bg-accent-fg/15 hover:bg-accent-fg/25" : "border border-border text-fg hover:bg-surface-2"
           }`}
         >
           <ExternalLink size={13} /> Open

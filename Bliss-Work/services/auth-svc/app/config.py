@@ -20,7 +20,15 @@ class Settings(BaseSettings):
 
     # JWT / signing
     jwt_issuer: str = "task-board"
-    jwt_access_ttl_seconds: int = 900
+    # 5 minutes, not 15: verify_bearer (security/auth_dep.py) is purely
+    # stateless with no revocation check, so logout cannot invalidate an
+    # already-issued access token — only the refresh-token family. Shortening
+    # the TTL bounds that residual window instead of adding a cross-service
+    # revocation store (every JWT-verifying service — 5 Python/Go services —
+    # would need one). Logout revokes the refresh-token family; an access
+    # token issued just before logout may remain valid until it expires. See
+    # docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 8.
+    jwt_access_ttl_seconds: int = 300
     jwt_refresh_ttl_seconds: int = 2592000
     jwt_private_key_path: str = "/keys/ed25519_private.pem"
     jwt_public_key_path: str = "/keys/ed25519_public.pem"
@@ -49,6 +57,24 @@ class Settings(BaseSettings):
     login_max_failed_attempts: int = 8
     lockout_minutes: int = 15
     require_email_verification: bool = False
+
+    # ── MFA (TOTP + WebAuthn) ────────────────────────────────────────────────
+    # Lifetime of the server-only "MFA pending" token minted after a correct
+    # password when a second factor is still owed. Short: it exists only to
+    # ferry the caller from POST /auth/login to the challenge-verify endpoint
+    # in the same page load. See docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 7.
+    mfa_pending_ttl_minutes: int = 5
+    # When an org toggles require_mfa_for_admins on, non-enrolled admins get
+    # this many days' warning (banner, not a lockout) before login starts
+    # blocking at the password step until they enroll.
+    mfa_grace_period_days: int = 14
+    # WebAuthn relying-party identity. rp_id must be a registrable domain (no
+    # scheme/port) that matches the page origin the ceremony runs on — derived
+    # from web_origin below rather than configured separately, so there is one
+    # source of truth for "what origin is this app" instead of two that could
+    # drift. rp_name is only ever shown to the user, in their OS/browser's
+    # passkey prompt.
+    webauthn_rp_name: str = "BlissWork"
 
     # How long a requested org deletion stays cancellable before the purge job
     # will act on it. Long enough that a mistake is caught by a human coming
@@ -129,8 +155,8 @@ class Settings(BaseSettings):
             problems.append("AUTH_DATABASE_URL must use sslmode=verify-full in production")
         if not self.cookie_secure:
             problems.append("COOKIE_SECURE must be true behind TLS in production")
-        if not os.getenv("TB_INTERNAL_TOKEN"):
-            problems.append("TB_INTERNAL_TOKEN must be set in production")
+        if not os.getenv("AUTH_INTERNAL_TOKEN"):
+            problems.append("AUTH_INTERNAL_TOKEN must be set in production")
         if self.data_kek_provider == "kms":
             if not self.data_kms_key_id:
                 problems.append("DATA_KMS_KEY_ID must be set when DATA_KEK_PROVIDER=kms")
@@ -142,6 +168,13 @@ class Settings(BaseSettings):
                 + "\n  - ".join(problems)
             )
         return self
+
+    @property
+    def webauthn_rp_id(self) -> str:
+        """The registrable domain of `web_origin`, no scheme/port — WebAuthn's
+        rp.id. Derived rather than a separate setting so there is exactly one
+        place that says what this deployment's web origin is."""
+        return urlsplit(self.web_origin).hostname or "localhost"
 
     @property
     def sqlalchemy_url(self) -> str:

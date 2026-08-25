@@ -32,13 +32,13 @@ GOOD = dict(
 
 
 def test_dev_mode_allows_defaults(monkeypatch):
-    monkeypatch.delenv("TB_INTERNAL_TOKEN", raising=False)
+    monkeypatch.delenv("AUTH_INTERNAL_TOKEN", raising=False)
     # No TB_ENV => development => dev defaults are accepted, no raise.
     Settings(tb_env="development")
 
 
 def test_prod_good_config_passes(monkeypatch):
-    monkeypatch.setenv("TB_INTERNAL_TOKEN", "t" * 32)
+    monkeypatch.setenv("AUTH_INTERNAL_TOKEN", "t" * 32)
     Settings(**GOOD)  # must not raise
 
 
@@ -55,19 +55,19 @@ def test_prod_good_config_passes(monkeypatch):
     ],
 )
 def test_prod_rejects_each_sentinel(monkeypatch, override):
-    monkeypatch.setenv("TB_INTERNAL_TOKEN", "t" * 32)
+    monkeypatch.setenv("AUTH_INTERNAL_TOKEN", "t" * 32)
     with pytest.raises(ValidationError):
         Settings(**{**GOOD, **override})
 
 
 def test_prod_requires_internal_token(monkeypatch):
-    monkeypatch.delenv("TB_INTERNAL_TOKEN", raising=False)
+    monkeypatch.delenv("AUTH_INTERNAL_TOKEN", raising=False)
     with pytest.raises(ValidationError):
         Settings(**GOOD)
 
 
 def test_prod_kms_happy_path(monkeypatch):
-    monkeypatch.setenv("TB_INTERNAL_TOKEN", "t" * 32)
+    monkeypatch.setenv("AUTH_INTERNAL_TOKEN", "t" * 32)
     Settings(
         **{
             **GOOD,

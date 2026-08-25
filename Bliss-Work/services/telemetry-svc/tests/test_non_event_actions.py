@@ -64,7 +64,7 @@ async def test_a_heartbeat_is_not_written():
 
     written = await ingest.insert_events(db, [_row("heartbeat")])
 
-    assert written == 0
+    assert written == [], "insert_events now returns the rows actually written, not a count"
     assert db.batches == [], "a batch of nothing but beats must not touch the table"
 
 
@@ -76,8 +76,13 @@ async def test_the_events_around_a_heartbeat_still_are():
         db, [_row("focus"), _row("heartbeat"), _row("task.completed")]
     )
 
-    assert written == 2
+    assert len(written) == 2
+    assert [w.row.action for w in written] == ["focus", "task.completed"]
     assert [p["action"] for p in db.batches[0]] == ["focus", "task.completed"]
+    # The returned id is the SAME id the row was actually inserted under —
+    # this is the whole reason insert_events returns rows now: sessionizer.py
+    # needs to know which activity_events.id a just-written span landed as.
+    assert [w.id for w in written] == [p["id"] for p in db.batches[0]]
 
 
 def test_the_beat_is_the_only_action_suppressed():

@@ -17,9 +17,10 @@ import json
 
 from aiokafka import AIOKafkaConsumer
 
+from kafka_security import kafka_security_kwargs
+
 from ..config import settings
 from ..db import engine
-from ..kafka_security import kafka_security_kwargs
 from ..logging_config import log
 from . import directory
 from .events import TOPIC_ROUTING, CapacityReport, DirectoryUpsert, parse

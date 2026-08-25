@@ -13,7 +13,7 @@ from sqlalchemy import text
 
 from .config import settings
 from .consumer import consumer
-from .crypto import init_cryptor
+from crypto import init_cryptor
 from .db import dispose_engine, get_engine, init_engine, run_migrations
 from .errors import register_exception_handlers
 from .logging_setup import configure_logging, log
@@ -22,9 +22,11 @@ from .rate_limit import limiter, rate_limit_handler
 from .routes.agent import router as agent_router
 from .routes.analytics import router as analytics_router
 from .routes.ingest import router as ingest_router
+from .routes.otlp_bridge import router as otlp_bridge_router
 from .routes.timeline import router as timeline_router
 from .sessions import sweeper
 from .tracing import setup_tracing
+from tracing import shutdown_tracing
 
 configure_logging(settings.log_level)
 
@@ -47,6 +49,7 @@ async def lifespan(app: FastAPI):
         await sweeper.stop()
         await consumer.stop()
         await dispose_engine()
+        shutdown_tracing(log=log)  # flush any buffered spans (no-op when disabled)
         log.info("telemetry_svc_stopped")
 
 
@@ -113,5 +116,6 @@ async def readyz() -> JSONResponse:
 
 app.include_router(ingest_router)
 app.include_router(agent_router)
+app.include_router(otlp_bridge_router)
 app.include_router(timeline_router)
 app.include_router(analytics_router)

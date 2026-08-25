@@ -2,11 +2,36 @@
 FROM golang:1.26-alpine@sha256:3ad57304ad93bbec8548a0437ad9e06a455660655d9af011d58b993f6f615648 AS build
 WORKDIR /src
 
-# Cache dependencies first.
-COPY go.mod go.sum ./
+# ── BUILD CONTEXT IS THE REPOSITORY ROOT, not services/ws-gateway ───────────
+# go.mod points its github.com/task-board/shared-kafkaauth,
+# github.com/task-board/shared-backoff and
+# github.com/task-board/shared-internalauth requirements at the sibling
+# modules services/shared/kafkaauth (Kafka SASL/TLS config, also used by
+# messaging-svc and notification-svc), services/shared/backoff and
+# services/shared/internalauth (constant-time internal-service-secret
+# comparison, also used by messaging-svc) via `replace ... => ../shared/X`
+# directives, so the build needs all three directories too:
+#
+#     docker build -f services/ws-gateway/Dockerfile .
+#
+# .dockerignore at the repo root keeps that context to roughly source size.
+
+# Cache dependencies first: manifests before source, so this layer is reused
+# until a dependency actually changes.
+COPY services/ws-gateway/go.mod services/ws-gateway/go.sum services/ws-gateway/
+COPY services/shared/kafkaauth/go.mod services/shared/kafkaauth/
+COPY services/shared/backoff/go.mod services/shared/backoff/
+COPY services/shared/internalauth/go.mod services/shared/internalauth/
+WORKDIR /src/services/ws-gateway
 RUN go mod download
 
-COPY . .
+WORKDIR /src
+COPY services/ws-gateway services/ws-gateway
+COPY services/shared/kafkaauth services/shared/kafkaauth
+COPY services/shared/backoff services/shared/backoff
+COPY services/shared/internalauth services/shared/internalauth
+WORKDIR /src/services/ws-gateway
+
 # TWO binaries from one module, because they are one bounded context: the
 # delivery service needs the same recipient-routing contract, the same Redis
 # store, the same Kafka security config and the same metrics as the gateway.

@@ -31,15 +31,18 @@ from pathlib import Path
 
 from sqlalchemy import text
 
-try:  # inside the task-svc container the `app` package is already importable
+try:  # inside the task-svc container the `app` package + local crypto package
+    # are already importable (crypto is pip-installed from services/shared/crypto)
     from app.config import settings
-    from app.crypto import cryptor, init_cryptor
     from app.db import init_engine, session, set_bypass_rls
-except ModuleNotFoundError:  # running from the repo root — add the service root
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "services" / "task-svc"))
+    from crypto import cryptor, init_cryptor
+except ModuleNotFoundError:  # running from the repo root — add both to sys.path
+    _repo_root = Path(__file__).resolve().parents[1]
+    sys.path.insert(0, str(_repo_root / "services" / "task-svc"))
+    sys.path.insert(0, str(_repo_root / "services" / "shared" / "crypto"))
     from app.config import settings
-    from app.crypto import cryptor, init_cryptor
     from app.db import init_engine, session, set_bypass_rls
+    from crypto import cryptor, init_cryptor
 
 
 async def run(apply: bool) -> int:

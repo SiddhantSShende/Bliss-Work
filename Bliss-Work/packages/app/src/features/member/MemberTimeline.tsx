@@ -8,6 +8,7 @@ import { qk } from "../../lib/queryBridge";
 import { Tabs, type TabSpec } from "../Tabs";
 import {
   actionLabel,
+  activityTitle,
   collapseSwitches,
   dayHeading,
   destinationOf,
@@ -110,6 +111,13 @@ function Row({ entry }: { entry: TimelineEntry }) {
   const duration = formatDuration(entry.durationMs);
   const preview = entry.detail?.preview;
   const url = entry.detail?.url;
+  // "Learn Go in 30 Minutes" under "Switched to YouTube" — the page/window
+  // title a desktop or browser sensor reported alongside the switch. Absent on
+  // every row recorded before a producer sent one; nothing renders in that
+  // case, which is the row's exact appearance today.
+  const title = (entry.action === "app.focus" || entry.action === "site.visit")
+    ? activityTitle(entry)
+    : null;
   // The raw reading behind a resolved name — "youtube.com" under "YouTube".
   // Shown only when it adds something: a row whose destination had no mapping
   // already displays the domain as its name, and repeating it underneath is
@@ -143,6 +151,9 @@ function Row({ entry }: { entry: TimelineEntry }) {
         </div>
         {preview && (
           <p className="mt-0.5 truncate text-sm text-muted" title={preview}>“{preview}”</p>
+        )}
+        {title && (
+          <p className="mt-0.5 truncate text-sm text-muted" title={title}>{title}</p>
         )}
         {url ? (
           <p className="mt-0.5 truncate text-xs text-muted" title={url}>{url}</p>

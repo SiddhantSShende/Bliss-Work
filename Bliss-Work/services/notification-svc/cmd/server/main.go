@@ -18,20 +18,27 @@ import (
 	"github.com/task-board/notification-svc/internal/consumer"
 	"github.com/task-board/notification-svc/internal/db"
 	"github.com/task-board/notification-svc/internal/httpapi"
-	"github.com/task-board/notification-svc/internal/kafkaauth"
 	"github.com/task-board/notification-svc/internal/outbox"
 	"github.com/task-board/notification-svc/internal/tracing"
+	"github.com/task-board/shared-kafkaauth"
 )
 
 const serviceName = "notification-svc"
 
 func main() {
+	cfg, err := config.Load()
+
+	level := slog.LevelInfo
+	if err == nil {
+		if lvlErr := level.UnmarshalText([]byte(cfg.LogLevel)); lvlErr != nil {
+			level = slog.LevelInfo
+		}
+	}
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
+		Level: level,
 	}))
 	slog.SetDefault(logger)
 
-	cfg, err := config.Load()
 	if err != nil {
 		logger.Error("config load failed", "error", err)
 		os.Exit(1)

@@ -151,7 +151,7 @@ async def deliver(mail: InboundMail) -> bool:
             r = await client.post(
                 f"{settings.messaging_internal_base.rstrip('/')}/internal/mail/inbound",
                 headers={
-                    "X-Internal-Token": settings.internal_token,
+                    "X-Internal-Token": settings.messaging_internal_token,
                     "Content-Type": "application/json",
                 },
                 json=mail.payload(),

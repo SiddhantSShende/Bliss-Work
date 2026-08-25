@@ -9,7 +9,7 @@ covers the security architecture, data protection, and compliance mapping.
 
 | Layer | Control | Where |
 |---|---|---|
-| Identity | Argon2id password hashing (constant-time dummy verify), Ed25519/JWKS access tokens, rotating refresh tokens with family reuse-detection | `auth-svc` |
+| Identity | Argon2id password hashing (constant-time dummy verify), Ed25519/JWKS access tokens, rotating refresh tokens with family reuse-detection, optional TOTP/WebAuthn as a second factor (org-admin-mandatory available, with a grace-period rollout) | `auth-svc` |
 | Authorization | Org-scoped claims from verified JWT only (never trusts headers); per-endpoint authz; **Postgres Row-Level Security per org** as a DB-enforced second gate | all services |
 | **Data at rest** | **AES-256-GCM column encryption, per-org DEK** (envelope) for PII + message bodies + task content; per-org keys enable crypto-shredding | auth/messaging/task |
 | Data in transit | TLS at the edge (Caddy / cert-manager), Postgres `sslmode`, Redis auth, internal network isolation (k8s NetworkPolicy) | infra |
@@ -17,11 +17,25 @@ covers the security architecture, data protection, and compliance mapping.
 | Supply chain | CI SAST (CodeQL, Semgrep), secret scanning (gitleaks), dependency + container scanning (Trivy/grype, govulncheck, pip-audit, npm-audit), SBOM (syft) | `.github/workflows` |
 | Observability | structured request-id logs, OTEL traces, Prometheus metrics, tamper-evident audit log | all services |
 
+**Session model.** Access tokens are short-lived (`JWT_ACCESS_TTL_SECONDS`,
+default 300s / 5 minutes) and `verify_bearer` is purely stateless — there is
+no cross-service revocation store. **Logout revokes the refresh-token
+family. Access tokens may remain valid until they expire, even after
+logout** — never state that logout revokes the access JWT, because it
+doesn't; the short TTL is what bounds that residual window instead of a
+Redis denylist every JWT-verifying service would otherwise need. MFA
+(TOTP/WebAuthn) is opt-in per member, and an org can additionally require it
+for `org_admin` roles: turning that policy on starts a grace period
+(`orgs.mfa_grace_period_ends_at`, `MFA_GRACE_PERIOD_DAYS`, default 14 days)
+during which a non-enrolled admin sees a warning banner but can still sign
+in; only once the deadline passes does login block at the password step and
+route the admin into enrollment.
+
 ## 2. Data classification
 
 | Class | Examples | Protection |
 |---|---|---|
-| **Secret** | Ed25519 signing key, KEK / `DATA_MASTER_PASSPHRASE`, `DATA_BLIND_INDEX_KEY`, `TB_INTERNAL_TOKEN`, DB passwords | KMS / secret manager only; never in VCS (`keys/*.pem`, `.env*` gitignored); never logged |
+| **Secret** | Ed25519 signing key, KEK / `DATA_MASTER_PASSPHRASE`, `DATA_BLIND_INDEX_KEY`, per-service internal tokens (`AUTH_INTERNAL_TOKEN`, `TASK_INTERNAL_TOKEN`, `MESSAGING_INTERNAL_TOKEN`, `WS_GATEWAY_INTERNAL_TOKEN`, `INTEGRATIONS_INTERNAL_TOKEN`), DB passwords | KMS / secret manager only; never in VCS (`keys/*.pem`, `.env*` gitignored); never logged |
 | **PII** | user email, display name | AES-256-GCM at rest (`users.email_enc`/`display_name_enc`); email also has an HMAC **blind index** for login lookup |
 | **User content** | DM + channel message bodies, message/inbox previews, task title/description, mail subjects + bodies + every To/Cc/Bcc address | AES-256-GCM at rest (`*_enc` columns) |
 | **Metadata** | org/user ids, timestamps, status, roles, read receipts | not encrypted (needed for queries/joins); protected by authz + RLS |
@@ -68,7 +82,7 @@ covers the security architecture, data protection, and compliance mapping.
 ## 6. Incident response runbooks
 
 - **Suspected data breach:** isolate the affected service/pod; rotate all secrets
-  (KEK, `TB_INTERNAL_TOKEN`, DB passwords); revoke active sessions
+  (KEK, the per-service internal tokens, DB passwords); revoke active sessions
   (`refresh_tokens`); review the audit log + security-event stream for scope;
   preserve evidence; notify per the legal/DPA timeline.
 - **Signing-key (Ed25519) compromise:** generate a new keypair, publish both kids

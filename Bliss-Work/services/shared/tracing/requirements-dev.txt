@@ -1,0 +1,5 @@
+# Test-only dependencies for this package's own suite.
+pytest==8.3.4
+# Real TracerProvider + span for the inject/extract round-trip test — the base
+# opentelemetry-api install is otherwise no-op-only.
+opentelemetry-sdk==1.44.0

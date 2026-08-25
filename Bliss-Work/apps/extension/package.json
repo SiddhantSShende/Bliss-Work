@@ -5,8 +5,9 @@
   "type": "module",
   "description": "BlissWork browser extension — reports visited sites to the member activity record",
   "scripts": {
-    "build": "tsc -p tsconfig.json && node build.mjs",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node build.mjs --target=chromium",
+    "build:firefox": "tsc -p tsconfig.json && node build.mjs --target=firefox",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.build-test.json",
     "test": "vitest run --passWithNoTests"
   },
   "devDependencies": {

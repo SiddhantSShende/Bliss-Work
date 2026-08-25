@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "data-crypto"
+version = "0.1.0"
+description = "Application-layer at-rest column encryption, shared across this repo's Python services."
+requires-python = ">=3.13"
+dependencies = [
+    "argon2-cffi==23.1.0",
+    "cryptography==50.0.0",
+    "sqlalchemy[asyncio]==2.0.36",
+    # Only imported by KMSKEKProvider's Vault Transit path (see crypto.py), but
+    # every consuming service already pins this exact version directly.
+    "httpx==0.28.1",
+]
+
+[tool.setuptools]
+py-modules = ["crypto"]

@@ -11,14 +11,8 @@
  * services/ws-gateway/internal/contract/contract_test.go — both must agree.
  */
 import { describe, expect, it } from "vitest";
-import {
-  DomainEvent,
-  EventType,
-  IntegrationMentionCreated,
-  NO_DELIVERY_ACK_FOR,
-  ServerEvent,
-  recipientsOf,
-} from "./events";
+import { EventType, IntegrationMentionCreated, NO_DELIVERY_ACK_FOR, ServerEvent } from "./events";
+import { DomainEvent, recipientsOf } from "./event-routing-spec";
 
 const MENTIONED_USER = "11111111-1111-1111-1111-111111111111";
 

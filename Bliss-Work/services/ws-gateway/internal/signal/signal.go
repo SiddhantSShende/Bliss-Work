@@ -6,8 +6,8 @@
 // fly directly from sender to recipient via:
 //
 //   - Local Hub.Fanout when both peers are on the same node.
-//   - Redis pub/sub on rtc:user:<recipientId> when they're not. Each gateway
-//     node PSUBSCRIBE'd at boot funnels remote frames back into local Fanout.
+//   - A direct push to the node holding the recipient when they're not,
+//     resolved through the node registry (see push.Fanout in dispatcher.go).
 //
 // fromUserId is STAMPED by the gateway from the verified JWT claims; clients
 // must not send it. Cross-org sends are rejected with rtc.peer.unreachable.

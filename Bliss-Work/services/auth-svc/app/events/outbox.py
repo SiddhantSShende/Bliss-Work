@@ -11,6 +11,15 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 # Canonical Kafka topics (must match the event contract EXACTLY).
 TOPIC_AUTH = "auth.events"  # key = userId
 
+# Event types whose payload carries a raw single-use secret (password-reset /
+# email-verify / invite URL). The outbox poller strips that secret before
+# publishing these to Kafka, and the internal outbox-events endpoint uses the
+# same allow-list to restrict which rows it will ever hand back — see
+# docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 3.
+SECRET_EVENT_TYPES = frozenset(
+    {"password.reset.requested", "email.verification.requested", "invite.created"}
+)
+
 
 def _now_iso_z() -> str:
     """ISO-8601 UTC with explicit 'Z' suffix."""

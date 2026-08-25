@@ -159,7 +159,7 @@ export function CallControls({
         onClick={onToggleShare}
         className={cn(
           sharing &&
-            "w-auto gap-2 bg-red-500/15 px-4 text-red-500 ring-2 ring-red-500 hover:bg-red-500/25",
+            "w-auto gap-2 bg-danger/15 px-4 text-danger ring-2 ring-danger hover:bg-danger/25",
         )}
       >
         <ScreenShare size={skin.icon} />
@@ -196,7 +196,7 @@ export function CallControls({
         variant={variant}
         title="End call"
         onClick={onEnd}
-        className="bg-red-500 text-white hover:bg-red-600"
+        className="bg-danger text-white hover:brightness-90"
       >
         <PhoneOff size={skin.icon} />
       </Control>

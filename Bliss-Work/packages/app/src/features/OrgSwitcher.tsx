@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { Building2, Check, ChevronsUpDown } from "lucide-react";
 import { toast } from "sonner";
+import { isMfaPending } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
@@ -13,6 +14,12 @@ import { broadcastSession } from "../lib/authChannel";
  * clears the (entirely org-scoped) query cache and lets WsEventBridge reconnect
  * the socket for the new org (it depends on user.orgId). Sibling tabs adopt via
  * broadcastSession.
+ *
+ * The target membership can itself require a second factor — its own policy,
+ * evaluated independently of the org being left (see
+ * docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 7) — in which case the CURRENT
+ * session is left untouched (the switch never happened) and the caller is
+ * routed through the same /mfa-challenge page a fresh login uses.
  */
 export function useSwitchOrg() {
   const { api } = useRuntime();
@@ -20,9 +27,13 @@ export function useSwitchOrg() {
   const nav = useNavigate();
   const setSession = useSession((s) => s.setSession);
   return async (orgId: string) => {
-    const s = await api.switchOrg(orgId);
-    setSession({ user: s.user, accessToken: s.accessToken });
-    broadcastSession(s);
+    const result = await api.switchOrg(orgId);
+    if (isMfaPending(result)) {
+      nav("/mfa-challenge", { state: result });
+      return;
+    }
+    setSession({ user: result.user, accessToken: result.accessToken });
+    broadcastSession(result);
     qc.clear(); // every cached query is scoped to the previous org
     nav("/app");
   };

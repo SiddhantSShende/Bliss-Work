@@ -24,6 +24,10 @@ const user: UserDTO = {
   roles: ["member"],
   plan: "free",
   orgName: "Test Org",
+  avatarUrl: null,
+  mfaEnrolled: false,
+  orgRequireMfaForAdmins: false,
+  orgMfaGracePeriodEndsAt: null,
 };
 const session: SessionDTO = { accessToken: "sib-token", user, expiresIn: 900 };
 

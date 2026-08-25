@@ -21,64 +21,66 @@ var ErrLastOwner = errors.New("channel would be left without an owner")
 func (s *Store) KickChannelMember(
 	ctx context.Context, orgID, channelID, callerID, targetID string, claimRoles []string,
 ) error {
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	if err := setOrgGUC(ctx, tx, orgID); err != nil {
-		return err
-	}
-	if err := requireChannelManager(ctx, tx, orgID, channelID, callerID, claimRoles); err != nil {
-		return err
-	}
-	if callerID == targetID {
-		return ErrForbidden
-	}
-
-	targetRole, err := channelRole(ctx, tx, channelID, targetID)
-	if err != nil {
-		return err
-	}
-	if targetRole == "" {
-		return nil // not a member — idempotent, nothing to remove
-	}
-	if targetRole == RoleOwner {
-		return ErrLastOwner
-	}
-	if targetRole == RoleAdmin {
-		callerRole, err := channelRole(ctx, tx, channelID, callerID)
+	return RetryOnSerializationFailure(ctx, 3, func(ctx context.Context) error {
+		tx, err := s.pool.Begin(ctx)
 		if err != nil {
 			return err
 		}
-		if callerRole != RoleOwner && !isOrgAdmin(claimRoles) {
+		defer tx.Rollback(ctx)
+		if err := setOrgGUC(ctx, tx, orgID); err != nil {
+			return err
+		}
+		if err := requireChannelManager(ctx, tx, orgID, channelID, callerID, claimRoles); err != nil {
+			return err
+		}
+		if callerID == targetID {
 			return ErrForbidden
 		}
-	}
 
-	tag, err := tx.Exec(ctx,
-		`DELETE FROM channel_members WHERE channel_id = $1 AND user_id = $2`,
-		channelID, targetID)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
+		targetRole, err := channelRole(ctx, tx, channelID, targetID)
+		if err != nil {
+			return err
+		}
+		if targetRole == "" {
+			return nil // not a member — idempotent, nothing to remove
+		}
+		if targetRole == RoleOwner {
+			return ErrLastOwner
+		}
+		if targetRole == RoleAdmin {
+			callerRole, err := channelRole(ctx, tx, channelID, callerID)
+			if err != nil {
+				return err
+			}
+			if callerRole != RoleOwner && !isOrgAdmin(claimRoles) {
+				return ErrForbidden
+			}
+		}
+
+		tag, err := tx.Exec(ctx,
+			`DELETE FROM channel_members WHERE channel_id = $1 AND user_id = $2`,
+			channelID, targetID)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return tx.Commit(ctx)
+		}
+		// 'kicked' has been a documented value of this column since 0005 with no
+		// code that ever wrote it. This is that code.
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO channel_member_history (channel_id, org_id, user_id, reason)
+			 VALUES ($1, $2, $3, 'kicked')`,
+			channelID, orgID, targetID); err != nil {
+			return err
+		}
+		if err := emitChannelEvent(
+			ctx, tx, events.TypeChannelMemberRemoved, orgID, channelID, targetID, callerID,
+		); err != nil {
+			return err
+		}
 		return tx.Commit(ctx)
-	}
-	// 'kicked' has been a documented value of this column since 0005 with no
-	// code that ever wrote it. This is that code.
-	if _, err := tx.Exec(ctx,
-		`INSERT INTO channel_member_history (channel_id, org_id, user_id, reason)
-		 VALUES ($1, $2, $3, 'kicked')`,
-		channelID, orgID, targetID); err != nil {
-		return err
-	}
-	if err := emitChannelEvent(
-		ctx, tx, events.TypeChannelMemberRemoved, orgID, channelID, targetID, callerID,
-	); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
+	})
 }
 
 // SetChannelMemberRole promotes or demotes a member. Owner or org_admin only —
@@ -93,57 +95,59 @@ func (s *Store) SetChannelMemberRole(
 	if role != RoleOwner && role != RoleAdmin && role != RoleMember {
 		return ErrForbidden
 	}
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	if err := setOrgGUC(ctx, tx, orgID); err != nil {
-		return err
-	}
-	if err := requireChannelManager(ctx, tx, orgID, channelID, callerID, claimRoles); err != nil {
-		return err
-	}
-
-	callerRole, err := channelRole(ctx, tx, channelID, callerID)
-	if err != nil {
-		return err
-	}
-	if callerRole != RoleOwner && !isOrgAdmin(claimRoles) {
-		return ErrForbidden
-	}
-
-	targetRole, err := channelRole(ctx, tx, channelID, targetID)
-	if err != nil {
-		return err
-	}
-	if targetRole == "" {
-		return ErrForbidden // not a member; add them first
-	}
-	// Demoting the only owner would leave the channel unmoderatable by anyone
-	// except an org admin.
-	if targetRole == RoleOwner && role != RoleOwner {
-		return ErrLastOwner
-	}
-
-	if role == RoleOwner {
-		if _, err := tx.Exec(ctx,
-			`UPDATE channel_members SET role = 'admin'
-			  WHERE channel_id = $1 AND role = 'owner'`, channelID); err != nil {
+	return RetryOnSerializationFailure(ctx, 3, func(ctx context.Context) error {
+		tx, err := s.pool.Begin(ctx)
+		if err != nil {
 			return err
 		}
-	}
-	if _, err := tx.Exec(ctx,
-		`UPDATE channel_members SET role = $3 WHERE channel_id = $1 AND user_id = $2`,
-		channelID, targetID, role); err != nil {
-		return err
-	}
-	if err := emitChannelEvent(
-		ctx, tx, events.TypeChannelRoleChanged, orgID, channelID, targetID, callerID,
-	); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
+		defer tx.Rollback(ctx)
+		if err := setOrgGUC(ctx, tx, orgID); err != nil {
+			return err
+		}
+		if err := requireChannelManager(ctx, tx, orgID, channelID, callerID, claimRoles); err != nil {
+			return err
+		}
+
+		callerRole, err := channelRole(ctx, tx, channelID, callerID)
+		if err != nil {
+			return err
+		}
+		if callerRole != RoleOwner && !isOrgAdmin(claimRoles) {
+			return ErrForbidden
+		}
+
+		targetRole, err := channelRole(ctx, tx, channelID, targetID)
+		if err != nil {
+			return err
+		}
+		if targetRole == "" {
+			return ErrForbidden // not a member; add them first
+		}
+		// Demoting the only owner would leave the channel unmoderatable by anyone
+		// except an org admin.
+		if targetRole == RoleOwner && role != RoleOwner {
+			return ErrLastOwner
+		}
+
+		if role == RoleOwner {
+			if _, err := tx.Exec(ctx,
+				`UPDATE channel_members SET role = 'admin'
+				  WHERE channel_id = $1 AND role = 'owner'`, channelID); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.Exec(ctx,
+			`UPDATE channel_members SET role = $3 WHERE channel_id = $1 AND user_id = $2`,
+			channelID, targetID, role); err != nil {
+			return err
+		}
+		if err := emitChannelEvent(
+			ctx, tx, events.TypeChannelRoleChanged, orgID, channelID, targetID, callerID,
+		); err != nil {
+			return err
+		}
+		return tx.Commit(ctx)
+	})
 }
 
 // BlockFromChannel bars someone from a channel and removes them if present.
@@ -154,54 +158,56 @@ func (s *Store) SetChannelMemberRole(
 func (s *Store) BlockFromChannel(
 	ctx context.Context, orgID, channelID, callerID, targetID, reason string, claimRoles []string,
 ) error {
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	if err := setOrgGUC(ctx, tx, orgID); err != nil {
-		return err
-	}
-	if err := requireChannelManager(ctx, tx, orgID, channelID, callerID, claimRoles); err != nil {
-		return err
-	}
-	if callerID == targetID {
-		return ErrForbidden
-	}
-	targetRole, err := channelRole(ctx, tx, channelID, targetID)
-	if err != nil {
-		return err
-	}
-	if targetRole == RoleOwner {
-		return ErrLastOwner
-	}
+	return RetryOnSerializationFailure(ctx, 3, func(ctx context.Context) error {
+		tx, err := s.pool.Begin(ctx)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback(ctx)
+		if err := setOrgGUC(ctx, tx, orgID); err != nil {
+			return err
+		}
+		if err := requireChannelManager(ctx, tx, orgID, channelID, callerID, claimRoles); err != nil {
+			return err
+		}
+		if callerID == targetID {
+			return ErrForbidden
+		}
+		targetRole, err := channelRole(ctx, tx, channelID, targetID)
+		if err != nil {
+			return err
+		}
+		if targetRole == RoleOwner {
+			return ErrLastOwner
+		}
 
-	if _, err := tx.Exec(ctx,
-		`INSERT INTO channel_blocks (channel_id, org_id, user_id, blocked_by, reason)
-		 VALUES ($1, $2, $3, $4, $5)
-		 ON CONFLICT (channel_id, user_id) DO UPDATE SET blocked_by = EXCLUDED.blocked_by`,
-		channelID, orgID, targetID, callerID, reason); err != nil {
-		return err
-	}
-	if targetRole != "" {
 		if _, err := tx.Exec(ctx,
-			`DELETE FROM channel_members WHERE channel_id = $1 AND user_id = $2`,
-			channelID, targetID); err != nil {
+			`INSERT INTO channel_blocks (channel_id, org_id, user_id, blocked_by, reason)
+			 VALUES ($1, $2, $3, $4, $5)
+			 ON CONFLICT (channel_id, user_id) DO UPDATE SET blocked_by = EXCLUDED.blocked_by`,
+			channelID, orgID, targetID, callerID, reason); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx,
-			`INSERT INTO channel_member_history (channel_id, org_id, user_id, reason)
-			 VALUES ($1, $2, $3, 'kicked')`,
-			channelID, orgID, targetID); err != nil {
+		if targetRole != "" {
+			if _, err := tx.Exec(ctx,
+				`DELETE FROM channel_members WHERE channel_id = $1 AND user_id = $2`,
+				channelID, targetID); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx,
+				`INSERT INTO channel_member_history (channel_id, org_id, user_id, reason)
+				 VALUES ($1, $2, $3, 'kicked')`,
+				channelID, orgID, targetID); err != nil {
+				return err
+			}
+		}
+		if err := emitChannelEvent(
+			ctx, tx, events.TypeChannelBlocked, orgID, channelID, targetID, callerID,
+		); err != nil {
 			return err
 		}
-	}
-	if err := emitChannelEvent(
-		ctx, tx, events.TypeChannelBlocked, orgID, channelID, targetID, callerID,
-	); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
+		return tx.Commit(ctx)
+	})
 }
 
 // UnblockFromChannel lifts a block. It does NOT re-add the person: they can
@@ -210,30 +216,32 @@ func (s *Store) BlockFromChannel(
 func (s *Store) UnblockFromChannel(
 	ctx context.Context, orgID, channelID, callerID, targetID string, claimRoles []string,
 ) error {
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	if err := setOrgGUC(ctx, tx, orgID); err != nil {
-		return err
-	}
-	if err := requireChannelManager(ctx, tx, orgID, channelID, callerID, claimRoles); err != nil {
-		return err
-	}
-	tag, err := tx.Exec(ctx,
-		`DELETE FROM channel_blocks WHERE channel_id = $1 AND user_id = $2`,
-		channelID, targetID)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return tx.Commit(ctx) // idempotent
-	}
-	if err := emitChannelEvent(
-		ctx, tx, events.TypeChannelUnblocked, orgID, channelID, targetID, callerID,
-	); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
+	return RetryOnSerializationFailure(ctx, 3, func(ctx context.Context) error {
+		tx, err := s.pool.Begin(ctx)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback(ctx)
+		if err := setOrgGUC(ctx, tx, orgID); err != nil {
+			return err
+		}
+		if err := requireChannelManager(ctx, tx, orgID, channelID, callerID, claimRoles); err != nil {
+			return err
+		}
+		tag, err := tx.Exec(ctx,
+			`DELETE FROM channel_blocks WHERE channel_id = $1 AND user_id = $2`,
+			channelID, targetID)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return tx.Commit(ctx) // idempotent
+		}
+		if err := emitChannelEvent(
+			ctx, tx, events.TypeChannelUnblocked, orgID, channelID, targetID, callerID,
+		); err != nil {
+			return err
+		}
+		return tx.Commit(ctx)
+	})
 }

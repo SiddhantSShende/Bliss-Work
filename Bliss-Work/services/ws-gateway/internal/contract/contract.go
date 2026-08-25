@@ -38,8 +38,12 @@ type Event struct {
 	MailID string `json:"mailId"`
 }
 
-// RecipientsOf replicates the canonical recipientsOf() routing function from
-// packages/shared/src/types/events.ts.
+// RecipientsOf is the live routing implementation — this is what ws-gateway
+// actually runs. It must stay in lockstep with the TS spec/test pair in
+// packages/shared/src/types/event-routing-spec.ts (recipientsOf) and
+// events.mention.test.ts, which pin the same rules in the schema's own
+// language for reviewers who don't read Go. Neither side is generated from
+// the other; a routing change must be made in both.
 func (e *Event) RecipientsOf() []string {
 	switch e.Type {
 	case "message.created":

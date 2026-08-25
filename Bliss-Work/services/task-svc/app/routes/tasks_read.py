@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import text
 
 from ..auth import Principal, PrincipalDep
-from ..crypto import cryptor
+from crypto import cryptor
 from ..db import session, set_org_context
 from ..schemas import SentAssignee, SentTaskDTO, StickyTaskDTO, actions_for
 from .helpers import iso

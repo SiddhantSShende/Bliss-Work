@@ -13,8 +13,8 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/task-board/notification-svc/internal/kafkaauth"
 	"github.com/task-board/notification-svc/internal/tracing"
+	"github.com/task-board/shared-kafkaauth"
 )
 
 // Row mirrors one unpublished outbox record.

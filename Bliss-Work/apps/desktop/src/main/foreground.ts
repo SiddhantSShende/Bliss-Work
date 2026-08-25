@@ -28,7 +28,7 @@
  */
 export interface ForegroundWindow {
   title?: string;
-  owner?: { name?: string };
+  owner?: { name?: string; path?: string; processId?: number };
 }
 
 export type GetWindows = { activeWindow: () => Promise<ForegroundWindow | undefined> };
@@ -93,8 +93,8 @@ export function providerUnavailableReason(): string | null {
  *
  * Every platform assumption in this feature is in this one function, on purpose:
  * it is the part that cannot be verified without the actual operating system in
- * front of you, so it is small, pure and tested rather than spread through the
- * window code.
+ * front of you, so it is small and pure rather than spread through the window
+ * code.
  */
 export function isDesktopExposed(
   active: ForegroundWindow | undefined,

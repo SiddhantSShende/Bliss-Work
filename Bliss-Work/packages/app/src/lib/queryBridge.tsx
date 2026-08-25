@@ -15,6 +15,7 @@ import {
   actionsFor,
 } from "@taskboard/shared";
 import { useRuntime } from "./runtime";
+import { requestMeetingJoin } from "./MeetingSession";
 import {
   createCoalescedInvalidator,
   type CoalescedInvalidator,
@@ -130,6 +131,8 @@ export const qk = {
   myOrgs: ["myOrgs"] as const,
   /** The current org plus any pending deletion (admin-only). */
   org: ["org"] as const,
+  /** The org's mandatory-MFA-for-admins policy + grace-period deadline (admin-only). */
+  orgMfaSettings: ["orgMfaSettings"] as const,
   /** Unified hub activity timeline (inbound + outbound external messages).
    *  Audit surface — the Hub renders `mentions` instead. */
   integrationActivity: ["integrationActivity"] as const,
@@ -237,7 +240,7 @@ export function WsEventBridge() {
           // that started (and ended) hours ago.
           if (live && e.actorId !== me) {
             toast(e.title ? `${e.title} has started` : "A call has started", {
-              action: { label: "Join", onClick: () => navRef.current("/app/meetings") },
+              action: { label: "Join", onClick: () => requestMeetingJoin(e.callId) },
               duration: 20_000,
             });
           }
@@ -254,7 +257,7 @@ export function WsEventBridge() {
               e.title ? `Someone is waiting for ${e.title}` : "Someone is waiting for your call",
               {
                 description: "They can't get in until you start it.",
-                action: { label: "Open", onClick: () => navRef.current("/app/meetings") },
+                action: { label: "Open", onClick: () => requestMeetingJoin(e.callId) },
                 duration: 20_000,
               },
             );
@@ -270,7 +273,7 @@ export function WsEventBridge() {
             // progress gets there, and "you were added to a call" with no way
             // to join it is a dead end.
             toast(e.title ? `Incoming call: ${e.title}` : "You were added to a call", {
-              action: { label: "Join", onClick: () => navRef.current("/app/meetings") },
+              action: { label: "Join", onClick: () => requestMeetingJoin(e.callId) },
               duration: 20_000,
             });
           }

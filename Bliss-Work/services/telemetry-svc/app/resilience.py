@@ -2,7 +2,7 @@
 
 Hand-rolled (no new deps — httpx + asyncio only) so a slow/down dependency
 degrades gracefully instead of cascading. Duplicated per-service (mirrors
-middleware.py) to keep task-svc independently deployable.
+middleware.py) to keep telemetry-svc independently deployable.
 
   * ``retry_async`` — up to N attempts with exponential backoff + jitter, but
     ONLY on transient failures (connect/read timeouts, connection errors, 5xx).

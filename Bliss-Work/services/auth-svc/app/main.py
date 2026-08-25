@@ -12,7 +12,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
 from .config import settings
-from .crypto import init_cryptor
+from crypto import init_cryptor
 from .db import engine, run_migrations
 from .errors import register_exception_handlers
 from .events.poller import OutboxPoller
@@ -32,10 +32,14 @@ from .routes import internal as internal_routes
 from .routes import invites as invite_routes
 from .routes import jwks as jwks_routes
 from .routes import members as member_routes
+from .routes import mfa_challenge as mfa_challenge_routes
+from .routes import mfa_totp as mfa_totp_routes
+from .routes import mfa_webauthn as mfa_webauthn_routes
 from .routes import org_lifecycle as org_routes
 from .routes import password_reset as password_reset_routes
 from .security.keys import jwks  # warm key load
-from .tracing import setup_tracing, shutdown_tracing
+from .tracing import setup_tracing
+from tracing import shutdown_tracing
 
 configure_logging(settings.log_level)
 
@@ -59,8 +63,8 @@ async def lifespan(app: FastAPI):
     # Production-safety warnings (don't crash dev): a missing internal token means
     # the internal endpoints reject every caller; an http-on-prod cookie leaks the
     # refresh token. Surface these loudly so a misconfigured deploy is obvious.
-    if not os.getenv("TB_INTERNAL_TOKEN"):
-        log.warning("tb_internal_token_unset", detail="internal service endpoints will reject all callers")
+    if not os.getenv("AUTH_INTERNAL_TOKEN"):
+        log.warning("auth_internal_token_unset", detail="internal service endpoints will reject all callers")
     if settings.web_origin.startswith("https://") and not settings.cookie_secure:
         log.warning("cookie_secure_false_behind_tls", detail="set COOKIE_SECURE=true so refresh cookies are TLS-only")
     await _poller.start()
@@ -74,7 +78,7 @@ async def lifespan(app: FastAPI):
         await _routing_consumer.stop()
         await _poller.stop()
         await engine.dispose()
-        shutdown_tracing()  # flush any buffered spans (no-op when disabled)
+        shutdown_tracing(log=log)  # flush any buffered spans (no-op when disabled)
         log.info("auth_svc_stopped")
 
 
@@ -155,4 +159,7 @@ app.include_router(member_routes.router)
 app.include_router(org_routes.router)
 app.include_router(password_reset_routes.router)
 app.include_router(email_verify_routes.router)
+app.include_router(mfa_totp_routes.router)
+app.include_router(mfa_webauthn_routes.router)
+app.include_router(mfa_challenge_routes.router)
 app.include_router(internal_routes.router)

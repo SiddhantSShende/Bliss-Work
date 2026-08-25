@@ -37,29 +37,36 @@ export function Rail({
   const nav = useNavigate();
   const bottom = variant === "bottom";
   const items = ITEMS;
+  const buttons = items.map((it) => (
+    <RailBtn
+      key={it.key}
+      icon={<it.icon size={20} />}
+      label={it.label}
+      active={section === it.key}
+      bottom={bottom}
+      badge={badges[it.key] ?? 0}
+      onClick={() => nav(it.to)}
+    />
+  ));
   return (
     <nav
       className={`glass rounded-2xl ${
         bottom
           ? "flex items-center justify-around px-1 py-1"
-          : "relative z-30 flex min-h-0 w-[140px] shrink-0 flex-col items-center gap-1 overflow-y-auto overscroll-contain px-2 py-4 [scrollbar-color:var(--color-border)_transparent] [scrollbar-width:thin]"
+          : "relative z-30 flex min-h-0 w-[140px] shrink-0 flex-col items-center overflow-hidden px-2 py-4"
       } ${className}`}
     >
-      {items.map((it) => (
-        <RailBtn
-          key={it.key}
-          icon={<it.icon size={20} />}
-          label={it.label}
-          active={section === it.key}
-          bottom={bottom}
-          badge={badges[it.key] ?? 0}
-          onClick={() => nav(it.to)}
-        />
-      ))}
-      {!bottom && (
-        <div className="mt-auto w-full pt-5">
-          <ProfileMenu variant="rail" />
-        </div>
+      {bottom ? (
+        buttons
+      ) : (
+        <>
+          <div className="min-h-0 w-full flex-1 space-y-1 overflow-y-auto overscroll-contain [scrollbar-color:var(--color-border)_transparent] [scrollbar-width:thin]">
+            {buttons}
+          </div>
+          <div className="w-full shrink-0 pt-5">
+            <ProfileMenu variant="rail" />
+          </div>
+        </>
       )}
     </nav>
   );
@@ -84,11 +91,13 @@ function RailBtn({
     <button
       onClick={onClick}
       title={badge > 0 ? `${label} (${badge} new)` : label}
-      className={`relative flex flex-col items-center gap-1 rounded-xl text-[11px] font-medium transition-all active:scale-95 ${
+      className={`relative flex flex-col items-center gap-1 rounded-xl transition-all active:scale-95 ${
+        bottom ? "text-[11px] font-bold" : "text-sm font-semibold"
+      } ${
         bottom ? "flex-1 py-1.5" : "w-full flex-row justify-start gap-3 px-3 py-3 text-left"
       } ${
         active
-          ? "bg-gradient-to-br from-brand-from to-brand-to text-accent-fg shadow-[0_6px_18px_-6px_var(--color-accent)]"
+          ? "bg-gradient-to-br from-brand-from to-brand-to text-accent-fg shadow-[0_6px_18px_-6px_var(--color-accent)] hover:brightness-105"
           : "text-muted hover:bg-surface-2 hover:text-fg"
       }`}
     >

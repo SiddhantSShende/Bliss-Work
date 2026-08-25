@@ -147,7 +147,7 @@ export function HubMentions() {
           >
             {t.label}
             {t.key === "pending" && pendingCount > 0 && (
-              <span className="ml-1.5 rounded-full bg-accent px-1.5 py-0.5 text-[10px] text-white">
+              <span className="ml-1.5 rounded-full bg-accent px-1.5 py-0.5 text-[10px] text-accent-fg">
                 {pendingCount}
               </span>
             )}

@@ -19,6 +19,7 @@ import {
 } from "./session-token";
 import * as activityAgent from "./activity-agent";
 import * as activityState from "./activity-state";
+import { screenRecordingSettingsUrl } from "./macos-permissions";
 import { flushSync as flushStickyState, initStickyState } from "./sticky-state";
 import { trayIcon } from "./assets";
 import { buildAppMenu } from "./menu";
@@ -570,6 +571,19 @@ ipcMain.handle("activity:pair", (e, token: unknown) => {
   const next = activityState.setToken(value);
   activityAgent.reconcile(ENDPOINTS.telemetryBase);
   return { enabled: next.enabled, paired: !!next.token };
+});
+
+// Open the OS page where Screen Recording access is granted — the ONE macOS
+// permission the activity agent's window-title reading needs (see
+// macos-permissions.ts). Same no-argument, fixed-URL design as
+// `geo:open-settings` above, and for the identical reason: nothing
+// renderer-supplied ever reaches `shell.openExternal`.
+ipcMain.handle("activity:open-screen-recording-settings", async (e) => {
+  if (!fromMainWindow(e)) return false;
+  const url = screenRecordingSettingsUrl();
+  if (!url) return false;
+  await shell.openExternal(url);
+  return true;
 });
 
 ipcMain.on("task:intent", (_e, intent: { taskId: string; action: string }) => {

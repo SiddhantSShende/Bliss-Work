@@ -11,9 +11,9 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/task-board/shared-kafkaauth"
 	"github.com/task-board/ws-gateway/internal/contract"
 	"github.com/task-board/ws-gateway/internal/hub"
-	"github.com/task-board/ws-gateway/internal/kafkaauth"
 	"github.com/task-board/ws-gateway/internal/metrics"
 	"github.com/task-board/ws-gateway/internal/store"
 	"github.com/task-board/ws-gateway/internal/tracing"

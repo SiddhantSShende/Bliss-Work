@@ -2,7 +2,7 @@ import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { MessageSquare, Ban, Forward, PhoneMissed, Pin } from "lucide-react";
 import { Avatar } from "@taskboard/ui";
-import { clock, groupMessages, linkifyMessage } from "../lib/chatFormat";
+import { clock, groupMessages } from "../lib/chatFormat";
 import type { ChannelReadReceiptDTO, MessageDTO, ReactionDTO } from "@taskboard/shared";
 import { readablePrefix, type MediaItem } from "../lib/chatEnvelope";
 import { usePopupDismiss } from "../lib/usePopupDismiss";
@@ -12,6 +12,7 @@ import { SystemPill } from "./SystemPill";
 import { ForwardBadge } from "./ForwardBadge";
 import { MessageStatusBadge } from "./MessageStatusBadge";
 import { MessageActions, ReactionChips } from "./MessageActions";
+import { renderMessageBody } from "./messageBody";
 
 export interface ThreadMessage {
   id: string;
@@ -58,31 +59,6 @@ function minePressed(m: ThreadMessage, emoji: string): boolean {
  * replying to something" is information, and silence would make the reply look
  * like a non-sequitur.
  */
-/**
- * A message body with any URLs — a call link chief among them — rendered as
- * clickable anchors. `target="_blank"` + `rel="noopener noreferrer"` matches
- * every other external link in the app (MessageActions, ChatAssetsSheet, …).
- * Never markup: `linkifyMessage` hands back plain-text/link segments, and
- * each one becomes a text child, exactly like `{m.body}` used to.
- */
-function renderMessageBody(body: string) {
-  return linkifyMessage(body).map((seg, i) =>
-    seg.type === "link" ? (
-      <a
-        key={i}
-        href={seg.value}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="underline decoration-current/40 underline-offset-2 hover:decoration-current"
-      >
-        {seg.value}
-      </a>
-    ) : (
-      <span key={i}>{seg.value}</span>
-    ),
-  );
-}
-
 function isSingleEmoji(body: string): boolean {
   const value = body.trim();
   if (!value || typeof Intl.Segmenter !== "function") return false;
@@ -135,16 +111,12 @@ function SeenBy({ receipts }: { receipts: ChannelReadReceiptDTO[] }) {
         Seen by {receipts.length}
       </button>
       {open && (
-        // Above the bubble rather than below it: this row is already at the
-        // bottom of a message, and a panel hanging below the newest message
-        // would open past the end of the thread's scroll box.
-        //
-        // Capped and scrollable — a busy channel has more readers than a popup
-        // anchored to a 10px line has room for.
+        // Keep the reader list below its trigger so it does not cover the
+        // message text. It is capped and scrollable for busy channels.
         <span
           role="dialog"
           aria-label="Seen by"
-          className="absolute bottom-5 left-0 z-[1000] max-h-48 min-w-40 overflow-y-auto rounded-lg border border-border bg-surface p-2 text-xs text-fg shadow-card"
+          className="absolute left-0 top-full z-[1000] mt-1 max-h-48 min-w-40 overflow-y-auto rounded-lg border border-border bg-surface p-2 text-xs text-fg shadow-card"
         >
           <span className="mb-1 block font-semibold">Seen by</span>
           {receipts.map((receipt) => (
@@ -291,6 +263,11 @@ export function ChatThread({
   // message's own replyTo* fields instead.
   const byId = useMemo(() => new Map(messages.map((m) => [m.id, m])), [messages]);
 
+  // Sender avatars resolved live rather than trusted from `senderName` (which,
+  // like the DM/channel row it comes from, can lag a change) — shared by both
+  // callers, so this covers a DM's one peer and a channel's whole roster.
+  const { avatarUrlOf } = useUserLabels(useMemo(() => messages.map((m) => m.senderId), [messages]));
+
   // Scroll management, doing two jobs that fight each other.
   //
   // Appending (a new message arrived) should pin the reader to the bottom.
@@ -379,7 +356,7 @@ export function ChatThread({
               return (
                 <div key={m.id}>
                   {dayChip}
-                  <SystemPill icon={<PhoneMissed size={12} className="text-red-500" />} at={m.at}>
+                  <SystemPill icon={<PhoneMissed size={12} className="text-danger" />} at={m.at}>
                     {mine ? `${m.body} · no answer` : m.body}
                   </SystemPill>
                 </div>

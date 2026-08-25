@@ -17,7 +17,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .config import settings
-from .crypto import cryptor
+from crypto import cryptor
 from .logging_setup import log
 
 # Actions that are liveness signals, not activity, and are never stored.
@@ -55,6 +55,15 @@ class ActivityRow:
     detail: dict[str, object] = field(default_factory=dict)
 
 
+@dataclass
+class InsertedRow:
+    """One row as it actually landed: the server-generated id, paired with the
+    ActivityRow the caller offered. See `insert_events`."""
+
+    id: str
+    row: ActivityRow
+
+
 def clamp_occurred_at(raw: datetime | None, now: datetime | None = None) -> datetime:
     """Bound a client-supplied timestamp to a plausible window.
 
@@ -87,16 +96,24 @@ _INSERT = text(
 )
 
 
-async def insert_events(db: AsyncSession, rows: list[ActivityRow]) -> int:
-    """Insert a batch. Returns the number written, which is not necessarily the
-    number offered — see NON_EVENT_ACTIONS.
+async def insert_events(db: AsyncSession, rows: list[ActivityRow]) -> list[InsertedRow]:
+    """Insert a batch. Returns one entry per row actually written — which is
+    not necessarily one per row offered, see NON_EVENT_ACTIONS — pairing each
+    with the server-generated id it was written under and the ActivityRow it
+    came from.
+
+    The ids exist for sessionizer.py: correlating a desktop app.focus row with
+    a browser site.visit row needs to know which activity_events row is which,
+    and the id is generated HERE (see `_params`), so a caller cannot know it in
+    advance. Every existing caller that only wanted a count still gets one —
+    `len(result)` is exactly the old return value.
 
     The caller owns the transaction and MUST have set the RLS context first —
     `set_org_context` for a request, `set_bypass_rls` for the cross-org consumer.
     """
     rows = [r for r in rows if r.action not in NON_EVENT_ACTIONS]
     if not rows:
-        return 0
+        return []
     params = [await _params(db, r) for r in rows]
     try:
         # SAVEPOINT, not a plain execute. A failed statement poisons the whole
@@ -121,7 +138,7 @@ async def insert_events(db: AsyncSession, rows: list[ActivityRow]) -> int:
             {"d": settings.partition_days_ahead},
         )
         await db.execute(_INSERT, params)
-    return len(rows)
+    return [InsertedRow(id=p["id"], row=r) for p, r in zip(params, rows)]
 
 
 async def _params(db: AsyncSession, r: ActivityRow) -> dict[str, object]:

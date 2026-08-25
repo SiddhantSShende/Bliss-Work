@@ -13,26 +13,28 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from fastapi import HTTPException, status
+from fastapi import HTTPException, Request, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from .. import service
 from ..config import settings
-from ..crypto import cryptor
+from crypto import cryptor
 from ..events.outbox import TOPIC_AUTH, build_event, enqueue_event
+from ..net import request_context
 from ..security.passwords import (
     PASSWORD_POLICY_MESSAGE,
     hash_password_async,
     password_meets_policy,
 )
+from . import session_events
 from .invites_service import iso_z
 
 PURPOSE_RESET = "password_reset"
 PURPOSE_VERIFY = "email_verify"
 
 
-async def _mint_token(
+async def mint_token(
     conn: AsyncConnection, org_id: str, user_id: str, purpose: str, ttl: timedelta
 ) -> tuple[str, datetime]:
     """Invalidate the user's outstanding tokens of this purpose, mint a fresh
@@ -66,7 +68,7 @@ async def _mint_token(
     return raw, expires_at
 
 
-async def _consume_token(
+async def consume_token(
     conn: AsyncConnection, purpose: str, raw_token: str
 ) -> tuple[str, str]:
     """Validate + single-use consume a token under FOR UPDATE (so it cannot be
@@ -114,8 +116,29 @@ async def peek_token_valid(conn: AsyncConnection, purpose: str, raw_token: str) 
     return row is not None and row.status == "pending" and row.expires_at > now
 
 
+async def peek_token(conn: AsyncConnection, purpose: str, raw_token: str) -> tuple[str, str] | None:
+    """Like `peek_token_valid`, but also resolves identity: (user_id, org_id) if
+    the token is pending and unexpired, else None. Does NOT consume — used by
+    the MFA-pending token (mfa_service.py), which is checked repeatedly across a
+    login-challenge/enrollment flow and only actually consumed at its very end."""
+    await service.set_bypass_rls(conn)
+    row = (
+        await conn.execute(
+            text(
+                "SELECT user_id, org_id, status, expires_at FROM user_tokens "
+                "WHERE token_hash = :hash AND purpose = :p"
+            ),
+            {"hash": service.sha256_bytes(raw_token), "p": purpose},
+        )
+    ).first()
+    now = datetime.now(timezone.utc)
+    if row is None or row.status != "pending" or row.expires_at <= now:
+        return None
+    return str(row.user_id), str(row.org_id)
+
+
 # ── Password reset ───────────────────────────────────────────────────────────
-async def create_password_reset_tx(conn: AsyncConnection, email: str) -> None:
+async def create_password_reset_tx(conn: AsyncConnection, email: str, request: Request) -> None:
     """Look up the user by email blind index and, IF FOUND, mint + email a reset
     link. Deliberately returns None either way — the caller always responds with
     the same generic message so an attacker can't probe which emails exist.
@@ -145,7 +168,7 @@ async def create_password_reset_tx(conn: AsyncConnection, email: str) -> None:
         return
 
     user_id, org_id = str(row.id), str(row.org_id)
-    raw, expires_at = await _mint_token(
+    raw, expires_at = await mint_token(
         conn,
         org_id,
         user_id,
@@ -162,23 +185,27 @@ async def create_password_reset_tx(conn: AsyncConnection, email: str) -> None:
         expiresAt=iso_z(expires_at),
     )
     await enqueue_event(conn, topic=TOPIC_AUTH, kafka_key=user_id, event=event)
+    ip, user_agent, request_id = request_context(request)
     await service.write_audit(
         conn,
         org_id=org_id,
         actor_id=user_id,
         action="password.reset_requested",
         target=user_id,
+        meta=session_events.context_meta(ip=ip, user_agent=user_agent, request_id=request_id),
     )
 
 
-async def reset_password_tx(conn: AsyncConnection, token: str, new_password: str) -> None:
+async def reset_password_tx(
+    conn: AsyncConnection, token: str, new_password: str, request: Request
+) -> None:
     """Consume a reset token and set the new password. Enforces the password
     policy BEFORE burning the token (a weak password can be retried on the same
     link), then revokes every session so a stolen refresh token dies on reset."""
     if not password_meets_policy(new_password):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, PASSWORD_POLICY_MESSAGE)
     await service.set_bypass_rls(conn)
-    user_id, org_id = await _consume_token(conn, PURPOSE_RESET, token)
+    user_id, org_id = await consume_token(conn, PURPOSE_RESET, token)
     new_hash = await hash_password_async(new_password)
     # Reset the SHARED credential (all memberships) + kill every session across orgs.
     iid = await service.identity_id_for_user(conn, user_id)
@@ -188,12 +215,14 @@ async def reset_password_tx(conn: AsyncConnection, token: str, new_password: str
     else:
         await service.update_password(conn, user_id, new_hash)  # legacy fallback
         await service.revoke_all_user_tokens(conn, user_id)
+    ip, user_agent, request_id = request_context(request)
     await service.write_audit(
         conn,
         org_id=org_id,
         actor_id=user_id,
         action="password.reset_completed",
         target=user_id,
+        meta=session_events.context_meta(ip=ip, user_agent=user_agent, request_id=request_id),
     )
 
 
@@ -204,7 +233,7 @@ async def create_email_verification_tx(
     """Mint + email a verification link. Called from signup (inside create_org's
     org-scoped tx) and from the authed resend endpoint. Assumes the caller has
     already scoped the tx (org GUC or bypass)."""
-    raw, expires_at = await _mint_token(
+    raw, expires_at = await mint_token(
         conn,
         org_id,
         user_id,
@@ -223,10 +252,10 @@ async def create_email_verification_tx(
     await enqueue_event(conn, topic=TOPIC_AUTH, kafka_key=user_id, event=event)
 
 
-async def verify_email_tx(conn: AsyncConnection, token: str) -> None:
+async def verify_email_tx(conn: AsyncConnection, token: str, request: Request) -> None:
     """Consume a verification token and flip users.email_verified = true."""
     await service.set_bypass_rls(conn)
-    user_id, org_id = await _consume_token(conn, PURPOSE_VERIFY, token)
+    user_id, org_id = await consume_token(conn, PURPOSE_VERIFY, token)
     iid = await service.identity_id_for_user(conn, user_id)
     if iid is not None:
         await service.set_identity_verified(conn, iid)  # verifies the shared identity
@@ -235,10 +264,12 @@ async def verify_email_tx(conn: AsyncConnection, token: str) -> None:
             text("UPDATE users SET email_verified = true WHERE id = :id"),
             {"id": user_id},
         )
+    ip, user_agent, request_id = request_context(request)
     await service.write_audit(
         conn,
         org_id=org_id,
         actor_id=user_id,
         action="email.verified",
         target=user_id,
+        meta=session_events.context_meta(ip=ip, user_agent=user_agent, request_id=request_id),
     )

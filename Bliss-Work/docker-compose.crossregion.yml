@@ -1,0 +1,211 @@
+# Cross-region replication — an OPT-IN OVERLAY, deliberately not part of the
+# running production stack. Brings THIS host up as ONE region (region-a by
+# default) of a multi-region mesh. See docs/CROSS-REGION.md for the full
+# picture; this file is the "how to actually run it" half.
+#
+#   set -a; . ./.env; . ./.env.prod; set +a
+#   bash scripts/render-nats-conf.sh region-a
+#   docker compose --env-file .env --env-file .env.prod \
+#     -f docker-compose.prod.yml -f docker-compose.crossregion.yml up -d
+#
+# THE RENDER STEP IS NOT OPTIONAL. infra/nats/region-a.conf holds the cluster
+# route password as a placeholder, not a nats-server $VAR — see
+# scripts/render-nats-conf.sh's header for exactly why nats-server's own
+# substitution does not work for this field. Skipping the render step mounts a
+# config with the literal string "__NATS_CLUSTER_PASSWORD__" as every node's
+# route password, which fails identically to a real password typo: every route
+# connects and is immediately rejected, forever.
+#
+# Nothing here starts unless that second -f is given, which is the point: the
+# base stack (communication.rnrtechs.com today) must keep behaving exactly as
+# it does now for a deployment that isn't part of a mesh. Bringing this overlay
+# up with NO peer configured (the default — see .env.prod.example) is also
+# completely safe: the bridge runs export-only against its own 3-node cluster
+# and there is nothing to import from or send to.
+#
+# ── Why THREE NATS nodes and not one ─────────────────────────────────────────
+# infra/nats/region-a.conf will not start on one node — JetStream clustering
+# needs a quorum, and a "cluster" of one routed to itself starts and accepts
+# connections but its JetStream meta-layer never becomes ready (verified
+# directly: it sits in "Waiting for routing to be established" forever). Three
+# is the minimum that gives R=3 replication a real quorum, which is what keeps
+# one disk failure from losing this region's replication log. Each node gets
+# its OWN jetstream volume below — they are independent processes with
+# independent storage, not a shared filesystem.
+#
+# ── Nothing here is reachable from the internet by default ──────────────────
+# No `ports:` on any nats-a-* service. The client port (4222) and cluster route
+# port (6222) never need to leave this compose network — only region-bridge and
+# this region's own sibling nodes ever dial them. The GATEWAY port (7222) is
+# what a real peer region would need to reach, and publishing it is a SEPARATE,
+# explicit step (docker-compose.crossregion-gateway.yml) gated by
+# infra/host/nats-gateway-allowlist.sh — never bring that up until a real peer's
+# address is known, because an open 7222 today has nobody legitimate on the
+# other end and is pure attack surface.
+#
+# ── TLS and auth are not optional here ───────────────────────────────────────
+# infra/nats/region-a.conf requires cert files at /etc/nats/certs/ and refuses
+# to start without them — provisioned by scripts/gen-nats-certs.sh, gitignored,
+# never committed. NATS_CLUSTER_PASSWORD and NATS_GATEWAY_PASSWORD are required
+# by scripts/render-nats-conf.sh (see the header above) — a missing one fails
+# THAT script loudly, before anything is ever brought up, rather than the
+# cluster starting up unauthenticated.
+#
+# ── Deploying a SECOND host as region-b ───────────────────────────────────────
+# This file, as checked in, is region-a shaped: it names services nats-a-1/2/3
+# and mounts infra/nats/region-a.rendered.conf + infra/nats/certs/region-a. A
+# second, independent host becoming region-b needs the twin shape — copy this
+# file to docker-compose.crossregion-b.yml and: rename the three nats-a-*
+# service keys to nats-b-*, swap NATS_SERVER_NAME's values to match, point the
+# conf mount and `command:` at infra/nats/region-b.rendered.conf (render it
+# with `scripts/render-nats-conf.sh region-b`), and NATS_CERTS_DIR at
+# infra/nats/certs/region-b. Do not try to make one file serve both — the
+# compose service *names* are also the DNS names region-b.conf's own
+# cluster.routes list, so they cannot be templated away with an env var.
+#
+# Rollback is symmetrical: drop the -f (or set BRIDGE_PEER_REGIONS= empty and
+# recreate region-bridge alone, if you want the cluster to keep running without
+# importing). See docs/CROSS-REGION.md §5.
+
+x-nats-node-defaults: &nats-node-defaults
+  image: nats:2.10-alpine
+  restart: unless-stopped
+  networks: [taskboard]
+  # No `ports:` — see the header note. Reachable only from other containers on
+  # this compose network.
+  command: ["-c", "/etc/nats/region-a.rendered.conf"]
+  deploy:
+    resources:
+      limits: { cpus: "1.00", memory: 1024M }
+      reservations: { cpus: "0.25", memory: 256M }
+  healthcheck:
+    # js-enabled-only=true additionally requires JetStream to report ready,
+    # which is the part a lone or mis-clustered node never reaches — see the
+    # header note on why three nodes are required.
+    test: ["CMD-SHELL", "wget -q -O /dev/null 'http://localhost:8222/healthz?js-enabled-only=true' || exit 1"]
+    interval: 10s
+    timeout: 5s
+    retries: 20
+    start_period: 30s
+
+# Env vars shared by all three nodes. NOT an anchor merged via `<<:` at the
+# service level — that merge is shallow (same rule as the `volumes:` list note
+# elsewhere in this repo's compose files), so overriding just NATS_SERVER_NAME
+# per node through it would silently drop every other var. Repeated per node
+# below instead; two lines of repetition is a better trade than a merge that
+# looks like it works and doesn't.
+#
+# NATS_CLUSTER_PASSWORD / NATS_GATEWAY_PASSWORD / PEER_REGION_GATEWAY_URL are
+# NOT here even though they still gate the region — they are consumed at
+# RENDER time (scripts/render-nats-conf.sh, run before `up`, see the header),
+# not runtime, so passing them to the container would do nothing. The `:?`
+# requiredness that used to live on this anchor now lives in that script.
+x-nats-node-env: &nats-node-env
+  PEER_REGION_NAME: ${PEER_REGION_NAME:-region-b}
+
+services:
+  # The cert/conf mounts are identical across all three nodes; only the
+  # jetstream data volume differs (each node's own independent store). YAML
+  # merge keys (`<<:`) only merge MAPPINGS, not sequences — there is no way to
+  # splice a shared list into a longer one via an anchor, so `volumes:` is
+  # repeated in full per node rather than faked with one that silently nests
+  # instead of spreading.
+  nats-a-1:
+    <<: *nats-node-defaults
+    environment:
+      <<: *nats-node-env
+      NATS_SERVER_NAME: nats-a-1
+    volumes:
+      - ./infra/nats/region-a.rendered.conf:/etc/nats/region-a.rendered.conf:ro
+      - ${NATS_CERTS_DIR:-./infra/nats/certs/region-a}/ca.crt:/etc/nats/certs/ca.crt:ro
+      - ${NATS_CERTS_DIR:-./infra/nats/certs/region-a}/server.crt:/etc/nats/certs/server.crt:ro
+      - ${NATS_CERTS_DIR:-./infra/nats/certs/region-a}/server.key:/etc/nats/certs/server.key:ro
+      # The PEER region's CA — verifies the far side's gateway certificate. Not
+      # required to exist until a real peer is provisioned (see
+      # docs/CROSS-REGION.md §7); the gateway block simply never completes a
+      # handshake until it does, which fails safe rather than falling back to
+      # no verification.
+      - ${NATS_CERTS_DIR:-./infra/nats/certs/region-a}/gateway-peer-ca.crt:/etc/nats/certs/gateway-peer-ca.crt:ro
+      - jetstream_data_1:/data/jetstream
+
+  nats-a-2:
+    <<: *nats-node-defaults
+    environment:
+      <<: *nats-node-env
+      NATS_SERVER_NAME: nats-a-2
+    volumes:
+      - ./infra/nats/region-a.rendered.conf:/etc/nats/region-a.rendered.conf:ro
+      - ${NATS_CERTS_DIR:-./infra/nats/certs/region-a}/ca.crt:/etc/nats/certs/ca.crt:ro
+      - ${NATS_CERTS_DIR:-./infra/nats/certs/region-a}/server.crt:/etc/nats/certs/server.crt:ro
+      - ${NATS_CERTS_DIR:-./infra/nats/certs/region-a}/server.key:/etc/nats/certs/server.key:ro
+      - ${NATS_CERTS_DIR:-./infra/nats/certs/region-a}/gateway-peer-ca.crt:/etc/nats/certs/gateway-peer-ca.crt:ro
+      - jetstream_data_2:/data/jetstream
+
+  nats-a-3:
+    <<: *nats-node-defaults
+    environment:
+      <<: *nats-node-env
+      NATS_SERVER_NAME: nats-a-3
+    volumes:
+      - ./infra/nats/region-a.rendered.conf:/etc/nats/region-a.rendered.conf:ro
+      - ${NATS_CERTS_DIR:-./infra/nats/certs/region-a}/ca.crt:/etc/nats/certs/ca.crt:ro
+      - ${NATS_CERTS_DIR:-./infra/nats/certs/region-a}/server.crt:/etc/nats/certs/server.crt:ro
+      - ${NATS_CERTS_DIR:-./infra/nats/certs/region-a}/server.key:/etc/nats/certs/server.key:ro
+      - ${NATS_CERTS_DIR:-./infra/nats/certs/region-a}/gateway-peer-ca.crt:/etc/nats/certs/gateway-peer-ca.crt:ro
+      - jetstream_data_3:/data/jetstream
+
+  region-bridge:
+    build: ./services/region-bridge
+    restart: unless-stopped
+    networks: [taskboard]
+    env_file:
+      - path: .env.prod
+        required: false
+    environment:
+      BRIDGE_REGION: ${BRIDGE_REGION:-region-a}
+      # Empty is the safe, correct default — see the header note.
+      BRIDGE_PEER_REGIONS: ${BRIDGE_PEER_REGIONS:-}
+      # Empty defers to config.go's own default (the platform's real bridged
+      # topics). Override for a scoped test — see docs/CROSS-REGION.md's local
+      # simulation section — never for a real deployment, where the default is
+      # what keeps the routing directory (routing.events.v1) actually replicated.
+      BRIDGE_TOPICS: ${BRIDGE_TOPICS:-}
+      KAFKA_BROKERS: kafka:9092
+      NATS_URL: nats://nats-a-1:4222,nats://nats-a-2:4222,nats://nats-a-3:4222
+      NATS_TLS_CA: /etc/nats/certs/ca.crt
+      NATS_TLS_CERT: /etc/nats/certs/bridge.crt
+      NATS_TLS_KEY: /etc/nats/certs/bridge.key
+      BRIDGE_STREAM_REPLICAS: ${BRIDGE_STREAM_REPLICAS:-3}
+      BRIDGE_STREAM_MAX_GB: ${BRIDGE_STREAM_MAX_GB:-32}
+      BRIDGE_EXPORT_ENABLED: ${BRIDGE_EXPORT_ENABLED:-true}
+      BRIDGE_IMPORT_ENABLED: ${BRIDGE_IMPORT_ENABLED:-true}
+      # Only needed once regions are separate JetStream domains with a real
+      # peer — see docs/CROSS-REGION.md §7. Empty is correct with no peer.
+      BRIDGE_PEER_API_PREFIXES: ${BRIDGE_PEER_API_PREFIXES:-}
+    volumes:
+      - ${NATS_CERTS_DIR:-./infra/nats/certs/region-a}/ca.crt:/etc/nats/certs/ca.crt:ro
+      - ${NATS_CERTS_DIR:-./infra/nats/certs/region-a}/bridge.crt:/etc/nats/certs/bridge.crt:ro
+      - ${NATS_CERTS_DIR:-./infra/nats/certs/region-a}/bridge.key:/etc/nats/certs/bridge.key:ro
+    cap_drop: [ALL]
+    read_only: true
+    tmpfs: [/tmp]
+    deploy:
+      resources:
+        limits: { cpus: "0.50", memory: 256M }
+        reservations: { cpus: "0.10", memory: 64M }
+    depends_on:
+      nats-a-1: { condition: service_healthy }
+      nats-a-2: { condition: service_healthy }
+      nats-a-3: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+volumes:
+  jetstream_data_1:
+  jetstream_data_2:
+  jetstream_data_3:

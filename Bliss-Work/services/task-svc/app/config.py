@@ -31,12 +31,18 @@ class Settings(BaseSettings):
 
     port: int = 8002
 
-    # messaging-svc internal endpoint base + shared-secret token used to
-    # resolve channel members when a task is allocated to a channel.
-    # Defaults match docker-compose; the token must equal the value the
-    # messaging-svc reads from TB_INTERNAL_TOKEN (same .env source).
+    # messaging-svc internal endpoint base + its OWN shared secret (used to
+    # resolve channel members when a task is allocated to a channel). This is
+    # NOT the same secret this service validates its own /internal/* callers
+    # against below — see docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 2: every
+    # service now has a distinct per-callee secret rather than one token
+    # shared platform-wide.
     messaging_internal_base: str = "http://messaging-svc:8004"
-    internal_token: str = Field(default="", validation_alias="TB_INTERNAL_TOKEN")
+    messaging_internal_token: str = Field(default="", validation_alias="MESSAGING_INTERNAL_TOKEN")
+
+    # This service's OWN internal-endpoint secret (validates callers of
+    # DELETE /internal/tasks/by-title/{title}).
+    internal_token: str = Field(default="", validation_alias="TASK_INTERNAL_TOKEN")
 
     # Redis for distributed rate limiting (honest across replicas). Empty =
     # in-process fallback (per-replica, fails open). slowapi_storage_uri
@@ -47,7 +53,7 @@ class Settings(BaseSettings):
 
     # ── At-rest column encryption (envelope: per-org DEK wrapped by a KEK) ──────
     # Mirrors auth-svc/app/config.py (same names + dev defaults). See
-    # app/crypto.py. provider: "dev" (Argon2id-derived master KEK from a
+    # services/shared/crypto/crypto.py. provider: "dev" (Argon2id-derived master KEK from a
     # passphrase) or "kms".
     data_kek_provider: str = "dev"
     data_master_passphrase: str = "dev-master-passphrase-change-me"
@@ -86,7 +92,9 @@ class Settings(BaseSettings):
         if "sslmode=verify-full" not in self.task_database_url:
             problems.append("TASK_DATABASE_URL must use sslmode=verify-full in production")
         if not self.internal_token:
-            problems.append("TB_INTERNAL_TOKEN must be set in production")
+            problems.append("TASK_INTERNAL_TOKEN must be set in production")
+        if not self.messaging_internal_token:
+            problems.append("MESSAGING_INTERNAL_TOKEN must be set in production")
         if self.data_kek_provider == "kms":
             if not self.data_kms_key_id:
                 problems.append("DATA_KMS_KEY_ID must be set when DATA_KEK_PROVIDER=kms")

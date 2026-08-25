@@ -9,17 +9,17 @@ from opentelemetry import trace
 from opentelemetry.trace import SpanKind
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
+from kafka_security import kafka_security_kwargs
 
 from . import events
 from .config import settings
-from .crypto import cryptor
+from crypto import cryptor
 from .db import session, set_bypass_rls
 from .events import AUTH_TOPIC
 from .logging_setup import log
 from .org_purge import purge_org
 from .routes.helpers import enqueue_outbox, resolve_username
-from .tracing import extract_context
-from .kafka_security import kafka_security_kwargs
+from tracing import extract_context
 
 _tracer = trace.get_tracer(__name__)
 

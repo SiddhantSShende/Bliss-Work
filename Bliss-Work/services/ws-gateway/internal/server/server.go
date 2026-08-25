@@ -56,10 +56,12 @@ type Config struct {
 	// Connection caps enforced at upgrade time (see hub.Add). 0 = unlimited.
 	MaxConnections  int
 	MaxConnsPerUser int
-	// InternalToken authorizes the routed-delivery push endpoint (see push.go).
-	// Empty disables the endpoint entirely — it answers 401 to everything —
-	// which is the correct posture for a deployment not using routed delivery.
-	InternalToken string
+	// WSGatewayInternalToken authorizes the routed-delivery push endpoint (see
+	// push.go) — this service's OWN secret (WS_GATEWAY_INTERNAL_TOKEN), not
+	// shared with any other service's callees. Empty disables the endpoint
+	// entirely — it answers 401 to everything — which is the correct posture
+	// for a deployment not using routed delivery.
+	WSGatewayInternalToken string
 }
 
 // New constructs a Server. dispatcher / sig may be nil in tests; in production

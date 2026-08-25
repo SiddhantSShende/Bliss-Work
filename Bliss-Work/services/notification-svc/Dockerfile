@@ -2,12 +2,29 @@
 FROM golang:1.26-alpine@sha256:3ad57304ad93bbec8548a0437ad9e06a455660655d9af011d58b993f6f615648 AS build
 WORKDIR /src
 
-# Cache dependencies.
-COPY go.mod go.sum ./
+# ── BUILD CONTEXT IS THE REPOSITORY ROOT, not services/notification-svc ─────
+# go.mod points its github.com/task-board/shared-kafkaauth requirement at the
+# sibling module services/shared/kafkaauth (the Kafka SASL/TLS config also
+# used by messaging-svc and ws-gateway) via a `replace ... => ../shared/kafkaauth`
+# directive, so the build needs that directory too:
+#
+#     docker build -f services/notification-svc/Dockerfile .
+#
+# .dockerignore at the repo root keeps that context to roughly source size.
+
+# Cache dependencies: manifests first, so this layer is reused until a
+# dependency actually changes.
+COPY services/notification-svc/go.mod services/notification-svc/go.sum services/notification-svc/
+COPY services/shared/kafkaauth/go.mod services/shared/kafkaauth/
+WORKDIR /src/services/notification-svc
 RUN go mod download
 
 # Build.
-COPY . .
+WORKDIR /src
+COPY services/notification-svc services/notification-svc
+COPY services/shared/kafkaauth services/shared/kafkaauth
+WORKDIR /src/services/notification-svc
+
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" \
     -o /out/notification-svc ./cmd/server
 # Event-table retention, run as a cron/one-shot. notification.events.v1 is the

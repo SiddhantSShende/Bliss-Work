@@ -1,26 +1,30 @@
 """Internal service-to-service endpoints — no JWT, shared-secret auth.
 
-Mirrors the messaging-svc internal pattern (X-Internal-Token / TB_INTERNAL_TOKEN).
-auth-svc owns identity, so other services resolve a user's e-mail / username by
-ASKING auth-svc here rather than reaching into authdb. Used by email-worker's
-offline relay. NOT mounted under the public CORS/JWT surface.
+Mirrors the messaging-svc internal pattern (X-Internal-Token /
+AUTH_INTERNAL_TOKEN — auth-svc's own secret, not shared with any other
+service's callees; see docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 2). auth-svc
+owns identity, so other services resolve a user's e-mail / username by ASKING
+auth-svc here rather than reaching into authdb. Used by email-worker's offline
+relay. NOT mounted under the public CORS/JWT surface.
 """
 from __future__ import annotations
 
+import json
 import os
-import secrets
 
-from fastapi import APIRouter, Header, HTTPException, status
+from fastapi import APIRouter, Header, HTTPException, Response, status
+from internal_auth import internal_token_matches
+from sqlalchemy import text
 
 from .. import service
-from ..crypto import cryptor
+from crypto import cryptor
 from ..db import engine
-from ..events.outbox import TOPIC_AUTH, build_event, enqueue_event
+from ..events.outbox import SECRET_EVENT_TYPES, TOPIC_AUTH, build_event, enqueue_event
 from ..schemas import UserDTO
 
 router = APIRouter(prefix="/internal", tags=["internal"])
 
-_INTERNAL_TOKEN = os.getenv("TB_INTERNAL_TOKEN", "")
+_INTERNAL_TOKEN = os.getenv("AUTH_INTERNAL_TOKEN", "")
 
 #: Members re-emitted by one /users/reproject call. See the endpoint's docstring.
 _REPROJECT_MAX = 5000
@@ -34,7 +38,7 @@ async def internal_get_user(
     # Fail CLOSED: if the shared secret is not configured the endpoint must reject
     # everything, not (as before) accept any caller. Constant-time compare avoids
     # leaking the token via response timing.
-    if not _INTERNAL_TOKEN or not secrets.compare_digest(x_internal_token, _INTERNAL_TOKEN):
+    if not internal_token_matches(x_internal_token, _INTERNAL_TOKEN):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "bad internal token")
     async with engine.connect() as conn:
         # Trusted service-to-service lookup by user_id with no org context (the
@@ -54,7 +58,7 @@ async def verify_audit_chain(
 ) -> dict:
     """Tamper-evidence check: re-walk an org's audit hash chain. Returns
     {ok, count, broken_at, reason}. For ops / incident response."""
-    if not _INTERNAL_TOKEN or not secrets.compare_digest(x_internal_token, _INTERNAL_TOKEN):
+    if not internal_token_matches(x_internal_token, _INTERNAL_TOKEN):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "bad internal token")
     async with engine.connect() as conn:
         await service.set_org_guc(conn, org_id)
@@ -69,7 +73,7 @@ async def rotate_org_dek(
     """Rotate an org's Data Encryption Key (authdb). New writes use the new
     generation; existing ciphertext stays readable via its embedded key_version
     (lazy rotation). Repeat per service DB to fully rotate an org."""
-    if not _INTERNAL_TOKEN or not secrets.compare_digest(x_internal_token, _INTERNAL_TOKEN):
+    if not internal_token_matches(x_internal_token, _INTERNAL_TOKEN):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "bad internal token")
     async with engine.begin() as conn:
         await service.set_org_guc(conn, org_id)  # org_keys is RLS-protected
@@ -95,7 +99,7 @@ async def reproject_org_users(
     consumer-side dedup does not suppress it, and the write it drives is an
     upsert of values that are already authoritative here.
     """
-    if not _INTERNAL_TOKEN or not secrets.compare_digest(x_internal_token, _INTERNAL_TOKEN):
+    if not internal_token_matches(x_internal_token, _INTERNAL_TOKEN):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "bad internal token")
 
     emitted = 0
@@ -117,3 +121,50 @@ async def reproject_org_users(
             await enqueue_event(conn, topic=TOPIC_AUTH, kafka_key=dto.id, event=event)
             emitted += 1
     return {"orgId": org_id, "emitted": emitted, "truncated": emitted == _REPROJECT_MAX}
+
+
+@router.get("/outbox-events/{outbox_id}")
+async def internal_outbox_event(
+    outbox_id: str,
+    response: Response,
+    x_internal_token: str = Header(default="", alias="X-Internal-Token"),
+) -> dict:
+    """Return the still-full stored payload for one outbox row.
+
+    This is the ONLY way the raw password-reset / email-verification / invite
+    secret ever leaves auth-svc: email-worker pulls it here instead of the
+    secret ever being broadcast over Kafka (see
+    docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 3 — the poller strips these
+    fields before publish and adds `outboxId`, which is what callers pass in
+    here).
+
+    Restricted to SECRET_EVENT_TYPES so this can't be used as a generic
+    outbox-payload-leak oracle for unrelated event types. `Cache-Control:
+    no-store` so nothing between here and the caller retains the secret.
+
+    404 is a PERMANENT outcome for the caller (row not found, wrong type, or
+    already redacted past its own expiry) — there is nothing useful to retry,
+    matching this service's existing single-generic-error posture for
+    single-use tokens. Any other failure (5xx, connection drop) is transient.
+    """
+    if not internal_token_matches(x_internal_token, _INTERNAL_TOKEN):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "bad internal token")
+    response.headers["Cache-Control"] = "no-store"
+    async with engine.connect() as conn:
+        row = (
+            await conn.execute(
+                text(
+                    "SELECT payload FROM outbox WHERE id = :id "
+                    "AND payload ->> 'type' = ANY(:types)"
+                ),
+                {"id": outbox_id, "types": list(SECRET_EVENT_TYPES)},
+            )
+        ).first()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
+    payload = json.loads(row.payload) if isinstance(row.payload, str) else row.payload
+    # Already redacted (past its own expiresAt) — permanently gone, same 404
+    # as "row not found": there's nothing here for the caller to retry.
+    if not any(field in payload for field in ("resetUrl", "verifyUrl", "inviteUrl")):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
+    return payload

@@ -117,7 +117,7 @@ export function ChannelMembersSheet({
               const protectedRow = m.role === "owner";
               return (
                 <li key={m.userId} className="group flex items-center gap-3 rounded-xl p-2 hover:bg-surface-2">
-                  <Avatar name={u?.displayName ?? m.userId} size="sm" />
+                  <Avatar name={u?.displayName ?? m.userId} src={u?.avatarUrl} size="sm" />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span className="truncate text-sm text-fg">
@@ -194,7 +194,7 @@ export function ChannelMembersSheet({
                 const u = byId.get(b.userId);
                 return (
                   <li key={b.userId} className="flex items-center gap-3 rounded-xl p-2 hover:bg-surface-2">
-                    <Avatar name={u?.displayName ?? b.userId} size="sm" />
+                    <Avatar name={u?.displayName ?? b.userId} src={u?.avatarUrl} size="sm" />
                     <span className="min-w-0 flex-1 truncate text-sm text-muted">
                       {u?.displayName ?? b.userId}
                     </span>

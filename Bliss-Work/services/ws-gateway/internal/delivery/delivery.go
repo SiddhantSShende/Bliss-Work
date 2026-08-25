@@ -22,10 +22,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"math/rand"
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/task-board/shared-backoff"
 )
 
 // flushInterval bounds the per-recipient batching window.
@@ -44,11 +45,13 @@ const httpTimeout = 5 * time.Second
 const (
 	// maxAttempts is the total number of POST attempts (1 initial + 2 retries).
 	maxAttempts = 3
-	// backoffBase is the first inter-attempt sleep; it doubles each retry.
-	backoffBase = 100 * time.Millisecond
-	// backoffMax caps any single backoff sleep so the schedule stays short.
-	backoffMax = 1 * time.Second
 )
+
+// retryPolicy is capped exponential with full jitter (shared/backoff), sized
+// short for this dispatcher: 100ms base doubling to a 1s ceiling, since a
+// blocked flush loop is the cost of a slow backoff and the delivered status
+// is best-effort UX, not correctness.
+var retryPolicy = backoff.Policy{Base: 100 * time.Millisecond, Max: 1 * time.Second}
 
 // Circuit breaker. When messaging-svc is sustainedly down, retrying every
 // batch wastes the full retry budget (and up to maxAttempts*httpTimeout of
@@ -215,7 +218,7 @@ func (d *Dispatcher) send(ctx context.Context, b *batch) {
 		}
 		// Backoff before the next attempt. Abort early if the dispatcher's
 		// context is cancelled (shutdown) so we don't delay the drain.
-		if !sleepCtx(ctx, backoffFor(attempt)) {
+		if !retryPolicy.Sleep(ctx.Done(), attempt) {
 			break
 		}
 	}
@@ -252,35 +255,6 @@ func (d *Dispatcher) postOnce(ctx context.Context, url string, payload []byte, r
 		return retry, fmt.Errorf("delivery ack non-2xx: status %d", resp.StatusCode)
 	}
 	return false, nil
-}
-
-// backoffFor returns the sleep before the (attempt+1)th try: exponential on
-// backoffBase, capped at backoffMax, with full jitter to avoid a thundering
-// herd of dispatchers retrying in lock-step.
-func backoffFor(attempt int) time.Duration {
-	d := backoffBase << (attempt - 1) // attempt is 1-based
-	if d > backoffMax || d <= 0 {     // <=0 guards an unlikely shift overflow
-		d = backoffMax
-	}
-	// Retry jitter spreads reconnect storms; it guards nothing and predicting
-	// it buys an attacker nothing, so math/rand is the right tool here.
-	return time.Duration(rand.Int63n(int64(d) + 1)) //nolint:gosec // G404: jitter, not a secret
-}
-
-// sleepCtx sleeps for d unless ctx is cancelled first; it reports whether the
-// full sleep elapsed (true) vs. the context being cancelled (false).
-func sleepCtx(ctx context.Context, d time.Duration) bool {
-	if d <= 0 {
-		return ctx.Err() == nil
-	}
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-ctx.Done():
-		return false
-	case <-t.C:
-		return true
-	}
 }
 
 // breakerOpen reports whether the circuit breaker is currently open (fail-fast).

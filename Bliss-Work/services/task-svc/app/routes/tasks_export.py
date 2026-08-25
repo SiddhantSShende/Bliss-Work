@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, Response
 from sqlalchemy import text
 
 from ..auth import Principal, PrincipalDep
-from ..crypto import cryptor
+from crypto import cryptor
 from ..db import session, set_org_context
 from ..rate_limit import limiter
 from ..schemas import TaskExportRow

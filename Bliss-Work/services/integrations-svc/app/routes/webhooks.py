@@ -21,7 +21,7 @@ from fastapi import APIRouter, HTTPException, Request, Response, status
 from sqlalchemy import text
 
 from ..config import settings
-from ..crypto import cryptor
+from crypto import cryptor
 from ..db import session, set_bypass_rls
 from ..ingest import claim_event, ingest_one
 from ..providers import slack

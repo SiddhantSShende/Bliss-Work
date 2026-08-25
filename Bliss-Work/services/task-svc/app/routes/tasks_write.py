@@ -3,13 +3,14 @@ from __future__ import annotations
 import httpx
 import uuid6
 from fastapi import APIRouter, Header, HTTPException, status
+from internal_auth import internal_token_matches
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from .. import events
 from ..auth import Principal, PrincipalDep
 from ..config import settings
-from ..crypto import cryptor
+from crypto import cryptor
 from ..db import session, set_org_context
 from ..logging_setup import log
 from ..schemas import CreateTaskRequest, CreateTaskResponse
@@ -28,7 +29,7 @@ async def _resolve_channel_members(channel_id: str, org_id: str) -> list[str]:
     channel belongs to so a cross-org attacker can't fan-out via a channel
     they aren't in.
     """
-    headers = {"X-Internal-Token": settings.internal_token}
+    headers = {"X-Internal-Token": settings.messaging_internal_token}
     url = f"{settings.messaging_internal_base}/internal/channels/{channel_id}/members"
     async with httpx.AsyncClient(timeout=httpx.Timeout(5.0, connect=2.0)) as client:
         try:
@@ -71,6 +72,16 @@ async def create_task(
         assignee_ids = [a for a in dict.fromkeys(await _resolve_channel_members(channel_id, org_id))]
     else:
         assignee_ids = [a for a in dict.fromkeys(body.assigneeIds)]
+        # A task always has a distinct sender and assignee — the
+        # Acknowledge/Ignore lifecycle assumes someone else sent it. The People
+        # picker excludes the caller from candidates, but that is client-side
+        # only; this is the boundary that must hold regardless of what any
+        # client (this one, a future one, or a raw API call) sends. Channel
+        # mode is intentionally exempt: fanning a task to a channel the caller
+        # is themselves a member of is a real, distinct product choice, not
+        # this bug.
+        if sender_id in assignee_ids:
+            raise HTTPException(status_code=400, detail="cannot assign a task to yourself")
     if not assignee_ids:
         raise HTTPException(status_code=400, detail="at least one assignee required")
 
@@ -174,67 +185,85 @@ async def create_task(
 @router.delete("/internal/tasks/by-title/{title}")
 async def delete_task_by_title_internal(
     title: str,
+    org_id: str,
     username: str | None = None,
     internal_token: str | None = Header(default=None, alias="X-Internal-Token"),
 ) -> dict:
     """Internal admin endpoint: delete tasks by title using internal token.
-    
+
     This endpoint is for internal service-to-service calls and admin operations.
     Requires X-Internal-Token header matching the configured internal token.
-    
-    Deletes all tasks with the specified title. If username is provided,
-    only deletes tasks created by that username.
+
+    `org_id` is required (FastAPI 422s the request if it's missing — the same
+    validation-error convention every other endpoint in this service already
+    uses, see errors.py) and is bound as the RLS context via
+    `set_org_context` before any query, so a caller can never scope this
+    delete wider than one org — deliberately not a bypass-RLS cross-org admin
+    operation, which is what this endpoint used to be.
+
+    Deletes all tasks with the specified title in that org. If username is
+    provided, only deletes tasks created by that username.
+
+    Titles are stored encrypted (title_enc) under each org's own DEK, with no
+    plaintext column and no search index, so matching by title means fetching
+    candidate rows and decrypting each with its own org_id before comparing.
     """
-    # Verify internal token
-    if not internal_token or internal_token != settings.internal_token:
+    # Verify internal token (constant-time — a stolen internal secret should
+    # not be discoverable via response-timing on this comparison).
+    if not internal_token_matches(internal_token, settings.internal_token):
         raise HTTPException(status_code=403, detail="invalid internal token")
 
     async with session() as db:
-        # Query all orgs that have tasks with this title
+        await set_org_context(db, org_id)
+
         if username:
-            # Delete only tasks created by the specified username
-            result = await db.execute(
-                text(
-                    "DELETE FROM task_assignees "
-                    "WHERE task_id IN ("
-                    "  SELECT t.id FROM tasks t "
-                    "  JOIN user_projection u ON t.sender_id = u.user_id "
-                    "  WHERE u.username = :username AND t.title = :title"
-                    ")"
-                ),
-                {"username": username, "title": title},
-            )
-            assignees_deleted = result.rowcount
-
-            result = await db.execute(
-                text(
-                    "DELETE FROM tasks "
-                    "WHERE sender_id IN ("
-                    "  SELECT user_id FROM user_projection WHERE username = :username"
-                    ") AND title = :title "
-                    "RETURNING id"
-                ),
-                {"username": username, "title": title},
-            )
-            tasks_deleted = result.rowcount
+            # Only tasks created by the specified username, in this org.
+            # The explicit org_id filter is defense-in-depth alongside RLS.
+            candidates = (
+                await db.execute(
+                    text(
+                        "SELECT t.id, t.org_id, t.title_enc FROM tasks t "
+                        "JOIN user_projection u ON t.sender_id = u.user_id "
+                        "WHERE u.username = :username AND t.org_id = :org_id"
+                    ),
+                    {"username": username, "org_id": org_id},
+                )
+            ).all()
         else:
-            # Delete all tasks with this title (across all orgs/users)
-            result = await db.execute(
-                text(
-                    "DELETE FROM task_assignees "
-                    "WHERE task_id IN ("
-                    "  SELECT id FROM tasks WHERE title = :title"
-                    ")"
-                ),
-                {"title": title},
-            )
-            assignees_deleted = result.rowcount
+            # All tasks in this org (never across orgs).
+            candidates = (
+                await db.execute(
+                    text("SELECT id, org_id, title_enc FROM tasks WHERE org_id = :org_id"),
+                    {"org_id": org_id},
+                )
+            ).all()
 
-            result = await db.execute(
-                text("DELETE FROM tasks WHERE title = :title RETURNING id"),
-                {"title": title},
-            )
-            tasks_deleted = result.rowcount
+        matching_ids = [
+            str(row.id)
+            for row in candidates
+            if await cryptor().decrypt(db, str(row.org_id), row.title_enc) == title
+        ]
+
+        if not matching_ids:
+            await db.commit()
+            return {
+                "deleted_tasks": 0,
+                "deleted_assignees": 0,
+                "title": title,
+                "username": username,
+            }
+
+        result = await db.execute(
+            text("DELETE FROM task_assignees WHERE task_id = ANY(:ids)"),
+            {"ids": matching_ids},
+        )
+        assignees_deleted = result.rowcount
+
+        result = await db.execute(
+            text("DELETE FROM tasks WHERE id = ANY(:ids) RETURNING id"),
+            {"ids": matching_ids},
+        )
+        tasks_deleted = result.rowcount
 
         await db.commit()
         log.info(

@@ -3,7 +3,7 @@ from __future__ import annotations
 import ssl
 from urllib.parse import parse_qs, urlsplit, urlunsplit
 
-from pydantic import Field, model_validator
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -40,8 +40,6 @@ class Settings(BaseSettings):
     log_level: str = "info"
 
     port: int = 8006
-
-    internal_token: str = Field(default="", validation_alias="TB_INTERNAL_TOKEN")
 
     # Redis for distributed rate limiting (honest across pods). Empty = in-process
     # fallback (per-pod, fails open). slowapi_storage_uri overrides redis_url for
@@ -122,8 +120,6 @@ class Settings(BaseSettings):
             problems.append("TELEMETRY_DATABASE_URL still uses the dev password")
         if "sslmode=verify-full" not in self.telemetry_database_url:
             problems.append("TELEMETRY_DATABASE_URL must use sslmode=verify-full in production")
-        if not self.internal_token:
-            problems.append("TB_INTERNAL_TOKEN must be set in production")
         if self.data_kek_provider == "kms":
             if not self.data_kms_key_id:
                 problems.append("DATA_KMS_KEY_ID must be set when DATA_KEK_PROVIDER=kms")

@@ -122,6 +122,23 @@ func TestInboundStreamHasNoSubjectsAndSourcesEveryPeer(t *testing.T) {
 	}
 }
 
+func TestStreamsArePlacedInThisRegionsOwnCluster(t *testing.T) {
+	// Proven live, the hard way: a gateway between two JetStream-enabled
+	// clusters forms ONE combined meta-cluster regardless of `domain` (verified
+	// directly — two gatewayed 3-node regions reported cluster_size 6), so
+	// without an explicit Placement, stream creation can be refused outright
+	// ("no suitable peers for placement") rather than land predictably in one
+	// region. Placement.Cluster is what actually keeps a region's replicas from
+	// crossing the gateway.
+	c := cfg()
+	if got := outboundConfig(c).Placement; got == nil || got.Cluster != c.Region {
+		t.Fatalf("outbound placement = %+v, want cluster %q", got, c.Region)
+	}
+	if got := inboundConfig(c).Placement; got == nil || got.Cluster != c.Region {
+		t.Fatalf("inbound placement = %+v, want cluster %q", got, c.Region)
+	}
+}
+
 func TestAPeerInAnotherJetStreamDomainGetsAnAPIPrefix(t *testing.T) {
 	// Without it the source resolves against the local domain, finds no such
 	// stream, and delivers nothing — indistinguishable from a quiet peer.

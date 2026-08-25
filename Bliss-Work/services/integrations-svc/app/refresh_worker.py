@@ -16,7 +16,8 @@ import asyncio
 
 from sqlalchemy import text
 
-from .crypto import cryptor
+from . import app_credentials
+from crypto import cryptor
 from .db import session, set_bypass_rls
 from .logging_setup import log
 from .providers import oauth
@@ -90,11 +91,13 @@ class RefreshWorker:
             await self._refresh_one(conn_id, org_id, provider, rt_enc)
 
     async def _refresh_one(self, conn_id: str, org_id: str, provider: str, rt_enc: bytes) -> None:
-        cfg = oauth.config_for(provider)
-        if cfg is None:
-            return  # client creds removed — nothing we can do
         async with session() as db:
             await set_bypass_rls(db)
+            vendor = app_credentials.vendor_for(provider)
+            creds = await app_credentials.load(db, org_id, vendor) if vendor else None
+            cfg = oauth.config_for(provider, creds)
+            if cfg is None:
+                return  # client creds removed — nothing we can do
             try:
                 refresh_token = await cryptor().decrypt(db, org_id, rt_enc)
                 tokens = await oauth.refresh_access_token(cfg, refresh_token or "")

@@ -207,20 +207,76 @@ so. That is enough to watch events land on `EVENTS_OUT_<REGION>`.
 **Production**, per region:
 
 - A NATS **cluster** — three nodes minimum, or JetStream cannot hold `R=3` and
-  one disk failure loses the region's replication log.
+  one disk failure loses the region's replication log
+  (`docker-compose.crossregion.yml`).
 - A **gateway** to each peer region (`infra/nats/region-a.conf`).
 - `BRIDGE_STREAM_REPLICAS=3`.
-- `NATS_CREDENTIALS` pointing at an account NKEY. The dev config has no
-  authentication at all.
+- TLS + a shared password on both the cluster routes and the gateway
+  (`scripts/gen-nats-certs.sh`, `scripts/render-nats-conf.sh` — see §7a).
+- The gateway port (7222) published and IP-allowlisted only once a real peer
+  exists (`infra/host/nats-gateway-allowlist.sh`) — never published
+  unconditionally.
 
 > `infra/nats/region-a.conf` **will not start on a single node**. JetStream plus
 > gateways means clustered JetStream, and nats-server refuses that without
-> routes. Use `infra/nats/nats.conf` for a single-node dev server.
+> routes. Verified directly, not just documented: a "cluster" of one node
+> routed to itself starts and accepts connections, but its JetStream layer sits
+> in "Waiting for routing to be established" forever — it looks alive and is
+> not. Use `infra/nats/nats.conf` for a single-node dev server.
 
-If regions are separate JetStream **domains** (leaf nodes rather than one
-super-cluster account), set `BRIDGE_PEER_API_PREFIXES=<peer>=$JS.<domain>.API`.
-Without it a source resolves against the local domain, finds no such stream, and
-silently delivers nothing — indistinguishable from a peer with no traffic.
+`BRIDGE_PEER_API_PREFIXES` / separate JetStream **domains** are NOT part of
+this topology, and setting `domain` in `infra/nats/region-a.conf` /
+`region-b.conf` is a mistake, not a stricter option — those files deliberately
+do not set it. Domains are how JetStream is isolated over LEAF NODE
+connections; this topology uses GATEWAYS, and a gateway between two
+JetStream-enabled clusters forms ONE JetStream supercluster regardless of
+`domain` — verified directly: two gatewayed 3-node regions with distinct
+domains reported one merged 6-node meta-cluster and refused to place a new
+stream ("no suitable peers for placement"). Per-region isolation instead comes
+from `Placement.Cluster` on every stream (`internal/streams/provision.go`),
+which is what actually keeps a region's replicas from crossing the gateway.
+`BRIDGE_PEER_API_PREFIXES` stays in the bridge's config surface for a possible
+future leaf-node topology; leave it empty for this one.
+
+### 7a. TLS, auth, and the render step
+
+Two things cannot be nats-server `$VAR` references, and skipping either one
+fails in a way that looks like something else entirely — both cost real
+debugging time to pin down, so they are recorded here rather than left to be
+rediscovered:
+
+- **The cluster route password.** nats-server's own `$VAR` substitution only
+  replaces a token that IS the variable — `user:$VAR@host` (a variable
+  concatenated with literal text) is silently left un-substituted. Worse,
+  `cluster.authorization` is not even consulted for EXPLICITLY listed routes in
+  the first place (only implicitly-discovered ones use it), so a route list
+  with plain URLs produces a connect/reject loop — thousands of
+  `"authentication error"` log lines per second, not a handful at startup —
+  because every node dials every peer with no credentials and every peer
+  correctly refuses them.
+- **The gateway URL to a real peer.** Genuinely unknown until that peer exists,
+  so it has to come from the environment, not be edited into a tracked file.
+
+Both are filled in by `scripts/render-nats-conf.sh`, which writes a gitignored
+`infra/nats/<region>.rendered.conf` — the file `docker-compose.crossregion.yml`
+actually mounts. Provision certs first:
+
+```bash
+scripts/gen-nats-certs.sh region-a
+set -a; . ./.env; . ./.env.prod; set +a
+bash scripts/render-nats-conf.sh region-a
+```
+
+`region-bridge`'s own connection to its local cluster is a separate TLS leg —
+`NATS_TLS_CA` / `NATS_TLS_CERT` / `NATS_TLS_KEY`, already wired in
+`docker-compose.crossregion.yml` from the same cert set (`bridge.crt` /
+`bridge.key`, client-only usage, signed by the region's own CA).
+
+When a real second region exists, exchange **CA public certs** out-of-band
+(never `ca.key`) and place the peer's `ca.crt` at
+`infra/nats/certs/<region>/gateway-peer-ca.crt` before rendering — an absent or
+wrong peer CA fails the gateway TLS handshake closed, which is the safe
+failure, not a hang.
 
 ### Configuration
 
@@ -388,7 +444,106 @@ guarantee were exercised against a real Postgres: a redelivered event is a no-op
 a newer event wins, an older one arriving late loses, and a revoke that overtakes
 its own upsert leaves the row revoked.
 
-**Not verified locally**: the gateway/super-cluster WAN transport, which needs
-three NATS nodes per region. Stream sourcing behaves identically whether the
-source is on the same server or across a gateway — that is the part to exercise
-in staging before this carries production traffic.
+**Verified live, on this host** (two real 3-node TLS+auth clusters, gatewayed,
+2026-08-24): the full production shape actually boots — mutual TLS on client,
+cluster, and gateway connections; cluster and gateway password auth; real
+Raft/JetStream leader election (`meta_cluster.cluster_size: 3` per region, a
+genuine quorum, not a health-check pass); a real gateway handshake between two
+independently-provisioned regions (inbound AND outbound gateway connections
+registered on both sides); `region-bridge` connecting over TLS, provisioning
+its streams, exporting and importing. A message produced into region A's Kafka
+was exported, crossed the gateway, landed on region B's inbound stream, was
+imported, and was written to region B's Kafka with the correct
+`X-Origin-Region` / `X-Bridge-Hops` provenance — `region_bridge_bridged_total`
+on the importing side is the direct counter of that. The test topology
+deliberately shared one Kafka broker between both simulated regions (the same
+simplification the earlier same-machine tests used), which creates a feedback
+path a real deployment (separate Kafka per region) would not have; the
+`returned`-reason rejection counter caught it and stayed flat rather than
+climbing, proving the loop guard holds even under a harder case than
+production presents.
+
+This test is what surfaced two real gaps, both fixed as a result: nats-server's
+`$VAR` config substitution silently does nothing for a variable concatenated
+with literal text (`user:$VAR@host`), which is why cluster/gateway credentials
+are now rendered rather than left to native substitution (§7a); and a gateway
+between two JetStream-enabled clusters forms one merged meta-cluster
+regardless of per-region `domain` settings, which is why streams now carry an
+explicit `Placement.Cluster` and the conf files no longer set `domain` at all.
+Neither was visible from the docs or from a single-server test — only a real
+two-region gateway surfaced them.
+
+**Not verified, and this test does not change that**: real WAN conditions —
+actual internet latency, packet loss, a genuine network partition between
+independently-owned hosts, DNS across real infrastructure, a peer's CA arriving
+correctly out-of-band. Same-host gateway is a real protocol exercise, not a
+substitute for two independent VPSes. See §11 for what to check before this
+carries production traffic once a second host exists.
+
+**One operational lesson from running this test**: six extra NATS containers
+plus two `region-bridge` processes running alongside the full production stack
+pushed Kafka's JVM over its cgroup memory limit and it was OOM-killed —
+confirmed via `dmesg` (`Memory cgroup out of memory`, process `java`), not
+guessed. It restarted cleanly on its own (`restart: unless-stopped`) within
+about a minute, real application consumer groups (`task-svc`, `email-worker`,
+`telemetry-svc`, others) rebalanced and resumed automatically, and no request
+to the site ever failed. Nothing was lost, but it is a genuine data point: a
+6-node test mesh is not free on a box already running the full stack, and a
+lighter simulation (see §11) or a quiet window is worth choosing deliberately
+next time, not assumed.
+
+---
+
+## 11. Activating a real second region
+
+Everything above is implemented, configured, and exercised on one host. This
+is what turns it into two real regions when a second VPS/VM exists.
+
+**Before touching production traffic:**
+
+1. **Provision the second host** with this same repo, `docker-compose.prod.yml`
+   running as its own single-region deployment first — prove it healthy alone
+   before adding the mesh, same as the first region was.
+2. **Generate that region's certs**: `scripts/gen-nats-certs.sh region-b` on the
+   second host (never copy region A's CA — each region keeps its own).
+3. **Exchange CA public certs, out-of-band** (not over the gateway link that
+   doesn't exist yet): copy region A's `ca.crt` to region B's
+   `infra/nats/certs/region-b/gateway-peer-ca.crt`, and region B's `ca.crt` to
+   region A's `infra/nats/certs/region-a/gateway-peer-ca.crt`. Only the `.crt`
+   crosses; `.key` never leaves its own host.
+4. **Agree on `NATS_GATEWAY_PASSWORD`** — the SAME value on both sides (it
+   authenticates the gateway connection in both directions). Different values
+   for `NATS_CLUSTER_PASSWORD` per region are fine and preferred (that secret
+   never leaves its own region).
+5. **Gate the gateway port before publishing it**:
+   `sudo bash infra/host/nats-gateway-allowlist.sh <peer's real IP>` on BOTH
+   hosts, scoped to the other's actual address — never a wide-open allowlist.
+6. **Render and bring up the mesh on both sides**:
+   ```bash
+   set -a; . ./.env; . ./.env.prod; set +a
+   PEER_REGION_GATEWAY_URL=<peer-host>:7222 bash scripts/render-nats-conf.sh region-a   # region-b on the other host
+   docker compose --env-file .env --env-file .env.prod \
+     -f docker-compose.prod.yml -f docker-compose.crossregion.yml up -d
+   ```
+7. **Verify connectivity BEFORE trusting it with data** — on each side's
+   `nats-a-1` (or `nats-b-1`) logs, confirm BOTH an inbound and an outbound
+   gateway connection registered for the peer's name. Confirm TLS: an
+   unexpected plaintext connection or a cert error here means stop, not retry.
+8. **Verify messaging with a throwaway topic first**, exactly as this
+   session's test did — `BRIDGE_TOPICS=<something-synthetic>` on both bridges,
+   produce one message, confirm it crosses, confirm `region_bridge_rejected_total{reason="returned"}`
+   stays at zero (a real two-Kafka deployment should never see this counter
+   move at all — if it does, that is a topology fault per §3, not noise).
+9. **Only then** set `BRIDGE_PEER_REGIONS` to the real peer and `BRIDGE_TOPICS`
+   to the real default on both bridges, and watch `region_bridge_pending_messages`
+   and `/status` on both sides as real traffic starts flowing.
+10. **Load-test at the expected production event rate** before calling it
+    production-ready — everything above proves correctness, not throughput.
+
+**What to specifically watch for that a same-host test cannot show**: real
+latency's effect on `BRIDGE_STREAM_MAX_AGE` / dedupe window sizing, DNS
+resolution across real infrastructure (not Docker's embedded DNS), a genuine
+network partition and whether reconnect behavior (unlimited retries,
+jittered backoff — see `cmd/bridge/main.go`'s `connectNATS`) recovers cleanly
+once the link returns, and TLS certificate validation against a real hostname
+rather than a container name.

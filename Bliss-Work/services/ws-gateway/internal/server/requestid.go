@@ -6,18 +6,18 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
+
+	"github.com/task-board/ws-gateway/internal/delivery"
 )
 
 // HeaderRequestID is the case-insensitive request-id header all services emit.
 const HeaderRequestID = "X-Request-Id"
 
-type ctxKey int
-
-const reqIDKey ctxKey = 0
-
 // requestID stamps an X-Request-Id (forwarded by the client or freshly minted)
 // on the response and pushes it into the context so handlers can include it
-// in logs and the canonical error body.
+// in logs and the canonical error body. Stashed under delivery.CtxRequestID
+// (rather than a private key of our own) so a handler that hands this
+// request's context to the delivery dispatcher gets its id forwarded too.
 func requestID(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rid := r.Header.Get(HeaderRequestID)
@@ -25,14 +25,14 @@ func requestID(next http.Handler) http.Handler {
 			rid = uuid.NewString()
 		}
 		w.Header().Set(HeaderRequestID, rid)
-		ctx := context.WithValue(r.Context(), reqIDKey, rid)
+		ctx := context.WithValue(r.Context(), delivery.CtxRequestID, rid)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
 // requestIDFromContext returns the request id stamped on the request, or "".
 func requestIDFromContext(ctx context.Context) string {
-	if v, ok := ctx.Value(reqIDKey).(string); ok {
+	if v, ok := ctx.Value(delivery.CtxRequestID).(string); ok {
 		return v
 	}
 	return ""

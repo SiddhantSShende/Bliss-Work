@@ -119,7 +119,11 @@ services:
   # ── Application services ──────────────────────────────────────────────────────
   auth-svc:
     <<: *svc-defaults
-    build: ./services/auth-svc
+    build:
+      # Repository root, not services/auth-svc: the Dockerfile needs the
+      # sibling services/shared/* packages as local path dependencies.
+      context: .
+      dockerfile: services/auth-svc/Dockerfile
     ports: ["127.0.0.1:${AUTH_PORT}:8001"]
     volumes:
       - ./keys:/keys:ro
@@ -134,7 +138,11 @@ services:
 
   email-worker:
     <<: *svc-defaults
-    build: ./services/email-worker
+    build:
+      # Repository root, not services/email-worker: the Dockerfile needs the
+      # sibling services/shared/* packages as local path dependencies.
+      context: .
+      dockerfile: services/email-worker/Dockerfile
     depends_on:
       postgres: { condition: service_healthy } # owns emaildb (dedup state)
       kafka-init: { condition: service_completed_successfully }
@@ -143,7 +151,11 @@ services:
 
   task-svc:
     <<: *svc-defaults
-    build: ./services/task-svc
+    build:
+      # Repository root, not services/task-svc: the Dockerfile needs the
+      # sibling services/shared/* packages as local path dependencies.
+      context: .
+      dockerfile: services/task-svc/Dockerfile
     ports: ["127.0.0.1:${TASK_PORT}:8002"]
     depends_on:
       postgres: { condition: service_healthy }
@@ -157,7 +169,11 @@ services:
 
   notification-svc:
     <<: *svc-defaults
-    build: ./services/notification-svc
+    build:
+      # Repository root, not services/notification-svc: the Dockerfile needs the
+      # sibling services/shared/* packages as local path dependencies.
+      context: .
+      dockerfile: services/notification-svc/Dockerfile
     ports: ["127.0.0.1:${NOTIFICATION_PORT}:8003"]
     depends_on:
       postgres: { condition: service_healthy }
@@ -171,7 +187,11 @@ services:
 
   messaging-svc:
     <<: *svc-defaults
-    build: ./services/messaging-svc
+    build:
+      # Repository root, not services/messaging-svc: the Dockerfile needs the
+      # sibling services/shared/* packages as local path dependencies.
+      context: .
+      dockerfile: services/messaging-svc/Dockerfile
     ports: ["127.0.0.1:${MESSAGING_PORT}:8004"]
     # Chat attachment bytes. (The dev anchor declares no `volumes:`, so unlike
     # docker-compose.prod.yml there is no merge key to preserve here.)
@@ -189,7 +209,11 @@ services:
 
   integrations-svc:
     <<: *svc-defaults
-    build: ./services/integrations-svc
+    build:
+      # Repository root, not services/integrations-svc: the Dockerfile needs the
+      # sibling services/shared/* packages as local path dependencies.
+      context: .
+      dockerfile: services/integrations-svc/Dockerfile
     ports: ["127.0.0.1:${INTEGRATIONS_PORT}:8005"]
     depends_on:
       postgres: { condition: service_healthy }
@@ -203,7 +227,11 @@ services:
 
   telemetry-svc:
     <<: *svc-defaults
-    build: ./services/telemetry-svc
+    build:
+      # Repository root, not services/telemetry-svc: the Dockerfile needs the
+      # sibling services/shared/* packages as local path dependencies.
+      context: .
+      dockerfile: services/telemetry-svc/Dockerfile
     ports: ["127.0.0.1:${TELEMETRY_PORT}:8006"]
     depends_on:
       postgres: { condition: service_healthy }
@@ -245,7 +273,11 @@ services:
 
   ws-gateway:
     <<: *svc-defaults
-    build: ./services/ws-gateway
+    build:
+      # Repository root, not services/ws-gateway: the Dockerfile needs the
+      # sibling services/shared/* packages as local path dependencies.
+      context: .
+      dockerfile: services/ws-gateway/Dockerfile
     ports: ["127.0.0.1:${WS_GATEWAY_PORT}:8080"]
     depends_on:
       redis: { condition: service_healthy }

@@ -3,6 +3,12 @@
 email-worker is a pure Kafka consumer (no FastAPI, no SQLAlchemy); it talks to
 asyncpg (emaildb), httpx (auth-svc internal API) and aiokafka, so only those
 instrumentors are wired here.
+
+``setup_tracing`` below is service-specific, so it stays here.
+``inject_headers``, ``extract_context`` and ``shutdown_tracing`` have no such
+coupling and are byte-identical across every service that uses them — see the
+shared ``tracing`` package (``services/shared/tracing/tracing.py``) and import
+them from there, e.g. ``from tracing import inject_headers, extract_context``.
 """
 from __future__ import annotations
 
@@ -13,47 +19,6 @@ from .logging_setup import get_logger
 _log = get_logger("tracing")
 
 _SERVICE_NAME = "email-worker"
-
-# W3C trace-context header keys we propagate over Kafka. Lowercase to match the
-# propagator's output and keep consumer-side lookups case-stable.
-_TRACE_HEADER_KEYS = ("traceparent", "tracestate")
-
-
-def inject_headers(headers=None):
-    """Inject the current trace context as W3C Kafka headers.
-
-    Returns a list of ``(key: str, value: bytes)`` tuples for aiokafka
-    ``send(..., headers=...)``; any caller-supplied ``headers`` are preserved
-    and the trace headers appended. No-op-safe when tracing is disabled (the
-    global propagator emits nothing without an active span).
-    """
-    from opentelemetry import propagate
-
-    carrier: dict[str, str] = {}
-    propagate.inject(carrier)
-    result = list(headers) if headers else []
-    for key in _TRACE_HEADER_KEYS:
-        value = carrier.get(key)
-        if value is not None:
-            result.append((key, value.encode("utf-8")))
-    return result
-
-
-def extract_context(headers):
-    """Extract a trace context from aiokafka message headers.
-
-    ``headers`` is ``msg.headers`` — a list of ``(key: str, value: bytes)``
-    tuples (may be None). Returns an OpenTelemetry context to pass to
-    ``tracer.start_as_current_span(context=...)`` so the consumer span
-    continues the producer's trace. No-op-safe when tracing is disabled.
-    """
-    from opentelemetry import propagate
-
-    carrier: dict[str, str] = {}
-    for key, value in headers or []:
-        if key in _TRACE_HEADER_KEYS and value is not None:
-            carrier[key] = value.decode("utf-8") if isinstance(value, bytes) else str(value)
-    return propagate.extract(carrier)
 
 
 def setup_tracing(app=None) -> None:

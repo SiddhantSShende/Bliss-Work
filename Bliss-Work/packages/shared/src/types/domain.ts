@@ -20,6 +20,15 @@ export const UserDTO = z.object({
   /** Org subscription plan (entitlements). 'enterprise' unlocks External
    *  Integrations + forward-tracking. Defaults 'free' for older responses. */
   plan: z.string().default("free"),
+  /** A `data:image/(jpeg|png|webp);base64,...` URI, or null when the user has
+   *  never set one — render initials via `Avatar` in that case. */
+  avatarUrl: z.string().nullable().default(null),
+  /** MFA (this membership's own state, plus the CURRENT org's admin-mandatory
+   *  policy denormalized alongside it) — enough to render MfaRequiredBanner
+   *  from the session already in hand, no extra round trip. */
+  mfaEnrolled: z.boolean().default(false),
+  orgRequireMfaForAdmins: z.boolean().default(false),
+  orgMfaGracePeriodEndsAt: z.string().nullable().default(null),
 });
 export type UserDTO = z.infer<typeof UserDTO>;
 
@@ -44,6 +53,7 @@ export const MemberDTO = z.object({
   emailVerified: z.boolean().default(true),
   createdAt: z.string(),
   removedAt: z.string().nullable().default(null),
+  avatarUrl: z.string().nullable().default(null),
 });
 export type MemberDTO = z.infer<typeof MemberDTO>;
 
@@ -243,6 +253,66 @@ export const SessionDTO = z.object({
   expiresIn: z.number().int(),
 });
 export type SessionDTO = z.infer<typeof SessionDTO>;
+
+/**
+ * Returned by /auth/login (and /auth/orgs/{id}/switch) IN PLACE OF a session
+ * when a second factor is still owed. `pendingToken` is a short-lived,
+ * single-use, server-only secret the client presents to the MFA
+ * challenge-verify endpoint next — or, while `enrollmentRequired` is true, to
+ * the TOTP/WebAuthn enroll-start/enroll-confirm endpoints instead (the
+ * "restricted enrollment credential": the only way a blocked admin who has
+ * never enrolled can reach enrollment, since there is no session yet to
+ * authenticate with).
+ */
+export const MfaPendingDTO = z.object({
+  mfaRequired: z.literal(true).default(true),
+  pendingToken: z.string(),
+  methods: z.array(z.enum(["totp", "webauthn"])),
+  enrollmentRequired: z.boolean().default(false),
+});
+export type MfaPendingDTO = z.infer<typeof MfaPendingDTO>;
+
+/** What /auth/login and /auth/orgs/{id}/switch actually return — discriminate
+ *  on `mfaRequired` (absent/false on a SessionDTO, always true on a pending
+ *  challenge). */
+export const LoginResult = z.union([SessionDTO, MfaPendingDTO]);
+export type LoginResult = z.infer<typeof LoginResult>;
+
+export function isMfaPending(result: LoginResult): result is MfaPendingDTO {
+  return "mfaRequired" in result && result.mfaRequired === true;
+}
+
+export const OrgMfaSettingsDTO = z.object({
+  requireMfaForAdmins: z.boolean(),
+  mfaGracePeriodEndsAt: z.string().nullable().default(null),
+});
+export type OrgMfaSettingsDTO = z.infer<typeof OrgMfaSettingsDTO>;
+
+export const MfaTotpEnrollStartResult = z.object({
+  secret: z.string(),
+  otpauthUrl: z.string(),
+});
+export type MfaTotpEnrollStartResult = z.infer<typeof MfaTotpEnrollStartResult>;
+
+export const MfaTotpEnrollConfirmResult = z.object({
+  backupCodes: z.array(z.string()),
+  /** Set only when enrollment was reached via the restricted enrollment
+   *  credential — the caller had no session yet, so this one IS it. */
+  session: SessionDTO.nullable().default(null),
+});
+export type MfaTotpEnrollConfirmResult = z.infer<typeof MfaTotpEnrollConfirmResult>;
+
+export const MfaBackupCodesResult = z.object({
+  backupCodes: z.array(z.string()),
+});
+export type MfaBackupCodesResult = z.infer<typeof MfaBackupCodesResult>;
+
+export const MfaWebauthnRegisterFinishResult = z.object({
+  id: z.string(),
+  nickname: z.string().nullable().default(null),
+  session: SessionDTO.nullable().default(null),
+});
+export type MfaWebauthnRegisterFinishResult = z.infer<typeof MfaWebauthnRegisterFinishResult>;
 
 /** A pending/processed org invite (admin view). */
 export const InviteDTO = z.object({
@@ -492,6 +562,10 @@ export const ConversationDTO = z.object({
   lastMessage: z.string().nullable(),
   lastMessageAt: z.string().nullable(),
   lastMessageSender: z.string().default(""),
+  /** True once the caller has cleared/hidden every message in this
+   *  conversation but it genuinely has history. The list shows a blank
+   *  preview rather than `lastMessage` (null here) or a placeholder. */
+  cleared: z.boolean().default(false),
   unread: z.number().int(),
   /** The caller blocked the peer ("You blocked this user"). */
   blockedByMe: z.boolean().default(false),
@@ -809,6 +883,10 @@ export const ChannelDTO = z.object({
   memberCount: z.number().int(),
   lastMessage: z.string().nullable(),
   lastMessageAt: z.string().nullable(),
+  /** True once the caller has cleared/hidden every message in this channel
+   *  but it genuinely has history. The list shows a blank preview rather
+   *  than `lastMessage` (null here) or the member-count placeholder. */
+  cleared: z.boolean().default(false),
   /** Locked channels are invite-only; open channels accept self-join via
    *  `POST /channels/{id}/join`. Default false (open) for back-compat. */
   isLocked: z.boolean().default(false),

@@ -11,8 +11,8 @@ email-worker independently deployable.
   * ``CircuitBreaker`` — a minimal in-process breaker. After ``fail_max``
     consecutive failures it OPENS and fails fast (raising ``CircuitOpenError``)
     for ``reset_timeout`` seconds instead of every caller blocking on the full
-    per-attempt timeout. After the cooldown it goes HALF-OPEN and lets a single
-    probe through; success closes it, failure re-opens it.
+    per-attempt timeout (the cascade). After the cooldown it goes HALF-OPEN and
+    lets a single probe through; success closes it, failure re-opens it.
 
 Behavior-preserving on the happy path: the first attempt runs exactly as
 before, and a healthy dependency never sees the breaker open or any retry.
@@ -60,6 +60,10 @@ class CircuitBreaker:
         self._failures = 0
         self._opened_at = 0.0
         self._state = "closed"  # closed | open | half_open
+
+    @property
+    def state(self) -> str:
+        return self._state
 
     def before(self) -> None:
         """Raise ``CircuitOpenError`` if OPEN; transition to HALF_OPEN once the

@@ -106,68 +106,76 @@ func isBlocked(ctx context.Context, tx pgx.Tx, channelID, userID string) (bool, 
 func (s *Store) ChannelRoster(
 	ctx context.Context, orgID, channelID, callerID string, claimRoles []string,
 ) ([]ChannelMember, error) {
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback(ctx)
-	if err := setOrgGUC(ctx, tx, orgID); err != nil {
-		return nil, err
-	}
-
-	// Seeing who is in a room requires being in it — except for org admins, who
-	// can already see every channel in their workspace.
-	if !isOrgAdmin(claimRoles) {
-		if err := requireChannelMember(ctx, tx, orgID, channelID, callerID); err != nil {
-			return nil, err
+	var out []ChannelMember
+	err := RetryOnSerializationFailure(ctx, 3, func(ctx context.Context) error {
+		tx, err := s.pool.Begin(ctx)
+		if err != nil {
+			return err
 		}
-	}
-
-	rows, err := tx.Query(ctx,
-		`SELECT user_id, role, joined_at FROM channel_members
-		  WHERE channel_id = $1 ORDER BY
-		    CASE role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, joined_at`,
-		channelID)
-	if err != nil {
-		return nil, err
-	}
-	out := []ChannelMember{}
-	for rows.Next() {
-		var m ChannelMember
-		var joined time.Time
-		if err := rows.Scan(&m.UserID, &m.Role, &joined); err != nil {
-			rows.Close()
-			return nil, err
+		defer tx.Rollback(ctx)
+		if err := setOrgGUC(ctx, tx, orgID); err != nil {
+			return err
 		}
-		m.JoinedAt = joined.UTC().Format("2006-01-02T15:04:05.000Z")
-		out = append(out, m)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
 
-	// Blocked users are listed too — they are not members, but an admin looking
-	// at the roster needs to see who has been barred in order to unblock them.
-	brows, err := tx.Query(ctx,
-		`SELECT user_id FROM channel_blocks WHERE channel_id = $1`, channelID)
-	if err != nil {
-		return nil, err
-	}
-	for brows.Next() {
-		var uid string
-		if err := brows.Scan(&uid); err != nil {
-			brows.Close()
-			return nil, err
+		// Seeing who is in a room requires being in it — except for org admins, who
+		// can already see every channel in their workspace.
+		if !isOrgAdmin(claimRoles) {
+			if err := requireChannelMember(ctx, tx, orgID, channelID, callerID); err != nil {
+				return err
+			}
 		}
-		out = append(out, ChannelMember{UserID: uid, Role: RoleMember, Blocked: true})
-	}
-	brows.Close()
-	if err := brows.Err(); err != nil {
-		return nil, err
-	}
 
-	if err := tx.Commit(ctx); err != nil {
+		rows, err := tx.Query(ctx,
+			`SELECT user_id, role, joined_at FROM channel_members
+			  WHERE channel_id = $1 ORDER BY
+			    CASE role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, joined_at`,
+			channelID)
+		if err != nil {
+			return err
+		}
+		result := []ChannelMember{}
+		for rows.Next() {
+			var m ChannelMember
+			var joined time.Time
+			if err := rows.Scan(&m.UserID, &m.Role, &joined); err != nil {
+				rows.Close()
+				return err
+			}
+			m.JoinedAt = joined.UTC().Format("2006-01-02T15:04:05.000Z")
+			result = append(result, m)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+
+		// Blocked users are listed too — they are not members, but an admin looking
+		// at the roster needs to see who has been barred in order to unblock them.
+		brows, err := tx.Query(ctx,
+			`SELECT user_id FROM channel_blocks WHERE channel_id = $1`, channelID)
+		if err != nil {
+			return err
+		}
+		for brows.Next() {
+			var uid string
+			if err := brows.Scan(&uid); err != nil {
+				brows.Close()
+				return err
+			}
+			result = append(result, ChannelMember{UserID: uid, Role: RoleMember, Blocked: true})
+		}
+		brows.Close()
+		if err := brows.Err(); err != nil {
+			return err
+		}
+
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
+		out = result
+		return nil
+	})
+	if err != nil {
 		return nil, err
 	}
 	return out, nil

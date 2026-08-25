@@ -36,7 +36,7 @@ const STATE_LABEL: Record<RosterState, string> = {
   invited: "Not joined",
 };
 
-export interface RosterEntry {
+interface RosterEntry {
   participant: CallParticipantDTO;
   state: RosterState;
 }

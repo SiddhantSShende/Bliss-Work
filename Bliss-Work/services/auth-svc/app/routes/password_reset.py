@@ -7,7 +7,7 @@ paths live in rate_limit._SENSITIVE_LIMITS.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 
 from ..db import engine
 from ..logging_config import log
@@ -36,9 +36,9 @@ _GENERIC = "If an account exists for that email, a password reset link has been 
     status_code=status.HTTP_202_ACCEPTED,
     dependencies=[Depends(enforce_origin)],
 )
-async def forgot_password(body: ForgotPasswordRequest) -> MessageResponse:
+async def forgot_password(body: ForgotPasswordRequest, request: Request) -> MessageResponse:
     async with engine.begin() as conn:
-        await create_password_reset_tx(conn, str(body.email))
+        await create_password_reset_tx(conn, str(body.email), request)
     # Always the same response + status, whether or not the email matched.
     log.info("password_reset_requested")
     return MessageResponse(message=_GENERIC)
@@ -56,9 +56,11 @@ async def verify_reset_token(token: str = Query(..., max_length=512)) -> TokenVe
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(enforce_origin)],
 )
-async def reset_password(body: ResetPasswordRequest, response: Response) -> Response:
+async def reset_password(
+    body: ResetPasswordRequest, response: Response, request: Request
+) -> Response:
     async with engine.begin() as conn:
-        await reset_password_tx(conn, body.token, body.password)
+        await reset_password_tx(conn, body.token, body.password, request)
     log.info("password_reset_completed")
     response.status_code = status.HTTP_204_NO_CONTENT
     return response

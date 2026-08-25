@@ -170,6 +170,35 @@ export function isBrowser(name: string | null | undefined): boolean {
 }
 
 /**
+ * A resolved browser display name → the `ActivityBrowser` slug (types/activity.ts).
+ *
+ * Keyed on the same resolved names as `BROWSER_NAMES` rather than a second copy
+ * of the raw executable/bundle spellings — `resolveApp` already turns every
+ * platform's spelling of "chrome.exe" / "Google Chrome" into one string, so this
+ * only has to know that one string.
+ *
+ * Returns `null` for anything not a recognised browser, which callers treat as
+ * "omit `detail.browser` for this row" rather than guessing — the requirement
+ * this exists to satisfy is naming Chrome, Edge, Brave, Firefox and Safari
+ * without the desktop sensor hard-coding any one of them; an application this
+ * map does not recognise as a browser simply gets no browser tag, same as an
+ * unmapped application gets no special treatment anywhere else in this file.
+ */
+const BROWSER_SLUGS: Readonly<Record<string, string>> = {
+  "Google Chrome": "chrome",
+  "Microsoft Edge": "edge",
+  Brave: "brave",
+  Firefox: "firefox",
+  Safari: "safari",
+  Opera: "opera",
+  Arc: "arc",
+};
+
+export function browserSlug(name: string | null | undefined): string | null {
+  return (name && BROWSER_SLUGS[name]) ?? null;
+}
+
+/**
  * Whether a destination IS BlissWork.
  *
  * Loose on purpose. The producers send the marker where they can resolve it,

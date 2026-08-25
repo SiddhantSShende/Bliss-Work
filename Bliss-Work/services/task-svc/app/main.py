@@ -15,7 +15,7 @@ from sqlalchemy import text
 
 from .config import settings
 from .consumer import consumer
-from .crypto import init_cryptor
+from crypto import init_cryptor
 from .db import dispose_engine, get_engine, init_engine, run_migrations
 from .errors import register_exception_handlers
 from .logging_setup import configure_logging, log
@@ -24,6 +24,7 @@ from .outbox import poller
 from .rate_limit import limiter, rate_limit_handler
 from .routes import router
 from .tracing import setup_tracing
+from tracing import shutdown_tracing
 
 configure_logging(settings.log_level)
 
@@ -48,6 +49,7 @@ async def lifespan(app: FastAPI):
         await consumer.stop()
         await poller.stop()
         await dispose_engine()
+        shutdown_tracing(log=log)  # flush any buffered spans (no-op when disabled)
         log.info("task_svc_stopped")
 
 

@@ -9,7 +9,16 @@
  * The shape of a record is a SPAN, not a page-load: "github.com for 23 minutes"
  * is the useful fact. A stream of navigation events would be both larger and
  * less informative.
+ *
+ * The page TITLE is captured alongside the URL (Chrome's `tabs` permission,
+ * already declared, is what exposes it) and, where a site is recognised by
+ * `siteEnrichment.ts`, a generic `siteKind`/`siteRef` pair naming what the
+ * page actually shows — a YouTube video id, a GitHub repository, and so on.
+ * None of this is full page content: it is exactly what a browser tab already
+ * advertises about itself (its title, its URL) plus a parse of that same URL,
+ * never anything read out of the page.
  */
+import { enrichSite, type SiteEnrichment } from "./siteEnrichment";
 
 /** Schemes that are not the web and cannot meaningfully be "visited". */
 const IGNORED_SCHEMES = ["chrome:", "chrome-extension:", "about:", "edge:", "brave:",
@@ -53,6 +62,20 @@ export interface Visit {
    * the YouTube row, which is exactly what NEVER_RECORD exists to prevent.
    */
   from?: string;
+  /** The tab's title at the moment the span closed — exactly what the browser
+   *  itself displayed, nothing read out of the page. Absent when the tab
+   *  reported none (a page mid-load, an extension the browser gives no title
+   *  for). See `enrichSite` for why this is also an input to enrichment, not
+   *  only a display string. */
+  title?: string;
+  /** What KIND of thing the page represents ("video", "repository",
+   *  "document"), when a registered enricher recognised it. See
+   *  siteEnrichment.ts. Absent for the overwhelming majority of the web, which
+   *  is not a gap — the domain/path already describe the visit. */
+  siteKind?: string;
+  /** The site's own identifier for what `siteKind` names — a YouTube video id,
+   *  a GitHub `owner/repo`. Always set together with `siteKind`. */
+  siteRef?: string;
 }
 
 /**
@@ -68,6 +91,9 @@ export const SELF = "BlissWork";
 export interface Candidate {
   url: string;
   incognito?: boolean;
+  /** The tab's title, when the browser has one to give — same permission
+   *  (`tabs`) that already exposes `url`, no new grant required. */
+  title?: string;
 }
 
 /**
@@ -139,7 +165,32 @@ export function toVisit(
   // address, a tab passed through with alt-tab.
   if (durationMs < 5_000) return null;
 
-  return { ...site, startedAt, durationMs, ...(from ? { from } : {}) };
+  const title = candidate.title?.trim() || undefined;
+  // Enrichment runs on a site that has ALREADY cleared `recordableSite` — a
+  // blocked domain never reaches here, so a bank's account page can never
+  // produce a `siteKind`/`siteRef` regardless of what its URL looks like.
+  const enrichment = enrichUrl(candidate.url, title);
+
+  return {
+    ...site,
+    startedAt,
+    durationMs,
+    ...(from ? { from } : {}),
+    ...(title ? { title } : {}),
+    ...(enrichment ? enrichment : {}),
+  };
+}
+
+/** Parse-and-enrich, tolerant of the same malformed input `recordableSite`
+ *  already guards against — `toVisit` only reaches here after that guard has
+ *  passed, but this stays defensive rather than assuming the URL still parses
+ *  identically the second time. */
+function enrichUrl(rawUrl: string, title: string | undefined): SiteEnrichment | null {
+  try {
+    return enrichSite(new URL(rawUrl), title);
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -213,6 +264,19 @@ export function toAgentEvent(v: Visit): {
   durationMs: number;
   detail: Record<string, string>;
 } {
+  // Formalized ActivityDetail keys (packages/shared/src/types/activity.ts):
+  // `domain` is mirrored alongside the plaintext targetId so a reader of
+  // `detail` never has to re-derive it from `url`; `title`/`siteKind`/
+  // `siteRef` are the enrichment this file adds on top of the domain/path
+  // capture every visit already had.
+  const detail: Record<string, string> = {
+    url: `${v.domain}${v.path}`,
+    domain: v.domain,
+    ...(v.from ? { from: v.from } : {}),
+    ...(v.title ? { title: v.title } : {}),
+    ...(v.siteKind ? { siteKind: v.siteKind } : {}),
+    ...(v.siteRef ? { siteRef: v.siteRef } : {}),
+  };
   return {
     action: "site.visit",
     category: "site",
@@ -222,9 +286,7 @@ export function toAgentEvent(v: Visit): {
     targetId: v.domain,
     durationMs: v.durationMs,
     // Encrypted per-org server-side, and only ever read one row at a time.
-    // `from` rides here rather than in a column of its own so that the stored
-    // shape is unchanged and no rollup has to learn about it.
-    detail: { url: `${v.domain}${v.path}`, ...(v.from ? { from: v.from } : {}) },
+    detail,
   };
 }
 

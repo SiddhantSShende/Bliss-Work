@@ -49,11 +49,6 @@ export function isSessionDead(): boolean {
   return sessionDead;
 }
 
-/** Called on a fresh login so a new family starts from a clean slate. */
-export function resetSessionDead(): void {
-  sessionDead = false;
-}
-
 // Any successful sign-in mints a NEW token family, so the breaker must open
 // again. Subscribing here covers every entry point at once — login, onboarding,
 // invite-accept, org switch — instead of relying on each one to remember.

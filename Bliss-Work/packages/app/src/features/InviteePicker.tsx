@@ -1,11 +1,6 @@
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { Check, Search } from "lucide-react";
 import { Avatar } from "@taskboard/ui";
-import { useRuntime } from "../lib/runtime";
-import { useSession } from "../store/session";
-import { qk } from "../lib/queryBridge";
-import { matchUser } from "../lib/matchUser";
+import { usePeopleSearch } from "../lib/usePeopleCandidates";
 
 /**
  * Pick extra people from the organisation, as a FIELD inside a form.
@@ -31,12 +26,7 @@ export function InviteePicker({
    *  be offering a seat that is already taken. */
   exclude?: Set<string>;
 }) {
-  const { api } = useRuntime();
-  const me = useSession((s) => s.user)!;
-  const [q, setQ] = useState("");
-
-  const { data: users = [] } = useQuery({ queryKey: qk.directory, queryFn: () => api.directory() });
-  const candidates = users.filter((u) => u.id !== me.id && !exclude?.has(u.id) && matchUser(u, q));
+  const { q, setQ, candidates } = usePeopleSearch(exclude);
 
   return (
     <div className="flex flex-col gap-2">
@@ -71,7 +61,7 @@ export function InviteePicker({
                   on ? "bg-accent-soft" : "hover:bg-surface-2"
                 }`}
               >
-                <Avatar name={u.displayName} size="sm" />
+                <Avatar name={u.displayName} src={u.avatarUrl} size="sm" />
                 <span className="min-w-0 flex-1 truncate text-sm text-fg">{u.displayName}</span>
                 <span className="shrink-0 truncate text-xs text-muted">@{u.username}</span>
                 {on && <Check size={15} className="shrink-0 text-accent" />}

@@ -8,6 +8,7 @@ from aiokafka import AIOKafkaProducer
 from opentelemetry import trace
 from opentelemetry.trace import SpanKind
 from sqlalchemy import text
+from kafka_security import kafka_security_kwargs
 
 from .config import settings
 from .db import session, set_bypass_rls
@@ -19,8 +20,7 @@ from .outbox_dlq import (
     quarantine_oversize,
     record_publish_failure,
 )
-from .tracing import inject_headers
-from .kafka_security import kafka_security_kwargs
+from tracing import inject_headers
 
 _tracer = trace.get_tracer(__name__)
 

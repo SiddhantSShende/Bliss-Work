@@ -12,7 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from .config import settings
-from .crypto import cryptor
+from crypto import cryptor
 from .logging_config import log
 from .schemas import SessionDTO, UserDTO
 from .security.keys import mint_access_token
@@ -104,7 +104,8 @@ async def user_dto(conn: AsyncConnection, user_id: str) -> UserDTO | None:
         await conn.execute(
             text(
                 "SELECT u.id, u.org_id, u.username, u.display_name_enc, u.email_enc, "
-                "       u.email_verified, o.plan, o.name AS org_name "
+                "       u.avatar_enc, u.email_verified, u.mfa_enrolled, o.plan, o.name AS org_name, "
+                "       o.require_mfa_for_admins, o.mfa_grace_period_ends_at "
                 "FROM users u JOIN orgs o ON o.id = u.org_id WHERE u.id = :id"
             ),
             {"id": user_id},
@@ -120,6 +121,7 @@ async def user_dto(conn: AsyncConnection, user_id: str) -> UserDTO | None:
     c = cryptor()
     email = await c.decrypt(conn, org_id, row.email_enc)
     display_name = await c.decrypt(conn, org_id, row.display_name_enc)
+    avatar_url = await c.decrypt(conn, org_id, row.avatar_enc)
     return UserDTO(
         id=str(row.id),
         orgId=org_id,
@@ -130,6 +132,12 @@ async def user_dto(conn: AsyncConnection, user_id: str) -> UserDTO | None:
         roles=roles,  # type: ignore[arg-type]
         emailVerified=bool(row.email_verified),
         plan=row.plan or "free",
+        avatarUrl=avatar_url or None,
+        mfaEnrolled=bool(row.mfa_enrolled),
+        orgRequireMfaForAdmins=bool(row.require_mfa_for_admins),
+        orgMfaGracePeriodEndsAt=(
+            row.mfa_grace_period_ends_at.isoformat() if row.mfa_grace_period_ends_at else None
+        ),
     )
 
 
@@ -160,7 +168,8 @@ async def user_dtos_for_org(
             text(
                 """
                 SELECT u.id, u.org_id, u.username, u.display_name_enc,
-                       u.email_enc, u.email_verified, o.plan, o.name AS org_name
+                       u.email_enc, u.avatar_enc, u.email_verified, u.mfa_enrolled,
+                       o.plan, o.name AS org_name, o.require_mfa_for_admins, o.mfa_grace_period_ends_at
                 FROM users u
                 JOIN orgs o ON o.id = u.org_id
                 WHERE u.org_id = :org
@@ -178,7 +187,8 @@ async def user_dtos_for_org(
 # Columns every caller of `_user_dtos_from_rows` must select, kept in one place
 # so a new lookup cannot silently omit one and get a KeyError at decrypt time.
 _USER_DTO_COLUMNS = """u.id, u.org_id, u.username, u.display_name_enc,
-                       u.email_enc, u.email_verified, o.plan, o.name AS org_name"""
+                       u.email_enc, u.avatar_enc, u.email_verified, u.mfa_enrolled,
+                       o.plan, o.name AS org_name, o.require_mfa_for_admins, o.mfa_grace_period_ends_at"""
 
 
 async def _user_dtos_from_rows(conn: AsyncConnection, rows) -> list[UserDTO]:
@@ -226,6 +236,12 @@ async def _user_dtos_from_rows(conn: AsyncConnection, rows) -> list[UserDTO]:
                 roles=roles_by_user.get(str(r.id), []),  # type: ignore[arg-type]
                 emailVerified=bool(r.email_verified),
                 plan=r.plan or "free",
+                avatarUrl=(await c.decrypt(conn, row_org, r.avatar_enc)) or None,
+                mfaEnrolled=bool(r.mfa_enrolled),
+                orgRequireMfaForAdmins=bool(r.require_mfa_for_admins),
+                orgMfaGracePeriodEndsAt=(
+                    r.mfa_grace_period_ends_at.isoformat() if r.mfa_grace_period_ends_at else None
+                ),
             )
         )
     return out
@@ -284,6 +300,18 @@ async def update_display_name(
     await conn.execute(
         text("UPDATE users SET display_name_enc = :dn WHERE id = :id"),
         {"dn": enc, "id": user_id},
+    )
+
+
+async def update_avatar(
+    conn: AsyncConnection, org_id: str, user_id: str, avatar_url: str
+) -> None:
+    """Sets the caller's profile picture (a `data:image/...;base64,...` URI —
+    see UpdateProfileRequest.avatarUrl for the format/size validation)."""
+    enc = await cryptor().encrypt(conn, org_id, avatar_url)
+    await conn.execute(
+        text("UPDATE users SET avatar_enc = :av WHERE id = :id"),
+        {"av": enc, "id": user_id},
     )
 
 
@@ -379,8 +407,12 @@ async def presence_memberships(conn: AsyncConnection, user_id: str) -> list[dict
 
 async def build_session(
     conn: AsyncConnection, user_id: str
-) -> tuple[SessionDTO, str]:
-    """Mint an access token + new refresh family; return (SessionDTO, raw refresh)."""
+) -> tuple[SessionDTO, str, str]:
+    """Mint an access token + new refresh family; return (SessionDTO, raw
+    refresh, family_id). `family_id` is the natural existing session
+    identifier (see docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 9) — every
+    refresh issued from this login shares it, and it's what refresh-token
+    reuse detection already keys theft-tracking on."""
     dto = await user_dto(conn, user_id)
     if dto is None:
         raise RuntimeError("user not found while building session")
@@ -394,7 +426,7 @@ async def build_session(
     )
     family_id = new_uuid()
     raw_refresh, _ = await issue_refresh_token(conn, user_id=user_id, family_id=family_id)
-    return SessionDTO(accessToken=token, user=dto, expiresIn=ttl), raw_refresh
+    return SessionDTO(accessToken=token, user=dto, expiresIn=ttl), raw_refresh, family_id
 
 
 # A refresh token that was rotated moments ago is far more likely to be an
@@ -683,6 +715,36 @@ async def touch_last_user(conn: AsyncConnection, identity_id: str, user_id: str)
         text("UPDATE identities SET last_user_id = :u WHERE id = :iid"),
         {"u": user_id, "iid": identity_id},
     )
+
+
+async def register_failed_login(conn: AsyncConnection, ident) -> int:
+    """Bump an IDENTITY's failed-login counter; lock the identity once it
+    reaches `login_max_failed_attempts`. Returns the lockout duration in
+    seconds if it just locked, else 0. The caller must let the transaction
+    COMMIT (raise the auth error AFTER the `engine.begin()` block) so the
+    increment persists. Lockout lives on the identity so a shared credential
+    is throttled uniformly across all its orgs — shared by `/auth/login` and
+    `/auth/invites/accept`'s existing-identity password check (invite
+    acceptance gates a password guess exactly like login does; see
+    docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 5).
+
+    `ident` is any row exposing `.id` and `.failed_login_count`.
+    """
+    new_count = int(ident.failed_login_count) + 1
+    if new_count >= settings.login_max_failed_attempts:
+        await conn.execute(
+            text(
+                "UPDATE identities SET failed_login_count = 0, "
+                "locked_until = now() + make_interval(mins => :m) WHERE id = :id"
+            ),
+            {"m": settings.lockout_minutes, "id": str(ident.id)},
+        )
+        return settings.lockout_minutes * 60
+    await conn.execute(
+        text("UPDATE identities SET failed_login_count = :c WHERE id = :id"),
+        {"c": new_count, "id": str(ident.id)},
+    )
+    return 0
 
 
 async def reset_identity_lockout(conn: AsyncConnection, identity_id: str) -> None:

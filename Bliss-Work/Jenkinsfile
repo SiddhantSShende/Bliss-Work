@@ -30,47 +30,70 @@
 //  telemetry-svc was missing from one of them for months.)
 // -----------------------------------------------------------------------------
 def IMAGES = [
+    // Context is the repo root, not services/auth-svc: requirements.txt
+    // points at three sibling packages as local path requirements —
+    // services/shared/kafka_security (Kafka SASL/TLS config, also used by
+    // task-svc, integrations-svc, telemetry-svc and email-worker),
+    // services/shared/crypto (at-rest column encryption, also used by
+    // task-svc, integrations-svc and telemetry-svc) and
+    // services/shared/tracing (OTel Kafka context-propagation + shutdown
+    // helpers, also used by all four) — so the build needs all four directories.
     'auth-svc': [
-        context   : 'services/auth-svc',
+        context   : '.',
         dockerfile: 'services/auth-svc/Dockerfile',
-        paths     : ['services/auth-svc/']
+        paths     : ['services/auth-svc/', 'services/shared/kafka_security/', 'services/shared/crypto/', 'services/shared/tracing/']
     ],
     'task-svc': [
-        context   : 'services/task-svc',
+        context   : '.',
         dockerfile: 'services/task-svc/Dockerfile',
-        paths     : ['services/task-svc/']
+        paths     : ['services/task-svc/', 'services/shared/kafka_security/', 'services/shared/crypto/', 'services/shared/tracing/']
     ],
     'telemetry-svc': [
-        context   : 'services/telemetry-svc',
+        context   : '.',
         dockerfile: 'services/telemetry-svc/Dockerfile',
-        paths     : ['services/telemetry-svc/']
+        paths     : ['services/telemetry-svc/', 'services/shared/kafka_security/', 'services/shared/crypto/', 'services/shared/tracing/']
     ],
     'integrations-svc': [
-        context   : 'services/integrations-svc',
+        context   : '.',
         dockerfile: 'services/integrations-svc/Dockerfile',
-        paths     : ['services/integrations-svc/']
+        paths     : ['services/integrations-svc/', 'services/shared/kafka_security/', 'services/shared/crypto/', 'services/shared/tracing/']
     ],
     'email-worker': [
-        context   : 'services/email-worker',
+        context   : '.',
         dockerfile: 'services/email-worker/Dockerfile',
-        paths     : ['services/email-worker/']
+        paths     : ['services/email-worker/', 'services/shared/kafka_security/', 'services/shared/tracing/']
     ],
+    // Context is the repo root, not services/messaging-svc: go.mod replaces
+    // github.com/task-board/shared-kafkaauth with the sibling module
+    // services/shared/kafkaauth (Kafka SASL/TLS config shared with
+    // notification-svc and ws-gateway), so the build needs both directories.
     'messaging-svc': [
-        context   : 'services/messaging-svc',
+        context   : '.',
         dockerfile: 'services/messaging-svc/Dockerfile',
-        paths     : ['services/messaging-svc/']
+        paths     : ['services/messaging-svc/', 'services/shared/kafkaauth/']
     ],
     'notification-svc': [
-        context   : 'services/notification-svc',
+        context   : '.',
         dockerfile: 'services/notification-svc/Dockerfile',
-        paths     : ['services/notification-svc/']
+        paths     : ['services/notification-svc/', 'services/shared/kafkaauth/']
     ],
     // delivery-svc in compose uses this same image, just a different command.
     // So there is nothing extra to build for it.
     'ws-gateway': [
-        context   : 'services/ws-gateway',
+        context   : '.',
         dockerfile: 'services/ws-gateway/Dockerfile',
-        paths     : ['services/ws-gateway/']
+        paths     : ['services/ws-gateway/', 'services/shared/kafkaauth/']
+    ],
+    // Cross-region replication (docs/CROSS-REGION.md). Built here so CI keeps
+    // the image current, but NOT part of docker-compose.prod.yml's default
+    // service set — it only runs via the opt-in docker-compose.crossregion.yml
+    // overlay, and only once a real peer region exists. Building it every
+    // relevant commit costs nothing and means it isn't stale the day it is
+    // needed.
+    'region-bridge': [
+        context   : 'services/region-bridge',
+        dockerfile: 'services/region-bridge/Dockerfile',
+        paths     : ['services/region-bridge/']
     ],
     // Careful: the compose SERVICE is called `caddy`, but the IMAGE is
     // `caddy-waf`. The name here must match the image, not the service.
@@ -90,7 +113,11 @@ def IMAGES = [
 ]
 
 // If any of these change, rebuild everything.
-// Short list on purpose - the services don't share any code with each other.
+// Short list on purpose - most services don't share code with each other.
+// The exceptions — services/shared/kafkaauth (Go), services/shared/kafka_security,
+// services/shared/crypto and services/shared/tracing (Python) — are listed in
+// the `paths` of the images that depend on them (above) rather than here, so
+// an unrelated service's build isn't triggered by a change it can't see.
 def GLOBAL_PATHS = ['Jenkinsfile']
 
 // Filled in later by the pipeline.

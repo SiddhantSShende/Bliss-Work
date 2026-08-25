@@ -11,8 +11,24 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 RUN python -m venv "$VIRTUAL_ENV"
 
-WORKDIR /app
-COPY requirements.txt ./
+# ── BUILD CONTEXT IS THE REPOSITORY ROOT, not services/email-worker ─────────
+# requirements.txt points at three sibling packages as local path requirements:
+# services/shared/kafka_security (Kafka SASL/TLS config, also used by
+# auth-svc, task-svc, integrations-svc and telemetry-svc),
+# services/shared/tracing (OTel Kafka context-propagation + shutdown helpers,
+# also used by all four), and services/shared/logging_setup (structlog ->
+# stdout JSON bootstrap, also used by every other Python service). The build
+# needs all three directories:
+#
+#     docker build -f services/email-worker/Dockerfile .
+#
+# .dockerignore at the repo root keeps that context to roughly source size.
+WORKDIR /src
+COPY services/email-worker/requirements.txt services/email-worker/requirements.txt
+COPY services/shared/kafka_security services/shared/kafka_security
+COPY services/shared/tracing services/shared/tracing
+COPY services/shared/logging_setup services/shared/logging_setup
+WORKDIR /src/services/email-worker
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
 # ── Final stage: slim runtime with the prebuilt venv ──────────────────────────
@@ -29,10 +45,10 @@ RUN useradd --system --create-home --uid 10001 --user-group appuser
 COPY --from=build /opt/venv /opt/venv
 
 WORKDIR /app
-COPY app ./app
+COPY services/email-worker/app ./app
 # Bundle the SQL migrations so _apply_migrations() can create the worker's own
 # emaildb tables on startup (resolves to /app/migrations).
-COPY migrations ./migrations
+COPY services/email-worker/migrations ./migrations
 
 # Own the app dir, then drop privileges.
 RUN chown -R appuser:appuser /app

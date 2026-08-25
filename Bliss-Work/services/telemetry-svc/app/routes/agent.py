@@ -32,6 +32,7 @@ from ..ingest import ActivityRow, clamp_occurred_at, insert_events
 from ..logging_setup import log
 from ..rate_limit import limiter
 from ..schemas import AgentBatch, AgentTokenCreated, AgentTokenDTO
+from ..sessionizer import sessionize_inserted
 
 router = APIRouter(prefix="/telemetry", tags=["agent"])
 
@@ -186,14 +187,18 @@ async def ingest_agent(
             )
             for e in body.events
         ]
-        written = await insert_events(db, rows)
+        inserted = await insert_events(db, rows)
+        # The desktop agent's app.focus rows and the extension's site.visit
+        # rows both arrive through THIS route (they are the two agent kinds) —
+        # this is where the two sensors' spans actually get correlated.
+        await sessionize_inserted(db, inserted)
         await db.execute(
             text("UPDATE ingest_tokens SET last_used_at = now() WHERE id = :id"),
             {"id": str(row.id)},
         )
         await db.commit()
 
-    return {"accepted": written}
+    return {"accepted": len(inserted)}
 
 
 def _iso(dt: datetime | None) -> str | None:

@@ -80,13 +80,6 @@ export const Card = forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivEleme
 );
 Card.displayName = "Card";
 
-export const GlassCard = forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
-  ({ className, ...props }, ref) => (
-    <div ref={ref} className={cn("glass rounded-2xl", className)} {...props} />
-  ),
-);
-GlassCard.displayName = "GlassCard";
-
 /* ── Badge / Pill ────────────────────────────────────────────────────────── */
 const tones = {
   neutral: "bg-surface-2 text-muted border-border",

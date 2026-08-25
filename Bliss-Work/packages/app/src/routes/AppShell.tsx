@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { Outlet, useLocation } from "react-router-dom";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { MailWarning } from "lucide-react";
+import { MailWarning, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 import type { NotificationDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
@@ -80,6 +80,7 @@ export function AppShell() {
       <TelemetryBridge />
       <CallUI />
       <VerifyEmailBanner />
+      <MfaRequiredBanner />
       <TopNavbar unread={unread} onOpenNotifs={() => setNotifOpen(true)} />
 
       <div className="flex min-h-0 flex-1 gap-2 overflow-hidden p-2">
@@ -153,6 +154,57 @@ function VerifyEmailBanner() {
         className="font-semibold text-accent hover:underline disabled:opacity-60"
       >
         {sent ? "Sent ✓" : "Resend email"}
+      </button>
+      <button
+        onClick={() => setDismissed(true)}
+        className="ml-1 text-muted hover:text-fg"
+        aria-label="Dismiss"
+        title="Dismiss"
+      >
+        ✕
+      </button>
+    </div>
+  );
+}
+
+/** Mirrors VerifyEmailBanner above — same shape, same only-a-dismissable-strip
+ *  posture. Shown only to an org_admin whose org has turned on mandatory MFA
+ *  and who has not yet enrolled; once the grace deadline passes, login itself
+ *  blocks them into enrollment instead (see mfa_service.mfa_gate), so this
+ *  banner is only ever seen during the warning window. */
+function MfaRequiredBanner() {
+  const user = useSession((s) => s.user);
+  const nav = useNavigate();
+  const [dismissed, setDismissed] = useState(false);
+
+  if (
+    !user ||
+    !user.orgRequireMfaForAdmins ||
+    user.mfaEnrolled ||
+    !user.roles.includes("org_admin") ||
+    dismissed
+  )
+    return null;
+
+  const deadline = user.orgMfaGracePeriodEndsAt
+    ? new Date(user.orgMfaGracePeriodEndsAt).toLocaleDateString(undefined, {
+        month: "long",
+        day: "numeric",
+      })
+    : null;
+
+  return (
+    <div className="flex items-center justify-center gap-3 border-b border-warning/30 bg-warning/15 px-4 py-2 text-center text-[13px] text-fg">
+      <ShieldAlert size={15} className="shrink-0 text-warning" aria-hidden />
+      <span>
+        Your workspace requires two-factor authentication for admins
+        {deadline ? ` — enable it by ${deadline}` : ""}.
+      </span>
+      <button
+        onClick={() => nav("/app/settings/security")}
+        className="font-semibold text-accent hover:underline"
+      >
+        Enable now
       </button>
       <button
         onClick={() => setDismissed(true)}

@@ -66,7 +66,7 @@ async def _client(monkeypatch, principal=None, task_ids=None):
 
 async def _seed_mention(state="pending", user_id=ME, org_id=ORG, body="please review"):
     """Insert one connection + one mention row, returning the activity id."""
-    from app.crypto import cryptor
+    from crypto import cryptor
     from app.db import session, set_bypass_rls
 
     conn_id = str(uuid6.uuid7())

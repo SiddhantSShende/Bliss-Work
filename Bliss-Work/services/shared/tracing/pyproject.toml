@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trace-propagation"
+version = "0.1.0"
+description = "OpenTelemetry Kafka context-propagation and shutdown helpers, shared across this repo's Python services."
+requires-python = ">=3.13"
+dependencies = [
+    # Only opentelemetry.propagate / opentelemetry.trace (the core API) are
+    # used here — every consuming service already pulls this transitively via
+    # opentelemetry-sdk, pinned to the same release train.
+    "opentelemetry-api==1.44.0",
+]
+
+[tool.setuptools]
+py-modules = ["tracing"]

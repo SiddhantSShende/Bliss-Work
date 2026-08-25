@@ -27,7 +27,7 @@ import uuid6
 from sqlalchemy import text
 
 from .config import settings
-from .crypto import cryptor
+from crypto import cryptor
 
 #: provider → vendor. Providers absent from this map do not use OAuth at all
 #: (slack is token-paste).
@@ -60,8 +60,6 @@ class AppCredentials:
     tenant: str | None = None
     pubsub_topic: str | None = None
     id: str | None = None
-    #: True when these came from server env rather than the org's own row.
-    is_fallback: bool = False
 
 
 def _env_fallback(vendor: str) -> AppCredentials | None:
@@ -74,14 +72,12 @@ def _env_fallback(vendor: str) -> AppCredentials | None:
         return AppCredentials(
             client_id=settings.google_client_id,
             client_secret=settings.google_client_secret,
-            is_fallback=True,
         )
     if vendor == "microsoft" and settings.ms_client_id and settings.ms_client_secret:
         return AppCredentials(
             client_id=settings.ms_client_id,
             client_secret=settings.ms_client_secret,
             tenant=settings.ms_tenant or "common",
-            is_fallback=True,
         )
     return None
 

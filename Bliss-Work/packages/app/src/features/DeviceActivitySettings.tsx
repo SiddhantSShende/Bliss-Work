@@ -30,6 +30,8 @@ export function DeviceActivitySettings() {
     paired: boolean;
     appTracking: boolean;
     reason: string | null;
+    titleTracking: boolean;
+    titleTrackingReason: string | null;
   } | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -41,6 +43,18 @@ export function DeviceActivitySettings() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Re-checks while this screen is open, so a permission REVOKED in System
+  // Settings — the scenario macos-permissions.ts's own docstring flags as
+  // sometimes lagging behind in the OS's cached status — becomes visible
+  // here without the person having to leave and re-open Settings. Not a
+  // background poll: it only runs while this component is mounted, matching
+  // every other "is this still true" check in this screen.
+  useEffect(() => {
+    if (!agent) return;
+    const id = setInterval(() => void load(), 30_000);
+    return () => clearInterval(id);
+  }, [agent, load]);
 
   if (!agent) return null;
 
@@ -59,7 +73,17 @@ export function DeviceActivitySettings() {
       await agent.pair(minted.token);
       await agent.setEnabled(true);
       await load();
-      toast.success("This device is now recording your activity");
+      // On macOS, pairing is the moment the FIRST foreground read happens,
+      // which is also the moment macOS shows its own native Screen Recording
+      // prompt — outside this app's control, and easy to mistake for
+      // something going wrong if nobody said it was coming (see
+      // main/macos-permissions.ts: the OS fires this prompt automatically on
+      // the first gated call, with no API to trigger or suppress it).
+      toast.success(
+        isMacOS()
+          ? "This device is now recording your activity. macOS may ask for Screen Recording access — allow it to include window titles."
+          : "This device is now recording your activity",
+      );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not connect this device");
     } finally {
@@ -105,7 +129,7 @@ export function DeviceActivitySettings() {
         </p>
 
         <ul className="list-disc space-y-0.5 pl-5 text-xs leading-relaxed text-muted">
-          <li>Application <strong>names</strong> only — never window titles or their contents.</li>
+          <li>Application <strong>names</strong> and, where the operating system exposes it, the window <strong>title</strong> — never a window's contents.</li>
           <li>Idle time and screen lock, from the operating system.</li>
           <li>Visible to you under Settings → Your activity, and to your workspace admins.</li>
         </ul>
@@ -119,6 +143,34 @@ export function DeviceActivitySettings() {
             Application tracking isn't available here ({state.reason}). Idle time and
             screen lock are still recorded.
           </p>
+        )}
+
+        {/* Narrower than the block above: application-name tracking already
+            works (macOS exposes "which process is frontmost" unconditionally
+            — see main/macos-permissions.ts's docstring on what Screen
+            Recording does and does not gate); only the window-title line is
+            missing. Shown ONLY once paired, so this never appears as a
+            reason not to turn the feature on in the first place — someone
+            deciding whether to enable activity tracking at all should not be
+            handed a permissions checklist before they have even said yes. */}
+        {state?.paired && state.appTracking && !state.titleTracking && (
+          <div className="flex items-start gap-1.5 rounded-lg bg-surface-2 p-2 text-xs text-muted">
+            <AlertTriangle size={13} className="mt-0.5 shrink-0 text-warning" />
+            <div className="min-w-0 flex-1 space-y-1">
+              <p>
+                Application names are recorded, but window titles are not yet
+                ({state.titleTrackingReason}). macOS calls this Screen Recording
+                access.
+              </p>
+              <button
+                type="button"
+                className="font-semibold underline underline-offset-2"
+                onClick={() => void agent?.openScreenRecordingSettings()}
+              >
+                Open Screen Recording settings
+              </button>
+            </div>
+          </div>
         )}
 
         <div className="flex flex-wrap items-center gap-2 pt-0.5">
@@ -154,4 +206,16 @@ function deviceLabel(): string {
         ? "Linux"
         : "Desktop";
   return `${os} desktop`;
+}
+
+/**
+ * Whether this render is happening on a macOS build.
+ *
+ * Used ONLY to decide whether to mention the Screen Recording prompt before
+ * it happens — never to change what gets recorded or requested, which stays
+ * identical across platforms and is decided in the main process regardless
+ * of anything the renderer believes about its own OS.
+ */
+function isMacOS(): boolean {
+  return typeof navigator !== "undefined" && /Mac/.test(navigator.userAgent);
 }

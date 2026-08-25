@@ -1,4 +1,5 @@
 import { Check, FileIcon, Loader2, X } from "lucide-react";
+import { prettySize } from "../lib/fileOffer";
 import type { TransferState } from "../lib/rtcTransfer";
 
 /**
@@ -12,7 +13,7 @@ import type { TransferState } from "../lib/rtcTransfer";
  *
  * Reused by the thread renderer + the legacy ChatThread once Phase 10 is on.
  */
-export interface FileAttachmentBubbleProps {
+interface FileAttachmentBubbleProps {
   mine: boolean;
   fileName: string;
   fileSize: number;
@@ -36,15 +37,15 @@ export function FileAttachmentBubble(props: FileAttachmentBubbleProps) {
       }`}
     >
       <div className="flex items-center gap-2">
-        <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${mine ? "bg-white/15" : "bg-accent-soft text-accent"}`}>
+        <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${mine ? "bg-accent-fg/15" : "bg-accent-soft text-accent"}`}>
           <FileIcon size={18} />
         </div>
         <div className="min-w-0 flex-1">
           <div className="truncate font-medium">{fileName}</div>
-          <div className={`text-xs ${mine ? "text-white/70" : "text-muted"}`}>{formatSize(fileSize)}</div>
+          <div className={`text-xs ${mine ? "text-accent-fg/70" : "text-muted"}`}>{prettySize(fileSize)}</div>
         </div>
         {state.kind === "DONE" && (
-          <Check size={16} className={mine ? "text-white" : "text-success"} />
+          <Check size={16} className={mine ? "text-accent-fg" : "text-success"} />
         )}
       </div>
 
@@ -107,7 +108,7 @@ function StateLine({ state }: { state: TransferState }) {
           />
         </div>
         <div className="flex justify-between text-[10px] opacity-70">
-          <span>{formatSize(state.progress.bytesDone)} / {formatSize(state.progress.bytesTotal)}</span>
+          <span>{prettySize(state.progress.bytesDone)} / {prettySize(state.progress.bytesTotal)}</span>
           <span>{pct}%</span>
         </div>
       </div>
@@ -140,11 +141,4 @@ function Btn({
       {children}
     </button>
   );
-}
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }

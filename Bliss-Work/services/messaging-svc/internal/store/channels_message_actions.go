@@ -97,76 +97,78 @@ func (s *Store) ClearChannel(ctx context.Context, orgID, channelID, callerID str
 func (s *Store) DeleteChannelMessageForAll(
 	ctx context.Context, orgID, callerID, messageID string, claimRoles []string,
 ) error {
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	if err := setOrgGUC(ctx, tx, orgID); err != nil {
-		return err
-	}
-
-	// Read the row FIRST — an org_admin moderating a channel they are not in is
-	// explicitly supported (see requireChannelManager), so membership cannot be
-	// the gate here the way it is for hide and react.
-	var channelID, senderID string
-	err = tx.QueryRow(ctx,
-		`SELECT channel_id, sender_id FROM channel_messages WHERE id = $1 AND org_id = $2`,
-		messageID, orgID).Scan(&channelID, &senderID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return ErrForbidden
-	}
-	if err != nil {
-		return err
-	}
-
-	if senderID != callerID {
-		// Not the author: this is a moderation action, and must be authorized
-		// as one. Unbounded in time for the same reason the DM path is — a
-		// retraction window is a policy nobody has asked for, and inventing one
-		// would be worse than not having it.
-		if err := requireChannelManager(ctx, tx, orgID, channelID, callerID, claimRoles); err != nil {
+	return RetryOnSerializationFailure(ctx, 3, func(ctx context.Context) error {
+		tx, err := s.pool.Begin(ctx)
+		if err != nil {
 			return err
 		}
-	}
+		defer tx.Rollback(ctx)
+		if err := setOrgGUC(ctx, tx, orgID); err != nil {
+			return err
+		}
 
-	// Idempotent: re-deleting keeps the FIRST timestamp and the FIRST deleter
-	// rather than rewriting who did it.
-	if _, err = tx.Exec(ctx, `
-		UPDATE channel_messages
-		SET deleted_for_all_at = COALESCE(deleted_for_all_at, now()),
-		    deleted_by         = COALESCE(deleted_by, $2)
-		WHERE id = $1`,
-		messageID, callerID); err != nil {
-		return err
-	}
+		// Read the row FIRST — an org_admin moderating a channel they are not in is
+		// explicitly supported (see requireChannelManager), so membership cannot be
+		// the gate here the way it is for hide and react.
+		var channelID, senderID string
+		err = tx.QueryRow(ctx,
+			`SELECT channel_id, sender_id FROM channel_messages WHERE id = $1 AND org_id = $2`,
+			messageID, orgID).Scan(&channelID, &senderID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrForbidden
+		}
+		if err != nil {
+			return err
+		}
 
-	// A pinned message that gets deleted must not stay pinned — the pin would
-	// hold a tombstone at the top of the channel forever.
-	if _, err = tx.Exec(ctx,
-		`UPDATE channel_messages SET pinned_at = NULL, pinned_by = NULL WHERE id = $1`,
-		messageID); err != nil {
-		return err
-	}
+		if senderID != callerID {
+			// Not the author: this is a moderation action, and must be authorized
+			// as one. Unbounded in time for the same reason the DM path is — a
+			// retraction window is a policy nobody has asked for, and inventing one
+			// would be worse than not having it.
+			if err := requireChannelManager(ctx, tx, orgID, channelID, callerID, claimRoles); err != nil {
+				return err
+			}
+		}
 
-	members, err := channelMemberIDs(ctx, tx, channelID)
-	if err != nil {
-		return err
-	}
-	evt := events.ChannelMessageDeleted{
-		Type:       events.TypeChannelMessageDeleted,
-		EventID:    uuid.Must(uuid.NewV7()).String(),
-		OrgID:      orgID,
-		OccurredAt: nowISO(),
-		ChannelID:  channelID,
-		MessageID:  messageID,
-		DeletedBy:  callerID,
-		Members:    members,
-	}
-	if err := insertOutbox(ctx, tx, channelID, evt); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
+		// Idempotent: re-deleting keeps the FIRST timestamp and the FIRST deleter
+		// rather than rewriting who did it.
+		if _, err = tx.Exec(ctx, `
+			UPDATE channel_messages
+			SET deleted_for_all_at = COALESCE(deleted_for_all_at, now()),
+			    deleted_by         = COALESCE(deleted_by, $2)
+			WHERE id = $1`,
+			messageID, callerID); err != nil {
+			return err
+		}
+
+		// A pinned message that gets deleted must not stay pinned — the pin would
+		// hold a tombstone at the top of the channel forever.
+		if _, err = tx.Exec(ctx,
+			`UPDATE channel_messages SET pinned_at = NULL, pinned_by = NULL WHERE id = $1`,
+			messageID); err != nil {
+			return err
+		}
+
+		members, err := channelMemberIDs(ctx, tx, channelID)
+		if err != nil {
+			return err
+		}
+		evt := events.ChannelMessageDeleted{
+			Type:       events.TypeChannelMessageDeleted,
+			EventID:    uuid.Must(uuid.NewV7()).String(),
+			OrgID:      orgID,
+			OccurredAt: nowISO(),
+			ChannelID:  channelID,
+			MessageID:  messageID,
+			DeletedBy:  callerID,
+			Members:    members,
+		}
+		if err := insertOutbox(ctx, tx, channelID, evt); err != nil {
+			return err
+		}
+		return tx.Commit(ctx)
+	})
 }
 
 // SetChannelMessagePin pins (on=true) or unpins a channel message for everyone.
@@ -177,72 +179,74 @@ func (s *Store) DeleteChannelMessageForAll(
 func (s *Store) SetChannelMessagePin(
 	ctx context.Context, orgID, callerID, messageID string, on bool, claimRoles []string,
 ) error {
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	if err := setOrgGUC(ctx, tx, orgID); err != nil {
-		return err
-	}
+	return RetryOnSerializationFailure(ctx, 3, func(ctx context.Context) error {
+		tx, err := s.pool.Begin(ctx)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback(ctx)
+		if err := setOrgGUC(ctx, tx, orgID); err != nil {
+			return err
+		}
 
-	var channelID string
-	var deletedAt *string
-	err = tx.QueryRow(ctx,
-		`SELECT channel_id, deleted_for_all_at::text FROM channel_messages
-		 WHERE id = $1 AND org_id = $2`,
-		messageID, orgID).Scan(&channelID, &deletedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return ErrForbidden
-	}
-	if err != nil {
-		return err
-	}
-	if err := requireChannelManager(ctx, tx, orgID, channelID, callerID, claimRoles); err != nil {
-		return err
-	}
-	// Pinning a tombstone would put "this message was deleted" at the top of the
-	// channel, which is noise rather than moderation.
-	if on && deletedAt != nil {
-		return ErrForbidden
-	}
+		var channelID string
+		var deletedAt *string
+		err = tx.QueryRow(ctx,
+			`SELECT channel_id, deleted_for_all_at::text FROM channel_messages
+			 WHERE id = $1 AND org_id = $2`,
+			messageID, orgID).Scan(&channelID, &deletedAt)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrForbidden
+		}
+		if err != nil {
+			return err
+		}
+		if err := requireChannelManager(ctx, tx, orgID, channelID, callerID, claimRoles); err != nil {
+			return err
+		}
+		// Pinning a tombstone would put "this message was deleted" at the top of the
+		// channel, which is noise rather than moderation.
+		if on && deletedAt != nil {
+			return ErrForbidden
+		}
 
-	// Idempotent both ways: pinning an already-pinned message keeps the original
-	// timestamp so it does not jump to the front of the pinned list.
-	if on {
-		_, err = tx.Exec(ctx, `
-			UPDATE channel_messages
-			SET pinned_at = COALESCE(pinned_at, now()),
-			    pinned_by = COALESCE(pinned_by, $2)
-			WHERE id = $1`, messageID, callerID)
-	} else {
-		_, err = tx.Exec(ctx,
-			`UPDATE channel_messages SET pinned_at = NULL, pinned_by = NULL WHERE id = $1`,
-			messageID)
-	}
-	if err != nil {
-		return err
-	}
+		// Idempotent both ways: pinning an already-pinned message keeps the original
+		// timestamp so it does not jump to the front of the pinned list.
+		if on {
+			_, err = tx.Exec(ctx, `
+				UPDATE channel_messages
+				SET pinned_at = COALESCE(pinned_at, now()),
+				    pinned_by = COALESCE(pinned_by, $2)
+				WHERE id = $1`, messageID, callerID)
+		} else {
+			_, err = tx.Exec(ctx,
+				`UPDATE channel_messages SET pinned_at = NULL, pinned_by = NULL WHERE id = $1`,
+				messageID)
+		}
+		if err != nil {
+			return err
+		}
 
-	members, err := channelMemberIDs(ctx, tx, channelID)
-	if err != nil {
-		return err
-	}
-	evt := events.ChannelMessagePinned{
-		Type:       events.TypeChannelMessagePinned,
-		EventID:    uuid.Must(uuid.NewV7()).String(),
-		OrgID:      orgID,
-		OccurredAt: nowISO(),
-		ChannelID:  channelID,
-		MessageID:  messageID,
-		Pinned:     on,
-		ActorID:    callerID,
-		Members:    members,
-	}
-	if err := insertOutbox(ctx, tx, channelID, evt); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
+		members, err := channelMemberIDs(ctx, tx, channelID)
+		if err != nil {
+			return err
+		}
+		evt := events.ChannelMessagePinned{
+			Type:       events.TypeChannelMessagePinned,
+			EventID:    uuid.Must(uuid.NewV7()).String(),
+			OrgID:      orgID,
+			OccurredAt: nowISO(),
+			ChannelID:  channelID,
+			MessageID:  messageID,
+			Pinned:     on,
+			ActorID:    callerID,
+			Members:    members,
+		}
+		if err := insertOutbox(ctx, tx, channelID, evt); err != nil {
+			return err
+		}
+		return tx.Commit(ctx)
+	})
 }
 
 // SetChannelReaction adds or removes one emoji from one member on one channel

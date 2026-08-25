@@ -12,7 +12,7 @@ class Settings(BaseSettings):
 
     integrations-svc owns per-user/per-org external-account connections. The
     USER's OAuth/access tokens are stored per-row, encrypted at rest with the
-    per-org envelope Cryptor (see app/crypto.py) — never in env. Only the app's
+    per-org envelope Cryptor (see services/shared/crypto/crypto.py) — never in env. Only the app's
     OWN OAuth client credentials (our registered developer app) live here.
     """
 
@@ -39,9 +39,13 @@ class Settings(BaseSettings):
 
     port: int = 8005
 
-    # Shared-secret for service-to-service calls (e.g. messaging-svc asks us to
-    # deliver an outbound-to-external forward). Same value as TB_INTERNAL_TOKEN.
-    internal_token: str = Field(default="", validation_alias="TB_INTERNAL_TOKEN")
+    # This service's OWN internal-endpoint secret — validates callers of
+    # /internal/messages/send and /internal/mail/send (e.g. messaging-svc
+    # asking us to deliver an outbound-to-external forward). NOT the same
+    # value used to call OUT to messaging-svc below — see
+    # docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 2: every service now has a
+    # distinct per-callee secret rather than one token shared platform-wide.
+    internal_token: str = Field(default="", validation_alias="INTEGRATIONS_INTERNAL_TOKEN")
 
     # Public base URL of the deployment (e.g. https://communication.rnrtechs.com).
     # Used to build OAuth redirect URIs + webhook callback URLs. Empty in dev.
@@ -53,12 +57,14 @@ class Settings(BaseSettings):
     # clicked Claim rather than by a trusted service impersonating them.
     task_internal_base: str = "http://task-svc:8002"
 
-    # messaging-svc base for delivering a mail from a connected mailbox into the
-    # BlissWork inbox. Private-network only, and authenticated with the shared
-    # internal token rather than a user JWT: the sweep that produces these runs
-    # on a timer with no caller to borrow an identity from, and messaging-svc
-    # decides for itself which members the mail's recipients resolve to.
+    # messaging-svc base + ITS OWN shared secret, for delivering a mail from a
+    # connected mailbox into the BlissWork inbox. Private-network only, and
+    # authenticated with messaging-svc's own internal token rather than a user
+    # JWT: the sweep that produces these runs on a timer with no caller to
+    # borrow an identity from, and messaging-svc decides for itself which
+    # members the mail's recipients resolve to.
     messaging_internal_base: str = "http://messaging-svc:8004"
+    messaging_internal_token: str = Field(default="", validation_alias="MESSAGING_INTERNAL_TOKEN")
 
     # ── App-level OAuth client credentials (OUR developer apps) ─────────────────
     # Per-user tokens obtained through these flows are stored encrypted per-row.
@@ -118,7 +124,9 @@ class Settings(BaseSettings):
         if "sslmode=verify-full" not in self.integrations_database_url:
             problems.append("INTEGRATIONS_DATABASE_URL must use sslmode=verify-full in production")
         if not self.internal_token:
-            problems.append("TB_INTERNAL_TOKEN must be set in production")
+            problems.append("INTEGRATIONS_INTERNAL_TOKEN must be set in production")
+        if not self.messaging_internal_token:
+            problems.append("MESSAGING_INTERNAL_TOKEN must be set in production")
         if not self.public_base_url:
             problems.append("PUBLIC_BASE_URL must be set in production (OAuth/webhook callbacks)")
         if self.data_kek_provider == "kms":

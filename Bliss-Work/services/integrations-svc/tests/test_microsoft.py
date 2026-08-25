@@ -229,6 +229,7 @@ def test_dedupes_repeated_mentions_of_one_person():
         {},
         {"mentions": []},
         {"mentions": [{}]},
+        {"mentions": [None]},
         {"mentions": [{"mentioned": {}}]},
         # @team / @channel broadcast — the firehose the feed exists to replace.
         {"mentions": [{"mentioned": {"conversation": {"id": "team-1"}}}]},

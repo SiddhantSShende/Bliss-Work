@@ -2,10 +2,10 @@ package server
 
 import (
 	"bytes"
-	"crypto/subtle"
 	"encoding/json"
 	"net/http"
 
+	"github.com/task-board/shared-internalauth"
 	wsmetrics "github.com/task-board/ws-gateway/internal/metrics"
 	"github.com/task-board/ws-gateway/internal/push"
 )
@@ -25,7 +25,7 @@ import (
 // whole authorization, which is the same trust model the delivery-ack path
 // already uses in the other direction.
 //
-// That makes TB_INTERNAL_TOKEN a credential of real weight: anyone holding it
+// That makes WS_GATEWAY_INTERNAL_TOKEN a credential of real weight: anyone holding it
 // can deliver an arbitrary payload to any connected user. It must never be
 // exposed off the internal network, and this route is deliberately not part of
 // the CORS-allowed browser surface.
@@ -34,12 +34,13 @@ func (s *Server) handlePush(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	// Constant-time compare: this is a secret equality check on a request path,
-	// and a length-independent early return would leak the token a byte at a
-	// time to anyone who can measure it.
+	// Constant-time compare (shared internalauth package, so every service's
+	// /internal/* check is byte-for-byte the same comparison): this is a
+	// secret equality check on a request path, and a length-independent
+	// early return would leak the token a byte at a time to anyone who can
+	// measure it.
 	got := r.Header.Get(push.TokenHeader)
-	if s.cfg.InternalToken == "" ||
-		subtle.ConstantTimeCompare([]byte(got), []byte(s.cfg.InternalToken)) != 1 {
+	if !internalauth.Matches(got, s.cfg.WSGatewayInternalToken) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}

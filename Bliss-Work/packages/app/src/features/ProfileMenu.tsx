@@ -11,7 +11,7 @@ import { signOut } from "../lib/signOut";
 export function ProfileMenu({ variant = "navbar" }: { variant?: "navbar" | "rail" }) {
   const { api, config, ws } = useRuntime();
   const user = useSession((s) => s.user)!;
-  const { theme, toggle } = useTheme();
+  const { isDark, toggle } = useTheme();
   const nav = useNavigate();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
@@ -58,7 +58,7 @@ export function ProfileMenu({ variant = "navbar" }: { variant?: "navbar" | "rail
             : "flex items-center gap-1 rounded-full pl-0.5 pr-1.5 py-0.5 ring-2 ring-transparent transition hover:bg-surface-2/80 hover:ring-accent/40"
         }
       >
-        <Avatar name={user.displayName} size={variant === "rail" ? "sm" : "md"} />
+        <Avatar name={user.displayName} src={user.avatarUrl} size={variant === "rail" ? "sm" : "md"} />
         {variant === "rail" ? (
           <>
             <span className="min-w-0 flex-1 pr-3">
@@ -83,7 +83,7 @@ export function ProfileMenu({ variant = "navbar" }: { variant?: "navbar" | "rail
             className={`${variant === "rail" ? "fixed bottom-4 left-[156px]" : "absolute right-0 top-12"} z-[100] w-60 overflow-hidden rounded-2xl border border-border bg-surface/95 p-1.5 shadow-card`}
           >
             <div className="flex items-center gap-3 px-2.5 py-2.5">
-              <Avatar name={user.displayName} />
+              <Avatar name={user.displayName} src={user.avatarUrl} />
               <div className="min-w-0">
                 <div className="truncate text-sm font-semibold text-fg">{user.displayName}</div>
                 <div className="truncate text-xs text-muted">{user.email}</div>
@@ -93,8 +93,8 @@ export function ProfileMenu({ variant = "navbar" }: { variant?: "navbar" | "rail
             <MenuItem icon={<User size={16} />} label="Edit profile" onClick={() => go("/app/profile")} />
             <MenuItem icon={<Settings size={16} />} label="Settings" onClick={() => go("/app/settings")} />
             <MenuItem
-              icon={theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
-              label={theme === "dark" ? "Light mode" : "Dark mode"}
+              icon={isDark ? <Sun size={16} /> : <Moon size={16} />}
+              label={isDark ? "Light mode" : "Dark mode"}
               onClick={toggle}
             />
             <div className="my-1 h-px bg-border/60" />

@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shared-outbox-dlq"
+version = "0.1.0"
+description = "Quarantine for outbox rows that can never be published, shared across this repo's Python services."
+requires-python = ">=3.13"
+dependencies = ["sqlalchemy"]
+
+[tool.setuptools]
+py-modules = ["outbox_dlq"]

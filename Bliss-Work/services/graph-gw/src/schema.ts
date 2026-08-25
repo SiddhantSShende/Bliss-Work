@@ -66,8 +66,6 @@ export const typeDefs = /* GraphQL */ `
   }
 
   type Query {
-    """The signed-in user."""
-    me: User!
     """
     Resolve specific people by id. Ids that do not belong to the caller's org
     are omitted rather than erroring, so the result may be shorter than the

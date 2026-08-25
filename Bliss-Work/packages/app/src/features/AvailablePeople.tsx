@@ -211,9 +211,16 @@ function PersonCard({
     <GlassCard className="relative">
       <button
         type="button"
-        onClick={onAssign}
-        title={`Allocate a task to ${p.user.displayName}`}
-        className="flex w-full items-center gap-3 rounded-2xl p-4 text-left transition-colors hover:bg-surface-2/60"
+        // No self-allocation: a task always has a distinct sender and
+        // assignee (the Acknowledge/Ignore flow assumes someone else sent
+        // it), and task-svc has no route back to "your own card" once one
+        // exists, so it must never be offered here.
+        disabled={isMe}
+        onClick={isMe ? undefined : onAssign}
+        title={isMe ? "You can't allocate a task to yourself" : `Allocate a task to ${p.user.displayName}`}
+        className={`flex w-full items-center gap-3 rounded-2xl p-4 text-left transition-colors ${
+          isMe ? "cursor-default opacity-70" : "hover:bg-surface-2/60"
+        }`}
       >
         <Avatar name={p.user.displayName} status={status} />
         <div className="min-w-0 flex-1">

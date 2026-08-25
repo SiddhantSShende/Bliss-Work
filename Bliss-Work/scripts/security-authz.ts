@@ -8,7 +8,7 @@
  * Run against a live stack (after `npm run seed`):
  *     npx tsx scripts/security-authz.ts
  */
-import { BASE, api, createOrgOrLogin } from "./_tb.ts";
+import { BASE, api, createOrgOrLogin, inviteAndAccept } from "./_tb.ts";
 
 let pass = 0;
 let fail = 0;
@@ -62,9 +62,13 @@ async function main() {
   await expectDenied("forged token → /auth/me 401", () => api(BASE.auth, "/auth/me", { token: "not.a.jwt" }), [401]);
 
   // 4) Task isolation — dave must not see a task alice created in her org.
+  // A task always has a distinct sender and assignee (task-svc rejects
+  // self-assignment), so this needs a second member of Acme to assign to —
+  // not alice herself and not dave (a different org entirely).
+  const eve = await inviteAndAccept(alice, "eve@acme.com", "eve", "Eve Member");
   const task = await api<{ taskId: string }>(BASE.task, "/api/v1/tasks", {
     token: alice.accessToken,
-    body: { title: "Acme secret task", description: "org A only", assigneeIds: [alice.user.id] },
+    body: { title: "Acme secret task", description: "org A only", assigneeIds: [eve.user.id] },
     idem: `authz-${alice.user.id}`,
   });
   const daveSent = await api<{ taskId?: string; id?: string }[]>(BASE.task, "/api/v1/tasks/sent", { token: dave.accessToken });

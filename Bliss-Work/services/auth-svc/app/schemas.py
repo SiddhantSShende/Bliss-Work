@@ -1,11 +1,19 @@
 """Request/response models matching the canonical TS contract DTOs."""
 from __future__ import annotations
 
+import re
 from typing import Literal
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 Role = Literal["org_admin", "member"]
+
+# A client-resized avatar (packages/app/src/lib/thumbnail.ts: 480px longest
+# edge, webp @ 0.72 quality) is on the order of tens of KB base64-encoded.
+# This caps the request body well above that while still refusing a
+# multi-MB payload sent straight to the API, bypassing the client resize.
+MAX_AVATAR_DATA_URL_LENGTH = 500_000
+_AVATAR_DATA_URL_RE = re.compile(r"^data:image/(jpeg|png|webp);base64,[A-Za-z0-9+/]+=*$")
 
 
 # ── Requests ──────────────────────────────────────────────────────────────────
@@ -42,7 +50,21 @@ class AcceptInviteRequest(BaseModel):
 
 
 class UpdateProfileRequest(BaseModel):
-    displayName: str = Field(min_length=1, max_length=80)
+    # Both optional and independently settable: a display-name save and an
+    # avatar upload are two different actions in the UI that happen to share
+    # this one endpoint (see routes/auth.py's update_me) rather than a form
+    # that always submits both.
+    displayName: str | None = Field(default=None, min_length=1, max_length=80)
+    avatarUrl: str | None = Field(default=None, max_length=MAX_AVATAR_DATA_URL_LENGTH)
+
+    @field_validator("avatarUrl")
+    @classmethod
+    def _validate_avatar_url(cls, v: str | None) -> str | None:
+        if v is not None and not _AVATAR_DATA_URL_RE.match(v):
+            raise ValueError(
+                "avatarUrl must be a data: URI with image/jpeg, image/png, or image/webp"
+            )
+        return v
 
 
 class ChangeRoleRequest(BaseModel):
@@ -75,6 +97,17 @@ class UserDTO(BaseModel):
     # Org subscription plan (entitlements). 'enterprise' unlocks External
     # Integrations + message forward-tracking. Defaults 'free' for older rows.
     plan: str = "free"
+    # data: URI (see UpdateProfileRequest.avatarUrl) or None when the user has
+    # never set one — the client falls back to initials.
+    avatarUrl: str | None = None
+    # MFA (Phase 7). mfaEnrolled is this membership's own state; the other two
+    # are the CURRENT org's admin-mandatory policy, denormalized here (same
+    # pattern as orgName/plan above) so the client can render
+    # MfaRequiredBanner from the session it already has, with no extra round
+    # trip to an admin-only settings endpoint.
+    mfaEnrolled: bool = False
+    orgRequireMfaForAdmins: bool = False
+    orgMfaGracePeriodEndsAt: str | None = None
 
 
 class OrgMembershipDTO(BaseModel):
@@ -140,6 +173,7 @@ class MemberDTO(BaseModel):
     emailVerified: bool = True
     createdAt: str
     removedAt: str | None = None
+    avatarUrl: str | None = None
 
 
 class AuditEntryDTO(BaseModel):
@@ -168,6 +202,106 @@ class DeleteOrgRequest(BaseModel):
     """
 
     slug: str
+
+
+class MfaPendingDTO(BaseModel):
+    """Returned by /auth/login in place of a session when a second factor is
+    still owed. `pendingToken` is a short-lived, single-use, server-only
+    secret (never emailed) that the client presents to mfa_challenge.py's
+    verify endpoint, and — while mfa_enrolled is still false — to the
+    enroll-start/enroll-confirm endpoints in mfa_totp.py/mfa_webauthn.py (the
+    restricted enrollment credential; see
+    docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 7)."""
+
+    mfaRequired: bool = True
+    pendingToken: str
+    methods: list[Literal["totp", "webauthn"]]
+    # True once past the org's mfa_grace_period_ends_at with no enrollment —
+    # the client must route straight into enrollment, not a challenge screen.
+    enrollmentRequired: bool = False
+
+
+class MfaChallengeRequest(BaseModel):
+    pendingToken: str = Field(min_length=1, max_length=512)
+    # Exactly one of these three is set, matching whichever method the client
+    # is presenting.
+    totpCode: str | None = Field(default=None, min_length=6, max_length=10)
+    backupCode: str | None = Field(default=None, min_length=1, max_length=32)
+    webauthnCredential: dict | None = None
+
+
+class MfaStepUpRequest(BaseModel):
+    """Step-up re-auth shared by two consequential MFA actions — disabling MFA
+    and regenerating backup codes: password + a still-valid second factor, so
+    a stolen access token alone can never perform either."""
+
+    password: str = Field(min_length=1, max_length=256)
+    totpCode: str | None = Field(default=None, min_length=6, max_length=10)
+    backupCode: str | None = Field(default=None, min_length=1, max_length=32)
+
+
+class TotpEnrollStartRequest(BaseModel):
+    # Present only when authenticating via the restricted enrollment
+    # credential (see MfaPendingDTO); absent for an ordinary Bearer-authed
+    # enrollment from Settings.
+    pendingToken: str | None = Field(default=None, max_length=512)
+
+
+class TotpEnrollStartResponse(BaseModel):
+    secret: str
+    otpauthUrl: str
+
+
+class TotpEnrollConfirmRequest(BaseModel):
+    # The secret round-trips from enroll-start through the client rather than
+    # being persisted server-side before confirmation — see mfa_totp.py.
+    secret: str = Field(min_length=1, max_length=128)
+    code: str = Field(min_length=6, max_length=10)
+    # Present only when authenticating via the restricted enrollment
+    # credential (see MfaPendingDTO); absent for an ordinary Bearer-authed
+    # enrollment from Settings.
+    pendingToken: str | None = Field(default=None, max_length=512)
+
+
+class TotpEnrollConfirmResponse(BaseModel):
+    backupCodes: list[str]
+    # Set only when this confirm was reached via the restricted enrollment
+    # credential: enrollment mints the real session directly rather than
+    # forcing a second round trip through challenge-verify.
+    session: SessionDTO | None = None
+
+
+class BackupCodesRegenerateResponse(BaseModel):
+    backupCodes: list[str]
+
+
+class WebauthnRegisterStartRequest(BaseModel):
+    pendingToken: str | None = Field(default=None, max_length=512)
+
+
+class WebauthnRegisterFinishRequest(BaseModel):
+    credential: dict
+    nickname: str | None = Field(default=None, max_length=80)
+    pendingToken: str | None = Field(default=None, max_length=512)
+
+
+class WebauthnRegisterFinishResponse(BaseModel):
+    id: str
+    nickname: str | None = None
+    session: SessionDTO | None = None
+
+
+class WebauthnAuthStartRequest(BaseModel):
+    pendingToken: str = Field(min_length=1, max_length=512)
+
+
+class OrgMfaSettingsRequest(BaseModel):
+    requireMfaForAdmins: bool
+
+
+class OrgMfaSettingsDTO(BaseModel):
+    requireMfaForAdmins: bool
+    mfaGracePeriodEndsAt: str | None = None
 
 
 class OrgLifecycleDTO(BaseModel):

@@ -42,7 +42,7 @@ export function ForwardBadge({
       title="BlissWork opened WhatsApp with the message prefilled. Whether it was sent isn't something we can observe."
     >
       {body}
-      {!mine && <span className="text-amber-500">· not confirmed</span>}
+      {!mine && <span className="text-warning">· not confirmed</span>}
     </SystemPill>
   );
 }

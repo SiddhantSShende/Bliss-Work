@@ -102,6 +102,26 @@ _SENSITIVE_LIMITS: dict[tuple[str, str], tuple[int, int]] = {
     ("POST", "/auth/password/reset"): (5, 60),
     ("POST", "/auth/email/resend"): (3, 60),
     ("POST", "/auth/email/verify"): (10, 60),
+    ("GET", "/auth/email/verify/peek"): (10, 60),
+    # Invite acceptance gates a password guess exactly like /auth/login does
+    # (see the lockout wiring in invites_service.py's accept_invite_tx), so it
+    # gets the same budget. /verify is a peek endpoint, same budget as the
+    # email-verify peek above. See docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 5.
+    ("POST", "/auth/invites/accept"): (10, 60),
+    ("GET", "/auth/invites/verify"): (10, 60),
+    # MFA (Phase 7). challenge/verify is the highest-value target — a 6-digit
+    # TOTP code or a backup code is exactly the kind of low-entropy secret a
+    # per-IP budget exists for — so it gets the same budget as /auth/login,
+    # which it gates behind. Enrollment endpoints get a lighter but still
+    # present limit: they're reachable pre-session via the restricted
+    # enrollment credential, so they are not otherwise behind any budget at
+    # all.
+    ("POST", "/auth/mfa/challenge/verify"): (10, 60),
+    ("POST", "/auth/mfa/totp/enroll/confirm"): (10, 60),
+    ("POST", "/auth/mfa/webauthn/register/finish"): (10, 60),
+    ("POST", "/auth/mfa/webauthn/auth/start"): (20, 60),
+    ("POST", "/auth/mfa/disable"): (5, 60),
+    ("POST", "/auth/mfa/totp/backup-codes/regenerate"): (5, 60),
 }
 
 _MAX_BUCKETS = 100_000  # bound memory under an IP-rotating flood

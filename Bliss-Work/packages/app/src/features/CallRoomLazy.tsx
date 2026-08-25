@@ -44,7 +44,7 @@ const LazyCallRoom = lazy(() =>
  */
 function CallRoomFallback() {
   return (
-    <div className="flex h-full w-full items-center justify-center bg-neutral-950 text-sm text-neutral-400">
+    <div className="flex h-full w-full items-center justify-center bg-surface text-sm text-muted">
       Connecting…
     </div>
   );

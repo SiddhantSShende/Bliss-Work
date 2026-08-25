@@ -18,10 +18,12 @@ import json
 import signal
 
 import asyncpg
+import httpx
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from aiokafka.errors import KafkaConnectionError, KafkaError
 from opentelemetry import trace
 from opentelemetry.trace import SpanKind
+from kafka_security import kafka_security_kwargs
 
 from .config import Settings, load_settings
 from .logging_setup import configure_logging, get_logger
@@ -31,8 +33,8 @@ from .templates import (
     render_invite_email,
     render_password_reset_email,
 )
-from .tracing import extract_context, inject_headers, setup_tracing
-from .kafka_security import kafka_security_kwargs
+from .tracing import setup_tracing
+from tracing import extract_context, inject_headers, shutdown_tracing
 
 INVITE_CREATED = "invite.created"
 PASSWORD_RESET_REQUESTED = "password.reset.requested"
@@ -40,6 +42,10 @@ EMAIL_VERIFICATION_REQUESTED = "email.verification.requested"
 _HANDLED_TYPES = frozenset(
     {INVITE_CREATED, PASSWORD_RESET_REQUESTED, EMAIL_VERIFICATION_REQUESTED}
 )
+# Raw single-use secrets that must never reach Kafka in any form — not the
+# normal event payload (see _fetch_outbox_event), and not a DLQ envelope
+# either (see _to_dlq).
+_SECRET_URL_FIELDS = ("resetUrl", "verifyUrl", "inviteUrl")
 
 _tracer = trace.get_tracer(__name__)
 
@@ -64,6 +70,7 @@ class EmailWorker:
         )
         self._db: asyncpg.Pool | None = None
         self._producer: AIOKafkaProducer | None = None
+        self._http: httpx.AsyncClient | None = None
         # Consecutive failure count per event_id; poison messages (>= N) are
         # routed to the DLQ so they can't loop forever.
         self._failures: dict[str, int] = {}
@@ -80,6 +87,7 @@ class EmailWorker:
             group=self._settings.consumer_group,
             smtp=f"{self._settings.smtp_host}:{self._settings.smtp_port}",
         )
+        self._http = httpx.AsyncClient(timeout=5.0)
         await self._connect_db()
         attempt = 0
         while not self._stop.is_set():
@@ -134,6 +142,8 @@ class EmailWorker:
 
         if self._db:
             await self._db.close()
+        if self._http:
+            await self._http.aclose()
         self._log.info("stopped")
 
     async def _consume_loop(self, consumer: AIOKafkaConsumer) -> None:
@@ -187,7 +197,28 @@ class EmailWorker:
             self._log.info("duplicate_skipped", event_id=event_id)
             return True
 
+        # inviteId for invites, userId for reset/verify — read from the
+        # (possibly still-slim) event before it's replaced by the fetched
+        # payload below, so a permanently-gone outbox row can still be
+        # marked sent under the right recipient key.
+        recipient_key = event.get("inviteId") or event.get("userId")
+
         try:
+            outbox_id = event.get("outboxId")
+            if outbox_id:
+                # The raw secret (reset/verify/invite URL) never travels over
+                # Kafka — this is the only place it reaches this process. See
+                # docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 3.
+                fetched = await self._fetch_outbox_event(str(outbox_id))
+                if fetched is None:
+                    # Permanent: the row is gone or already redacted past its
+                    # own expiry. Nothing useful to retry — mark handled.
+                    self._log.warning(
+                        "outbox_event_gone_skipped", event_id=event_id, type=event_type
+                    )
+                    await self._mark_sent(str(event_id), recipient_key)
+                    return True
+                event = fetched
             if event_type == INVITE_CREATED:
                 await self._send_invite(event)
             elif event_type == PASSWORD_RESET_REQUESTED:
@@ -199,6 +230,24 @@ class EmailWorker:
 
         self._failures.pop(str(event_id), None)
         return True
+
+    async def _fetch_outbox_event(self, outbox_id: str) -> dict | None:
+        """Pull the still-full payload for one outbox row from auth-svc.
+
+        Returns None for a PERMANENT outcome (row not found, wrong type, or
+        already redacted past its own expiry) — nothing useful to retry, so
+        the caller marks the event handled rather than looping. Raises for a
+        TRANSIENT failure (connection error, timeout, 5xx); the caller must
+        NOT commit the Kafka offset in that case so redelivery retries.
+        """
+        assert self._http is not None
+        url = f"{self._settings.auth_internal_base}/internal/outbox-events/{outbox_id}"
+        headers = {"X-Internal-Token": self._settings.auth_internal_token}
+        resp = await self._http.get(url, headers=headers)
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        return resp.json()
 
     async def _send_invite(self, event: dict) -> None:
         """Send the invite and write the durable dedup row.
@@ -352,7 +401,14 @@ class EmailWorker:
         if self._producer is None:
             self._log.error("dlq_producer_unavailable", event_id=event.get("eventId"))
             return
-        envelope = {"reason": error, "source": "invite", "event": event}
+        # `event` may be the FETCHED payload (see _fetch_outbox_event) if a
+        # failure after the fetch — e.g. SMTP down — pushed this event past
+        # the poison threshold. Strip the raw secret fields before this ever
+        # reaches Kafka: the DLQ topic has the same no-ACL exposure as every
+        # other topic, and this is exactly the leak Phase 3 removed from the
+        # normal path. See docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 3.
+        safe_event = {k: v for k, v in event.items() if k not in _SECRET_URL_FIELDS}
+        envelope = {"reason": error, "source": "invite", "event": safe_event}
         try:
             # PRODUCER span: inject traceparent so the DLQ message stays linked
             # to this trace. No-op when tracing is disabled.
@@ -451,7 +507,11 @@ async def _amain() -> None:
             # Signal handlers are unavailable on some platforms (e.g. Windows).
             pass
 
-    await worker.run()
+    try:
+        await worker.run()
+    finally:
+        # flush any buffered spans (no-op when disabled)
+        shutdown_tracing(log=get_logger("worker"))
 
 
 def main() -> None:

@@ -115,6 +115,19 @@ func outboundConfig(cfg *config.Config) jetstream.StreamConfig {
 		Retention: jetstream.LimitsPolicy,
 		Storage:   jetstream.FileStorage,
 		Replicas:  cfg.StreamReplicas,
+		// Pins every replica to THIS region's own cluster. Without it, a gateway
+		// connecting two regions' clusters forms one JetStream supercluster (a
+		// gateway is a mesh at the messaging layer, not a boundary at the
+		// placement layer — confirmed directly: two 3-node regions gatewayed
+		// together report cluster_size 6, one merged meta-cluster, not two), and
+		// the default placement algorithm may refuse a stream outright ("no
+		// suitable peers for placement") rather than guess which region a
+		// replica belongs in. infra/nats/region-a.conf and region-b.conf
+		// deliberately do NOT set `jetstream.domain` for this reason: distinct
+		// domains are how JetStream is isolated over LEAF NODE connections, not
+		// gateways — mixing the two is the inconsistency that produced the
+		// placement failure in the first place.
+		Placement: &jetstream.Placement{Cluster: cfg.Region},
 		// Bounded on both axes. An unbounded replication log fills the region's
 		// JetStream store and takes down everything else using it — a much
 		// worse outage than the replication gap it was avoiding. Discard old:
@@ -135,7 +148,7 @@ func inboundConfig(cfg *config.Config) jetstream.StreamConfig {
 	sources := make([]*jetstream.StreamSource, 0, len(cfg.Peers))
 	for _, peer := range cfg.Peers {
 		src := &jetstream.StreamSource{
-			Name: "EVENTS_OUT_" + upper(peer),
+			Name: "EVENTS_OUT_" + config.Upper(peer),
 			// Belt and braces: a peer's outbound stream cannot contain another
 			// region's subjects, so this filter is redundant today. It stops
 			// being redundant the moment somebody widens that stream's subject
@@ -156,11 +169,15 @@ func inboundConfig(cfg *config.Config) jetstream.StreamConfig {
 		// DELIBERATELY EMPTY. See the package comment: subjects here would make
 		// this stream capture the local region's own publishes and loop them
 		// back through the importer.
-		Subjects:    nil,
-		Sources:     sources,
-		Retention:   jetstream.LimitsPolicy,
-		Storage:     jetstream.FileStorage,
-		Replicas:    cfg.StreamReplicas,
+		Subjects:  nil,
+		Sources:   sources,
+		Retention: jetstream.LimitsPolicy,
+		Storage:   jetstream.FileStorage,
+		Replicas:  cfg.StreamReplicas,
+		// Same reasoning as outboundConfig's Placement — this region's inbound
+		// stream replicates within this region's own cluster too, even though
+		// its DATA is sourced across the gateway from peers.
+		Placement:   &jetstream.Placement{Cluster: cfg.Region},
 		MaxAge:      cfg.StreamMaxAge,
 		MaxBytes:    cfg.StreamMaxBytes,
 		Discard:     jetstream.DiscardOld,
@@ -213,7 +230,7 @@ func AssertCannotLoop(got *jetstream.StreamConfig, cfg *config.Config) error {
 				"own publishes and the importer writes them straight back into local Kafka",
 			cfg.InboundStream(), got.Subjects)
 	}
-	own := "EVENTS_OUT_" + upper(cfg.Region)
+	own := "EVENTS_OUT_" + config.Upper(cfg.Region)
 	for _, src := range got.Sources {
 		if src.Name == own {
 			return fmt.Errorf(
@@ -228,5 +245,3 @@ func AssertCannotLoop(got *jetstream.StreamConfig, cfg *config.Config) error {
 	}
 	return nil
 }
-
-func upper(s string) string { return strings.ToUpper(strings.ReplaceAll(s, "-", "_")) }

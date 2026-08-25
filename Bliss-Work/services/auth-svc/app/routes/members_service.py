@@ -135,6 +135,7 @@ async def load_member(conn: AsyncConnection, org_id: str, user_id: str) -> Membe
         emailVerified=bool(row.email_verified),
         createdAt=iso_z(row.created_at),
         removedAt=_iso_or_none(row.removed_at),
+        avatarUrl=dto.avatarUrl,
     )
 
 

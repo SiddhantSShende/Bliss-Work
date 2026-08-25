@@ -19,6 +19,20 @@ Deliberately NOT emitted on `/auth/refresh`: that fires roughly four times an
 hour per device and carries no information the heartbeat does not already have.
 Recording it would quadruple the volume of the auth stream to say "still signed
 in", which the session row already says.
+
+── ip / user_agent / request_id / session_id (Phase 9) ──────────────────────
+Folded into the existing `meta` dict rather than new bare columns on
+audit_log: `_audit_entry_hash` hashes exactly six fixed positional fields
+(one of which is `meta_json`), so routing new context through `meta` is
+automatically covered by the existing tamper-evidence and needs no change to
+the hash function or verify_audit_chain — a historical row simply lacks
+these keys. `session_id` is the refresh-token family id `build_session`
+already generates, not a new concept. `ip`/`user_agent` come from the
+caller's `Request` via `app/net.py`'s `client_ip` (the same trusted-proxy
+model rate limiting already uses — never re-derive this a second way).
+`request_id` is read from the same `X-Request-Id` header
+`rate_limit.py`'s handler already reads. NEVER put a password, raw token, or
+JWT into this data. See docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 9.
 """
 from __future__ import annotations
 
@@ -29,15 +43,62 @@ from .. import service
 from ..events.outbox import TOPIC_AUTH, build_event, enqueue_event
 
 
-async def session_started(conn: AsyncConnection, org_id: str, user_id: str) -> None:
+def context_meta(
+    *,
+    session_id: str | None = None,
+    ip: str | None = None,
+    user_agent: str | None = None,
+    request_id: str | None = None,
+    **extra: object,
+) -> dict:
+    """Build the audit `meta` dict, omitting any field the caller didn't have
+    (a request-less internal call, or a request missing the header) rather
+    than writing null placeholders."""
+    meta: dict[str, object] = dict(extra)
+    if session_id:
+        meta["sessionId"] = session_id
+    if ip:
+        meta["ip"] = ip
+    if user_agent:
+        meta["userAgent"] = user_agent
+    if request_id:
+        meta["requestId"] = request_id
+    return meta
+
+
+async def session_started(
+    conn: AsyncConnection,
+    org_id: str,
+    user_id: str,
+    *,
+    session_id: str | None = None,
+    ip: str | None = None,
+    user_agent: str | None = None,
+    request_id: str | None = None,
+) -> None:
     await _emit(conn, "user.session.started", org_id, user_id)
     await service.write_audit(
-        conn, org_id=org_id, actor_id=user_id, action="auth.login", target=user_id
+        conn,
+        org_id=org_id,
+        actor_id=user_id,
+        action="auth.login",
+        target=user_id,
+        meta=context_meta(
+            session_id=session_id, ip=ip, user_agent=user_agent, request_id=request_id
+        ),
     )
 
 
 async def session_ended(
-    conn: AsyncConnection, org_id: str, user_id: str, *, audit: bool = True
+    conn: AsyncConnection,
+    org_id: str,
+    user_id: str,
+    *,
+    audit: bool = True,
+    session_id: str | None = None,
+    ip: str | None = None,
+    user_agent: str | None = None,
+    request_id: str | None = None,
 ) -> None:
     """`audit=False` emits the bus event without an audit row.
 
@@ -52,24 +113,56 @@ async def session_ended(
     await _emit(conn, "user.session.ended", org_id, user_id)
     if audit:
         await service.write_audit(
-            conn, org_id=org_id, actor_id=user_id, action="auth.logout", target=user_id
+            conn,
+            org_id=org_id,
+            actor_id=user_id,
+            action="auth.logout",
+            target=user_id,
+            meta=context_meta(
+                session_id=session_id, ip=ip, user_agent=user_agent, request_id=request_id
+            ),
         )
 
 
 async def org_switched(
-    conn: AsyncConnection, org_id: str, user_id: str, from_org_id: str
+    conn: AsyncConnection,
+    org_id: str,
+    user_id: str,
+    from_org_id: str,
+    *,
+    session_id: str | None = None,
+    ip: str | None = None,
+    user_agent: str | None = None,
+    request_id: str | None = None,
 ) -> None:
     """A switch ENDS the activity session in the org being left and STARTS one
     in the org being entered — `user_sessions.org_id` makes them two different
     rows, and a single "switched" event would leave the first one open forever."""
     await _emit(conn, "user.org_switched", org_id, user_id, fromOrgId=from_org_id)
     await service.write_audit(
-        conn, org_id=org_id, actor_id=user_id, action="auth.org_switched",
-        target=user_id, meta={"from": from_org_id},
+        conn,
+        org_id=org_id,
+        actor_id=user_id,
+        action="auth.org_switched",
+        target=user_id,
+        meta=context_meta(
+            session_id=session_id,
+            ip=ip,
+            user_agent=user_agent,
+            request_id=request_id,
+            **{"from": from_org_id},
+        ),
     )
 
 
-async def login_failed(conn: AsyncConnection, identity_id: str) -> None:
+async def login_failed(
+    conn: AsyncConnection,
+    identity_id: str,
+    *,
+    ip: str | None = None,
+    user_agent: str | None = None,
+    request_id: str | None = None,
+) -> None:
     """Record a failed sign-in against the identity's home org.
 
     A failed login has no org context — the caller never got far enough to pick
@@ -80,7 +173,8 @@ async def login_failed(conn: AsyncConnection, identity_id: str) -> None:
 
     Runs in the login transaction, which is already under `bypass_rls` for the
     cross-org identity lookup — that is what lets it write an audit row for an
-    org the request was never scoped to.
+    org the request was never scoped to. No `session_id` — a failed login never
+    reaches build_session, so there is no family id to attribute it to.
     """
     org_id = (
         await conn.execute(
@@ -94,8 +188,17 @@ async def login_failed(conn: AsyncConnection, identity_id: str) -> None:
     if org_id is None:
         return
     await service.write_audit(
-        conn, org_id=str(org_id), actor_id=None, action="auth.login_failed",
-        target=None, meta={"identityId": identity_id},
+        conn,
+        org_id=str(org_id),
+        actor_id=None,
+        action="auth.login_failed",
+        target=None,
+        meta=context_meta(
+            ip=ip,
+            user_agent=user_agent,
+            request_id=request_id,
+            **{"identityId": identity_id},
+        ),
     )
 
 

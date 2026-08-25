@@ -23,6 +23,8 @@ from dataclasses import dataclass
 from email.utils import getaddresses
 from typing import Any
 
+from .providers.microsoft import is_from_bot, mentioned_user_ids
+
 # Slack encodes a user mention as <@U0123ABCD> or <@U0123ABCD|display-name>.
 # Member ids start with U (user) or W (enterprise-grid user).
 _SLACK_MENTION_RE = re.compile(r"<@([UW][A-Z0-9]{2,})(?:\|[^>]*)?>")
@@ -212,23 +214,21 @@ def _teams_scan(
     Only USER mentions count — `mentioned.conversation` is an @team/@channel
     broadcast, excluded for the same reason as Slack's <!channel>. Handles are
     AAD object ids, which is what an OAuth-derived identity stores for Teams.
+
+    Mention extraction and the bot check are `providers.microsoft`'s: bot
+    detection fails CLOSED there (a message with neither `application` nor a
+    `user` counts as a bot) so an unattributable message is never mistaken for
+    a person tagging you.
     """
     if msg.get("messageType") != "message":
         return MentionScan()
-    # Bots/connectors post as an application rather than a user.
-    if (msg.get("from") or {}).get("application"):
+    if is_from_bot(msg):
         return MentionScan()
-
-    handles: list[str] = []
-    for m in msg.get("mentions") or []:
-        user = ((m or {}).get("mentioned") or {}).get("user") or {}
-        if user.get("id"):
-            handles.append(str(user["id"]))
 
     chat_id = msg.get("chatId") or ""
     msg_id = msg.get("id") or ""
     return MentionScan(
-        handles=_dedupe(handles),
+        handles=_dedupe(mentioned_user_ids(msg)),
         thread_ref=f"{chat_id}/{msg_id}" if chat_id or msg_id else None,
         permalink=msg.get("webUrl") or None,
     )

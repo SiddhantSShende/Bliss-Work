@@ -14,13 +14,18 @@ import pathlib
 
 import asyncpg
 import pytest_asyncio
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
 
 MIGRATIONS = pathlib.Path(__file__).resolve().parents[2] / "migrations"
 _RLS_TABLES = ("audit_log", "invites", "user_roles", "users", "org_keys", "orgs")
 
 
 @pytest_asyncio.fixture
-async def db():
+async def pg_dsn():
+    """Resolve a migrated, RLS-ready Postgres DSN (asyncpg-style
+    `postgresql://...`) — the one-time setup shared by both connection styles
+    below, so it runs once per test regardless of which one that test needs."""
     dsn = os.environ.get("TEST_DATABASE_URL")
     container = None
     if not dsn:
@@ -54,9 +59,39 @@ async def db():
         await conn.execute(
             "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO rls_test"
         )
-        await conn.execute("SET ROLE rls_test")
+        # audit_log.id is bigserial — inserting as rls_test needs nextval() on its
+        # sequence too; GRANT ... ON ALL TABLES does not imply sequence privileges.
+        await conn.execute(
+            "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO rls_test"
+        )
+    finally:
+        await conn.close()
+    yield dsn
+    if container is not None:
+        container.stop()
+
+
+@pytest_asyncio.fixture
+async def db(pg_dsn: str):
+    conn = await asyncpg.connect(pg_dsn)
+    await conn.execute("SET ROLE rls_test")
+    try:
         yield conn
     finally:
         await conn.close()
-        if container is not None:
-            container.stop()
+
+
+@pytest_asyncio.fixture
+async def sa_conn(pg_dsn: str):
+    """A SQLAlchemy `AsyncConnection` to the same migrated + RLS-ready database,
+    for exercising `app.service` functions directly — they take an
+    `AsyncConnection` (`text()`, `conn.execute(...)`), not an asyncpg one, and
+    `db` above hands out the latter. See test_audit_context.py."""
+    sa_dsn = pg_dsn.replace("postgresql://", "postgresql+asyncpg://", 1)
+    engine = create_async_engine(sa_dsn)
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SET ROLE rls_test"))
+            yield conn
+    finally:
+        await engine.dispose()

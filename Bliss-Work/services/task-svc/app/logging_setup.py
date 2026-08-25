@@ -1,27 +1,15 @@
+"""Structured JSON logging to stdout via structlog.
+
+The processor-pipeline setup lives in the shared `shared_logging_setup`
+package (services/shared/logging_setup) — identical across every Python
+service in this repo. This file supplies only what's specific to task-svc:
+its own logger name.
+"""
 from __future__ import annotations
 
-import logging
-import sys
-
 import structlog
+from shared_logging_setup import configure_logging
 
-
-def configure_logging(level: str = "info") -> None:
-    log_level = getattr(logging, level.upper(), logging.INFO)
-    logging.basicConfig(format="%(message)s", stream=sys.stdout, level=log_level)
-    structlog.configure(
-        processors=[
-            structlog.contextvars.merge_contextvars,
-            structlog.processors.add_log_level,
-            structlog.processors.TimeStamper(fmt="iso", utc=True),
-            structlog.processors.StackInfoRenderer(),
-            structlog.processors.format_exc_info,
-            structlog.processors.JSONRenderer(),
-        ],
-        wrapper_class=structlog.make_filtering_bound_logger(log_level),
-        logger_factory=structlog.PrintLoggerFactory(),
-        cache_logger_on_first_use=True,
-    )
-
+__all__ = ["configure_logging", "log"]
 
 log = structlog.get_logger("task-svc")

@@ -141,7 +141,6 @@ def test_a_recipient_collection_that_is_not_a_list_is_ignored():
 
 # ── delivery ──────────────────────────────────────────────────────────────────
 import httpx  # noqa: E402
-import pytest  # noqa: E402
 
 from app import mail_bridge  # noqa: E402
 

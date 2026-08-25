@@ -1,9 +1,12 @@
 """Fail-closed production config guard (``Settings._enforce_prod_safety``).
 
 See auth-svc/tests/test_config_failclosed.py — same contract, task-svc fields.
-``internal_token`` is populated from the TB_INTERNAL_TOKEN env var (its
-validation_alias), so the token is set via monkeypatch rather than a kwarg.
-Pure-logic; skips cleanly if pydantic isn't installed locally.
+``internal_token`` (this service's OWN /internal/* secret) is populated from
+TASK_INTERNAL_TOKEN, and ``messaging_internal_token`` (used to call
+messaging-svc) from MESSAGING_INTERNAL_TOKEN — two distinct per-callee secrets
+since docs/AUTH_AUTHZ_REMEDIATION_PLAN.md Phase 2, so both are set via
+monkeypatch rather than a kwarg. Pure-logic; skips cleanly if pydantic isn't
+installed locally.
 """
 from __future__ import annotations
 
@@ -28,12 +31,17 @@ GOOD = dict(
 )
 
 
+def _set_both_internal_tokens(monkeypatch):
+    monkeypatch.setenv("TASK_INTERNAL_TOKEN", "t" * 32)
+    monkeypatch.setenv("MESSAGING_INTERNAL_TOKEN", "m" * 32)
+
+
 def test_dev_mode_allows_defaults():
     Settings(tb_env="development")  # dev defaults accepted
 
 
 def test_prod_good_config_passes(monkeypatch):
-    monkeypatch.setenv("TB_INTERNAL_TOKEN", "t" * 32)
+    _set_both_internal_tokens(monkeypatch)
     Settings(**GOOD)
 
 
@@ -49,12 +57,20 @@ def test_prod_good_config_passes(monkeypatch):
     ],
 )
 def test_prod_rejects_each_sentinel(monkeypatch, override):
-    monkeypatch.setenv("TB_INTERNAL_TOKEN", "t" * 32)
+    _set_both_internal_tokens(monkeypatch)
     with pytest.raises(ValidationError):
         Settings(**{**GOOD, **override})
 
 
 def test_prod_requires_internal_token(monkeypatch):
-    monkeypatch.delenv("TB_INTERNAL_TOKEN", raising=False)
+    monkeypatch.setenv("MESSAGING_INTERNAL_TOKEN", "m" * 32)
+    monkeypatch.delenv("TASK_INTERNAL_TOKEN", raising=False)
+    with pytest.raises(ValidationError):
+        Settings(**GOOD)
+
+
+def test_prod_requires_messaging_internal_token(monkeypatch):
+    monkeypatch.setenv("TASK_INTERNAL_TOKEN", "t" * 32)
+    monkeypatch.delenv("MESSAGING_INTERNAL_TOKEN", raising=False)
     with pytest.raises(ValidationError):
         Settings(**GOOD)

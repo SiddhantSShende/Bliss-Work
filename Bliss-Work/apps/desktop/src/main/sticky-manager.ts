@@ -3,6 +3,7 @@ import {
   actionsFor,
   canAcceptNewPin,
   canFloatTask,
+  idsToPrune,
   selectFloatingTasks,
   type PinResult,
   type StickyTaskDTO,
@@ -18,13 +19,13 @@ import {
   getGeometry,
   getPinned,
   isDismissed,
-  isOnPrimary,
   isPinned,
   removeDismissed,
   removePinned,
   saveGeometry,
   touch,
 } from "./sticky-state";
+import { normalizeZOrder, reclampGroupToPrimary, snapBackIfOffPrimary } from "./sticky-window-group";
 
 /**
  * Hard cap on simultaneous task widgets. Settings-gated raise to 12 lives in
@@ -235,21 +236,17 @@ export class StickyManager {
    * push (a stale/empty cache would wrongly unpin an unfinished commitment).
    */
   prunePinned(liveIds: Iterable<string>): void {
-    const live = new Set(liveIds);
+    const live = [...liveIds];
     // A task that has left the actionable set can also forget it was dismissed:
     // that keeps the dismissed set bounded, and means a task which becomes
     // actionable AGAIN (reassigned, re-opened) is free to float once more.
-    for (const id of getDismissed()) {
-      if (!live.has(id)) removeDismissed(id);
-    }
-    for (const id of getPinned()) {
-      if (!live.has(id)) {
-        removePinned(id);
-        forget(id);
-        const w = this.widgets.get(id);
-        if (w && !w.isDestroyed()) w.close();
-        this.widgets.delete(id);
-      }
+    for (const id of idsToPrune(getDismissed(), live)) removeDismissed(id);
+    for (const id of idsToPrune(getPinned(), live)) {
+      removePinned(id);
+      forget(id);
+      const w = this.widgets.get(id);
+      if (w && !w.isDestroyed()) w.close();
+      this.widgets.delete(id);
     }
   }
 
@@ -323,13 +320,13 @@ export class StickyManager {
    *  as a hard guarantee that a note is never left always-on-top (re-assert
    *  alwaysOnTop:false) regardless of any platform quirk. */
   lowerZOrder(): void {
-    for (const [, w] of this.widgets) if (!w.isDestroyed()) w.setAlwaysOnTop(false);
+    normalizeZOrder(this.widgets.values());
   }
 
   /** Kept for symmetry with lowerZOrder / ChatStickyManager: also just re-asserts
    *  that the note stays behind (never promoted above app windows). */
   raiseZOrder(): void {
-    for (const [, w] of this.widgets) if (!w.isDestroyed()) w.setAlwaysOnTop(false);
+    normalizeZOrder(this.widgets.values());
   }
 
   /**
@@ -364,13 +361,7 @@ export class StickyManager {
    *  add/remove/metrics-change so unplugging the monitor a note drifted toward
    *  can't strand it off the main desktop screen. */
   reclampAll(): void {
-    for (const [, w] of this.widgets) {
-      if (w.isDestroyed()) continue;
-      const b = w.getBounds();
-      if (isOnPrimary(b)) continue;
-      const g = clampToPrimary({ ...b, minimized: false, lastSeenAt: 0 });
-      w.setBounds({ x: g.x, y: g.y, width: b.width, height: b.height });
-    }
+    reclampGroupToPrimary(this.widgets.values());
   }
 
   private reconcile(): void {
@@ -472,12 +463,7 @@ export class StickyManager {
     // the move finishes ('moved' fires once on Windows/macOS, so we never fight
     // an in-progress drag). persist() then records the corrected position.
     w.on("moved", () => {
-      if (w.isDestroyed()) return;
-      const b = w.getBounds();
-      if (!isOnPrimary(b)) {
-        const g = clampToPrimary({ ...b, minimized: false, lastSeenAt: 0 });
-        w.setBounds({ x: g.x, y: g.y, width: b.width, height: b.height });
-      }
+      snapBackIfOffPrimary(w);
       persist();
     });
     // No user-facing close on a locked note; window teardown is driven by the

@@ -1,7 +1,6 @@
 package api
 
 import (
-	"crypto/subtle"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -9,23 +8,25 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/task-board/messaging-svc/internal/store"
+	"github.com/task-board/shared-internalauth"
 )
 
 // internalToken is sourced once at startup; mounted on the internal-only
-// route via internalAuthMiddleware. Pre-shared with ws-gateway via the
-// TB_INTERNAL_TOKEN env var so neither side has to depend on JWKS for this
-// purely service-to-service path.
-var internalToken = os.Getenv("TB_INTERNAL_TOKEN")
+// route via internalAuthMiddleware. THIS SERVICE'S OWN secret — not shared
+// with any other service's callees — via the MESSAGING_INTERNAL_TOKEN env
+// var. See docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 2: every service now
+// has a distinct per-callee secret rather than one token shared
+// platform-wide (previously TB_INTERNAL_TOKEN).
+var internalToken = os.Getenv("MESSAGING_INTERNAL_TOKEN")
 
 // internalAuthOK validates the X-Internal-Token header. FAIL CLOSED: if the
 // shared secret is not configured the endpoint rejects every caller (rather than
-// accepting all). Constant-time compare avoids leaking the token via timing.
+// accepting all). Constant-time compare (via the shared internalauth package,
+// so every service's /internal/* check is byte-for-byte the same comparison)
+// avoids leaking the token via timing.
 func internalAuthOK(r *http.Request) bool {
-	if internalToken == "" {
-		return false
-	}
 	got := r.Header.Get("X-Internal-Token")
-	return subtle.ConstantTimeCompare([]byte(got), []byte(internalToken)) == 1
+	return internalauth.Matches(got, internalToken)
 }
 
 type internalDeliveredReq struct {

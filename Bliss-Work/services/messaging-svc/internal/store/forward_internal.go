@@ -72,19 +72,33 @@ func (s *Store) ForwardMessage(
 		return nil, err
 	}
 
-	tx, err := s.pool.Begin(ctx)
+	var out *ForwardResult
+	err = RetryOnSerializationFailure(ctx, 3, func(ctx context.Context) error {
+		tx, err := s.pool.Begin(ctx)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback(ctx)
+		if err := setOrgGUC(ctx, tx, orgID); err != nil {
+			return err
+		}
+
+		var res *ForwardResult
+		if target.Kind == ForwardTargetChannel {
+			res, err = s.forwardToChannel(ctx, tx, orgID, forwarderID, sourceMessageID, target.ID, clientMsgID, fc)
+		} else {
+			res, err = s.forwardToUser(ctx, tx, orgID, forwarderID, sourceMessageID, target.ID, clientMsgID, fc)
+		}
+		if err != nil {
+			return err
+		}
+		out = res
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback(ctx)
-	if err := setOrgGUC(ctx, tx, orgID); err != nil {
-		return nil, err
-	}
-
-	if target.Kind == ForwardTargetChannel {
-		return s.forwardToChannel(ctx, tx, orgID, forwarderID, sourceMessageID, target.ID, clientMsgID, fc)
-	}
-	return s.forwardToUser(ctx, tx, orgID, forwarderID, sourceMessageID, target.ID, clientMsgID, fc)
+	return out, nil
 }
 
 // forwardToUser delivers into the 1:1 conversation between the forwarder and the

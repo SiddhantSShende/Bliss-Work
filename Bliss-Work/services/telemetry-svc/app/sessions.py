@@ -33,7 +33,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .config import settings
-from .crypto import cryptor
+from crypto import cryptor
 from .db import session, set_bypass_rls
 from .logging_setup import log
 

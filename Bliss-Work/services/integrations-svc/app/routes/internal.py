@@ -14,16 +14,16 @@ from __future__ import annotations
 
 import base64
 import binascii
-import secrets
 
 import uuid6
 from fastapi import APIRouter, Header, HTTPException, status
+from internal_auth import internal_token_matches
 from pydantic import BaseModel
 from sqlalchemy import text
 
 from .. import outbound
 from ..config import settings
-from ..crypto import cryptor
+from crypto import cryptor
 from ..db import session, set_org_context
 from ..events import emit_activity_created
 from ..providers import microsoft as ms
@@ -52,8 +52,7 @@ class SendResp(BaseModel):
 
 
 def _require_internal(token: str | None) -> None:
-    expected = settings.internal_token
-    if not expected or not token or not secrets.compare_digest(token, expected):
+    if not internal_token_matches(token, settings.internal_token):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="unauthorized")
 
 

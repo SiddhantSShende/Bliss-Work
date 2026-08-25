@@ -20,6 +20,7 @@ from ..ingest import ActivityRow, clamp_occurred_at, insert_events
 from ..logging_setup import log
 from ..rate_limit import limiter
 from ..schemas import Beacon, BeaconAck
+from ..sessionizer import sessionize_inserted
 from .. import sessions as sess
 
 router = APIRouter(prefix="/telemetry", tags=["ingest"])
@@ -83,7 +84,11 @@ async def beacon(
             )
             for e in body.events
         ]
-        written = await insert_events(db, rows)
+        inserted = await insert_events(db, rows)
+        # Web beacons carry app/site rows only rarely (see _CLIENT_CATEGORIES —
+        # the desktop and browser agents are the usual source, via the OTHER
+        # route below), but when they do, the same correlation applies.
+        await sessionize_inserted(db, inserted)
 
         if body.ended:
             # The client said goodbye (pagehide / sign-out). Close precisely
@@ -94,7 +99,7 @@ async def beacon(
             )
         await db.commit()
 
-    return BeaconAck(sessionId=session_id, accepted=written)
+    return BeaconAck(sessionId=session_id, accepted=len(inserted))
 
 
 def _client_ip(request: Request) -> str | None:

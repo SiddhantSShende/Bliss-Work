@@ -26,6 +26,7 @@
     "logs": "docker compose logs -f",
     "seed": "tsx scripts/seed.ts",
     "test:authz": "tsx scripts/security-authz.ts",
+    "test:internal-token-identity": "tsx scripts/internal-token-identity.ts",
     "gen:keys": "tsx scripts/gen-keys.ts",
     "setup:branding": "bash scripts/setup-branding.sh"
   },

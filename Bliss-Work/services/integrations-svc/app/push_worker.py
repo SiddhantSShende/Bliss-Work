@@ -37,7 +37,7 @@ from datetime import datetime, timezone
 from sqlalchemy import text
 
 from .config import settings
-from .crypto import cryptor
+from crypto import cryptor
 from .db import session, set_bypass_rls
 from .ingest import ingest_one
 from .mail_bridge import deliver as deliver_inbound_mail, from_graph_message

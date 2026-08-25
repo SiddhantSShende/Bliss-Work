@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   BLISSWORK_DESTINATION,
+  browserSlug,
   isBlissWork,
   isBrowser,
   resolveApp,
@@ -100,6 +101,34 @@ describe("browsers are marked as the coarse reading they are", () => {
     expect(isBrowser(resolveApp("msedge.exe"))).toBe(true);
     expect(isBrowser(resolveApp("Code.exe"))).toBe(false);
     expect(isBrowser(resolveApp("OUTLOOK.EXE"))).toBe(false);
+  });
+});
+
+describe("browserSlug", () => {
+  it("maps every platform spelling of a recognised browser to its slug", () => {
+    expect(browserSlug(resolveApp("chrome.exe"))).toBe("chrome");
+    expect(browserSlug(resolveApp("Google Chrome"))).toBe("chrome");
+    expect(browserSlug(resolveApp("msedge.exe"))).toBe("edge");
+    expect(browserSlug(resolveApp("microsoft edge"))).toBe("edge");
+    expect(browserSlug(resolveApp("brave.exe"))).toBe("brave");
+    expect(browserSlug(resolveApp("firefox.exe"))).toBe("firefox");
+    expect(browserSlug(resolveApp("safari"))).toBe("safari");
+  });
+
+  it("does not hard-code around any one browser — every mapped one round-trips the same way", () => {
+    const browsers = ["chrome.exe", "msedge.exe", "brave.exe", "firefox.exe", "safari", "opera.exe", "arc"];
+    for (const raw of browsers) {
+      const resolved = resolveApp(raw);
+      expect(isBrowser(resolved)).toBe(true);
+      expect(browserSlug(resolved)).not.toBeNull();
+    }
+  });
+
+  it("returns null for a non-browser or an unrecognised application", () => {
+    expect(browserSlug(resolveApp("Code.exe"))).toBeNull();
+    expect(browserSlug(resolveApp("SomeElevatedApp.exe"))).toBeNull();
+    expect(browserSlug(null)).toBeNull();
+    expect(browserSlug(undefined)).toBeNull();
   });
 });
 

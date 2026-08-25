@@ -19,46 +19,50 @@ import (
 // added by an existing member via /channels/{id}/members (the legacy invite
 // path).
 func (s *Store) CreateChannel(ctx context.Context, orgID, creatorID, name string, isLocked bool, memberIDs []string) (*ChannelDTO, error) {
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback(ctx)
-
-	// RLS: scope this tx to the caller's org before any RLS table is touched.
-	if err := setOrgGUC(ctx, tx, orgID); err != nil {
-		return nil, err
-	}
-
-	chanID := uuid.Must(uuid.NewV7()).String()
-	_, err = tx.Exec(ctx,
-		`INSERT INTO channels (id, org_id, name, is_locked, created_by) VALUES ($1, $2, $3, $4, $5)`,
-		chanID, orgID, name, isLocked, creatorID)
-	if err != nil {
-		return nil, err
-	}
-
-	// The creator is the OWNER, and saying so here is the whole of channel
-	// moderation working.
-	//
-	// 0012_channel_roles introduced roles and backfilled owners from
-	// `channels.created_by` for the channels that already existed — but this
-	// insert was never updated, so every channel created SINCE has had no owner
-	// at all. Nobody could add a member, change a role, kick or block in it: the
-	// creator saw no "Add people" (the client hides what would 403) and an org
-	// admin was the only person on earth who could moderate it.
 	members := dedupeMembers(creatorID, memberIDs)
-	for _, uid := range members {
-		role := RoleMember
-		if uid == creatorID {
-			role = RoleOwner
-		}
-		if err := s.insertChannelMember(ctx, tx, chanID, orgID, uid, role); err != nil {
-			return nil, err
-		}
-	}
+	chanID := uuid.Must(uuid.NewV7()).String()
 
-	if err := tx.Commit(ctx); err != nil {
+	err := RetryOnSerializationFailure(ctx, 3, func(ctx context.Context) error {
+		tx, err := s.pool.Begin(ctx)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback(ctx)
+
+		// RLS: scope this tx to the caller's org before any RLS table is touched.
+		if err := setOrgGUC(ctx, tx, orgID); err != nil {
+			return err
+		}
+
+		_, err = tx.Exec(ctx,
+			`INSERT INTO channels (id, org_id, name, is_locked, created_by) VALUES ($1, $2, $3, $4, $5)`,
+			chanID, orgID, name, isLocked, creatorID)
+		if err != nil {
+			return err
+		}
+
+		// The creator is the OWNER, and saying so here is the whole of channel
+		// moderation working.
+		//
+		// 0012_channel_roles introduced roles and backfilled owners from
+		// `channels.created_by` for the channels that already existed — but this
+		// insert was never updated, so every channel created SINCE has had no owner
+		// at all. Nobody could add a member, change a role, kick or block in it: the
+		// creator saw no "Add people" (the client hides what would 403) and an org
+		// admin was the only person on earth who could moderate it.
+		for _, uid := range members {
+			role := RoleMember
+			if uid == creatorID {
+				role = RoleOwner
+			}
+			if err := s.insertChannelMember(ctx, tx, chanID, orgID, uid, role); err != nil {
+				return err
+			}
+		}
+
+		return tx.Commit(ctx)
+	})
+	if err != nil {
 		return nil, err
 	}
 	return &ChannelDTO{
@@ -115,112 +119,114 @@ func (s *Store) DeleteChannel(ctx context.Context, orgID, channelID, callerID st
 // member. Emits ChannelMemberJoined for every member that was actually new
 // (re-adding an existing member is a no-op and emits nothing).
 func (s *Store) AddChannelMembers(ctx context.Context, orgID, channelID, callerID string, memberIDs []string) error {
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-
-	// RLS: scope this tx to the caller's org before any RLS table is touched.
-	if err := setOrgGUC(ctx, tx, orgID); err != nil {
-		return err
-	}
-
-	if err := requireChannelMember(ctx, tx, orgID, channelID, callerID); err != nil {
-		return err
-	}
-
-	ids := dedupeMembers("", memberIDs)
-	if len(ids) == 0 {
-		return tx.Commit(ctx)
-	}
-
-	// The channel's name, for the "You were added to #general" notification the
-	// joined event carries. One lookup for the whole request, not one per
-	// member — the same reasoning as every other step below.
-	var channelName string
-	if err := tx.QueryRow(ctx,
-		`SELECT name FROM channels WHERE id = $1`, channelID).Scan(&channelName); err != nil {
-		return err
-	}
-
-	// ── Set-based, not row-by-row ────────────────────────────────────────────
-	//
-	// This used to loop, and each iteration cost four round trips: a block
-	// check, an existence check, the insert, and an outbox insert for the ones
-	// that were new. Adding a department to a channel — 500 people — was
-	// therefore ~2,000 sequential statements inside ONE transaction, holding
-	// its locks and its snapshot open for the whole time.
-	//
-	// That is expensive twice over. The latency is the obvious half; the half
-	// that matters at scale is that a long-lived transaction holds back the
-	// xmin horizon, so autovacuum cannot reclaim dead tuples anywhere in the
-	// database while it runs. A bulk membership change became a vacuum stall.
-	//
-	// Every step below is one statement over the whole list, so the cost is
-	// four round trips total rather than four per member.
-
-	// 1. Blocks. Re-adding a blocked user would silently undo a moderation
-	//    decision, so this is 403 for the whole request rather than skipping
-	//    the individual — the caller asked for something it may not have, and
-	//    partially honouring it would be worse than refusing.
-	var blockedCount int
-	if err := tx.QueryRow(ctx,
-		`SELECT count(*) FROM channel_blocks WHERE channel_id = $1 AND user_id = ANY($2)`,
-		channelID, ids).Scan(&blockedCount); err != nil {
-		return err
-	}
-	if blockedCount > 0 {
-		return ErrForbidden
-	}
-
-	// 2. Insert, and let Postgres tell us which rows were actually new.
-	//    RETURNING on an ON CONFLICT DO NOTHING yields ONLY the inserted rows,
-	//    which is exactly the "was this a new member" answer the old existence
-	//    check was making a separate query for — and it is race-free, where two
-	//    concurrent adds of the same person could both have read "not a member"
-	//    and both emitted a joined event.
-	rows, err := tx.Query(ctx,
-		`INSERT INTO channel_members (channel_id, org_id, user_id)
-		 SELECT $1, $2, unnest($3::uuid[])
-		 ON CONFLICT (channel_id, user_id) DO NOTHING
-		 RETURNING user_id::text`,
-		channelID, orgID, ids)
-	if err != nil {
-		return err
-	}
-	var added []string
-	for rows.Next() {
-		var uid string
-		if err := rows.Scan(&uid); err != nil {
-			rows.Close()
+	return RetryOnSerializationFailure(ctx, 3, func(ctx context.Context) error {
+		tx, err := s.pool.Begin(ctx)
+		if err != nil {
 			return err
 		}
-		added = append(added, uid)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	if len(added) == 0 {
-		return tx.Commit(ctx) // everyone was already a member; nothing to announce
-	}
+		defer tx.Rollback(ctx)
 
-	// 3. Names for the new members, in one lookup rather than one each.
-	names, err := usernames(ctx, tx, added)
-	if err != nil {
-		return err
-	}
+		// RLS: scope this tx to the caller's org before any RLS table is touched.
+		if err := setOrgGUC(ctx, tx, orgID); err != nil {
+			return err
+		}
 
-	// 4. One outbox row per genuinely-new member, inserted together. The events
-	//    stay individual — each names one person, and a consumer that had to
-	//    unpack a batch would be a contract change for no benefit — but they no
-	//    longer cost a round trip each.
-	if err := insertOutboxBatch(ctx, tx, channelID,
-		memberJoinedEvents(orgID, channelID, channelName, callerID, added, names)); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
+		if err := requireChannelMember(ctx, tx, orgID, channelID, callerID); err != nil {
+			return err
+		}
+
+		ids := dedupeMembers("", memberIDs)
+		if len(ids) == 0 {
+			return tx.Commit(ctx)
+		}
+
+		// The channel's name, for the "You were added to #general" notification the
+		// joined event carries. One lookup for the whole request, not one per
+		// member — the same reasoning as every other step below.
+		var channelName string
+		if err := tx.QueryRow(ctx,
+			`SELECT name FROM channels WHERE id = $1`, channelID).Scan(&channelName); err != nil {
+			return err
+		}
+
+		// ── Set-based, not row-by-row ────────────────────────────────────────────
+		//
+		// This used to loop, and each iteration cost four round trips: a block
+		// check, an existence check, the insert, and an outbox insert for the ones
+		// that were new. Adding a department to a channel — 500 people — was
+		// therefore ~2,000 sequential statements inside ONE transaction, holding
+		// its locks and its snapshot open for the whole time.
+		//
+		// That is expensive twice over. The latency is the obvious half; the half
+		// that matters at scale is that a long-lived transaction holds back the
+		// xmin horizon, so autovacuum cannot reclaim dead tuples anywhere in the
+		// database while it runs. A bulk membership change became a vacuum stall.
+		//
+		// Every step below is one statement over the whole list, so the cost is
+		// four round trips total rather than four per member.
+
+		// 1. Blocks. Re-adding a blocked user would silently undo a moderation
+		//    decision, so this is 403 for the whole request rather than skipping
+		//    the individual — the caller asked for something it may not have, and
+		//    partially honouring it would be worse than refusing.
+		var blockedCount int
+		if err := tx.QueryRow(ctx,
+			`SELECT count(*) FROM channel_blocks WHERE channel_id = $1 AND user_id = ANY($2)`,
+			channelID, ids).Scan(&blockedCount); err != nil {
+			return err
+		}
+		if blockedCount > 0 {
+			return ErrForbidden
+		}
+
+		// 2. Insert, and let Postgres tell us which rows were actually new.
+		//    RETURNING on an ON CONFLICT DO NOTHING yields ONLY the inserted rows,
+		//    which is exactly the "was this a new member" answer the old existence
+		//    check was making a separate query for — and it is race-free, where two
+		//    concurrent adds of the same person could both have read "not a member"
+		//    and both emitted a joined event.
+		rows, err := tx.Query(ctx,
+			`INSERT INTO channel_members (channel_id, org_id, user_id)
+			 SELECT $1, $2, unnest($3::uuid[])
+			 ON CONFLICT (channel_id, user_id) DO NOTHING
+			 RETURNING user_id::text`,
+			channelID, orgID, ids)
+		if err != nil {
+			return err
+		}
+		var added []string
+		for rows.Next() {
+			var uid string
+			if err := rows.Scan(&uid); err != nil {
+				rows.Close()
+				return err
+			}
+			added = append(added, uid)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		if len(added) == 0 {
+			return tx.Commit(ctx) // everyone was already a member; nothing to announce
+		}
+
+		// 3. Names for the new members, in one lookup rather than one each.
+		names, err := usernames(ctx, tx, added)
+		if err != nil {
+			return err
+		}
+
+		// 4. One outbox row per genuinely-new member, inserted together. The events
+		//    stay individual — each names one person, and a consumer that had to
+		//    unpack a batch would be a contract change for no benefit — but they no
+		//    longer cost a round trip each.
+		if err := insertOutboxBatch(ctx, tx, channelID,
+			memberJoinedEvents(orgID, channelID, channelName, callerID, added, names)); err != nil {
+			return err
+		}
+		return tx.Commit(ctx)
+	})
 }
 
 // memberJoinedEvents builds one ChannelMemberJoined per newly-added member.
@@ -248,106 +254,115 @@ func memberJoinedEvents(orgID, channelID, channelName, actorID string, userIDs [
 // SendChannelMessage appends a message to a channel. Caller must be a member.
 // Idempotent on (channel, sender, clientMsgId).
 func (s *Store) SendChannelMessage(ctx context.Context, orgID, channelID, senderID, body, clientMsgID string) (*ChannelSendResult, error) {
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback(ctx)
-
-	// RLS: scope this tx to the caller's org before any RLS table is touched.
-	if err := setOrgGUC(ctx, tx, orgID); err != nil {
-		return nil, err
-	}
-
-	if err := requireChannelMember(ctx, tx, orgID, channelID, senderID); err != nil {
-		return nil, err
-	}
-	// A block WITHOUT a kick is a mute: the member keeps their row and keeps
-	// reading, but cannot post. Checked on the send path for the same reason the
-	// DM block is (messages.go) — the authoritative gate belongs where the write
-	// happens, not only where the UI hides a button.
-	if blocked, err := isBlocked(ctx, tx, channelID, senderID); err != nil {
-		return nil, err
-	} else if blocked {
-		return nil, ErrForbidden
-	}
-
-	// Idempotency: return the existing message if this client_msg_id was seen.
-	var existingID string
-	var existingSeq int64
-	err = tx.QueryRow(ctx,
-		`SELECT id, seq FROM channel_messages
-		 WHERE channel_id = $1 AND sender_id = $2 AND client_msg_id = $3`,
-		channelID, senderID, clientMsgID).Scan(&existingID, &existingSeq)
-	if err == nil {
-		if cerr := tx.Commit(ctx); cerr != nil {
-			return nil, cerr
+	var out *ChannelSendResult
+	err := RetryOnSerializationFailure(ctx, 3, func(ctx context.Context) error {
+		tx, err := s.pool.Begin(ctx)
+		if err != nil {
+			return err
 		}
-		return &ChannelSendResult{MessageID: existingID, Seq: existingSeq}, nil
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return nil, err
-	}
+		defer tx.Rollback(ctx)
 
-	// Allocate the next seq atomically and bump last activity.
-	var seq int64
-	err = tx.QueryRow(ctx,
-		`UPDATE channels SET seq_counter = seq_counter + 1, last_msg_at = now()
-		 WHERE id = $1 RETURNING seq_counter`, channelID).Scan(&seq)
+		// RLS: scope this tx to the caller's org before any RLS table is touched.
+		if err := setOrgGUC(ctx, tx, orgID); err != nil {
+			return err
+		}
+
+		if err := requireChannelMember(ctx, tx, orgID, channelID, senderID); err != nil {
+			return err
+		}
+		// A block WITHOUT a kick is a mute: the member keeps their row and keeps
+		// reading, but cannot post. Checked on the send path for the same reason the
+		// DM block is (messages.go) — the authoritative gate belongs where the write
+		// happens, not only where the UI hides a button.
+		if blocked, err := isBlocked(ctx, tx, channelID, senderID); err != nil {
+			return err
+		} else if blocked {
+			return ErrForbidden
+		}
+
+		// Idempotency: return the existing message if this client_msg_id was seen.
+		var existingID string
+		var existingSeq int64
+		err = tx.QueryRow(ctx,
+			`SELECT id, seq FROM channel_messages
+			 WHERE channel_id = $1 AND sender_id = $2 AND client_msg_id = $3`,
+			channelID, senderID, clientMsgID).Scan(&existingID, &existingSeq)
+		if err == nil {
+			if cerr := tx.Commit(ctx); cerr != nil {
+				return cerr
+			}
+			out = &ChannelSendResult{MessageID: existingID, Seq: existingSeq}
+			return nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+
+		// Allocate the next seq atomically and bump last activity.
+		var seq int64
+		err = tx.QueryRow(ctx,
+			`UPDATE channels SET seq_counter = seq_counter + 1, last_msg_at = now()
+			 WHERE id = $1 RETURNING seq_counter`, channelID).Scan(&seq)
+		if err != nil {
+			return err
+		}
+
+		// Encrypt the body under the org DEK (created lazily in THIS tx); the
+		// plaintext body column is left NULL.
+		bodyEnc, err := s.crypto.Encrypt(ctx, tx, orgID, body)
+		if err != nil {
+			return err
+		}
+		msgID := uuid.Must(uuid.NewV7()).String()
+		_, err = tx.Exec(ctx,
+			`INSERT INTO channel_messages (id, org_id, channel_id, seq, sender_id, body, body_enc, client_msg_id)
+			 VALUES ($1, $2, $3, $4, $5, NULL, $6, $7)`,
+			msgID, orgID, channelID, seq, senderID, bodyEnc, clientMsgID)
+		if err != nil {
+			return err
+		}
+
+		members, err := channelMemberIDs(ctx, tx, channelID)
+		if err != nil {
+			return err
+		}
+		// Both names travel on the event so a message arriving over the socket
+		// renders the same as one that came back from a refetch. Sending only the
+		// username made a live message flip from "Jane Okafor" to "j.okafor" until
+		// the next fetch.
+		senderName, senderDisplay, err := s.cachedUserNames(ctx, tx, orgID, senderID)
+		if err != nil {
+			return err
+		}
+
+		evt := events.ChannelMessageCreated{
+			Type:              events.TypeChannelMessageCreated,
+			EventID:           uuid.Must(uuid.NewV7()).String(),
+			OrgID:             orgID,
+			OccurredAt:        nowISO(),
+			ChannelID:         channelID,
+			MessageID:         msgID,
+			Seq:               seq,
+			SenderID:          senderID,
+			SenderUsername:    senderName,
+			SenderDisplayName: senderDisplay,
+			Body:              body,
+			Members:           members,
+		}
+		if err := insertOutbox(ctx, tx, channelID, evt); err != nil {
+			return err
+		}
+
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
+		out = &ChannelSendResult{MessageID: msgID, Seq: seq}
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-
-	// Encrypt the body under the org DEK (created lazily in THIS tx); the
-	// plaintext body column is left NULL.
-	bodyEnc, err := s.crypto.Encrypt(ctx, tx, orgID, body)
-	if err != nil {
-		return nil, err
-	}
-	msgID := uuid.Must(uuid.NewV7()).String()
-	_, err = tx.Exec(ctx,
-		`INSERT INTO channel_messages (id, org_id, channel_id, seq, sender_id, body, body_enc, client_msg_id)
-		 VALUES ($1, $2, $3, $4, $5, NULL, $6, $7)`,
-		msgID, orgID, channelID, seq, senderID, bodyEnc, clientMsgID)
-	if err != nil {
-		return nil, err
-	}
-
-	members, err := channelMemberIDs(ctx, tx, channelID)
-	if err != nil {
-		return nil, err
-	}
-	// Both names travel on the event so a message arriving over the socket
-	// renders the same as one that came back from a refetch. Sending only the
-	// username made a live message flip from "Jane Okafor" to "j.okafor" until
-	// the next fetch.
-	senderName, senderDisplay, err := s.cachedUserNames(ctx, tx, orgID, senderID)
-	if err != nil {
-		return nil, err
-	}
-
-	evt := events.ChannelMessageCreated{
-		Type:              events.TypeChannelMessageCreated,
-		EventID:           uuid.Must(uuid.NewV7()).String(),
-		OrgID:             orgID,
-		OccurredAt:        nowISO(),
-		ChannelID:         channelID,
-		MessageID:         msgID,
-		Seq:               seq,
-		SenderID:          senderID,
-		SenderUsername:    senderName,
-		SenderDisplayName: senderDisplay,
-		Body:              body,
-		Members:           members,
-	}
-	if err := insertOutbox(ctx, tx, channelID, evt); err != nil {
-		return nil, err
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return nil, err
-	}
-	return &ChannelSendResult{MessageID: msgID, Seq: seq}, nil
+	return out, nil
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────

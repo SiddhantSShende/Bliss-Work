@@ -64,7 +64,7 @@ export function NewChatDialog({ open, onClose }: { open: boolean; onClose: () =>
                 onClick={() => start(u)}
                 className="flex w-full items-center gap-3 rounded-xl p-2 text-left transition-colors hover:bg-surface-2 disabled:opacity-50"
               >
-                <Avatar name={u.displayName} />
+                <Avatar name={u.displayName} src={u.avatarUrl} />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-medium text-fg">{u.displayName}</div>
                   <div className="truncate text-xs text-muted">@{u.username}</div>

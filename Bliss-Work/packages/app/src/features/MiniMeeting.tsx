@@ -212,7 +212,7 @@ export function MiniMeeting({
               <Users size={9} /> {participantCount}
             </span>
             {connecting ? (
-              <span className="text-amber-600">
+              <span className="text-warning">
                 {status === "reconnecting" ? "Reconnecting…" : "Connecting…"}
               </span>
             ) : (
@@ -310,7 +310,7 @@ function MiniButton({
       onClick={onClick}
       className={`inline-flex h-7 w-7 items-center justify-center rounded-lg transition-colors ${
         solidDanger
-          ? "bg-red-500 text-white hover:bg-red-600"
+          ? "bg-danger text-white hover:brightness-90"
           : danger
             ? "bg-danger/10 text-danger hover:bg-danger/20"
             : "text-muted hover:bg-surface-2 hover:text-fg"

@@ -26,10 +26,10 @@ import { useSession } from "../store/session";
 import { surfaceOf } from "./section";
 import { TelemetryQueue, type QueuedEvent } from "./telemetryQueue";
 import {
+  endSession,
   getSessionId,
   installTelemetrySession,
   onSessionIdChange,
-  setSessionId,
 } from "./telemetrySession";
 
 /** Flush cadence while the tab is visible. */
@@ -81,8 +81,9 @@ export async function endTelemetrySession(): Promise<void> {
     }
     // The id is closed server-side now. Keeping it would have the next sign-in
     // open with a dead session id, which the server answers by minting a
-    // replacement — correct, but a round trip and a confusing wire.
-    setSessionId(null);
+    // replacement — correct, but a round trip and a confusing wire. endSession
+    // (not setSessionId(null)) so sibling tabs are told too, not just this one.
+    endSession();
   } catch {
     /* best-effort: never block or break a sign-out */
   }
@@ -302,7 +303,7 @@ export function TelemetryBridge() {
   useEffect(() => {
     if (authed) return;
     queueRef.current?.reset();
-    setSessionId(null);
+    endSession();
   }, [authed]);
 
   return null;

@@ -193,7 +193,7 @@ def _settings() -> types.SimpleNamespace:
         smtp_username="", smtp_password="", smtp_starttls=False,
         redis_url="redis://localhost:6379/0", poison_max_failures=3,
         messaging_internal_base="http://messaging-svc:8004",
-        internal_token="test-token",
+        messaging_internal_token="test-token",
         mail_attachment_budget_bytes=10 * MB,
     )
 

@@ -25,14 +25,37 @@ const h = vi.hoisted(() => ({
   sendData: vi.fn(),
   participants: [] as RoomParticipant[],
   pip: { supported: true, active: false, toggle: vi.fn() },
+  // Captures every call CallRoom makes into the hook, so tests can both
+  // inspect what track it computed (the pipTrack self-share exclusion) and
+  // invoke the onAway/onBack callbacks it wired up (the minimise coupling) —
+  // without needing useMeetingPiP's own DOM-level visibility/blur plumbing,
+  // which is covered on its own terms in lib/useMeetingPiP.test.ts.
+  useMeetingPiP: vi.fn(),
+  session: null as null | {
+    minimized: boolean;
+    minimize: ReturnType<typeof vi.fn>;
+    restore: ReturnType<typeof vi.fn>;
+  },
 }));
 
 // useMeetingPiP's OWN correctness (support detection, visibility handling,
 // enter/exit, cleanup) is covered against real DOM stubs in
 // lib/useMeetingPiP.test.ts. What's mocked here is just the wiring question:
-// does CallRoom show/hide the button and call toggle().
+// does CallRoom show/hide the button, call toggle(), pass the right track,
+// and react to onAway/onBack.
 vi.mock("../lib/useMeetingPiP", () => ({
-  useMeetingPiP: () => h.pip,
+  useMeetingPiP: (...args: unknown[]) => {
+    h.useMeetingPiP(...args);
+    return h.pip;
+  },
+}));
+
+// No MeetingSessionProvider wraps these tests (renderRoom is deliberately
+// bare — most of this file exercises the room with nowhere to minimise
+// into). The minimise-coupling tests below opt into a session by setting
+// `h.session` themselves.
+vi.mock("../lib/MeetingSession", () => ({
+  useMeetingSessionOptional: () => h.session,
 }));
 
 vi.mock("../lib/useCallRoom", () => ({
@@ -130,6 +153,11 @@ async function tick(totalMs: number, stepMs = 50) {
  * later mutation of `h.participants` is picked up without remounting (which
  * would reset the very speaker state the timeout test needs to observe change
  * over time).
+ *
+ * Also clicks through the pre-join lobby: CallRoom always mounts into it
+ * first (see its own `preJoin` state), and nothing under test here is about
+ * that screen — jsdom has no `navigator.mediaDevices`, so the camera preview
+ * effect no-ops and the only way out is the "Join meeting" button.
  */
 function renderRoom() {
   const qc = new QueryClient();
@@ -139,6 +167,9 @@ function renderRoom() {
     </QueryClientProvider>
   );
   const result = render(ui);
+  act(() => {
+    screen.getByRole("button", { name: "Join meeting" }).click();
+  });
   return { ...result, resync: () => result.rerender(ui) };
 }
 
@@ -148,6 +179,8 @@ beforeEach(() => {
   h.pip.supported = true;
   h.pip.active = false;
   h.pip.toggle.mockClear();
+  h.useMeetingPiP.mockClear();
+  h.session = null;
   h.participants = [
     participant({ identity: "me", isLocal: true, name: "Me" }),
     participant({ identity: "alice", name: "Alice" }),
@@ -234,5 +267,70 @@ describe("the manual picture-in-picture button", () => {
     renderRoom();
 
     expect(screen.getByRole("button", { name: "Exit picture-in-picture" })).toBeInTheDocument();
+  });
+});
+
+/** The (track, enabled, callbacks) arguments from CallRoom's most recent call
+ *  into the mocked hook — everything the two suites below need to inspect. */
+function lastPipCall() {
+  const call = h.useMeetingPiP.mock.calls.at(-1) as
+    | [unknown, unknown, { onAway?: () => void; onBack?: () => void }]
+    | undefined;
+  return { track: call?.[0], callbacks: call?.[2] };
+}
+
+describe("Picture-in-Picture track selection", () => {
+  it("excludes the local participant's own shared screen — showing it back to yourself is the mirror-loop bug", () => {
+    const screenTrack = { id: "my-screen" } as unknown as RoomParticipant["screenTrack"];
+    h.participants = [
+      participant({ identity: "me", isLocal: true, name: "Me", sharing: true, screenTrack }),
+    ];
+    renderRoom();
+
+    expect(lastPipCall().track).toBeNull();
+  });
+
+  it("still follows a REMOTE participant's shared screen", () => {
+    // CallTile itself renders (unmocked) for whoever lands on stage, and
+    // attaches this to a real <video> element — needs the same attach/detach
+    // shape as a livekit-client Track, not just an identity to compare.
+    const screenTrack = {
+      id: "alice-screen",
+      attach: vi.fn(),
+      detach: vi.fn(),
+    } as unknown as RoomParticipant["screenTrack"];
+    h.participants = [
+      participant({ identity: "me", isLocal: true, name: "Me" }),
+      participant({ identity: "alice", name: "Alice", sharing: true, screenTrack }),
+    ];
+    renderRoom();
+
+    expect(lastPipCall().track).toBe(screenTrack);
+  });
+});
+
+describe("switching away from the window minimises the room", () => {
+  it("minimises on the first onAway, and restores on the matching onBack", () => {
+    const session = { minimized: false, minimize: vi.fn(), restore: vi.fn() };
+    h.session = session;
+    renderRoom();
+
+    act(() => lastPipCall().callbacks?.onAway?.());
+    expect(session.minimize).toHaveBeenCalledTimes(1);
+
+    act(() => lastPipCall().callbacks?.onBack?.());
+    expect(session.restore).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves a meeting the user already minimised on purpose alone — onAway does not re-minimise it, and onBack does not pop it back open", () => {
+    const session = { minimized: true, minimize: vi.fn(), restore: vi.fn() };
+    h.session = session;
+    renderRoom();
+
+    act(() => lastPipCall().callbacks?.onAway?.());
+    expect(session.minimize).not.toHaveBeenCalled();
+
+    act(() => lastPipCall().callbacks?.onBack?.());
+    expect(session.restore).not.toHaveBeenCalled();
   });
 });

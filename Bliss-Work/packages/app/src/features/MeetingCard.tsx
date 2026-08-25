@@ -255,7 +255,7 @@ export function MeetingCard({
           {externals > 0 && (
             // Same reasoning as in the room itself: someone outside the
             // organisation being here should never have to be inferred.
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-warning/15 px-2.5 py-1 text-xs font-medium text-amber-600">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-warning/15 px-2.5 py-1 text-xs font-medium text-warning">
               <Globe size={12} /> {externals} external
             </span>
           )}

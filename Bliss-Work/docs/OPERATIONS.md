@@ -232,8 +232,9 @@ Mount these read-only into `auth-svc` (the compose file already does
 
 ### Rotation procedure (overlapping JWKS publication)
 
-Access tokens are short-lived (`JWT_ACCESS_TTL_SECONDS`, default 900s), so a full
-rotation is bounded by one access-token TTL plus the JWKS cache TTL (~5 min).
+Access tokens are short-lived (`JWT_ACCESS_TTL_SECONDS`, default 300s / 5
+minutes), so a full rotation is bounded by one access-token TTL plus the JWKS
+cache TTL (~5 min).
 
 > The shipped `auth-svc` serves a **single** active `kid` from its JWKS (one
 > signing key in `keys/`). To overlap two `kid`s during a rotation window, run a
@@ -308,12 +309,13 @@ KAFKA_SSL_CA_LOCATION=/etc/ssl/kafka/ca.crt
 > above — all 17 of them, across 8 services, which is rather more than the
 > "five call sites" an earlier note estimated:
 >
-> * **Go** (`messaging-svc`, `ws-gateway`, `notification-svc`) via
->   `internal/kafkaauth`, which builds a `Dialer` for every `kafka.NewReader`
->   and a `Transport` for every `kafka.Writer`.
+> * **Go** (`messaging-svc`, `ws-gateway`, `notification-svc`) via the shared
+>   `services/shared/kafkaauth` module, which builds a `Dialer` for every
+>   `kafka.NewReader` and a `Transport` for every `kafka.Writer`.
 > * **Python** (`auth-svc`, `task-svc`, `integrations-svc`, `telemetry-svc`,
->   `email-worker`) via `app/kafka_security.py`, whose `kafka_security_kwargs()`
->   is splatted into every `AIOKafkaProducer` / `AIOKafkaConsumer`.
+>   `email-worker`) via the shared `services/shared/kafka_security` package,
+>   whose `kafka_security_kwargs()` is splatted into every
+>   `AIOKafkaProducer` / `AIOKafkaConsumer`.
 >
 > Leaving `KAFKA_SECURITY_PROTOCOL` unset keeps everything on PLAINTEXT, so the
 > bundled broker is unaffected. Setting it to a SASL value **without**

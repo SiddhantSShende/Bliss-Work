@@ -20,8 +20,11 @@ const ALL: CaptureConfig = { captureAll: true, captureIncognito: true };
 // The dial-back mode: the safety floor and incognito-skip switched back on.
 const FLOOR: CaptureConfig = { captureAll: false, captureIncognito: false };
 
-const visit = (url: string, opts: { incognito?: boolean; ms?: number } = {}, cfg: CaptureConfig = ALL) =>
-  toVisit({ url, incognito: opts.incognito }, T0, opts.ms ?? LONG, cfg);
+const visit = (
+  url: string,
+  opts: { incognito?: boolean; ms?: number; title?: string } = {},
+  cfg: CaptureConfig = ALL,
+) => toVisit({ url, incognito: opts.incognito, title: opts.title }, T0, opts.ms ?? LONG, cfg);
 
 describe("the SHIPPED default is the protected floor", () => {
   // toVisit's default opts = {} → captureAll/captureIncognito falsy → floor on,
@@ -150,6 +153,62 @@ describe("the wire shape", () => {
   });
   it("stamps the START of the span, not the end", () => {
     expect(toAgentEvent(visit("https://example.com/")!).occurredAt).toBe(new Date(T0).toISOString());
+  });
+  it("mirrors the domain into detail alongside targetId — the ActivityDetail contract", () => {
+    expect(toAgentEvent(visit("https://github.com/a/b")!).detail.domain).toBe("github.com");
+  });
+});
+
+describe("page title", () => {
+  it("is carried in detail when the tab reported one", () => {
+    const v = visit("https://example.com/x", { title: "Some Page" });
+    expect(v!.title).toBe("Some Page");
+    expect(toAgentEvent(v!).detail.title).toBe("Some Page");
+  });
+
+  it("is absent from detail when the tab had none — not a required field", () => {
+    const v = visit("https://example.com/x");
+    expect(v!.title).toBeUndefined();
+    expect(toAgentEvent(v!).detail.title).toBeUndefined();
+  });
+
+  it("trims a title and treats whitespace-only as absent", () => {
+    expect(visit("https://example.com/x", { title: "  Padded  " })!.title).toBe("Padded");
+    expect(visit("https://example.com/x", { title: "   " })!.title).toBeUndefined();
+  });
+});
+
+describe("site enrichment integration — not YouTube-specific", () => {
+  it("enriches a YouTube video visit with siteKind/siteRef", () => {
+    const v = visit("https://www.youtube.com/watch?v=dQw4w9WgXcQ", { title: "Never Gonna Give You Up" });
+    expect(v!.siteKind).toBe("video");
+    expect(v!.siteRef).toBe("dQw4w9WgXcQ");
+    const e = toAgentEvent(v!);
+    expect(e.detail.siteKind).toBe("video");
+    expect(e.detail.siteRef).toBe("dQw4w9WgXcQ");
+    expect(e.detail.title).toBe("Never Gonna Give You Up");
+  });
+
+  it("enriches a GitHub repository visit the same way, via the same mechanism", () => {
+    const v = visit("https://github.com/anthropics/claude-code", { title: "anthropics/claude-code" });
+    expect(v!.siteKind).toBe("repository");
+    expect(v!.siteRef).toBe("anthropics/claude-code");
+  });
+
+  it("leaves an unrecognised site's visit with no siteKind/siteRef", () => {
+    const v = visit("https://chatgpt.com/c/abc123", { title: "ChatGPT" });
+    expect(v!.siteKind).toBeUndefined();
+    expect(v!.siteRef).toBeUndefined();
+    // The visit is still fully recorded — enrichment is additive, never a gate.
+    expect(v!.domain).toBe("chatgpt.com");
+    expect(toAgentEvent(v!).detail.title).toBe("ChatGPT");
+  });
+
+  it("never enriches a site the capture rules already excluded", () => {
+    // A NEVER_RECORD site returns null from toVisit before enrichment ever
+    // runs — proving enrichment cannot resurrect a blocked visit by way of
+    // carrying detail that looks like a legitimate one.
+    expect(visit("https://www.paypal.com/watch?v=x", {}, FLOOR)).toBeNull();
   });
 });
 

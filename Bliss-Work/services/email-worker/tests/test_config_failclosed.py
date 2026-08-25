@@ -1,9 +1,12 @@
 """Fail-closed production config guard for email-worker.
 
-See auth-svc/tests/test_config_failclosed.py. email-worker has no envelope crypto
-(it resolves identity via auth-svc), so its prod sentinels are: dev internal token,
-non-TLS / dev-credentialed EMAIL_DATABASE_URL, and an unset SMTP password on a real
-host. Pure-logic; skips if pydantic isn't installed locally.
+See auth-svc/tests/test_config_failclosed.py. email-worker has no envelope
+crypto (it resolves identity via auth-svc), so its prod sentinels are: dev
+internal tokens (now three distinct per-callee secrets — auth-svc,
+messaging-svc, integrations-svc — see
+docs/AUTH_AUTHZ_REMEDIATION_PLAN.md Phase 2), non-TLS / dev-credentialed
+EMAIL_DATABASE_URL, and an unset SMTP password on a real host. Pure-logic;
+skips if pydantic isn't installed locally.
 """
 from __future__ import annotations
 
@@ -18,7 +21,9 @@ ValidationError = pytest.importorskip("pydantic").ValidationError
 
 GOOD = dict(
     tb_env="production",
-    internal_token="t" * 32,
+    auth_internal_token="a" * 32,
+    messaging_internal_token="m" * 32,
+    integrations_internal_token="i" * 32,
     email_db_url=(
         "postgres://email_user:realpw@postgres:5432/emaildb"
         "?sslmode=verify-full&sslrootcert=/etc/ssl/db/ca.crt"
@@ -39,8 +44,12 @@ def test_prod_good_config_passes():
 @pytest.mark.parametrize(
     "override",
     [
-        {"internal_token": "dev-internal-token"},
-        {"internal_token": ""},
+        {"auth_internal_token": "dev-internal-token"},
+        {"auth_internal_token": ""},
+        {"messaging_internal_token": "dev-internal-token"},
+        {"messaging_internal_token": ""},
+        {"integrations_internal_token": "dev-internal-token"},
+        {"integrations_internal_token": ""},
         {"email_db_url": "postgres://email_user:realpw@postgres:5432/emaildb"},  # no sslmode
         {"email_db_url": "postgres://postgres:postgres@postgres:5432/emaildb?sslmode=verify-full"},
         {"smtp_host": "smtp.gmail.com", "smtp_password": "CHANGE_ME_smtp"},

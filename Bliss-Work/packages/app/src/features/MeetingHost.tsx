@@ -9,18 +9,34 @@
  * Also the home of the rejoin offer, because it is the same question — "should
  * there be a meeting on screen?" — asked about the tab's previous life.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Video, X } from "lucide-react";
 import { Button } from "@taskboard/ui";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
-import { useMeetingSession, useResumableMeeting } from "../lib/MeetingSession";
+import { onMeetingJoinRequest, useMeetingSession, useResumableMeeting } from "../lib/MeetingSession";
 import { closeMeetingTab } from "../lib/callWindow";
 import { CallRoom } from "./CallRoomLazy";
 
 export function MeetingHost() {
-  const { call, exit } = useMeetingSession();
+  const { call, enter, exit } = useMeetingSession();
+  const { api } = useRuntime();
+
+  useEffect(() => {
+    let requestNumber = 0;
+    return onMeetingJoinRequest((callId) => {
+      const request = ++requestNumber;
+      void api
+        .call(callId)
+        .then((next) => {
+          if (request === requestNumber && next.status !== "ENDED" && next.status !== "CANCELLED") {
+            enter(next);
+          }
+        })
+        .catch(() => {});
+    });
+  }, [api, enter]);
 
   return (
     <>

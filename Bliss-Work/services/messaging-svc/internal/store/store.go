@@ -561,9 +561,13 @@ type ConversationDTO struct {
 	PeerDisplayName string  `json:"peerDisplayName,omitempty"`
 	LastMessage     *string `json:"lastMessage"`
 	LastMessageAt   *string `json:"lastMessageAt"`
-	Unread          int64   `json:"unread"`
-	BlockedByMe     bool    `json:"blockedByMe"`
-	BlockedByPeer   bool    `json:"blockedByPeer"`
+	// Cleared is true when the caller has cleared/hidden every message in this
+	// conversation but it genuinely has history — the list shows a blank
+	// preview rather than LastMessage (nil here) or a "no messages" placeholder.
+	Cleared       bool  `json:"cleared"`
+	Unread        int64 `json:"unread"`
+	BlockedByMe   bool  `json:"blockedByMe"`
+	BlockedByPeer bool  `json:"blockedByPeer"`
 }
 
 // MessageDTO mirrors the canonical MessageDTO contract. The threading
@@ -636,8 +640,12 @@ type ChannelDTO struct {
 	LastMessage       *string `json:"lastMessage"`
 	LastMessageAt     *string `json:"lastMessageAt"`
 	LastMessageSender string  `json:"lastMessageSender,omitempty"`
-	IsLocked          bool    `json:"isLocked"`
-	IAmMember         bool    `json:"iAmMember"`
+	// Cleared is true when the caller has cleared/hidden every message in this
+	// channel but it genuinely has history — the list shows a blank preview
+	// rather than LastMessage (nil here) or the member-count placeholder.
+	Cleared   bool `json:"cleared"`
+	IsLocked  bool `json:"isLocked"`
+	IAmMember bool `json:"iAmMember"`
 	// Who created the channel. Written since 0002 and, until channel roles
 	// existed, never once read back.
 	CreatedBy string `json:"createdBy"`

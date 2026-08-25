@@ -1,38 +1,37 @@
 import { useEffect, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { Check, Search, Hash, Lock, Globe, Building2, Users } from "lucide-react";
+import { Check, Search, Hash, Lock, Globe, Users } from "lucide-react";
 import { Avatar, Button, Input } from "@taskboard/ui";
 import { toast } from "sonner";
 import { useRuntime } from "../lib/runtime";
-import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
-import { matchUser } from "../lib/matchUser";
+import { usePeopleSearch } from "../lib/usePeopleCandidates";
+import { useToggleSet } from "../lib/useToggleSet";
 import { Modal } from "./Modal";
 import { Field } from "../routes/Onboarding";
 
 export function CreateChannelDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { api } = useRuntime();
   const qc = useQueryClient();
-  const me = useSession((s) => s.user)!;
   const nav = useNavigate();
   const [name, setName] = useState("");
-  const [q, setQ] = useState("");
-  const [selected, setSelected] = useState<Set<string>>(new Set());
   /** Locked channels admit members only via explicit add (legacy invite path).
    *  Open channels accept self-join from anyone in the org. Defaults to open
    *  since most channels in a small team are discoverable. */
   const [isLocked, setIsLocked] = useState(false);
 
-  const { data: users = [] } = useQuery({ queryKey: qk.directory, queryFn: () => api.directory() });
+  const { q, setQ, candidates } = usePeopleSearch();
+  const { selected, setSelected, toggle, clear } = useToggleSet();
 
   useEffect(() => {
     if (open) {
       setName("");
       setQ("");
-      setSelected(new Set());
+      clear();
       setIsLocked(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const create = useMutation({
@@ -47,19 +46,9 @@ export function CreateChannelDialog({ open, onClose }: { open: boolean; onClose:
     onError: (e) => toast.error("Could not create channel", { description: String(e) }),
   });
 
-  const toggle = (id: string) =>
-    setSelected((s) => {
-      const n = new Set(s);
-      n.has(id) ? n.delete(id) : n.add(id);
-      return n;
-    });
-
-  const candidates = users.filter((u) => u.id !== me.id && matchUser(u, q));
-  const allMemberIds = users.filter((u) => u.id !== me.id).map((u) => u.id);
   const visibleMemberIds = candidates.map((u) => u.id);
   const allVisibleSelected =
     visibleMemberIds.length > 0 && visibleMemberIds.every((id) => selected.has(id));
-  const organizationAdded = allMemberIds.length > 0 && allMemberIds.every((id) => selected.has(id));
 
   const toggleVisibleMembers = () => {
     setSelected((current) => {
@@ -69,12 +58,6 @@ export function CreateChannelDialog({ open, onClose }: { open: boolean; onClose:
       return next;
     });
   };
-
-  const toggleOrganization = () =>
-    setSelected((current) => {
-      if (organizationAdded) return new Set([...current].filter((id) => !allMemberIds.includes(id)));
-      return new Set([...current, ...allMemberIds]);
-    });
 
   return (
     <Modal open={open} onClose={onClose} title="New channel">
@@ -129,8 +112,8 @@ export function CreateChannelDialog({ open, onClose }: { open: boolean; onClose:
             <Button type="button" size="sm" variant="secondary" onClick={toggleVisibleMembers} disabled={visibleMemberIds.length === 0}>
               <Users size={14} /> {allVisibleSelected ? "Clear members" : "All members"}
             </Button>
-            <Button type="button" size="sm" variant="secondary" onClick={toggleOrganization} disabled={allMemberIds.length === 0}>
-              <Building2 size={14} /> {organizationAdded ? "Remove organization" : "Add organization"}
+            <Button type="submit" size="sm" variant="secondary" loading={create.isPending}>
+              <Hash size={14} /> {create.isPending ? "Creating…" : "Add Channel"}
             </Button>
           </div>
           <div className="max-h-44 overflow-auto rounded-xl border border-border p-1">
@@ -139,7 +122,7 @@ export function CreateChannelDialog({ open, onClose }: { open: boolean; onClose:
               const on = selected.has(u.id);
               return (
                 <button type="button" key={u.id} onClick={() => toggle(u.id)} className={`flex w-full items-center gap-2.5 rounded-lg p-2 text-left ${on ? "bg-accent-soft" : "hover:bg-surface-2"}`}>
-                  <Avatar name={u.displayName} size="sm" />
+                  <Avatar name={u.displayName} src={u.avatarUrl} size="sm" />
                   <span className="flex-1 truncate text-sm text-fg">{u.displayName}</span>
                   {on && <Check size={15} className="text-accent" />}
                 </button>

@@ -1,6 +1,7 @@
 export * from "./types/events";
 export * from "./types/domain";
 export * from "./types/errors";
+export * from "./types/activity";
 export * from "./policy/stickyPin";
 export * from "./policy/activityDestination";
 export * from "./policy/mailAddress";

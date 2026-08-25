@@ -153,6 +153,11 @@ const api = {
       paired: boolean;
       appTracking: boolean;
       reason: string | null;
+      /** Whether window-TITLE capture works, distinct from `appTracking` —
+       *  always true on Windows/Linux; on macOS reflects the Screen Recording
+       *  grant (see main/macos-permissions.ts). */
+      titleTracking: boolean;
+      titleTrackingReason: string | null;
     } | null> => ipcRenderer.invoke("activity:state"),
     setEnabled: (enabled: boolean): Promise<{ enabled: boolean; paired: boolean } | null> =>
       ipcRenderer.invoke("activity:set-enabled", enabled),
@@ -160,6 +165,11 @@ const api = {
      *  unpairs, which also withdraws consent. */
     pair: (token: string | null): Promise<{ enabled: boolean; paired: boolean } | null> =>
       ipcRenderer.invoke("activity:pair", token),
+    /** Open the OS page where Screen Recording access is granted. Resolves
+     *  false on a platform with no such page (Windows/Linux) — same
+     *  "no-op button, not a missing one" contract as `openLocationSettings`. */
+    openScreenRecordingSettings: (): Promise<boolean> =>
+      ipcRenderer.invoke("activity:open-screen-recording-settings"),
   },
 
   /** Phase 10 sender-side streaming sha256 — the renderer feeds file slices and

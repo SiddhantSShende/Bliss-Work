@@ -47,6 +47,7 @@ import { InviteAccept } from "./routes/InviteAccept";
 import { ForgotPassword } from "./routes/ForgotPassword";
 import { ResetPassword } from "./routes/ResetPassword";
 import { VerifyEmail } from "./routes/VerifyEmail";
+import { MfaChallenge } from "./routes/MfaChallenge";
 
 // AppShell is separate from the routes it frames: it is needed by EVERY
 // authenticated route, so it belongs in the app-core chunk rather than being
@@ -63,6 +64,7 @@ const Search = lazyRoute(() => import("./routes/Search"), "Search");
 const InvitePage = lazyRoute(() => import("./routes/InvitePage"), "InvitePage");
 const Profile = lazyRoute(() => import("./routes/Profile"), "Profile");
 const Settings = lazyRoute(() => import("./routes/Settings"), "Settings");
+const MfaSettings = lazyRoute(() => import("./routes/MfaSettings"), "MfaSettings");
 const Integrations = lazyRoute(() => import("./routes/Integrations"), "Integrations");
 const Org = lazyRoute(() => import("./routes/Org"), "Org");
 // The Mail layout owns the message column; the routes below it are what shows
@@ -170,6 +172,10 @@ export function App({ config }: { config: PlatformConfig }) {
                   <Route path="/forgot-password" element={<ForgotPassword />} />
                   <Route path="/reset-password" element={<ResetPassword />} />
                   <Route path="/verify-email" element={<VerifyEmail />} />
+                  {/* Reached from /login (and org-switch) when a second factor
+                      is still owed — carries its pendingToken only in router
+                      state, never the URL. */}
+                  <Route path="/mfa-challenge" element={<MfaChallenge />} />
                   {/* Meeting invite links land here. Wrapped in Protected
                       because redeeming requires a real account — the link is a
                       seat for an authenticated user, not an anonymous guest
@@ -266,6 +272,7 @@ export function App({ config }: { config: PlatformConfig }) {
                     <Route path="profile" element={<Profile />} />
                     <Route path="settings" element={<Settings />} />
                     <Route path="settings/activity" element={<MyActivity />} />
+                    <Route path="settings/security" element={<MfaSettings />} />
                     <Route path="integrations" element={<Integrations />} />
                     <Route path="org" element={<Org />} />
                   </Route>

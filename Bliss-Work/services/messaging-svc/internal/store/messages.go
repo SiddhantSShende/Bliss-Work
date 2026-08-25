@@ -37,55 +37,67 @@ func (s *Store) SendMessage(ctx context.Context, orgID, senderID, recipientID, b
 	}
 	low, high := orderedPair(senderID, recipientID)
 
-	tx, err := s.pool.Begin(ctx)
+	var out *SendResult
+	err := RetryOnSerializationFailure(ctx, 3, func(ctx context.Context) error {
+		tx, err := s.pool.Begin(ctx)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback(ctx)
+
+		// RLS: scope this tx to the caller's org before any RLS table is touched.
+		if err := setOrgGUC(ctx, tx, orgID); err != nil {
+			return err
+		}
+
+		// Ensure the conversation row exists (ordered pair, unique per org).
+		convID := uuid.Must(uuid.NewV7()).String()
+		err = tx.QueryRow(ctx,
+			`INSERT INTO conversations (id, org_id, user_low, user_high)
+			 VALUES ($1, $2, $3, $4)
+			 ON CONFLICT (org_id, user_low, user_high) DO UPDATE SET org_id = EXCLUDED.org_id
+			 RETURNING id`,
+			convID, orgID, low, high).Scan(&convID)
+		if err != nil {
+			return err
+		}
+
+		// Block gates sends in BOTH directions: if EITHER member blocked the other,
+		// nobody in this 1:1 can send until every member row is unblocked. (A prior
+		// version only checked the sender's own row, which let the blocked peer keep
+		// messaging in.)
+		var convBlocked bool
+		err = tx.QueryRow(ctx,
+			`SELECT COALESCE(bool_or(blocked), false) FROM conversation_members
+			 WHERE conversation_id = $1`, convID).Scan(&convBlocked)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		if convBlocked {
+			return ErrForbidden
+		}
+
+		// Upsert BOTH members, revive visibility on send.
+		if err := s.upsertMember(ctx, tx, convID, orgID, senderID); err != nil {
+			return err
+		}
+		if err := s.upsertMember(ctx, tx, convID, orgID, recipientID); err != nil {
+			return err
+		}
+
+		// Top-level send → new thread, this message is the root.
+		res, err := s.appendMessage(ctx, tx, orgID, convID, senderID, recipientID, body, clientMsgID, "", "",
+			appendOpts{kind: opts.Kind, origin: opts.Origin, replyToID: opts.ReplyToID})
+		if err != nil {
+			return err
+		}
+		out = res
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback(ctx)
-
-	// RLS: scope this tx to the caller's org before any RLS table is touched.
-	if err := setOrgGUC(ctx, tx, orgID); err != nil {
-		return nil, err
-	}
-
-	// Ensure the conversation row exists (ordered pair, unique per org).
-	convID := uuid.Must(uuid.NewV7()).String()
-	err = tx.QueryRow(ctx,
-		`INSERT INTO conversations (id, org_id, user_low, user_high)
-		 VALUES ($1, $2, $3, $4)
-		 ON CONFLICT (org_id, user_low, user_high) DO UPDATE SET org_id = EXCLUDED.org_id
-		 RETURNING id`,
-		convID, orgID, low, high).Scan(&convID)
-	if err != nil {
-		return nil, err
-	}
-
-	// Block gates sends in BOTH directions: if EITHER member blocked the other,
-	// nobody in this 1:1 can send until every member row is unblocked. (A prior
-	// version only checked the sender's own row, which let the blocked peer keep
-	// messaging in.)
-	var convBlocked bool
-	err = tx.QueryRow(ctx,
-		`SELECT COALESCE(bool_or(blocked), false) FROM conversation_members
-		 WHERE conversation_id = $1`, convID).Scan(&convBlocked)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return nil, err
-	}
-	if convBlocked {
-		return nil, ErrForbidden
-	}
-
-	// Upsert BOTH members, revive visibility on send.
-	if err := s.upsertMember(ctx, tx, convID, orgID, senderID); err != nil {
-		return nil, err
-	}
-	if err := s.upsertMember(ctx, tx, convID, orgID, recipientID); err != nil {
-		return nil, err
-	}
-
-	// Top-level send → new thread, this message is the root.
-	return s.appendMessage(ctx, tx, orgID, convID, senderID, recipientID, body, clientMsgID, "", "",
-		appendOpts{kind: opts.Kind, origin: opts.Origin, replyToID: opts.ReplyToID})
+	return out, nil
 }
 
 // Reply appends a message to an existing conversation; the caller must be a member.
@@ -117,61 +129,73 @@ func (s *Store) ReplyToThread(ctx context.Context, orgID, senderID, threadID, pa
 }
 
 func (s *Store) replyImpl(ctx context.Context, orgID, senderID, convID, parentMessageID, body, clientMsgID, replyToID string) (*SendResult, error) {
-	tx, err := s.pool.Begin(ctx)
+	var out *SendResult
+	err := RetryOnSerializationFailure(ctx, 3, func(ctx context.Context) error {
+		tx, err := s.pool.Begin(ctx)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback(ctx)
+
+		// RLS: scope this tx to the caller's org before any RLS table is touched.
+		if err := setOrgGUC(ctx, tx, orgID); err != nil {
+			return err
+		}
+
+		var low, high, cOrg string
+		err = tx.QueryRow(ctx,
+			`SELECT org_id, user_low, user_high FROM conversations WHERE id = $1`, convID).
+			Scan(&cOrg, &low, &high)
+		if errors.Is(err, pgx.ErrNoRows) || (err == nil && cOrg != orgID) {
+			return ErrForbidden
+		}
+		if err != nil {
+			return err
+		}
+		if senderID != low && senderID != high {
+			return ErrForbidden
+		}
+
+		// Block gates sends in BOTH directions: if EITHER member blocked the other,
+		// nobody in this 1:1 can send until every member row is unblocked. (A prior
+		// version only checked the sender's own row, which let the blocked peer keep
+		// messaging in.)
+		var convBlocked bool
+		err = tx.QueryRow(ctx,
+			`SELECT COALESCE(bool_or(blocked), false) FROM conversation_members
+			 WHERE conversation_id = $1`, convID).Scan(&convBlocked)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		if convBlocked {
+			return ErrForbidden
+		}
+
+		recipientID := high
+		if senderID == high {
+			recipientID = low
+		}
+
+		// Revive visibility for both members on a reply.
+		if err := s.upsertMember(ctx, tx, convID, orgID, low); err != nil {
+			return err
+		}
+		if err := s.upsertMember(ctx, tx, convID, orgID, high); err != nil {
+			return err
+		}
+
+		res, err := s.appendMessage(ctx, tx, orgID, convID, senderID, recipientID, body, clientMsgID, parentMessageID, "",
+			appendOpts{replyToID: replyToID})
+		if err != nil {
+			return err
+		}
+		out = res
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback(ctx)
-
-	// RLS: scope this tx to the caller's org before any RLS table is touched.
-	if err := setOrgGUC(ctx, tx, orgID); err != nil {
-		return nil, err
-	}
-
-	var low, high, cOrg string
-	err = tx.QueryRow(ctx,
-		`SELECT org_id, user_low, user_high FROM conversations WHERE id = $1`, convID).
-		Scan(&cOrg, &low, &high)
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && cOrg != orgID) {
-		return nil, ErrForbidden
-	}
-	if err != nil {
-		return nil, err
-	}
-	if senderID != low && senderID != high {
-		return nil, ErrForbidden
-	}
-
-	// Block gates sends in BOTH directions: if EITHER member blocked the other,
-	// nobody in this 1:1 can send until every member row is unblocked. (A prior
-	// version only checked the sender's own row, which let the blocked peer keep
-	// messaging in.)
-	var convBlocked bool
-	err = tx.QueryRow(ctx,
-		`SELECT COALESCE(bool_or(blocked), false) FROM conversation_members
-		 WHERE conversation_id = $1`, convID).Scan(&convBlocked)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return nil, err
-	}
-	if convBlocked {
-		return nil, ErrForbidden
-	}
-
-	recipientID := high
-	if senderID == high {
-		recipientID = low
-	}
-
-	// Revive visibility for both members on a reply.
-	if err := s.upsertMember(ctx, tx, convID, orgID, low); err != nil {
-		return nil, err
-	}
-	if err := s.upsertMember(ctx, tx, convID, orgID, high); err != nil {
-		return nil, err
-	}
-
-	return s.appendMessage(ctx, tx, orgID, convID, senderID, recipientID, body, clientMsgID, parentMessageID, "",
-		appendOpts{replyToID: replyToID})
+	return out, nil
 }
 
 // appendOpts carries optional context into appendMessage. The zero value is an

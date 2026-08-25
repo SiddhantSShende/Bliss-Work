@@ -32,7 +32,7 @@ from jwt import PyJWKClient
 from sqlalchemy import text
 
 from ..config import settings
-from ..crypto import cryptor
+from crypto import cryptor
 from ..db import session, set_bypass_rls
 from ..providers import microsoft as ms
 

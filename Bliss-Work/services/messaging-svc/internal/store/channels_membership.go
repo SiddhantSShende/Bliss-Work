@@ -52,8 +52,13 @@ func (s *Store) ListOpenChannels(
 	limit = clampChannelPage(limit)
 	offset = clampOffset(offset)
 	out := []ChannelDTO{}
+	// Routed to the replica: this is the org-wide "browse channels I could
+	// join" directory, not the caller's own memberships, so it carries no
+	// read-after-write tie to anything the caller just did. See "Read
+	// replicas" in store.go for the rule this follows.
+	//
 	// RLS: channel listing + per-row last-message decrypt run under app.org_id.
-	err := s.withOrg(ctx, orgID, func(tx pgx.Tx) error {
+	err := s.withReplicaOrg(ctx, orgID, func(tx pgx.Tx) error {
 		// Member counts are aggregated ONCE for the whole result, not once per
 		// row — the same fix as ListChannels, and this is the more exposed of
 		// the two: Browse considers every open channel in the org rather than
@@ -94,6 +99,10 @@ func (s *Store) ListOpenChannels(
 			    lm.body,
 			    lm.body_enc,
 			    c.last_msg_at,
+			    COALESCE(NULLIF(up.display_name, ''), up.username, '') AS last_message_sender,
+			    -- Same "cleared vs. never messaged" distinction as ListChannels — kept
+			    -- here too so scanRawChannelRows' projection stays identical for both.
+			    (lm.body IS NULL AND lm.body_enc IS NULL AND c.last_msg_at IS NOT NULL) AS cleared,
 			    c.is_locked,
 			    c.created_by,
 			    NULL::text AS my_role   -- not a member by definition of this view
@@ -101,10 +110,15 @@ func (s *Store) ListOpenChannels(
 			JOIN candidates ON candidates.id = c.id
 			LEFT JOIN counts ON counts.channel_id = c.id
 			LEFT JOIN LATERAL (
-			    SELECT body, body_enc FROM channel_messages m
+			    SELECT body, body_enc, sender_id FROM channel_messages m
 			    WHERE m.channel_id = c.id
+			      AND NOT EXISTS (
+			          SELECT 1 FROM message_hides h
+			          WHERE h.message_id = m.id AND h.user_id = $2
+			      )
 			    ORDER BY m.seq DESC LIMIT 1
 			) lm ON true
+			LEFT JOIN user_projection up ON up.user_id = lm.sender_id
 			-- c.id breaks ties so the ordering is TOTAL. Without it two channels
 			-- with the same last_msg_at and created_at could come back in either
 			-- order between pages, which is how a paged reader silently skips a
@@ -143,60 +157,62 @@ func (s *Store) ListOpenChannels(
 // written in the same transaction as the membership row so retries can't
 // either double-emit or skip the fan-out.
 func (s *Store) JoinChannel(ctx context.Context, orgID, channelID, callerID string) error {
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-
-	// RLS: scope this tx to the caller's org before any RLS table is touched.
-	if err := setOrgGUC(ctx, tx, orgID); err != nil {
-		return err
-	}
-
-	var cOrg, cName string
-	var locked bool
-	err = tx.QueryRow(ctx,
-		`SELECT org_id, is_locked, name FROM channels WHERE id = $1`, channelID).Scan(&cOrg, &locked, &cName)
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && cOrg != orgID) {
-		return ErrForbidden
-	}
-	if err != nil {
-		return err
-	}
-	if locked {
-		return ErrForbidden
-	}
-	// THE case the block table exists for: without this, kicking a disruptive
-	// member from an OPEN channel accomplishes nothing — they re-join.
-	if blocked, err := isBlocked(ctx, tx, channelID, callerID); err != nil {
-		return err
-	} else if blocked {
-		return ErrForbidden
-	}
-
-	// Detect "actually new" so we only emit on a real join (idempotent retries
-	// don't re-fan-out tasks).
-	var alreadyMember bool
-	err = tx.QueryRow(ctx,
-		`SELECT EXISTS (SELECT 1 FROM channel_members WHERE channel_id = $1 AND user_id = $2)`,
-		channelID, callerID).Scan(&alreadyMember)
-	if err != nil {
-		return err
-	}
-	// Self-join is always an ordinary member — joining an open channel is not
-	// a claim on it.
-	if err := s.insertChannelMember(ctx, tx, channelID, orgID, callerID, RoleMember); err != nil {
-		return err
-	}
-	if !alreadyMember {
-		// actor == caller: this is a self-join, which notification-svc uses to
-		// stay quiet. Nobody needs telling about a button they just pressed.
-		if err := emitChannelMemberJoined(ctx, tx, orgID, channelID, cName, callerID, callerID); err != nil {
+	return RetryOnSerializationFailure(ctx, 3, func(ctx context.Context) error {
+		tx, err := s.pool.Begin(ctx)
+		if err != nil {
 			return err
 		}
-	}
-	return tx.Commit(ctx)
+		defer tx.Rollback(ctx)
+
+		// RLS: scope this tx to the caller's org before any RLS table is touched.
+		if err := setOrgGUC(ctx, tx, orgID); err != nil {
+			return err
+		}
+
+		var cOrg, cName string
+		var locked bool
+		err = tx.QueryRow(ctx,
+			`SELECT org_id, is_locked, name FROM channels WHERE id = $1`, channelID).Scan(&cOrg, &locked, &cName)
+		if errors.Is(err, pgx.ErrNoRows) || (err == nil && cOrg != orgID) {
+			return ErrForbidden
+		}
+		if err != nil {
+			return err
+		}
+		if locked {
+			return ErrForbidden
+		}
+		// THE case the block table exists for: without this, kicking a disruptive
+		// member from an OPEN channel accomplishes nothing — they re-join.
+		if blocked, err := isBlocked(ctx, tx, channelID, callerID); err != nil {
+			return err
+		} else if blocked {
+			return ErrForbidden
+		}
+
+		// Detect "actually new" so we only emit on a real join (idempotent retries
+		// don't re-fan-out tasks).
+		var alreadyMember bool
+		err = tx.QueryRow(ctx,
+			`SELECT EXISTS (SELECT 1 FROM channel_members WHERE channel_id = $1 AND user_id = $2)`,
+			channelID, callerID).Scan(&alreadyMember)
+		if err != nil {
+			return err
+		}
+		// Self-join is always an ordinary member — joining an open channel is not
+		// a claim on it.
+		if err := s.insertChannelMember(ctx, tx, channelID, orgID, callerID, RoleMember); err != nil {
+			return err
+		}
+		if !alreadyMember {
+			// actor == caller: this is a self-join, which notification-svc uses to
+			// stay quiet. Nobody needs telling about a button they just pressed.
+			if err := emitChannelMemberJoined(ctx, tx, orgID, channelID, cName, callerID, callerID); err != nil {
+				return err
+			}
+		}
+		return tx.Commit(ctx)
+	})
 }
 
 // emitChannelMemberJoined writes a ChannelMemberJoined outbox row inside the
@@ -232,36 +248,44 @@ type ChannelMembershipSnapshot struct {
 }
 
 func (s *Store) InternalChannelMembership(ctx context.Context, channelID string) (*ChannelMembershipSnapshot, error) {
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback(ctx)
+	var out *ChannelMembershipSnapshot
+	err := RetryOnSerializationFailure(ctx, 3, func(ctx context.Context) error {
+		tx, err := s.pool.Begin(ctx)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback(ctx)
 
-	// RLS: trusted internal service-to-service path (task-svc fan-out) with NO
-	// caller org in scope — the org is RESOLVED FROM the channel row. BYPASS.
-	if err := setBypassGUC(ctx, tx); err != nil {
-		return nil, err
-	}
+		// RLS: trusted internal service-to-service path (task-svc fan-out) with NO
+		// caller org in scope — the org is RESOLVED FROM the channel row. BYPASS.
+		if err := setBypassGUC(ctx, tx); err != nil {
+			return err
+		}
 
-	var orgID string
-	var locked bool
-	err = tx.QueryRow(ctx,
-		`SELECT org_id, is_locked FROM channels WHERE id = $1`, channelID).Scan(&orgID, &locked)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrForbidden
-	}
+		var orgID string
+		var locked bool
+		err = tx.QueryRow(ctx,
+			`SELECT org_id, is_locked FROM channels WHERE id = $1`, channelID).Scan(&orgID, &locked)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrForbidden
+		}
+		if err != nil {
+			return err
+		}
+		ids, err := channelMemberIDs(ctx, tx, channelID)
+		if err != nil {
+			return err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
+		out = &ChannelMembershipSnapshot{OrgID: orgID, IsLocked: locked, MemberIDs: ids}
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	ids, err := channelMemberIDs(ctx, tx, channelID)
-	if err != nil {
-		return nil, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, err
-	}
-	return &ChannelMembershipSnapshot{OrgID: orgID, IsLocked: locked, MemberIDs: ids}, nil
+	return out, nil
 }
 
 // ChannelMemberIDs returns every member user id of the channel. The caller
@@ -269,25 +293,33 @@ func (s *Store) InternalChannelMembership(ctx context.Context, channelID string)
 // (For the public "browse open channels" view we surface only the *count*,
 // not the list of members.)
 func (s *Store) ChannelMemberIDs(ctx context.Context, orgID, channelID, callerID string) ([]string, error) {
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback(ctx)
+	var out []string
+	err := RetryOnSerializationFailure(ctx, 3, func(ctx context.Context) error {
+		tx, err := s.pool.Begin(ctx)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback(ctx)
 
-	// RLS: scope this tx to the caller's org before any RLS table is touched.
-	if err := setOrgGUC(ctx, tx, orgID); err != nil {
-		return nil, err
-	}
+		// RLS: scope this tx to the caller's org before any RLS table is touched.
+		if err := setOrgGUC(ctx, tx, orgID); err != nil {
+			return err
+		}
 
-	if err := requireChannelMember(ctx, tx, orgID, channelID, callerID); err != nil {
-		return nil, err
-	}
-	out, err := channelMemberIDs(ctx, tx, channelID)
+		if err := requireChannelMember(ctx, tx, orgID, channelID, callerID); err != nil {
+			return err
+		}
+		ids, err := channelMemberIDs(ctx, tx, channelID)
+		if err != nil {
+			return err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
+		out = ids
+		return nil
+	})
 	if err != nil {
-		return nil, err
-	}
-	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -301,45 +333,47 @@ func (s *Store) ChannelMemberIDs(ctx context.Context, orgID, channelID, callerID
 // allowed but isn't a "delete channel" action. If every member leaves an
 // open channel it stays in the org and a future joiner re-populates it.
 func (s *Store) LeaveChannel(ctx context.Context, orgID, channelID, callerID string) error {
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
+	return RetryOnSerializationFailure(ctx, 3, func(ctx context.Context) error {
+		tx, err := s.pool.Begin(ctx)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback(ctx)
 
-	// RLS: scope this tx to the caller's org before any RLS table is touched.
-	if err := setOrgGUC(ctx, tx, orgID); err != nil {
-		return err
-	}
+		// RLS: scope this tx to the caller's org before any RLS table is touched.
+		if err := setOrgGUC(ctx, tx, orgID); err != nil {
+			return err
+		}
 
-	var cOrg string
-	err = tx.QueryRow(ctx,
-		`SELECT org_id FROM channels WHERE id = $1`, channelID).Scan(&cOrg)
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && cOrg != orgID) {
-		return ErrForbidden
-	}
-	if err != nil {
-		return err
-	}
+		var cOrg string
+		err = tx.QueryRow(ctx,
+			`SELECT org_id FROM channels WHERE id = $1`, channelID).Scan(&cOrg)
+		if errors.Is(err, pgx.ErrNoRows) || (err == nil && cOrg != orgID) {
+			return ErrForbidden
+		}
+		if err != nil {
+			return err
+		}
 
-	tag, err := tx.Exec(ctx,
-		`DELETE FROM channel_members WHERE channel_id = $1 AND user_id = $2`,
-		channelID, callerID)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		// Already not a member — nothing to do, but don't pretend we wrote
-		// the audit row either.
+		tag, err := tx.Exec(ctx,
+			`DELETE FROM channel_members WHERE channel_id = $1 AND user_id = $2`,
+			channelID, callerID)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			// Already not a member — nothing to do, but don't pretend we wrote
+			// the audit row either.
+			return tx.Commit(ctx)
+		}
+
+		_, err = tx.Exec(ctx,
+			`INSERT INTO channel_member_history (channel_id, org_id, user_id, reason)
+			 VALUES ($1, $2, $3, 'left')`,
+			channelID, orgID, callerID)
+		if err != nil {
+			return err
+		}
 		return tx.Commit(ctx)
-	}
-
-	_, err = tx.Exec(ctx,
-		`INSERT INTO channel_member_history (channel_id, org_id, user_id, reason)
-		 VALUES ($1, $2, $3, 'left')`,
-		channelID, orgID, callerID)
-	if err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
+	})
 }

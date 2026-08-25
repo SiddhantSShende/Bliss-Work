@@ -1,0 +1,2 @@
+# Test-only dependencies for this package's own suite.
+pytest==8.3.4

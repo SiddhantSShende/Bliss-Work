@@ -8,15 +8,20 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from fastapi import HTTPException, status
+from fastapi import HTTPException, Request, status
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from .. import service
 from ..config import settings
-from ..crypto import cryptor
+from crypto import cryptor
+from ..db import engine
 from ..events.outbox import TOPIC_AUTH, build_event, enqueue_event
+from ..logging_config import log
+from ..net import request_context
 from ..routing import directory, placement
+from . import session_events
 from ..routing.decision import Route, route_for
 from ..routing.events import KEY_INVITE, invite_key
 from ..schemas import AcceptInviteRequest, CreateInviteRequest, SessionDTO
@@ -54,7 +59,19 @@ async def create_invite_tx(
     body: CreateInviteRequest,
     principal: Principal,
 ) -> str:
-    """Mint an invite token, persist the invite, emit invite.created. Returns id."""
+    """Mint an invite token, persist the invite, emit invite.created. Returns id.
+
+    Invalidates any prior PENDING invite for the same (org, email) so only the
+    newest link is ever honored — mirrors account_service.py's `mint_token`.
+    A partial unique index (`invites (org_id, email) WHERE status='pending'`,
+    migration 0015) backstops this against two genuinely concurrent creates
+    racing each other: under READ COMMITTED, a concurrent transaction's
+    invalidate-UPDATE can't see this one's not-yet-committed INSERT, so both
+    would otherwise supersede nothing and both insert. On that race the
+    INSERT below raises a unique-violation; this retries the
+    supersede-then-insert once, now correctly seeing the other transaction's
+    committed row. See docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 6.
+    """
     raw_token = service.new_refresh_secret()
     invite_id = service.new_uuid()
     expires_at = datetime.now(timezone.utc) + INVITE_TTL
@@ -68,24 +85,47 @@ async def create_invite_tx(
     if org_row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "org not found")
 
-    await conn.execute(
-        text(
-            """
-            INSERT INTO invites
-                (id, org_id, email, role_id, token_hash, invited_by, expires_at)
-            VALUES (:id, :org, :email, :rid, :hash, :by, :exp)
-            """
-        ),
-        {
-            "id": invite_id,
-            "org": principal.org_id,
-            "email": str(body.email),
-            "rid": role_id,
-            "hash": service.sha256_bytes(raw_token),
-            "by": principal.user_id,
-            "exp": expires_at,
-        },
-    )
+    for attempt in range(2):
+        await conn.execute(
+            text(
+                "UPDATE invites SET status = 'superseded' "
+                "WHERE org_id = :org AND email = :email AND status = 'pending'"
+            ),
+            {"org": principal.org_id, "email": str(body.email)},
+        )
+        try:
+            # SAVEPOINT: a failed INSERT poisons the whole transaction in
+            # Postgres until rolled back — nesting lets us roll back just
+            # this attempt and retry within the same outer transaction the
+            # router opened, rather than aborting invite creation entirely.
+            async with conn.begin_nested():
+                await conn.execute(
+                    text(
+                        """
+                        INSERT INTO invites
+                            (id, org_id, email, role_id, token_hash, invited_by, expires_at)
+                        VALUES (:id, :org, :email, :rid, :hash, :by, :exp)
+                        """
+                    ),
+                    {
+                        "id": invite_id,
+                        "org": principal.org_id,
+                        "email": str(body.email),
+                        "rid": role_id,
+                        "hash": service.sha256_bytes(raw_token),
+                        "by": principal.user_id,
+                        "exp": expires_at,
+                    },
+                )
+            break
+        except IntegrityError:
+            if attempt == 1:
+                raise
+            log.info(
+                "invite_create_race_retry",
+                org_id=principal.org_id,
+                detail="concurrent create for the same (org, email); retrying",
+            )
 
     # Make the invite routable from EVERY site before the link is emailed.
     #
@@ -130,6 +170,7 @@ async def create_invite_tx(
 async def accept_invite_tx(
     conn: AsyncConnection,
     body: AcceptInviteRequest,
+    request: Request,
 ) -> tuple[SessionDTO, str, str]:
     """Accept an invite: create user, emit user.created, build a session.
 
@@ -140,6 +181,7 @@ async def accept_invite_tx(
         raise HTTPException(status_code=422, detail=PASSWORD_POLICY_MESSAGE)
     token_hash = service.sha256_bytes(body.token)
     now = datetime.now(timezone.utc)
+    ip, user_agent, request_id = request_context(request)
 
     # Pre-org-context: the invite is found by token hash before the org is known,
     # so the SELECT runs under bypass (invites is RLS). Once we have the invite's
@@ -207,12 +249,39 @@ async def accept_invite_tx(
     # email-verified (the invite proves control of the address).
     existing_ident = (
         await conn.execute(
-            text("SELECT id, password_hash FROM identities WHERE email_bidx = :b"),
+            text(
+                "SELECT id, password_hash, failed_login_count, locked_until "
+                "FROM identities WHERE email_bidx = :b"
+            ),
             {"b": email_bidx},
         )
     ).first()
     if existing_ident is not None:
+        # Same lockout the password-guess surface at /auth/login already has —
+        # invite acceptance gates a password guess exactly the same way. See
+        # docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 5.
+        now = datetime.now(timezone.utc)
+        if existing_ident.locked_until is not None and existing_ident.locked_until > now:
+            retry = max(1, int((existing_ident.locked_until - now).total_seconds()))
+            raise HTTPException(
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                "account temporarily locked due to failed logins; try again later",
+                headers={"Retry-After": str(retry)},
+            )
         if not await verify_password_async(existing_ident.password_hash, body.password):
+            # A SEPARATE transaction, deliberately — this function runs inside
+            # the router's own `engine.begin()` block, and the HTTPException
+            # below aborts THAT transaction. The failed-attempt counter must
+            # survive the abort, so it commits on its own connection instead
+            # of the caller's (mirrors poller.py's record_publish_failure).
+            async with engine.begin() as lockout_conn:
+                locked_secs = await service.register_failed_login(lockout_conn, existing_ident)
+            if locked_secs > 0:
+                raise HTTPException(
+                    status.HTTP_429_TOO_MANY_REQUESTS,
+                    "account temporarily locked due to failed logins; try again later",
+                    headers={"Retry-After": str(locked_secs)},
+                )
             raise HTTPException(
                 status.HTTP_401_UNAUTHORIZED,
                 "that email already has an account — use your existing password to join",
@@ -279,13 +348,19 @@ async def accept_invite_tx(
         email=dto.email,
     )
     await enqueue_event(conn, topic=TOPIC_AUTH, kafka_key=user_id, event=event)
+
+    # build_session runs BEFORE the audit write (rather than in its usual
+    # trailing spot) purely so the family id it mints is available to put in
+    # this row's meta as sessionId — same transaction either way.
+    session, raw_refresh, family_id = await service.build_session(conn, user_id)
     await service.write_audit(
         conn,
         org_id=org_id,
         actor_id=user_id,
         action="invite.accepted",
         target=str(invite.id),
+        meta=session_events.context_meta(
+            session_id=family_id, ip=ip, user_agent=user_agent, request_id=request_id
+        ),
     )
-
-    session, raw_refresh = await service.build_session(conn, user_id)
     return session, raw_refresh, user_id

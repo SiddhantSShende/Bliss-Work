@@ -9,12 +9,38 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
+# ── BUILD CONTEXT IS THE REPOSITORY ROOT, not services/auth-svc ─────────────
+# requirements.txt points at sibling packages as local path requirements:
+# services/shared/kafka_security (Kafka SASL/TLS config, also used by
+# task-svc, integrations-svc, telemetry-svc and email-worker),
+# services/shared/crypto (at-rest column encryption, also used by task-svc,
+# integrations-svc and telemetry-svc), services/shared/tracing (OTel Kafka
+# context-propagation + shutdown helpers, also used by all four),
+# services/shared/internal_auth (constant-time internal-service-secret
+# comparison, also used by task-svc and integrations-svc),
+# services/shared/prune_events (batched-delete retention runner, also used by
+# task-svc and integrations-svc), services/shared/logging_setup (structlog ->
+# stdout JSON bootstrap, also used by every other Python service), and
+# services/shared/outbox_dlq (outbox dead-letter quarantine, also used by
+# task-svc and integrations-svc). The build needs all of these directories:
+#
+#     docker build -f services/auth-svc/Dockerfile .
+#
+# .dockerignore at the repo root keeps that context to roughly source size.
+WORKDIR /src
 
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-COPY requirements.txt .
+COPY services/auth-svc/requirements.txt services/auth-svc/requirements.txt
+COPY services/shared/kafka_security services/shared/kafka_security
+COPY services/shared/crypto services/shared/crypto
+COPY services/shared/tracing services/shared/tracing
+COPY services/shared/internal_auth services/shared/internal_auth
+COPY services/shared/prune_events services/shared/prune_events
+COPY services/shared/logging_setup services/shared/logging_setup
+COPY services/shared/outbox_dlq services/shared/outbox_dlq
+WORKDIR /src/services/auth-svc
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
 # ── Final stage: slim runtime with a Python interpreter (healthcheck needs it) ─
@@ -30,8 +56,8 @@ RUN useradd --system --create-home --uid 10001 --user-group appuser
 WORKDIR /app
 
 COPY --from=build /opt/venv /opt/venv
-COPY app ./app
-COPY migrations ./migrations
+COPY services/auth-svc/app ./app
+COPY services/auth-svc/migrations ./migrations
 
 RUN chown -R appuser:appuser /app
 

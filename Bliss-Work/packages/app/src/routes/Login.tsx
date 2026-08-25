@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { Button, Input } from "@taskboard/ui";
-import { ApiError } from "@taskboard/shared";
+import { ApiError, isMfaPending } from "@taskboard/shared";
 import { toast } from "sonner";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
@@ -21,9 +21,13 @@ export function Login() {
     e.preventDefault();
     setBusy(true);
     try {
-      const s = await api.login(form);
-      setSession({ user: s.user, accessToken: s.accessToken });
-      broadcastSession(s); // adopt this session in sibling tabs sitting on /login
+      const result = await api.login(form);
+      if (isMfaPending(result)) {
+        nav("/mfa-challenge", { state: result });
+        return;
+      }
+      setSession({ user: result.user, accessToken: result.accessToken });
+      broadcastSession(result); // adopt this session in sibling tabs sitting on /login
       nav("/app");
     } catch (err) {
       // A bare catch here used to report EVERY failure as bad credentials, which

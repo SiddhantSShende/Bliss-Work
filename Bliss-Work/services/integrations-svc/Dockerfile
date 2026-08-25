@@ -5,12 +5,31 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
-WORKDIR /app
+# ── BUILD CONTEXT IS THE REPOSITORY ROOT, not services/integrations-svc ─────
+# requirements.txt points at four sibling packages as local path requirements:
+# services/shared/kafka_security (Kafka SASL/TLS config, also used by
+# auth-svc, task-svc, telemetry-svc and email-worker),
+# services/shared/crypto (at-rest column encryption, also used by auth-svc,
+# task-svc and telemetry-svc), services/shared/tracing (OTel Kafka
+# context-propagation + shutdown helpers, also used by all four), and
+# services/shared/internal_auth (constant-time internal-service-secret
+# comparison, also used by auth-svc and task-svc). The build needs all four
+# directories:
+#
+#     docker build -f services/integrations-svc/Dockerfile .
+#
+# .dockerignore at the repo root keeps that context to roughly source size.
+WORKDIR /src
 
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-COPY requirements.txt ./
+COPY services/integrations-svc/requirements.txt services/integrations-svc/requirements.txt
+COPY services/shared/kafka_security services/shared/kafka_security
+COPY services/shared/crypto services/shared/crypto
+COPY services/shared/tracing services/shared/tracing
+COPY services/shared/internal_auth services/shared/internal_auth
+WORKDIR /src/services/integrations-svc
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
 # ── Final stage: slim runtime with a Python interpreter (healthcheck needs it) ─
@@ -26,8 +45,8 @@ RUN useradd --system --create-home --uid 10001 --user-group appuser
 WORKDIR /app
 
 COPY --from=build /opt/venv /opt/venv
-COPY app ./app
-COPY migrations ./migrations
+COPY services/integrations-svc/app ./app
+COPY services/integrations-svc/migrations ./migrations
 
 RUN chown -R appuser:appuser /app
 

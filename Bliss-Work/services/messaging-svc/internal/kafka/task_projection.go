@@ -10,8 +10,8 @@ import (
 	"github.com/segmentio/kafka-go"
 
 	"github.com/task-board/messaging-svc/internal/events"
-	"github.com/task-board/messaging-svc/internal/kafkaauth"
 	"github.com/task-board/messaging-svc/internal/store"
+	"github.com/task-board/shared-kafkaauth"
 )
 
 // task event type discriminants (mirrors packages/shared/src/types/events.ts).

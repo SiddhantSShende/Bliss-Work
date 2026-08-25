@@ -1,4 +1,4 @@
-import { forwardRef } from "react";
+import { forwardRef, useEffect, useState } from "react";
 import { ChevronLeft, Loader2 } from "lucide-react";
 import { cn } from "../lib/cn";
 
@@ -70,12 +70,16 @@ const dotSizes = { sm: "h-2 w-2", md: "h-2.5 w-2.5", lg: "h-3 w-3" };
 
 export function Avatar({
   name,
+  src,
   size = "md",
   online,
   status,
   className,
 }: {
   name: string;
+  /** A profile picture URL (incl. a `data:` URI). Falls back to initials when
+   *  absent, empty, or when the image fails to load. */
+  src?: string | null;
   size?: keyof typeof avatarSizes;
   /** undefined = no indicator; true = green dot; false = muted dot.
    *  Superseded by `status` where a caller can distinguish Busy; kept because
@@ -98,15 +102,25 @@ export function Avatar({
     .slice(0, 2)
     .join("")
     .toUpperCase();
+  // Reset on every new src (incl. a fresh upload replacing a broken one), so a
+  // failure on the OLD image can't keep the NEW one stuck on initials.
+  const [broken, setBroken] = useState(false);
+  useEffect(() => setBroken(false), [src]);
+  const showImage = Boolean(src) && !broken;
   return (
     <div className={cn("relative shrink-0", className)}>
       <div
         className={cn(
           "flex items-center justify-center rounded-full bg-gradient-to-br from-brand-from to-brand-to font-semibold text-accent-fg shadow-[0_2px_10px_-2px_var(--color-accent)] ring-2 ring-surface",
+          showImage && "overflow-hidden",
           avatarSizes[size],
         )}
       >
-        {initials || "?"}
+        {showImage ? (
+          <img src={src ?? undefined} alt={name} className="h-full w-full object-cover" onError={() => setBroken(true)} />
+        ) : (
+          initials || "?"
+        )}
       </div>
       {(status ?? online) !== undefined && (
         <span

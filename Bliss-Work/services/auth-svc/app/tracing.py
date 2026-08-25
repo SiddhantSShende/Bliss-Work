@@ -6,6 +6,14 @@ no collector stay clean). When set (e.g. ``http://otel-collector:4317``), spans
 export over OTLP gRPC via a BatchSpanProcessor (background/non-blocking, so an
 unreachable collector never blocks or crashes startup), and trace context flows
 across services through W3C tracecontext HTTP headers.
+
+``setup_tracing`` below is service-specific (it wires FastAPI/SQLAlchemy/httpx/
+asyncpg instrumentation against auth-svc's own ``db.py`` engine and
+``logging_config`` logger), so it stays here. ``inject_headers``,
+``extract_context`` and ``shutdown_tracing`` have no such coupling and are
+byte-identical across every service that uses them — see the shared
+``tracing`` package (``services/shared/tracing/tracing.py``) and import them
+from there, e.g. ``from tracing import inject_headers``.
 """
 from __future__ import annotations
 
@@ -14,30 +22,6 @@ import os
 from .logging_config import log
 
 SERVICE_NAME = "auth-svc"
-
-# W3C trace-context header keys we propagate over Kafka. Lowercase to match the
-# propagator's output and keep consumer-side lookups case-stable.
-_TRACE_HEADER_KEYS = ("traceparent", "tracestate")
-
-
-def inject_headers(headers=None):
-    """Inject the current trace context as W3C Kafka headers.
-
-    Returns a list of ``(key: str, value: bytes)`` tuples for aiokafka
-    ``send(..., headers=...)``; any caller-supplied ``headers`` are preserved
-    and the trace headers appended. No-op-safe when tracing is disabled (the
-    global propagator emits nothing without an active span).
-    """
-    from opentelemetry import propagate
-
-    carrier: dict[str, str] = {}
-    propagate.inject(carrier)
-    result = list(headers) if headers else []
-    for key in _TRACE_HEADER_KEYS:
-        value = carrier.get(key)
-        if value is not None:
-            result.append((key, value.encode("utf-8")))
-    return result
 
 
 def setup_tracing(app=None) -> None:
@@ -110,21 +94,6 @@ def setup_tracing(app=None) -> None:
     # aiokafka 0.12's send() signature (passes `headers` twice -> TypeError on
     # every produce). Kafka producer/consumer spans + W3C traceparent
     # propagation are instead done manually (see app/events/poller.py and the
-    # inject_headers helper above).
+    # shared tracing package's inject_headers helper).
 
     log.info("otel_tracing_enabled", service=SERVICE_NAME, endpoint=endpoint)
-
-
-def shutdown_tracing() -> None:
-    """Flush buffered spans on service stop. No-op when tracing is disabled."""
-    from opentelemetry import trace
-
-    provider = trace.get_tracer_provider()
-    # The default (no-op) provider has no shutdown(); only the SDK provider we
-    # installed when the endpoint was set does. Guard so this is safe either way.
-    shutdown = getattr(provider, "shutdown", None)
-    if callable(shutdown):
-        try:
-            shutdown()
-        except Exception as exc:  # noqa: BLE001 - shutdown must not raise
-            log.warning("otel_shutdown_failed", error=str(exc))

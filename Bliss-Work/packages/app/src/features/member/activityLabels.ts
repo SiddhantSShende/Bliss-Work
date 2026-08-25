@@ -117,6 +117,11 @@ export function actionLabel(entry: TimelineEntry): string {
  *               cannot say what somebody switched from, and inventing BlissWork
  *               as the answer would be wrong exactly when the person had been
  *               somewhere else.
+ *
+ * `detail.title` — a page or window title, when the producer sent one — is
+ * layered on afterwards by the caller (see `activityTitle`), not here: it
+ * never changes which of the three shapes above applies, only whether a second
+ * line accompanies it.
  */
 function switchLabel(entry: TimelineEntry, verb: string): string {
   const { to, from } = destinationOf(entry);
@@ -124,6 +129,22 @@ function switchLabel(entry: TimelineEntry, verb: string): string {
   if (isBlissWork(to)) return CAME_BACK;
   if (!from) return `${verb} ${to}`;
   return `Switched from ${from} to ${to}`;
+}
+
+/**
+ * The page/window title alongside a switch, when the row carries one.
+ *
+ * Absent for every row recorded before a producer started sending
+ * `detail.title` (every desktop/extension build up to this point, and the web
+ * client's own `blur`/`focus` rows, which have no "other side" to name) —
+ * callers render nothing extra in that case, which is exactly today's
+ * behaviour. Only meaningful beside `app.focus`/`site.visit`; asking for it on
+ * any other action is a caller error, not a data gap, so this does not guard
+ * against it.
+ */
+export function activityTitle(entry: TimelineEntry): string | null {
+  const title = entry.detail?.title?.trim();
+  return title ? title : null;
 }
 
 /**
@@ -145,7 +166,7 @@ function switchLabel(entry: TimelineEntry, verb: string): string {
  * minutes apart are two rows; a browser row with no site row beside it survives,
  * because then it IS the best available answer.
  */
-export function supersededBy(row: TimelineEntry, finer: TimelineEntry): boolean {
+function supersededBy(row: TimelineEntry, finer: TimelineEntry): boolean {
   const gapMs = Math.abs(
     new Date(finer.occurredAt).getTime() - new Date(row.occurredAt).getTime(),
   );

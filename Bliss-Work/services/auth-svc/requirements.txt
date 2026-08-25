@@ -13,6 +13,8 @@ pydantic-settings==2.7.1
 email-validator==2.2.0
 cryptography==50.0.0
 python-slugify==8.0.4
+pyotp==2.10.0
+webauthn==3.0.0
 slowapi==0.1.9
 redis==5.2.1
 prometheus-fastapi-instrumentator==8.0.2
@@ -22,3 +24,37 @@ opentelemetry-instrumentation-fastapi==0.65b0
 opentelemetry-instrumentation-sqlalchemy==0.65b0
 opentelemetry-instrumentation-httpx==0.65b0
 opentelemetry-instrumentation-asyncpg==0.65b0
+
+# Kafka SASL/TLS config, shared with every other Python service. See
+# services/shared/kafka_security/kafka_security.py for why this is a local
+# package instead of a copy.
+../shared/kafka_security
+
+# At-rest column encryption, shared with every other Python service that
+# encrypts columns. See services/shared/crypto/crypto.py for why this is a
+# local package instead of a copy.
+../shared/crypto
+
+# OTel Kafka context-propagation + shutdown helpers, shared with every other
+# Python service. See services/shared/tracing/tracing.py for why this is a
+# local package instead of a copy.
+../shared/tracing
+
+# Constant-time internal-service-secret comparison, shared with task-svc and
+# integrations-svc (every Python service that validates its own /internal/*
+# routes). See services/shared/internal_auth/internal_auth.py.
+../shared/internal_auth
+
+# Batched-delete retention runner for event-plumbing tables, shared with
+# task-svc and integrations-svc. See
+# services/shared/prune_events/prune_events.py.
+../shared/prune_events
+
+# structlog -> stdout JSON bootstrap, shared with every other Python service.
+# See services/shared/logging_setup/shared_logging_setup.py.
+../shared/logging_setup
+
+# Outbox dead-letter quarantine, shared with task-svc and integrations-svc
+# (every service that runs an outbox poller). See
+# services/shared/outbox_dlq/outbox_dlq.py.
+../shared/outbox_dlq

@@ -19,10 +19,12 @@ import { useOlderMessages } from "../lib/useOlderMessages";
 import { ChannelMembersSheet } from "../features/ChannelMembersSheet";
 import { useWhatsAppForward } from "../lib/useWhatsAppForward";
 import { ForwardToDialog } from "../features/ForwardToDialog";
+import { RenameChannelDialog } from "../features/RenameChannelDialog";
 import { useChatMedia } from "../features/useChatMedia";
 import { ScheduleCallDialog } from "../features/ScheduleCallDialog";
 import { CallMenu } from "../features/CallMenu";
 import { ConversationMenu } from "../features/ConversationMenu";
+import { ConfirmDialog } from "../features/ConfirmDialog";
 import { ChatSearchBar } from "../features/ChatSearchBar";
 import { ChatAssetsSheet } from "../features/ChatAssetsSheet";
 import { searchMessages } from "../lib/chatSearch";
@@ -40,6 +42,10 @@ export function ChannelView() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [assetsOpen, setAssetsOpen] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [clearChatOpen, setClearChatOpen] = useState(false);
+  const [leaveOpen, setLeaveOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const recordForward = useWhatsAppForward();
   // The message being forwarded to another chat or channel (null = closed).
   const [forwardTo, setForwardTo] = useState<{ id: string; body: string } | null>(null);
@@ -60,6 +66,10 @@ export function ChannelView() {
     setSearchOpen(false);
     setQuery("");
     setAssetsOpen(false);
+    setRenameOpen(false);
+    setClearChatOpen(false);
+    setLeaveOpen(false);
+    setDeleteOpen(false);
     // The call is NOT reset here any more. It used to have to be, because the
     // room was rendered by this route and switching channels would have left
     // the user silently in the previous channel's call; now the meeting is held
@@ -193,6 +203,10 @@ export function ChannelView() {
     mutationFn: () => api.clearChannel(channelId),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: qk.channelMessages(channelId) });
+      // The sidebar's last-message preview comes from this list query — without
+      // this it keeps showing the pre-clear text until something unrelated
+      // happens to refetch it.
+      void qc.invalidateQueries({ queryKey: qk.channels });
       toast.success("Channel messages cleared for you");
     },
     onError: () => toast.error("Couldn't clear the channel messages"),
@@ -256,35 +270,22 @@ export function ChannelView() {
 
   const confirmLeave = () => {
     if (!channel) return;
-    const ok = window.confirm(
-      `Leave #${channel.name}?\n\n${
-        channel.isLocked
-          ? "This is a locked (invite-only) channel — a member will need to re-invite you to come back."
-          : "You can re-join from the Browse tab whenever you want."
-      }`,
-    );
-    if (ok) leave.mutate();
+    setLeaveOpen(true);
   };
 
-  const confirmRename = () => {
-    const name = window.prompt("Channel name", channel?.name ?? "")?.trim();
-    if (!name || name === channel?.name) return;
-    api.renameChannel(channelId, name)
-      .then(() => qc.invalidateQueries({ queryKey: qk.channels }))
-      .then(() => toast.success("Channel renamed"))
-      .catch(() => toast.error("Couldn't rename the channel"));
-  };
+  const confirmRename = () => setRenameOpen(true);
 
-  const confirmDelete = () => {
-    if (!window.confirm(`Delete #${channel?.name}? This cannot be undone.`)) return;
-    api.deleteChannel(channelId)
-      .then(() => {
-        void qc.invalidateQueries({ queryKey: qk.channels });
-        nav("/app/channels");
-        toast.success("Channel deleted");
-      })
-      .catch(() => toast.error("Couldn't delete the channel"));
-  };
+  const deleteChannel = useMutation({
+    mutationFn: () => api.deleteChannel(channelId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: qk.channels });
+      nav("/app/channels");
+      toast.success("Channel deleted");
+    },
+    onError: () => toast.error("Couldn't delete the channel"),
+  });
+
+  const confirmDelete = () => setDeleteOpen(true);
 
   const send = useMutation({
     mutationFn: (body: string) => api.sendChannelMessage(channelId, body),
@@ -449,13 +450,7 @@ export function ChannelView() {
           >
             <Users size={15} /> {channel.memberCount}
           </button>
-          {/* Rename, Delete and Clear Chat are deliberately left unwired:
-              messaging-svc has no PATCH or DELETE for a channel, and no bulk
-              hide for its messages, so the menu renders those rows disabled
-              with the reason on hover rather than offering an action that
-              cannot be carried out. Everything else here works today.
-
-              "View Profile" for a channel is its membership — who is in it is
+          {/* "View Profile" for a channel is its membership — who is in it is
               what a channel's profile consists of — so it opens the roster the
               member count already opens. */}
           <ConversationMenu
@@ -468,9 +463,7 @@ export function ChannelView() {
             shortcut={prefs.hasShortcut("channel", channelId)}
             onToggleShortcut={() => toggleConversationPref("shortcut", "channel", channelId)}
             onExport={exportChat}
-            onClearChat={() => {
-              if (window.confirm("Clear the loaded channel messages for you?")) clearChat.mutate();
-            }}
+            onClearChat={() => setClearChatOpen(true)}
             onLeave={confirmLeave}
             leaving={leave.isPending}
             onRename={confirmRename}
@@ -492,6 +485,46 @@ export function ChannelView() {
         open={rosterOpen}
         onClose={() => setRosterOpen(false)}
         channel={channel}
+      />
+      <RenameChannelDialog
+        open={renameOpen}
+        onClose={() => setRenameOpen(false)}
+        channelId={channelId}
+        currentName={channel.name}
+      />
+      <ConfirmDialog
+        open={clearChatOpen}
+        onClose={() => setClearChatOpen(false)}
+        title="Clear channel messages?"
+        message="This will clear the loaded messages for you. Other members will still have their copies."
+        confirmLabel="Clear messages"
+        danger
+        busy={clearChat.isPending}
+        onConfirm={() => clearChat.mutate(undefined, { onSuccess: () => setClearChatOpen(false) })}
+      />
+      <ConfirmDialog
+        open={leaveOpen}
+        onClose={() => setLeaveOpen(false)}
+        title={channel ? `Leave #${channel.name}?` : "Leave channel?"}
+        message={
+          channel?.isLocked
+            ? "This is a locked channel. A member will need to re-invite you to come back."
+            : "You can re-join from the Browse tab whenever you want."
+        }
+        confirmLabel="Leave channel"
+        danger
+        busy={leave.isPending}
+        onConfirm={() => leave.mutate(undefined, { onSuccess: () => setLeaveOpen(false) })}
+      />
+      <ConfirmDialog
+        open={deleteOpen}
+        onClose={() => setDeleteOpen(false)}
+        title={channel ? `Delete #${channel.name}?` : "Delete channel?"}
+        message="This cannot be undone. The channel and its messages will be deleted."
+        confirmLabel="Delete channel"
+        danger
+        busy={deleteChannel.isPending}
+        onConfirm={() => deleteChannel.mutate(undefined, { onSuccess: () => setDeleteOpen(false) })}
       />
       {/* Mounted only while open, as MeetingCard does with its roster sheet:
           the panel mints one signed link per attachment in the thread, and a

@@ -3,10 +3,12 @@ import { Hash, ListTodo } from "lucide-react";
 import { Avatar } from "@taskboard/ui";
 import { rowClass } from "./ListPane";
 
-export interface SearchRow {
+interface SearchRow {
   id: string;
   title: string;
   subtitle?: string;
+  /** Only populated for "people" rows — see Search.tsx's `people` mapping. */
+  avatarUrl?: string | null;
   to: string;
   /**
    * Open this hit by doing something rather than by following `to`.
@@ -39,7 +41,7 @@ export function SearchResults({ groups }: { groups: SearchGroup[] }) {
             {g.rows.map((r) => {
               const body = (
                 <>
-                  <Leading kind={g.key} title={r.title} />
+                  <Leading kind={g.key} title={r.title} avatarUrl={r.avatarUrl} />
                   <div className="min-w-0 flex-1">
                     <div className="truncate font-medium text-fg">{r.title}</div>
                     {r.subtitle && <div className="truncate text-sm text-muted">{r.subtitle}</div>}
@@ -68,8 +70,16 @@ export function SearchResults({ groups }: { groups: SearchGroup[] }) {
   );
 }
 
-function Leading({ kind, title }: { kind: SearchGroup["key"]; title: string }) {
-  if (kind === "people" || kind === "chats") return <Avatar name={title} />;
+function Leading({
+  kind,
+  title,
+  avatarUrl,
+}: {
+  kind: SearchGroup["key"];
+  title: string;
+  avatarUrl?: string | null;
+}) {
+  if (kind === "people" || kind === "chats") return <Avatar name={title} src={avatarUrl} />;
   const Icon = kind === "channels" ? Hash : ListTodo;
   return (
     <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent-soft text-accent">

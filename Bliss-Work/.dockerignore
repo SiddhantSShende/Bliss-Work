@@ -1,13 +1,26 @@
-# Applies to builds that use the REPOSITORY ROOT as their context — currently
-# only apps/web/Dockerfile, which needs the root because @taskboard/web imports
-# three sibling workspaces (packages/app, packages/shared, packages/ui).
+# Applies to builds that use the REPOSITORY ROOT as their context:
+#   - apps/web/Dockerfile, which needs the root because @taskboard/web imports
+#     three sibling workspaces (packages/app, packages/shared, packages/ui).
+#   - services/messaging-svc, services/notification-svc and services/ws-gateway's
+#     Dockerfiles, which need the root because their go.mod replaces
+#     github.com/task-board/shared-kafkaauth with the sibling module
+#     services/shared/kafkaauth.
+#   - services/auth-svc, services/task-svc, services/integrations-svc,
+#     services/telemetry-svc and services/email-worker's Dockerfiles, which
+#     need the root because their requirements.txt references the sibling
+#     package services/shared/kafka_security as a local path dependency.
+#   - services/auth-svc, services/task-svc, services/integrations-svc and
+#     services/telemetry-svc's Dockerfiles ALSO reference the sibling package
+#     services/shared/crypto (at-rest column encryption) the same way.
+#   - all five (also email-worker) ALSO reference services/shared/tracing
+#     (OTel Kafka context-propagation + shutdown helpers) the same way.
 #
 # Without this file that context is ~1.9 GB: apps/ and services/ each carry their
-# own node_modules and build output, and .git is large. Everything the web build
-# actually needs is a package manifest, a lockfile, or source.
+# own node_modules and build output, and .git is large. Everything these builds
+# actually need is a package manifest, a lockfile, or source.
 #
-# The per-service images are UNAFFECTED — they build from narrow contexts
-# (services/<name>, infra/caddy) that never contained any of this.
+# The remaining per-service images (region-bridge, infra/caddy) are UNAFFECTED
+# — they build from narrow contexts that never contained any of this.
 
 # ── VCS and editor state ────────────────────────────────────────────────────
 .git
@@ -39,6 +52,7 @@ apps/extension/dist.zip
 **/.mypy_cache
 **/.pytest_cache
 **/.ruff_cache
+**/*.egg-info
 **/bin
 
 # ── Secrets and key material. These must never enter a build context, even

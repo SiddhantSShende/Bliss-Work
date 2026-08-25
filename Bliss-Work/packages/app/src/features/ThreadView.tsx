@@ -7,6 +7,7 @@ import { clock, groupMessages } from "../lib/chatFormat";
 import { MessageStatusBadge } from "./MessageStatusBadge";
 import { SystemPill } from "./SystemPill";
 import { ForwardBadge } from "./ForwardBadge";
+import { renderMessageBody } from "./messageBody";
 
 interface ThreadMsgVisual {
   id: string;
@@ -140,7 +141,7 @@ export function ThreadView({
             return (
               <div key={m.id}>
                 {dayChip}
-                <SystemPill icon={<PhoneMissed size={12} className="text-red-500" />} at={m.at}>
+                <SystemPill icon={<PhoneMissed size={12} className="text-danger" />} at={m.at}>
                   {mine ? `${m.body} · no answer` : m.body}
                 </SystemPill>
               </div>
@@ -184,7 +185,7 @@ export function ThreadView({
                           : "rounded-bl-md bg-surface text-fg ring-1 ring-border/60"
                       } ${m.pending ? "opacity-60" : ""}`}
                     >
-                      {m.body}
+                      {renderMessageBody(m.body)}
                     </div>
                   )}
                   <span className="mt-0.5 flex items-center gap-1 px-1 text-[10px] text-muted/70">

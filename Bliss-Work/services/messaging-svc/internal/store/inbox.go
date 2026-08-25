@@ -446,42 +446,44 @@ func (s *Store) InsertTaskInboxItem(
 		}
 	}
 
-	// A tx so the org DEK (org_keys row) and the inbox row are created
-	// atomically; the DEK lookup MUST share the insert's tx.
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
+	return RetryOnSerializationFailure(ctx, 3, func(ctx context.Context) error {
+		// A tx so the org DEK (org_keys row) and the inbox row are created
+		// atomically; the DEK lookup MUST share the insert's tx.
+		tx, err := s.pool.Begin(ctx)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback(ctx)
 
-	// RLS: the task projector is a cross-org BACKGROUND consumer (it processes
-	// task.events for every org off one Kafka stream), so it runs under BYPASS.
-	// This also lets crypto.Encrypt read/write the org_keys row freely.
-	if err := setBypassGUC(ctx, tx); err != nil {
-		return err
-	}
+		// RLS: the task projector is a cross-org BACKGROUND consumer (it processes
+		// task.events for every org off one Kafka stream), so it runs under BYPASS.
+		// This also lets crypto.Encrypt read/write the org_keys row freely.
+		if err := setBypassGUC(ctx, tx); err != nil {
+			return err
+		}
 
-	previewEnc, err := s.crypto.Encrypt(ctx, tx, orgID, preview)
-	if err != nil {
-		return err
-	}
-	// Preview is WRITE-ONCE: ON CONFLICT keeps the existing preview_enc (the
-	// row was seeded by an earlier task.assigned), so no preview_enc update here.
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO inbox_items
-		  (org_id, owner_user_id, item_kind, ref_id, peer_user_id, preview, preview_enc,
-		   last_event_at, unread_count, status_badge,
-		   hidden_for_owner, deleted_for_owner, updated_at)
-		VALUES ($1, $2, 'TASK', $3, $4, NULL, $5, $6, 1, 'SENT', false, false, now())
-		ON CONFLICT (owner_user_id, item_kind, ref_id)
-		DO UPDATE SET
-		    last_event_at = GREATEST(inbox_items.last_event_at, EXCLUDED.last_event_at),
-		    status_badge  = COALESCE(inbox_items.status_badge, EXCLUDED.status_badge),
-		    updated_at    = now()`,
-		orgID, assigneeID, taskID, senderID, previewEnc, occurredAt); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
+		previewEnc, err := s.crypto.Encrypt(ctx, tx, orgID, preview)
+		if err != nil {
+			return err
+		}
+		// Preview is WRITE-ONCE: ON CONFLICT keeps the existing preview_enc (the
+		// row was seeded by an earlier task.assigned), so no preview_enc update here.
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO inbox_items
+			  (org_id, owner_user_id, item_kind, ref_id, peer_user_id, preview, preview_enc,
+			   last_event_at, unread_count, status_badge,
+			   hidden_for_owner, deleted_for_owner, updated_at)
+			VALUES ($1, $2, 'TASK', $3, $4, NULL, $5, $6, 1, 'SENT', false, false, now())
+			ON CONFLICT (owner_user_id, item_kind, ref_id)
+			DO UPDATE SET
+			    last_event_at = GREATEST(inbox_items.last_event_at, EXCLUDED.last_event_at),
+			    status_badge  = COALESCE(inbox_items.status_badge, EXCLUDED.status_badge),
+			    updated_at    = now()`,
+			orgID, assigneeID, taskID, senderID, previewEnc, occurredAt); err != nil {
+			return err
+		}
+		return tx.Commit(ctx)
+	})
 }
 
 // UpdateTaskStatusBadge bumps last_event_at and rewrites status_badge for a

@@ -12,7 +12,10 @@ require (
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/client_model v0.6.2
 	github.com/redis/go-redis/v9 v9.7.3
-	github.com/segmentio/kafka-go v0.4.47
+	github.com/segmentio/kafka-go v0.4.48
+	github.com/task-board/shared-internalauth v0.0.0-00010101000000-000000000000
+	github.com/task-board/shared-jwtauth v0.0.0-00010101000000-000000000000
+	github.com/task-board/shared-kafkaauth v0.0.0-00010101000000-000000000000
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.69.0
 	go.opentelemetry.io/otel v1.44.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.44.0
@@ -49,7 +52,7 @@ require (
 	github.com/lestrrat-go/option v1.0.1 // indirect
 	github.com/minio/md5-simd v1.1.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
-	github.com/pierrec/lz4/v4 v4.1.21 // indirect
+	github.com/pierrec/lz4/v4 v4.1.22 // indirect
 	github.com/prometheus/common v0.66.1 // indirect
 	github.com/prometheus/procfs v0.16.1 // indirect
 	github.com/rs/xid v1.6.0 // indirect
@@ -70,3 +73,9 @@ require (
 	google.golang.org/grpc v1.82.1 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
+
+replace github.com/task-board/shared-kafkaauth => ../shared/kafkaauth
+
+replace github.com/task-board/shared-internalauth => ../shared/internalauth
+
+replace github.com/task-board/shared-jwtauth => ../shared/jwtauth

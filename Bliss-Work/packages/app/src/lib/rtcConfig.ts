@@ -33,10 +33,6 @@ export const BUFFERED_AMOUNT_HIGH = 8 * 1024 * 1024;
  *  channel. */
 export const BUFFERED_AMOUNT_LOW = 4 * 1024 * 1024;
 
-/** Soft cap for files in the browser (no Node fs). Above this size we hide
- *  the 📎 button in the web app and tell the user to use the desktop app. */
-export const WEB_FILE_SIZE_CAP = 100 * 1024 * 1024;
-
 /** ICE-failure watchdog — if iceConnectionState lands in 'failed' or
  *  'disconnected' for this long, surface "Direct transfer unavailable". */
 export const ICE_FAILURE_GRACE_MS = 10_000;
