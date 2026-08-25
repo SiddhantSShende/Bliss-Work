@@ -3,10 +3,12 @@ FROM golang:1.26-alpine@sha256:3ad57304ad93bbec8548a0437ad9e06a455660655d9af011d
 WORKDIR /src
 
 # ── BUILD CONTEXT IS THE REPOSITORY ROOT, not services/notification-svc ─────
-# go.mod points its github.com/task-board/shared-kafkaauth requirement at the
-# sibling module services/shared/kafkaauth (the Kafka SASL/TLS config also
-# used by messaging-svc and ws-gateway) via a `replace ... => ../shared/kafkaauth`
-# directive, so the build needs that directory too:
+# go.mod points its github.com/task-board/shared-kafkaauth and
+# github.com/task-board/shared-jwtauth requirements at the sibling modules
+# services/shared/kafkaauth (the Kafka SASL/TLS config also used by
+# messaging-svc and ws-gateway) and services/shared/jwtauth via
+# `replace ... => ../shared/X` directives, so the build needs both
+# directories too:
 #
 #     docker build -f services/notification-svc/Dockerfile .
 #
@@ -16,6 +18,7 @@ WORKDIR /src
 # dependency actually changes.
 COPY services/notification-svc/go.mod services/notification-svc/go.sum services/notification-svc/
 COPY services/shared/kafkaauth/go.mod services/shared/kafkaauth/
+COPY services/shared/jwtauth/go.mod services/shared/jwtauth/
 WORKDIR /src/services/notification-svc
 RUN go mod download
 
@@ -23,6 +26,7 @@ RUN go mod download
 WORKDIR /src
 COPY services/notification-svc services/notification-svc
 COPY services/shared/kafkaauth services/shared/kafkaauth
+COPY services/shared/jwtauth services/shared/jwtauth
 WORKDIR /src/services/notification-svc
 
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" \

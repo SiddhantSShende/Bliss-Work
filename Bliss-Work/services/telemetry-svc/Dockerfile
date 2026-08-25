@@ -6,13 +6,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
 
 # ── BUILD CONTEXT IS THE REPOSITORY ROOT, not services/telemetry-svc ────────
-# requirements.txt points at three sibling packages as local path requirements:
+# requirements.txt points at four sibling packages as local path requirements:
 # services/shared/kafka_security (Kafka SASL/TLS config, also used by
 # auth-svc, task-svc, integrations-svc and email-worker),
 # services/shared/crypto (at-rest column encryption, also used by auth-svc,
-# task-svc and integrations-svc) and services/shared/tracing (OTel Kafka
-# context-propagation + shutdown helpers, also used by all four). The build
-# needs all three directories:
+# task-svc and integrations-svc), services/shared/tracing (OTel Kafka
+# context-propagation + shutdown helpers, also used by all four), and
+# services/shared/logging_setup (structlog -> stdout JSON bootstrap, also
+# used by every other Python service). The build needs all four
+# directories:
 #
 #     docker build -f services/telemetry-svc/Dockerfile .
 #
@@ -26,6 +28,7 @@ COPY services/telemetry-svc/requirements.txt services/telemetry-svc/requirements
 COPY services/shared/kafka_security services/shared/kafka_security
 COPY services/shared/crypto services/shared/crypto
 COPY services/shared/tracing services/shared/tracing
+COPY services/shared/logging_setup services/shared/logging_setup
 WORKDIR /src/services/telemetry-svc
 RUN pip install --upgrade pip && pip install -r requirements.txt
 

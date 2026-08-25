@@ -142,7 +142,23 @@ async def run_migrations() -> None:
                     "applied the old version will not receive the difference",
                 )
             log.info("running_migration", file=f.name)
-            await apg.execute(sql)
+            # invites/users/etc. are RLS-protected (org_isolation policy,
+            # FORCE ROW LEVEL SECURITY — applies even to the table owner) and
+            # migrations run with no org context, so any DML a migration
+            # issues against those tables would silently match zero rows
+            # without this: the policy's USING clause is
+            # `org_id = current_setting('app.org_id') OR
+            # current_setting('app.bypass_rls') = 'on'`, both unset here.
+            # Prepended into the SAME apg.execute() call (not a separate
+            # one) so it lands in the same statement batch as this file's
+            # own SQL regardless of transaction boundaries — see
+            # app/service.py's set_bypass_rls for the is_local=true
+            # (transaction-scoped) convention this follows; DDL alone
+            # (CREATE INDEX, ALTER TABLE) is unaffected by RLS, which is why
+            # no earlier migration ever needed this.
+            await apg.execute(
+                "SELECT set_config('app.bypass_rls', 'on', true);\n" + sql
+            )
             await apg.execute(
                 """
                 INSERT INTO schema_migrations (filename, checksum) VALUES ($1, $2)

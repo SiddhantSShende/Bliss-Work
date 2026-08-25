@@ -6,15 +6,19 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
 
 # ── BUILD CONTEXT IS THE REPOSITORY ROOT, not services/integrations-svc ─────
-# requirements.txt points at four sibling packages as local path requirements:
+# requirements.txt points at seven sibling packages as local path requirements:
 # services/shared/kafka_security (Kafka SASL/TLS config, also used by
 # auth-svc, task-svc, telemetry-svc and email-worker),
 # services/shared/crypto (at-rest column encryption, also used by auth-svc,
 # task-svc and telemetry-svc), services/shared/tracing (OTel Kafka
-# context-propagation + shutdown helpers, also used by all four), and
+# context-propagation + shutdown helpers, also used by all four),
 # services/shared/internal_auth (constant-time internal-service-secret
-# comparison, also used by auth-svc and task-svc). The build needs all four
-# directories:
+# comparison, also used by auth-svc and task-svc),
+# services/shared/prune_events (batched-delete retention runner, also used by
+# auth-svc and task-svc), services/shared/logging_setup (structlog -> stdout
+# JSON bootstrap, also used by every other Python service), and
+# services/shared/outbox_dlq (outbox dead-letter quarantine, also used by
+# auth-svc and task-svc). The build needs all seven directories:
 #
 #     docker build -f services/integrations-svc/Dockerfile .
 #
@@ -29,6 +33,9 @@ COPY services/shared/kafka_security services/shared/kafka_security
 COPY services/shared/crypto services/shared/crypto
 COPY services/shared/tracing services/shared/tracing
 COPY services/shared/internal_auth services/shared/internal_auth
+COPY services/shared/prune_events services/shared/prune_events
+COPY services/shared/logging_setup services/shared/logging_setup
+COPY services/shared/outbox_dlq services/shared/outbox_dlq
 WORKDIR /src/services/integrations-svc
 RUN pip install --upgrade pip && pip install -r requirements.txt
 

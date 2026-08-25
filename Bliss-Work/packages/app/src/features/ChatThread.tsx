@@ -6,6 +6,7 @@ import { clock, groupMessages } from "../lib/chatFormat";
 import type { ChannelReadReceiptDTO, MessageDTO, ReactionDTO } from "@taskboard/shared";
 import { readablePrefix, type MediaItem } from "../lib/chatEnvelope";
 import { usePopupDismiss } from "../lib/usePopupDismiss";
+import { useUserLabels } from "../lib/userLabel";
 import { waForwardText, waShareLink } from "../lib/waLink";
 import { Composer } from "./Composer";
 import { SystemPill } from "./SystemPill";
