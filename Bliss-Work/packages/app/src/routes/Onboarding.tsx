@@ -25,7 +25,7 @@ export function Onboarding() {
     setBusy(true);
     try {
       const s = await api.createOrg(form);
-      setSession({ user: s.user, accessToken: s.accessToken });
+      setSession({ user: s.user, accessToken: s.accessToken, expiresIn: s.expiresIn });
       broadcastSession(s);
       nav("/app");
     } catch (err) {

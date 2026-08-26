@@ -40,6 +40,7 @@ beforeEach(() => {
   useSession.getState().setSession({
     user: { id: "u1" } as never,
     accessToken: "live-token",
+    expiresIn: 900,
   });
 });
 

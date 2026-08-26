@@ -84,9 +84,11 @@ export function installAuthChannel(): void {
       // tab's own queued refresh can short-circuit instead of rotating again.
       siblingSession = msg.session;
       siblingSessionAt = Date.now();
-      useSession
-        .getState()
-        .setSession({ user: msg.session.user, accessToken: msg.session.accessToken });
+      useSession.getState().setSession({
+        user: msg.session.user,
+        accessToken: msg.session.accessToken,
+        expiresIn: msg.session.expiresIn,
+      });
     } else if (msg.type === "logout") {
       siblingSession = null;
       useSession.getState().clear();

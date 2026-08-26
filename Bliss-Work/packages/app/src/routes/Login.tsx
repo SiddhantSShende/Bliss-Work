@@ -26,7 +26,7 @@ export function Login() {
         nav("/mfa-challenge", { state: result });
         return;
       }
-      setSession({ user: result.user, accessToken: result.accessToken });
+      setSession({ user: result.user, accessToken: result.accessToken, expiresIn: result.expiresIn });
       broadcastSession(result); // adopt this session in sibling tabs sitting on /login
       nav("/app");
     } catch (err) {

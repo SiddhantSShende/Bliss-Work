@@ -28,7 +28,7 @@ vi.mock("@tanstack/react-query", () => ({
 }));
 
 beforeEach(() => {
-  useSession.getState().setSession({ user: ME, accessToken: "at" });
+  useSession.getState().setSession({ user: ME, accessToken: "at", expiresIn: 900 });
 });
 
 describe("usePeopleCandidates", () => {

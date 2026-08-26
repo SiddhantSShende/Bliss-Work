@@ -40,7 +40,7 @@ async function loadRefresh() {
   vi.resetModules();
   const { useSession } = await import("../store/session");
   const mod = await import("./refresh");
-  useSession.getState().setSession({ user: SESSION.user as never, accessToken: "at" });
+  useSession.getState().setSession({ user: SESSION.user as never, accessToken: "at", expiresIn: 900 });
   return { ...mod, useSession };
 }
 
@@ -131,7 +131,7 @@ describe("refreshSession", () => {
     expect(isSessionDead()).toBe(true);
 
     // Signing in mints a NEW family — every login path routes through the store.
-    useSession.getState().setSession({ user: SESSION.user as never, accessToken: "new" });
+    useSession.getState().setSession({ user: SESSION.user as never, accessToken: "new", expiresIn: 900 });
     expect(isSessionDead()).toBe(false);
   });
 });

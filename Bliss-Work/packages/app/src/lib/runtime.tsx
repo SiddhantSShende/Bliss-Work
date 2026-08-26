@@ -1,8 +1,14 @@
-import { createContext, useContext, useMemo, useRef } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef } from "react";
 import { ApiClient, WsClient } from "@taskboard/shared";
 import type { PlatformConfig, RtcTransport } from "../platform";
 import { useSession } from "../store/session";
 import { isSessionDead, refreshSession } from "./refresh";
+
+// How long before the access token's real expiry to refresh it proactively.
+// Comfortably inside the ~15min TTL so ordinary latency/clock drift can never
+// push the refresh past the actual expiry, while not refreshing so early that
+// the token loses most of its intended lifetime.
+const PROACTIVE_REFRESH_BUFFER_MS = 60_000;
 
 interface Runtime {
   config: PlatformConfig;
@@ -90,6 +96,24 @@ export function RuntimeProvider({
 
   // keep ref in sync (used by callers that need a stable token getter)
   tokenRef.current = () => useSession.getState().accessToken;
+
+  // Refresh the access token BEFORE it expires instead of only reactively on
+  // a 401 (ApiClient.req() and WsClient still do that too, as the fallback —
+  // this just makes it rare in practice). refreshSession's setSession call
+  // sets a fresh `expiresAt` on every success, which re-runs this effect and
+  // re-arms it for the next cycle; a failed proactive attempt leaves
+  // `expiresAt` unchanged and falls through to that reactive path when the
+  // token actually expires, same as today.
+  const status = useSession((s) => s.status);
+  const expiresAt = useSession((s) => s.expiresAt);
+  useEffect(() => {
+    if (status !== "authed" || expiresAt == null) return;
+    const delayMs = Math.max(expiresAt - Date.now() - PROACTIVE_REFRESH_BUFFER_MS, 5_000);
+    const timer = setTimeout(() => {
+      refreshSession(config.authBase, config.persistToken, config.getRefreshToken);
+    }, delayMs);
+    return () => clearTimeout(timer);
+  }, [status, expiresAt, config]);
 
   return <RuntimeCtx.Provider value={runtime}>{children}</RuntimeCtx.Provider>;
 }

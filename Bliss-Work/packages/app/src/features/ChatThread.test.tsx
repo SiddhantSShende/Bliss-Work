@@ -9,8 +9,17 @@
  * already sitting in history before this render (all three are the exact
  * same `ThreadMessage[]` shape, so there is nothing surface-specific to fake).
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+
+// ChatThread resolves sender avatars via useUserLabels, which needs
+// useRuntime() — see ChatsList.test.tsx for the same pattern. Not under test
+// here (that's userLabel.test.tsx's job); this just keeps the component from
+// throwing "useRuntime outside RuntimeProvider" while rendering.
+const api = { directory: vi.fn().mockResolvedValue([]) };
+vi.mock("../lib/runtime", () => ({ useRuntime: () => ({ api, config: { kind: "web" } }) }));
+
 import { ChatThread, type ThreadMessage } from "./ChatThread";
 
 const CALL_URL = "https://communication.rnrtechs.com/join?t=ABC123";
@@ -29,8 +38,11 @@ function message(over: Partial<ThreadMessage> = {}): ThreadMessage {
 const ME = "me-1";
 
 function renderThread(messages: ThreadMessage[]) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <ChatThread messages={messages} meId={ME} onSend={() => {}} peerName="Alice" />,
+    <QueryClientProvider client={qc}>
+      <ChatThread messages={messages} meId={ME} onSend={() => {}} peerName="Alice" />
+    </QueryClientProvider>,
   );
 }
 

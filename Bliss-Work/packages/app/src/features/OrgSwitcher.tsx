@@ -32,7 +32,7 @@ export function useSwitchOrg() {
       nav("/mfa-challenge", { state: result });
       return;
     }
-    setSession({ user: result.user, accessToken: result.accessToken });
+    setSession({ user: result.user, accessToken: result.accessToken, expiresIn: result.expiresIn });
     broadcastSession(result);
     qc.clear(); // every cached query is scoped to the previous org
     nav("/app");

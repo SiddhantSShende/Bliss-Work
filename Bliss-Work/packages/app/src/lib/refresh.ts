@@ -65,9 +65,11 @@ async function performRefresh(
   // queued on the lock — adopt it rather than rotating the cookie a second time.
   const recent = getRecentSession();
   if (recent) {
-    useSession
-      .getState()
-      .setSession({ user: recent.user, accessToken: recent.accessToken });
+    useSession.getState().setSession({
+      user: recent.user,
+      accessToken: recent.accessToken,
+      expiresIn: recent.expiresIn,
+    });
     return recent;
   }
 
@@ -124,7 +126,7 @@ async function performRefresh(
     const parsed = SessionDTO.safeParse(await res.json());
     if (!parsed.success) return null;
     const s = parsed.data;
-    useSession.getState().setSession({ user: s.user, accessToken: s.accessToken });
+    useSession.getState().setSession({ user: s.user, accessToken: s.accessToken, expiresIn: s.expiresIn });
     persist?.(s.accessToken);
     // Tell sibling tabs so they adopt this session instead of rotating again.
     broadcastSession(s);

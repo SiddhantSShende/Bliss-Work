@@ -37,7 +37,7 @@ export function MfaChallenge() {
   const [pendingSession, setPendingSession] = useState<SessionDTO | null>(null);
 
   const adopt = (session: SessionDTO) => {
-    setSession({ user: session.user, accessToken: session.accessToken });
+    setSession({ user: session.user, accessToken: session.accessToken, expiresIn: session.expiresIn });
     broadcastSession(session);
     qc.clear(); // scoped to whichever org this session belongs to
     nav("/app");
