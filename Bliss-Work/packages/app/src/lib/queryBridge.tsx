@@ -474,6 +474,7 @@ export function WsEventBridge() {
                   senderUsername: e.senderUsername,
                   senderDisplayName: e.senderDisplayName,
                   body: e.body,
+                  kind: e.kind,
                   isForward: e.isForward,
                   createdAt: e.occurredAt,
                 });

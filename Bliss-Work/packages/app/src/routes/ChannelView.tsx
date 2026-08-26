@@ -31,6 +31,7 @@ import { searchMessages } from "../lib/chatSearch";
 import { exportChatTranscript } from "../lib/chatExport";
 import { toggleConversationPref, useConversationPrefs } from "../lib/conversationPrefs";
 import { useMeetingSession } from "../lib/MeetingSession";
+import { useActiveThread, type ActiveThread } from "../lib/activeThread";
 
 export function ChannelView() {
   const { channelId = "" } = useParams();
@@ -79,6 +80,18 @@ export function ChannelView() {
 
   const { data: channels = [] } = useQuery({ queryKey: qk.channels, queryFn: () => api.channels() });
   const channel = channels.find((c: ChannelDTO) => c.id === channelId);
+
+  // Tell ScreenshotNotice this channel is the one on screen — same purpose as
+  // DMView's registration; see lib/activeThread for why it can't read the URL
+  // itself despite channelId living right there in the route.
+  const setActiveThread = useActiveThread((s) => s.setActiveThread);
+  const clearActiveThread = useActiveThread((s) => s.clearActiveThread);
+  useEffect(() => {
+    if (!channelId) return;
+    const t: ActiveThread = { kind: "channel", channelId };
+    setActiveThread(t);
+    return () => clearActiveThread(t);
+  }, [channelId, setActiveThread, clearActiveThread]);
 
   // Newest page only; older pages are prepended into the same flat array so
   // the websocket patches and optimistic sends below are unaffected.

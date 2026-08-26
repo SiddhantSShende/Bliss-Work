@@ -125,7 +125,11 @@ export function CallControls({
   /** For a surface that needs the row to behave differently — the room lets it
    *  wrap, because nine controls do not fit one line on a phone. */
   className?: string;
-  onAddPeople: () => void;
+  /** Omitted where Add People lives somewhere else on the surface (CallRoom
+   *  folds it into its "More" menu instead) — gated like Composer's
+   *  attachment button, so a surface that doesn't wire it never shows a
+   *  control that does nothing. */
+  onAddPeople?: () => void;
   onToggleShare: () => void;
   onToggleMic: () => void;
   onToggleCam: () => void;
@@ -141,14 +145,16 @@ export function CallControls({
 
   return (
     <div className={cn("z-10 flex items-center justify-center gap-3 sm:gap-4", className)}>
-      <Control
-        variant={variant}
-        title={addPeopleTitle}
-        onClick={onAddPeople}
-        disabled={!canAddPeople || addingPeople}
-      >
-        <UserPlus size={skin.icon} />
-      </Control>
+      {onAddPeople && (
+        <Control
+          variant={variant}
+          title={addPeopleTitle}
+          onClick={onAddPeople}
+          disabled={!canAddPeople || addingPeople}
+        >
+          <UserPlus size={skin.icon} />
+        </Control>
+      )}
 
       {/* Sharing is the one state worth shouting about, so this control stops
           being an icon in a row and becomes a red, ticking indicator. */}

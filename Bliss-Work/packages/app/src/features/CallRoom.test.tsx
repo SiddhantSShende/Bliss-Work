@@ -288,26 +288,44 @@ describe("the manual picture-in-picture button", () => {
     h.pip.supported = true;
     renderRoom();
 
-    const button = screen.getByRole("button", { name: "Picture-in-picture" });
+    // Picture-in-picture now lives in the "More" menu (see CallMoreMenu) —
+    // either of the two instances (top cluster, bottom bar) offers the same
+    // items, so opening the first is enough.
+    await act(async () => {
+      // `getAllByRole` throws if nothing matches, so this is never actually
+      // undefined — the assertion just says so to the type checker.
+      screen.getAllByRole("button", { name: "More" }).at(0)!.click();
+    });
+    const button = screen.getByRole("menuitem", { name: "Picture-in-picture" });
     await act(async () => {
       button.click();
     });
     expect(h.pip.toggle).toHaveBeenCalledTimes(1);
   });
 
-  it("is not offered at all when the platform has no Picture-in-Picture support", () => {
+  it("is not offered at all when the platform has no Picture-in-Picture support", async () => {
     h.pip.supported = false;
     renderRoom();
 
-    expect(screen.queryByRole("button", { name: /picture-in-picture/i })).toBeNull();
+    await act(async () => {
+      // `getAllByRole` throws if nothing matches, so this is never actually
+      // undefined — the assertion just says so to the type checker.
+      screen.getAllByRole("button", { name: "More" }).at(0)!.click();
+    });
+    expect(screen.queryByRole("menuitem", { name: /picture-in-picture/i })).toBeNull();
   });
 
-  it("reflects an active PiP session in its label", () => {
+  it("reflects an active PiP session in its label", async () => {
     h.pip.supported = true;
     h.pip.active = true;
     renderRoom();
 
-    expect(screen.getByRole("button", { name: "Exit picture-in-picture" })).toBeInTheDocument();
+    await act(async () => {
+      // `getAllByRole` throws if nothing matches, so this is never actually
+      // undefined — the assertion just says so to the type checker.
+      screen.getAllByRole("button", { name: "More" }).at(0)!.click();
+    });
+    expect(screen.getByRole("menuitem", { name: "Exit picture-in-picture" })).toBeInTheDocument();
   });
 });
 
@@ -399,10 +417,14 @@ describe("the meeting display controller", () => {
     h.session = session;
     renderRoom();
 
+    // Minimise now lives in the "More" menu (see CallMoreMenu).
     await act(async () => {
-      screen
-        .getByRole("button", { name: "Minimise — keep the meeting running while you work" })
-        .click();
+      // `getAllByRole` throws if nothing matches, so this is never actually
+      // undefined — the assertion just says so to the type checker.
+      screen.getAllByRole("button", { name: "More" }).at(0)!.click();
+    });
+    await act(async () => {
+      screen.getByRole("menuitem", { name: "Minimise" }).click();
     });
 
     expect(h.display.handleMinimize).toHaveBeenCalledTimes(1);

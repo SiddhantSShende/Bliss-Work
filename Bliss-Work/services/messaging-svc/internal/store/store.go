@@ -584,13 +584,19 @@ const (
 	// a client able to post one directly could forge "Forwarded to IT Support
 	// (+1800…)" in someone else's thread. Only ForwardLinkRecord sets it.
 	MessageKindForwardExternal = "forward_external"
+	// MessageKindScreenshotAttempt records that the sender's own client (web or
+	// desktop) detected and refused a screenshot attempt while this chat/channel
+	// was open. Same trust level as MessageKindCallMissed: senderID is always
+	// the authenticated caller, so this can only ever be a client reporting on
+	// itself, never forged onto someone else's thread.
+	MessageKindScreenshotAttempt = "screenshot_attempt"
 )
 
 // ValidMessageKind reports whether a CLIENT-SUPPLIED kind is one we accept on
 // the send path. Server-derived kinds are set through appendOpts.kind and are
 // intentionally absent here — see MessageKindForwardExternal.
 func ValidMessageKind(kind string) bool {
-	return kind == MessageKindText || kind == MessageKindCallMissed
+	return kind == MessageKindText || kind == MessageKindCallMissed || kind == MessageKindScreenshotAttempt
 }
 
 type MessageDTO struct {

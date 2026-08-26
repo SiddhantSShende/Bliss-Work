@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/task-board/messaging-svc/internal/auth"
+	"github.com/task-board/messaging-svc/internal/store"
 )
 
 type createChannelReq struct {
@@ -204,6 +205,9 @@ func (s *Server) listChannelMessages(w http.ResponseWriter, r *http.Request) {
 type sendChannelMsgReq struct {
 	Body        string `json:"body"`
 	ClientMsgID string `json:"clientMsgId"`
+	// Optional system kind (e.g. "screenshot_attempt"); absent means an
+	// ordinary message. Whitelisted below, same as sendMessage's Kind.
+	Kind string `json:"kind"`
 }
 
 func (s *Server) sendChannelMessage(w http.ResponseWriter, r *http.Request) {
@@ -226,7 +230,11 @@ func (s *Server) sendChannelMessage(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, errBodyTooLong)
 		return
 	}
-	res, err := s.store.SendChannelMessage(r.Context(), claims.OrgID, channelID, claims.UserID, req.Body, req.ClientMsgID)
+	if req.Kind != "" && !store.ValidMessageKind(req.Kind) {
+		writeErr(w, http.StatusBadRequest, "unknown message kind")
+		return
+	}
+	res, err := s.store.SendChannelMessage(r.Context(), claims.OrgID, channelID, claims.UserID, req.Body, req.ClientMsgID, req.Kind)
 	if err != nil {
 		s.mapErr(w, err)
 		return

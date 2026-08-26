@@ -413,7 +413,12 @@ export type MessageStatus = z.infer<typeof MessageStatus>;
 export const ThreadOrigin = z.enum(["chat", "mail"]);
 export type ThreadOrigin = z.infer<typeof ThreadOrigin>;
 
-export const MessageKind = z.enum(["text", "call_missed", "forward_external"]);
+export const MessageKind = z.enum([
+  "text",
+  "call_missed",
+  "forward_external",
+  "screenshot_attempt",
+]);
 export type MessageKind = z.infer<typeof MessageKind>;
 
 /**

@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { motion } from "framer-motion";
-import { MessageSquare, ChevronUp, Loader2, PhoneMissed } from "lucide-react";
+import { MessageSquare, ChevronUp, Loader2, PhoneMissed, Camera } from "lucide-react";
 import { Avatar } from "@taskboard/ui";
 import type { MessageDTO } from "@taskboard/shared";
 import { clock, groupMessages } from "../lib/chatFormat";
@@ -163,6 +163,19 @@ export function ThreadView({
                 {dayChip}
                 <SystemPill icon={<PhoneMissed size={12} className="text-danger" />} at={m.at}>
                   {mine ? `${m.body} · no answer` : m.body}
+                </SystemPill>
+              </div>
+            );
+          }
+
+          // A refused screenshot is a fact about the conversation too, and the
+          // body already names who tried — nothing to vary between mine/theirs.
+          if (m.kind === "screenshot_attempt") {
+            return (
+              <div key={m.id}>
+                {dayChip}
+                <SystemPill icon={<Camera size={12} className="text-warning" />} at={m.at}>
+                  {m.body}
                 </SystemPill>
               </div>
             );

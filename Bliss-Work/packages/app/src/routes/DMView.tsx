@@ -29,6 +29,7 @@ import { useCall } from "../lib/useCall";
 import { useOlderMessages } from "../lib/useOlderMessages";
 import { useUserStatus } from "../lib/usePresence";
 import { useSelectedChat } from "../lib/selectedChat";
+import { useActiveThread, type ActiveThread } from "../lib/activeThread";
 
 export function DMView() {
   // From memory, not from the path: the conversation id is deliberately absent
@@ -323,6 +324,22 @@ export function DMView() {
   // before the early return because the derived lists below need it; the helper
   // answers "Unknown user" for a conversation that is briefly missing.
   const peerName = displayNameOf(conv);
+
+  // Tell ScreenshotNotice this chat is the one on screen, so a detected
+  // attempt posts its system message here rather than nowhere — see
+  // lib/activeThread for why this can't just read useSelectedChat itself.
+  // Selected individually, not destructured from the whole store: these
+  // setters are stable, so this must not re-render DMView every time some
+  // OTHER view's registration changes `thread`.
+  const setActiveThread = useActiveThread((s) => s.setActiveThread);
+  const clearActiveThread = useActiveThread((s) => s.clearActiveThread);
+  const peerId = conv?.peerId;
+  useEffect(() => {
+    if (!peerId) return;
+    const t: ActiveThread = { kind: "chat", conversationId, peerId, peerName };
+    setActiveThread(t);
+    return () => clearActiveThread(t);
+  }, [conversationId, peerId, peerName, setActiveThread, clearActiveThread]);
 
   /**
    * The messages as the thread renders them.

@@ -1929,11 +1929,11 @@ export class ApiClient {
       z.array(ChannelReadReceiptDTO),
     );
   }
-  sendChannelMessage(channelId: string, body: string, clientMsgId?: string) {
+  sendChannelMessage(channelId: string, body: string, clientMsgId?: string, kind?: MessageKind) {
     return this.req(
       this.cfg.messagingBase,
       `/api/v1/channels/${channelId}/messages`,
-      { method: "POST", body: JSON.stringify({ body, clientMsgId: clientMsgId ?? uuid() }) },
+      { method: "POST", body: JSON.stringify({ body, clientMsgId: clientMsgId ?? uuid(), kind }) },
       z.object({ messageId: z.string(), seq: z.number() }),
     );
   }

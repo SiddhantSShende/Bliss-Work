@@ -33,12 +33,12 @@ import {
   Clock,
   Globe,
   Hand,
+  LayoutGrid,
   Mic,
   MicOff,
   MessageSquare,
-  Minimize2,
   NotebookPen,
-  PictureInPicture2,
+  Users,
   Video,
   VideoOff,
 } from "lucide-react";
@@ -48,6 +48,7 @@ import { type CallDTO } from "@taskboard/shared";
 import { useSession } from "../store/session";
 import { useRuntime } from "../lib/runtime";
 import { useCallRoom } from "../lib/useCallRoom";
+import { useCollapseTransition } from "../lib/useCollapseTransition";
 import { CHAT_SYNC_MAX, NOTES_SYNC_MAX } from "../lib/roomMessages";
 import {
   loadNotes,
@@ -83,6 +84,7 @@ import { downloadBlob } from "../lib/download";
 import { useLocalRecording } from "../lib/useLocalRecording";
 import { MiniMeeting } from "./MiniMeeting";
 import { CallControls, CallControlButton } from "./CallControls";
+import { CallMoreMenu } from "./CallMoreMenu";
 import { CallTile, UnpinButton } from "./CallTile";
 import { CallMembers } from "./CallMembers";
 import { CallSpeakerFilmstrip } from "./CallSpeakerFilmstrip";
@@ -106,21 +108,20 @@ type Panel = "notes" | "chat" | null;
  *  immediate against DEMOTE_AFTER_MS, cheap enough not to matter. */
 const SPEAKER_TICK_MS = 250;
 
-/** Participants and Chat/Notes share one constant so their widths can never
- *  drift apart — the layout calls for them to match exactly. */
-const SIDE_PANEL_SIZE = "h-64 w-full shrink-0 lg:h-auto lg:w-72 xl:w-80";
-
-/** How long the Chat/Notes panel takes to slide open or collapse shut. Also
- *  how long the panel stays MOUNTED after closing (see `panelMounted` below)
- *  — keep the two in step, or the panel will vanish before its own closing
+/** How long Participants and Chat/Notes take to slide open or collapse shut.
+ *  Also how long each stays MOUNTED after closing (see useCollapseTransition)
+ *  — keep the two in step, or a panel vanishes before its own closing
  *  transition finishes playing. */
 const PANEL_TRANSITION_MS = 300;
-/** Sizing while open/closed. Collapses on the axis that actually reclaims
- *  space at each breakpoint: height, stacked under `lg` where the panel is a
- *  full-width block above/below the others; width at `lg` and up, where it's
- *  a column beside the video and Participants and a 0-height collapse would
- *  do nothing. `overflow-hidden` keeps the content from spilling out while
- *  it shrinks. */
+/**
+ * Sizing while open/closed — shared verbatim by Participants and Chat/Notes
+ * so their widths can never drift apart, open or closed. Collapses on the
+ * axis that actually reclaims space at each breakpoint: height, stacked under
+ * `lg` where a panel is a full-width block above/below the others; width at
+ * `lg` and up, where it's a column beside the video and a 0-height collapse
+ * would do nothing. `overflow-hidden` keeps content from spilling out while
+ * it shrinks.
+ */
 const SIDE_PANEL_TRANSITION_BASE =
   "w-full shrink-0 overflow-hidden transition-all duration-300 ease-out lg:h-auto lg:max-h-none";
 const SIDE_PANEL_OPEN = "max-h-64 opacity-100 lg:w-72 xl:w-80";
@@ -164,52 +165,30 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
   const previewVideoRef = useRef<HTMLVideoElement>(null);
   const [starting, setStarting] = useState(false);
   const [panel, setPanel] = useState<Panel>(null);
-  /**
-   * The Chat/Notes panel collapses smoothly instead of vanishing the instant
-   * its button is clicked — plain CSS transitions on width/height, no
-   * animation library, but that means the panel needs a moment on screen at
-   * BOTH ends of the transition, which `panel` alone (null the instant it's
-   * closed) can't give it:
-   *
-   *  - `panelMounted` lags `panel` on the way OUT — stays true for
-   *    PANEL_TRANSITION_MS after `panel` goes null, so there is still an
-   *    element in the DOM for the "closed" size classes to animate.
-   *  - `panelEntered` lags `panel` on the way IN — starts false so the very
-   *    first paint after mounting is the COLLAPSED size, giving the browser
-   *    two distinct frames to interpolate between instead of appearing
-   *    already fully open.
-   */
-  const [panelMounted, setPanelMounted] = useState(panel !== null);
-  const [panelEntered, setPanelEntered] = useState(panel !== null);
   // Which tab the closing animation keeps showing underneath itself — `panel`
   // itself goes null immediately, but for the ~300ms it takes the panel to
   // fade out there still needs to be a real tab's content rendered inside it.
   const lastPanelRef = useRef<"chat" | "notes">(panel ?? "chat");
   if (panel) lastPanelRef.current = panel;
+  const { mounted: panelMounted, entered: panelEntered } = useCollapseTransition(
+    panel !== null,
+    PANEL_TRANSITION_MS,
+  );
 
-  useEffect(() => {
-    if (panel) {
-      setPanelMounted(true);
-      // TWO nested rAFs, not one: a single frame is not enough to guarantee
-      // the browser has actually PAINTED the collapsed size before the class
-      // flips to open — rAF callbacks run before paint, so one rAF can still
-      // land before the first paint happens, and with nothing yet rendered at
-      // the collapsed size there is nothing for the transition to animate
-      // FROM (it just jumps straight to open). Two rAFs guarantee at least
-      // one full paint of the collapsed state has already happened.
-      let raf2 = 0;
-      const raf1 = requestAnimationFrame(() => {
-        raf2 = requestAnimationFrame(() => setPanelEntered(true));
-      });
-      return () => {
-        cancelAnimationFrame(raf1);
-        cancelAnimationFrame(raf2);
-      };
-    }
-    setPanelEntered(false);
-    const timeout = setTimeout(() => setPanelMounted(false), PANEL_TRANSITION_MS);
-    return () => clearTimeout(timeout);
-  }, [panel]);
+  /** Visible by default — closing it is something the viewer opts into, not
+   *  the room's normal state. Same collapse mechanism as Chat/Notes, so all
+   *  three panels behave identically; see useCollapseTransition. */
+  const [participantsOpen, setParticipantsOpen] = useState(true);
+  const { mounted: participantsMounted, entered: participantsEntered } = useCollapseTransition(
+    participantsOpen,
+    PANEL_TRANSITION_MS,
+  );
+
+  /** Grid/Layout: force the full participant grid even while someone is on
+   *  stage. Overrides the DISPLAY only — `pinned` and the active speaker keep
+   *  updating underneath it, so turning this back off resumes wherever the
+   *  room actually is. */
+  const [forceGrid, setForceGrid] = useState(false);
   const [pinned, setPinned] = useState<string | null>(null);
   const [hands, setHands] = useState<Set<string>>(() => new Set());
   const [notes, setNotes] = useState<NoteEntry[]>(() => loadNotes(call.id));
@@ -773,6 +752,35 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
   const visibleChat = identity ? chat.filter((c) => visibleToMe(c, identity)) : chat;
   const unread = panel === "chat" ? 0 : unreadSince(visibleChat, chatSeenAt, identity);
 
+  // Shared by both More buttons (top-right cluster and bottom bar) — one
+  // definition, so the two instances can never drift into offering different
+  // things for the same room.
+  const moreMenuProps = {
+    canAddPeople,
+    addPeopleTitle,
+    onAddPeople: () => setAddOpen(true),
+    isHost,
+    recordingSupported: localRec.supported,
+    recording: localRec.recording,
+    onToggleRecording: () => void toggleRecording(),
+    pipSupported: pip.supported,
+    pipActive: pip.active,
+    onTogglePip: pip.toggle,
+    onMinimize: session ? display.handleMinimize : undefined,
+  };
+  // Same idea for the Participants toggle, which also appears in both places.
+  const participantsToggleButton = (
+    <CallControlButton
+      variant="surface"
+      title={participantsOpen ? "Hide participants" : "Show participants"}
+      pressed={participantsOpen}
+      onClick={() => setParticipantsOpen((v) => !v)}
+      className={participantsOpen ? "bg-accent text-accent-fg" : undefined}
+    >
+      <Users size={17} />
+    </CallControlButton>
+  );
+
   return (
     <>
       {/* The meeting, small and on top, while the app is used underneath.
@@ -801,7 +809,7 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
       <div
         className={minimized ? "hidden" : "meeting-theme fixed inset-0 z-[100] flex flex-col bg-surface"}
       >
-      <header className="shrink-0 space-y-3 border-b border-border/70 px-5 py-3">
+      <header className="flex shrink-0 items-start justify-between gap-3 border-b border-border/70 px-5 py-3">
         <div className="min-w-0">
           <div className="truncate font-semibold text-fg">{title}</div>
           <div className="flex flex-wrap items-center gap-x-3 text-xs text-muted">
@@ -830,130 +838,67 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
           </div>
         </div>
 
-        <CallControls
-          variant="surface"
-          className="flex-wrap"
-          micOn={micOn}
-          camOn={camOn}
-          sharing={sharing}
-          startedAt={connectedAt}
-          canAddPeople={canAddPeople}
-          addPeopleTitle={addPeopleTitle}
-          onAddPeople={() => setAddOpen(true)}
-          onToggleShare={() => void toggleShare()}
-          onToggleMic={() => void toggleMic()}
-          onToggleCam={() => void toggleCam()}
-          onEnd={() => void hangUp()}
-          extras={
-            <>
-              <CallControlButton
-                variant="surface"
-                title={handRaised ? "Lower your hand" : "Raise your hand"}
-                pressed={handRaised}
-                disabled={!identity}
-                onClick={toggleHand}
-                className={handRaised ? "bg-warning text-amber-950 hover:brightness-95" : undefined}
-              >
-                <Hand size={17} />
-              </CallControlButton>
+        {/* Top-right: view/panel toggles — Notes, Chat, Participants,
+            Grid/Layout, More. The primary call actions (camera, mic, share,
+            hand, end) live in their own centered bar below the video area
+            instead — see the bottom bar after the three columns. Every
+            button here is the same CallControlButton with the same
+            accent-on-active treatment, so the five read as one consistent
+            set rather than five one-off controls. */}
+        <div className="flex shrink-0 items-center gap-1.5">
+          <CallControlButton
+            variant="surface"
+            title={panel === "notes" ? "Hide notes" : "Notes"}
+            pressed={panel === "notes"}
+            onClick={() => setPanel((p) => (p === "notes" ? null : "notes"))}
+            className={panel === "notes" ? "bg-accent text-accent-fg" : undefined}
+          >
+            <NotebookPen size={17} />
+          </CallControlButton>
 
-              <CallControlButton
-                variant="surface"
-                title={
-                  panel === "chat"
-                    ? "Hide chat"
-                    : unread > 0
-                      ? `Chat (${unread} new)`
-                      : "Chat"
-                }
-                pressed={panel === "chat"}
-                onClick={() => setPanel((p) => (p === "chat" ? null : "chat"))}
-                className={panel === "chat" ? "bg-accent text-accent-fg" : undefined}
-              >
-                <span className="relative inline-flex">
-                  <MessageSquare size={17} />
-                  {/* The count, not just a dot: "someone said something" and
-                      "eleven messages went by" are different situations to come
-                      back to. Capped so the badge cannot grow the button. */}
-                  {unread > 0 && (
-                    <span
-                      aria-hidden
-                      className="absolute -right-2 -top-1.5 min-w-[15px] rounded-full bg-danger px-1 text-[9px] font-bold leading-[15px] text-white"
-                    >
-                      {unread > 9 ? "9+" : unread}
-                    </span>
-                  )}
+          <CallControlButton
+            variant="surface"
+            title={
+              panel === "chat"
+                ? "Hide chat"
+                : unread > 0
+                  ? `Chat (${unread} new)`
+                  : "Chat"
+            }
+            pressed={panel === "chat"}
+            onClick={() => setPanel((p) => (p === "chat" ? null : "chat"))}
+            className={panel === "chat" ? "bg-accent text-accent-fg" : undefined}
+          >
+            <span className="relative inline-flex">
+              <MessageSquare size={17} />
+              {/* The count, not just a dot: "someone said something" and
+                  "eleven messages went by" are different situations to come
+                  back to. Capped so the badge cannot grow the button. */}
+              {unread > 0 && (
+                <span
+                  aria-hidden
+                  className="absolute -right-2 -top-1.5 min-w-[15px] rounded-full bg-danger px-1 text-[9px] font-bold leading-[15px] text-white"
+                >
+                  {unread > 9 ? "9+" : unread}
                 </span>
-              </CallControlButton>
-
-              {/* Offered to hosts alone — the organiser records the meeting.
-                  Everyone still SEES the notice above.
-
-                  `pressed` follows localRec, not `recording`: the latter is true
-                  for everyone once anybody starts, and a host who is merely
-                  being recorded by someone else has no file to stop. */}
-              {isHost && (
-                <CallControlButton
-                  variant="surface"
-                  title={
-                    !localRec.supported
-                      ? "This browser can't record meetings"
-                      : localRec.recording
-                        ? "Stop recording and save it to this device"
-                        : "Record this meeting to this device"
-                  }
-                  pressed={localRec.recording}
-                  disabled={!localRec.supported}
-                  onClick={() => void toggleRecording()}
-                  className={
-                    localRec.recording ? "bg-danger text-white hover:brightness-90" : undefined
-                  }
-                >
-                  <Circle size={17} className={localRec.recording ? "fill-current" : undefined} />
-                </CallControlButton>
               )}
+            </span>
+          </CallControlButton>
 
-              <CallControlButton
-                variant="surface"
-                title={panel === "notes" ? "Hide notes" : "Notes"}
-                pressed={panel === "notes"}
-                onClick={() => setPanel((p) => (p === "notes" ? null : "notes"))}
-                className={panel === "notes" ? "bg-accent text-accent-fg" : undefined}
-              >
-                <NotebookPen size={17} />
-              </CallControlButton>
+          {participantsToggleButton}
 
-              {/* Only where the platform actually supports it — a button that
-                  cannot work is worse than no button. Explicit click = a real
-                  user gesture, so this is the reliable way in; leaving the tab
-                  also attempts it, but browsers are free to refuse that one. */}
-              {pip.supported && (
-                <CallControlButton
-                  variant="surface"
-                  title={pip.active ? "Exit picture-in-picture" : "Picture-in-picture"}
-                  pressed={pip.active}
-                  onClick={pip.toggle}
-                  className={pip.active ? "bg-accent text-accent-fg" : undefined}
-                >
-                  <PictureInPicture2 size={17} />
-                </CallControlButton>
-              )}
+          <CallControlButton
+            variant="surface"
+            title={forceGrid ? "Switch to speaker view" : "Switch to grid view"}
+            pressed={forceGrid}
+            onClick={() => setForceGrid((v) => !v)}
+            className={forceGrid ? "bg-accent text-accent-fg" : undefined}
+          >
+            <LayoutGrid size={17} />
+          </CallControlButton>
 
-              {/* Offered only where there is somewhere to minimise INTO — the
-                  session provider is what keeps the meeting running behind the
-                  rest of the app. */}
-              {session && (
-                <CallControlButton
-                  variant="surface"
-                  title="Minimise — keep the meeting running while you work"
-                  onClick={display.handleMinimize}
-                >
-                  <Minimize2 size={17} />
-                </CallControlButton>
-              )}
-            </>
-          }
-        />
+          <CallMoreMenu placement="down" {...moreMenuProps} />
+        </div>
       </header>
 
       {/* Three fixed columns: video area, Participants, Chat/Notes — in that
@@ -970,7 +915,7 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
             <div className="flex h-full items-center justify-center text-sm text-muted">
               {status === "failed" ? "Couldn't join this call." : "Connecting…"}
             </div>
-          ) : stage ? (
+          ) : stage && !forceGrid ? (
             <div className="flex min-h-0 flex-1 flex-col gap-3">
               <div className="relative min-h-0 flex-1">
                 {/* Offered only for a pin somebody MADE. The stage following
@@ -1018,18 +963,25 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
           )}
         </main>
 
-        {/* Middle: Participants — a fixed part of the layout, not a panel
-            that opens and closes, so "who is here" never needs a popup. */}
-        <CallRoster
-          participants={participants}
-          hands={hands}
-          pinned={pinned}
-          onTogglePin={togglePin}
-          canInvite={canAddPeople}
-          inviteTitle={addPeopleTitle}
-          onInvite={() => setAddOpen(true)}
-          className={SIDE_PANEL_SIZE}
-        />
+        {/* Middle: Participants. Collapses on the Participants toggle the
+            same way Chat/Notes collapses on its own — same transition, same
+            width — rather than the popup the Participants panel used to be
+            forbidden from becoming; see useCollapseTransition. */}
+        {participantsMounted && (
+          <CallRoster
+            participants={participants}
+            hands={hands}
+            pinned={pinned}
+            onTogglePin={togglePin}
+            canInvite={canAddPeople}
+            inviteTitle={addPeopleTitle}
+            onInvite={() => setAddOpen(true)}
+            className={cn(
+              SIDE_PANEL_TRANSITION_BASE,
+              participantsEntered ? SIDE_PANEL_OPEN : SIDE_PANEL_CLOSED,
+            )}
+          />
+        )}
 
         {/* Right: Chat or Notes — one panel, two tabs (see CallSidePanel).
             Opened to whichever the header button that opened it was; Chat
@@ -1055,6 +1007,46 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
             )}
           </CallSidePanel>
         )}
+      </div>
+
+      {/* Bottom: the primary call actions, centered — Share Screen, Mic,
+          Camera, Raise Hand, Participants, More, End. Add People, Record,
+          Picture-in-Picture and Minimise all moved into the More menu instead
+          of crowding this row — see CallMoreMenu. (Share/Mic/Camera keep
+          CallControls' own built-in order rather than being reordered here,
+          since that component is shared with CallUI's 1:1 calls and
+          reordering its hard-coded row would change that surface too.) */}
+      <div className="shrink-0 border-t border-border/70 px-5 py-3">
+        <CallControls
+          variant="surface"
+          className="flex-wrap"
+          micOn={micOn}
+          camOn={camOn}
+          sharing={sharing}
+          startedAt={connectedAt}
+          onToggleShare={() => void toggleShare()}
+          onToggleMic={() => void toggleMic()}
+          onToggleCam={() => void toggleCam()}
+          onEnd={() => void hangUp()}
+          extras={
+            <>
+              <CallControlButton
+                variant="surface"
+                title={handRaised ? "Lower your hand" : "Raise your hand"}
+                pressed={handRaised}
+                disabled={!identity}
+                onClick={toggleHand}
+                className={handRaised ? "bg-warning text-amber-950 hover:brightness-95" : undefined}
+              >
+                <Hand size={17} />
+              </CallControlButton>
+
+              {participantsToggleButton}
+
+              <CallMoreMenu placement="up" {...moreMenuProps} />
+            </>
+          }
+        />
       </div>
 
       <AddPeopleDialog

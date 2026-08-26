@@ -1,6 +1,6 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { MessageSquare, Ban, Forward, PhoneMissed, Pin } from "lucide-react";
+import { MessageSquare, Ban, Forward, PhoneMissed, Pin, Camera } from "lucide-react";
 import { Avatar } from "@taskboard/ui";
 import { clock, groupMessages } from "../lib/chatFormat";
 import type { ChannelReadReceiptDTO, MessageDTO, ReactionDTO } from "@taskboard/shared";
@@ -22,9 +22,9 @@ export interface ThreadMessage {
   body: string;
   at?: string;
   pending?: boolean;
-  /** System entries (a missed call, a forward handed off to WhatsApp) render as
-   *  a centered notice, not a bubble. */
-  kind?: "text" | "call_missed" | "forward_external";
+  /** System entries (a missed call, a forward handed off to WhatsApp, a refused
+   *  screenshot) render as a centered notice, not a bubble. */
+  kind?: "text" | "call_missed" | "forward_external" | "screenshot_attempt";
   /** Sender-side delivery state. Set only on the caller's own messages. */
   status?: MessageDTO["status"];
   /** The message this one quotes. Rendered as a strip above the body. */
@@ -385,6 +385,19 @@ export function ChatThread({
                   {dayChip}
                   <SystemPill icon={<PhoneMissed size={12} className="text-danger" />} at={m.at}>
                     {mine ? `${m.body} · no answer` : m.body}
+                  </SystemPill>
+                </div>
+              );
+            }
+
+            // A refused screenshot is a fact about the conversation too, and the
+            // body already names who tried — nothing to vary between mine/theirs.
+            if (m.kind === "screenshot_attempt") {
+              return (
+                <div key={m.id}>
+                  {dayChip}
+                  <SystemPill icon={<Camera size={12} className="text-warning" />} at={m.at}>
+                    {m.body}
                   </SystemPill>
                 </div>
               );

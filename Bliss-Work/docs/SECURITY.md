@@ -161,6 +161,16 @@ practice: the AppImage and `.deb` are the builds produced natively by this repo.
 
    Admins read it under **Security** in a member's activity timeline.
 
+3. If a 1:1 chat or channel is open at the moment of the attempt, the same
+   detected event ALSO posts an ordinary system message into it — "X tried to
+   take a screenshot of this page." (`kind: "screenshot_attempt"`, rendered the
+   same way a missed-call pill is). This is independent of the telemetry route
+   above: it fires whether or not the activity agent already recorded the
+   attempt, and it does nothing when no chat/channel is open. It makes the
+   refusal visible to the people IN the conversation, not just to an admin
+   later — the audience for "someone here just tried to screenshot this" is the
+   conversation itself as much as it is Security.
+
 Treat this as **deterrence, detection and an audit trail**, not prevention. For
 content that genuinely must not leave a screen, the control has to be "do not
 put it on that screen", not "ask the OS nicely".

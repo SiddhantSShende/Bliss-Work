@@ -376,6 +376,8 @@ export const ChannelMessageCreated = z.object({
    * channel and silently show nothing in a real one.
    */
   members: z.array(z.string().uuid()).optional(),
+  /** Mirrors MessageCreated.kind. Absent = text; wire-tolerant, same reason. */
+  kind: MessageKindWire.optional(),
   /** Mirrors MessageCreated.isForward. */
   isForward: z.boolean().optional(),
 });

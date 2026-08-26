@@ -253,7 +253,10 @@ func memberJoinedEvents(orgID, channelID, channelName, actorID string, userIDs [
 
 // SendChannelMessage appends a message to a channel. Caller must be a member.
 // Idempotent on (channel, sender, clientMsgId).
-func (s *Store) SendChannelMessage(ctx context.Context, orgID, channelID, senderID, body, clientMsgID string) (*ChannelSendResult, error) {
+//
+// kind is a MessageKind* constant ("" → text), whitelisted by the caller via
+// ValidMessageKind exactly as sendMessage does for DMs — see store.go.
+func (s *Store) SendChannelMessage(ctx context.Context, orgID, channelID, senderID, body, clientMsgID, kind string) (*ChannelSendResult, error) {
 	var out *ChannelSendResult
 	err := RetryOnSerializationFailure(ctx, 3, func(ctx context.Context) error {
 		tx, err := s.pool.Begin(ctx)
@@ -315,9 +318,9 @@ func (s *Store) SendChannelMessage(ctx context.Context, orgID, channelID, sender
 		}
 		msgID := uuid.Must(uuid.NewV7()).String()
 		_, err = tx.Exec(ctx,
-			`INSERT INTO channel_messages (id, org_id, channel_id, seq, sender_id, body, body_enc, client_msg_id)
-			 VALUES ($1, $2, $3, $4, $5, NULL, $6, $7)`,
-			msgID, orgID, channelID, seq, senderID, bodyEnc, clientMsgID)
+			`INSERT INTO channel_messages (id, org_id, channel_id, seq, sender_id, body, body_enc, client_msg_id, kind)
+			 VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8)`,
+			msgID, orgID, channelID, seq, senderID, bodyEnc, clientMsgID, channelAppendOpts{kind: kind}.kindArg())
 		if err != nil {
 			return err
 		}
@@ -348,6 +351,7 @@ func (s *Store) SendChannelMessage(ctx context.Context, orgID, channelID, sender
 			SenderDisplayName: senderDisplay,
 			Body:              body,
 			Members:           members,
+			Kind:              kind,
 		}
 		if err := insertOutbox(ctx, tx, channelID, evt); err != nil {
 			return err
