@@ -29,82 +29,38 @@ scripted abuse, which the TTL + attempt cap + per-IP rate limit already cover.
 `verify_and_consume` is the only place this is checked; auth.py's login and
 create_org both call it directly rather than each re-implementing the
 missing/expired/used/wrong-value logic.
+
+── Rendering lives in captcha_image.py ───────────────────────────────────────
+The actual pixel-pushing (style selection, background/interference,
+per-character distortion, warp) is a separate module — a distinct concern
+from generation/storage/validation, and large enough on its own to deserve
+its own file. See captcha_image.py's docstring for the anti-OCR rationale.
 """
 from __future__ import annotations
 
-import io
-import random
 import secrets
 import string
 import time
 
 from fastapi import HTTPException, status
-from PIL import Image, ImageDraw, ImageFont
 
+from . import captcha_image
 from .. import service
 from ..config import settings
 from ..logging_config import log
 
-_ALPHABET = string.ascii_letters + string.digits  # A-Z a-z 0-9 only, per spec
-
-_IMG_WIDTH = 260
-_IMG_HEIGHT = 90
-_FONT_SIZE = 38
+# A-Z a-z 0-9, minus the classic visually-confusable set (0/O, 1/l/I) — kept
+# out because heavier per-character distortion (rotation, scale, warp; see
+# captcha_image.py) makes an already-ambiguous pair harder still to call
+# correctly, and excluding 5 of 62 characters costs negligible entropy.
+_AMBIGUOUS = "0O1lI"
+_ALPHABET = "".join(c for c in string.ascii_letters + string.digits if c not in _AMBIGUOUS)
 
 
 def _generate_value(length: int) -> str:
     """Cryptographically secure — `secrets.choice` is CSPRNG-backed (os.urandom
     under the hood), unlike `random.choice`."""
     return "".join(secrets.choice(_ALPHABET) for _ in range(length))
-
-
-def _render_image(value: str) -> bytes:
-    """PNG bytes: the characters plus visual noise (background speckle, lines
-    behind and through the text, per-character rotation/offset/color) so naive
-    OCR is harder. Every random.* call below is COSMETIC ONLY — jitter position,
-    noise placement, color — never anything that affects which characters were
-    chosen; that comes solely from `_generate_value`'s `secrets.choice`.
-    """
-    bg = tuple(random.randint(235, 250) for _ in range(3))
-    img = Image.new("RGB", (_IMG_WIDTH, _IMG_HEIGHT), bg)
-    draw = ImageDraw.Draw(img)
-
-    for _ in range(5):
-        xy = [
-            (random.randint(0, _IMG_WIDTH), random.randint(0, _IMG_HEIGHT)),
-            (random.randint(0, _IMG_WIDTH), random.randint(0, _IMG_HEIGHT)),
-        ]
-        draw.line(xy, fill=tuple(random.randint(150, 205) for _ in range(3)), width=1)
-
-    for _ in range(90):
-        xy = (random.randint(0, _IMG_WIDTH - 1), random.randint(0, _IMG_HEIGHT - 1))
-        draw.point(xy, fill=tuple(random.randint(160, 215) for _ in range(3)))
-
-    font = ImageFont.load_default(size=_FONT_SIZE)
-    margin = 12
-    n = len(value)
-    cell_w = (_IMG_WIDTH - 2 * margin) // n
-    glyph_size = cell_w + 24  # headroom so rotation doesn't clip the glyph
-    for i, ch in enumerate(value):
-        glyph = Image.new("RGBA", (glyph_size, _IMG_HEIGHT), (0, 0, 0, 0))
-        gdraw = ImageDraw.Draw(glyph)
-        color = tuple(random.randint(20, 90) for _ in range(3)) + (255,)
-        gdraw.text((glyph_size * 0.25, _IMG_HEIGHT * 0.22), ch, font=font, fill=color)
-        glyph = glyph.rotate(random.uniform(-18, 18), resample=Image.BICUBIC, expand=0)
-        x = margin + i * cell_w - (glyph_size - cell_w) // 2
-        y = random.randint(-5, 5)
-        img.paste(glyph, (x, y), glyph)
-
-    for _ in range(2):
-        xy = [
-            (random.randint(0, _IMG_WIDTH), random.randint(_IMG_HEIGHT // 3, _IMG_HEIGHT)),
-            (random.randint(0, _IMG_WIDTH), random.randint(0, _IMG_HEIGHT // 2)),
-        ]
-        draw.line(xy, fill=tuple(random.randint(100, 160) for _ in range(3)), width=1)
-
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return buf.getvalue()
 
 
 class _CaptchaStore:
@@ -199,7 +155,7 @@ async def generate_challenge() -> tuple[str, bytes, int]:
     value = _generate_value(settings.captcha_length)
     captcha_id = service.new_uuid()
     await _store.put(captcha_id, service.sha256_bytes(value), settings.captcha_ttl_seconds)
-    return captcha_id, _render_image(value), settings.captcha_ttl_seconds
+    return captcha_id, captcha_image.render(value), settings.captcha_ttl_seconds
 
 
 _INVALID_CAPTCHA = HTTPException(status.HTTP_400_BAD_REQUEST, "invalid or expired captcha")

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { motion } from "framer-motion";
 import { MessageSquare, ChevronUp, Loader2, PhoneMissed } from "lucide-react";
 import { Avatar } from "@taskboard/ui";
@@ -39,6 +39,7 @@ interface ThreadMsgVisual {
  * navbar off-screen.
  */
 export function ThreadView({
+  threadId,
   messages,
   meId,
   hasMore,
@@ -47,6 +48,15 @@ export function ThreadView({
   showSenderNames = false,
   renderBody,
 }: {
+  /**
+   * Mail thread id. MailThread is not remounted on a URL param change
+   * (react-router-dom reuses the same route element — see MailThread.tsx),
+   * so without tracking whose ids these are, a stale-then-fresh cache
+   * delivery for a revisited thread gets misread as "message appended to the
+   * PREVIOUS thread" and animates a visible smooth-scroll instead of landing
+   * instantly.
+   */
+  threadId: string;
   messages: ThreadMsgVisual[];
   meId: string;
   hasMore: boolean;
@@ -58,32 +68,42 @@ export function ThreadView({
   renderBody?: (m: ThreadMsgVisual) => ReactNode | null;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
-  const lastMsgIdRef = useRef<string | null>(null);
+  const prevRef = useRef<{ threadId?: string; lastId?: string }>({});
   const anchorHeightRef = useRef<number | null>(null);
-
-  // Auto-scroll to bottom when a new message lands at the END of the array.
-  useEffect(() => {
-    const el = listRef.current;
-    if (!el) return;
-    const tail = messages[messages.length - 1];
-    if (!tail) return;
-    if (tail.id !== lastMsgIdRef.current) {
-      lastMsgIdRef.current = tail.id;
-      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-    }
-  }, [messages]);
+  // Stays false until the thread has painted at least once with messages —
+  // that first landing must be instant, not an animated scroll from the
+  // container's default scrollTop: 0 down to the bottom.
+  const settledRef = useRef(false);
 
   // Anchor scrollHeight before a prepend so the prepended page doesn't
-  // visually displace the user's current scroll position.
+  // visually displace the user's current scroll position, and scroll to
+  // bottom when a new message lands at the END of the array. Combined into
+  // one useLayoutEffect (not useEffect) so the correction lands in the same
+  // frame as the new content — an effect fires after paint, which is exactly
+  // the visible "renders at the top, then jumps down" sequence this replaces.
   useLayoutEffect(() => {
     const el = listRef.current;
     if (!el) return;
+    const prev = prevRef.current;
+    const isNewThread = prev.threadId !== threadId;
+    if (isNewThread) settledRef.current = false;
+
     const anchor = anchorHeightRef.current;
-    if (anchor != null) {
+    if (!isNewThread && anchor != null) {
       el.scrollTop = el.scrollHeight - anchor;
       anchorHeightRef.current = null;
+      prevRef.current = { threadId, lastId: prev.lastId };
+      return;
     }
-  }, [messages]);
+    anchorHeightRef.current = null;
+
+    const tail = messages[messages.length - 1];
+    if (tail && (isNewThread || tail.id !== prev.lastId)) {
+      el.scrollTo({ top: el.scrollHeight, behavior: settledRef.current ? "smooth" : "auto" });
+    }
+    if (messages.length > 0) settledRef.current = true;
+    prevRef.current = { threadId, lastId: tail?.id };
+  }, [threadId, messages]);
 
   const onTopReached = () => {
     const el = listRef.current;

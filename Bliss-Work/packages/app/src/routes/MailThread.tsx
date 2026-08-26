@@ -177,6 +177,7 @@ function MailThreadContent({ threadId, me }: { threadId: string; me: UserDTO }) 
       </div>
 
       <ThreadView
+        threadId={threadId}
         messages={visual}
         meId={me.id}
         hasMore={!!msgQuery.hasNextPage}

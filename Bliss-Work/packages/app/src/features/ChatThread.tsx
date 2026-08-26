@@ -136,6 +136,7 @@ function SeenBy({ receipts }: { receipts: ChannelReadReceiptDTO[] }) {
 
 /** Presentational chat thread (bubbles + composer). Reused by DMs and channels. */
 export function ChatThread({
+  threadId,
   messages,
   meId,
   onSend,
@@ -171,6 +172,14 @@ export function ChatThread({
   loadingOlder = false,
   hasOlder = false,
 }: {
+  /**
+   * Conversation/channel id. ChatThread is never remounted on a chat switch
+   * (DMView/ChannelView are unkeyed — see their own comments on why), so
+   * without this the scroll-tracking refs below would carry over from
+   * whatever chat was open before, misreading the new chat's first paint as
+   * "a message got appended to the old one" and animating a visible scroll.
+   */
+  threadId: string;
   messages: ThreadMessage[];
   meId: string;
   onSend: (text: string) => void;
@@ -285,24 +294,41 @@ export function ChatThread({
   //
   // useLayoutEffect, not useEffect: the correction must land in the same frame
   // as the taller list, or the jump is visible.
-  const prevRef = useRef<{ firstId?: string; lastId?: string; height: number }>({ height: 0 });
+  //
+  // Keyed by threadId, not just message ids: DMView/ChannelView never remount
+  // ChatThread on a chat switch, so without tracking whose ids these are, a
+  // stale-then-fresh cache delivery for a revisited or websocket-preseeded
+  // chat gets misread as "message appended to the PREVIOUS chat" and animates
+  // a visible smooth-scroll instead of landing instantly.
+  //
+  // `settledRef` stays false across every render of a thread's opening
+  // sequence — not just its very first one — because a revisited or
+  // websocket-preseeded chat can deliver a stale cached page and then the
+  // fresh one a moment later as two separate renders. Both must land
+  // instantly; only scrolls after the thread has visibly settled should
+  // animate.
+  const prevRef = useRef<{ threadId?: string; firstId?: string; lastId?: string; height: number }>({ height: 0 });
+  const settledRef = useRef(false);
   useLayoutEffect(() => {
     const el = listRef.current;
     if (!el) return;
     const firstId = messages[0]?.id;
     const lastId = messages[messages.length - 1]?.id;
     const prev = prevRef.current;
-    const prepended = !!prev.firstId && firstId !== prev.firstId && lastId === prev.lastId;
+    const isNewThread = prev.threadId !== threadId;
+    if (isNewThread) settledRef.current = false;
+    const prepended = !isNewThread && !!prev.firstId && firstId !== prev.firstId && lastId === prev.lastId;
 
     if (prepended) {
       el.scrollTop += el.scrollHeight - prev.height;
-    } else if (lastId !== prev.lastId) {
-      // No smooth scroll on first paint — the thread should already be at the
-      // bottom when it appears, not animate there.
-      el.scrollTo({ top: el.scrollHeight, behavior: prev.lastId ? "smooth" : "auto" });
+    } else if (isNewThread || lastId !== prev.lastId) {
+      // No smooth scroll while a thread is still settling into view — it
+      // should already be at the bottom when it appears, not animate there.
+      el.scrollTo({ top: el.scrollHeight, behavior: settledRef.current ? "smooth" : "auto" });
     }
-    prevRef.current = { firstId, lastId, height: el.scrollHeight };
-  }, [messages]);
+    if (messages.length > 0) settledRef.current = true;
+    prevRef.current = { threadId, firstId, lastId, height: el.scrollHeight };
+  }, [threadId, messages]);
 
   const handleScroll = () => {
     const el = listRef.current;

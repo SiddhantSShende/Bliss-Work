@@ -87,6 +87,7 @@ import { CallTile, UnpinButton } from "./CallTile";
 import { CallMembers } from "./CallMembers";
 import { CallSpeakerFilmstrip } from "./CallSpeakerFilmstrip";
 import { SpeakingWave } from "./SpeakingWave";
+import { CallSidePanel } from "./CallSidePanel";
 import { CallNotes } from "./CallNotes";
 import { CallChat } from "./CallChat";
 import { CallRoster } from "./CallRoster";
@@ -108,6 +109,22 @@ const SPEAKER_TICK_MS = 250;
 /** Participants and Chat/Notes share one constant so their widths can never
  *  drift apart — the layout calls for them to match exactly. */
 const SIDE_PANEL_SIZE = "h-64 w-full shrink-0 lg:h-auto lg:w-72 xl:w-80";
+
+/** How long the Chat/Notes panel takes to slide open or collapse shut. Also
+ *  how long the panel stays MOUNTED after closing (see `panelMounted` below)
+ *  — keep the two in step, or the panel will vanish before its own closing
+ *  transition finishes playing. */
+const PANEL_TRANSITION_MS = 300;
+/** Sizing while open/closed. Collapses on the axis that actually reclaims
+ *  space at each breakpoint: height, stacked under `lg` where the panel is a
+ *  full-width block above/below the others; width at `lg` and up, where it's
+ *  a column beside the video and Participants and a 0-height collapse would
+ *  do nothing. `overflow-hidden` keeps the content from spilling out while
+ *  it shrinks. */
+const SIDE_PANEL_TRANSITION_BASE =
+  "w-full shrink-0 overflow-hidden transition-all duration-300 ease-out lg:h-auto lg:max-h-none";
+const SIDE_PANEL_OPEN = "max-h-64 opacity-100 lg:w-72 xl:w-80";
+const SIDE_PANEL_CLOSED = "pointer-events-none max-h-0 opacity-0 lg:w-0";
 
 export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void }) {
   const room = useCallRoom(call.id);
@@ -147,6 +164,52 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
   const previewVideoRef = useRef<HTMLVideoElement>(null);
   const [starting, setStarting] = useState(false);
   const [panel, setPanel] = useState<Panel>(null);
+  /**
+   * The Chat/Notes panel collapses smoothly instead of vanishing the instant
+   * its button is clicked — plain CSS transitions on width/height, no
+   * animation library, but that means the panel needs a moment on screen at
+   * BOTH ends of the transition, which `panel` alone (null the instant it's
+   * closed) can't give it:
+   *
+   *  - `panelMounted` lags `panel` on the way OUT — stays true for
+   *    PANEL_TRANSITION_MS after `panel` goes null, so there is still an
+   *    element in the DOM for the "closed" size classes to animate.
+   *  - `panelEntered` lags `panel` on the way IN — starts false so the very
+   *    first paint after mounting is the COLLAPSED size, giving the browser
+   *    two distinct frames to interpolate between instead of appearing
+   *    already fully open.
+   */
+  const [panelMounted, setPanelMounted] = useState(panel !== null);
+  const [panelEntered, setPanelEntered] = useState(panel !== null);
+  // Which tab the closing animation keeps showing underneath itself — `panel`
+  // itself goes null immediately, but for the ~300ms it takes the panel to
+  // fade out there still needs to be a real tab's content rendered inside it.
+  const lastPanelRef = useRef<"chat" | "notes">(panel ?? "chat");
+  if (panel) lastPanelRef.current = panel;
+
+  useEffect(() => {
+    if (panel) {
+      setPanelMounted(true);
+      // TWO nested rAFs, not one: a single frame is not enough to guarantee
+      // the browser has actually PAINTED the collapsed size before the class
+      // flips to open — rAF callbacks run before paint, so one rAF can still
+      // land before the first paint happens, and with nothing yet rendered at
+      // the collapsed size there is nothing for the transition to animate
+      // FROM (it just jumps straight to open). Two rAFs guarantee at least
+      // one full paint of the collapsed state has already happened.
+      let raf2 = 0;
+      const raf1 = requestAnimationFrame(() => {
+        raf2 = requestAnimationFrame(() => setPanelEntered(true));
+      });
+      return () => {
+        cancelAnimationFrame(raf1);
+        cancelAnimationFrame(raf2);
+      };
+    }
+    setPanelEntered(false);
+    const timeout = setTimeout(() => setPanelMounted(false), PANEL_TRANSITION_MS);
+    return () => clearTimeout(timeout);
+  }, [panel]);
   const [pinned, setPinned] = useState<string | null>(null);
   const [hands, setHands] = useState<Set<string>>(() => new Set());
   const [notes, setNotes] = useState<NoteEntry[]>(() => loadNotes(call.id));
@@ -968,27 +1031,29 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
           className={SIDE_PANEL_SIZE}
         />
 
-        {/* Right: Chat or Notes — the two share this column, same as before. */}
-        {panel && (
-          <div className={cn("flex flex-col", SIDE_PANEL_SIZE)}>
-            {panel === "notes" ? (
-              <CallNotes
-                notes={notes}
-                onAdd={addNote}
-                onExport={exportNotes}
-                onClose={() => setPanel(null)}
-              />
+        {/* Right: Chat or Notes — one panel, two tabs (see CallSidePanel).
+            Opened to whichever the header button that opened it was; Chat
+            defaults selected because that's the tab its own button opens.
+            Stays MOUNTED through the closing transition (`panelMounted`) so
+            it can shrink and fade out instead of disappearing instantly; once
+            actually closed it's removed from the layout altogether, so the
+            video area gets that width back rather than a blank column
+            sitting where the panel used to be. */}
+        {panelMounted && (
+          <CallSidePanel
+            active={panel ?? lastPanelRef.current}
+            onSelectTab={setPanel}
+            onExport={(panel ?? lastPanelRef.current) === "chat" ? exportChat : exportNotes}
+            onClose={() => setPanel(null)}
+            unreadChat={unread}
+            className={cn(SIDE_PANEL_TRANSITION_BASE, panelEntered ? SIDE_PANEL_OPEN : SIDE_PANEL_CLOSED)}
+          >
+            {(panel ?? lastPanelRef.current) === "chat" ? (
+              <CallChat chat={visibleChat} participants={participants} me={identity} onSend={sendChat} />
             ) : (
-              <CallChat
-                chat={visibleChat}
-                participants={participants}
-                me={identity}
-                onSend={sendChat}
-                onExport={exportChat}
-                onClose={() => setPanel(null)}
-              />
+              <CallNotes notes={notes} onAdd={addNote} />
             )}
-          </div>
+          </CallSidePanel>
         )}
       </div>
 

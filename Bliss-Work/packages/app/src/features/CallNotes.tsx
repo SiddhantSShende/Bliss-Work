@@ -1,8 +1,7 @@
 /**
- * The notes panel: what the room decided, written down while it is being said.
- *
- * Beside the call, never instead of it — the panel takes a column, the tiles
- * keep the rest, and nobody leaves the meeting to write something down.
+ * The notes panel's body: what the room decided, written down while it is
+ * being said. The tab bar, export and close controls live one level up in
+ * CallSidePanel — this renders only the notes list and the composer.
  *
  * Points are shared with everyone in the room as they are written (see
  * lib/roomMessages) and held only by the people who were there, so exporting is
@@ -10,20 +9,16 @@
  * only copy that outlives the call.
  */
 import { useEffect, useRef, useState } from "react";
-import { Download, NotebookPen, Send, X } from "lucide-react";
+import { Send } from "lucide-react";
 import { Button } from "@taskboard/ui";
 import { NOTE_TEXT_MAX, type NoteEntry } from "../lib/callNotes";
 
 export function CallNotes({
   notes,
   onAdd,
-  onExport,
-  onClose,
 }: {
   notes: NoteEntry[];
   onAdd: (text: string) => void;
-  onExport: () => void;
-  onClose: () => void;
 }) {
   const [draft, setDraft] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
@@ -43,38 +38,7 @@ export function CallNotes({
   };
 
   return (
-    <aside
-      aria-label="Meeting notes"
-      className="glass flex h-full w-full flex-col overflow-hidden rounded-2xl"
-    >
-      <header className="flex shrink-0 items-center justify-between gap-2 border-b border-border/70 px-4 py-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <NotebookPen size={15} className="shrink-0 text-accent" />
-          <span className="truncate text-sm font-semibold text-fg">Notes</span>
-          <span className="text-xs text-muted">{notes.length}</span>
-        </div>
-        <div className="flex shrink-0 items-center gap-1">
-          <button
-            type="button"
-            onClick={onExport}
-            title="Save notes as a file"
-            aria-label="Save notes as a file"
-            className="rounded-lg p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg"
-          >
-            <Download size={15} />
-          </button>
-          <button
-            type="button"
-            onClick={onClose}
-            title="Close notes"
-            aria-label="Close notes"
-            className="rounded-lg p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg"
-          >
-            <X size={15} />
-          </button>
-        </div>
-      </header>
-
+    <div className="flex min-h-0 flex-1 flex-col">
       {/* The one part of this room that scrolls, and it has to: a meeting can
           produce more points than fit, and dropping the older ones is the wrong
           answer for the thing people came here to keep. */}
@@ -126,6 +90,6 @@ export function CallNotes({
           </Button>
         </div>
       </div>
-    </aside>
+    </div>
   );
 }

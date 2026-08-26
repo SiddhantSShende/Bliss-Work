@@ -194,6 +194,22 @@ describe("CallSession signaling", () => {
     expect(sendFrame.mock.calls.filter((c) => c[0].type === "rtc.answer")).toHaveLength(0);
   });
 
+  it("stops the mic track if it arrives after the session was already closed", async () => {
+    // getUserMedia's permission prompt can still be pending when the user
+    // cancels/hangs up. prepareCallee() calls acquire() directly (not through
+    // the signaling queue), so close() can run while it's still awaiting the
+    // prompt. close() only stops tracks it already knows about, so a stream
+    // that resolves afterwards must be stopped on arrival — otherwise it sits
+    // open with nothing left to ever call stop() on it, and the mic stays
+    // captured after the call has already ended.
+    const { session } = makeSession();
+    const p = session.prepareCallee();
+    session.close("hung up");
+    await p;
+    const stream = await getUserMedia.mock.results[0]?.value;
+    expect(stream.getAudioTracks()[0].stop).toHaveBeenCalled();
+  });
+
   it("applies an answer that arrives while the caller is still in getUserMedia", async () => {
     const { session } = makeSession();
     // Caller starts; answer frame lands immediately, before the offer is set.

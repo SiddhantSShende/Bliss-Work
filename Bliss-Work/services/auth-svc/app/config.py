@@ -89,7 +89,7 @@ class Settings(BaseSettings):
     # this true. When false, /auth/captcha still works but login/create_org
     # skip the check entirely rather than silently accepting any value.
     captcha_enabled: bool = True
-    captcha_length: int = 8
+    captcha_length: int = 6
     captcha_ttl_seconds: int = 300
     # Wrong guesses allowed against ONE captcha_id before it is invalidated
     # outright (forcing a fresh fetch) — independent of, and in addition to,

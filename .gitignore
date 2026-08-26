@@ -8,3 +8,4 @@ Bliss-Work/.git_backup/
 
 # Claude Code worktrees and local session state
 .claude/
+node_modules/

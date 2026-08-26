@@ -7,41 +7,67 @@ import string
 
 import pytest
 
-from app.routes import captcha_service as cs
+from app.routes import captcha_image, captcha_service as cs
 
 
 # ── Generation ────────────────────────────────────────────────────────────────
 def test_generated_value_is_exactly_the_configured_length() -> None:
     value = cs._generate_value(cs.settings.captcha_length)
-    assert len(value) == cs.settings.captcha_length == 8
+    assert len(value) == cs.settings.captcha_length == 6
 
 
 def test_generated_value_is_alphanumeric_only() -> None:
     allowed = set(string.ascii_letters + string.digits)
     for _ in range(200):
-        value = cs._generate_value(8)
+        value = cs._generate_value(6)
+        assert len(value) == 6
         assert set(value) <= allowed
         assert value.isalnum()
 
 
+def test_generated_value_excludes_visually_ambiguous_characters() -> None:
+    """0/O, 1/l/I are excluded — see captcha_service._ALPHABET's docstring.
+    Heavier per-character distortion makes an already-ambiguous pair harder
+    still to call correctly, so they're dropped rather than rendered."""
+    ambiguous = set("0O1lI")
+    for _ in range(300):
+        value = cs._generate_value(6)
+        assert not (set(value) & ambiguous)
+
+
 def test_generated_values_are_unpredictable() -> None:
-    """Not a formal entropy proof, just a sanity floor: 500 draws of an 8-char
-    alphanumeric string (62^8 possibilities) should not collide, and should
-    not degenerate to a small repeating set."""
-    values = {cs._generate_value(8) for _ in range(500)}
+    """Not a formal entropy proof, just a sanity floor: 500 draws of a 6-char
+    alphanumeric string (57^6 possibilities, after excluding ambiguous chars)
+    should not collide, and should not degenerate to a small repeating set."""
+    values = {cs._generate_value(6) for _ in range(500)}
     assert len(values) == 500  # no collisions
     # Every position should see more than a handful of distinct characters
     # across 500 draws — catches a broken generator that e.g. always picks
     # the same character at some position.
-    for i in range(8):
+    for i in range(6):
         distinct_at_position = {v[i] for v in values}
         assert len(distinct_at_position) > 10
 
 
 def test_render_image_produces_a_nonempty_png() -> None:
-    png = cs._render_image("A7kP92xQ")
+    png = captcha_image.render("A7kPxQ")
     assert png[:8] == b"\x89PNG\r\n\x1a\n"  # PNG magic bytes
     assert len(png) > 100
+
+
+def test_render_image_varies_across_calls() -> None:
+    """The whole point of the style system: two renders of the SAME value
+    must not produce byte-identical images — background, interference and
+    per-character placement all vary independently on every call."""
+    renders = {captcha_image.render("A7kPxQ") for _ in range(20)}
+    assert len(renders) == 20
+
+
+def test_render_image_selects_from_multiple_styles() -> None:
+    """Not always the same visual style — sample enough draws that seeing
+    only one or two styles would indicate the "random" choice isn't."""
+    seen = {captcha_image._pick_style() for _ in range(60)}
+    assert len(seen) >= 4
 
 
 # ── Validation ────────────────────────────────────────────────────────────────

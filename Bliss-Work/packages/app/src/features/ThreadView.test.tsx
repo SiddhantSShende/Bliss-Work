@@ -29,6 +29,7 @@ const ME = "me-1";
 function renderThread(messages: ReturnType<typeof message>[]) {
   return render(
     <ThreadView
+      threadId="thread-1"
       messages={messages}
       meId={ME}
       hasMore={false}

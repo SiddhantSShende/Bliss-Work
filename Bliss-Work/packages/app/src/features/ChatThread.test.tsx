@@ -41,7 +41,7 @@ function renderThread(messages: ThreadMessage[]) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <ChatThread messages={messages} meId={ME} onSend={() => {}} peerName="Alice" />
+      <ChatThread threadId="conv-1" messages={messages} meId={ME} onSend={() => {}} peerName="Alice" />
     </QueryClientProvider>,
   );
 }

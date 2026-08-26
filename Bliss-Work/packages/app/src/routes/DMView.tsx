@@ -125,7 +125,17 @@ export function DMView() {
 
   useEffect(() => {
     const maxSeq = messages.reduce((m, x) => Math.max(m, x.seq), 0);
-    if (maxSeq > 0) api.read(conversationId, maxSeq).catch(() => {});
+    if (maxSeq === 0) return;
+    // The server's MessageRead event (which would otherwise refetch this)
+    // is routed only to the peer, so their sent-message bubbles flip to
+    // Seen — it never reaches the reader's own sessions. Without this,
+    // qk.conversations — where the unread badge's count is computed — is
+    // never told the read happened, and the badge keeps showing the
+    // pre-read count until something unrelated refetches it.
+    api
+      .read(conversationId, maxSeq)
+      .then(() => qc.invalidateQueries({ queryKey: qk.conversations }))
+      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages.length, conversationId]);
 
@@ -511,6 +521,7 @@ export function DMView() {
         />
       )}
       <ChatThread
+        threadId={conversationId}
         messages={shown}
         meId={me.id}
         onLoadOlder={loadOlder}

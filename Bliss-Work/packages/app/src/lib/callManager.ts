@@ -172,10 +172,21 @@ export class CallSession {
 
   private async acquire(): Promise<void> {
     if (this.local) return;
-    this.local = await navigator.mediaDevices.getUserMedia({
+    const stream = await navigator.mediaDevices.getUserMedia({
       audio: AUDIO_CONSTRAINTS,
       video: this.o.media === "video",
     });
+    // close() can run while getUserMedia is still awaiting the permission
+    // prompt (e.g. the user cancels, or the peer connection fails, before the
+    // browser resolves it). close() only stops tracks it already knows about,
+    // so a stream that lands after that point would otherwise sit on the
+    // session forever with the camera/mic light still on and nothing left to
+    // stop it — the session is already closed and will never call stop() again.
+    if (this.closed) {
+      stream.getTracks().forEach((t) => t.stop());
+      return;
+    }
+    this.local = stream;
     for (const track of this.local.getAudioTracks()) this.pc.addTrack(track, this.local);
     // One video slot, always — with the camera in it on a video call, and empty
     // on a voice call so the Video and Share Screen controls have somewhere to
@@ -379,6 +390,13 @@ export class CallSession {
     let track = this.local.getVideoTracks()[0];
     if (want && !track) {
       const extra = await navigator.mediaDevices.getUserMedia({ video: true });
+      // Same race as acquire(): the call can end while this permission prompt
+      // is still open. A track landing after close() has nothing left to stop
+      // it, so it must be stopped here instead of added to the (torn-down) call.
+      if (this.closed) {
+        extra.getTracks().forEach((t) => t.stop());
+        return false;
+      }
       track = extra.getVideoTracks()[0];
       if (!track) return false;
       this.local.addTrack(track);
@@ -403,6 +421,14 @@ export class CallSession {
   async startShare(): Promise<string> {
     if (!this.videoTx) throw new Error("call has no video slot");
     const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+    // Same race as acquire(): the call (or the share) can end while the
+    // picker is still open. A stream landing after close() has nothing left
+    // to stop it, so it must be stopped here rather than wired into the
+    // (torn-down) call.
+    if (this.closed) {
+      stream.getTracks().forEach((t) => t.stop());
+      throw new Error("call ended");
+    }
     const track = stream.getVideoTracks()[0];
     if (!track) {
       stream.getTracks().forEach((t) => t.stop());

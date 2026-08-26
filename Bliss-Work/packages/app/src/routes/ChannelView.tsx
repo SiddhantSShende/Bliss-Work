@@ -539,6 +539,7 @@ export function ChannelView() {
         />
       )}
       <ChatThread
+        threadId={channelId}
         messages={shown}
         meId={me.id}
         onLoadOlder={loadOlder}
