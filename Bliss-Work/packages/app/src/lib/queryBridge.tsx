@@ -76,6 +76,11 @@ export const qk = {
   activityRoster: ["activity", "roster"] as const,
   activityTimeline: (userId: string) => ["activity", "timeline", userId] as const,
   activitySessions: (userId: string) => ["activity", "sessions", userId] as const,
+  /** The CORRELATED desktop+browser records (activity_sessions), distinct
+   *  from `activitySessions` above (user_sessions — login presence). See
+   *  ActivitySessionDTO's doc comment in packages/shared for the naming
+   *  collision this key name is deliberately distinct from. */
+  activitySessionEntries: (userId: string) => ["activity", "session-entries", userId] as const,
   activitySummary: (userId: string, from: string, to: string) =>
     ["activity", "summary", userId, from, to] as const,
   orgActivitySummary: (from: string, to: string) =>
@@ -282,9 +287,22 @@ export function WsEventBridge() {
         // The room's record of who is sharing. The picture itself arrives on the
         // media connection; this is what a client reads to know a share is in
         // progress before any track of it turns up.
+        //
+        // Also invalidates the LIST, not just this one call: MeetingCard reads
+        // `activeShares` off the row it was handed by qk.calls (the Meetings
+        // page) or qk.channelCalls (a channel's call history), and neither of
+        // those is the same cache entry as qk.call. Without this, a share that
+        // ended kept showing as active on every card built from a list query —
+        // a stale "sharing their screen" that no amount of the room's own
+        // cleanup could touch, because the room was never where it was reading
+        // that from.
         case EventType.CallShareStarted:
         case EventType.CallShareStopped: {
+          invalidate(qk.calls);
           invalidate(qk.call(e.callId));
+          if (e.channelId) {
+            invalidate(qk.channelCalls(e.channelId));
+          }
           break;
         }
         case EventType.MessageCreated: {

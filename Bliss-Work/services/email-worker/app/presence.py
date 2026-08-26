@@ -48,7 +48,7 @@ class Presence:
             # suppress this user's email indefinitely.
             n = await self._redis.zcount(f"presence:u:{user_id}", cutoff, "+inf")
             return int(n) > 0
-        except Exception as exc:  # noqa: BLE001 - explicit log + fail-closed
+        except Exception as exc:  # noqa: BLE001 - explicit log + fail-open
             # Fail OPEN — when we can't tell, assume the user is online and
             # skip the email rather than spamming them. This is safer than
             # the alternative; lost notifications are rare and recoverable

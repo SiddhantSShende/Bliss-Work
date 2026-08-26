@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { Quote } from "lucide-react";
 import { Button, Card, Input, Logo } from "@taskboard/ui";
+import { ApiError } from "@taskboard/shared";
 import { toast } from "sonner";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
@@ -9,6 +10,7 @@ import { broadcastSession } from "../lib/authChannel";
 import { PasswordField } from "../features/PasswordField";
 import { GetAppButton } from "../features/GetAppButton";
 import { checkPassword } from "../lib/password";
+import { CaptchaField, useCaptcha } from "../features/Captcha";
 
 export function Onboarding() {
   const { api } = useRuntime();
@@ -16,20 +18,34 @@ export function Onboarding() {
   const nav = useNavigate();
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState({ orgName: "", displayName: "", email: "", password: "" });
+  const captcha = useCaptcha();
 
   const pwOk = checkPassword(form.password).ok;
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!pwOk) return toast.error("Password must be at least 10 characters with a letter, a number, and a special character");
+    if (!captcha.captchaId) return;
     setBusy(true);
     try {
-      const s = await api.createOrg(form);
+      const s = await api.createOrg({
+        ...form,
+        captchaId: captcha.captchaId,
+        captchaValue: captcha.value,
+      });
       setSession({ user: s.user, accessToken: s.accessToken, expiresIn: s.expiresIn });
       broadcastSession(s);
       nav("/app");
     } catch (err) {
-      toast.error("Could not create organization", { description: String(err) });
+      if (err instanceof ApiError && err.status === 400) {
+        toast.error("Incorrect security check", { description: "Please try again." });
+      } else {
+        toast.error("Could not create organization", { description: String(err) });
+      }
+      // Single-use: the CAPTCHA the server just validated is dead now
+      // regardless of why the request ultimately failed — a retry needs a
+      // fresh one.
+      void captcha.refresh();
     } finally {
       setBusy(false);
     }
@@ -50,7 +66,14 @@ export function Onboarding() {
         <Field label="Password">
           <PasswordField value={form.password} onChange={(v) => setForm({ ...form, password: v })} />
         </Field>
-        <Button type="submit" loading={busy} disabled={!pwOk} size="lg" className="mt-2 w-full">
+        <CaptchaField captcha={captcha} />
+        <Button
+          type="submit"
+          loading={busy}
+          disabled={!pwOk || !captcha.captchaId || captcha.value.length === 0}
+          size="lg"
+          className="mt-2 w-full"
+        >
           {busy ? "Creating…" : "Create organization"}
         </Button>
         <p className="mt-1 text-center text-sm text-muted">

@@ -258,4 +258,27 @@ describe("WsEventBridge — calls", () => {
       expect(has(h.invalidated, qk.call(CALL))).toBe(true);
     },
   );
+
+  // A share starting or stopping used to refresh only the single-call cache
+  // entry, never the LIST — so a card on the Meetings page (or a channel's
+  // call history), which reads `activeShares` off the row it got from
+  // qk.calls/qk.channelCalls rather than qk.call, kept showing a screen share
+  // as active long after the sharer stopped. Nothing in the room itself could
+  // fix that: the room was never where that card was reading from.
+  it.each([EventType.CallShareStarted, EventType.CallShareStopped])(
+    "also refreshes the call LIST on %s, so a Meetings-page card doesn't keep showing a stale share", (type) => {
+      const h = harness();
+      h.fire(callEvent(type, { shareSource: "SCREEN" }));
+      expect(has(h.invalidated, qk.calls)).toBe(true);
+    },
+  );
+
+  it.each([EventType.CallShareStarted, EventType.CallShareStopped])(
+    "also refreshes the channel's own call list on %s, for a channel call",
+    (type) => {
+      const h = harness();
+      h.fire(callEvent(type, { kind: "CHANNEL", channelId: CHANNEL, shareSource: "SCREEN" }));
+      expect(has(h.invalidated, qk.channelCalls(CHANNEL))).toBe(true);
+    },
+  );
 });

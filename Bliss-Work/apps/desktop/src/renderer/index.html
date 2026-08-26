@@ -28,10 +28,21 @@
       overridability, so repointing a build at another backend produced an app
       whose every request was CSP-blocked, with nothing in the build output
       saying why. One source of truth now.
+
+      frame-src 'self' blob: is for in-app document preview (Lightbox's
+      DocFrame). It deliberately does NOT need %CSP_IMG_SRC%-style origin
+      substitution: a shared PDF/text attachment is fetched via `connect-src`
+      (already allowlisted) into a `blob:` object URL and shown in an
+      <iframe>, never pointed straight at the remote attachment URL — which
+      matters here specifically, because this renderer's own origin is
+      `file://`, not the API's, so a direct cross-origin frame would need the
+      real origin listed the way img-src does. blob: sidesteps that: the app
+      itself created the URL from bytes it already fetched, so a single static
+      allowance covers every deployment.
     -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: %CSP_IMG_SRC%; font-src 'self' data:; media-src 'self' data: blob: mediastream: %CSP_MEDIA_SRC%; connect-src 'self' %CSP_CONNECT_SRC%; object-src 'none'; base-uri 'self'; form-action 'self'"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: %CSP_IMG_SRC%; font-src 'self' data:; media-src 'self' data: blob: mediastream: %CSP_MEDIA_SRC%; connect-src 'self' %CSP_CONNECT_SRC%; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'"
     />
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <title>BlissWork</title>

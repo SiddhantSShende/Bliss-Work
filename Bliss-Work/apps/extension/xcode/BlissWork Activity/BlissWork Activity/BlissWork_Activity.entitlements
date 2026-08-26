@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The CONTAINER app's own sandbox. It makes no network calls itself (see
+  Info.plist's note) — its only privileged action is opening Safari's
+  extension-preferences pane, which SFSafariApplication does not require an
+  entitlement for. Kept minimal on purpose: the network-client entitlement
+  the activity sensor actually needs belongs on the EXTENSION target's own
+  entitlements file (BlissWork Activity Extension.entitlements), not here,
+  because macOS App Sandbox entitlements are scoped per-target, not inherited
+  from the container app.
+-->
+<plist version="1.0">
+  <dict>
+    <key>com.apple.security.app-sandbox</key>
+    <true/>
+  </dict>
+</plist>

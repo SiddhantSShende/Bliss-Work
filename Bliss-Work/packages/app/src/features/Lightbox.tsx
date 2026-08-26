@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, X } from "lucide-react";
+import { AlertCircle, ChevronLeft, ChevronRight, Loader2, X } from "lucide-react";
 import type { MediaItem } from "../lib/chatEnvelope";
-import { prettySize } from "../lib/chatEnvelope";
+import { canPreviewDocInApp, prettySize } from "../lib/chatEnvelope";
+import { useBlobUrl } from "../lib/useBlobUrl";
 
 /**
- * Full-screen viewer for the images and videos in one message.
+ * Full-screen viewer for the images, videos and previewable documents (PDF,
+ * plain text — see `canPreviewDocInApp`) in one message.
  *
  * Built on its own overlay rather than the shared `Modal` because a lightbox
  * wants edge-to-edge black with no card chrome, but it reproduces the same
@@ -56,6 +58,7 @@ export function Lightbox({
   if (!current) return null;
   const url = urlFor(current.id);
   const isVideo = current.mime.startsWith("video/");
+  const isDoc = canPreviewDocInApp(current.mime);
 
   return (
     <div
@@ -118,6 +121,8 @@ export function Lightbox({
             className="max-h-full max-w-full"
             onClick={(e) => e.stopPropagation()}
           />
+        ) : isDoc ? (
+          <DocFrame url={url} name={current.name} />
         ) : (
           <img
             src={url}
@@ -148,5 +153,56 @@ export function Lightbox({
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * In-app preview for a PDF or plain-text attachment.
+ *
+ * `url` is fetched into a `blob:` object URL (see useBlobUrl) rather than
+ * pointed at directly: a browser renders `application/pdf`/`text/plain`
+ * bytes natively inside an <iframe>, but only a `blob:` source clears this
+ * app's CSP on the packaged desktop build. A failed fetch (offline, an
+ * expired signed link) falls back to the same "open elsewhere" affordance
+ * the rest of the app uses for documents it cannot preview at all.
+ */
+function DocFrame({ url, name }: { url: string; name: string }) {
+  const preview = useBlobUrl(url);
+
+  if (preview.error) {
+    return (
+      <div
+        className="flex max-w-xs flex-col items-center gap-2 text-center text-sm text-white/70"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <AlertCircle size={20} />
+        <span>{preview.error}</span>
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-white underline underline-offset-2 hover:text-white/80"
+        >
+          Open in browser instead
+        </a>
+      </div>
+    );
+  }
+
+  if (!preview.url) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-white/60">
+        <Loader2 size={16} className="animate-spin" /> Loading preview…
+      </div>
+    );
+  }
+
+  return (
+    <iframe
+      src={preview.url}
+      title={name}
+      className="h-full max-h-[85vh] w-full max-w-4xl rounded-lg bg-white"
+      onClick={(e) => e.stopPropagation()}
+    />
   );
 }

@@ -18,6 +18,10 @@ from .helpers import enqueue_outbox, resolve_username
 
 router = APIRouter()
 
+# Cap on candidate rows considered by the unscoped (no username) branch of
+# delete_task_by_title_internal — see its docstring.
+_CANDIDATE_LIMIT = 100
+
 
 async def _resolve_channel_members(channel_id: str, org_id: str) -> list[str]:
     """Call messaging-svc's internal endpoint to fetch the channel's current
@@ -207,6 +211,13 @@ async def delete_task_by_title_internal(
     Titles are stored encrypted (title_enc) under each org's own DEK, with no
     plaintext column and no search index, so matching by title means fetching
     candidate rows and decrypting each with its own org_id before comparing.
+
+    The unscoped (no username) branch is capped at _CANDIDATE_LIMIT candidate
+    rows: an org-wide delete by title has no bound on how many tasks could
+    match, and decrypting every task in a large org on a single internal-token
+    call is both an unbounded-cost query and an unbounded-blast-radius delete.
+    A caller that hits the cap must narrow with `username` instead of getting
+    a silently-truncated delete.
     """
     # Verify internal token (constant-time — a stolen internal secret should
     # not be discoverable via response-timing on this comparison).
@@ -230,13 +241,25 @@ async def delete_task_by_title_internal(
                 )
             ).all()
         else:
-            # All tasks in this org (never across orgs).
+            # All tasks in this org (never across orgs), capped so a caller
+            # can't force an unbounded decrypt loop / unbounded delete.
             candidates = (
                 await db.execute(
-                    text("SELECT id, org_id, title_enc FROM tasks WHERE org_id = :org_id"),
-                    {"org_id": org_id},
+                    text(
+                        "SELECT id, org_id, title_enc FROM tasks "
+                        "WHERE org_id = :org_id LIMIT :limit"
+                    ),
+                    {"org_id": org_id, "limit": _CANDIDATE_LIMIT + 1},
                 )
             ).all()
+            if len(candidates) > _CANDIDATE_LIMIT:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"org has more than {_CANDIDATE_LIMIT} tasks; "
+                        "pass `username` to narrow the delete"
+                    ),
+                )
 
         matching_ids = [
             str(row.id)

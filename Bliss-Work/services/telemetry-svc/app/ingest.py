@@ -53,6 +53,13 @@ class ActivityRow:
     # revealing rather than aggregatable: a message preview, a URL path, a window
     # title. Never anything an aggregate needs to GROUP BY.
     detail: dict[str, object] = field(default_factory=dict)
+    # Client-generated, preserved across a retry (never regenerated when a
+    # batch is re-queued after a lost response) — see migration 0006 for why
+    # this is what makes a retried event a no-op instead of a duplicate row.
+    # None for server-observed rows (the Kafka consumer has its own,
+    # independent dedup via consumed_events) and for any client old enough not
+    # to send one yet.
+    client_event_id: str | None = None
 
 
 @dataclass
@@ -87,26 +94,37 @@ _INSERT = text(
     """
     INSERT INTO activity_events (
         id, org_id, user_id, session_id, occurred_at, source, category, action,
-        surface, target_kind, target_id, duration_ms, detail_enc
+        surface, target_kind, target_id, duration_ms, detail_enc, client_event_id
     ) VALUES (
         :id, :org, :uid, :sid, :at, :source, :category, :action,
-        :surface, :target_kind, :target_id, :duration_ms, :detail
+        :surface, :target_kind, :target_id, :duration_ms, :detail, :client_event_id
     )
+    -- See migration 0006: a retried batch resends the same client_event_id
+    -- (never regenerated on re-queue), so this makes a retry a no-op instead
+    -- of a second row. RETURNING says exactly which ids actually landed, the
+    -- same pattern consumer.py's _claim_many already uses for the same reason
+    -- — a client_event_id-less row (NULL, e.g. every server-observed row) is
+    -- never deduped against another, since the index this targets is scoped
+    -- to `WHERE client_event_id IS NOT NULL`.
+    ON CONFLICT (org_id, user_id, occurred_at, client_event_id)
+    WHERE client_event_id IS NOT NULL
+    DO NOTHING
+    RETURNING id
     """
 )
 
 
 async def insert_events(db: AsyncSession, rows: list[ActivityRow]) -> list[InsertedRow]:
     """Insert a batch. Returns one entry per row actually written — which is
-    not necessarily one per row offered, see NON_EVENT_ACTIONS — pairing each
-    with the server-generated id it was written under and the ActivityRow it
-    came from.
+    not necessarily one per row offered (see NON_EVENT_ACTIONS, and now a
+    retried row whose client_event_id was already written) — pairing each with
+    the server-generated id it was written under and the ActivityRow it came
+    from. A caller that only wanted a count still gets one — `len(result)`.
 
     The ids exist for sessionizer.py: correlating a desktop app.focus row with
     a browser site.visit row needs to know which activity_events row is which,
     and the id is generated HERE (see `_params`), so a caller cannot know it in
-    advance. Every existing caller that only wanted a count still gets one —
-    `len(result)` is exactly the old return value.
+    advance.
 
     The caller owns the transaction and MUST have set the RLS context first —
     `set_org_context` for a request, `set_bypass_rls` for the cross-org consumer.
@@ -123,7 +141,7 @@ async def insert_events(db: AsyncSession, rows: list[ActivityRow]) -> list[Inser
         # only thing stopping the event being processed twice. A savepoint undoes
         # the insert and nothing else.
         async with db.begin_nested():
-            await db.execute(_INSERT, params)
+            written_ids = await _execute_insert(db, params)
     except DBAPIError as exc:
         if not _is_missing_partition(exc):
             raise
@@ -137,8 +155,31 @@ async def insert_events(db: AsyncSession, rows: list[ActivityRow]) -> list[Inser
             text("SELECT ensure_activity_partitions(:d)"),
             {"d": settings.partition_days_ahead},
         )
-        await db.execute(_INSERT, params)
-    return [InsertedRow(id=p["id"], row=r) for p, r in zip(params, rows)]
+        written_ids = await _execute_insert(db, params)
+    return [
+        InsertedRow(id=p["id"], row=r)
+        for p, r in zip(params, rows)
+        if p["id"] in written_ids
+    ]
+
+
+async def _execute_insert(db: AsyncSession, params: list[dict[str, object]]) -> set[str]:
+    """Run `_INSERT` once per row and collect which ids actually landed.
+
+    Not a single `executemany`-style call with the full params list: SQLAlchemy
+    sends a multi-row raw `text()` INSERT as a bare DBAPI `executemany`, which
+    — unlike SQLAlchemy Core's `insert()` construct — does not support
+    `RETURNING` (asyncpg silently returns a cursor with no row metadata,
+    surfacing as `ResourceClosedError` the moment it's read). Confirmed against
+    a real Postgres instance before writing this: a 1-row list returns rows
+    fine, a 2+-row list does not. Batches are capped at 200 (AgentBatch.events),
+    so a per-row round trip is not a scale concern.
+    """
+    written: set[str] = set()
+    for p in params:
+        result = await db.execute(_INSERT, p)
+        written.update(str(row[0]) for row in result)
+    return written
 
 
 async def _params(db: AsyncSession, r: ActivityRow) -> dict[str, object]:
@@ -161,6 +202,7 @@ async def _params(db: AsyncSession, r: ActivityRow) -> dict[str, object]:
         "target_id": r.target_id,
         "duration_ms": r.duration_ms,
         "detail": detail_enc,
+        "client_event_id": r.client_event_id,
     }
 
 

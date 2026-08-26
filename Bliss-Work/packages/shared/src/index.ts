@@ -5,6 +5,7 @@ export * from "./types/activity";
 export * from "./policy/stickyPin";
 export * from "./policy/activityDestination";
 export * from "./policy/mailAddress";
+export * from "./policy/titlePrivacy";
 export * from "./ws-client/WsClient";
 export * from "./graphql/operations";
 export * from "./api/client";

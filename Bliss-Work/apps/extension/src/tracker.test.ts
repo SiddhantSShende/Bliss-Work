@@ -1,12 +1,15 @@
 /**
  * The extension's capture rules, in both configurations.
  *
- * This deployment DEFAULTS to capturing everything: the full URL including the
- * query string, every site category, and private windows. The safety floor
- * (NEVER_RECORD, incognito-skip) is retained as a switch so a workspace can be
- * dialled back for a jurisdiction without reshipping — so it is tested in both
- * states. `toVisit` is a pure function precisely so these rules can be pinned
- * here rather than only exercised inside a service worker that is constantly
+ * The SHIPPED default is the protected floor: an absent/undefined config —
+ * what `toVisit` gets with no `chrome.storage.local` flags set — applies
+ * NEVER_RECORD and skips incognito (see `background.ts`'s `captureOpts`,
+ * which reads `captureAll`/`captureIncognito` with `=== true`, so unset means
+ * off). A device can be switched to capture-everything explicitly and
+ * per-device (never via managed policy — see `managed-schema.json`'s own
+ * comment on why), which is the OTHER configuration this file tests. `toVisit`
+ * is a pure function precisely so both configurations can be pinned here
+ * rather than only exercised inside a service worker that is constantly
  * killed and restarted.
  */
 import { describe, expect, it } from "vitest";
@@ -15,9 +18,10 @@ import { fullPath, registrableDomain, toAgentEvent, toVisit, type CaptureConfig 
 const T0 = Date.parse("2026-08-13T09:00:00.000Z");
 const LONG = 60_000;
 
-// Default deployment config: capture everything.
+// The explicit opt-in: a device switched to capture everything.
 const ALL: CaptureConfig = { captureAll: true, captureIncognito: true };
-// The dial-back mode: the safety floor and incognito-skip switched back on.
+// The SHIPPED default, spelled out explicitly here for the tests below that
+// want it named — `toVisit`'s own default opts ({}) already behaves this way.
 const FLOOR: CaptureConfig = { captureAll: false, captureIncognito: false };
 
 const visit = (
@@ -156,6 +160,23 @@ describe("the wire shape", () => {
   });
   it("mirrors the domain into detail alongside targetId — the ActivityDetail contract", () => {
     expect(toAgentEvent(visit("https://github.com/a/b")!).detail.domain).toBe("github.com");
+  });
+
+  it("stamps a fresh clientEventId on every call — the migration 0006 idempotency key", () => {
+    // toAgentEvent is called once, here, when the span is first queued — never
+    // again for that same Visit (background.ts's enqueue()/flush() only ever
+    // re-send the object already sitting in chrome.storage.session). A second
+    // call therefore represents a DIFFERENT visit, not a retry of this one, and
+    // must get its own id — the property migration 0006's dedup depends on:
+    // two real visits must never collide, only a genuine re-send of the exact
+    // same queued object may.
+    const v = visit("https://github.com/a/b")!;
+    const first = toAgentEvent(v).clientEventId;
+    const second = toAgentEvent(v).clientEventId;
+    expect(first).not.toBe(second);
+    // A real UUID, not a placeholder string — the server's dedup index is
+    // keyed on this value being stable and unique, not merely present.
+    expect(first).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
   });
 });
 

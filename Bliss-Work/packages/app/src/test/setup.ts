@@ -77,3 +77,14 @@ if (!globalThis.crypto?.randomUUID) {
     configurable: true,
   });
 }
+
+// jsdom does not implement Blob object URLs at all (createObjectURL throws
+// "not implemented"). Used by lib/download.ts and lib/useBlobUrl.ts (in-app
+// document preview); tests that exercise either mock the URL further, but the
+// render must not throw before they get the chance to.
+if (!URL.createObjectURL) {
+  URL.createObjectURL = vi.fn(() => "blob:mock");
+}
+if (!URL.revokeObjectURL) {
+  URL.revokeObjectURL = vi.fn();
+}

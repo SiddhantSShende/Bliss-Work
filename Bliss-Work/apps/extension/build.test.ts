@@ -15,20 +15,22 @@ import { afterAll, describe, expect, it } from "vitest";
 const root = __dirname;
 const CHROMIUM_OUT = join(root, "dist");
 const FIREFOX_OUT = join(root, "dist-firefox");
+const SAFARI_OUT = join(root, "dist-safari");
 
-function runBuild(target: string): void {
-  execFileSync("node", [join(root, "build.mjs"), `--target=${target}`], {
+function runBuild(target: string, ...extraArgs: string[]): void {
+  execFileSync("node", [join(root, "build.mjs"), `--target=${target}`, ...extraArgs], {
     cwd: root, stdio: "pipe",
   });
 }
 
 describe("build.mjs", () => {
   afterAll(() => {
-    // Leaves no build artefacts behind for a test run — dist/ and
-    // dist-firefox/ are build OUTPUT, not something a test suite should
+    // Leaves no build artefacts behind for a test run — dist/, dist-firefox/
+    // and dist-safari/ are build OUTPUT, not something a test suite should
     // change the presence of as a side effect of merely running.
     rmSync(CHROMIUM_OUT, { recursive: true, force: true });
     rmSync(FIREFOX_OUT, { recursive: true, force: true });
+    rmSync(SAFARI_OUT, { recursive: true, force: true });
   });
 
   it("builds the chromium target with the chrome browser constant and managed-storage schema", () => {
@@ -102,6 +104,40 @@ describe("build.mjs", () => {
   });
 
   it("rejects an unknown --target rather than silently building something", () => {
-    expect(() => runBuild("safari")).toThrow();
+    expect(() => runBuild("internet-explorer")).toThrow();
+  });
+
+  it("builds firefox normally (no --strict) even with the placeholder gecko id", () => {
+    // The everyday case: loading unpacked in about:debugging, which does not
+    // care what the id is. Only an explicit --strict build (a real AMO
+    // submission) needs to reject the placeholder — see the next test.
+    expect(() => runBuild("firefox")).not.toThrow();
+  });
+
+  it("--strict rejects the placeholder gecko id rather than shipping it to AMO", () => {
+    expect(() => runBuild("firefox", "--strict")).toThrow();
+  });
+
+  it("builds the safari target with the safari browser constant and service_worker — no managed-storage schema, no gecko block", () => {
+    runBuild("safari");
+    expect(existsSync(join(SAFARI_OUT, "background.js"))).toBe(true);
+    expect(existsSync(join(SAFARI_OUT, "manifest.json"))).toBe(true);
+    // Same reasoning as Firefox: shipping this file would claim a capability
+    // (Chrome's storage.managed_schema mechanism) the Safari manifest never
+    // declares and Safari's own managed-config story does not use.
+    expect(existsSync(join(SAFARI_OUT, "managed-schema.json"))).toBe(false);
+
+    const manifest = JSON.parse(readFileSync(join(SAFARI_OUT, "manifest.json"), "utf8"));
+    // Safari's WebExtension implementation supports service_worker (unlike
+    // Firefox, which needs the background.scripts array form) — so the Safari
+    // manifest is structurally closer to Chromium's than to Firefox's.
+    expect(manifest.background.service_worker).toBe("background.js");
+    expect(manifest.background.scripts).toBeUndefined();
+    expect(manifest.browser_specific_settings).toBeUndefined();
+    expect(manifest.storage).toBeUndefined();
+
+    const bundle = readFileSync(join(SAFARI_OUT, "background.js"), "utf8");
+    expect(bundle).toContain('"safari"');
+    expect(bundle).not.toContain("__BROWSER__");
   });
 });

@@ -97,12 +97,16 @@ export interface Candidate {
 }
 
 /**
- * How aggressively to record. Server-pushable so a workspace can be dialled back
- * for a jurisdiction without reshipping the extension.
+ * How aggressively to record. Per-device only (background.ts reads these from
+ * `chrome.storage.local`, never from managed policy — see managed-schema.json's
+ * own comment on why), so this cannot be pushed to a fleet from a single
+ * settings change.
  *
- * The DEFAULTS capture everything — that is the configured behaviour for this
- * deployment. The gates exist so the safety floor (NEVER_RECORD, incognito) can
- * be switched back ON without a code change, not because it is on by default.
+ * The DEFAULTS are the safety floor: an absent/undefined flag reads as `false`
+ * (background.ts's `captureOpts` uses `=== true`), so NEVER_RECORD and the
+ * incognito exclusion apply unless a person explicitly opts a specific device
+ * out. The gates exist to switch the floor OFF when someone deliberately wants
+ * that, not because comprehensive capture is the shipped behaviour.
  */
 export interface CaptureConfig {
   /** true = ignore the NEVER_RECORD category floor. */
@@ -263,6 +267,7 @@ export function toAgentEvent(v: Visit): {
   targetId: string;
   durationMs: number;
   detail: Record<string, string>;
+  clientEventId: string;
 } {
   // Formalized ActivityDetail keys (packages/shared/src/types/activity.ts):
   // `domain` is mirrored alongside the plaintext targetId so a reader of
@@ -287,6 +292,12 @@ export function toAgentEvent(v: Visit): {
     durationMs: v.durationMs,
     // Encrypted per-org server-side, and only ever read one row at a time.
     detail,
+    // Generated once, here, and never touched again — enqueue()/flush() only
+    // ever re-send the object already in chrome.storage.session's queue, so a
+    // retry after a lost response carries the SAME id. Lets the server
+    // collapse it into a no-op instead of a duplicate row; see
+    // migration 0006_activity_event_idempotency.sql.
+    clientEventId: crypto.randomUUID(),
   };
 }
 

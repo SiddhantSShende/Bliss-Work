@@ -7,18 +7,20 @@
  * three people means every client uploads two streams.
  *
  * ── The shape of the room ────────────────────────────────────────────────────
- * Controls at the top, members below them, panels to the right. The members
- * area is FIXED: it holds a page of twelve and pages the rest, rather than
- * growing a scrollbar — a call is a place you are in, and hunting for a face by
- * scrolling is not a thing to ask of someone who is also talking.
+ * Controls at the top; below them, three fixed columns: the video area,
+ * Participants, and — when open — Chat or Notes. The video area is the
+ * largest of the three, and Participants stays on screen the whole time
+ * rather than opening and closing like the other two, so "who is here" is
+ * never a click away.
  *
- * With nobody on the stage, three or four members sit in a small centered
- * grid rather than the wider room's responsive columns — see CallMembers.
+ * With nobody on the stage, the video area shows everyone in a grid, paged
+ * rather than scrolled: a call is a place you are in, and hunting for a face
+ * by scrolling is not a thing to ask of someone who is also talking. Three or
+ * four members sit in a small centered grid rather than the wider room's
+ * responsive columns — see CallMembers.
  *
  * When anything is pinned — a shared screen automatically, or a person by
- * hand — it takes the stage on the left, and everyone else moves into a grid
- * of their own on the right, so the room stays visible beside whatever it is
- * looking at instead of disappearing behind it.
+ * hand — that single tile fills the video area alone.
  *
  * Raised hands, the shared notes and the recording notice travel directly
  * between participants over the SFU's data channel (lib/roomMessages). They are
@@ -37,12 +39,11 @@ import {
   Minimize2,
   NotebookPen,
   PictureInPicture2,
-  Users,
   Video,
   VideoOff,
 } from "lucide-react";
 import { toast } from "sonner";
-import { Button } from "@taskboard/ui";
+import { Button, cn } from "@taskboard/ui";
 import { type CallDTO } from "@taskboard/shared";
 import { useSession } from "../store/session";
 import { useRuntime } from "../lib/runtime";
@@ -76,6 +77,7 @@ import {
 } from "../lib/activeSpeaker";
 import { useMeetingSessionOptional } from "../lib/MeetingSession";
 import { useMeetingPiP } from "../lib/useMeetingPiP";
+import { useMeetingDisplayController } from "../lib/useMeetingDisplayController";
 import { useCallDuration } from "../lib/callTimer";
 import { downloadBlob } from "../lib/download";
 import { useLocalRecording } from "../lib/useLocalRecording";
@@ -83,15 +85,18 @@ import { MiniMeeting } from "./MiniMeeting";
 import { CallControls, CallControlButton } from "./CallControls";
 import { CallTile, UnpinButton } from "./CallTile";
 import { CallMembers } from "./CallMembers";
+import { CallSpeakerFilmstrip } from "./CallSpeakerFilmstrip";
+import { SpeakingWave } from "./SpeakingWave";
 import { CallNotes } from "./CallNotes";
 import { CallChat } from "./CallChat";
 import { CallRoster } from "./CallRoster";
 import { ScreenSharePopup } from "./ScreenSharePopup";
 import { AddPeopleDialog } from "./AddPeopleDialog";
 
-/** Which side panel is open. One at a time: they share the column, and two
- *  panels on a laptop leaves the meeting itself a strip down the middle. */
-type Panel = "notes" | "members" | "chat" | null;
+/** Which panel is open in the right-hand column. One at a time: Chat and
+ *  Notes share the column. Participants has its own fixed column and is not
+ *  part of this toggle — see the render below. */
+type Panel = "notes" | "chat" | null;
 
 /** How often the active-speaker filter's clock is re-checked. PROMOTE_AFTER_MS
  *  and DEMOTE_AFTER_MS are time thresholds, and nothing marks time passing on
@@ -99,6 +104,10 @@ type Panel = "notes" | "members" | "chat" | null;
  *  speaking status has changed. Frequent enough that the silence timeout feels
  *  immediate against DEMOTE_AFTER_MS, cheap enough not to matter. */
 const SPEAKER_TICK_MS = 250;
+
+/** Participants and Chat/Notes share one constant so their widths can never
+ *  drift apart — the layout calls for them to match exactly. */
+const SIDE_PANEL_SIZE = "h-64 w-full shrink-0 lg:h-auto lg:w-72 xl:w-80";
 
 export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void }) {
   const room = useCallRoom(call.id);
@@ -130,7 +139,6 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
    * so the room simply always shows itself.
    */
   const session = useMeetingSessionOptional();
-  const minimized = session?.minimized ?? false;
   const [addOpen, setAddOpen] = useState(false);
   const [preJoin, setPreJoin] = useState(true);
   const [previewStream, setPreviewStream] = useState<MediaStream | null>(null);
@@ -190,23 +198,19 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
         ? stage.screenTrack
         : stage.videoTrack
       : null;
-  // Whether THIS effect was what minimised the room — read by onBack below so
-  // returning to the window only restores an auto-minimise. A meeting the
-  // user minimised on purpose before switching away must stay minimised when
-  // they come back; the point of the button is that it stays their choice.
-  const autoMinimizedRef = useRef(false);
-  const pip = useMeetingPiP(pipTrack, status === "connected" || status === "reconnecting", {
-    onAway: useCallback(() => {
-      if (!session || minimized) return;
-      autoMinimizedRef.current = true;
-      session.minimize();
-    }, [session, minimized]),
-    onBack: useCallback(() => {
-      if (!autoMinimizedRef.current) return;
-      autoMinimizedRef.current = false;
-      session?.restore();
-    }, [session]),
-  });
+  const pip = useMeetingPiP(pipTrack, status === "connected" || status === "reconnecting");
+  // The single source of truth for NORMAL/MINIMIZED/PICTURE_IN_PICTURE — see
+  // lib/useMeetingDisplayController.ts for the whole state machine, including
+  // how a USER_AWAY/USER_RETURNED signal from lib/userBehaviorAnalysis.ts
+  // (this room's only subscriber of it) turns into an automatic PiP attempt
+  // with a minimise fallback, and why "restore on return" is not always
+  // NORMAL.
+  const display = useMeetingDisplayController(
+    session,
+    pip,
+    status === "connected" || status === "reconnecting",
+  );
+  const minimized = display.mode === "MINIMIZED";
 
   const title = call.title || (call.kind === "CHANNEL" ? "Channel call" : "Meeting");
   const meetingDuration = useCallDuration(connectedAt);
@@ -569,7 +573,7 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
       : "Ready to join";
 
     return (
-      <div className="fixed inset-0 z-[100] flex flex-col bg-surface text-fg">
+      <div className="meeting-theme fixed inset-0 z-[100] flex flex-col bg-surface text-fg">
         <header className="flex shrink-0 items-center justify-between border-b border-border/70 px-5 py-3">
           <div className="min-w-0">
             <div className="truncate font-semibold">{title}</div>
@@ -657,7 +661,7 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
     // not reachable from here, so this is a guard rather than a state the room
     // can normally be in.
     return (
-      <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-5 bg-surface p-6 text-center">
+      <div className="meeting-theme fixed inset-0 z-[100] flex flex-col items-center justify-center gap-5 bg-surface p-6 text-center">
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent-soft text-accent">
           <Clock size={24} />
         </div>
@@ -691,6 +695,16 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
 
   const externals = call.participants.filter((p) => p.external).length;
 
+  // Shared by the header's Add People control and the Participants panel's
+  // Invite button — the same gate and the same explanation, wherever the
+  // click happens. A channel call's roster IS the channel's membership: the
+  // server would take the invite and then refuse the newcomer a token, which
+  // is a dead end dressed up as an invitation. The way in is to be in the
+  // channel.
+  const canAddPeople = call.kind !== "CHANNEL" && (status === "connected" || status === "reconnecting");
+  const addPeopleTitle =
+    call.kind === "CHANNEL" ? "Everyone in the channel is already invited" : "Add people";
+
   // Only what this viewer is party to — the wire already guarantees it, and
   // this is the second lock (see lib/callChat).
   const visibleChat = identity ? chat.filter((c) => visibleToMe(c, identity)) : chat;
@@ -722,7 +736,7 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
           posts the leave (see useCallRoom's cleanup), so keeping this in the
           DOM is precisely what lets the meeting outlive a minimise. */}
       <div
-        className={minimized ? "hidden" : "fixed inset-0 z-[100] flex flex-col bg-surface"}
+        className={minimized ? "hidden" : "meeting-theme fixed inset-0 z-[100] flex flex-col bg-surface"}
       >
       <header className="shrink-0 space-y-3 border-b border-border/70 px-5 py-3">
         <div className="min-w-0">
@@ -760,16 +774,8 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
           camOn={camOn}
           sharing={sharing}
           startedAt={connectedAt}
-          // A channel call's roster IS the channel's membership: the server
-          // would take the row and then refuse the newcomer a token, which is a
-          // dead end dressed up as an invitation. The way in is to be in the
-          // channel.
-          canAddPeople={
-            call.kind !== "CHANNEL" && (status === "connected" || status === "reconnecting")
-          }
-          addPeopleTitle={
-            call.kind === "CHANNEL" ? "Everyone in the channel is already invited" : "Add people"
-          }
+          canAddPeople={canAddPeople}
+          addPeopleTitle={addPeopleTitle}
           onAddPeople={() => setAddOpen(true)}
           onToggleShare={() => void toggleShare()}
           onToggleMic={() => void toggleMic()}
@@ -786,16 +792,6 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
                 className={handRaised ? "bg-warning text-amber-950 hover:brightness-95" : undefined}
               >
                 <Hand size={17} />
-              </CallControlButton>
-
-              <CallControlButton
-                variant="surface"
-                title={panel === "members" ? "Hide members" : "Show members"}
-                pressed={panel === "members"}
-                onClick={() => setPanel((p) => (p === "members" ? null : "members"))}
-                className={panel === "members" ? "bg-accent text-accent-fg" : undefined}
-              >
-                <Users size={17} />
               </CallControlButton>
 
               <CallControlButton
@@ -887,7 +883,7 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
                 <CallControlButton
                   variant="surface"
                   title="Minimise — keep the meeting running while you work"
-                  onClick={session.minimize}
+                  onClick={display.handleMinimize}
                 >
                   <Minimize2 size={17} />
                 </CallControlButton>
@@ -897,8 +893,13 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
         />
       </header>
 
-      <div className="relative flex min-h-0 flex-1">
-        <main className="relative flex min-h-0 flex-1 flex-col gap-3 p-4">
+      {/* Three fixed columns: video area, Participants, Chat/Notes — in that
+          order and that width ratio at `lg` and up. Below `lg` there isn't
+          room for three columns side by side, so they stack instead; nothing
+          here ever overlays the video as a popup. */}
+      <div className="relative flex min-h-0 flex-1 flex-col gap-3 p-4 lg:flex-row lg:gap-4">
+        {/* Left: Active speaker / video area — always the largest section. */}
+        <main className="glass relative flex min-h-0 flex-[3] flex-col gap-3 overflow-hidden rounded-2xl p-3">
           {/* The sharer's own reminder, and the only stop control that exists. */}
           {sharing && <ScreenSharePopup startedAt={connectedAt} onStop={() => void toggleShare()} />}
 
@@ -907,7 +908,7 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
               {status === "failed" ? "Couldn't join this call." : "Connecting…"}
             </div>
           ) : stage ? (
-            <div className="flex min-h-0 flex-1 flex-col gap-3 sm:flex-row">
+            <div className="flex min-h-0 flex-1 flex-col gap-3">
               <div className="relative min-h-0 flex-1">
                 {/* Offered only for a pin somebody MADE. The stage following
                     the speaker is the room's normal behaviour, and "unpin"
@@ -916,21 +917,32 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
                 {pinned ? (
                   <UnpinButton name={stage.name} onClick={() => setPinned(null)} />
                 ) : (
-                  <span className="pointer-events-none absolute left-3 top-3 z-10 rounded-full bg-black/55 px-2 py-1 text-[11px] font-medium text-white backdrop-blur">
+                  <span className="pointer-events-none absolute left-3 top-3 z-10 inline-flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur">
+                    <Mic size={12} className="text-accent" />
+                    <SpeakingWave className="text-accent" />
                     Speaking
                   </span>
                 )}
-                <CallTile p={stage} size="stage" pinned />
+                {/* `active`, not `p.speaking`: whoever is on the stage — by
+                    speaking or by a manual pin — gets the highlight for as
+                    long as they hold it, not just the instants they're
+                    actually making sound. */}
+                <CallTile p={stage} size="stage" active />
               </div>
-              {/* Everyone else, beside the stage rather than above it — the
-                  room stays visible next to whatever it is looking at. */}
-              <CallMembers
-                participants={participants.filter((p) => p.identity !== stage.identity)}
-                hands={hands}
-                pinned={pinned}
-                onTogglePin={togglePin}
-                layout="sidebar"
-              />
+              {/* Everyone else, small, below the stage rather than beside it
+                  — see CallSpeakerFilmstrip for the five-tile cap and the
+                  overflow card. Skipped when the stage participant is the
+                  only one here: a thumbnail of the same lone face has
+                  nothing to add. */}
+              {participants.length > 1 && (
+                <CallSpeakerFilmstrip
+                  participants={participants}
+                  activeId={stageId}
+                  hands={hands}
+                  pinned={pinned}
+                  onTogglePin={togglePin}
+                />
+              )}
             </div>
           ) : (
             <CallMembers
@@ -943,10 +955,22 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
           )}
         </main>
 
-        {/* Beside the room from `sm` up; over it on a phone, where a column and
-            a video grid cannot both be usable. */}
+        {/* Middle: Participants — a fixed part of the layout, not a panel
+            that opens and closes, so "who is here" never needs a popup. */}
+        <CallRoster
+          participants={participants}
+          hands={hands}
+          pinned={pinned}
+          onTogglePin={togglePin}
+          canInvite={canAddPeople}
+          inviteTitle={addPeopleTitle}
+          onInvite={() => setAddOpen(true)}
+          className={SIDE_PANEL_SIZE}
+        />
+
+        {/* Right: Chat or Notes — the two share this column, same as before. */}
         {panel && (
-          <div className="absolute inset-0 z-20 flex bg-surface sm:relative sm:inset-auto sm:z-auto">
+          <div className={cn("flex flex-col", SIDE_PANEL_SIZE)}>
             {panel === "notes" ? (
               <CallNotes
                 notes={notes}
@@ -954,21 +978,13 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
                 onExport={exportNotes}
                 onClose={() => setPanel(null)}
               />
-            ) : panel === "chat" ? (
+            ) : (
               <CallChat
                 chat={visibleChat}
                 participants={participants}
                 me={identity}
                 onSend={sendChat}
                 onExport={exportChat}
-                onClose={() => setPanel(null)}
-              />
-            ) : (
-              <CallRoster
-                participants={participants}
-                hands={hands}
-                pinned={pinned}
-                onTogglePin={togglePin}
                 onClose={() => setPanel(null)}
               />
             )}

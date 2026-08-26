@@ -35,17 +35,29 @@ class _NullSavepoint:
 
 
 class _FakeDb:
-    """Enough AsyncSession to observe what the insert was handed."""
+    """Enough AsyncSession to observe what the insert was handed.
+
+    `insert_events` now calls `execute` once PER ROW (see ingest.py's
+    `_execute_insert` — a real multi-row `text()` INSERT can't do
+    `RETURNING` via a plain DBAPI executemany, verified against a real
+    Postgres instance), so `calls` holds one params dict per row rather than
+    one batch list. Mimics real Postgres's `RETURNING id`: every row offered
+    here has no `client_event_id` collision (none of this file's fixtures set
+    one), so every row "lands" — the fake returns the id it was handed,
+    matching what a real, conflict-free insert would.
+    """
 
     def __init__(self) -> None:
-        self.batches: list[list[dict]] = []
+        self.calls: list[dict] = []
 
     def begin_nested(self):
         return _NullSavepoint()
 
     async def execute(self, _stmt, params=None):
-        self.batches.append(params)
-        return None
+        if params is None:
+            return []
+        self.calls.append(params)
+        return [(params["id"],)]
 
 
 def _row(action: str) -> "ingest.ActivityRow":
@@ -65,7 +77,7 @@ async def test_a_heartbeat_is_not_written():
     written = await ingest.insert_events(db, [_row("heartbeat")])
 
     assert written == [], "insert_events now returns the rows actually written, not a count"
-    assert db.batches == [], "a batch of nothing but beats must not touch the table"
+    assert db.calls == [], "a batch of nothing but beats must not touch the table"
 
 
 async def test_the_events_around_a_heartbeat_still_are():
@@ -78,11 +90,11 @@ async def test_the_events_around_a_heartbeat_still_are():
 
     assert len(written) == 2
     assert [w.row.action for w in written] == ["focus", "task.completed"]
-    assert [p["action"] for p in db.batches[0]] == ["focus", "task.completed"]
+    assert [c["action"] for c in db.calls] == ["focus", "task.completed"]
     # The returned id is the SAME id the row was actually inserted under —
     # this is the whole reason insert_events returns rows now: sessionizer.py
     # needs to know which activity_events.id a just-written span landed as.
-    assert [w.id for w in written] == [p["id"] for p in db.batches[0]]
+    assert [w.id for w in written] == [c["id"] for c in db.calls]
 
 
 def test_the_beat_is_the_only_action_suppressed():

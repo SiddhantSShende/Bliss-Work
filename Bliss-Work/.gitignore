@@ -4,6 +4,8 @@ node_modules/
 
 # builds
 dist/
+dist-firefox/
+dist-safari/
 dist.root-old/
 out/
 build/

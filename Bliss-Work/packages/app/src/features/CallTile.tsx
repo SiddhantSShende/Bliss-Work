@@ -34,6 +34,7 @@ export function CallTile({
   p,
   size = "grid",
   pinned = false,
+  active = false,
   handRaised = false,
   withAudio = true,
   onTogglePin,
@@ -41,6 +42,14 @@ export function CallTile({
   p: RoomParticipant;
   size?: TileSize;
   pinned?: boolean;
+  /**
+   * This tile is the one everyone is currently looking at — the active
+   * speaker or the viewer's own pin — wherever it's shown: the stage itself,
+   * or its matching thumbnail in a filmstrip or list. Forces the highlight
+   * ring (and, on the stage, a glow) on regardless of this instant's raw
+   * `p.speaking` value, so it doesn't flicker as they pause between words.
+   */
+  active?: boolean;
   handRaised?: boolean;
   /**
    * Render this participant's audio sink.
@@ -118,8 +127,9 @@ export function CallTile({
     <div
       className={cn(
         "group relative h-full min-h-0 w-full overflow-hidden rounded-xl bg-surface-2 ring-2 transition-colors",
-        p.speaking ? "ring-accent" : "ring-transparent",
-        pinned && size !== "stage" && "ring-accent/60",
+        p.speaking || active ? "ring-accent" : "ring-transparent",
+        active && size === "stage" && "shadow-[0_0_28px_-6px_var(--color-accent)]",
+        pinned && size !== "stage" && !active && "ring-accent/60",
       )}
     >
       {selfSharePreview ? (

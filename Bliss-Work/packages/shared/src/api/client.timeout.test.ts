@@ -60,7 +60,12 @@ describe("ApiClient request timeout", () => {
 
     // login() is just a thin wrapper over the private req(); any method exercises
     // the same timeout path. Capture the promise BEFORE advancing timers.
-    const promise = client.login({ email: "a@b.com", password: "pw" });
+    const promise = client.login({
+      email: "a@b.com",
+      password: "pw",
+      captchaId: "captcha-1",
+      captchaValue: "AbCd1234",
+    });
     const assertion = expect(promise).rejects.toMatchObject({
       status: 408,
       name: "ApiError",

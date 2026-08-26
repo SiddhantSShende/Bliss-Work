@@ -35,7 +35,7 @@ from ..security.passwords import (
     password_meets_policy,
     verify_password_async,
 )
-from . import mfa_service, session_events
+from . import captcha_service, mfa_service, session_events
 from .account_service import create_email_verification_tx
 from .cookies import REFRESH_COOKIE, clear_refresh_cookie, set_refresh_cookie
 from .directory_service import InvalidUserIds, parse_user_ids
@@ -51,6 +51,9 @@ router = APIRouter(prefix="/auth", tags=["auth"])
     dependencies=[Depends(enforce_origin)],
 )
 async def create_org(body: CreateOrgRequest, response: Response) -> SessionDTO:
+    # Checked before anything else touches the DB or Argon2 — see
+    # captcha_service.verify_and_consume for why this gates the whole request.
+    await captcha_service.verify_and_consume(body.captchaId, body.captchaValue)
     if not password_meets_policy(body.password):
         raise HTTPException(status_code=422, detail=PASSWORD_POLICY_MESSAGE)
     async with engine.begin() as conn:
@@ -226,6 +229,11 @@ async def create_org(body: CreateOrgRequest, response: Response) -> SessionDTO:
     "/login", response_model=SessionDTO | MfaPendingDTO, dependencies=[Depends(enforce_origin)]
 )
 async def login(body: LoginRequest, response: Response, request: Request) -> SessionDTO | MfaPendingDTO:
+    # Checked before the identity lookup or any Argon2 verify — independent of
+    # whether the credentials themselves are right or wrong, so a captcha
+    # failure never becomes a signal about account existence. See
+    # captcha_service.verify_and_consume.
+    await captcha_service.verify_and_consume(body.captchaId, body.captchaValue)
     generic = HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid credentials")
     now = datetime.now(timezone.utc)
     ip, user_agent, request_id = request_context(request)

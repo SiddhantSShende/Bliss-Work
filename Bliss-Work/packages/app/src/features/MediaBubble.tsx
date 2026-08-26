@@ -1,5 +1,5 @@
-import { AlertCircle, FileIcon, Loader2, Play } from "lucide-react";
-import { prettySize, type MediaItem } from "../lib/chatEnvelope";
+import { AlertCircle, ExternalLink, FileIcon, Loader2, Play } from "lucide-react";
+import { canPreviewDocInApp, prettySize, type MediaItem } from "../lib/chatEnvelope";
 
 /**
  * Renders the attachments of one media message.
@@ -74,6 +74,7 @@ export function MediaBubble({
           url={urlFor(item.id)}
           isResolved={isResolved}
           progress={progress?.[item.id]}
+          onOpen={() => onOpen(items.indexOf(item))}
         />
       ))}
     </div>
@@ -145,27 +146,43 @@ function VisualTile({
   );
 }
 
+/**
+ * A non-visual attachment (PDF, spreadsheet, archive, …) inside a message
+ * bubble.
+ *
+ * Clicking it opens the file — never downloads it, matching the rest of the
+ * app's "view, don't save" policy for chat attachments (see Lightbox's own
+ * note, and internal/api/attachments.go's server-side enforcement, which
+ * ignores `?dl=1`): a type the app can render itself (`canPreviewDocInApp`)
+ * opens in the same in-app Lightbox the gallery uses; everything else opens
+ * via the system/browser default, exactly like the identical file's link in
+ * the conversation's "Media, Links & Docs" panel (ChatAssetsSheet).
+ */
 function FileCard({
   item,
   mine,
   url,
   isResolved,
   progress,
+  onOpen,
 }: {
   item: MediaItem;
   mine: boolean;
   url: string | undefined;
   isResolved: boolean;
   progress?: UploadProgress;
+  onOpen: () => void;
 }) {
-  return (
-    <div
-      className={`flex items-center gap-2.5 rounded-2xl px-3.5 py-2.5 text-sm shadow-[0_2px_10px_-4px_rgba(40,30,90,0.25)] ${
-        mine
-          ? "rounded-br-md bg-gradient-to-br from-brand-from to-brand-to text-accent-fg"
-          : "rounded-bl-md bg-surface text-fg ring-1 ring-border/60"
-      }`}
-    >
+  const clickable = !progress && !!url;
+
+  const bubbleClass = `flex items-center gap-2.5 rounded-2xl px-3.5 py-2.5 text-left text-sm shadow-[0_2px_10px_-4px_rgba(40,30,90,0.25)] ${
+    mine
+      ? "rounded-br-md bg-gradient-to-br from-brand-from to-brand-to text-accent-fg"
+      : "rounded-bl-md bg-surface text-fg ring-1 ring-border/60"
+  } ${clickable ? "transition-[filter] hover:brightness-95" : ""}`;
+
+  const content = (
+    <>
       <div
         className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
           mine ? "bg-accent-fg/15" : "bg-accent-soft text-accent"
@@ -180,6 +197,8 @@ function FileCard({
             <span className="text-danger">{progress.error}</span>
           ) : progress?.ratio !== undefined ? (
             `Uploading… ${Math.round(progress.ratio * 100)}%`
+          ) : !url && isResolved ? (
+            "Not available to you"
           ) : (
             prettySize(item.size)
           )}
@@ -193,13 +212,39 @@ function FileCard({
           </div>
         )}
       </div>
-      {/* No download control, by product decision — a non-visual attachment
-          shows its name and size only. The server ignores ?dl=1 as well
-          (internal/api/attachments.go), so there is no link to hand-craft. */}
-      {url || isResolved ? null : (
+      {!url && !isResolved ? (
         <Loader2 size={15} className="shrink-0 animate-spin opacity-60" />
-      )}
-    </div>
+      ) : clickable ? (
+        <ExternalLink size={14} className={`shrink-0 ${mine ? "opacity-70" : "opacity-50"}`} />
+      ) : null}
+    </>
+  );
+
+  if (!clickable) return <div className={bubbleClass}>{content}</div>;
+
+  if (canPreviewDocInApp(item.mime)) {
+    return (
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label={`Open ${item.name}`}
+        className={`${bubbleClass} w-full`}
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={`Open ${item.name}`}
+      className={bubbleClass}
+    >
+      {content}
+    </a>
   );
 }
 

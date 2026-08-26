@@ -1,7 +1,8 @@
+import { randomUUID } from "node:crypto";
 import { win32, posix } from "node:path";
 import { powerMonitor } from "electron";
-import { browserSlug, resolveApp } from "@taskboard/shared";
-import { isActive, getState } from "./activity-state";
+import { browserSlug, resolveApp, filterTitle } from "@taskboard/shared";
+import { isActive, getState, setToken } from "./activity-state";
 // Shared with the desktop-note watcher: one provider, loaded once, so the two
 // features cannot disagree about whether app tracking is available.
 import { loadProvider, providerUnavailableReason } from "./foreground";
@@ -71,6 +72,11 @@ interface AgentEvent {
   targetKind?: string;
   targetId?: string;
   durationMs?: number;
+  /** Generated once, here, and never touched again — including by flush()'s
+   *  re-queue-on-failure, which resends this exact object. Lets the server
+   *  collapse a retried send into a no-op instead of a duplicate row; see
+   *  migration 0006_activity_event_idempotency.sql. */
+  clientEventId: string;
   /**
    * Encrypted per-org at rest by telemetry-svc. Formalized keys — see
    * packages/shared/src/types/activity.ts's `ActivityDetail`:
@@ -124,8 +130,8 @@ let current: {
   browser: string | null;
 } | null = null;
 let idleSince: number | null = null;
-function push(e: AgentEvent): void {
-  queue.push(e);
+function push(e: Omit<AgentEvent, "clientEventId">): void {
+  queue.push({ ...e, clientEventId: randomUUID() });
   // Drop the OLDEST: after a long offline stretch the recent minutes are the
   // ones anyone looking at the timeline wants.
   if (queue.length > MAX_QUEUED) queue = queue.slice(-MAX_QUEUED);
@@ -250,13 +256,23 @@ async function sample(): Promise<void> {
     // legitimately do not, and the row simply carries no `detail.title` for it
     // (see `closeCurrent`, which omits empty fields rather than sending "").
     const rawTitle = active?.title?.trim();
-    title = rawTitle ? rawTitle : null;
     // Feeds the ground-truth half of macOS's permission story (see
     // macos-permissions.ts's `titleReadWorking`) — a no-op on every other
     // platform. Recorded only when there IS a frontmost app to have a title
     // at all; a read that found no window yet is not evidence about the
-    // Screen Recording grant either way.
+    // Screen Recording grant either way. Observed BEFORE the privacy floor
+    // below: this answers "did the OS give us a title", which is unaffected
+    // by whether this sensor then chooses to keep it.
     if (active?.owner?.name) recordTitleObservation(!!rawTitle);
+    // The privacy floor (packages/shared/src/policy/titlePrivacy.ts): never
+    // keep a title from a password manager, and never keep a title that reads
+    // as revealing regardless of which app produced it — the same "floor, not
+    // a policy" guarantee apps/extension/src/tracker.ts's NEVER_RECORD makes
+    // for browser domains, applied here because a desktop window title has no
+    // domain to filter on instead. Checked against the RESOLVED app name,
+    // matching how every other consumer of the app-name map in this codebase
+    // recognises an application (see activityDestination.ts).
+    title = rawTitle ? filterTitle(resolveApp(name), rawTitle) : null;
     // `owner.path` is a Windows-style path on Windows and a POSIX-style path on
     // macOS/Linux. Node's platform-default `path` module parses whichever style
     // matches the HOST running this code, which is correct in production (the
@@ -308,10 +324,14 @@ async function flush(): Promise<void> {
     // 401 means the token was revoked — by the person, or automatically because
     // their membership ended. Stop rather than retry: there is nothing to
     // recover, and re-sending would be a removed member's laptop repeatedly
-    // trying to report into a workspace it no longer belongs to.
+    // trying to report into a workspace it no longer belongs to. Persist the
+    // clear too — not just the in-memory stop() — so Settings stops reporting
+    // "paired" and the next launch doesn't immediately rediscover the same
+    // dead token and repeat this exact round-trip.
     if (res.status === 401) {
       queue = [];
       stop();
+      setToken(null);
       return;
     }
     if (!res.ok) queue = [...batch, ...queue].slice(-MAX_QUEUED);

@@ -8,6 +8,7 @@ import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { broadcastSession } from "../lib/authChannel";
 import { AuthLayout, Field } from "./Onboarding";
+import { CaptchaField, useCaptcha } from "../features/Captcha";
 
 export function Login() {
   const { api } = useRuntime();
@@ -16,12 +17,18 @@ export function Login() {
   const [busy, setBusy] = useState(false);
   const [reveal, setReveal] = useState(false);
   const [form, setForm] = useState({ email: "", password: "" });
+  const captcha = useCaptcha();
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!captcha.captchaId) return;
     setBusy(true);
     try {
-      const result = await api.login(form);
+      const result = await api.login({
+        ...form,
+        captchaId: captcha.captchaId,
+        captchaValue: captcha.value,
+      });
       if (isMfaPending(result)) {
         nav("/mfa-challenge", { state: result });
         return;
@@ -37,6 +44,8 @@ export function Login() {
       // caller. Only 401 is actually about the credentials.
       if (err instanceof ApiError && err.status === 401) {
         toast.error("Invalid email or password");
+      } else if (err instanceof ApiError && err.status === 400) {
+        toast.error("Incorrect security check", { description: "Please try again." });
       } else if (err instanceof ApiError && err.status === 429) {
         toast.error("Too many attempts", {
           description: "Wait a minute before trying again.",
@@ -51,6 +60,10 @@ export function Login() {
           description: "Check that the auth service is running and reachable from this browser.",
         });
       }
+      // The CAPTCHA the server just validated is single-use — dead now
+      // regardless of WHY the request ultimately failed (wrong password,
+      // wrong CAPTCHA, or anything else). A retry needs a fresh one.
+      void captcha.refresh();
     } finally {
       setBusy(false);
     }
@@ -108,7 +121,14 @@ export function Login() {
             Forgot password?
           </Link>
         </div>
-        <Button type="submit" loading={busy} size="lg" className="mt-1 w-full">
+        <CaptchaField captcha={captcha} />
+        <Button
+          type="submit"
+          loading={busy}
+          disabled={!captcha.captchaId || captcha.value.length === 0}
+          size="lg"
+          className="mt-1 w-full"
+        >
           {busy ? "Signing in…" : "Sign in"}
         </Button>
         <p className="text-center text-sm text-muted">

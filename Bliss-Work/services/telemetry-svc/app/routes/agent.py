@@ -184,6 +184,7 @@ async def ingest_agent(
                 target_id=e.targetId,
                 duration_ms=e.durationMs,
                 detail=dict(e.detail or {}),
+                client_event_id=e.clientEventId,
             )
             for e in body.events
         ]

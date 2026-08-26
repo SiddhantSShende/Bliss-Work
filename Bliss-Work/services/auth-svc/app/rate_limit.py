@@ -122,6 +122,11 @@ _SENSITIVE_LIMITS: dict[tuple[str, str], tuple[int, int]] = {
     ("POST", "/auth/mfa/webauthn/auth/start"): (20, 60),
     ("POST", "/auth/mfa/disable"): (5, 60),
     ("POST", "/auth/mfa/totp/backup-codes/regenerate"): (5, 60),
+    # CAPTCHA generation is otherwise free (no auth, no cost to the caller),
+    # so it needs its own budget or it becomes a DoS/enumeration vector in its
+    # own right — see CAPTCHA_RATE_LIMIT_PER_MINUTE in config.py. Read from
+    # settings (not hardcoded) like every other CAPTCHA knob.
+    ("GET", "/auth/captcha"): (settings.captcha_rate_limit_per_minute, 60),
 }
 
 _MAX_BUCKETS = 100_000  # bound memory under an IP-rotating flood

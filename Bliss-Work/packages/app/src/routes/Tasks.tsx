@@ -3,11 +3,12 @@ import { useParams, NavLink } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
-import { Plus, ListTodo, Download, Star, MessageSquarePlus } from "lucide-react";
-import { Badge, Button, GlassCard, EmptyState } from "@taskboard/ui";
+import { Plus, ListTodo, Download, Star, MessageSquarePlus, PinOff } from "lucide-react";
+import { Badge, Button, GlassCard, EmptyState, IconButton } from "@taskboard/ui";
 import type { SentTaskDTO, StickyTaskDTO, TaskAction, UserDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
+import { autoPinAssignedTask, unpinAssignedTask, useAssignedTaskPin } from "../lib/taskPinPrefs";
 import { TERMINAL_VIEW_LIMIT, isTerminalView, terminalAt } from "./tasksBuckets";
 import { AvailablePeople } from "../features/AvailablePeople";
 import { CreateTaskDialog } from "../features/CreateTaskDialog";
@@ -108,10 +109,24 @@ function AssignedBucket({ view }: { view: string }) {
   const qc = useQueryClient();
   const { data: all = [] } = useQuery({ queryKey: qk.assigned, queryFn: () => api.taskAssigned() });
   const [page, setPage] = useState(1);
+  const isDesktop = config.kind === "electron";
+  const { isPinned } = useAssignedTaskPin();
 
   useEffect(() => {
     setPage(1);
   }, [view]);
+
+  // Desktop-only, device-local "pinned" marker: the first time an assigned
+  // task shows up here, mark it pinned so it carries an Unpin control. Purely
+  // client-side (see lib/taskPinPrefs) — unrelated to the Electron
+  // "Pin to desktop" sticky-note feature below, which is server/main-process
+  // backed.
+  useEffect(() => {
+    if (!isDesktop) return;
+    for (const t of all as StickyTaskDTO[]) {
+      if (t.myStatus === "SENT" || t.myStatus === "ACKNOWLEDGED") autoPinAssignedTask(t.taskId);
+    }
+  }, [all, isDesktop]);
 
   // Desktop-only: which tasks the user has pinned to the desktop. Source of
   // truth is the Electron main process; absent on web so the button hides.
@@ -265,8 +280,26 @@ function AssignedBucket({ view }: { view: string }) {
           // acknowledged. Keeps the in-app card in lockstep with the desktop
           // note and avoids a dead/locked card for a non-acknowledged status.
           const floatable = pinnedIds.includes(t.taskId) && t.myStatus === "ACKNOWLEDGED";
+          const desktopPinned = isDesktop && isPinned(t.taskId);
           return (
-            <motion.div key={t.taskId} layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.97 }}>
+            <motion.div
+              key={t.taskId}
+              layout
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.97 }}
+              className="relative"
+            >
+              {desktopPinned && (
+                <IconButton
+                  className="absolute right-2 top-2 z-10 bg-surface/90 shadow-soft"
+                  title="Unpin"
+                  aria-label="Unpin"
+                  onClick={() => unpinAssignedTask(t.taskId)}
+                >
+                  <PinOff size={15} />
+                </IconButton>
+              )}
               <StickyWidget
                 task={t}
                 onAction={(a) => act.mutate({ taskId: t.taskId, action: a })}

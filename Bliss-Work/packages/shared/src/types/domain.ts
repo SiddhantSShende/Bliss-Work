@@ -124,6 +124,18 @@ export const TimelinePage = z.object({
 });
 export type TimelinePage = z.infer<typeof TimelinePage>;
 
+/**
+ * One `user_sessions` row — a signed-in CLIENT INSTANCE (login presence,
+ * active/idle time, device label). Despite the name, this is NOT the
+ * desktop+browser correlated "Chrome, showing YouTube" record — that is
+ * `ActivitySessionEntryDTO` below, a deliberately different name for a
+ * deliberately different table (`activity_sessions`, built by telemetry-svc's
+ * sessionizer.py). The naming is unfortunate and predates the second table;
+ * kept as-is here rather than renamed, since renaming would break every
+ * existing caller (MemberSessions.tsx, ExportActivityDialog.tsx,
+ * xlsxTelemetry.ts) for a cosmetic fix — flagged here so nobody reaches for
+ * this type expecting a merged app+site record and gets confused fields.
+ */
 export const ActivitySessionDTO = z.object({
   id: z.string(),
   source: z.string(),
@@ -143,6 +155,46 @@ export const ActivitySessionPage = z.object({
   nextCursor: z.string().nullable().default(null),
 });
 export type ActivitySessionPage = z.infer<typeof ActivitySessionPage>;
+
+/**
+ * One `activity_sessions` row — the CORRELATED desktop+browser record
+ * telemetry-svc's sessionizer.py builds: a desktop `app.focus` span merged
+ * with the browser `site.visit` span that overlapped it, or either span
+ * standing alone when only one sensor reported. This is the unified
+ * activity/session model member-facing UI should read FROM, rather than
+ * re-deriving the same merge client-side from raw `TimelineEntry` rows (see
+ * activityLabels.ts's `collapseSwitches`, which predates this endpoint and
+ * remains a client-side best-effort fallback, not the source of truth).
+ *
+ * See `ActivitySessionDTO` above for why this is a differently-named type
+ * rather than a fix to that name.
+ */
+export const ActivitySessionEntryDTO = z.object({
+  id: z.string(),
+  /** 'app' | 'site' | 'app+site' — which sensor(s) contributed. */
+  kind: z.string(),
+  appName: z.string().nullable().default(null),
+  domain: z.string().nullable().default(null),
+  title: z.string().nullable().default(null),
+  startedAt: z.string(),
+  endedAt: z.string(),
+  durationMs: z.number().default(0),
+  /** Decrypted server-side: url, siteKind, siteRef, from — the same shape
+   *  TimelineEntry.detail already carries. */
+  detail: z.record(z.string()).nullable().default(null),
+  /** The activity_events rows this session was built from — see
+   *  activityLabels.ts's sessionEntryFor for why matching on these rather
+   *  than on startedAt is what makes the lookup immune to clock skew. */
+  anchorEventId: z.string().nullable().default(null),
+  correlatedEventId: z.string().nullable().default(null),
+});
+export type ActivitySessionEntryDTO = z.infer<typeof ActivitySessionEntryDTO>;
+
+export const ActivitySessionEntryPage = z.object({
+  sessions: z.array(ActivitySessionEntryDTO),
+  nextCursor: z.string().nullable().default(null),
+});
+export type ActivitySessionEntryPage = z.infer<typeof ActivitySessionEntryPage>;
 
 export const DayBucket = z.object({
   day: z.string(),
@@ -246,6 +298,16 @@ export const OrgLifecycleDTO = z.object({
   deletedAt: z.string().nullish(),
 });
 export type OrgLifecycleDTO = z.infer<typeof OrgLifecycleDTO>;
+
+/** GET /auth/captcha's response. `captchaImage` is a `data:image/png;base64,...`
+ *  URI — the rendered challenge only; the plaintext value it encodes is never
+ *  sent to the client in any form. */
+export const CaptchaChallengeDTO = z.object({
+  captchaId: z.string(),
+  captchaImage: z.string(),
+  expiresIn: z.number().int(),
+});
+export type CaptchaChallengeDTO = z.infer<typeof CaptchaChallengeDTO>;
 
 export const SessionDTO = z.object({
   accessToken: z.string(),

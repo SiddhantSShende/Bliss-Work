@@ -25,14 +25,21 @@
  * surface, and it is isolated to plain JSON, never to a branch in the bundled
  * TypeScript.
  *
- * Safari is NOT a target of this script. It needs a native wrapper app built
- * via Xcode's `safari-web-extension-converter`, which is a distinct build
- * pipeline outside esbuild's reach entirely — see docs/BROWSERS.md's Safari
- * section for why, and what that pipeline consumes FROM this bundle (the
- * `dist/` Chromium output is the starting point the converter ingests).
+ * Safari's WEB EXTENSION half (the `dist-safari/` this script produces) IS
+ * just a fourth manifest variant, the same as Firefox — Safari 14+/WebKit's
+ * WebExtension implementation is `chrome.*`-API-compatible (tabs, storage,
+ * alarms, idle — everything this extension actually calls), so no branching
+ * exists in the bundled TypeScript for it either. What Safari needs BEYOND
+ * this script is the native app-wrapper: an Xcode project with a Safari Web
+ * Extension target whose `Resources/` directory is exactly this script's
+ * `dist-safari/` output, built and code-signed via Xcode/xcodebuild — a
+ * distinct pipeline outside esbuild's reach, same as Firefox's AMO signing is
+ * outside it. See `xcode/` at the repo root of this package for that wrapper
+ * project, and docs/BROWSERS.md's Safari section for what remains to be done
+ * with it on a real Mac (this script cannot invoke Xcode).
  */
 import { build } from "esbuild";
-import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -60,6 +67,21 @@ const TARGETS = {
     esbuildTarget: "chrome116",
     browserConstant: "firefox",
   },
+  safari: {
+    manifest: "manifest.safari.json",
+    // Feeds xcode/BlissWork Activity/BlissWork Activity Extension/Resources —
+    // see that project's own README for how this output lands there (a copy,
+    // not a symlink, so the Xcode project stays self-contained for someone
+    // opening it without having run this script first).
+    outDir: "dist-safari",
+    // Safari's WebKit JS engine is not the target esbuild's syntax-lowering
+    // needs to key on for correctness (WebKit has supported this syntax for
+    // longer than Safari's own WebExtension API has existed) — chrome116 is
+    // used as the same conservative, already-verified-safe baseline the
+    // Firefox target reuses for the same reason.
+    esbuildTarget: "chrome116",
+    browserConstant: "safari",
+  },
 };
 
 const targetArg = (process.argv.find((a) => a.startsWith("--target=")) ?? "--target=chromium")
@@ -74,6 +96,28 @@ const manifestPath = join(root, target.manifest);
 if (!existsSync(manifestPath)) {
   console.error(`Missing manifest for target "${targetArg}": ${target.manifest}`);
   process.exit(1);
+}
+
+// The reserved `.example` TLD (RFC 2606) makes manifest.firefox.json's gecko id
+// unmistakably a placeholder rather than something that could pass for a real
+// one — see docs/BROWSERS.md's own note that it must be replaced before any AMO
+// submission. `--strict` is what a real store-submission build passes (a local
+// `about:debugging` load, which is the only use this repo's own workflow has
+// for a Firefox build today, does not care what the id is); this is the one
+// place that distinction is checked, so nobody has to remember it by hand at
+// submission time.
+if (targetArg === "firefox" && process.argv.includes("--strict")) {
+  const geckoId = JSON.parse(readFileSync(manifestPath, "utf8"))
+    .browser_specific_settings?.gecko?.id;
+  if (typeof geckoId === "string" && geckoId.endsWith(".example")) {
+    console.error(
+      `manifest.firefox.json's gecko.id is still the placeholder ("${geckoId}"). ` +
+      `Replace it with a real id (a domain BlissWork controls, or the id AMO ` +
+      `assigns on first submission) before building for AMO submission. ` +
+      `See docs/BROWSERS.md.`,
+    );
+    process.exit(1);
+  }
 }
 
 const out = join(root, target.outDir);

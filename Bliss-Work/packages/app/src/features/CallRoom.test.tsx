@@ -24,13 +24,26 @@ import { PROMOTE_AFTER_MS, DEMOTE_AFTER_MS } from "../lib/activeSpeaker";
 const h = vi.hoisted(() => ({
   sendData: vi.fn(),
   participants: [] as RoomParticipant[],
-  pip: { supported: true, active: false, toggle: vi.fn() },
-  // Captures every call CallRoom makes into the hook, so tests can both
-  // inspect what track it computed (the pipTrack self-share exclusion) and
-  // invoke the onAway/onBack callbacks it wired up (the minimise coupling) —
-  // without needing useMeetingPiP's own DOM-level visibility/blur plumbing,
-  // which is covered on its own terms in lib/useMeetingPiP.test.ts.
+  pip: {
+    supported: true,
+    active: false,
+    toggle: vi.fn(),
+    enter: vi.fn(async () => true),
+    exit: vi.fn(async () => {}),
+  },
+  // Captures every call CallRoom makes into the hook, so tests can inspect
+  // what track it computed (the pipTrack self-share exclusion) — without
+  // needing useMeetingPiP's own DOM-level PiP plumbing, which is covered on
+  // its own terms in lib/useMeetingPiP.test.ts.
   useMeetingPiP: vi.fn(),
+  display: { mode: "NORMAL" as "NORMAL" | "MINIMIZED" | "PICTURE_IN_PICTURE", handleMinimize: vi.fn() },
+  // Same idea for the display controller: its OWN state machine (the
+  // USER_AWAY/USER_RETURNED → PiP/minimize flow, the mutual-exclusion
+  // invariant, restoring the right prior mode) is covered exhaustively in
+  // lib/useMeetingDisplayController.test.ts. What's mocked here is just
+  // whether CallRoom wires it up with the right session/pip/enabled and
+  // renders correctly off `mode`/`handleMinimize`.
+  useMeetingDisplayController: vi.fn(),
   session: null as null | {
     minimized: boolean;
     minimize: ReturnType<typeof vi.fn>;
@@ -38,11 +51,10 @@ const h = vi.hoisted(() => ({
   },
 }));
 
-// useMeetingPiP's OWN correctness (support detection, visibility handling,
-// enter/exit, cleanup) is covered against real DOM stubs in
-// lib/useMeetingPiP.test.ts. What's mocked here is just the wiring question:
-// does CallRoom show/hide the button, call toggle(), pass the right track,
-// and react to onAway/onBack.
+// useMeetingPiP's OWN correctness (support detection, PiP mechanics,
+// cleanup) is covered against real DOM stubs in lib/useMeetingPiP.test.ts.
+// What's mocked here is just the wiring question: does CallRoom show/hide
+// the button, call toggle(), and pass the right track.
 vi.mock("../lib/useMeetingPiP", () => ({
   useMeetingPiP: (...args: unknown[]) => {
     h.useMeetingPiP(...args);
@@ -50,10 +62,17 @@ vi.mock("../lib/useMeetingPiP", () => ({
   },
 }));
 
+vi.mock("../lib/useMeetingDisplayController", () => ({
+  useMeetingDisplayController: (...args: unknown[]) => {
+    h.useMeetingDisplayController(...args);
+    return h.display;
+  },
+}));
+
 // No MeetingSessionProvider wraps these tests (renderRoom is deliberately
 // bare — most of this file exercises the room with nowhere to minimise
-// into). The minimise-coupling tests below opt into a session by setting
-// `h.session` themselves.
+// into). The display-controller-wiring tests below opt into a session by
+// setting `h.session` themselves.
 vi.mock("../lib/MeetingSession", () => ({
   useMeetingSessionOptional: () => h.session,
 }));
@@ -154,6 +173,17 @@ async function tick(totalMs: number, stepMs = 50) {
  * would reset the very speaker state the timeout test needs to observe change
  * over time).
  *
+ * `resync` builds the element FRESH on every call rather than reusing one
+ * closed-over JSX literal: React bails out of reconciling a subtree when the
+ * element (and its props object) handed down through `rerender` is the exact
+ * same object reference as last time, which a reused literal always is. That
+ * bailout is invisible to tests whose only path back into CallRoom is an
+ * internal state update (a click, `tick()`'s fake-timer-driven interval) —
+ * those cause CallRoom to re-render itself regardless of what `rerender` was
+ * given — but it silently no-ops a test that mutates an external mock (a
+ * hoisted `h.session`/`h.pip` field) and expects `resync()` alone to surface
+ * it.
+ *
  * Also clicks through the pre-join lobby: CallRoom always mounts into it
  * first (see its own `preJoin` state), and nothing under test here is about
  * that screen — jsdom has no `navigator.mediaDevices`, so the camera preview
@@ -161,16 +191,16 @@ async function tick(totalMs: number, stepMs = 50) {
  */
 function renderRoom() {
   const qc = new QueryClient();
-  const ui = (
+  const build = () => (
     <QueryClientProvider client={qc}>
       <CallRoom call={call} onClose={() => {}} />
     </QueryClientProvider>
   );
-  const result = render(ui);
+  const result = render(build());
   act(() => {
     screen.getByRole("button", { name: "Join meeting" }).click();
   });
-  return { ...result, resync: () => result.rerender(ui) };
+  return { ...result, resync: () => result.rerender(build()) };
 }
 
 beforeEach(() => {
@@ -179,7 +209,12 @@ beforeEach(() => {
   h.pip.supported = true;
   h.pip.active = false;
   h.pip.toggle.mockClear();
+  h.pip.enter = vi.fn(async () => true);
+  h.pip.exit = vi.fn(async () => {});
   h.useMeetingPiP.mockClear();
+  h.display.mode = "NORMAL";
+  h.display.handleMinimize = vi.fn();
+  h.useMeetingDisplayController.mockClear();
   h.session = null;
   h.participants = [
     participant({ identity: "me", isLocal: true, name: "Me" }),
@@ -233,11 +268,17 @@ describe("manual pin", () => {
     renderRoom();
 
     const before = h.sendData.mock.calls.length;
+    // Two pin controls exist for the same person now: one on her video tile,
+    // one on her row in the always-visible Participants list. Either toggles
+    // the same shared pin state, so only the first needs a click.
+    // `getAllByRole` throws if nothing matches, so a match here is never
+    // actually undefined — the assertion just says so to the type checker.
+    const firstPinButton = screen.getAllByRole("button", { name: "Pin Alice" }).at(0)!;
     await act(async () => {
-      screen.getByRole("button", { name: "Pin Alice" }).click();
+      firstPinButton.click();
     });
 
-    expect(screen.getByRole("button", { name: "Unpin Alice" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Unpin Alice" }).length).toBeGreaterThan(0);
     expect(h.sendData.mock.calls.length).toBe(before);
   });
 });
@@ -270,13 +311,20 @@ describe("the manual picture-in-picture button", () => {
   });
 });
 
-/** The (track, enabled, callbacks) arguments from CallRoom's most recent call
- *  into the mocked hook — everything the two suites below need to inspect. */
+/** The (track, enabled) arguments from CallRoom's most recent call into the
+ *  mocked PiP hook. */
 function lastPipCall() {
-  const call = h.useMeetingPiP.mock.calls.at(-1) as
-    | [unknown, unknown, { onAway?: () => void; onBack?: () => void }]
+  const call = h.useMeetingPiP.mock.calls.at(-1) as [unknown, unknown] | undefined;
+  return { track: call?.[0] };
+}
+
+/** The (session, pip, enabled) arguments from CallRoom's most recent call
+ *  into the mocked display controller. */
+function lastControllerCall() {
+  const call = h.useMeetingDisplayController.mock.calls.at(-1) as
+    | [unknown, unknown, unknown]
     | undefined;
-  return { track: call?.[0], callbacks: call?.[2] };
+  return { session: call?.[0], pip: call?.[1], enabled: call?.[2] };
 }
 
 describe("Picture-in-Picture track selection", () => {
@@ -309,28 +357,55 @@ describe("Picture-in-Picture track selection", () => {
   });
 });
 
-describe("switching away from the window minimises the room", () => {
-  it("minimises on the first onAway, and restores on the matching onBack", () => {
+/**
+ * The display controller's OWN correctness — how a USER_AWAY/USER_RETURNED
+ * signal turns into a PiP attempt with a minimise fallback, the mutual
+ * exclusion invariant, restoring the right prior mode — is exhaustively
+ * covered in lib/useMeetingDisplayController.test.ts against a real
+ * userBehaviorAnalysis subscription. What's left to prove here is only that
+ * CallRoom actually WIRES UP that controller (the right session, the right
+ * pip, gated the right way) and renders off what it returns.
+ */
+describe("the meeting display controller", () => {
+  it("is handed this room's own session and pip instance, gated on the call being connected", () => {
     const session = { minimized: false, minimize: vi.fn(), restore: vi.fn() };
     h.session = session;
     renderRoom();
 
-    act(() => lastPipCall().callbacks?.onAway?.());
-    expect(session.minimize).toHaveBeenCalledTimes(1);
-
-    act(() => lastPipCall().callbacks?.onBack?.());
-    expect(session.restore).toHaveBeenCalledTimes(1);
+    const call = lastControllerCall();
+    expect(call.session).toBe(session);
+    expect(call.pip).toBe(h.pip);
+    expect(call.enabled).toBe(true); // the mocked useCallRoom reports status "connected"
   });
 
-  it("leaves a meeting the user already minimised on purpose alone — onAway does not re-minimise it, and onBack does not pop it back open", () => {
-    const session = { minimized: true, minimize: vi.fn(), restore: vi.fn() };
+  it("renders the floating mini-card and hides the full room when the controller reports MINIMIZED", () => {
+    h.session = { minimized: true, minimize: vi.fn(), restore: vi.fn() };
+    h.display.mode = "MINIMIZED";
+    renderRoom();
+
+    expect(screen.getByLabelText(/meeting in progress/i)).toBeInTheDocument();
+  });
+
+  it("shows the full room, not the mini-card, whenever the controller reports NORMAL or PICTURE_IN_PICTURE", () => {
+    h.session = { minimized: false, minimize: vi.fn(), restore: vi.fn() };
+    h.display.mode = "PICTURE_IN_PICTURE";
+    renderRoom();
+
+    expect(screen.queryByLabelText(/meeting in progress/i)).toBeNull();
+  });
+
+  it("routes the Minimise button through the controller's handleMinimize, not session.minimize directly", async () => {
+    const session = { minimized: false, minimize: vi.fn(), restore: vi.fn() };
     h.session = session;
     renderRoom();
 
-    act(() => lastPipCall().callbacks?.onAway?.());
-    expect(session.minimize).not.toHaveBeenCalled();
+    await act(async () => {
+      screen
+        .getByRole("button", { name: "Minimise — keep the meeting running while you work" })
+        .click();
+    });
 
-    act(() => lastPipCall().callbacks?.onBack?.());
-    expect(session.restore).not.toHaveBeenCalled();
+    expect(h.display.handleMinimize).toHaveBeenCalledTimes(1);
+    expect(session.minimize).not.toHaveBeenCalled(); // only the controller's own version is
   });
 });

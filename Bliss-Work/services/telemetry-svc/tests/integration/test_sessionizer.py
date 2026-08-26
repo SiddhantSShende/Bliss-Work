@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import os
 import uuid
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -370,3 +371,96 @@ async def test_a_retried_desktop_batch_updates_in_place_rather_than_duplicating(
     # anchor ever produces more than one session row, even re-sessionized.
     anchors = {s["anchor_event_id"] for s in sessions}
     assert len(anchors) == len(sessions), "no anchor produced more than one session"
+
+
+async def _events_for(user_id: str) -> list[dict]:
+    async with db_session() as db:
+        await set_bypass_rls(db)
+        rows = (
+            await db.execute(
+                text(
+                    "SELECT id, category, action, client_event_id FROM activity_events "
+                    "WHERE user_id = :uid ORDER BY occurred_at"
+                ),
+                {"uid": user_id},
+            )
+        ).mappings().all()
+    return [dict(r) for r in rows]
+
+
+async def test_a_deduped_retry_of_a_correlated_batch_leaves_the_session_untouched(client):
+    """The gap the previous test explicitly does NOT cover (see its own
+    docstring/comment): a retry that DOES carry `clientEventId` — the real
+    migration-0006 path, not the transport-level gap that test documents.
+
+    Desktop + browser correlate into one app+site session first. The DESKTOP
+    event is then re-sent with the SAME clientEventId (a genuine client retry
+    after a lost response, exactly as activity-agent.ts's flush() re-queues on
+    failure). This must:
+      * insert zero new activity_events rows (idx_activity_client_event_id's
+        ON CONFLICT ... DO NOTHING),
+      * therefore never re-enter sessionize_inserted for that (empty) result,
+      * leave the ALREADY-correlated session exactly as it was — not
+        duplicated, and not corrupted by a second, no-op sessionization pass.
+
+    `started` MUST be realistic-recent, not a fixed 2026-08-13 literal like
+    every other test in this file: the dedup key includes `occurred_at`, and
+    clamp_occurred_at only round-trips a client-supplied timestamp byte-
+    identically when it falls inside the backdate window relative to a FRESH
+    now() computed on every request — see test_api_roundtrip.py's
+    test_a_retried_batch_is_not_double_counted, which documents the same
+    constraint. A fixed historical literal gets clamped to a different `now()`
+    on each of the two requests below and never dedupes — confirmed by running
+    this file against a real scratch Postgres before settling on this form.
+    """
+    alice = str(uuid.uuid4())
+    as_user(alice, "member")
+    desktop_token = await _pair(client, "desktop")
+    ext_token = await _pair(client, "extension")
+    started = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+    retry_id = str(uuid.uuid4())
+
+    await client.post(
+        "/telemetry/ingest/agent",
+        headers={"X-Ingest-Token": ext_token},
+        json={"events": [{
+            "action": "site.visit", "category": "site", "occurredAt": started,
+            "targetKind": "site", "targetId": "youtube.com", "durationMs": 830_000,
+            "detail": {"title": "Learn Go in 30 Minutes"},
+        }]},
+    )
+    desktop_payload = {"events": [{
+        "action": "app.focus", "category": "app", "occurredAt": started,
+        "targetKind": "app", "targetId": "Google Chrome", "durationMs": 840_000,
+        "clientEventId": retry_id,
+    }]}
+    first = await client.post(
+        "/telemetry/ingest/agent", headers={"X-Ingest-Token": desktop_token}, json=desktop_payload,
+    )
+    assert first.status_code == 202, first.text
+
+    before = await _sessions_for(alice)
+    assert len(before) == 1
+    assert before[0]["kind"] == "app+site"
+    before_events = await _events_for(alice)
+    assert len(before_events) == 2  # the browser row + the desktop row
+
+    # The retry: identical payload, SAME clientEventId — a lost-response resend,
+    # not a second real event.
+    second = await client.post(
+        "/telemetry/ingest/agent", headers={"X-Ingest-Token": desktop_token}, json=desktop_payload,
+    )
+    assert second.status_code == 202, second.text
+    assert second.json()["accepted"] == 0, "the dedup index must reject the retry"
+
+    after_events = await _events_for(alice)
+    assert len(after_events) == 2, "no new activity_events row from the deduped retry"
+
+    after = await _sessions_for(alice)
+    assert len(after) == 1, "the retry must not create a second session"
+    assert after[0]["id"] == before[0]["id"]
+    assert after[0]["kind"] == "app+site"
+    assert after[0]["domain"] == "youtube.com"
+    assert after[0]["title"] == "Learn Go in 30 Minutes"
+    assert after[0]["duration_ms"] == 840_000
+    assert after[0]["correlated_event_id"] == before[0]["correlated_event_id"]

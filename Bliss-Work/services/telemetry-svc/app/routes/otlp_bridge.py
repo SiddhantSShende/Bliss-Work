@@ -227,6 +227,7 @@ def _to_activity_row(
         target_id=_str_or_none(body.get("targetId")),
         duration_ms=duration_ms,
         detail=detail,
+        client_event_id=_str_or_none(body.get("clientEventId")),
     )
 
 

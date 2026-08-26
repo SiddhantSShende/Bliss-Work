@@ -19,9 +19,10 @@ import {
   type LinkAsset,
   type MediaAsset,
 } from "../lib/chatAssets";
-import { prettySize } from "../lib/chatEnvelope";
+import { canPreviewDocInApp, prettySize } from "../lib/chatEnvelope";
 import { relativeTime } from "../lib/relativeTime";
 import { useAttachmentLinks } from "../lib/useAttachmentLinks";
+import { Lightbox } from "./Lightbox";
 import { Sheet } from "./Modal";
 import { Tabs, type TabSpec } from "./Tabs";
 
@@ -41,6 +42,10 @@ export function ChatAssetsSheet({
   messages: readonly AssetMessage[];
 }) {
   const [tab, setTab] = useState<AssetTab>("media");
+  // A single doc opened from the Docs tab, previewed in the SAME Lightbox the
+  // inline chat bubble and the Media tab use — one in-app viewer, not a
+  // second bespoke one for this panel.
+  const [docPreview, setDocPreview] = useState<MediaAsset | null>(null);
   const assets = useMemo(() => collectChatAssets(messages), [messages]);
 
   // One batched mint for every file on this panel — the same request the thread
@@ -62,20 +67,38 @@ export function ChatAssetsSheet({
   ];
 
   return (
-    <Sheet open={open} onClose={onClose} title={title} showClose>
-      <Tabs tabs={tabs} active={tab} onChange={setTab} className="mb-3" />
+    <>
+      <Sheet open={open} onClose={onClose} title={title} showClose>
+        <Tabs tabs={tabs} active={tab} onChange={setTab} className="mb-3" />
 
-      {/* The bound, said once. Everything on this panel comes out of the
-          messages on screen, and scrolling the thread up widens it. */}
-      <p className="mb-3 text-xs text-muted">
-        From the {messages.length} message{messages.length === 1 ? "" : "s"} loaded here — load
-        older messages in the conversation to include more.
-      </p>
+        {/* The bound, said once. Everything on this panel comes out of the
+            messages on screen, and scrolling the thread up widens it. */}
+        <p className="mb-3 text-xs text-muted">
+          From the {messages.length} message{messages.length === 1 ? "" : "s"} loaded here — load
+          older messages in the conversation to include more.
+        </p>
 
-      {tab === "media" && <MediaGrid assets={assets.media} urlFor={urlFor} isResolved={isResolved} />}
-      {tab === "docs" && <DocList assets={assets.docs} urlFor={urlFor} />}
-      {tab === "links" && <LinkList assets={assets.links} />}
-    </Sheet>
+        {tab === "media" && <MediaGrid assets={assets.media} urlFor={urlFor} isResolved={isResolved} />}
+        {tab === "docs" && <DocList assets={assets.docs} urlFor={urlFor} onPreview={setDocPreview} />}
+        {tab === "links" && <LinkList assets={assets.links} />}
+      </Sheet>
+
+      {/* Rendered as a SIBLING of Sheet, not nested inside it: the sheet's
+          panel is animated with a framer-motion `transform` (even at rest,
+          `x: 0` still sets one), which becomes a new containing block for any
+          `position: fixed` descendant — nesting Lightbox in there would trap
+          its "full-screen" backdrop inside the narrow sheet panel instead of
+          covering the viewport. */}
+      {docPreview && (
+        <Lightbox
+          items={[docPreview.item]}
+          index={0}
+          urlFor={urlFor}
+          onClose={() => setDocPreview(null)}
+          onIndexChange={() => {}}
+        />
+      )}
+    </>
   );
 }
 
@@ -155,9 +178,12 @@ function MediaGrid({
 function DocList({
   assets,
   urlFor,
+  onPreview,
 }: {
   assets: MediaAsset[];
   urlFor: (id: string | undefined) => string | undefined;
+  /** Open a previewable doc in the shared in-app Lightbox. */
+  onPreview: (asset: MediaAsset) => void;
 }) {
   if (assets.length === 0) {
     return (
@@ -170,31 +196,58 @@ function DocList({
   }
   return (
     <ul className="m-0 list-none space-y-1 p-0">
-      {assets.map(({ item, messageId, senderName, at }) => {
+      {assets.map((asset) => {
+        const { item, messageId, senderName, at } = asset;
         const url = urlFor(item.id);
+        const rowClass = `flex items-center gap-3 rounded-xl px-2 py-2 text-left transition-colors hover:bg-surface-2 ${
+          url ? "" : "pointer-events-none opacity-50"
+        }`;
+        const row = (
+          <>
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent">
+              <FileText size={16} />
+            </span>
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="truncate text-sm font-medium text-fg">{item.name}</span>
+              <span className="flex min-w-0 items-center gap-1.5">
+                <span className="shrink-0 text-xs text-muted">{prettySize(item.size)}</span>
+                <span aria-hidden="true" className="shrink-0 text-xs text-muted">
+                  ·
+                </span>
+                <Shared senderName={senderName} at={at} />
+              </span>
+            </span>
+          </>
+        );
+
+        // A type the app can preview itself opens in-app, in the same
+        // Lightbox the chat bubble and the Media tab use — everything else
+        // opens via the system/browser default, same as before.
+        if (url && canPreviewDocInApp(item.mime)) {
+          return (
+            <li key={`${messageId}:${item.id}`}>
+              <button
+                type="button"
+                onClick={() => onPreview(asset)}
+                aria-label={`Open ${item.name}`}
+                className={`w-full ${rowClass}`}
+              >
+                {row}
+              </button>
+            </li>
+          );
+        }
+
         return (
           <li key={`${messageId}:${item.id}`}>
             <a
               href={url ?? undefined}
               target="_blank"
               rel="noopener noreferrer"
-              className={`flex items-center gap-3 rounded-xl px-2 py-2 transition-colors hover:bg-surface-2 ${
-                url ? "" : "pointer-events-none opacity-50"
-              }`}
+              aria-label={`Open ${item.name}`}
+              className={rowClass}
             >
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent">
-                <FileText size={16} />
-              </span>
-              <span className="flex min-w-0 flex-1 flex-col">
-                <span className="truncate text-sm font-medium text-fg">{item.name}</span>
-                <span className="flex min-w-0 items-center gap-1.5">
-                  <span className="shrink-0 text-xs text-muted">{prettySize(item.size)}</span>
-                  <span aria-hidden="true" className="shrink-0 text-xs text-muted">
-                    ·
-                  </span>
-                  <Shared senderName={senderName} at={at} />
-                </span>
-              </span>
+              {row}
             </a>
           </li>
         );

@@ -71,6 +71,12 @@ class AgentEvent(BaseModel):
     targetId: str | None = Field(default=None, max_length=253)  # max DNS name length
     durationMs: int | None = Field(default=None, ge=0, le=86_400_000)
     detail: dict[str, str] | None = None
+    # Generated once by the client when the span is first queued, preserved
+    # across a re-queue-and-retry — never regenerated. Lets the server collapse
+    # a retried send into a no-op instead of a duplicate row (migration 0006).
+    # Optional: absent from a client too old to send one, which just means that
+    # row cannot be deduped, not that it's rejected.
+    clientEventId: str | None = Field(default=None, max_length=64)
 
     @field_validator("detail")
     @classmethod
@@ -157,6 +163,45 @@ class SessionDTO(BaseModel):
 
 class SessionPage(BaseModel):
     sessions: list[SessionDTO]
+    nextCursor: str | None = None
+
+
+class ActivitySessionEntryDTO(BaseModel):
+    """One row of `activity_sessions` — sessionizer.py's CORRELATED
+    desktop+browser record ("Chrome, showing YouTube, 15:00-15:14"), never to
+    be confused with `SessionDTO` above, which is a `user_sessions` row (one
+    per signed-in client instance — login presence, active/idle time). The two
+    tables answer different questions and this name is deliberately distinct
+    from `SessionDTO`/`ActivitySessionDTO` (the latter already exists in
+    packages/shared/src/types/domain.ts and — despite its name — also serves
+    `user_sessions`; see that file's own note on the collision) so a reader of
+    either codebase can tell them apart without opening the SQL.
+    """
+
+    id: str
+    kind: str  # 'app' | 'site' | 'app+site'
+    appName: str | None = None
+    domain: str | None = None
+    title: str | None = None
+    startedAt: str
+    endedAt: str
+    durationMs: int = 0
+    # Decrypted from detail_enc: url, siteKind, siteRef, from — the same
+    # free-form shape TimelineEntry.detail already carries, reused rather than
+    # inventing a second detail contract for a table that stores the same
+    # KIND of revealing-but-not-aggregatable context.
+    detail: dict[str, str] | None = None
+    # The activity_events rows this session was built from — anchorEventId is
+    # always the desktop app.focus row's own id, correlatedEventId (when set)
+    # is the browser site.visit row's. A frontend matching a TimelineEntry to
+    # its session by event id, rather than by timestamp, is immune to clock
+    # skew between the two sensors — see activityLabels.ts's sessionEntryFor.
+    anchorEventId: str | None = None
+    correlatedEventId: str | None = None
+
+
+class ActivitySessionEntryPage(BaseModel):
+    sessions: list[ActivitySessionEntryDTO]
     nextCursor: str | None = None
 
 

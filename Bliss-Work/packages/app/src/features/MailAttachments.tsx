@@ -5,6 +5,7 @@ import {
   Loader2,
   AlertCircle,
   Download,
+  Eye,
   File as FileIcon,
   FileSpreadsheet,
   FileText,
@@ -15,6 +16,8 @@ import { useAttachmentLinks } from "../lib/useAttachmentLinks";
 import { toast } from "sonner";
 import { useRuntime } from "../lib/runtime";
 import { errorText } from "../lib/errorText";
+import { canPreviewDocInApp, type MediaItem } from "../lib/chatEnvelope";
+import { Lightbox } from "./Lightbox";
 
 /** One file in the composer's tray, at whatever stage it has reached. */
 export type MailAttachment = {
@@ -196,6 +199,12 @@ export function MailAttachmentTray({
   );
 }
 
+/** MailAttachmentDTO, reshaped for the same Lightbox chat attachments preview
+ *  in — Lightbox only needs the fields it actually renders. */
+function toMediaItem(a: MailAttachmentDTO): MediaItem {
+  return { id: a.id, name: a.filename, size: a.sizeBytes, mime: a.mime };
+}
+
 /**
  * A received mail's attachments, each behind a freshly minted signed link.
  *
@@ -203,10 +212,22 @@ export function MailAttachmentTray({
  * mints its own links rather than taking them as a prop because the mint is
  * batched per rendered page and keyed on the ids — the one caller that has
  * those ids is this component.
+ *
+ * A type the app can render itself (image, video, PDF, plain text — see
+ * `canPreviewDocInApp`) opens in-app, in the SAME Lightbox the chat
+ * attachments use. Everything else opens via `target="_blank"`, never a
+ * same-tab `download`-attributed link: Electron's `will-navigate` guard
+ * (apps/desktop/src/main/harden.ts) fires for those too and — because a
+ * signed attachment URL is never "our own content" — cancels the navigation
+ * outright, so the click did nothing at all. `target="_blank"` instead goes
+ * through `setWindowOpenHandler`, which is what reliably hands the URL to
+ * `shell.openExternal` (or, on web, just opens a new tab) — the same path
+ * ChatAssetsSheet's doc links already use.
  */
 export function MailAttachmentCards({ attachments }: { attachments: MailAttachmentDTO[] }) {
   const ids = useMemo(() => attachments.map((a) => a.id), [attachments]);
   const links = useAttachmentLinks(ids);
+  const [preview, setPreview] = useState<MailAttachmentDTO | null>(null);
   if (attachments.length === 0) return null;
 
   return (
@@ -218,6 +239,9 @@ export function MailAttachmentCards({ attachments }: { attachments: MailAttachme
         {attachments.map((a) => {
           const url = links.urlFor(a.id);
           const { Icon, tone } = fileGlyph(a.mime, a.filename);
+          const previewable =
+            !!url &&
+            (canPreviewDocInApp(a.mime) || a.mime.startsWith("image/") || a.mime.startsWith("video/"));
           return (
             <li
               key={a.id}
@@ -230,11 +254,23 @@ export function MailAttachmentCards({ attachments }: { attachments: MailAttachme
                 <span className="block truncate font-medium text-fg">{a.filename}</span>
                 <span className="block truncate text-muted">{formatBytes(a.sizeBytes)}</span>
               </span>
-              {url ? (
+              {previewable ? (
+                <button
+                  type="button"
+                  onClick={() => setPreview(a)}
+                  title={`Preview ${a.filename}`}
+                  aria-label={`Preview ${a.filename}`}
+                  className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 font-medium text-accent hover:bg-accent-soft"
+                >
+                  <Eye size={14} /> Preview
+                </button>
+              ) : url ? (
                 <a
                   href={url}
-                  download={a.filename}
-                  title={`Download ${a.filename}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={`Open ${a.filename}`}
+                  aria-label={`Open ${a.filename}`}
                   className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 font-medium text-accent hover:bg-accent-soft"
                 >
                   <Download size={14} /> Download
@@ -251,6 +287,16 @@ export function MailAttachmentCards({ attachments }: { attachments: MailAttachme
           );
         })}
       </ul>
+
+      {preview && (
+        <Lightbox
+          items={[toMediaItem(preview)]}
+          index={0}
+          urlFor={links.urlFor}
+          onClose={() => setPreview(null)}
+          onIndexChange={() => {}}
+        />
+      )}
     </section>
   );
 }

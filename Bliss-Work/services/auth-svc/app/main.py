@@ -27,6 +27,7 @@ from .middleware import (
 )
 from .rate_limit import SensitiveRateLimitMiddleware, limiter, rate_limit_handler
 from .routes import auth as auth_routes
+from .routes import captcha as captcha_routes
 from .routes import email_verify as email_verify_routes
 from .routes import internal as internal_routes
 from .routes import invites as invite_routes
@@ -153,6 +154,7 @@ setup_tracing(app)
 Instrumentator(should_group_status_codes=False).instrument(app).expose(app, include_in_schema=False)
 
 app.include_router(jwks_routes.router)
+app.include_router(captcha_routes.router)
 app.include_router(auth_routes.router)
 app.include_router(invite_routes.router)
 app.include_router(member_routes.router)

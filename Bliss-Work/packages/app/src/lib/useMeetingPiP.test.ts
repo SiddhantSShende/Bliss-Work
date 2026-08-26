@@ -4,6 +4,11 @@
  * HTMLVideoElement.requestPictureInPicture, document.exitPictureInPicture) —
  * never for the meeting/LiveKit side, which is a real `Track`-shaped fake
  * exactly like CallTile's own tests use.
+ *
+ * This hook is deliberately just the PiP mechanics now — WHEN to call
+ * enter()/exit() (a tab switch, a return) is lib/userBehaviorAnalysis.ts's
+ * job, tested on its own terms, and orchestrated by
+ * lib/useMeetingDisplayController.ts, also tested on its own terms.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
@@ -118,76 +123,90 @@ describe("manual trigger", () => {
   });
 });
 
-describe("visibility-driven behaviour", () => {
-  function hide() {
-    Object.defineProperty(document, "hidden", { value: true, configurable: true });
-    document.dispatchEvent(new Event("visibilitychange"));
-  }
-  function show() {
-    Object.defineProperty(document, "hidden", { value: false, configurable: true });
-    document.dispatchEvent(new Event("visibilitychange"));
-  }
-  afterEach(() => {
-    Object.defineProperty(document, "hidden", { value: false, configurable: true });
+describe("enter()", () => {
+  it("resolves true once the browser has granted the request", async () => {
+    const { result } = renderHook(() => useMeetingPiP(fakeTrack(), true));
+    await expect(act(() => result.current.enter())).resolves.toBe(true);
+    expect(result.current.active).toBe(true);
   });
 
-  it("attempts PiP when the document is hidden", async () => {
-    renderHook(() => useMeetingPiP(fakeTrack(), true));
-    await act(async () => {
-      hide();
-      await Promise.resolve();
-    });
-    expect(HTMLVideoElement.prototype.requestPictureInPicture).toHaveBeenCalledTimes(1);
-  });
-
-  it("a blocked auto-attempt (no user gesture) is swallowed, not thrown", async () => {
+  it("resolves false, never rejects, when the browser refuses — the classic 'no user gesture' case", async () => {
     HTMLVideoElement.prototype.requestPictureInPicture = vi
       .fn()
       .mockRejectedValue(new DOMException("requires a user gesture", "NotAllowedError"));
-    renderHook(() => useMeetingPiP(fakeTrack(), true));
-    expect(() => hide()).not.toThrow();
-    await act(async () => {
-      await Promise.resolve();
-    });
-  });
-
-  it("returning to the meeting exits an active PiP session", async () => {
     const { result } = renderHook(() => useMeetingPiP(fakeTrack(), true));
-    await act(async () => {
-      result.current.toggle();
-    });
-    expect(result.current.active).toBe(true);
-
-    await act(async () => {
-      show();
-      await Promise.resolve();
-    });
+    await expect(act(() => result.current.enter())).resolves.toBe(false);
     expect(result.current.active).toBe(false);
   });
-});
 
-describe("window blur/focus — the signal visibilitychange misses on desktop", () => {
-  // Electron does not flip document.hidden just because the user switched to
-  // a different application while the window stays open and un-minimised —
-  // only window blur/focus fire there. This mirrors useWhatsAppForward.ts's
-  // own reason for needing both signals.
-  function blur() {
-    window.dispatchEvent(new Event("blur"));
-  }
-  function focus() {
-    window.dispatchEvent(new Event("focus"));
-  }
+  it("resolves false without calling the browser API when unsupported", async () => {
+    uninstallPiPGlobals();
+    const { result } = renderHook(() => useMeetingPiP(fakeTrack(), true));
+    await expect(act(() => result.current.enter())).resolves.toBe(false);
+    expect(HTMLVideoElement.prototype.requestPictureInPicture).not.toHaveBeenCalled();
+  });
 
-  it("attempts PiP on window blur, with the document itself never reporting hidden", async () => {
-    renderHook(() => useMeetingPiP(fakeTrack(), true));
-    await act(async () => {
-      blur();
-      await Promise.resolve();
-    });
+  it("resolves false without calling the browser API when there is no video track — nothing to show", async () => {
+    const { result } = renderHook(() => useMeetingPiP(null, true));
+    await expect(act(() => result.current.enter())).resolves.toBe(false);
+    expect(HTMLVideoElement.prototype.requestPictureInPicture).not.toHaveBeenCalled();
+  });
+
+  it("resolves false and does not re-request when already active", async () => {
+    const { result } = renderHook(() => useMeetingPiP(fakeTrack(), true));
+    await act(() => result.current.enter());
+    expect(result.current.active).toBe(true);
+
+    await expect(act(() => result.current.enter())).resolves.toBe(false);
     expect(HTMLVideoElement.prototype.requestPictureInPicture).toHaveBeenCalledTimes(1);
   });
 
-  it("exits an active PiP session on window focus", async () => {
+  it("does not issue a SECOND request while the first is still pending — the duplicate-request guard", async () => {
+    let resolveFirst!: (v: PictureInPictureWindow) => void;
+    HTMLVideoElement.prototype.requestPictureInPicture = vi.fn(
+      () => new Promise<PictureInPictureWindow>((resolve) => (resolveFirst = resolve)),
+    );
+    const { result } = renderHook(() => useMeetingPiP(fakeTrack(), true));
+
+    let firstDone = false;
+    let secondResult: boolean | undefined;
+    await act(async () => {
+      void result.current.enter().then(() => (firstDone = true));
+      secondResult = await result.current.enter();
+    });
+
+    expect(secondResult).toBe(false); // the second call, made while the first is in flight
+    expect(firstDone).toBe(false); // the first has not resolved yet
+    expect(HTMLVideoElement.prototype.requestPictureInPicture).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveFirst({} as PictureInPictureWindow);
+      await Promise.resolve();
+    });
+  });
+});
+
+describe("browser-native auto-PiP on tab hide", () => {
+  it("marks its hidden video element autopictureinpicture — the one thing the spec exempts from needing a user gesture, so a real tab switch can auto-enter PiP without a script call at all", () => {
+    const appendSpy = vi.spyOn(document.body, "appendChild");
+    renderHook(() => useMeetingPiP(fakeTrack(), true));
+    const el = appendSpy.mock.calls
+      .map(([node]) => node)
+      .find((node): node is HTMLVideoElement => node instanceof HTMLVideoElement);
+    expect(el?.hasAttribute("autopictureinpicture")).toBe(true);
+  });
+});
+
+describe("exit()", () => {
+  it("resolves immediately and touches nothing when PiP is not active", async () => {
+    const { result } = renderHook(() => useMeetingPiP(fakeTrack(), true));
+    await act(async () => {
+      await result.current.exit();
+    });
+    expect(document.exitPictureInPicture).not.toHaveBeenCalled();
+  });
+
+  it("exits an active session and its promise resolves once PiP has actually ended", async () => {
     const { result } = renderHook(() => useMeetingPiP(fakeTrack(), true));
     await act(async () => {
       result.current.toggle();
@@ -195,68 +214,9 @@ describe("window blur/focus — the signal visibilitychange misses on desktop", 
     expect(result.current.active).toBe(true);
 
     await act(async () => {
-      focus();
-      await Promise.resolve();
+      await result.current.exit();
     });
-    expect(result.current.active).toBe(false);
-  });
-});
-
-describe("onAway / onBack", () => {
-  afterEach(() => {
-    Object.defineProperty(document, "hidden", { value: false, configurable: true });
-  });
-
-  it("fires onAway once for a real transition, even though a tab switch fires both visibilitychange and blur", async () => {
-    const onAway = vi.fn();
-    const onBack = vi.fn();
-    renderHook(() => useMeetingPiP(fakeTrack(), true, { onAway, onBack }));
-
-    await act(async () => {
-      Object.defineProperty(document, "hidden", { value: true, configurable: true });
-      document.dispatchEvent(new Event("visibilitychange"));
-      window.dispatchEvent(new Event("blur"));
-      await Promise.resolve();
-    });
-    expect(onAway).toHaveBeenCalledTimes(1);
-    expect(onBack).not.toHaveBeenCalled();
-
-    await act(async () => {
-      Object.defineProperty(document, "hidden", { value: false, configurable: true });
-      document.dispatchEvent(new Event("visibilitychange"));
-      window.dispatchEvent(new Event("focus"));
-      await Promise.resolve();
-    });
-    expect(onBack).toHaveBeenCalledTimes(1);
-  });
-
-  it("fires onAway even with no Picture-in-Picture support at all — the caller's own fallback must still run", async () => {
-    uninstallPiPGlobals();
-    const onAway = vi.fn();
-    renderHook(() => useMeetingPiP(fakeTrack(), true, { onAway }));
-
-    await act(async () => {
-      window.dispatchEvent(new Event("blur"));
-      await Promise.resolve();
-    });
-    expect(onAway).toHaveBeenCalledTimes(1);
-  });
-
-  it("does not fire onBack for a focus with no matching onAway before it — a manual toggle is not an auto-minimise to undo", async () => {
-    const onAway = vi.fn();
-    const onBack = vi.fn();
-    const { result } = renderHook(() => useMeetingPiP(fakeTrack(), true, { onAway, onBack }));
-    await act(async () => {
-      result.current.toggle();
-    });
-
-    await act(async () => {
-      window.dispatchEvent(new Event("focus"));
-      await Promise.resolve();
-    });
-    expect(onBack).not.toHaveBeenCalled();
-    // PiP itself still closes on return, regardless — see "returning to the
-    // meeting exits an active PiP session" above.
+    expect(document.exitPictureInPicture).toHaveBeenCalledTimes(1);
     expect(result.current.active).toBe(false);
   });
 });

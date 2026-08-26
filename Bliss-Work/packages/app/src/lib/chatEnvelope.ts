@@ -263,4 +263,19 @@ export function attachmentIdsOf(env: ChatEnvelope | null): string[] {
   return ids;
 }
 
+/**
+ * True for the non-image/video documents the app can render its OWN in-app
+ * preview for, rather than handing the click to the system/browser default.
+ *
+ * Mirrors the server's inline allowlist (services/messaging-svc/internal/
+ * media/mime.go's inlineTypes) minus the types already handled elsewhere:
+ * images and video get the gallery Lightbox, audio has no player yet. Only
+ * `application/pdf` and `text/plain` are left, and only those are ever served
+ * with `Content-Disposition: inline` for a type this narrow — everything else
+ * downloads regardless of what the UI does, so there is nothing to preview.
+ */
+export function canPreviewDocInApp(mime: string): boolean {
+  return mime === "application/pdf" || mime === "text/plain";
+}
+
 export { prettySize };

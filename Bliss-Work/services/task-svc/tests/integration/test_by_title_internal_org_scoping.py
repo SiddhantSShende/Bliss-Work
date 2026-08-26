@@ -139,6 +139,23 @@ async def test_username_branch_is_also_org_scoped(db_app):
     assert await _task_exists(task_id) is True
 
 
+async def test_unscoped_delete_errors_past_the_candidate_cap(db_app):
+    """The no-`username` branch must refuse to run past _CANDIDATE_LIMIT rather
+    than silently decrypting/deleting a truncated subset of a large org."""
+    from app.routes.tasks_write import _CANDIDATE_LIMIT
+
+    for i in range(_CANDIDATE_LIMIT + 1):
+        await _seed_task(ORG_A, f"decoy task {i}")
+    async with await _client() as c:
+        r = await c.delete(
+            "/api/v1/internal/tasks/by-title/nonexistent title",
+            params={"org_id": ORG_A},
+            headers={"X-Internal-Token": TEST_INTERNAL_TOKEN},
+        )
+        assert r.status_code == 400, r.text
+        assert "username" in r.json()["error"]["message"]
+
+
 async def test_wrong_internal_token_is_rejected(db_app):
     async with await _client() as c:
         r = await c.delete(

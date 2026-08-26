@@ -84,7 +84,7 @@ export function CallChat({
   return (
     <aside
       aria-label="Meeting chat"
-      className="flex w-full shrink-0 flex-col border-l border-border/70 bg-surface sm:max-w-sm"
+      className="glass flex h-full w-full flex-col overflow-hidden rounded-2xl"
     >
       <header className="flex shrink-0 items-center justify-between gap-2 border-b border-border/70 px-4 py-3">
         <div className="flex min-w-0 items-center gap-2">

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Block until the whole stack is ready: every service /healthz is 200, all Kafka
 # topics exist. Used by `make up` before seeding/demo so first events aren't lost.
-set -uo pipefail
+set -Eeuo pipefail
 
 AUTH=${AUTH_URL:-http://localhost:8001}
 TASK=${TASK_URL:-http://localhost:8002}

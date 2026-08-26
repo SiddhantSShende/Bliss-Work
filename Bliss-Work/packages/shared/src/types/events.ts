@@ -499,7 +499,7 @@ export const NotificationCreated = z.object({
   ...envelope,
   notificationId: z.string().uuid(),
   recipientId: z.string().uuid(),
-  kind: z.enum(["TASK_ACKNOWLEDGED", "TASK_COMPLETED", "TASK_IGNORED", "TASK_LEFT"]),
+  kind: z.enum(["TASK_ACKNOWLEDGED", "TASK_COMPLETED", "TASK_IGNORED", "TASK_LEFT", "CHANNEL_ADDED"]),
   text: z.string(),
   taskId: z.string().uuid().optional(),
 });

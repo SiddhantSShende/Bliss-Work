@@ -21,16 +21,31 @@
  * change this needed (allow-listing the "picture-in-picture" permission).
  *
  * ── State this deliberately does NOT touch ───────────────────────────────────
- * No speaker/pin state, and no call-lifecycle state OF ITS OWN: this hook
- * never calls session.minimize()/restore() itself, so it stays usable outside
- * a MeetingSession (the dev preview harness renders CallRoom on its own).
- * `onAway`/`onBack` are the escape hatch for a caller that DOES have one —
- * CallRoom uses them to collapse the maximized room in step with PiP — fired
- * on the same signal PiP itself reacts to, whether or not the native request
- * succeeds.
+ * No speaker/pin state, no call-lifecycle state, and — as of this file —
+ * no notion of the user having left the page. It never calls
+ * session.minimize()/restore() itself, so it stays usable outside a
+ * MeetingSession (the dev preview harness renders CallRoom on its own), and it
+ * does not listen for visibilitychange/blur/focus itself either: that signal
+ * is lib/userBehaviorAnalysis.ts's job, consumed by
+ * lib/useMeetingDisplayController.ts, which is what decides WHEN to call
+ * `enter`/`exit` here. This hook is purely the PiP mechanics — the browser API
+ * layer — and nothing above it.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Track } from "livekit-client";
+
+/** Why an `enter()` attempt did not result in an active PiP session. Not
+ *  exposed to meeting participants — this is for logging/diagnostics only,
+ *  per the rule that a routine platform refusal is not an application error. */
+export type PiPFailureReason =
+  | "UNSUPPORTED"
+  | "NO_VIDEO_ELEMENT"
+  | "NO_VIDEO_TRACK"
+  | "ALREADY_IN_PIP"
+  | "REQUEST_IN_FLIGHT"
+  | "NOT_ALLOWED"
+  | "BROWSER_RESTRICTION"
+  | "UNKNOWN";
 
 export interface MeetingPiPApi {
   /** Whether this runtime can enter Picture-in-Picture at all. */
@@ -39,42 +54,37 @@ export interface MeetingPiPApi {
   active: boolean;
   /** Enter PiP if not active, exit if it is. Safe to call from a click. */
   toggle: () => void;
-}
-
-export interface MeetingPiPCallbacks {
   /**
-   * The user appears to have switched away from the window — fires whether
-   * or not the native PiP request itself succeeds (unsupported runtimes,
-   * and refusals with no user gesture behind them, still fire this). This is
-   * the hook's half of "fall back to the existing minimised card": the
-   * caller decides what that fallback is.
+   * Attempt to enter PiP now. Resolves `true` once the browser has actually
+   * granted it (the `enterpictureinpicture` event has fired and `active` is
+   * true), `false` for every expected "no" (unsupported, no track, already
+   * active, a request already in flight, or the browser rejecting it — most
+   * commonly for lacking a user gesture). Never rejects: a caller branching on
+   * success/failure should not also have to catch.
+   *
+   * Guarded against duplicate/concurrent requests and against re-entering
+   * while already active — safe to call from multiple away signals firing in
+   * quick succession (see useUserBehaviorAnalysis's own dedup, which this
+   * backs up rather than replaces: two independent layers because the
+   * consequence of a duplicate `requestPictureInPicture()` call is bad enough
+   * to be worth defending twice).
    */
-  onAway?: () => void;
-  /** The user is back. Fires once per return, whether or not PiP was active. */
-  onBack?: () => void;
+  enter: () => Promise<boolean>;
+  /**
+   * Leave PiP if active, and resolve once that has actually happened —
+   * immediately if it was not active. For a caller that has to SEQUENCE "leave
+   * PiP, then do something else" (the display controller's Minimise handling:
+   * PiP and the minimised mini-card must never both be on screen, so
+   * minimising has to wait for PiP to have actually let go rather than racing
+   * it).
+   */
+  exit: () => Promise<void>;
 }
 
-export function useMeetingPiP(
-  track: Track | null,
-  enabled: boolean,
-  { onAway, onBack }: MeetingPiPCallbacks = {},
-): MeetingPiPApi {
+export function useMeetingPiP(track: Track | null, enabled: boolean): MeetingPiPApi {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [supported, setSupported] = useState(false);
   const [active, setActive] = useState(false);
-  // Whether the last hide/blur has been matched by a show/focus yet. A plain
-  // ref rather than effect-local state: it must survive the away/back effect
-  // re-subscribing (see the refs below) and must NOT survive `enabled` going
-  // false, which the leaving/ended effect resets explicitly.
-  const awayRef = useRef(false);
-  // Read fresh by the away/back effect without it having to depend on the
-  // callbacks themselves — CallRoom passes a fresh object every render, and
-  // depending on it directly would tear the listeners down and re-add them on
-  // every unrelated re-render (a speaking-state tick, a participant sync).
-  const onAwayRef = useRef(onAway);
-  onAwayRef.current = onAway;
-  const onBackRef = useRef(onBack);
-  onBackRef.current = onBack;
 
   // The element PiP actually operates on — created once, off-screen, and
   // never rendered by React. Not `display:none`: the Picture-in-Picture spec
@@ -90,6 +100,15 @@ export function useMeetingPiP(
     el.style.height = "1px";
     el.style.opacity = "0";
     el.style.pointerEvents = "none";
+    // The browser-native path for tab-switch auto-PiP: `requestPictureInPicture()`
+    // needs a recent user gesture (transient activation) and a tab switch is not
+    // one, so calling it explicitly on an away signal is refused far more often
+    // than it succeeds. `autopictureinpicture` is the one thing the spec
+    // explicitly exempts from that requirement — the UA itself enters PiP when
+    // the document is hidden while this element is playing, no script call
+    // needed. The explicit `enter()` call stays as a best-effort fallback for a
+    // browser that supports manual PiP but not this attribute.
+    el.setAttribute("autopictureinpicture", "");
     document.body.appendChild(el);
     videoRef.current = el;
     setSupported("pictureInPictureEnabled" in document && document.pictureInPictureEnabled);
@@ -120,81 +139,75 @@ export function useMeetingPiP(
     };
   }, [track]);
 
-  const enter = useCallback(() => {
+  // Set the instant a request is issued and cleared once it settles — NOT the
+  // same thing as `active`, which only flips once the browser has actually
+  // granted the request. Two callers can both try to enter PiP within the
+  // same tick (a real tab switch fires more than one behaviour signal for a
+  // single transition), and `active` is still false for both since neither
+  // has resolved yet. Without this ref both calls go through, which is the
+  // literal "duplicate PiP request" the feature is required not to make.
+  const pipPendingRef = useRef(false);
+
+  const enter = useCallback((): Promise<boolean> => {
     const el = videoRef.current;
-    if (!el || !supported) return;
-    // A rejected/blocked request (no user gesture, nothing attached yet, a
-    // browser policy) is an expected outcome here, not a bug — swallowing it
-    // is what lets the existing minimised card carry on as the fallback.
-    void el.requestPictureInPicture().catch(() => {});
-  }, [supported]);
+    // Classified for diagnostics, deliberately not surfaced to meeting
+    // participants — every one of these is an expected, routine outcome (see
+    // the file doc), not an application error. No telemetry sink in this app
+    // is a fit for "expected, non-actionable, client-only" events like this
+    // one (the member-activity pipe in lib/telemetry.tsx records what a
+    // person did, not why a browser API declined), so this stays a
+    // dev-console breadcrumb rather than a wired-up report.
+    const fail = (reason: PiPFailureReason): false => {
+      if (reason !== "ALREADY_IN_PIP" && reason !== "REQUEST_IN_FLIGHT") {
+        console.debug(`[meeting-pip] enter() declined: ${reason}`);
+      }
+      return false;
+    };
+    if (!supported) return Promise.resolve(fail("UNSUPPORTED"));
+    if (!el) return Promise.resolve(fail("NO_VIDEO_ELEMENT"));
+    if (!track) return Promise.resolve(fail("NO_VIDEO_TRACK"));
+    if (active || (typeof document !== "undefined" && document.pictureInPictureElement === el)) {
+      return Promise.resolve(fail("ALREADY_IN_PIP"));
+    }
+    if (pipPendingRef.current) return Promise.resolve(fail("REQUEST_IN_FLIGHT"));
+    pipPendingRef.current = true;
+    return el
+      .requestPictureInPicture()
+      .then(() => true)
+      .catch((e: unknown) =>
+        fail(
+          e instanceof DOMException && e.name === "NotAllowedError"
+            ? "NOT_ALLOWED"
+            : "BROWSER_RESTRICTION",
+        ),
+      )
+      .finally(() => {
+        pipPendingRef.current = false;
+      });
+  }, [supported, active, track]);
+
+  const exit = useCallback((): Promise<void> => {
+    if (typeof document === "undefined" || document.pictureInPictureElement !== videoRef.current) {
+      return Promise.resolve();
+    }
+    return document.exitPictureInPicture().catch(() => {});
+  }, []);
 
   const toggle = useCallback(() => {
     if (active) {
-      void document.exitPictureInPicture().catch(() => {});
+      void exit();
       return;
     }
-    enter();
-  }, [active, enter]);
+    void enter();
+  }, [active, enter, exit]);
 
-  // Best-effort auto-attempt on hide, auto-exit on return. The hide-side
-  // attempt has no user gesture behind it, so browsers are free to refuse —
-  // that refusal is exactly what falls back to onAway's minimised card.
-  //
-  // Two signals, because neither covers both hosts on its own — the same gap
-  // useWhatsAppForward.ts hit first. A browser tab switch fires
-  // visibilitychange. The desktop app keeps the window "visible" to the Page
-  // Visibility API while the user is on a completely different application —
-  // Electron does not treat losing OS focus as losing visibility unless the
-  // window is actually minimised — so only window blur/focus fire there.
-  // `awayRef` makes a real tab switch, which can fire both, a single event
-  // rather than two.
-  useEffect(() => {
-    if (!enabled || typeof document === "undefined") return;
-    // PiP itself is entered/exited unconditionally on every signal, exactly as
-    // before this hook had an away/back notion at all — a manual toggle() can
-    // put PiP into a state neither `awayRef` nor a caller's onAway ever knew
-    // about, and returning to the window should still close it. `awayRef`
-    // guards ONLY the onAway/onBack notifications, so a real transition that
-    // fires both signals (a tab switch fires visibilitychange AND blur/focus)
-    // tells the caller once rather than twice.
-    const goAway = () => {
-      enter();
-      if (awayRef.current) return;
-      awayRef.current = true;
-      onAwayRef.current?.();
-    };
-    const comeBack = () => {
-      if (document.pictureInPictureElement === videoRef.current) {
-        void document.exitPictureInPicture().catch(() => {});
-      }
-      if (!awayRef.current) return;
-      awayRef.current = false;
-      onBackRef.current?.();
-    };
-    const onVisibility = () => (document.hidden ? goAway() : comeBack());
-    document.addEventListener("visibilitychange", onVisibility);
-    window.addEventListener("blur", goAway);
-    window.addEventListener("focus", comeBack);
-    return () => {
-      document.removeEventListener("visibilitychange", onVisibility);
-      window.removeEventListener("blur", goAway);
-      window.removeEventListener("focus", comeBack);
-    };
-  }, [enabled, enter]);
-
-  // Left or ended: exit immediately rather than waiting for CallRoom to
+  // Left or ended: exit immediately rather than waiting for the caller to
   // unmount, so a call that ends while floating doesn't leave a stale PiP
-  // window on screen. Also drops the away/back latch — a call that ends while
-  // "away" must not have the NEXT call's first blur silently ignored as an
-  // already-away no-op.
+  // window on screen.
   useEffect(() => {
     if (enabled) return;
-    awayRef.current = false;
-    if (typeof document !== "undefined" && document.pictureInPictureElement === videoRef.current) {
-      void document.exitPictureInPicture().catch(() => {});
-    }
-  }, [enabled]);
+    void exit();
+  }, [enabled, exit]);
 
-  return { supported, active, toggle };
+  return { supported, active, toggle, enter, exit };
 }

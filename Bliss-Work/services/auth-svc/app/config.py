@@ -83,6 +83,24 @@ class Settings(BaseSettings):
     # exactly that reason. Lowering this below one day removes both properties.
     org_delete_grace_days: int = 7
 
+    # ── CAPTCHA (login + account creation) ───────────────────────────────────
+    # Off switch for dev/CI/automated tooling (scripts/security-authz.ts, the
+    # e2e seed step) that cannot solve an image challenge — production sets
+    # this true. When false, /auth/captcha still works but login/create_org
+    # skip the check entirely rather than silently accepting any value.
+    captcha_enabled: bool = True
+    captcha_length: int = 8
+    captcha_ttl_seconds: int = 300
+    # Wrong guesses allowed against ONE captcha_id before it is invalidated
+    # outright (forcing a fresh fetch) — independent of, and in addition to,
+    # the per-IP rate limits on /auth/captcha, /auth/login and /auth/orgs.
+    captcha_max_attempts: int = 5
+    # Per-IP budget for GET /auth/captcha itself (requests/minute) — wired into
+    # rate_limit.py's existing _SENSITIVE_LIMITS rather than a second limiter,
+    # since fetching a challenge is otherwise free and would itself become a
+    # DoS/enumeration vector without a budget.
+    captcha_rate_limit_per_minute: int = 20
+
     # Redis for distributed rate limiting (honest across pods). Empty = in-process
     # fallback (per-pod, fails open). slowapi_storage_uri overrides redis_url for
     # the slowapi limiter specifically; usually set both to the same redis:// URL.

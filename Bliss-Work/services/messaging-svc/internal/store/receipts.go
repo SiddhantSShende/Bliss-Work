@@ -53,6 +53,21 @@ func (s *Store) MarkDelivered(ctx context.Context, recipientID string, messageID
 				continue
 			}
 
+			// The recipient must actually be a participant of this message's
+			// conversation (or thread, when set) before we stamp delivery and
+			// emit an event for them — MarkRead/MarkReadThread enforce the same
+			// rule for the caller; this path trusts recipientID from ws-gateway
+			// instead of a JWT, so it must not skip the check. A bad/spoofed
+			// recipientID for this one message is skipped, not fatal to the
+			// rest of the batch — messageIDs can span unrelated conversations.
+			memberErr := requireConversationMember(ctx, tx, orgID, convID, recipientID)
+			if threadID != nil {
+				memberErr = requireThreadMember(ctx, tx, orgID, *threadID, recipientID)
+			}
+			if memberErr != nil {
+				continue
+			}
+
 			// Try to claim the delivered_at slot. ON CONFLICT … WHERE
 			// delivered_at IS NULL ensures only the first ack emits the event.
 			ct, dberr := tx.Exec(ctx, `

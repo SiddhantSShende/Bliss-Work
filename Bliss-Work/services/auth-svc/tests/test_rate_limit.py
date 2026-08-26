@@ -96,11 +96,26 @@ def clock(monkeypatch: pytest.MonkeyPatch) -> FakeClock:
         ("POST", "/auth/login", 10, 60),
         ("POST", "/auth/orgs", 5, 60),
         ("POST", "/auth/refresh", 30, 60),
+        # CAPTCHA generation is otherwise free (no auth, no cost to the
+        # caller) — without a budget of its own it becomes a DoS/enumeration
+        # vector in its own right. Read from settings, not hardcoded.
+        ("GET", "/auth/captcha", rate_limit.settings.captcha_rate_limit_per_minute, 60),
     ],
 )
 def test_sensitive_limits_table(method: str, path: str, limit: int, window: int) -> None:
     """The tight per-endpoint budgets are exactly the documented values."""
     assert _SENSITIVE_LIMITS[(method, path)] == (limit, window)
+
+
+def test_captcha_generation_is_rate_limited_per_ip(
+    mw: SensitiveRateLimitMiddleware, clock: FakeClock
+) -> None:
+    limit, _window = _SENSITIVE_LIMITS[("GET", "/auth/captcha")]
+    for _ in range(limit):
+        resp = dispatch(mw, make_request("GET", "/auth/captcha"))
+        assert resp.status_code == 200
+    blocked = dispatch(mw, make_request("GET", "/auth/captcha"))
+    assert blocked.status_code == 429
 
 
 # ── pass-through for non-sensitive routes ────────────────────────────────────

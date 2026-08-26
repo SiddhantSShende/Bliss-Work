@@ -10,10 +10,12 @@ import {
   type AttachmentScope,
   ActivityExportRow,
   ActivitySessionPage,
+  ActivitySessionEntryPage,
   AgentTokenDTO,
   ActivitySummaryDTO,
   AuditPage,
   AvailabilityDTO,
+  CaptchaChallengeDTO,
   CallDTO,
   CallInviteDTO,
   CallJoinDTO,
@@ -308,7 +310,21 @@ export class ApiClient {
   }
 
   // ── auth / org / invite ─────────────────────────────────────────────────────
-  createOrg(body: { orgName: string; email: string; password: string; displayName: string }) {
+  /** A fresh CAPTCHA challenge — required on both createOrg and login. Calling
+   *  this again (e.g. the form's "refresh" button, or after a failed attempt)
+   *  mints a completely new captchaId/image; the old one is simply abandoned
+   *  (it stays independently single-use and short-lived on the server). */
+  getCaptcha() {
+    return this.req(this.cfg.authBase, "/auth/captcha", {}, CaptchaChallengeDTO);
+  }
+  createOrg(body: {
+    orgName: string;
+    email: string;
+    password: string;
+    displayName: string;
+    captchaId: string;
+    captchaValue: string;
+  }) {
     return this.req(this.cfg.authBase, "/auth/orgs", {
       method: "POST",
       body: JSON.stringify(body),
@@ -317,7 +333,7 @@ export class ApiClient {
   /** Returns either a session, or an MfaPendingDTO when a second factor is
    *  still owed — check with `isMfaPending()` before treating the result as
    *  a session. */
-  login(body: { email: string; password: string }) {
+  login(body: { email: string; password: string; captchaId: string; captchaValue: string }) {
     return this.req(this.cfg.authBase, "/auth/login", {
       method: "POST",
       body: JSON.stringify(body),
@@ -411,6 +427,10 @@ export class ApiClient {
       {}, TimelinePage,
     );
   }
+  /** `user_sessions` — login presence (device, active/idle time). NOT the
+   *  correlated app+site record; see `activitySessionEntries` for that, and
+   *  `ActivitySessionDTO`'s own doc comment for why the two are named
+   *  differently despite the similar method names. */
   activitySessions(userId: string, opts: { cursor?: string; limit?: number } = {}) {
     const q = new URLSearchParams();
     if (opts.cursor) q.set("cursor", opts.cursor);
@@ -420,6 +440,21 @@ export class ApiClient {
       this.cfg.telemetryBase,
       `/telemetry/members/${userId}/sessions${qs ? `?${qs}` : ""}`,
       {}, ActivitySessionPage,
+    );
+  }
+  /** `activity_sessions` — the CORRELATED desktop+browser record
+   *  ("Chrome, showing YouTube, 15:00-15:14" as one row) sessionizer.py
+   *  builds. This is the unified activity/session model the member timeline
+   *  reads from. See `ActivitySessionEntryDTO`'s doc comment. */
+  activitySessionEntries(userId: string, opts: { cursor?: string; limit?: number } = {}) {
+    const q = new URLSearchParams();
+    if (opts.cursor) q.set("cursor", opts.cursor);
+    if (opts.limit) q.set("limit", String(opts.limit));
+    const qs = q.toString();
+    return this.req(
+      this.cfg.telemetryBase,
+      `/telemetry/members/${userId}/activity-sessions${qs ? `?${qs}` : ""}`,
+      {}, ActivitySessionEntryPage,
     );
   }
   activitySummary(userId: string, range: { from?: string; to?: string } = {}) {

@@ -26,11 +26,19 @@ class CreateOrgRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=256)
     displayName: str = Field(min_length=1, max_length=80)
+    # Optional at the schema level so CAPTCHA_ENABLED=false callers (dev/CI
+    # tooling that cannot solve an image challenge) needn't send them at all;
+    # captcha_service.verify_and_consume is what actually enforces presence
+    # whenever the feature is on. See routes/captcha_service.py.
+    captchaId: str | None = Field(default=None, max_length=64)
+    captchaValue: str | None = Field(default=None, max_length=64)
 
 
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=1, max_length=256)
+    captchaId: str | None = Field(default=None, max_length=64)
+    captchaValue: str | None = Field(default=None, max_length=64)
 
 
 class RefreshRequest(BaseModel):
@@ -127,6 +135,15 @@ class MessageResponse(BaseModel):
 
 class TokenVerifyResponse(BaseModel):
     valid: bool
+
+
+class CaptchaChallengeDTO(BaseModel):
+    """GET /auth/captcha's response. `captchaImage` is a `data:image/png;base64,...`
+    URI — the rendered challenge, never the plaintext value it encodes."""
+
+    captchaId: str
+    captchaImage: str
+    expiresIn: int
 
 
 class SessionDTO(BaseModel):

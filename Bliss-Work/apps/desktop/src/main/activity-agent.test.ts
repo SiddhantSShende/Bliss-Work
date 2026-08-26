@@ -247,4 +247,80 @@ describe("activity-agent: Windows foreground sensor", () => {
     expect(postedEvents().some((e) => e.action === "app.focus")).toBe(true);
     void agent; // imported once above only to keep module resolution warm
   });
+
+  it("persists a 401's token revocation, not just the in-memory stop, so it isn't rediscovered on the next launch", async () => {
+    // Regression test for the audit finding: flush()'s 401 branch called
+    // stop() but never activity-state's setToken(null), so the revoked token
+    // survived on disk — Settings kept reporting "paired", and every launch
+    // re-triggered the same dead-token round-trip. This test overrides the
+    // module-level ./activity-state mock with a spy so setToken's call can be
+    // observed directly.
+    const setTokenMock = vi.fn();
+    vi.doMock("./activity-state", () => ({
+      isActive: () => true,
+      getState: () => ({ version: 1, enabled: true, token: "test-token", consentedVersion: "0.1.0" }),
+      setToken: setTokenMock,
+    }));
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 401 }));
+
+    const agent = await import("./activity-agent");
+    agent.start("https://telemetry.test");
+    await vi.advanceTimersByTimeAsync(2 * SAMPLE_MS);
+
+    // Switch apps to close the open span into the queue, then force a flush
+    // via flushOnQuit — the same path a real 401 arrives through.
+    currentWindow = { title: "x", owner: { name: "Google Chrome", path: "C:\\chrome.exe" } };
+    await vi.advanceTimersByTimeAsync(2 * SAMPLE_MS);
+    await agent.flushOnQuit();
+
+    expect(fetchMock).toHaveBeenCalled();
+    expect(setTokenMock).toHaveBeenCalledWith(null);
+  });
+
+  it("withholds the title from a password manager, but still records the app switch", async () => {
+    const agent = await import("./activity-agent");
+    agent.start("https://telemetry.test");
+    await vi.advanceTimersByTimeAsync(2 * SAMPLE_MS);
+
+    currentWindow = {
+      title: "chase.com — Login",
+      owner: { name: "1Password", path: "C:\\Program Files\\1Password\\1Password.exe" },
+    };
+    await vi.advanceTimersByTimeAsync(2 * SAMPLE_MS);
+
+    currentWindow = { title: "Program Manager", owner: { name: "BlissWork", path: "C:\\BlissWork.exe" } };
+    await vi.advanceTimersByTimeAsync(SAMPLE_MS + 1000);
+    await agent.flushOnQuit();
+    agent.stop();
+
+    const events = postedEvents().filter((e) => e.action === "app.focus");
+    const onePassword = events.find((e) => e.targetId === "1Password");
+    // The switch itself is still a real, useful fact ("switched to 1Password
+    // for 30s") — only the title, which would have named the site/account, is
+    // withheld.
+    expect(onePassword).toBeDefined();
+    expect((onePassword!.detail as Record<string, string> | undefined)?.title).toBeUndefined();
+  });
+
+  it("withholds a revealing title from an ordinary application", async () => {
+    const agent = await import("./activity-agent");
+    agent.start("https://telemetry.test");
+    await vi.advanceTimersByTimeAsync(2 * SAMPLE_MS);
+
+    currentWindow = {
+      title: "Your one-time code is 481223 - Google Chrome",
+      owner: { name: "Google Chrome", path: "C:\\chrome.exe" },
+    };
+    await vi.advanceTimersByTimeAsync(2 * SAMPLE_MS);
+
+    currentWindow = { title: "Program Manager", owner: { name: "BlissWork", path: "C:\\BlissWork.exe" } };
+    await vi.advanceTimersByTimeAsync(SAMPLE_MS + 1000);
+    await agent.flushOnQuit();
+    agent.stop();
+
+    const events = postedEvents().filter((e) => e.action === "app.focus");
+    const chrome = events.find((e) => e.targetId === "Google Chrome");
+    expect(chrome).toBeDefined();
+    expect((chrome!.detail as Record<string, string> | undefined)?.title).toBeUndefined();
+  });
 });

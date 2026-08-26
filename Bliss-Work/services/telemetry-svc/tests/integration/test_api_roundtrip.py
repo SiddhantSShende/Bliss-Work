@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import uuid
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -194,6 +195,75 @@ async def test_a_paired_agent_can_report_activity(client):
     app_rows = [e for e in entries if e["action"] == "app.focus"]
     assert app_rows and app_rows[0]["source"] == "desktop"
     assert app_rows[0]["targetId"] == "Google Chrome"
+
+
+async def test_a_retried_batch_is_not_double_counted(client):
+    """Regression test for migration 0006: a client that resends a batch after
+    losing the response to a network blip (activity-agent.ts's and
+    background.ts's flush() both re-queue on any !res.ok or thrown error, with
+    no way to tell "never arrived" apart from "arrived, ack lost") must not
+    produce two rows for the same span.
+    """
+    as_user(ALICE, "member")
+    minted = (await client.post("/telemetry/tokens?kind=desktop&label=Retry laptop")).json()
+    # occurredAt set explicitly to a REALISTIC recent moment — a real agent
+    # always sends one (activity-agent.ts's push() stamps every event before
+    # it's ever queued), and it's always recent (the span just closed), never
+    # far enough in the past to fall outside clamp_occurred_at's backdate
+    # window. A timestamp old enough to BE clamped is clamped relative to a
+    # fresh `now()` computed on every request, so it would (correctly, if
+    # unintuitively) differ by microseconds between the original send and the
+    # retry — this test is about the realistic case, where clamping never
+    # engages and occurredAt round-trips byte-identical.
+    occurred_at = (datetime.now(timezone.utc) - timedelta(seconds=5)).isoformat()
+    # A distinct targetId — this module's fixtures share ALICE/the client
+    # across tests, and "Google Chrome" is already written by
+    # test_a_paired_agent_can_report_activity above.
+    batch = {"events": [{
+        "action": "app.focus", "category": "app", "targetKind": "app",
+        "targetId": "Retry Test App", "durationMs": 300000,
+        "occurredAt": occurred_at,
+        "clientEventId": "retry-regression-abc",
+    }]}
+
+    first = await client.post(
+        "/telemetry/ingest/agent", headers={"X-Ingest-Token": minted["token"]}, json=batch,
+    )
+    assert first.status_code == 202
+    assert first.json()["accepted"] == 1
+
+    # The SAME batch, same clientEventId — exactly what a real retry resends.
+    retry = await client.post(
+        "/telemetry/ingest/agent", headers={"X-Ingest-Token": minted["token"]}, json=batch,
+    )
+    assert retry.status_code == 202
+    assert retry.json()["accepted"] == 0, "a retried clientEventId must be a no-op, not a second row"
+
+    entries = (await client.get("/telemetry/members/me/timeline")).json()["entries"]
+    matching = [e for e in entries if e["targetId"] == "Retry Test App" and e["action"] == "app.focus"]
+    assert len(matching) == 1, "exactly one row, not one per send"
+
+
+async def test_a_batch_with_no_clientEventId_is_never_deduped(client):
+    """Older/unpatched clients send no clientEventId — those rows must insert
+    normally every time, not collide with each other via a shared NULL."""
+    as_user(ALICE, "member")
+    minted = (await client.post("/telemetry/tokens?kind=desktop&label=Old laptop")).json()
+    event = {
+        "action": "app.focus", "category": "app", "targetKind": "app", "targetId": "Slack",
+    }
+
+    for _ in range(2):
+        r = await client.post(
+            "/telemetry/ingest/agent", headers={"X-Ingest-Token": minted["token"]},
+            json={"events": [event]},
+        )
+        assert r.status_code == 202
+        assert r.json()["accepted"] == 1
+
+    entries = (await client.get("/telemetry/members/me/timeline")).json()["entries"]
+    matching = [e for e in entries if e["targetId"] == "Slack" and e["action"] == "app.focus"]
+    assert len(matching) == 2, "two genuinely separate spans, neither deduped against the other"
 
 
 async def test_the_raw_secret_is_never_returned_again(client):

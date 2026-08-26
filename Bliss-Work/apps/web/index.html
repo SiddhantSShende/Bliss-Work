@@ -11,6 +11,14 @@
       https/wss in production and http/ws localhost in dev. object-src 'none'
       closes plugin vectors.
 
+      frame-src 'self' blob: is for in-app document preview (Lightbox's
+      DocFrame): a shared PDF/text attachment is fetched via `connect-src` into
+      a `blob:` object URL and shown in an <iframe>, rather than pointing the
+      frame at the remote attachment URL directly — the same "blob: for
+      locally-previewed content" rule img-src already follows. It carries no
+      wider access than that: a blob: URL is only ever one this page created
+      itself from bytes it already fetched.
+
       NOTE: frame-ancestors is deliberately NOT here — browsers IGNORE it (and
       report-uri / sandbox) in a <meta> tag, which only logs a console warning.
       Clickjacking is closed by the real Content-Security-Policy: frame-ancestors
@@ -19,7 +27,7 @@
     -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob: mediastream:; connect-src 'self' https: wss: http://localhost:* ws://localhost:*; object-src 'none'; base-uri 'self'; form-action 'self'"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob: mediastream:; connect-src 'self' https: wss: http://localhost:* ws://localhost:*; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'"
     />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>BlissWork</title>

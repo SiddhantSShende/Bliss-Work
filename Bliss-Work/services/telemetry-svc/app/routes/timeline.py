@@ -15,6 +15,8 @@ from ..db import session, set_org_context
 from ..ingest import NON_EVENT_ACTIONS
 from ..logging_setup import log
 from ..schemas import (
+    ActivitySessionEntryDTO,
+    ActivitySessionEntryPage,
     MemberActivityDTO,
     SessionDTO,
     SessionPage,
@@ -234,6 +236,88 @@ async def sessions_for(
             )
             for r in page
         ],
+        nextCursor=(
+            encode_cursor(page[-1].started_at, str(page[-1].id))
+            if len(rows) > limit and page
+            else None
+        ),
+    )
+
+
+@router.get("/members/{user_id}/activity-sessions", response_model=ActivitySessionEntryPage)
+async def activity_sessions_for(
+    user_id: str,
+    cursor: str | None = Query(default=None, max_length=128),
+    limit: int = Query(default=50, ge=1, le=200),
+    principal: Principal = Depends(require_principal),
+) -> ActivitySessionEntryPage:
+    """The CORRELATED desktop+browser records — "Chrome, showing YouTube,
+    'Learn Go in 30 Minutes', 15:00-15:14" as one row — built by
+    sessionizer.py from activity_events and persisted to activity_sessions.
+
+    Named `activity-sessions` (distinct from `/sessions` above, which is
+    `user_sessions` — login presence) precisely to avoid the collision
+    `ActivitySessionEntryDTO`'s own docstring explains. Same pagination shape,
+    same visibility floor, same `_detail` decryption as every other endpoint
+    in this file — this is a new TABLE, not a new set of rules.
+    """
+    subject = resolve_subject(principal, user_id)
+    before: tuple[datetime, str] | None = None
+    if cursor:
+        try:
+            before = decode_cursor(cursor)
+        except ValueError:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "malformed cursor")
+
+    async with session() as db:
+        await set_org_context(db, principal.org_id)
+        rows = (
+            await db.execute(
+                text(
+                    """
+                    SELECT id, kind, app_name, domain, title, started_at,
+                           ended_at, duration_ms, detail_enc,
+                           anchor_event_id, correlated_event_id
+                      FROM activity_sessions
+                     WHERE org_id = :org AND user_id = :uid
+                       -- Same visibility window as the timeline and the
+                       -- user_sessions list. See _visible_floor.
+                       AND started_at >= :floor
+                       AND (CAST(:cur_at AS timestamptz) IS NULL
+                            OR (started_at, id) < (CAST(:cur_at AS timestamptz), CAST(:cur_id AS uuid)))
+                     ORDER BY started_at DESC, id DESC
+                     LIMIT :lim
+                    """
+                ),
+                {
+                    "org": principal.org_id, "uid": subject,
+                    "cur_at": before[0] if before else None,
+                    "cur_id": before[1] if before else None,
+                    "lim": limit + 1,
+                    "floor": _visible_floor(),
+                },
+            )
+        ).all()
+        page = rows[:limit]
+        entries = [
+            ActivitySessionEntryDTO(
+                id=str(r.id),
+                kind=r.kind,
+                appName=r.app_name,
+                domain=r.domain,
+                title=r.title,
+                startedAt=iso_z(r.started_at) or "",
+                endedAt=iso_z(r.ended_at) or "",
+                durationMs=int(r.duration_ms or 0),
+                detail=await _detail(db, principal.org_id, r.detail_enc),
+                anchorEventId=str(r.anchor_event_id),
+                correlatedEventId=str(r.correlated_event_id) if r.correlated_event_id else None,
+            )
+            for r in page
+        ]
+
+    return ActivitySessionEntryPage(
+        sessions=entries,
         nextCursor=(
             encode_cursor(page[-1].started_at, str(page[-1].id))
             if len(rows) > limit and page
