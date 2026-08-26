@@ -60,7 +60,7 @@ endef
 .PHONY: help env keys up wait seed demo logs ps down reset test check-migrations \
 	dev-up dev-down dev-restart dev-logs dev-ps dev-build dev-reset-db \
 	prod-up prod-down prod-restart prod-logs prod-ps prod-build \
-	dev prod web-dev web-build desktop-dev desktop-build desktop-release \
+	dev prod web-dev web-build web-release desktop-dev desktop-build desktop-release \
 	extension-build exec clean prune
 
 help:
@@ -94,7 +94,11 @@ help:
 	@echo ""
 	@echo "Client apps (desktop is Electron; mobile = the responsive web app, no native workspace):"
 	@echo "  make web-dev          - Vite dev server for the web app"
-	@echo "  make web-build        - production build of the web app"
+	@echo "  make web-build        - production build of the web app (local only,"
+	@echo "                          does NOT publish — see web-release for that)"
+	@echo "  make web-release      - CONFIRM, then rebuild the web bundle from the"
+	@echo "                          working tree, PUBLISH it, and recreate nginx so"
+	@echo "                          it's actually served"
 	@echo "  make desktop-dev      - run the desktop app against the dev stack"
 	@echo "  make desktop-build    - package installers locally (electron-builder)"
 	@echo "  make desktop-release  - CONFIRM, then build Linux+Windows installers in the"
@@ -232,6 +236,18 @@ web-dev:
 
 web-build:
 	npm run build -w @taskboard/web
+
+# Rebuilds the web bundle from the working tree and PUBLISHES it to the live
+# site: the one-shot web-builder writes into the web_dist volume, then nginx
+# (which serves it) needs a RECREATE, not just an `up` — nginx's own container
+# config doesn't change when the volume's CONTENTS do, so a plain `up` sees it
+# as unchanged and leaves the stale bundle serving. One confirm covers both
+# steps; they are only ever meaningful run together. User-facing, hence the
+# gate — same reasoning as desktop-release below.
+web-release:
+	$(call confirm,rebuild the web bundle from the working tree and PUBLISH it to the live site)
+	$(PROD_COMPOSE) up --no-build --no-deps web-builder
+	$(PROD_COMPOSE) up -d --no-build --force-recreate --no-deps nginx
 
 desktop-dev:
 	npm run desktop
