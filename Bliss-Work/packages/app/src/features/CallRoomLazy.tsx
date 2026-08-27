@@ -1,47 +1,16 @@
 import { Suspense, lazy } from "react";
 import type { CallDTO } from "@taskboard/shared";
 import { ErrorBoundary } from "./ErrorBoundary";
+import { withLoadTimeout } from "../lib/withLoadTimeout";
 
 /**
  * How long the chunk fetch gets before this treats it as failed rather than
  * merely slow. Matched to LiveKit's own internal connect timeout (~15s) so
  * the worst case across the whole join flow — chunk load, then the room's
- * own connect — sits on a consistent scale.
+ * own connect — sits on a consistent scale. See withLoadTimeout's own doc
+ * for why a hard refresh makes this matter at all.
  */
 const CHUNK_LOAD_TIMEOUT_MS = 15_000;
-
-/**
- * Turn a STALLED (never resolves, never rejects) dynamic import into a real
- * rejection, so Suspense/ErrorBoundary have something to settle on.
- *
- * A hard refresh is exactly the moment this matters: it wipes the whole
- * module graph AND every Service Worker/Cache Storage entry (see
- * apps/web/src/main.tsx's self-heal on load), so `import("./CallRoom")` is
- * always a genuine cold network fetch — right when the page's own network
- * stack is coldest. Without this, a request that stalls rather than
- * outright failing left CallRoomFallback's "Connecting…" on screen forever:
- * the app's only other chunk-recovery mechanism, chunkReloadRecovery.ts,
- * reacts solely to Vite's `vite:preloadError` event, which fires on an
- * outright load FAILURE, never on a hang.
- */
-function withLoadTimeout<T>(promise: Promise<T>): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new Error("Timed out loading the meeting room")),
-      CHUNK_LOAD_TIMEOUT_MS,
-    );
-    promise.then(
-      (v) => {
-        clearTimeout(timer);
-        resolve(v);
-      },
-      (e: unknown) => {
-        clearTimeout(timer);
-        reject(e);
-      },
-    );
-  });
-}
 
 /**
  * `CallRoom`, loaded only when somebody is actually in a call.
@@ -72,7 +41,11 @@ function withLoadTimeout<T>(promise: Promise<T>): Promise<T> {
  * React.lazy resolves a module's `default`, and CallRoom is a named export.
  */
 const LazyCallRoom = lazy(() =>
-  withLoadTimeout(import("./CallRoom").then((m) => ({ default: m.CallRoom }))),
+  withLoadTimeout(
+    import("./CallRoom").then((m) => ({ default: m.CallRoom })),
+    CHUNK_LOAD_TIMEOUT_MS,
+    "Timed out loading the meeting room",
+  ),
 );
 
 /**

@@ -67,12 +67,38 @@ export interface MeetingDisplayController {
   handleMinimize: () => void;
 }
 
+/**
+ * How long after CONNECTING to ignore an away signal.
+ *
+ * A participant's camera starts OFF on join (see useCallRoom's own comment on
+ * why) — there is no video track for the first moments of every call, which
+ * means `pip.enter()` is GUARANTEED to fail with NO_VIDEO_TRACK and `onAway`
+ * falls straight through to the minimize (and, on the standalone /call/:id
+ * tab, navigate-away) fallback almost instantly. Without this, ANY transient
+ * `window.blur` in that window — a getUserMedia permission prompt taking
+ * focus, or the browser's own focus churn right after a hard-refresh reload —
+ * evicted someone from a meeting they had just opened, before they had done
+ * anything resembling actually leaving. Rejoining afterwards worked, which is
+ * what made this read as "loads, then goes blank" rather than as a join
+ * failure: the room DID load — something then minimized it out from under
+ * the person and, on a standalone tab, navigated away entirely.
+ */
+const JOIN_SETTLE_MS = 4_000;
+
 export function useMeetingDisplayController(
   session: MeetingDisplaySession | null,
   pip: MeetingPiPApi,
   enabled: boolean,
 ): MeetingDisplayController {
   const minimized = session?.minimized ?? false;
+
+  // When the CURRENT enabled episode started (connected, or reconnected —
+  // either resets the video track to nothing, so either deserves a fresh
+  // settle window). Null while not enabled at all.
+  const enabledAtRef = useRef<number | null>(null);
+  useEffect(() => {
+    enabledAtRef.current = enabled ? Date.now() : null;
+  }, [enabled]);
 
   // What the display mode was the moment the CURRENT away episode started —
   // restored verbatim on return. Covers both directions: a fallback minimise
@@ -89,6 +115,12 @@ export function useMeetingDisplayController(
 
   const onAway = useCallback(() => {
     if (!session) return;
+    // See JOIN_SETTLE_MS: a call that only just connected has no video track
+    // yet, so treating a blur here as real would minimize/navigate away
+    // almost instantly for a reason that had nothing to do with the person
+    // actually leaving.
+    const settledAt = enabledAtRef.current;
+    if (settledAt !== null && Date.now() - settledAt < JOIN_SETTLE_MS) return;
     priorMinimizedRef.current = minimized;
     void pip.enter().then((entered) => {
       if (entered) {

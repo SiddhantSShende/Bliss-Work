@@ -11,6 +11,8 @@ import { useSession } from "./store/session";
 import { refreshSession } from "./lib/refresh";
 import { installGlobalErrorHandlers } from "./lib/globalErrorHandlers";
 import { installAuthChannel } from "./lib/authChannel";
+import { withLoadTimeout } from "./lib/withLoadTimeout";
+import { reloadForStaleChunk } from "./lib/chunkReloadRecovery";
 import { legacyInboxTarget } from "./lib/mailView";
 import { SelectedChatProvider, useSelectedChat } from "./lib/selectedChat";
 import { MessageSquare, Hash, Users } from "lucide-react";
@@ -102,11 +104,37 @@ const CallWindow = lazyRoute(() => import("./routes/CallWindow"), "CallWindow");
  * `Integrations.tsx` becomes `Integrations-<hash>.js` and a waterfall is
  * readable without a source map.
  */
+/**
+ * How long a route chunk gets before this gives up waiting and self-heals,
+ * same budget as CallRoomLazy.tsx's identical constant for the meeting room's
+ * own chunk. See withLoadTimeout's doc for why a hard refresh is exactly the
+ * moment a chunk fetch is most likely to stall rather than merely take a
+ * while.
+ */
+const ROUTE_CHUNK_TIMEOUT_MS = 15_000;
+
 function lazyRoute<P extends object, K extends string>(
   load: () => Promise<Record<K, ComponentType<P>>>,
   name: K,
 ) {
-  return lazy(async () => ({ default: (await load())[name] }));
+  return lazy(async () => {
+    try {
+      const mod = await withLoadTimeout(load(), ROUTE_CHUNK_TIMEOUT_MS, `Timed out loading ${name}`);
+      return { default: mod[name] };
+    } catch (e) {
+      // A route chunk that stalls or fails gets the SAME recovery as a stale
+      // deploy (chunkReloadRecovery.ts's vite:preloadError handler): reload
+      // once, then stop — there is no active call/session on this surface to
+      // disrupt (nothing has rendered yet), unlike CallRoomLazy, which offers
+      // a manual button instead precisely because it can be catching a
+      // runtime error from an ALREADY-CONNECTED call. Still throws either
+      // way, so RouteErrorBoundary has something to show for the moment
+      // before a triggered reload actually takes effect, and for the
+      // loop-guarded case where reloadForStaleChunk did nothing.
+      reloadForStaleChunk();
+      throw e;
+    }
+  });
 }
 
 /**

@@ -7,6 +7,13 @@
  * `pip` is a hand-built double shaped like MeetingPiPApi, since
  * useMeetingPiP's OWN correctness (the browser mechanics) is covered on its
  * own terms in useMeetingPiP.test.ts.
+ *
+ * Fake timers throughout: JOIN_SETTLE_MS (see the module under test) reads
+ * Date.now(), so every test that exercises steady-state away/return
+ * behaviour first advances PAST that window via `settle()` — otherwise every
+ * one of them would be testing the grace period by accident. The grace
+ * period itself has its own dedicated section below, which deliberately does
+ * NOT call settle().
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
@@ -40,11 +47,19 @@ function show() {
   document.dispatchEvent(new Event("visibilitychange"));
 }
 
+/** Past JOIN_SETTLE_MS (4s), so a subsequent away signal is treated as real
+ *  rather than as part of a fresh connection's settle window. */
+function settle() {
+  vi.advanceTimersByTime(4_001);
+}
+
 beforeEach(() => {
   Object.defineProperty(document, "hidden", { value: false, configurable: true });
+  vi.useFakeTimers();
 });
 afterEach(() => {
   Object.defineProperty(document, "hidden", { value: false, configurable: true });
+  vi.useRealTimers();
 });
 
 describe("mode", () => {
@@ -78,6 +93,7 @@ describe("USER_AWAY → attempt PiP → success", () => {
     const session = fakeSession(false);
     const pip = fakePip({ enter: vi.fn(async () => true) });
     renderHook(() => useMeetingDisplayController(session, pip, true));
+    settle();
 
     await act(async () => {
       hide();
@@ -92,6 +108,7 @@ describe("USER_AWAY → attempt PiP → success", () => {
     const session = fakeSession(true);
     const pip = fakePip({ enter: vi.fn(async () => true) });
     renderHook(() => useMeetingDisplayController(session, pip, true));
+    settle();
 
     await act(async () => {
       hide();
@@ -107,6 +124,7 @@ describe("USER_AWAY → attempt PiP → failure → fallback", () => {
     const session = fakeSession(false);
     const pip = fakePip({ enter: vi.fn(async () => false) });
     renderHook(() => useMeetingDisplayController(session, pip, true));
+    settle();
 
     await act(async () => {
       hide();
@@ -121,6 +139,7 @@ describe("USER_AWAY → attempt PiP → failure → fallback", () => {
     const session = fakeSession(true);
     const pip = fakePip({ enter: vi.fn(async () => false) });
     renderHook(() => useMeetingDisplayController(session, pip, true));
+    settle();
 
     await act(async () => {
       hide();
@@ -133,6 +152,7 @@ describe("USER_AWAY → attempt PiP → failure → fallback", () => {
   it("stays NORMAL and the meeting keeps running when neither PiP nor minimize is available", async () => {
     const pip = fakePip({ enter: vi.fn(async () => false) });
     renderHook(() => useMeetingDisplayController(null, pip, true));
+    settle();
 
     await expect(
       act(async () => {
@@ -148,6 +168,7 @@ describe("USER_RETURNED", () => {
     const session = fakeSession(false);
     const pip = fakePip({ enter: vi.fn(async () => false) });
     renderHook(() => useMeetingDisplayController(session, pip, true));
+    settle();
 
     await act(async () => {
       hide();
@@ -167,6 +188,7 @@ describe("USER_RETURNED", () => {
     const session = fakeSession(true);
     const pip = fakePip({ enter: vi.fn(async () => false) });
     renderHook(() => useMeetingDisplayController(session, pip, true));
+    settle();
 
     await act(async () => {
       hide();
@@ -187,6 +209,7 @@ describe("USER_RETURNED", () => {
     // No hide/show at all — nothing should fire.
     const session = fakeSession(false);
     renderHook(() => useMeetingDisplayController(session, pip, true));
+    settle();
     await act(async () => {
       show(); // a spurious focus with no matching away first
       await Promise.resolve();
@@ -202,6 +225,7 @@ describe("repeated away/return events do not corrupt state or duplicate work", (
     const session = fakeSession(false);
     const pip = fakePip({ enter: vi.fn(async () => false) });
     renderHook(() => useMeetingDisplayController(session, pip, true));
+    settle();
 
     await act(async () => {
       hide();
@@ -277,12 +301,93 @@ describe("disabled", () => {
     const session = fakeSession(false);
     const pip = fakePip();
     renderHook(() => useMeetingDisplayController(session, pip, false));
+    settle();
 
     await act(async () => {
       hide();
       await Promise.resolve();
     });
     expect(pip.enter).not.toHaveBeenCalled();
+    expect(session.minimize).not.toHaveBeenCalled();
+  });
+});
+
+// ── Regression: the bug behind "meeting loads, then goes blank" ─────────────
+//
+// A fresh connection has no video track yet, so PiP is GUARANTEED to fail and
+// this controller previously fell straight through to minimize() (and, on a
+// standalone /call/:id tab, a navigate-away) for ANY blur in that window — a
+// getUserMedia permission prompt taking focus, or the browser's own focus
+// churn right after a hard-refresh reload. JOIN_SETTLE_MS exists so a fresh
+// (or freshly reconnected) call survives its first few seconds regardless of
+// what caused the blur.
+describe("JOIN_SETTLE_MS — a fresh connection ignores a stray away signal", () => {
+  it("does not attempt PiP or minimize for a blur in the first moments after connecting", async () => {
+    const session = fakeSession(false);
+    const pip = fakePip({ enter: vi.fn(async () => false) });
+    renderHook(() => useMeetingDisplayController(session, pip, true));
+    // No settle() — this is exactly the window under test.
+
+    await act(async () => {
+      hide();
+      await Promise.resolve();
+    });
+
+    expect(pip.enter).not.toHaveBeenCalled();
+    expect(session.minimize).not.toHaveBeenCalled();
+  });
+
+  it("treats an away signal as real once the settle window has passed", async () => {
+    const session = fakeSession(false);
+    const pip = fakePip({ enter: vi.fn(async () => false) });
+    renderHook(() => useMeetingDisplayController(session, pip, true));
+    settle();
+
+    await act(async () => {
+      hide();
+      await Promise.resolve();
+    });
+
+    expect(pip.enter).toHaveBeenCalledTimes(1);
+    expect(session.minimize).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not falsely restore on return, when the away it would answer was itself suppressed", async () => {
+    const session = fakeSession(false);
+    const pip = fakePip({ enter: vi.fn(async () => false) });
+    renderHook(() => useMeetingDisplayController(session, pip, true));
+
+    // A blur-then-focus pair entirely inside the settle window — nothing
+    // should have changed by either signal.
+    await act(async () => {
+      hide();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      show();
+      await Promise.resolve();
+    });
+
+    expect(session.minimize).not.toHaveBeenCalled();
+    expect(session.restore).not.toHaveBeenCalled();
+  });
+
+  it("re-arms a fresh settle window on reconnect (enabled toggling off then on)", async () => {
+    const session = fakeSession(false);
+    const pip = fakePip({ enter: vi.fn(async () => false) });
+    const { rerender } = renderHook(
+      ({ enabled }) => useMeetingDisplayController(session, pip, enabled),
+      { initialProps: { enabled: true } },
+    );
+    settle();
+    rerender({ enabled: false }); // reconnecting: briefly disabled
+    rerender({ enabled: true }); // back — a FRESH connection, fresh settle window
+
+    await act(async () => {
+      hide();
+      await Promise.resolve();
+    });
+
     expect(session.minimize).not.toHaveBeenCalled();
   });
 });
