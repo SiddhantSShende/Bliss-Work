@@ -507,46 +507,15 @@ jobs:
         run: node scripts/audit-gate.mjs
 
   # ───────────────────────────────────────────────────────────────────────────
-  # HELM-LINT — chart linting, templating, and Kubernetes schema validation.
-  # ───────────────────────────────────────────────────────────────────────────
-  helm-lint:
-    name: Helm (lint · template · kubeconform)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: Set up Helm
-        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
-        with:
-          version: v3.16.3
-      - name: Check chart presence
-        id: chart
-        run: |
-          if [ -f deploy/helm/taskboard/Chart.yaml ]; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::deploy/helm/taskboard chart not found — skipping helm lint/template/kubeconform."
-          fi
-      - name: helm lint
-        if: steps.chart.outputs.exists == 'true'
-        run: helm lint deploy/helm/taskboard
-      - name: helm template
-        if: steps.chart.outputs.exists == 'true'
-        run: helm template taskboard deploy/helm/taskboard > /tmp/rendered.yaml
-      - name: Install kubeconform
-        if: steps.chart.outputs.exists == 'true'
-        run: |
-          KUBECONFORM_VERSION=v0.6.7
-          curl -fsSL \
-            "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" \
-            | tar -xz kubeconform
-          sudo mv kubeconform /usr/local/bin/
-      - name: kubeconform (validate rendered manifests)
-        if: steps.chart.outputs.exists == 'true'
-        run: |
-          kubeconform -strict -summary -ignore-missing-schemas \
-            -kubernetes-version 1.30.0 /tmp/rendered.yaml
-
+  # HELM-LINT removed 2026-08-27: deploy/helm/taskboard was deleted from the
+  # repo in commit 3bcc7778 (2026-08-24). This job used to degrade to a
+  # ::warning:: and skip lint/template/kubeconform when the chart was absent
+  # rather than fail, so its removal produced zero CI signal for weeks — that
+  # silent-skip behavior is itself the reason to delete the job outright now
+  # instead of leaving a permanent no-op. If a Helm chart is rebuilt (see
+  # INFRASTRUCTURE.md's "Helm chart completed" update note, and Part B.1 of
+  # the scaling roadmap), re-add this job WITHOUT the presence-check escape
+  # hatch — a missing chart should fail the job, not skip it.
   # ───────────────────────────────────────────────────────────────────────────
   # E2E — full stack via docker compose, seeded, then the cross-org authz suite.
   # (Preserved from the original pipeline; gated behind cheaper checks.)

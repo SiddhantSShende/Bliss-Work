@@ -15,11 +15,18 @@ confirms it against production data rather than dev.
 RATES="100 300 400 500 600" ./step.sh   # walk the throughput/latency curve
 ```
 
-⚠️ `step.sh` forwards only `LT_EMAIL`/`LT_CHANNEL` into the k6 container and does
-not mount `users.json`, so `LT_USERS=users.json ./step.sh` silently falls back to
-a **single account** — which measures the per-user rate limiter at ~10 rps, not
-capacity. Run 2 drove the pool by mounting it and passing `LT_USERS` through;
-`step.sh` should be fixed to do the same.
+⚠️ At the time of Run 1/Run 2 below, `step.sh` forwarded only `LT_EMAIL`/
+`LT_CHANNEL` into the k6 container and did not mount `users.json`, so
+`LT_USERS=users.json ./step.sh` silently fell back to a **single account** —
+which measures the per-user rate limiter at ~10 rps, not capacity. Run 2 worked
+around this by mounting the pool and passing `LT_USERS` through by hand,
+bypassing `step.sh`. **Fixed in `0d44cc4` (2026-08-18)** — `step.sh` now mounts
+`$LT_USERS` and sets `LT_USERS=/users.json` inside the container whenever it's
+set, so `LT_USERS=users.json ./step.sh` drives the full pool directly. The runs
+below still reflect the pre-fix numbers/workarounds; a re-run through the fixed
+`step.sh` has not yet happened and would be the natural next data point,
+especially for the WS-fan-out-to-a-large-channel-roster gap noted elsewhere in
+this file.
 
 ⚠️ k6's `--summary-export` carries only `avg/min/med/max/p(90)/p(95)`, so the
 `p(99)` this harness asks for comes back empty. **The p99 column in Run 1 below

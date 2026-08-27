@@ -71,7 +71,13 @@ export function CallWindow() {
    * closing it means.
    */
   useEffect(() => {
-    if (!call || active?.id === call.id) return;
+    // A call already ENDED/CANCELLED is not something to connect into — same
+    // exclusion RejoinPrompt (MeetingHost.tsx) already applies to its own
+    // reload-recovery path. Without this, a hard refresh landing here for a
+    // call that ended while the tab was gone would still hand it to the room,
+    // which only discovers the problem later via LiveKit's own connect
+    // timeout — a needless "Connecting…" instead of an immediate answer.
+    if (!call || call.status === "ENDED" || call.status === "CANCELLED" || active?.id === call.id) return;
     enter(call, close);
   }, [call, active?.id, enter, close]);
 
@@ -94,7 +100,7 @@ export function CallWindow() {
     );
   }
 
-  if (isError || !call) {
+  if (isError || !call || call.status === "ENDED" || call.status === "CANCELLED") {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 bg-surface p-6">
         <EmptyState

@@ -146,9 +146,10 @@ The notification topic fans out to every subscriber of every event — at
   entry chunk — every visitor downloaded the video-call stack and the
   integrations hub to reach a login form.
 
-  Now fixed (see Stage 13). Kept here struck through rather than deleted,
-  because the failure was not the bundle; it was a confident claim in a
-  document people trust, which is a thing worth leaving visible.
+  Now fixed — see "Frontend bundle splitting" in Done, below. Kept here struck
+  through rather than deleted, because the failure was not the bundle; it was
+  a confident claim in a document people trust, which is a thing worth leaving
+  visible.
 - Cost / budget. Numbers vary by cloud vendor and contract.
 - Specific vendor recommendations. Pick the one your team already knows.
 
@@ -192,10 +193,35 @@ and this document previously only made the first one.
   route at all, so a Kubernetes deploy had no presence and no WebRTC calls.
   Maintenance CronJobs added — the rollup, prune and attachment GC simply never
   ran on Kubernetes, silently.
+
+  **Update, 2026-08-24: this chart was deleted from the repository** in a
+  "repo cleanup" commit (`3bcc7778`), along with `BOTTLENECK_ANALYSIS.md`. This
+  was a deliberate decision, not accidental loss, made when re-scoping the
+  scaling roadmap — CI's `helm-lint` job has been removed accordingly rather
+  than left silently skipping a chart that no longer exists (it previously
+  degraded to a `::warning::` on a missing chart instead of failing, which is
+  its own lesson about silent CI drift). Everything below describing the
+  chart's design — this bullet, the PgBouncer bullet, Stage 5's media-tier
+  manifests, and the "Helm, managed data tier" row in the honest-ceiling table
+  further down — remains accurate as a **design to rebuild from**, not as
+  currently-deployed or currently-buildable state. There is no Helm chart in
+  this repository today.
+- **Frontend bundle splitting.** `packages/app/src/App.tsx`'s ~30 routes now
+  load behind `React.lazy()` + dynamic `import()`, and `apps/web/vite.config.ts`
+  adds `manualChunks` for `react`/`query`/`charts` vendor groups so an unrelated
+  deploy doesn't bust every visitor's cache. `chunkSizeWarningLimit` dropped
+  from Rollup's 500KB default to 350KB, with two named, justified exceptions
+  (`CallRoom` ~571KB, `exceljs` ~940KB — both lazy, off the critical path). This
+  is what shrank the single 1.45MB entry chunk described above down to a
+  login-sized bundle; `infra/nginx/default.conf` already serves the
+  content-hashed output with the 1-year immutable cache headers a CDN would
+  ride on (see "CDN-ready cache headers" below).
 - **Observability in production.** The OTEL collector, Prometheus, Alertmanager,
   Tempo, Loki and Grafana existed only under a dev compose profile. Production
   ran with no metrics, no traces and no alerting.
-- **PgBouncer on by default — ON KUBERNETES ONLY.** `pgbouncer.enabled: true` in
+- **PgBouncer on by default — ON KUBERNETES ONLY** *(chart since removed — see
+  the update note on "Helm chart completed" above; this describes the design
+  to rebuild, not current state)*. `pgbouncer.enabled: true` in
   `values.yaml`. The compose stack has **no pooler at all**, and compose is what
   the VPS actually runs, so the live system connects services straight to
   Postgres. That is fine at one replica per service (the pools sum to 68 against
@@ -311,7 +337,9 @@ presence heartbeat was decoupled from the websocket ping (one number had been
 doing two unrelated jobs) and moved to 45s inside a 120s window with amortized
 `EXPIRE` — roughly a **4× cut in presence write traffic**.
 
-**Stage 5 — media tier.** Built, off by default.
+**Stage 5 — media tier.** Built, off by default *(chart since removed — see
+the update note on "Helm chart completed" above; this describes the design to
+rebuild, not current state)*.
 
 LiveKit and coturn were **entirely absent from the Helm chart**: no Deployment,
 no `LIVEKIT_*`, no coturn. messaging-svc's minter therefore reported itself
@@ -737,7 +765,12 @@ quoting `WS_MAX_CONNECTIONS` as a capacity figure was so misleading:
 |---|---|---|---|
 | Compose, one VPS, hatches off, Redis at 400mb | ~500 WAU | ~1.5-3k WAU | Redis fills; presence AND replay fail together |
 | Same, with Stage 11's Redis sizing | ~10k DAU | ~50k DAU | Postgres at 2 CPU with no read cache |
-| Helm, managed data tier, hatches on | ~300k DAU | ~1M DAU | The three application-layer gaps above |
+| Helm, managed data tier, hatches on¹ | ~300k DAU | ~1M DAU | The three application-layer gaps above |
+
+¹ The Helm chart this row assumes was deleted from the repository 2026-08-24
+(see "Helm chart completed" in Done, above) and would need to be rebuilt
+before this row is reachable — it is a target architecture, not a currently
+available deployment path.
 
 **These numbers were wrong until Stage 12, and worth saying so plainly.** Rows
 two and three describe what Postgres and Redis can carry, and that arithmetic

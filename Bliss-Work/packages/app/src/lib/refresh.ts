@@ -81,18 +81,31 @@ async function performRefresh(
     // undefined and the request is byte-for-byte what it always was — the cookie
     // stays HttpOnly and keeps its SameSite protection.
     const bodyToken = getRefreshToken ? await getRefreshToken().catch(() => null) : null;
-    const res = await fetch(`${authBase}/auth/refresh`, {
-      method: "POST",
-      // Kept unconditional: web depends on it, and on desktop it is a harmless
-      // no-op (the cookie exists in the jar, it just won't travel cross-site).
-      credentials: "include",
-      ...(bodyToken
-        ? {
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ token: bodyToken }),
-          }
-        : {}),
-    });
+    // Bounded like every other request in the app (ApiClient.req's identical
+    // 30s abort) — this is the ONE fetch that gates SessionBootstrap's ready
+    // flag (App.tsx), so an unbounded stall here doesn't just fail a refresh,
+    // it leaves the whole app on "Loading…" forever. A timeout falls through
+    // to the catch block below exactly like any other network failure.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30_000);
+    let res: Response;
+    try {
+      res = await fetch(`${authBase}/auth/refresh`, {
+        method: "POST",
+        // Kept unconditional: web depends on it, and on desktop it is a harmless
+        // no-op (the cookie exists in the jar, it just won't travel cross-site).
+        credentials: "include",
+        signal: controller.signal,
+        ...(bodyToken
+          ? {
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ token: bodyToken }),
+            }
+          : {}),
+      });
+    } finally {
+      clearTimeout(timer);
+    }
     // Return null on failure WITHOUT clearing the in-memory session. A failed
     // refresh is often transient — a rotating-refresh-token race, a reload firing
     // mid-refresh, or a brief network blip — and the current access token is

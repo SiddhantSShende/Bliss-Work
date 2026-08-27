@@ -8,6 +8,13 @@ from pydantic import BaseModel, Field, field_validator
 AssigneeStatus = Literal["SENT", "IGNORED", "ACKNOWLEDGED", "COMPLETED", "LEFT"]
 TaskActionT = Literal["ACKNOWLEDGE", "IGNORE", "COMPLETE", "LEAVE"]
 
+# Cap on how many people one task-create request can fan out to. Applied here
+# to the client-supplied `assigneeIds` list (pydantic 422s past this), and
+# re-applied in routes/tasks_write.py to the server-resolved "assign to whole
+# channel" list — that path never passes through this field, so it needs the
+# same bound enforced explicitly rather than inheriting it for free.
+_MAX_ASSIGNEES = 500
+
 
 # Upper bounds on every free-text / list field. Without them a client can submit
 # multi-MB strings or huge id lists — storage bloat, expensive at-rest encryption,
@@ -18,7 +25,7 @@ TaskActionT = Literal["ACKNOWLEDGE", "IGNORE", "COMPLETE", "LEAVE"]
 class CreateTaskRequest(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     description: str = Field(default="", max_length=10_000)
-    assigneeIds: list[str] = Field(default_factory=list, max_length=500)
+    assigneeIds: list[str] = Field(default_factory=list, max_length=_MAX_ASSIGNEES)
     # When set, task-svc resolves the channel's current members via
     # messaging-svc's internal endpoint and fans out at server side. The
     # task is tagged with channel_id so future joiners can be auto-added

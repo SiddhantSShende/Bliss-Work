@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import json
+
 import httpx
 import uuid6
 from fastapi import APIRouter, Header, HTTPException, status
 from internal_auth import internal_token_matches
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import events
 from ..auth import Principal, PrincipalDep
@@ -13,7 +16,7 @@ from ..config import settings
 from crypto import cryptor
 from ..db import session, set_org_context
 from ..logging_setup import log
-from ..schemas import CreateTaskRequest, CreateTaskResponse
+from ..schemas import CreateTaskRequest, CreateTaskResponse, _MAX_ASSIGNEES
 from .helpers import enqueue_outbox, resolve_username
 
 router = APIRouter()

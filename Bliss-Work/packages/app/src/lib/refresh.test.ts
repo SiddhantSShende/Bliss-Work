@@ -123,6 +123,37 @@ describe("refreshSession", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  // Regression guard: this fetch used to have no timeout at all, unlike every
+  // other request in the app (ApiClient.req's 30s abort). Since this is the
+  // ONE call SessionBootstrap waits on before it renders anything, a stalled
+  // (not failed) /auth/refresh left the entire app on "Loading…" forever.
+  it("gives up a stalled request instead of hanging forever", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_url: string, init?: RequestInit) => {
+        // Simulates a real fetch: never settles on its own, but DOES reject
+        // once its AbortSignal fires — exactly what the timeout must trigger.
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new DOMException("The operation was aborted.", "AbortError")),
+          );
+        });
+      }),
+    );
+    const { refreshSession, isSessionDead, useSession } = await loadRefresh();
+
+    const pending = refreshSession(AUTH);
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(await pending).toBeNull();
+    // A timeout is a transient failure, not proof the session is over — same
+    // treatment as any other network blip (see the tests above).
+    expect(useSession.getState().status).toBe("authed");
+    expect(isSessionDead()).toBe(false);
+    vi.useRealTimers();
+  });
+
   it("opens the breaker again after a fresh sign-in", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(401, { code: "expired" })));
     const { refreshSession, isSessionDead, useSession } = await loadRefresh();

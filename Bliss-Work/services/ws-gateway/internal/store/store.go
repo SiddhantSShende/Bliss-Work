@@ -16,8 +16,15 @@ import (
 	"github.com/task-board/ws-gateway/internal/ttlcache"
 )
 
-// outboxTTL keeps per-user replay buffers for 7 days.
-const outboxTTL = 7 * 24 * time.Hour
+// outboxTTL keeps per-user replay buffers for 1 day.
+//
+// Was 7 days. Real sampling of prod outbox entries (~605 bytes/entry) against
+// prod Redis's actual 2GB maxmemory/noeviction config puts the fill point at
+// roughly 3,245-4,868 DAU — tighter than the HTTP tier's measured ceiling by
+// about 5x. A short-lived client can still miss more than a day of backlog and
+// fall back to the REST catch-up path; a live client reconnecting after a
+// normal restart is unaffected (see maxReplayHard below).
+const outboxTTL = 24 * time.Hour
 
 // maxReplayDefault is how many recent events are replayed when a client sends
 // hello with lastSeenSeq == 0.
