@@ -303,9 +303,6 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
 
   // Join once, after the pre-join lobby. The hook guards re-entry.
   useEffect(() => {
-    // TEMP DIAGNOSTIC — remove once the stuck-on-"Joining the meeting…" bug
-    // is found. Confirms CallRoom itself mounted and what preJoin is.
-    console.info("[BW-DIAG] CallRoom mounted/effect", { callId: call.id, preJoin });
     if (preJoin) return;
     void join();
     // eslint-disable-next-line react-hooks/exhaustive-deps
