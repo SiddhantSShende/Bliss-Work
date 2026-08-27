@@ -17,6 +17,7 @@ import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { onMeetingJoinRequest, useMeetingSession, useResumableMeeting } from "../lib/MeetingSession";
 import { closeMeetingTab } from "../lib/callWindow";
+import { useSession } from "../store/session";
 import { CallRoom } from "./CallRoomLazy";
 
 export function MeetingHost() {
@@ -66,11 +67,18 @@ function RejoinPrompt() {
   const { api } = useRuntime();
   const { enter } = useMeetingSession();
   const [dismissed, setDismissed] = useState(false);
+  // MeetingHost sits outside SessionBootstrap (see App.tsx) so an active call
+  // survives the periodic background token refresh — but that means this runs
+  // before the FIRST bootstrap has restored a token too. On a reload of a tab
+  // that was already in a meeting, resumable-meeting state is in sessionStorage
+  // before the session is, and firing this against messaging-svc with no token
+  // yet is a guaranteed 401, not a rare race — so wait for a real session.
+  const sessionStatus = useSession((s) => s.status);
 
   const { data: call } = useQuery({
     queryKey: qk.call(callId ?? ""),
     queryFn: () => api.call(callId!),
-    enabled: !!callId && !dismissed,
+    enabled: !!callId && !dismissed && sessionStatus === "authed",
     // One attempt: an offer that retries in the background is an offer that
     // appears a minute after the user stopped wondering about it.
     retry: false,
