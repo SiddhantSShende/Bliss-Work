@@ -7,7 +7,7 @@ import "testing"
 // that clears `left_at` is a request from a browser that, in exactly these
 // cases, is gone.
 func TestParseRoomWebhookReadsAParticipantLeaving(t *testing.T) {
-	m, err := New(testKey, testSecret, "wss://sfu.example")
+	m, err := New(testKey, testSecret, "wss://sfu.example", MinterOptions{})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -30,7 +30,7 @@ func TestParseRoomWebhookReadsAParticipantLeaving(t *testing.T) {
 }
 
 func TestParseRoomWebhookReadsARoomFinishing(t *testing.T) {
-	m, _ := New(testKey, testSecret, "wss://sfu.example")
+	m, _ := New(testKey, testSecret, "wss://sfu.example", MinterOptions{})
 	body := []byte(`{"event":"room_finished","room":{"name":"call-2"}}`)
 
 	ev, err := m.ParseRoomWebhook("Bearer "+signWebhook(t, body, testSecret), body)
@@ -46,7 +46,7 @@ func TestParseRoomWebhookReadsARoomFinishing(t *testing.T) {
 // "nothing to do" rather than as an error — the route answers 200 to those, and
 // a non-2xx would make the SFU retry an event we will ignore just as hard.
 func TestParseRoomWebhookIgnoresEventsItDoesNotActuponAndIncompleteOnes(t *testing.T) {
-	m, _ := New(testKey, testSecret, "wss://sfu.example")
+	m, _ := New(testKey, testSecret, "wss://sfu.example", MinterOptions{})
 
 	for _, body := range []string{
 		`{"event":"participant_joined","room":{"name":"call-1"},"participant":{"identity":"u"}}`,
@@ -72,7 +72,7 @@ func TestParseRoomWebhookIgnoresEventsItDoesNotActuponAndIncompleteOnes(t *testi
 // sender holds no account here. A body that is not signed with the API secret
 // must never be believed, whatever it claims about who left which room.
 func TestParseRoomWebhookRefusesAnythingItCannotAuthenticate(t *testing.T) {
-	m, _ := New(testKey, testSecret, "wss://sfu.example")
+	m, _ := New(testKey, testSecret, "wss://sfu.example", MinterOptions{})
 	body := []byte(`{"event":"room_finished","room":{"name":"call-1"}}`)
 
 	cases := []struct {

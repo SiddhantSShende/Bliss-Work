@@ -103,9 +103,14 @@ type scheduleCallReq struct {
 	Media string `json:"media"`
 	// RFC3339. Omit or leave empty to start immediately ("meet now").
 	ScheduledAt string `json:"scheduledAt"`
-	// How long the call is expected to run. Omit for defaultCallMinutes on a
-	// scheduled call, or for no scheduled end at all on a "meet now".
-	DurationMinutes int `json:"durationMinutes"`
+	// How long the call is expected to run. Omit (nil) for defaultCallMinutes
+	// on a scheduled call, or for no scheduled end at all on a "meet now". A
+	// POINTER because an EXPLICIT 0 is a real, distinct choice — "No end
+	// time" (ScheduleCallDialog's own option) — that must not collapse into
+	// omitted's different default. A bare int could not tell the two apart,
+	// which silently gave every scheduled "No end time" meeting a 60-minute
+	// end anyway (see parseSchedule).
+	DurationMinutes *int `json:"durationMinutes"`
 	// Meetings only: same-org users placed on the roster at creation.
 	InviteeIDs []string `json:"inviteeIds"`
 }
@@ -141,7 +146,7 @@ func parseSchedule(req scheduleCallReq) (schedule, bool) {
 	if media != "audio" && media != "video" {
 		return schedule{}, false
 	}
-	if req.DurationMinutes < 0 || req.DurationMinutes > maxCallMinutes {
+	if req.DurationMinutes != nil && (*req.DurationMinutes < 0 || *req.DurationMinutes > maxCallMinutes) {
 		return schedule{}, false
 	}
 	out := schedule{Title: truncateTitle(strings.TrimSpace(req.Title)), Media: media}
@@ -153,9 +158,17 @@ func parseSchedule(req scheduleCallReq) (schedule, bool) {
 		utc := t.UTC()
 		out.At = &utc
 	}
-	mins := req.DurationMinutes
-	if mins == 0 && out.At != nil {
-		mins = defaultCallMinutes
+	// Omitted (nil): defaultCallMinutes when scheduled, no scheduled end at
+	// all on a "meet now" (EndsAtFor(_, 0) already returns nil for that).
+	// An EXPLICIT value — including 0, "No end time" — always wins, whether
+	// the call is scheduled or immediate: that is the one case the old bare
+	// `int` version of this field could not represent.
+	mins := defaultCallMinutes
+	switch {
+	case req.DurationMinutes != nil:
+		mins = *req.DurationMinutes
+	case out.At == nil:
+		mins = 0
 	}
 	out.EndsAt = store.EndsAtFor(out.At, time.Duration(mins)*time.Minute)
 	return out, true
@@ -264,8 +277,10 @@ type directCallReq struct {
 	Title  string `json:"title"`
 	// RFC3339. Omit to ring now; set it to schedule the call for later.
 	ScheduledAt string `json:"scheduledAt"`
-	// How long the call is expected to run; see scheduleCallReq.
-	DurationMinutes int `json:"durationMinutes"`
+	// How long the call is expected to run; see scheduleCallReq — a pointer
+	// for the same reason: an explicit 0 ("No end time") must not collapse
+	// into the same case as omitting the field.
+	DurationMinutes *int `json:"durationMinutes"`
 }
 
 // startDirectCall serves POST /api/v1/calls/direct — a call in a one-to-one

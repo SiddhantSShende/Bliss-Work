@@ -5,6 +5,7 @@ import {
   encodeLocation,
   encodeMedia,
   isMediaMessage,
+  listPreview,
   parseChatEnvelope,
   readablePrefix,
   type MediaItem,
@@ -197,6 +198,24 @@ describe("readablePrefix", () => {
   it("passes plain text through unchanged", () => {
     expect(readablePrefix("just a message")).toBe("just a message");
     expect(readablePrefix("")).toBe("");
+  });
+});
+
+describe("listPreview", () => {
+  it("shows Link sent when the whole body is one URL", () => {
+    expect(listPreview("https://example.com/roadmap")).toBe("Link sent");
+    expect(listPreview("  https://example.com/roadmap  ")).toBe("Link sent");
+  });
+
+  it("leaves a message that merely contains a link unchanged", () => {
+    expect(listPreview("check this out: https://example.com/roadmap")).toBe(
+      "check this out: https://example.com/roadmap",
+    );
+  });
+
+  it("leaves plain text and structured previews unchanged", () => {
+    expect(listPreview("just a message")).toBe("just a message");
+    expect(listPreview(encodeMedia([img()]))).toBe("Image sent");
   });
 });
 

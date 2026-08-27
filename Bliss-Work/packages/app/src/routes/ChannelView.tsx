@@ -30,6 +30,7 @@ import { ChatAssetsSheet } from "../features/ChatAssetsSheet";
 import { searchMessages } from "../lib/chatSearch";
 import { exportChatTranscript } from "../lib/chatExport";
 import { toggleConversationPref, useConversationPrefs } from "../lib/conversationPrefs";
+import { markChannelViewed } from "../lib/channelReadState";
 import { useMeetingSession } from "../lib/MeetingSession";
 import { useActiveThread, type ActiveThread } from "../lib/activeThread";
 
@@ -92,6 +93,16 @@ export function ChannelView() {
     setActiveThread(t);
     return () => clearActiveThread(t);
   }, [channelId, setActiveThread, clearActiveThread]);
+
+  // Marks this channel read for the Unread filter on the channel list — see
+  // lib/channelReadState. Recorded again on the way out (not just on
+  // arrival), so anything that arrived while this channel was open counts as
+  // seen too, without needing to react to every incoming message here.
+  useEffect(() => {
+    if (!channelId) return;
+    markChannelViewed(channelId);
+    return () => markChannelViewed(channelId);
+  }, [channelId]);
 
   // Newest page only; older pages are prepended into the same flat array so
   // the websocket patches and optimistic sends below are unaffected.

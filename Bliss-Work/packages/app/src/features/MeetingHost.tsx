@@ -11,6 +11,7 @@
  */
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { Video, X } from "lucide-react";
 import { Button } from "@taskboard/ui";
 import { useRuntime } from "../lib/runtime";
@@ -31,11 +32,22 @@ export function MeetingHost() {
       void api
         .call(callId)
         .then((next) => {
-          if (request === requestNumber && next.status !== "ENDED" && next.status !== "CANCELLED") {
+          // A newer request superseded this one — say nothing, the newer
+          // one's own outcome (success or its own toast) is what matters now.
+          if (request !== requestNumber) return;
+          if (next.status !== "ENDED" && next.status !== "CANCELLED") {
             enter(next);
           }
         })
-        .catch(() => {});
+        .catch((e: unknown) => {
+          // Was silently swallowed entirely — clicking "Join"/"Open" on a
+          // call-started/call-waiting/ring toast did nothing at all on any
+          // failure (a network blip, a 403, a malformed response), with no
+          // error and no room. Surfacing it is not optional here: this is
+          // the ONLY feedback the person clicking that toast action gets.
+          if (request !== requestNumber) return;
+          toast.error(e instanceof Error ? e.message : "Couldn't open that meeting");
+        });
     });
   }, [api, enter]);
 

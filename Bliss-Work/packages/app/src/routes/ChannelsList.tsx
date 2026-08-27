@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { AlertCircle, Bell, BellOff, Compass, Globe, Hash, LogIn, LogOut, Lock, MoreVertical, Pin, Plus } from "lucide-react";
+import { AlertCircle, Bell, BellOff, Compass, Globe, Hash, LogIn, LogOut, Lock, MoreVertical, Pin, Plus, Search } from "lucide-react";
 import { Button, EmptyState } from "@taskboard/ui";
 import type { ChannelDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
@@ -10,6 +10,7 @@ import { qk } from "../lib/queryBridge";
 import { ListHeader, rowClass, relTime } from "../features/ListPane";
 import { CreateChannelDialog } from "../features/CreateChannelDialog";
 import { toggleConversationPref, useConversationPrefs } from "../lib/conversationPrefs";
+import { useChannelReadState } from "../lib/channelReadState";
 import { usePopupDismiss } from "../lib/usePopupDismiss";
 import { listPreview } from "../lib/chatEnvelope";
 import { ConfirmDialog } from "../features/ConfirmDialog";
@@ -39,6 +40,8 @@ export function ChannelsList() {
   const [newOpen, setNewOpen] = useState(false);
   const [tab, setTab] = useState<Tab>("mine");
   const [leaveTarget, setLeaveTarget] = useState<ChannelDTO | null>(null);
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<"all" | "unread">("all");
 
   const { data: mine = [] } = useQuery({
     queryKey: qk.channels,
@@ -48,6 +51,9 @@ export function ChannelsList() {
   // back here — this list is the only place either one is observable. Both are
   // device-local; see lib/conversationPrefs.
   const prefs = useConversationPrefs();
+  // Same device-local trade-off as `prefs` above — see lib/channelReadState
+  // for why this isn't a real per-user count the way a DM's is.
+  const readState = useChannelReadState();
 
   // Shortcuts float to the top of "My channels"; everything else keeps the
   // server's order. A stable partition rather than a sort, so two pinned
@@ -58,6 +64,19 @@ export function ChannelsList() {
     if (pinned.length === 0) return mine;
     return [...pinned, ...mine.filter((c: ChannelDTO) => !prefs.hasShortcut("channel", c.id))];
   }, [mine, prefs]);
+
+  const visibleMine = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return orderedMine.filter((c: ChannelDTO) => {
+      const matchesSearch = !query || c.name.toLowerCase().includes(query);
+      const matchesFilter = filter === "all" || readState.isUnread(c.id, c.lastMessageAt);
+      return matchesSearch && matchesFilter;
+    });
+  }, [orderedMine, search, filter, readState]);
+  const unreadCount = useMemo(
+    () => mine.filter((c: ChannelDTO) => readState.isUnread(c.id, c.lastMessageAt)).length,
+    [mine, readState],
+  );
   // Browse lists every open channel in the ORG, so it is paged — the directory
   // grows with the customer, and an org with thousands of channels would
   // otherwise fetch and render all of them to show the first screenful.
@@ -128,6 +147,44 @@ export function ChannelsList() {
           <Compass size={13} /> Browse
         </TabButton>
       </div>
+      {tab === "mine" && (
+        <div className="space-y-2 border-b border-border/60 px-3 py-2">
+          <label className="relative block">
+            <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+            <input
+              type="search"
+              aria-label="Search channels"
+              placeholder="Search channels..."
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              className="h-9 w-full rounded-lg border border-border bg-surface-2 pl-9 pr-3 text-sm text-fg outline-none placeholder:text-muted focus:border-accent"
+            />
+          </label>
+          <div className="flex items-center" role="tablist" aria-label="Channel filters">
+            {(["all", "unread"] as const).map((value) => (
+              <button
+                key={value}
+                type="button"
+                role="tab"
+                aria-selected={filter === value}
+                onClick={() => setFilter(value)}
+                className={`relative flex-1 px-2 py-1.5 text-xs font-medium capitalize transition-colors ${
+                  filter === value
+                    ? "text-accent after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:rounded-full after:bg-accent"
+                    : "text-muted hover:text-fg"
+                }`}
+              >
+                {value}
+                {value === "unread" && unreadCount > 0 && (
+                  <span className="ml-1.5 rounded-full bg-accent px-1.5 text-[10px] text-accent-fg">
+                    {unreadCount}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="min-h-0 flex-1 space-y-0.5 overflow-auto p-2">
         {tab === "mine" ? (
           mine.length === 0 ? (
@@ -136,13 +193,16 @@ export function ChannelsList() {
               title="No channels yet"
               hint="Tap + to create one, or Browse to find open channels."
             />
+          ) : visibleMine.length === 0 ? (
+            <EmptyState icon={<Search size={22} />} title="No matching channels" hint="Try another search or filter." />
           ) : (
-            orderedMine.map((c) => (
+            visibleMine.map((c) => (
               <ChannelRow
                 key={c.id}
                 channel={c}
                 muted={prefs.isMuted("channel", c.id)}
                 shortcut={prefs.hasShortcut("channel", c.id)}
+                unread={readState.isUnread(c.id, c.lastMessageAt)}
                 onToggleMute={() => toggleConversationPref("muted", "channel", c.id)}
                 onTogglePin={() => toggleConversationPref("shortcut", "channel", c.id)}
                 onLeave={() => confirmLeave(c)}
@@ -218,16 +278,18 @@ function ChannelRow({
   channel: c,
   muted,
   shortcut,
+  unread,
   onToggleMute,
   onTogglePin,
   onLeave,
   leaving,
 }: {
   channel: ChannelDTO;
-  /** Muted on this device. A channel carries no unread count, so the icon is
-   *  the whole of what muting shows here. */
+  /** Muted on this device. */
   muted: boolean;
   shortcut: boolean;
+  /** Device-local — see lib/channelReadState. */
+  unread: boolean;
   onToggleMute: () => void;
   onTogglePin: () => void;
   onLeave: () => void;
@@ -248,7 +310,12 @@ function ChannelRow({
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-2">
-            <span className="truncate font-medium text-fg">{c.name}</span>
+            <span className="flex min-w-0 items-center gap-1.5">
+              {unread && <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
+              <span className={`truncate ${unread ? "font-semibold text-fg" : "font-medium text-fg"}`}>
+                {c.name}
+              </span>
+            </span>
             <span className="flex shrink-0 items-center gap-1 text-[10px] text-muted">
               {shortcut && <Pin size={11} aria-label="Pinned" className="text-accent" />}
               {muted && <BellOff size={11} aria-label="Muted" />}

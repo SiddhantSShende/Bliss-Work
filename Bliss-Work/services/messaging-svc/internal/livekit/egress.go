@@ -59,6 +59,12 @@ const webhookLeeway = 2 * time.Minute
 // ErrEgressNotConfigured means recording is switched off, or the SFU is.
 var ErrEgressNotConfigured = errors.New("livekit: recording is not configured")
 
+// ErrRoomNotFound means the SFU does not (yet) know about this room. Matched
+// via errors.Is by callers that can retry once the race resolves itself — see
+// StartRoom's own doc comment for why this is a race rather than a real
+// failure, and recordings.go's startRecording for the retry that uses it.
+var ErrRoomNotFound = errors.New("livekit: room does not exist")
+
 // S3Output addresses the bucket egress uploads a finished recording to. It is
 // the SAME bucket the blob store uses, so the file lands where the download
 // route can already find it.
@@ -176,6 +182,18 @@ func httpBase(wsURL string) string {
 //
 // `key` is a blob key (blob.RecordingKey). Where that becomes an object name
 // and where it becomes a path is the output's business, not the caller's.
+//
+// ── The room may not exist yet — this is a real race, not a rare one ────────
+// The caller (recordings.go's startRecording) fires the instant a call is
+// marked started, server-side, before the host's own browser has received
+// its LiveKit token, let alone connected — and `room.auto_create` (see
+// infra/livekit/livekit.yaml) only creates the room once the FIRST
+// participant's realtime connection actually reaches the SFU. Egress needs an
+// EXISTING room, so calling this here reliably loses that race under normal
+// conditions, not merely under load — confirmed against a live deployment as
+// a steady stream of 404 ErrRoomNotFound. Returning ErrRoomNotFound (rather
+// than a generic error) is what lets the caller retry instead of giving up on
+// the first, structurally-doomed-to-lose attempt.
 func (r *Recorder) StartRoom(ctx context.Context, room, key string) (string, error) {
 	if !r.Configured() {
 		return "", ErrEgressNotConfigured
@@ -260,9 +278,23 @@ func (r *Recorder) call(ctx context.Context, method, room string, body, into any
 		return fmt.Errorf("livekit: %s: %w", method, err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("livekit: %s: %s: %s", method, resp.Status, strings.TrimSpace(string(raw)))
+		trimmed := strings.TrimSpace(string(raw))
+		if resp.StatusCode == http.StatusNotFound && isTwirpNotFound(raw) {
+			return fmt.Errorf("livekit: %s: %s: %s: %w", method, resp.Status, trimmed, ErrRoomNotFound)
+		}
+		return fmt.Errorf("livekit: %s: %s: %s", method, resp.Status, trimmed)
 	}
 	return json.Unmarshal(raw, into)
+}
+
+// isTwirpNotFound reads Twirp's {"code": "not_found", ...} error shape.
+// Deliberately narrow — matched by code, not by scraping the human-readable
+// msg string, which LiveKit does not promise to keep stable.
+func isTwirpNotFound(body []byte) bool {
+	var e struct {
+		Code string `json:"code"`
+	}
+	return json.Unmarshal(body, &e) == nil && e.Code == "not_found"
 }
 
 // recordToken mints the credential the egress API requires: roomRecord, scoped

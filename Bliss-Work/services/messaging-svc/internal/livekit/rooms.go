@@ -52,7 +52,7 @@ func (m *Minter) DeleteRoom(ctx context.Context, room string) error {
 		return fmt.Errorf("livekit: DeleteRoom: empty room name")
 	}
 
-	tok, err := m.roomAdminToken(room)
+	tok, err := m.roomManagementToken()
 	if err != nil {
 		return err
 	}
@@ -61,7 +61,10 @@ func (m *Minter) DeleteRoom(ctx context.Context, room string) error {
 		return err
 	}
 
-	base := httpBase(m.url)
+	base := m.apiURL
+	if base == "" {
+		base = httpBase(m.url)
+	}
 	if base == "" {
 		return ErrNotConfigured
 	}
@@ -89,12 +92,25 @@ func (m *Minter) DeleteRoom(ctx context.Context, room string) error {
 	return nil
 }
 
-// roomAdminToken mints the credential the room API requires: roomAdmin, scoped
-// to the ONE room being closed, and valid for barely longer than the request.
-// Scoping matters — a token that could administer any room would be a far more
-// dangerous thing to leak from a log or a proxy than one that can close a
-// meeting that is already over.
-func (m *Minter) roomAdminToken(room string) (string, error) {
+// roomManagementToken mints the credential the Twirp RoomService API requires.
+//
+// ── roomCreate, not roomAdmin — these are not the same grant ────────────────
+// `roomAdmin` (used in token.go's Mint, correctly) governs what a PARTICIPANT
+// may do once connected to a room over the realtime signaling connection —
+// mute or remove others, end the room from inside it. `DeleteRoom` is a
+// different thing entirely: a server-to-server call to LiveKit's Twirp
+// RoomService HTTP API, which authorizes purely on `roomCreate` (the same
+// grant that gates CreateRoom/ListRooms) and does not recognise `roomAdmin`
+// at all. A token minted with `roomAdmin: true` here is REJECTED — verified
+// against a live deployment as a 401 "permissions denied", not merely
+// undertested.
+//
+// `roomCreate` is, by LiveKit's own design, a service-wide grant — there is
+// no room-scoped variant of "may call RoomService". Including a `room` claim
+// alongside it does not narrow it; it would only misstate what the token can
+// actually do. The mitigation available here is the one already in place:
+// a lifetime of barely longer than the single request that uses it.
+func (m *Minter) roomManagementToken() (string, error) {
 	now := time.Now().UTC()
 	tok, err := jwt.NewBuilder().
 		Issuer(m.apiKey).
@@ -102,7 +118,7 @@ func (m *Minter) roomAdminToken(room string) (string, error) {
 		IssuedAt(now).
 		NotBefore(now).
 		Expiration(now.Add(roomAPITimeout+time.Minute)).
-		Claim("video", map[string]any{"roomAdmin": true, "room": room}).
+		Claim("video", map[string]any{"roomCreate": true}).
 		Build()
 	if err != nil {
 		return "", err

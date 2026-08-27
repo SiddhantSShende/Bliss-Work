@@ -268,7 +268,8 @@ func main() {
 	// than failing somewhere deep in the client. A PARTIALLY configured one is
 	// a boot error, because a half-set SFU is a deployment mistake that would
 	// otherwise only surface when someone tried to start a meeting.
-	lk, err := livekit.New(cfg.LiveKit.APIKey, cfg.LiveKit.APISecret, cfg.LiveKit.URL)
+	lk, err := livekit.New(cfg.LiveKit.APIKey, cfg.LiveKit.APISecret, cfg.LiveKit.URL,
+		livekit.MinterOptions{APIURL: cfg.LiveKit.APIURL})
 	if err != nil {
 		log.Error("livekit config invalid", "err", err)
 		os.Exit(1)

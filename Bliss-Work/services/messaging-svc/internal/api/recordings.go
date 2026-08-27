@@ -224,10 +224,58 @@ func (s *Server) livekitWebhook(w http.ResponseWriter, r *http.Request) {
 // ── Lifecycle, called from the call handlers ─────────────────────────────────
 
 // recordingStartTimeout bounds what starting a recording can add to the request
-// that opened the call. The SFU only queues the egress and answers, so this is
-// generous; what it really bounds is an SFU that cannot be reached at all,
-// which must not become several seconds of "Start meeting" doing nothing.
-const recordingStartTimeout = 5 * time.Second
+// that opened the call. Wide enough to cover startRoomWithRetry's own retry
+// window (see its doc comment for why that window needs to exist at all) —
+// what it really bounds is an SFU that cannot be reached, which must not
+// become an unbounded "Start meeting" doing nothing.
+const recordingStartTimeout = 8 * time.Second
+
+// startRoomRetryDelays is how long to wait between attempts to start
+// recording a room that does not exist YET. Short, then a little longer —
+// most real connects land inside the first second or two; the tail exists for
+// a slow ICE negotiation, not for a room that will never appear.
+var startRoomRetryDelays = []time.Duration{
+	300 * time.Millisecond,
+	700 * time.Millisecond,
+	1500 * time.Millisecond,
+}
+
+// startRoomWithRetry retries StartRoom while — and only while — the SFU says
+// the room does not exist yet.
+//
+// ── Why this exists ───────────────────────────────────────────────────────
+// startRecording (below) fires the instant a call is marked started, before
+// the host's own browser has even requested its LiveKit token — the room
+// cannot possibly exist in LiveKit yet at that point (see StartRoom's doc
+// comment in internal/livekit/egress.go). A single attempt loses this race
+// under NORMAL conditions, confirmed against a live deployment as a steady
+// stream of 404s — this is not defensive padding for a rare failure, it is
+// the fix for a race that previously always lost.
+//
+// Any OTHER error (misconfiguration, an unreachable SFU, an auth failure) is
+// returned immediately — retrying those would only add latency to "Start
+// meeting" for a failure retrying cannot fix.
+func startRoomWithRetry(ctx context.Context, recorder *livekit.Recorder, room, key string) (string, error) {
+	var lastErr error
+	for attempt := 0; ; attempt++ {
+		egressID, err := recorder.StartRoom(ctx, room, key)
+		if err == nil {
+			return egressID, nil
+		}
+		if !errors.Is(err, livekit.ErrRoomNotFound) {
+			return "", err
+		}
+		lastErr = err
+		if attempt >= len(startRoomRetryDelays) {
+			return "", lastErr
+		}
+		select {
+		case <-ctx.Done():
+			return "", lastErr
+		case <-time.After(startRoomRetryDelays[attempt]):
+		}
+	}
+}
 
 // startRecording asks the SFU to record a call that has just been opened.
 //
@@ -266,8 +314,10 @@ func (s *Server) startRecording(ctx context.Context, callID, orgID, kind string)
 		return false
 	}
 	// The room name IS the call id (see livekit.Grant.Room), so there is no
-	// mapping to get wrong here either.
-	egressID, err := s.recorder.StartRoom(ctx, callID, key)
+	// mapping to get wrong here either. Retried while the room does not exist
+	// yet — see startRoomWithRetry's doc comment for why that is the normal
+	// case here, not an edge case.
+	egressID, err := startRoomWithRetry(ctx, s.recorder, callID, key)
 	if err != nil {
 		s.log.Error("could not start recording", "call_id", callID, "err", err)
 		return false

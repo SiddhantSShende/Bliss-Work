@@ -28,8 +28,18 @@ func TestParseScheduleDerivesTheEndFromTheDuration(t *testing.T) {
 			want: ptr(at.Add(defaultCallMinutes * time.Minute)),
 		}, {
 			name: "an explicit duration is measured from the scheduled start",
-			req:  scheduleCallReq{ScheduledAt: start, DurationMinutes: 25},
+			req:  scheduleCallReq{ScheduledAt: start, DurationMinutes: intPtr(25)},
 			want: ptr(at.Add(25 * time.Minute)),
+		}, {
+			// Regression test: DurationMinutes used to be a bare int, so an
+			// explicit 0 ("No end time" — ScheduleCallDialog's own option) was
+			// indistinguishable from omitting the field, and every scheduled
+			// meeting with "No end time" silently got the 60-minute default
+			// anyway — the one thing the field's own doc comment said should
+			// never happen for a call that HAS a scheduledAt.
+			name: "a scheduled call with an EXPLICIT zero duration gets no end time at all",
+			req:  scheduleCallReq{ScheduledAt: start, DurationMinutes: intPtr(0)},
+			want: nil,
 		}, {
 			// "Meet now" is the call button, not an appointment. Giving it a
 			// default hour would end a live conversation on a clock nobody set.
@@ -62,7 +72,7 @@ func TestParseScheduleDerivesTheEndFromTheDuration(t *testing.T) {
 // silently dropped the duration would be a call that never expires.
 func TestParseScheduleMeasuresAnAdHocDurationFromNow(t *testing.T) {
 	before := time.Now().UTC()
-	sc, ok := parseSchedule(scheduleCallReq{DurationMinutes: 30})
+	sc, ok := parseSchedule(scheduleCallReq{DurationMinutes: intPtr(30)})
 	if !ok {
 		t.Fatal("parseSchedule refused a valid request")
 	}
@@ -80,14 +90,15 @@ func TestParseScheduleMeasuresAnAdHocDurationFromNow(t *testing.T) {
 // indistinguishable from having no end, which is the bug this all exists to fix.
 func TestParseScheduleRefusesADurationItWillNotHonour(t *testing.T) {
 	for _, mins := range []int{-1, maxCallMinutes + 1} {
-		if _, ok := parseSchedule(scheduleCallReq{DurationMinutes: mins}); ok {
+		if _, ok := parseSchedule(scheduleCallReq{DurationMinutes: intPtr(mins)}); ok {
 			t.Errorf("durationMinutes=%d was accepted", mins)
 		}
 	}
 	// The bound itself is inclusive — a twelve-hour booking is legal.
-	if _, ok := parseSchedule(scheduleCallReq{DurationMinutes: maxCallMinutes}); !ok {
+	if _, ok := parseSchedule(scheduleCallReq{DurationMinutes: intPtr(maxCallMinutes)}); !ok {
 		t.Errorf("durationMinutes=%d was refused at the boundary", maxCallMinutes)
 	}
 }
 
 func ptr(t time.Time) *time.Time { return &t }
+func intPtr(n int) *int          { return &n }

@@ -17,7 +17,7 @@
  */
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Calendar, CalendarPlus } from "lucide-react";
+import { AlertCircle, Calendar, CalendarPlus } from "lucide-react";
 import { Button, EmptyState, PageHeader, Spinner } from "@taskboard/ui";
 import type { CallDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
@@ -42,7 +42,7 @@ export function Meetings() {
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const { enter, restore, call: active } = useMeetingSession();
 
-  const { data: calls = [], isLoading } = useQuery({
+  const { data: calls = [], isLoading, isError, refetch } = useQuery({
     queryKey: qk.calls,
     queryFn: () => api.myCalls(),
   });
@@ -152,6 +152,19 @@ export function Meetings() {
           {isLoading ? (
             <div className="flex items-center gap-2 p-4 text-sm text-muted">
               <Spinner /> Loading…
+            </div>
+          ) : isError ? (
+            // z.array(CallDTO) fails its ENTIRE parse if even one row is
+            // malformed, which used to empty the whole list with no
+            // indication anything went wrong — "Nothing scheduled" reads as
+            // a true fact about your calendar, not as a failed request. This
+            // is the ONE case that must never render as the empty state.
+            <div className="flex flex-col items-center gap-3 rounded-xl border border-border/60 p-6 text-center">
+              <AlertCircle size={24} className="text-muted" />
+              <div className="text-sm font-medium text-fg">Couldn't load your meetings.</div>
+              <Button size="sm" variant="secondary" onClick={() => void refetch()}>
+                Retry
+              </Button>
             </div>
           ) : shown.length === 0 ? (
             <EmptyState

@@ -113,11 +113,15 @@ function SeenBy({ receipts }: { receipts: ChannelReadReceiptDTO[] }) {
       </button>
       {open && (
         // Keep the reader list below its trigger so it does not cover the
-        // message text. It is capped and scrollable for busy channels.
+        // message text. Anchored to the RIGHT edge, not the left: this only
+        // ever renders on the caller's own messages (see the file doc), which
+        // sit against the right edge of the thread — opening from the left
+        // edge of the trigger pushed the panel further right, off the
+        // visible column, on exactly the messages it appears on.
         <span
           role="dialog"
           aria-label="Seen by"
-          className="absolute left-0 top-full z-[1000] mt-1 max-h-48 min-w-40 overflow-y-auto rounded-lg border border-border bg-surface p-2 text-xs text-fg shadow-card"
+          className="absolute right-0 top-full z-[1000] mt-1 max-h-48 min-w-40 overflow-y-auto rounded-lg border border-border bg-surface p-2 text-xs text-fg shadow-card"
         >
           <span className="mb-1 block font-semibold">Seen by</span>
           {receipts.map((receipt) => (

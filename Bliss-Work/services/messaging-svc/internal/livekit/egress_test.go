@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -287,6 +288,48 @@ func TestNewRecorderRefusesAHalfConfiguredOutput(t *testing.T) {
 	r, err := NewRecorder("", "", "", RecorderOptions{})
 	if err != nil || r.Configured() {
 		t.Fatalf("unconfigured = %v, %v", r, err)
+	}
+}
+
+// Regression test: StartRoom losing the race against room creation (see its
+// own doc comment) is the NORMAL case, not a rare failure — recordings.go's
+// startRoomWithRetry depends on being able to tell this specific failure
+// apart from a real one via errors.Is, which requires this exact Twirp shape
+// to still be recognised.
+func TestStartRoomWrapsTwirpNotFoundAsErrRoomNotFound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"code":"not_found","msg":"twirp error unknown: requested room does not exist"}`))
+	}))
+	defer srv.Close()
+
+	r := newTestRecorder(t, srv.URL, RecorderOptions{})
+	_, err := r.StartRoom(context.Background(), "call-123", "key")
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if !errors.Is(err, ErrRoomNotFound) {
+		t.Errorf("err = %v, want errors.Is(err, ErrRoomNotFound)", err)
+	}
+}
+
+// A 404 that is NOT this specific Twirp shape (e.g. a misconfigured proxy
+// returning a bare 404) must not be mistaken for the room-does-not-exist-yet
+// race — retrying that would just add latency to a failure retrying can't fix.
+func TestStartRoomDoesNotWrapAnUnrelated404(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`not found`))
+	}))
+	defer srv.Close()
+
+	r := newTestRecorder(t, srv.URL, RecorderOptions{})
+	_, err := r.StartRoom(context.Background(), "call-123", "key")
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if errors.Is(err, ErrRoomNotFound) {
+		t.Errorf("an unrelated 404 must not match ErrRoomNotFound: %v", err)
 	}
 }
 

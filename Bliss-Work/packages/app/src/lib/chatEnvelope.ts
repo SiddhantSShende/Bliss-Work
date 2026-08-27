@@ -25,6 +25,7 @@
  * committed — see services/messaging-svc/migrations/0010_attachments.sql.
  */
 import { parseFileOffer, prettySize, type FileOfferEnvelope } from "./fileOffer";
+import { linkifyMessage } from "./chatFormat";
 
 /** Unit Separator — a non-printing control char that never appears in typed text. */
 const SENTINEL = String.fromCharCode(0x1f);
@@ -220,7 +221,16 @@ export function readablePrefix(body: string): string {
 /** Short list preview for structured messages; plain text stays unchanged. */
 export function listPreview(body: string): string {
   const envelope = parseChatEnvelope(body);
-  if (!envelope) return readablePrefix(body);
+  if (!envelope) {
+    const text = readablePrefix(body);
+    // Same treatment as an image/file message: when the WHOLE body is one
+    // link with no other words around it, the raw URL is a worse preview
+    // than naming what it is. A link that's part of a longer sentence still
+    // shows the sentence — there is real text there worth previewing.
+    const segments = linkifyMessage(text);
+    if (segments.length === 1 && segments[0]?.type === "link") return "Link sent";
+    return text;
+  }
   if (envelope.kind === "location") return "Location shared";
   if (envelope.kind === "fileOffer") return "File sent";
   if (envelope.items.length === 1) {

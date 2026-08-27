@@ -13,7 +13,7 @@ const testSecret = "0123456789abcdef0123456789abcdef" // exactly 32
 
 func mustMinter(t *testing.T) *Minter {
 	t.Helper()
-	m, err := New("APIkey", testSecret, "wss://sfu.example.com")
+	m, err := New("APIkey", testSecret, "wss://sfu.example.com", MinterOptions{})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -40,7 +40,7 @@ func TestNewRejectsPartialAndWeakConfig(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			m, err := New(tc.key, tc.secret, tc.url)
+			m, err := New(tc.key, tc.secret, tc.url, MinterOptions{})
 			if tc.wantErr {
 				if err == nil {
 					t.Fatal("expected an error, got none — a half-configured SFU must fail at boot")

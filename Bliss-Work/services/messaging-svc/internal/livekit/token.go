@@ -24,6 +24,7 @@ package livekit
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/lestrrat-go/jwx/v2/jwa"
@@ -46,11 +47,28 @@ type Minter struct {
 	apiKey    string
 	apiSecret string
 	url       string
+	// apiURL overrides the http(s) base derived from url, for a service that
+	// cannot reach the SFU at the same address the browser uses. See
+	// MinterOptions.APIURL and egress.go's identical apiURL, which this
+	// mirrors — DeleteRoom needed the same override Recorder already had.
+	apiURL string
 }
 
-// New builds a Minter. All three values empty is a valid "SFU disabled" state;
-// a partially-filled config is a deployment mistake and is reported as one.
-func New(apiKey, apiSecret, url string) (*Minter, error) {
+// MinterOptions is what New needs beyond the SFU credentials.
+type MinterOptions struct {
+	// APIURL overrides the base derived from the wss:// URL. Set it when the
+	// service reaches the SFU's HTTP API at a different address than the one
+	// browsers connect to (an internal hostname behind the same edge, for
+	// instance). Empty means "derive it from url", which is correct on most
+	// deployments — see egress.go's RecorderOptions.APIURL, which this
+	// deliberately matches so the two credentials stay configured the same way.
+	APIURL string
+}
+
+// New builds a Minter. All three of apiKey/apiSecret/url empty is a valid "SFU
+// disabled" state; a partially-filled config is a deployment mistake and is
+// reported as one.
+func New(apiKey, apiSecret, url string, o MinterOptions) (*Minter, error) {
 	if apiKey == "" && apiSecret == "" && url == "" {
 		return &Minter{}, nil
 	}
@@ -63,7 +81,8 @@ func New(apiKey, apiSecret, url string) (*Minter, error) {
 	if len(apiSecret) < 32 {
 		return nil, errors.New("livekit: LIVEKIT_API_SECRET must be at least 32 characters")
 	}
-	return &Minter{apiKey: apiKey, apiSecret: apiSecret, url: url}, nil
+	apiURL := strings.TrimSuffix(o.APIURL, "/")
+	return &Minter{apiKey: apiKey, apiSecret: apiSecret, url: url, apiURL: apiURL}, nil
 }
 
 // Configured reports whether an SFU is wired up.
