@@ -12,8 +12,9 @@ TaskActionT = Literal["ACKNOWLEDGE", "IGNORE", "COMPLETE", "LEAVE"]
 # to the client-supplied `assigneeIds` list (pydantic 422s past this), and
 # re-applied in routes/tasks_write.py to the server-resolved "assign to whole
 # channel" list — that path never passes through this field, so it needs the
-# same bound enforced explicitly rather than inheriting it for free.
-_MAX_ASSIGNEES = 500
+# same bound enforced explicitly rather than inheriting it for free. Public
+# (no leading underscore): it's imported by tasks_write.py for that reason.
+MAX_ASSIGNEES = 500
 
 
 # Upper bounds on every free-text / list field. Without them a client can submit
@@ -25,7 +26,7 @@ _MAX_ASSIGNEES = 500
 class CreateTaskRequest(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     description: str = Field(default="", max_length=10_000)
-    assigneeIds: list[str] = Field(default_factory=list, max_length=_MAX_ASSIGNEES)
+    assigneeIds: list[str] = Field(default_factory=list, max_length=MAX_ASSIGNEES)
     # When set, task-svc resolves the channel's current members via
     # messaging-svc's internal endpoint and fans out at server side. The
     # task is tagged with channel_id so future joiners can be auto-added

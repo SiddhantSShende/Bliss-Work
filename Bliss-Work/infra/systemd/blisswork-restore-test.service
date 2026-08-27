@@ -1,0 +1,26 @@
+[Unit]
+Description=BlissWork restore-test (restore last night's backup into a scratch Postgres and verify it)
+Documentation=file:///home/ubuntu/BlissWork/Bliss-Work/infra/systemd/README.md
+# Same reasoning as blisswork-backup.service: Docker here is the snap, and
+# there is no docker.service on this host.
+After=snap.docker.dockerd.service blisswork-backup.service
+Requires=snap.docker.dockerd.service
+# Not `Requires=blisswork-backup.service` — a failed backup run should not
+# also prevent restore-test from running and reporting on whatever the LAST
+# successful backup set was. `After=` orders it without coupling failure.
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/BlissWork/Bliss-Work
+Environment=PATH=/snap/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=BACKUP_DIR=/var/backups/blisswork
+# Reused for the failure-alert email — same file the backup unit already
+# reads, and the same SMTP_* / ALERT_EMAIL_TO variables blisswork-media-disk
+# already uses, so there is exactly one place credentials for this live.
+EnvironmentFile=-/etc/blisswork-backup.env
+ExecStart=/usr/bin/env bash -c 'BACKUP_ENCRYPTION_KEY="$(cat /home/ubuntu/bliss-backup-key.txt)" exec /home/ubuntu/BlissWork/Bliss-Work/scripts/restore-test.sh'
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

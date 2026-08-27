@@ -1,0 +1,15 @@
+[Unit]
+Description=Daily BlissWork restore-test (prove last night's backup actually restores)
+
+[Timer]
+# After the 02:30 backup (with its own <=5min jitter) has had time to finish —
+# dumps of this scale complete in well under an hour, and this only ever READS
+# the backup files, so it cannot race the backup writing them as long as it
+# starts after backup-db.sh has exited.
+OnCalendar=*-*-* 03:30:00 UTC
+RandomizedDelaySec=300
+Persistent=true
+Unit=blisswork-restore-test.service
+
+[Install]
+WantedBy=timers.target

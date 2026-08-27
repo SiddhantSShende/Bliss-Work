@@ -16,8 +16,8 @@ from ..config import settings
 from crypto import cryptor
 from ..db import session, set_org_context
 from ..logging_setup import log
-from ..schemas import CreateTaskRequest, CreateTaskResponse, _MAX_ASSIGNEES
-from .helpers import enqueue_outbox, resolve_username
+from ..schemas import CreateTaskRequest, CreateTaskResponse, MAX_ASSIGNEES
+from .helpers import resolve_username
 
 router = APIRouter()
 
@@ -60,6 +60,73 @@ async def _resolve_channel_members(channel_id: str, org_id: str) -> list[str]:
     return list(body.get("memberIds") or [])
 
 
+async def _insert_task_assignees(
+    db: AsyncSession,
+    *,
+    org_id: str,
+    task_id: str,
+    assignee_ids: list[str],
+    sender_id: str,
+    sender_username: str,
+    title: str,
+    description: str,
+) -> None:
+    """Fan a newly-created task out to every assignee in ONE round trip per
+    table instead of one INSERT per assignee.
+
+    Both statements below batch every row into a single multi-VALUES INSERT
+    (same dynamic-placeholder idiom tasks_read.py already uses for variable-
+    length IN-lists) rather than looping a single-row INSERT once per
+    assignee. Without this, the "assign to the whole channel" flow turns task
+    creation into a transaction whose round-trip count — and lock-hold time —
+    scales with channel size; the caller caps `len(assignee_ids)` at
+    `MAX_ASSIGNEES` before calling this, so the statement text itself stays
+    bounded too.
+
+    The outbox INSERT duplicates the shape of helpers.enqueue_outbox rather
+    than calling it in a loop, specifically to get the same one-round-trip
+    batching for it — every OTHER call site in this service enqueues exactly
+    one event, so that single-row helper stays the right tool for them.
+    """
+    assignee_params: dict[str, str] = {"tid": task_id, "org": org_id}
+    assignee_values: list[str] = []
+    outbox_params: dict[str, str] = {"otopic": events.TASK_TOPIC, "okey": task_id}
+    outbox_values: list[str] = []
+
+    for i, assignee_id in enumerate(assignee_ids):
+        assignee_values.append(f"(:tid, :org, :aid{i}, 'SENT', 0)")
+        assignee_params[f"aid{i}"] = assignee_id
+
+        evt = events.task_assigned(
+            org_id=org_id,
+            task_id=task_id,
+            assignee_id=assignee_id,
+            sender_id=sender_id,
+            status_version=0,
+            sender_username=sender_username,
+            title=title,
+            description=description,
+        )
+        outbox_values.append(f"(:oid{i}, :otopic, :okey, CAST(:opayload{i} AS jsonb))")
+        outbox_params[f"oid{i}"] = str(uuid6.uuid7())
+        outbox_params[f"opayload{i}"] = json.dumps(evt)
+
+    await db.execute(
+        text(
+            "INSERT INTO task_assignees (task_id, org_id, assignee_id, status, status_version) "
+            f"VALUES {', '.join(assignee_values)}"
+        ),
+        assignee_params,
+    )
+    await db.execute(
+        text(
+            "INSERT INTO outbox (id, topic, kafka_key, payload) "
+            f"VALUES {', '.join(outbox_values)}"
+        ),
+        outbox_params,
+    )
+
+
 @router.post("/tasks", response_model=CreateTaskResponse, status_code=status.HTTP_201_CREATED)
 async def create_task(
     body: CreateTaskRequest,
@@ -91,6 +158,18 @@ async def create_task(
             raise HTTPException(status_code=400, detail="cannot assign a task to yourself")
     if not assignee_ids:
         raise HTTPException(status_code=400, detail="at least one assignee required")
+    if len(assignee_ids) > MAX_ASSIGNEES:
+        # Channel mode is the realistic way to hit this — an explicit
+        # assigneeIds list this long is already rejected at the pydantic
+        # boundary (schemas.py). Fail clearly here rather than accepting a
+        # request whose insert transaction would only time out later.
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"too many assignees ({len(assignee_ids)}); "
+                f"maximum is {MAX_ASSIGNEES} per task"
+            ),
+        )
 
     async with session() as db:
         # RLS: bind the org context FIRST, before any statement (incl. the
@@ -159,25 +238,16 @@ async def create_task(
             },
         )
 
-        for assignee_id in assignee_ids:
-            await db.execute(
-                text(
-                    "INSERT INTO task_assignees (task_id, org_id, assignee_id, status, status_version) "
-                    "VALUES (:tid, :org, :aid, 'SENT', 0)"
-                ),
-                {"tid": task_id, "org": org_id, "aid": assignee_id},
-            )
-            evt = events.task_assigned(
-                org_id=org_id,
-                task_id=task_id,
-                assignee_id=assignee_id,
-                sender_id=sender_id,
-                status_version=0,
-                sender_username=sender_username,
-                title=body.title,
-                description=body.description or "",
-            )
-            await enqueue_outbox(db, events.TASK_TOPIC, task_id, evt)
+        await _insert_task_assignees(
+            db,
+            org_id=org_id,
+            task_id=task_id,
+            assignee_ids=assignee_ids,
+            sender_id=sender_id,
+            sender_username=sender_username,
+            title=body.title,
+            description=body.description or "",
+        )
 
         await db.commit()
         log.info(

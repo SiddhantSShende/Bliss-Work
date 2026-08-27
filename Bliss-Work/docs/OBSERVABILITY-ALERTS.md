@@ -19,9 +19,10 @@ does not repeat them; it covers only the alerting wiring.
 | Compose services (`prometheus`, `alertmanager`, …) | `docker-compose.yml`, profile `observability` |
 
 **Updated 2026-08-27**: this doc previously documented only `security.yml`'s 7
-alerts. Three more rule files exist and were undocumented — 23 more alerts plus
-6 recording rules, all already wired into `infra/observability/prometheus.yml`
-and firing in production. Nothing below is new; this is a doc-accuracy fix.
+alerts. Three more rule files exist and were undocumented — 25 more alerts
+(32 total) plus 6 recording rules, all already wired into
+`infra/observability/prometheus.yml` and firing in production. Nothing below
+is new; this is a doc-accuracy fix.
 
 ## Running it
 

@@ -14,6 +14,21 @@
 # RF cannot exceed the number of live brokers, so RF>=3 REQUIRES >=3 brokers
 # (managed MSK/Confluent/Redpanda, or the Helm chart's Kafka StatefulSet).
 # Increasing partitions later is online; DECREASING them is not — size up front.
+#
+# RETENTION.BYTES — every non-compacted topic here previously had time-bounded
+# retention (the broker default, log.retention.hours=168 = 7 days) but NO size
+# bound (log.retention.bytes=-1, unbounded). Time-bounded-but-not-size-bounded
+# means a burst of volume within the 7-day window can still fill the disk this
+# broker shares with Postgres, media blobs, and everything else on the host.
+#
+# retention.bytes is a PER-PARTITION limit, not a per-topic total — the real
+# ceiling for a topic is retention.bytes * partition count. RETENTION_BYTES
+# below is deliberately conservative (a backstop against a runaway producer,
+# not a tuned operating ceiling) and has not been sized against a measured
+# Kafka disk budget for this deployment — revisit it once real per-topic disk
+# usage is known. Time-based retention (7 days) stays the primary control;
+# this is what stops it from being the ONLY control.
+RETENTION_BYTES="${RETENTION_BYTES:-536870912}"   # 512MiB/partition default
 set -euo pipefail
 
 BROKER="${KAFKA_BROKERS:-kafka:9092}"
@@ -56,8 +71,9 @@ create() {
     --topic "${name}" \
     --partitions "${parts}" \
     --replication-factor "${RF}" \
-    --config "min.insync.replicas=${MIN_ISR}"
-  echo "  topic ready: ${name} (partitions=${parts}, rf=${RF}, min.isr=${MIN_ISR})"
+    --config "min.insync.replicas=${MIN_ISR}" \
+    --config "retention.bytes=${RETENTION_BYTES}"
+  echo "  topic ready: ${name} (partitions=${parts}, rf=${RF}, min.isr=${MIN_ISR}, retention.bytes=${RETENTION_BYTES}/partition)"
 }
 
 create "messaging.events.v1"
