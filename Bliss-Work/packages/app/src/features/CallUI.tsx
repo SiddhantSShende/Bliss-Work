@@ -260,7 +260,10 @@ export function CallUI() {
           <StreamVideo
             stream={selfView}
             muted
-            className="absolute bottom-24 right-4 z-10 h-36 w-28 rounded-xl object-cover ring-2 ring-white/30"
+            // Mirrored only while this is the camera: once `call.sharing` swaps
+            // `selfView` to the screen stream (see its definition above), the
+            // viewer's own display must come through un-flipped and readable.
+            className={`absolute bottom-24 right-4 z-10 h-36 w-28 rounded-xl object-cover ring-2 ring-white/30 ${call.sharing ? "" : "-scale-x-100"}`}
           />
         )}
 

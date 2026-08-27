@@ -635,7 +635,7 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
                 autoPlay
                 muted
                 playsInline
-                className={`h-full w-full object-cover ${previewCamOn ? "" : "hidden"}`}
+                className={`h-full w-full -scale-x-100 object-cover ${previewCamOn ? "" : "hidden"}`}
               />
               {!previewCamOn && (
                 <div className="text-center text-muted">

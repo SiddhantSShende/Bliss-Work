@@ -148,6 +148,12 @@ export function CallTile({
           className={cn(
             "h-full w-full",
             p.sharing ? "bg-black object-contain" : "object-cover",
+            // Only the local camera is mirrored, so the tile reads naturally to
+            // the person looking at themselves — never a remote participant's
+            // camera (they see the raw, un-mirrored track LiveKit publishes,
+            // same as everyone else in the room), and never a screen share
+            // (mirroring text on someone's screen would make it unreadable).
+            p.isLocal && !p.sharing && "-scale-x-100",
           )}
         />
       ) : (
