@@ -40,7 +40,19 @@ export async function signOut(
   // 1. Say goodbye while we can still prove who we are.
   await endTelemetrySession();
 
-  // 2. Hang up. `disconnect` is the desktop host dropping the utilityProcess
+  // 2. Stop the desktop activity agent recording AS THIS PERSON. Explicit,
+  //    not left to the auth:token side-channel main/index.ts also watches for
+  //    this: a monitoring feature that keeps sampling for a few extra ticks
+  //    after someone pressed "sign out" is exactly the kind of thing this
+  //    file's own history (see the docstring above) says must never be
+  //    implicit. Does not unpair the device — the same person signing back in
+  //    should not have to re-consent — only stops it. Absent on web, where
+  //    there is no desktop agent to stop.
+  await config.activityAgent?.signedOut?.().catch(() => {
+    /* must not block sign-out */
+  });
+
+  // 3. Hang up. `disconnect` is the desktop host dropping the utilityProcess
   //    socket; `ws.close()` is the web build closing its own.
   try {
     if (config.eventSource) config.eventSource.disconnect?.();
@@ -49,7 +61,7 @@ export async function signOut(
     /* a failed hang-up must not strand the user in a signed-in-looking UI */
   }
 
-  // 3. Revoke server-side, then forget everything local.
+  // 4. Revoke server-side, then forget everything local.
   await api.logout().catch(() => {});
   useSession.getState().clear();
   // Electron mirrors the refresh token to an encrypted file so the session

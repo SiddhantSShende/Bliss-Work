@@ -336,3 +336,111 @@ async def test_an_agent_cannot_claim_a_server_observed_category(client):
     forged = [e for e in entries if e["action"] == "login" and e["source"] == "desktop"]
     assert forged, "the row is still recorded"
     assert forged[0]["category"] == "app", "'auth' must be clamped away"
+
+
+# ── Automatic provisioning (deviceKey get-or-create + status pings) ─────────
+async def test_provisioning_with_a_device_key_is_idempotent(client):
+    """A login-time auto-provision call must be safe to repeat: the SAME
+    device asking again gets told "already provisioned" (token null), not a
+    second live secret for the same installation."""
+    as_user(ALICE, "member")
+    first = (await client.post("/telemetry/tokens?kind=desktop&deviceKey=device-abc")).json()
+    assert first["token"], "first call for this device mints a real secret"
+
+    second = (await client.post("/telemetry/tokens?kind=desktop&deviceKey=device-abc")).json()
+    assert second["token"] is None, "a repeat call for the same device must not mint again"
+    assert second["id"] == first["id"]
+
+    listed = (await client.get("/telemetry/tokens")).json()
+    matching = [t for t in listed if t["id"] == first["id"]]
+    assert len(matching) == 1, "still exactly one row for this device"
+
+
+async def test_provisioning_without_a_device_key_still_mints_every_time(client):
+    """Regression guard: today's manual 'Connect' buttons never send a
+    deviceKey and must keep minting a fresh token on every call, so a person
+    with several desktops keeps one token per machine."""
+    as_user(ALICE, "member")
+    a = (await client.post("/telemetry/tokens?kind=desktop&label=No key A")).json()
+    b = (await client.post("/telemetry/tokens?kind=desktop&label=No key B")).json()
+    assert a["token"] and b["token"]
+    assert a["id"] != b["id"]
+
+
+async def test_a_different_device_key_gets_its_own_token(client):
+    """Two distinct devices for the same person are two distinct, independently
+    revocable rows — multi-device support survives auto-provisioning."""
+    as_user(ALICE, "member")
+    laptop = (await client.post("/telemetry/tokens?kind=desktop&deviceKey=laptop-1")).json()
+    desktop = (await client.post("/telemetry/tokens?kind=desktop&deviceKey=desktop-1")).json()
+    assert laptop["token"] and desktop["token"]
+    assert laptop["id"] != desktop["id"]
+
+    await client.delete(f"/telemetry/tokens/{laptop['id']}")
+    r = await client.post(
+        "/telemetry/ingest/agent",
+        headers={"X-Ingest-Token": desktop["token"]},
+        json={"events": [{"action": "app.focus", "category": "app", "targetId": "Still Works"}]},
+    )
+    assert r.status_code == 202, "revoking one device's token must not affect the other"
+
+
+async def test_status_ping_updates_last_seen_without_writing_activity(client):
+    """CONNECTED must be provable before TRACKING_ACTIVE is: a status ping is
+    the 'the credential works' signal, and must never itself be an activity
+    row — otherwise 'paired but not tracking yet' would leave a data trail
+    indistinguishable from actually tracking."""
+    as_user(ALICE, "member")
+    minted = (await client.post("/telemetry/tokens?kind=desktop&deviceKey=ping-device")).json()
+
+    r = await client.post(
+        "/telemetry/tokens/status",
+        headers={"X-Ingest-Token": minted["token"]},
+        json={"version": "1.2.3", "platform": "macOS"},
+    )
+    assert r.status_code == 204
+
+    listed = (await client.get("/telemetry/tokens")).json()
+    row = next(t for t in listed if t["id"] == minted["id"])
+    assert row["lastSeenAt"] is not None
+    assert row["lastUsedAt"] is None, "a status ping is not activity"
+    assert row["agentVersion"] == "1.2.3"
+    assert row["platform"] == "macOS"
+
+
+async def test_ingest_bumps_both_last_used_and_last_seen(client):
+    as_user(ALICE, "member")
+    minted = (await client.post("/telemetry/tokens?kind=desktop&deviceKey=ingest-device")).json()
+    await client.post(
+        "/telemetry/ingest/agent",
+        headers={"X-Ingest-Token": minted["token"]},
+        json={"events": [{"action": "app.focus", "category": "app", "targetId": "X"}]},
+    )
+    listed = (await client.get("/telemetry/tokens")).json()
+    row = next(t for t in listed if t["id"] == minted["id"])
+    assert row["lastUsedAt"] is not None
+    assert row["lastSeenAt"] is not None
+
+
+async def test_status_ping_rejects_an_unknown_or_missing_token(client):
+    r = await client.post(
+        "/telemetry/tokens/status",
+        headers={"X-Ingest-Token": "not-a-real-token"},
+        json={},
+    )
+    assert r.status_code == 401
+
+    r2 = await client.post("/telemetry/tokens/status", json={})
+    assert r2.status_code == 401
+
+
+async def test_status_ping_rejects_a_revoked_token(client):
+    as_user(ALICE, "member")
+    minted = (await client.post("/telemetry/tokens?kind=extension&deviceKey=revoked-device")).json()
+    await client.delete(f"/telemetry/tokens/{minted['id']}")
+    r = await client.post(
+        "/telemetry/tokens/status",
+        headers={"X-Ingest-Token": minted["token"]},
+        json={},
+    )
+    assert r.status_code == 401

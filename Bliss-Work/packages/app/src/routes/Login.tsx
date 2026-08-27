@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { Button, Input } from "@taskboard/ui";
 import { ApiError, isMfaPending } from "@taskboard/shared";
@@ -9,11 +9,16 @@ import { useSession } from "../store/session";
 import { broadcastSession } from "../lib/authChannel";
 import { AuthLayout, Field } from "./Onboarding";
 import { CaptchaField, useCaptcha } from "../features/Captcha";
+import { safeRedirect } from "../lib/safeRedirect";
 
 export function Login() {
   const { api } = useRuntime();
   const setSession = useSession((s) => s.setSession);
   const nav = useNavigate();
+  const [searchParams] = useSearchParams();
+  // Where RequireAuth sent this visitor from, e.g. a meeting link — see
+  // lib/RequireAuth.tsx. Falls back to /app when absent or unsafe.
+  const redirect = safeRedirect(searchParams.get("redirect"));
   const [busy, setBusy] = useState(false);
   const [reveal, setReveal] = useState(false);
   const [form, setForm] = useState({ email: "", password: "" });
@@ -30,12 +35,15 @@ export function Login() {
         captchaValue: captcha.value,
       });
       if (isMfaPending(result)) {
-        nav("/mfa-challenge", { state: result });
+        nav("/mfa-challenge", { state: { ...result, redirect } });
         return;
       }
       setSession({ user: result.user, accessToken: result.accessToken, expiresIn: result.expiresIn });
       broadcastSession(result); // adopt this session in sibling tabs sitting on /login
-      nav("/app");
+      // replace: true — /login must not stay in history after a successful
+      // sign-in, or the back button lands on a stale login form and forward
+      // again could re-attempt redeeming an already-spent meeting token.
+      nav(redirect, { replace: true });
     } catch (err) {
       // A bare catch here used to report EVERY failure as bad credentials, which
       // sent people to re-type a password that was never the problem: an

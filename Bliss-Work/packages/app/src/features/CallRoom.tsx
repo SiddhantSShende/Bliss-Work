@@ -7,41 +7,31 @@
  * three people means every client uploads two streams.
  *
  * ── The shape of the room ────────────────────────────────────────────────────
- * Controls at the top; below them, three fixed columns: the video area,
- * Participants, and — when open — Chat or Notes. The video area is the
- * largest of the three, and Participants stays on screen the whole time
- * rather than opening and closing like the other two, so "who is here" is
- * never a click away.
+ * A vertical sidebar (CallSidebar) holds every control — mic, camera, share,
+ * hand, the three panel toggles, invite actions, recording, end call — rather
+ * than splitting them across a header row and a bottom bar. Beside it: a
+ * simple text header (title, participant count, status), then the main video
+ * area next to whichever of Chat/Notes/Participants is open (CallSidePanel;
+ * one column, three tabs, collapsing smoothly rather than popping open as an
+ * overlay — see useCollapseTransition).
  *
- * With nobody on the stage, the video area shows everyone in a grid, paged
- * rather than scrolled: a call is a place you are in, and hunting for a face
- * by scrolling is not a thing to ask of someone who is also talking. Three or
- * four members sit in a small centered grid rather than the wider room's
- * responsive columns — see CallMembers.
- *
- * When anything is pinned — a shared screen automatically, or a person by
- * hand — that single tile fills the video area alone.
+ * The video area itself takes one of two shapes depending on what the stage
+ * actually is:
+ *  - A speaking/pinned PERSON: their tile framed in BracketFrame, a vertical
+ *    filmstrip of up to three others beside it.
+ *  - A SCREEN SHARE: framed the same way, but with a horizontal filmstrip of
+ *    up to four others below it instead — a wide capture and a side column
+ *    fight each other for width; a row underneath doesn't.
+ *  - Nobody on the stage: everyone in a paged grid (CallMembers), same frame.
  *
  * Raised hands, the shared notes and the recording notice travel directly
  * between participants over the SFU's data channel (lib/roomMessages). They are
  * live-only state with no life after the meeting, which is exactly what that
  * channel is: the same audience, the same lifetime, and no table anywhere.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Circle,
-  Clock,
-  Globe,
-  Hand,
-  LayoutGrid,
-  Mic,
-  MicOff,
-  MessageSquare,
-  NotebookPen,
-  Users,
-  Video,
-  VideoOff,
-} from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useMutation } from "@tanstack/react-query";
+import { Circle, Clock, Globe, Mic, MicOff, Video, VideoOff } from "lucide-react";
 import { toast } from "sonner";
 import { Button, cn } from "@taskboard/ui";
 import { type CallDTO } from "@taskboard/shared";
@@ -83,8 +73,8 @@ import { useCallDuration } from "../lib/callTimer";
 import { downloadBlob } from "../lib/download";
 import { useLocalRecording } from "../lib/useLocalRecording";
 import { MiniMeeting } from "./MiniMeeting";
-import { CallControls, CallControlButton } from "./CallControls";
-import { CallMoreMenu } from "./CallMoreMenu";
+import { BracketFrame } from "./BracketFrame";
+import { CallSidebar } from "./CallSidebar";
 import { CallTile, UnpinButton } from "./CallTile";
 import { CallMembers } from "./CallMembers";
 import { CallSpeakerFilmstrip } from "./CallSpeakerFilmstrip";
@@ -96,10 +86,9 @@ import { CallRoster } from "./CallRoster";
 import { ScreenSharePopup } from "./ScreenSharePopup";
 import { AddPeopleDialog } from "./AddPeopleDialog";
 
-/** Which panel is open in the right-hand column. One at a time: Chat and
- *  Notes share the column. Participants has its own fixed column and is not
- *  part of this toggle — see the render below. */
-type Panel = "notes" | "chat" | null;
+/** Which tab is open in the shared side panel. One at a time — Chat, Notes,
+ *  and Participants all share the one column. */
+type Panel = "notes" | "chat" | "participants" | null;
 
 /** How often the active-speaker filter's clock is re-checked. PROMOTE_AFTER_MS
  *  and DEMOTE_AFTER_MS are time thresholds, and nothing marks time passing on
@@ -108,19 +97,17 @@ type Panel = "notes" | "chat" | null;
  *  immediate against DEMOTE_AFTER_MS, cheap enough not to matter. */
 const SPEAKER_TICK_MS = 250;
 
-/** How long Participants and Chat/Notes take to slide open or collapse shut.
- *  Also how long each stays MOUNTED after closing (see useCollapseTransition)
- *  — keep the two in step, or a panel vanishes before its own closing
- *  transition finishes playing. */
+/** How long the side panel takes to slide open or collapse shut. Also how
+ *  long it stays MOUNTED after closing (see useCollapseTransition) — keep the
+ *  two in step, or it vanishes before its own closing transition finishes
+ *  playing. */
 const PANEL_TRANSITION_MS = 300;
 /**
- * Sizing while open/closed — shared verbatim by Participants and Chat/Notes
- * so their widths can never drift apart, open or closed. Collapses on the
- * axis that actually reclaims space at each breakpoint: height, stacked under
- * `lg` where a panel is a full-width block above/below the others; width at
- * `lg` and up, where it's a column beside the video and a 0-height collapse
- * would do nothing. `overflow-hidden` keeps content from spilling out while
- * it shrinks.
+ * Sizing while open/closed. Collapses on the axis that actually reclaims
+ * space at each breakpoint: height, stacked under `lg` where the panel is a
+ * full-width block below the video area; width at `lg` and up, where it's a
+ * column beside it and a 0-height collapse would do nothing. `overflow-hidden`
+ * keeps content from spilling out while it shrinks.
  */
 const SIDE_PANEL_TRANSITION_BASE =
   "w-full shrink-0 overflow-hidden transition-all duration-300 ease-out lg:h-auto lg:max-h-none";
@@ -168,27 +155,14 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
   // Which tab the closing animation keeps showing underneath itself — `panel`
   // itself goes null immediately, but for the ~300ms it takes the panel to
   // fade out there still needs to be a real tab's content rendered inside it.
-  const lastPanelRef = useRef<"chat" | "notes">(panel ?? "chat");
+  const lastPanelRef = useRef<"chat" | "notes" | "participants">(panel ?? "chat");
   if (panel) lastPanelRef.current = panel;
   const { mounted: panelMounted, entered: panelEntered } = useCollapseTransition(
     panel !== null,
     PANEL_TRANSITION_MS,
   );
+  const effectivePanel = panel ?? lastPanelRef.current;
 
-  /** Visible by default — closing it is something the viewer opts into, not
-   *  the room's normal state. Same collapse mechanism as Chat/Notes, so all
-   *  three panels behave identically; see useCollapseTransition. */
-  const [participantsOpen, setParticipantsOpen] = useState(true);
-  const { mounted: participantsMounted, entered: participantsEntered } = useCollapseTransition(
-    participantsOpen,
-    PANEL_TRANSITION_MS,
-  );
-
-  /** Grid/Layout: force the full participant grid even while someone is on
-   *  stage. Overrides the DISPLAY only — `pinned` and the active speaker keep
-   *  updating underneath it, so turning this back off resumes wherever the
-   *  room actually is. */
-  const [forceGrid, setForceGrid] = useState(false);
   const [pinned, setPinned] = useState<string | null>(null);
   const [hands, setHands] = useState<Set<string>>(() => new Set());
   const [notes, setNotes] = useState<NoteEntry[]>(() => loadNotes(call.id));
@@ -602,6 +576,33 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
     toast("Recording started — it will save to this device");
   };
 
+  /**
+   * Mint (once) and copy a link anyone can use to join this call — the same
+   * `createCallInvite` + clipboard pattern MeetingCard.tsx uses outside the
+   * room. Cached locally so copying twice doesn't mint (and spend) a second
+   * token: the join route's token is only ever valid coming back once.
+   */
+  const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const mintInviteLink = useMutation({
+    mutationFn: async () => {
+      const invite = await api.createCallInvite(call.id);
+      return `${window.location.origin}/join?t=${encodeURIComponent(invite.token)}`;
+    },
+    onError: () => toast.error("Couldn't create an invite link"),
+  });
+  const copyInviteLink = async () => {
+    const url = inviteLink ?? (await mintInviteLink.mutateAsync().catch(() => null));
+    if (!url) return;
+    setInviteLink(url);
+    try {
+      await navigator.clipboard.writeText(url);
+      toast("Invite link copied");
+    } catch {
+      // Insecure origins and older WebViews have no clipboard API.
+      toast("Copy failed", { description: "Select the link and copy it manually." });
+    }
+  };
+
   const hangUp = async () => {
     await leave();
     onClose();
@@ -615,7 +616,7 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
       : "Ready to join";
 
     return (
-      <div className="meeting-theme fixed inset-0 z-[100] flex flex-col bg-surface text-fg">
+      <div className="meeting-theme meeting-mesh fixed inset-0 z-[100] flex flex-col text-fg">
         <header className="flex shrink-0 items-center justify-between border-b border-border/70 px-5 py-3">
           <div className="min-w-0">
             <div className="truncate font-semibold">{title}</div>
@@ -626,7 +627,7 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
           </Button>
         </header>
         <main className="flex min-h-0 flex-1 items-center justify-center p-6">
-          <div className="w-full max-w-3xl rounded-2xl border border-border bg-surface-2/60 p-6 shadow-card">
+          <div className="glass w-full max-w-3xl rounded-2xl p-6">
             <div className="relative flex aspect-video items-center justify-center overflow-hidden rounded-xl bg-bg ring-1 ring-border/60">
               <video
                 ref={previewVideoRef}
@@ -703,7 +704,7 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
     // not reachable from here, so this is a guard rather than a state the room
     // can normally be in.
     return (
-      <div className="meeting-theme fixed inset-0 z-[100] flex flex-col items-center justify-center gap-5 bg-surface p-6 text-center">
+      <div className="meeting-theme meeting-mesh fixed inset-0 z-[100] flex flex-col items-center justify-center gap-5 p-6 text-center">
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent-soft text-accent">
           <Clock size={24} />
         </div>
@@ -737,12 +738,11 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
 
   const externals = call.participants.filter((p) => p.external).length;
 
-  // Shared by the header's Add People control and the Participants panel's
-  // Invite button — the same gate and the same explanation, wherever the
-  // click happens. A channel call's roster IS the channel's membership: the
-  // server would take the invite and then refuse the newcomer a token, which
-  // is a dead end dressed up as an invitation. The way in is to be in the
-  // channel.
+  // Shared by the sidebar's Add and Invite buttons — the same gate and the
+  // same explanation, wherever the click happens. A channel call's roster IS
+  // the channel's membership: the server would take the invite and then
+  // refuse the newcomer a token, which is a dead end dressed up as an
+  // invitation. The way in is to be in the channel.
   const canAddPeople = call.kind !== "CHANNEL" && (status === "connected" || status === "reconnecting");
   const addPeopleTitle =
     call.kind === "CHANNEL" ? "Everyone in the channel is already invited" : "Add people";
@@ -751,35 +751,6 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
   // this is the second lock (see lib/callChat).
   const visibleChat = identity ? chat.filter((c) => visibleToMe(c, identity)) : chat;
   const unread = panel === "chat" ? 0 : unreadSince(visibleChat, chatSeenAt, identity);
-
-  // Shared by both More buttons (top-right cluster and bottom bar) — one
-  // definition, so the two instances can never drift into offering different
-  // things for the same room.
-  const moreMenuProps = {
-    canAddPeople,
-    addPeopleTitle,
-    onAddPeople: () => setAddOpen(true),
-    isHost,
-    recordingSupported: localRec.supported,
-    recording: localRec.recording,
-    onToggleRecording: () => void toggleRecording(),
-    pipSupported: pip.supported,
-    pipActive: pip.active,
-    onTogglePip: pip.toggle,
-    onMinimize: session ? display.handleMinimize : undefined,
-  };
-  // Same idea for the Participants toggle, which also appears in both places.
-  const participantsToggleButton = (
-    <CallControlButton
-      variant="surface"
-      title={participantsOpen ? "Hide participants" : "Show participants"}
-      pressed={participantsOpen}
-      onClick={() => setParticipantsOpen((v) => !v)}
-      className={participantsOpen ? "bg-accent text-accent-fg" : undefined}
-    >
-      <Users size={17} />
-    </CallControlButton>
-  );
 
   return (
     <>
@@ -807,255 +778,183 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
           posts the leave (see useCallRoom's cleanup), so keeping this in the
           DOM is precisely what lets the meeting outlive a minimise. */}
       <div
-        className={minimized ? "hidden" : "meeting-theme fixed inset-0 z-[100] flex flex-col bg-surface"}
+        className={minimized ? "hidden" : "meeting-theme meeting-mesh fixed inset-0 z-[100] flex text-fg"}
       >
-      <header className="flex shrink-0 items-start justify-between gap-3 border-b border-border/70 px-5 py-3">
-        <div className="min-w-0">
-          <div className="truncate font-semibold text-fg">{title}</div>
-          <div className="flex flex-wrap items-center gap-x-3 text-xs text-muted">
-            {meetingDuration && (
-              <span className="flex items-center gap-1">
-                <Clock size={12} /> {meetingDuration}
+        <CallSidebar
+          micOn={micOn}
+          onToggleMic={() => void toggleMic()}
+          camOn={camOn}
+          onToggleCam={() => void toggleCam()}
+          sharing={sharing}
+          onToggleShare={() => void toggleShare()}
+          handRaised={handRaised}
+          canRaiseHand={!!identity}
+          onToggleHand={toggleHand}
+          participantsActive={panel === "participants"}
+          onToggleParticipants={() => setPanel((p) => (p === "participants" ? null : "participants"))}
+          canAddPeople={canAddPeople}
+          addPeopleTitle={addPeopleTitle}
+          onAddPeople={() => setAddOpen(true)}
+          canInviteLink={canAddPeople}
+          inviteLinkTitle={addPeopleTitle}
+          mintingInviteLink={mintInviteLink.isPending}
+          onCopyInviteLink={() => void copyInviteLink()}
+          chatActive={panel === "chat"}
+          unreadChat={unread}
+          onToggleChat={() => setPanel((p) => (p === "chat" ? null : "chat"))}
+          notesActive={panel === "notes"}
+          onToggleNotes={() => setPanel((p) => (p === "notes" ? null : "notes"))}
+          isHost={isHost}
+          recordingSupported={localRec.supported}
+          recording={localRec.recording}
+          onToggleRecording={() => void toggleRecording()}
+          pipSupported={pip.supported}
+          pipActive={pip.active}
+          onTogglePip={pip.toggle}
+          onMinimize={session ? display.handleMinimize : undefined}
+          onEnd={() => void hangUp()}
+        />
+
+        <div className="flex min-h-0 flex-1 flex-col">
+          <header className="shrink-0 px-6 py-4">
+            <div className="truncate text-base font-semibold uppercase tracking-wide text-fg">
+              {title}
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 text-xs text-muted">
+              <span>
+                {participants.length} Participant{participants.length === 1 ? "" : "s"} Present
               </span>
+              {meetingDuration && (
+                <span className="flex items-center gap-1">
+                  <Clock size={12} /> {meetingDuration}
+                </span>
+              )}
+              {externals > 0 && (
+                // Worth stating plainly: someone outside the organisation is in
+                // the room, and that should never be something you have to infer.
+                <span className="flex items-center gap-1 text-warning">
+                  <Globe size={12} /> {externals} external
+                </span>
+              )}
+              {recording && (
+                // Shown to EVERYONE, not only whoever pressed the button. Being
+                // recorded is not something anyone should have to work out.
+                <span className="flex items-center gap-1 font-medium text-danger">
+                  <Circle size={9} className="animate-pulse fill-current" /> Recording
+                </span>
+              )}
+              {status === "reconnecting" && <span className="text-warning">Reconnecting…</span>}
+              {status === "connecting" && <span>Connecting…</span>}
+              {status === "failed" && <span className="text-danger">Couldn't connect</span>}
+            </div>
+          </header>
+
+          {/* Below the header: the video area next to whichever of
+              Chat/Notes/Participants is open. Nothing here ever overlays the
+              video as a popup — the side panel collapses in place instead. */}
+          <div className="flex min-h-0 flex-1 flex-col gap-4 px-6 pb-6 lg:flex-row">
+            <main className="flex min-h-0 flex-1 flex-col gap-3">
+              {/* The sharer's own reminder, and the only stop control that exists. */}
+              {sharing && <ScreenSharePopup startedAt={connectedAt} onStop={() => void toggleShare()} />}
+
+              {participants.length === 0 ? (
+                <BracketFrame className="glass min-h-0 flex-1">
+                  <div className="flex h-full items-center justify-center text-sm text-muted">
+                    {status === "failed" ? "Couldn't join this call." : "Connecting…"}
+                  </div>
+                </BracketFrame>
+              ) : stage ? (
+                // A screen share is wide and wants the row below it; a
+                // speaking person's tile wants a companion column beside it.
+                <div className={cn("flex min-h-0 flex-1 gap-3", stage.sharing ? "flex-col" : "flex-row")}>
+                  <BracketFrame className="glass relative min-h-0 flex-1">
+                    {/* Offered only for a pin somebody MADE. The stage following
+                        the speaker is the room's normal behaviour, and "unpin"
+                        over a tile nobody pinned is a control with nothing to
+                        undo. */}
+                    {pinned ? (
+                      <UnpinButton name={stage.name} onClick={() => setPinned(null)} />
+                    ) : (
+                      <span className="pointer-events-none absolute left-3 top-3 z-10 inline-flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur">
+                        <Mic size={12} className="text-accent" />
+                        <SpeakingWave className="text-accent" />
+                        Speaking
+                      </span>
+                    )}
+                    {/* `active`, not `p.speaking`: whoever is on the stage — by
+                        speaking or by a manual pin — gets the highlight for as
+                        long as they hold it, not just the instants they're
+                        actually making sound. */}
+                    <CallTile p={stage} size="stage" active />
+                  </BracketFrame>
+                  {/* Everyone else, small. Skipped when the stage participant
+                      is the only one here: a thumbnail of the same lone face
+                      has nothing to add. */}
+                  {participants.length > 1 && (
+                    <CallSpeakerFilmstrip
+                      participants={participants}
+                      activeId={stageId}
+                      hands={hands}
+                      pinned={pinned}
+                      onTogglePin={togglePin}
+                      orientation={stage.sharing ? "horizontal" : "vertical"}
+                      limit={stage.sharing ? 4 : 3}
+                    />
+                  )}
+                </div>
+              ) : (
+                <BracketFrame className="glass min-h-0 flex-1">
+                  <CallMembers
+                    participants={participants}
+                    hands={hands}
+                    pinned={pinned}
+                    onTogglePin={togglePin}
+                    layout="grid"
+                  />
+                </BracketFrame>
+              )}
+            </main>
+
+            {/* Chat, Notes, or Participants — one panel, three tabs (see
+                CallSidePanel). Stays MOUNTED through the closing transition
+                (`panelMounted`) so it can shrink and fade out instead of
+                disappearing instantly; once actually closed it's removed from
+                the layout altogether, so the video area gets that width back
+                rather than a blank column sitting where the panel used to be. */}
+            {panelMounted && (
+              <CallSidePanel
+                active={effectivePanel}
+                onSelectTab={setPanel}
+                onExport={
+                  effectivePanel === "chat"
+                    ? exportChat
+                    : effectivePanel === "notes"
+                      ? exportNotes
+                      : undefined
+                }
+                onClose={() => setPanel(null)}
+                unreadChat={unread}
+                className={cn(SIDE_PANEL_TRANSITION_BASE, panelEntered ? SIDE_PANEL_OPEN : SIDE_PANEL_CLOSED)}
+              >
+                {effectivePanel === "chat" ? (
+                  <CallChat chat={visibleChat} participants={participants} me={identity} onSend={sendChat} />
+                ) : effectivePanel === "notes" ? (
+                  <CallNotes notes={notes} onAdd={addNote} />
+                ) : (
+                  <CallRoster participants={participants} hands={hands} pinned={pinned} onTogglePin={togglePin} />
+                )}
+              </CallSidePanel>
             )}
-            {externals > 0 && (
-              // Worth stating plainly: someone outside the organisation is in
-              // the room, and that should never be something you have to infer.
-              <span className="flex items-center gap-1 text-warning">
-                <Globe size={12} /> {externals} external
-              </span>
-            )}
-            {recording && (
-              // Shown to EVERYONE, not only whoever pressed the button. Being
-              // recorded is not something anyone should have to work out.
-              <span className="flex items-center gap-1 font-medium text-danger">
-                <Circle size={9} className="animate-pulse fill-current" /> Recording
-              </span>
-            )}
-            {status === "reconnecting" && <span className="text-warning">Reconnecting…</span>}
-            {status === "connecting" && <span>Connecting…</span>}
-            {status === "failed" && <span className="text-danger">Couldn't connect</span>}
           </div>
         </div>
 
-        {/* Top-right: view/panel toggles — Notes, Chat, Participants,
-            Grid/Layout, More. The primary call actions (camera, mic, share,
-            hand, end) live in their own centered bar below the video area
-            instead — see the bottom bar after the three columns. Every
-            button here is the same CallControlButton with the same
-            accent-on-active treatment, so the five read as one consistent
-            set rather than five one-off controls. */}
-        <div className="flex shrink-0 items-center gap-1.5">
-          <CallControlButton
-            variant="surface"
-            title={panel === "notes" ? "Hide notes" : "Notes"}
-            pressed={panel === "notes"}
-            onClick={() => setPanel((p) => (p === "notes" ? null : "notes"))}
-            className={panel === "notes" ? "bg-accent text-accent-fg" : undefined}
-          >
-            <NotebookPen size={17} />
-          </CallControlButton>
-
-          <CallControlButton
-            variant="surface"
-            title={
-              panel === "chat"
-                ? "Hide chat"
-                : unread > 0
-                  ? `Chat (${unread} new)`
-                  : "Chat"
-            }
-            pressed={panel === "chat"}
-            onClick={() => setPanel((p) => (p === "chat" ? null : "chat"))}
-            className={panel === "chat" ? "bg-accent text-accent-fg" : undefined}
-          >
-            <span className="relative inline-flex">
-              <MessageSquare size={17} />
-              {/* The count, not just a dot: "someone said something" and
-                  "eleven messages went by" are different situations to come
-                  back to. Capped so the badge cannot grow the button. */}
-              {unread > 0 && (
-                <span
-                  aria-hidden
-                  className="absolute -right-2 -top-1.5 min-w-[15px] rounded-full bg-danger px-1 text-[9px] font-bold leading-[15px] text-white"
-                >
-                  {unread > 9 ? "9+" : unread}
-                </span>
-              )}
-            </span>
-          </CallControlButton>
-
-          {participantsToggleButton}
-
-          <CallControlButton
-            variant="surface"
-            title={forceGrid ? "Switch to speaker view" : "Switch to grid view"}
-            pressed={forceGrid}
-            onClick={() => setForceGrid((v) => !v)}
-            className={forceGrid ? "bg-accent text-accent-fg" : undefined}
-          >
-            <LayoutGrid size={17} />
-          </CallControlButton>
-
-          <CallMoreMenu placement="down" {...moreMenuProps} />
-        </div>
-      </header>
-
-      {/* Three fixed columns: video area, Participants, Chat/Notes — in that
-          order and that width ratio at `lg` and up. Below `lg` there isn't
-          room for three columns side by side, so they stack instead; nothing
-          here ever overlays the video as a popup. */}
-      <div className="relative flex min-h-0 flex-1 flex-col gap-3 p-4 lg:flex-row lg:gap-4">
-        {/* Left: Active speaker / video area — always the largest section. */}
-        <main className="glass relative flex min-h-0 flex-[3] flex-col gap-3 overflow-hidden rounded-2xl p-3">
-          {/* The sharer's own reminder, and the only stop control that exists. */}
-          {sharing && <ScreenSharePopup startedAt={connectedAt} onStop={() => void toggleShare()} />}
-
-          {participants.length === 0 ? (
-            <div className="flex h-full items-center justify-center text-sm text-muted">
-              {status === "failed" ? "Couldn't join this call." : "Connecting…"}
-            </div>
-          ) : stage && !forceGrid ? (
-            <div className="flex min-h-0 flex-1 flex-col gap-3">
-              <div className="relative min-h-0 flex-1">
-                {/* Offered only for a pin somebody MADE. The stage following
-                    the speaker is the room's normal behaviour, and "unpin"
-                    over a tile nobody pinned is a control with nothing to
-                    undo. */}
-                {pinned ? (
-                  <UnpinButton name={stage.name} onClick={() => setPinned(null)} />
-                ) : (
-                  <span className="pointer-events-none absolute left-3 top-3 z-10 inline-flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur">
-                    <Mic size={12} className="text-accent" />
-                    <SpeakingWave className="text-accent" />
-                    Speaking
-                  </span>
-                )}
-                {/* `active`, not `p.speaking`: whoever is on the stage — by
-                    speaking or by a manual pin — gets the highlight for as
-                    long as they hold it, not just the instants they're
-                    actually making sound. */}
-                <CallTile p={stage} size="stage" active />
-              </div>
-              {/* Everyone else, small, below the stage rather than beside it
-                  — see CallSpeakerFilmstrip for the five-tile cap and the
-                  overflow card. Skipped when the stage participant is the
-                  only one here: a thumbnail of the same lone face has
-                  nothing to add. */}
-              {participants.length > 1 && (
-                <CallSpeakerFilmstrip
-                  participants={participants}
-                  activeId={stageId}
-                  hands={hands}
-                  pinned={pinned}
-                  onTogglePin={togglePin}
-                />
-              )}
-            </div>
-          ) : (
-            <CallMembers
-              participants={participants}
-              hands={hands}
-              pinned={pinned}
-              onTogglePin={togglePin}
-              layout="grid"
-            />
-          )}
-        </main>
-
-        {/* Middle: Participants. Collapses on the Participants toggle the
-            same way Chat/Notes collapses on its own — same transition, same
-            width — rather than the popup the Participants panel used to be
-            forbidden from becoming; see useCollapseTransition. */}
-        {participantsMounted && (
-          <CallRoster
-            participants={participants}
-            hands={hands}
-            pinned={pinned}
-            onTogglePin={togglePin}
-            canInvite={canAddPeople}
-            inviteTitle={addPeopleTitle}
-            onInvite={() => setAddOpen(true)}
-            className={cn(
-              SIDE_PANEL_TRANSITION_BASE,
-              participantsEntered ? SIDE_PANEL_OPEN : SIDE_PANEL_CLOSED,
-            )}
-          />
-        )}
-
-        {/* Right: Chat or Notes — one panel, two tabs (see CallSidePanel).
-            Opened to whichever the header button that opened it was; Chat
-            defaults selected because that's the tab its own button opens.
-            Stays MOUNTED through the closing transition (`panelMounted`) so
-            it can shrink and fade out instead of disappearing instantly; once
-            actually closed it's removed from the layout altogether, so the
-            video area gets that width back rather than a blank column
-            sitting where the panel used to be. */}
-        {panelMounted && (
-          <CallSidePanel
-            active={panel ?? lastPanelRef.current}
-            onSelectTab={setPanel}
-            onExport={(panel ?? lastPanelRef.current) === "chat" ? exportChat : exportNotes}
-            onClose={() => setPanel(null)}
-            unreadChat={unread}
-            className={cn(SIDE_PANEL_TRANSITION_BASE, panelEntered ? SIDE_PANEL_OPEN : SIDE_PANEL_CLOSED)}
-          >
-            {(panel ?? lastPanelRef.current) === "chat" ? (
-              <CallChat chat={visibleChat} participants={participants} me={identity} onSend={sendChat} />
-            ) : (
-              <CallNotes notes={notes} onAdd={addNote} />
-            )}
-          </CallSidePanel>
-        )}
-      </div>
-
-      {/* Bottom: the primary call actions, centered — Share Screen, Mic,
-          Camera, Raise Hand, Participants, More, End. Add People, Record,
-          Picture-in-Picture and Minimise all moved into the More menu instead
-          of crowding this row — see CallMoreMenu. (Share/Mic/Camera keep
-          CallControls' own built-in order rather than being reordered here,
-          since that component is shared with CallUI's 1:1 calls and
-          reordering its hard-coded row would change that surface too.) */}
-      <div className="shrink-0 border-t border-border/70 px-5 py-3">
-        <CallControls
-          variant="surface"
-          className="flex-wrap"
-          micOn={micOn}
-          camOn={camOn}
-          sharing={sharing}
-          startedAt={connectedAt}
-          onToggleShare={() => void toggleShare()}
-          onToggleMic={() => void toggleMic()}
-          onToggleCam={() => void toggleCam()}
-          onEnd={() => void hangUp()}
-          extras={
-            <>
-              <CallControlButton
-                variant="surface"
-                title={handRaised ? "Lower your hand" : "Raise your hand"}
-                pressed={handRaised}
-                disabled={!identity}
-                onClick={toggleHand}
-                className={handRaised ? "bg-warning text-amber-950 hover:brightness-95" : undefined}
-              >
-                <Hand size={17} />
-              </CallControlButton>
-
-              {participantsToggleButton}
-
-              <CallMoreMenu placement="up" {...moreMenuProps} />
-            </>
-          }
+        <AddPeopleDialog
+          open={addOpen}
+          onClose={() => setAddOpen(false)}
+          exclude={onTheCall}
+          onAdd={addPeople}
+          callId={call.id}
         />
-      </div>
-
-      <AddPeopleDialog
-        open={addOpen}
-        onClose={() => setAddOpen(false)}
-        exclude={onTheCall}
-        onAdd={addPeople}
-        callId={call.id}
-      />
       </div>
     </>
   );

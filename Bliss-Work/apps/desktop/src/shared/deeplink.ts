@@ -26,7 +26,12 @@ export interface InviteDeepLink {
   token: string;
 }
 
-export type DeepLink = OAuthDeepLink | InviteDeepLink;
+export interface MeetingDeepLink {
+  kind: "meeting";
+  token: string;
+}
+
+export type DeepLink = OAuthDeepLink | InviteDeepLink | MeetingDeepLink;
 
 /**
  * Extract the host from a custom-scheme URL.
@@ -69,6 +74,15 @@ export function parseDeepLink(url: string | undefined | null): DeepLink | null {
       connected: u.searchParams.get("connected") ?? undefined,
       error: u.searchParams.get("error") ?? undefined,
     };
+  }
+
+  // Unlike `invite` below, this keys off the HOST rather than the param —
+  // safe because only this codebase ever mints a taskboard://join link
+  // (always with `t`), so there's no inbox-borne link with an inconsistent
+  // host to worry about here the way there is for emailed invites.
+  if (hostOf(u) === "join") {
+    const token = u.searchParams.get("t");
+    return token ? { kind: "meeting", token } : null;
   }
 
   // The invite branch keys off the `token` param rather than the host, because

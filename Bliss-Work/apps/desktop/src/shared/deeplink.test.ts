@@ -3,8 +3,8 @@
  *
  * These strings reach us from the OS — via `open-url`, `second-instance` argv,
  * or `process.argv` on a cold start — so they are untrusted input arriving on a
- * path the user did not consciously choose. The two that matter operationally
- * are the emailed invite link and the OAuth return.
+ * path the user did not consciously choose. Three kinds are handled: the
+ * emailed invite link, the OAuth return, and a meeting join link.
  */
 import { describe, it, expect } from "vitest";
 import { parseDeepLink, findDeepLink } from "./deeplink";
@@ -57,6 +57,25 @@ describe("parseDeepLink", () => {
     });
   });
 
+  it("routes a meeting join link", () => {
+    expect(parseDeepLink("taskboard://join?t=abc123")).toEqual({
+      kind: "meeting",
+      token: "abc123",
+    });
+  });
+
+  it("url-decodes a meeting token", () => {
+    expect(parseDeepLink("taskboard://join?t=a%2Bb%2Fc")).toEqual({
+      kind: "meeting",
+      token: "a+b/c",
+    });
+  });
+
+  it("accepts the join host in pathname form", () => {
+    const viaPath = parseDeepLink("taskboard:///join?t=xyz");
+    expect(viaPath).toEqual({ kind: "meeting", token: "xyz" });
+  });
+
   it.each([
     // THE security case: without a scheme check, any URL in argv carrying a
     // `token` param would be treated as an invite — including one an attacker
@@ -65,6 +84,8 @@ describe("parseDeepLink", () => {
     ["file:///tmp/x?token=abc", "file with a token param"],
     ["javascript:void(0)?token=abc", "javascript"],
     ["taskboardx://oauth?connected=gmail", "look-alike scheme"],
+    // Same case for the join/meeting branch and its `t` param.
+    ["https://evil.example/join?t=stolen", "https join host with a t param"],
   ])("ignores %s (%s)", (input, _label) => {
     expect(parseDeepLink(input)).toBeNull();
   });
@@ -77,6 +98,8 @@ describe("parseDeepLink", () => {
     ["taskboard://something-else", "known scheme, no route"],
     ["taskboard://invite", "invite with no token"],
     ["taskboard://invite?token=", "invite with an empty token"],
+    ["taskboard://join", "join with no token"],
+    ["taskboard://join?t=", "join with an empty token"],
   ])("returns null for %s (%s)", (input, _label) => {
     expect(parseDeepLink(input)).toBeNull();
   });

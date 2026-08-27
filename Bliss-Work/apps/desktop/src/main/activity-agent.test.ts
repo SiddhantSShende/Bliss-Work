@@ -25,6 +25,7 @@ const fetchMock = vi.fn(
 vi.mock("electron", () => {
   const listeners = new Map<string, Set<() => void>>();
   return {
+    app: { getVersion: () => "0.1.0" },
     powerMonitor: {
       getSystemIdleTime: () => 0,
       on: (event: string, cb: () => void) => {
@@ -322,5 +323,36 @@ describe("activity-agent: Windows foreground sensor", () => {
     const chrome = events.find((e) => e.targetId === "Google Chrome");
     expect(chrome).toBeDefined();
     expect((chrome!.detail as Record<string, string> | undefined)?.title).toBeUndefined();
+  });
+
+  // These two run last on purpose: their vi.doMock("./activity-state", ...)
+  // overrides are not undone by vi.resetModules() in beforeEach (doMock
+  // persists across the module registry reset within a test file), so a
+  // test placed after them would inherit isActive() === false instead of the
+  // file's default true — exactly the pollution that broke this file the
+  // first time these tests were added mid-file.
+  it("pings status independent of consent — proves the credential works before anyone has said yes", async () => {
+    vi.doMock("./activity-state", () => ({
+      isActive: () => false,
+      getState: () => ({ version: 2, enabled: false, token: null, consentedVersion: null }),
+    }));
+    const agent = await import("./activity-agent");
+    await agent.pingStatus("https://telemetry.test", "a-pairing-token");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://telemetry.test/telemetry/tokens/status",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ "X-Ingest-Token": "a-pairing-token" }),
+      }),
+    );
+    const body = JSON.parse(fetchMock.mock.calls[0]![1]!.body as string);
+    expect(body).toEqual({ version: "0.1.0", platform: expect.any(String) });
+  });
+
+  it("does not throw when the status ping fails — pairing already succeeded server-side", async () => {
+    fetchMock.mockRejectedValueOnce(new Error("offline"));
+    const agent = await import("./activity-agent");
+    await expect(agent.pingStatus("https://telemetry.test", "token")).resolves.toBeUndefined();
   });
 });

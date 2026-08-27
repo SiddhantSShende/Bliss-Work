@@ -62,6 +62,11 @@ const config: PlatformConfig = {
   graphBase: env.VITE_GRAPH_BASE,
   wsUrl: env.VITE_WS_URL ?? "ws://localhost:8090/ws",
   router: "browser",
+  // Deliberately absent from REQUIRED_ENV, same reasoning as graphBase: no
+  // stable extension id is pinned yet (see PlatformConfig's own doc comment
+  // on chromeExtensionId), so a build without it just keeps today's manual
+  // "paste a code" extension-connect flow instead of the automatic one.
+  chromeExtensionId: env.VITE_EXTENSION_ID,
 };
 
 createRoot(document.getElementById("root")!).render(

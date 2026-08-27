@@ -599,6 +599,33 @@ func ValidMessageKind(kind string) bool {
 	return kind == MessageKindText || kind == MessageKindCallMissed || kind == MessageKindScreenshotAttempt
 }
 
+// screenshotAttemptBody is the ONLY text a MessageKindScreenshotAttempt
+// message may ever carry — authored here from the sender's own PROJECTED
+// name, never from the client's request body. Unlike MessageKindCallMissed
+// (whose two possible bodies are fixed strings the client picks between, never
+// free text), a screenshot notice is rendered as an authoritative-looking
+// security pill, so trusting client-supplied text for it would let any member
+// post a fabricated "security" notice — naming anyone, claiming anything —
+// under cover of this kind. senderID cannot be forged (see the kind's own
+// comment above), but the BODY could be, which is just as bad: nothing in the
+// rendered pill shows who actually sent it, only the sentence itself. This is
+// the same reasoning that keeps MessageKindForwardExternal out of
+// ValidMessageKind entirely; screenshot_attempt has to stay client-triggerable
+// (only the client's detector knows an attempt happened), so the fix here is
+// authoring the content server-side instead, not removing the kind.
+func screenshotAttemptBody(displayName, username string) string {
+	name := displayName
+	if name == "" {
+		name = username
+	}
+	if name == "" {
+		// Projection hasn't caught up yet — vanishingly rare, and still never
+		// falls back to trusting the client's own text.
+		name = "Someone"
+	}
+	return fmt.Sprintf("%s tried to take a screenshot of this page.", name)
+}
+
 type MessageDTO struct {
 	ID                string  `json:"id"`
 	Kind              string  `json:"kind,omitempty"`

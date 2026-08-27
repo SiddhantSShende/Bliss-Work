@@ -195,8 +195,9 @@ export function DeviceActivitySettings() {
 }
 
 /** A label the person will recognise in their device list. Coarse on purpose —
- *  the platform, not a fingerprint. */
-function deviceLabel(): string {
+ *  the platform, not a fingerprint. Exported for reuse by agentProvisioning.tsx,
+ *  which mints the same kind of token automatically at login. */
+export function deviceLabel(): string {
   const ua = typeof navigator === "undefined" ? "" : navigator.userAgent;
   const os = /Windows/.test(ua)
     ? "Windows"

@@ -6,9 +6,38 @@ import type { CallDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { useMeetingSession } from "../lib/MeetingSession";
+import { RequireAuth } from "../lib/RequireAuth";
+import { MeetingHandoffLanding } from "../features/MeetingHandoffLanding";
 
 /**
- * Redeems a meeting invite link: /join?t=<token>
+ * Entry point for a meeting link: /join?t=<token>
+ *
+ * On the web, a fresh visit (no `via=browser` yet) shows the desktop-handoff
+ * landing page first — signed in or not, since the whole point is to offer a
+ * choice BEFORE gating on authentication. Choosing "Continue in Browser"
+ * there re-enters this component with `via=browser`, which — like Electron,
+ * which always skips the landing page (handing off to itself is pointless)
+ * — falls through to the actual redemption, gated on being signed in.
+ */
+export function JoinCallView() {
+  const { config } = useRuntime();
+  const [params] = useSearchParams();
+  const token = params.get("t") ?? "";
+  const via = params.get("via");
+
+  if (token && config.kind === "web" && via !== "browser") {
+    return <MeetingHandoffLanding token={token} />;
+  }
+
+  return (
+    <RequireAuth>
+      <JoinCallRedeem token={token} />
+    </RequireAuth>
+  );
+}
+
+/**
+ * Redeems a meeting invite link.
  *
  * This is the ONLY cross-organisation door in the product. Two things about it
  * are deliberate and worth not "simplifying" later:
@@ -27,9 +56,7 @@ import { useMeetingSession } from "../lib/MeetingSession";
  * identically, because the server deliberately cannot tell them apart. Being
  * more specific would turn this page into an oracle for guessing tokens.
  */
-export function JoinCallView() {
-  const [params] = useSearchParams();
-  const token = params.get("t") ?? "";
+function JoinCallRedeem({ token }: { token: string }) {
   const { api } = useRuntime();
   const nav = useNavigate();
   const me = useSession((s) => s.user);

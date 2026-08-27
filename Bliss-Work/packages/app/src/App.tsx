@@ -20,6 +20,8 @@ import { BrowserStickies } from "./features/BrowserStickies";
 import { MeetingHost } from "./features/MeetingHost";
 import { MeetingSessionProvider } from "./lib/MeetingSession";
 import { ScreenshotNotice } from "./features/ScreenshotNotice";
+import { AgentProvisioningBridge } from "./lib/agentProvisioning";
+import { RequireAuth } from "./lib/RequireAuth";
 // ── Route loading: eager for signed-out, lazy for everything behind the login ─
 //
 // Every route used to be a static import, which put all thirty of them plus the
@@ -37,10 +39,13 @@ import { ScreenshotNotice } from "./features/ScreenshotNotice";
 //   would add a network round trip to the very screen this change exists to
 //   make faster. Together they are small (forms and copy).
 //
-//   LAZY — everything behind Protected, plus /join. Nobody reaches these
-//   without a session, by which point the shell can prefetch in the
-//   background. Splitting here is what removes the call stack, the
-//   integrations hub, the charts and the task board from first paint.
+//   LAZY — everything behind RequireAuth, plus /join. Nobody reaches most of
+//   these without a session, by which point the shell can prefetch in the
+//   background. /join is the one exception with a signed-out surface of its
+//   own (the desktop-handoff landing page) — it stays lazy anyway since a
+//   meeting link is still reached far less often than the routes above.
+//   Splitting here is what removes the call stack, the integrations hub, the
+//   charts and the task board from first paint.
 import { Onboarding } from "./routes/Onboarding";
 import { Login } from "./routes/Login";
 import { InviteAccept } from "./routes/InviteAccept";
@@ -176,36 +181,32 @@ export function App({ config }: { config: PlatformConfig }) {
                       is still owed — carries its pendingToken only in router
                       state, never the URL. */}
                   <Route path="/mfa-challenge" element={<MfaChallenge />} />
-                  {/* Meeting invite links land here. Wrapped in Protected
-                      because redeeming requires a real account — the link is a
-                      seat for an authenticated user, not an anonymous guest
-                      pass — but it sits OUTSIDE /app so someone in another
-                      organisation is not bounced through an app shell scoped to
-                      an org they do not belong to. */}
-                  <Route
-                    path="/join"
-                    element={
-                      <Protected>
-                        <JoinCallView />
-                      </Protected>
-                    }
-                  />
+                  {/* Meeting invite links land here, OUTSIDE /app so someone
+                      in another organisation is not bounced through an app
+                      shell scoped to an org they do not belong to. Auth-gating
+                      lives INSIDE JoinCallView itself (via RequireAuth) rather
+                      than at the route level like everything else below —
+                      redeeming still requires a real account, but a signed-out
+                      visitor first needs to see the desktop-app-handoff
+                      landing page, which a route-level RequireAuth would
+                      redirect away from before it could ever render. */}
+                  <Route path="/join" element={<JoinCallView />} />
                   {/* A meeting, in a tab of its own (lib/callWindow). Outside
                       /app deliberately: the room IS the window, and the app
                       shell's sidebar beside a video grid helps nobody. Still
-                      Protected — the room needs a session to mint its token. */}
+                      gated — the room needs a session to mint its token. */}
                   <Route
                     path="/call/:callId"
                     element={
-                      <Protected>
+                      <RequireAuth>
                         <CallWindow />
-                      </Protected>
+                      </RequireAuth>
                     }
                   />
                   <Route
                     path="/app"
                     element={
-                      <Protected>
+                      <RequireAuth>
                         {/* OUTSIDE AppShell, not inside it: the shell reads the
                             selection too (a chat being open is what makes the
                             phone layout show the conversation instead of the
@@ -214,7 +215,7 @@ export function App({ config }: { config: PlatformConfig }) {
                         <SelectedChatProvider>
                           <AppShell />
                         </SelectedChatProvider>
-                      </Protected>
+                      </RequireAuth>
                     }
                   >
                     <Route index element={<Navigate to="/app/mail" replace />} />
@@ -300,6 +301,11 @@ export function App({ config }: { config: PlatformConfig }) {
                 a toast. Inert on web. Must sit inside RuntimeProvider (it reads
                 the platform config) and alongside the Toaster it drives. */}
             <ScreenshotNotice />
+            {/* Renders nothing; auto-pairs the desktop activity agent's
+                credential once signed in (never its consent — see the file's
+                own docstring). Inert on web. Outside <Router> like
+                ScreenshotNotice: it needs no route, just RuntimeProvider. */}
+            <AgentProvisioningBridge />
           </RuntimeProvider>
         </ThemeProvider>
       </QueryClientProvider>
@@ -338,12 +344,6 @@ function SessionBootstrap({
         Loading…
       </div>
     );
-  return <>{children}</>;
-}
-
-function Protected({ children }: { children: React.ReactNode }) {
-  const status = useSession((s) => s.status);
-  if (status !== "authed") return <Navigate to="/login" replace />;
   return <>{children}</>;
 }
 

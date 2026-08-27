@@ -303,16 +303,13 @@ describe("the manual picture-in-picture button", () => {
     expect(h.pip.toggle).toHaveBeenCalledTimes(1);
   });
 
-  it("is not offered at all when the platform has no Picture-in-Picture support", async () => {
+  it("is not offered at all when the platform has no Picture-in-Picture support", () => {
     h.pip.supported = false;
     renderRoom();
 
-    await act(async () => {
-      // `getAllByRole` throws if nothing matches, so this is never actually
-      // undefined — the assertion just says so to the type checker.
-      screen.getAllByRole("button", { name: "More" }).at(0)!.click();
-    });
-    expect(screen.queryByRole("menuitem", { name: /picture-in-picture/i })).toBeNull();
+    // With no session either (this test doesn't set one), the More menu has
+    // nothing left to offer and omits its own button entirely.
+    expect(screen.queryByRole("button", { name: "More" })).toBeNull();
   });
 
   it("reflects an active PiP session in its label", async () => {

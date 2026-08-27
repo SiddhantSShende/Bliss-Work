@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Check, Copy, Chrome, Laptop, Trash2 } from "lucide-react";
 import { Badge, Button, Spinner } from "@taskboard/ui";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
+import { getOrCreateBrowserDeviceKey, pingExtension, provisionExtension } from "../lib/extensionProvisioning";
 
 /**
  * The devices and browsers reporting activity for this person, and the way to
@@ -19,15 +20,50 @@ import { qk } from "../lib/queryBridge";
  * being recorded is the person who controls the pairing.
  */
 export function ConnectedAgents() {
-  const { api } = useRuntime();
+  const { api, config } = useRuntime();
   const qc = useQueryClient();
   const [minted, setMinted] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  // Web-only auto-detect/auto-provision of the browser extension — see
+  // extensionProvisioning.ts. "unknown" covers both "hasn't resolved yet" and
+  // "not configured for this deployment" (config.chromeExtensionId unset):
+  // either way the manual flow below renders exactly as it always has.
+  const [autoExtension, setAutoExtension] =
+    useState<"unknown" | "connected" | "provisioned" | "unavailable">("unknown");
 
   const { data: agents = [], isLoading } = useQuery({
     queryKey: qk.agentTokens,
     queryFn: () => api.listAgentTokens(),
   });
+
+  const extensionId = config.chromeExtensionId;
+  useEffect(() => {
+    if (!extensionId) return;
+    let cancelled = false;
+    void (async () => {
+      const ping = await pingExtension(extensionId);
+      if (cancelled) return;
+      if (!ping) return void setAutoExtension("unavailable");
+      if (ping.connected) return void setAutoExtension("connected");
+
+      try {
+        const deviceKey = getOrCreateBrowserDeviceKey();
+        const created = await api.createAgentToken("extension", "Browser extension", deviceKey);
+        if (cancelled) return;
+        if (!created.token) return void setAutoExtension("unavailable"); // lost double-submit; fall back
+        const result = await provisionExtension(extensionId, created.token, config.telemetryBase);
+        if (cancelled) return;
+        if (!result.ok) return void setAutoExtension("unavailable");
+        setAutoExtension("provisioned");
+        qc.invalidateQueries({ queryKey: qk.agentTokens });
+      } catch {
+        if (!cancelled) setAutoExtension("unavailable");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [extensionId, api, config.telemetryBase, qc]);
 
   const create = useMutation({
     mutationFn: () => api.createAgentToken("extension", "Browser extension"),
@@ -110,7 +146,13 @@ export function ConnectedAgents() {
         </ul>
       )}
 
-      {minted ? (
+      {autoExtension === "provisioned" ? (
+        <p className="text-xs font-medium text-accent">
+          Browser extension connected. Open it to start recording.
+        </p>
+      ) : autoExtension === "connected" ? (
+        <p className="text-xs text-muted">Browser extension already connected.</p>
+      ) : minted ? (
         <div className="space-y-2 rounded-lg bg-accent-soft p-3">
           <p className="text-xs font-medium text-accent">
             Paste this into the BlissWork extension. It's shown once and can't be

@@ -268,6 +268,12 @@ export const AgentTokenDTO = z.object({
   label: z.string().default(""),
   createdAt: z.string().nullable().default(null),
   lastUsedAt: z.string().nullable().default(null),
+  // Distinct from lastUsedAt on purpose: lastSeenAt also moves on a plain
+  // status ping, so it can be true ("the credential still works") before the
+  // agent has ever sent real activity — see agent.py's report_status.
+  lastSeenAt: z.string().nullable().default(null),
+  agentVersion: z.string().nullable().default(null),
+  platform: z.string().nullable().default(null),
   expiresAt: z.string().nullable().default(null),
 });
 export type AgentTokenDTO = z.infer<typeof AgentTokenDTO>;

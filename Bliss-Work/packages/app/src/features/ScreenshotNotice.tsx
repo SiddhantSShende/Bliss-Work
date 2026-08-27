@@ -62,10 +62,15 @@ export function ScreenshotNotice() {
   const qc = useQueryClient();
   const authed = useSession((s) => s.status) === "authed";
   const user = useSession((s) => s.user);
-  const thread = useActiveThread((s) => s.thread);
 
   const onAttempt = useCallback(
     (chord: string, alreadyRecorded: boolean) => {
+      // Read live, not via a closed-over hook value: this callback is bound
+      // once and re-bound only when the effect below re-runs, so a value
+      // captured at bind time can go stale between a route change and the
+      // next render — a capture chord fired in that window would otherwise
+      // post into the thread the user just navigated away from.
+      const thread = useActiveThread.getState().thread;
       toast.error(SCREENSHOT_BLOCKED_MESSAGE);
       // Both the beacon and the chat notice attribute to a signed-in user;
       // neither has anyone to report as without one.
@@ -152,7 +157,7 @@ export function ScreenshotNotice() {
         })
         .catch((err) => console.error("[security] failed to post screenshot notice", err));
     },
-    [api, authed, config.kind, qc, thread, user],
+    [api, authed, config.kind, qc, user],
   );
 
   useEffect(() => {

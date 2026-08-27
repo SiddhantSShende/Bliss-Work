@@ -310,6 +310,19 @@ func (s *Store) SendChannelMessage(ctx context.Context, orgID, channelID, sender
 			return err
 		}
 
+		// Both names travel on the event so a message arriving over the socket
+		// renders the same as one that came back from a refetch. Sending only the
+		// username made a live message flip from "Jane Okafor" to "j.okafor" until
+		// the next fetch. Resolved before the encrypt/insert below because
+		// MessageKindScreenshotAttempt needs it to author the body itself.
+		senderName, senderDisplay, err := s.cachedUserNames(ctx, tx, orgID, senderID)
+		if err != nil {
+			return err
+		}
+		if kind == MessageKindScreenshotAttempt {
+			body = screenshotAttemptBody(senderDisplay, senderName)
+		}
+
 		// Encrypt the body under the org DEK (created lazily in THIS tx); the
 		// plaintext body column is left NULL.
 		bodyEnc, err := s.crypto.Encrypt(ctx, tx, orgID, body)
@@ -326,14 +339,6 @@ func (s *Store) SendChannelMessage(ctx context.Context, orgID, channelID, sender
 		}
 
 		members, err := channelMemberIDs(ctx, tx, channelID)
-		if err != nil {
-			return err
-		}
-		// Both names travel on the event so a message arriving over the socket
-		// renders the same as one that came back from a refetch. Sending only the
-		// username made a live message flip from "Jane Okafor" to "j.okafor" until
-		// the next fetch.
-		senderName, senderDisplay, err := s.cachedUserNames(ctx, tx, orgID, senderID)
 		if err != nil {
 			return err
 		}

@@ -10,14 +10,114 @@
  */
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Avatar, Button } from "@taskboard/ui";
+import { Avatar, Button, cn } from "@taskboard/ui";
 import { CallControls } from "../../../packages/app/src/features/CallControls";
 import { ScreenSharePopup } from "../../../packages/app/src/features/ScreenSharePopup";
+import { CallSidebar } from "../../../packages/app/src/features/CallSidebar";
+import { BracketFrame } from "../../../packages/app/src/features/BracketFrame";
+import { CallTile } from "../../../packages/app/src/features/CallTile";
+import { CallSpeakerFilmstrip } from "../../../packages/app/src/features/CallSpeakerFilmstrip";
+import { CallSidePanel } from "../../../packages/app/src/features/CallSidePanel";
+import { CallChat } from "../../../packages/app/src/features/CallChat";
+import { CallNotes } from "../../../packages/app/src/features/CallNotes";
+import { CallRoster } from "../../../packages/app/src/features/CallRoster";
 import "@taskboard/ui/styles.css";
 import "./index.css";
 
 /** The call started a couple of minutes ago, so the timer shows something. */
 const CONNECTED_AT = Date.now() - 138_000;
+
+const NAMES = ["Alice Chen", "Bob Diaz", "Carol Wu", "David Kim", "Eve Novak"];
+function makeParticipants(sharerIndex: number | null = null) {
+  return [
+    { identity: "me", name: "Me", isLocal: true, speaking: false, micOn: true, camOn: false, sharing: false, videoTrack: null, screenTrack: null, audioTrack: null },
+    ...NAMES.map((name, i) => ({
+      identity: `p${i}`, name, isLocal: false, speaking: i === 0 && sharerIndex === null, micOn: i % 3 !== 0, camOn: false,
+      sharing: i === sharerIndex, videoTrack: null, screenTrack: null, audioTrack: null,
+    })),
+  ];
+}
+
+function NeonRoomPreview() {
+  const [scenario, setScenario] = useState("speaking");
+  const [panel, setPanel] = useState<"chat" | "notes" | "participants" | null>(null);
+  const participants = makeParticipants(scenario === "sharing" ? 1 : null);
+  // NAMES is a fixed 5-element array, so makeParticipants() always returns 6
+  // entries — index 1 is guaranteed to exist. noUncheckedIndexedAccess can't
+  // see that through the .map() call, hence the assertion.
+  const stage = participants.find((p) => p.sharing) ?? participants[1]!;
+
+  return (
+    <section className="mx-auto mt-10 max-w-6xl">
+      <div className="mb-2 flex items-center justify-between">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-muted">
+          Futuristic redesign — CallSidebar + BracketFrame
+        </h2>
+        <div className="flex gap-2">
+          <Button size="sm" variant={scenario === "speaking" ? "primary" : "ghost"} onClick={() => setScenario("speaking")}>
+            Speaking (vertical filmstrip)
+          </Button>
+          <Button size="sm" variant={scenario === "sharing" ? "primary" : "ghost"} onClick={() => setScenario("sharing")}>
+            Screen share (horizontal filmstrip)
+          </Button>
+        </div>
+      </div>
+      <div className="meeting-theme meeting-mesh overflow-hidden rounded-3xl" style={{ height: 720 }}>
+        <div className="flex h-full">
+          <CallSidebar
+            micOn camOn={false} sharing={scenario === "sharing"}
+            onToggleMic={() => {}} onToggleCam={() => {}} onToggleShare={() => {}}
+            handRaised={false} canRaiseHand onToggleHand={() => {}}
+            participantsActive={panel === "participants"} onToggleParticipants={() => setPanel((p) => (p === "participants" ? null : "participants"))}
+            canAddPeople addPeopleTitle="Add people" onAddPeople={() => {}}
+            canInviteLink inviteLinkTitle="Copy invite link" mintingInviteLink={false} onCopyInviteLink={() => {}}
+            chatActive={panel === "chat"} unreadChat={3} onToggleChat={() => setPanel((p) => (p === "chat" ? null : "chat"))}
+            notesActive={panel === "notes"} onToggleNotes={() => setPanel((p) => (p === "notes" ? null : "notes"))}
+            isHost recordingSupported recording={false} onToggleRecording={() => {}}
+            pipSupported pipActive={false} onTogglePip={() => {}} onMinimize={() => {}}
+            onEnd={() => {}}
+          />
+          <div className="flex min-h-0 flex-1 flex-col">
+            <header className="shrink-0 px-6 py-4">
+              <div className="truncate text-base font-semibold uppercase tracking-wide text-fg">Project Aurora — Sync Call</div>
+              <div className="mt-1 text-xs text-muted">{participants.length} Participants Present</div>
+            </header>
+            <div className="flex min-h-0 flex-1 gap-4 px-6 pb-6">
+              <main className="flex min-h-0 flex-1 flex-col gap-3">
+                <div className={cn("flex min-h-0 flex-1 gap-3", scenario === "sharing" ? "flex-col" : "flex-row")}>
+                  <BracketFrame className="glass relative min-h-0 flex-1">
+                    <CallTile p={stage} size="stage" active />
+                  </BracketFrame>
+                  <CallSpeakerFilmstrip
+                    participants={participants} activeId={stage.identity} hands={new Set()} pinned={null} onTogglePin={() => {}}
+                    orientation={scenario === "sharing" ? "horizontal" : "vertical"}
+                    limit={scenario === "sharing" ? 4 : 3}
+                  />
+                </div>
+              </main>
+              {panel && (
+                <CallSidePanel
+                  active={panel} onSelectTab={setPanel} onClose={() => setPanel(null)}
+                  onExport={panel === "chat" ? () => {} : panel === "notes" ? () => {} : undefined}
+                  unreadChat={3}
+                  className="h-full w-72 shrink-0 xl:w-80"
+                >
+                  {panel === "chat" ? (
+                    <CallChat chat={[]} participants={participants} me="me" onSend={() => {}} />
+                  ) : panel === "notes" ? (
+                    <CallNotes notes={[]} onAdd={() => {}} />
+                  ) : (
+                    <CallRoster participants={participants} hands={new Set()} pinned={null} onTogglePin={() => {}} />
+                  )}
+                </CallSidePanel>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
 
 function Preview() {
   const [micOn, setMicOn] = useState(true);
@@ -104,6 +204,8 @@ function Preview() {
           </div>
         </div>
       </section>
+
+      <NeonRoomPreview />
     </div>
   );
 }

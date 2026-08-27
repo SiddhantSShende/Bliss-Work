@@ -60,6 +60,14 @@ const api = {
     return () => ipcRenderer.removeListener("deeplink:invite", handler);
   },
 
+  /** Emitted when the app is opened via a taskboard:// meeting join deep-link
+   *  (the browser landing page at /join hands off to this when it can). */
+  onMeetingDeepLink: (cb: (token: string) => void) => {
+    const handler = (_: unknown, token: string) => cb(token);
+    ipcRenderer.on("deeplink:meeting", handler);
+    return () => ipcRenderer.removeListener("deeplink:meeting", handler);
+  },
+
   /** Open an https URL in the system browser. Used for OAuth: Google rejects
    *  embedded webviews, so the consent screen has to leave the app. Main
    *  re-validates the scheme — never trust the renderer with a shell call. */
@@ -151,6 +159,10 @@ const api = {
     state: (): Promise<{
       enabled: boolean;
       paired: boolean;
+      /** Stable per-installation id — passed to createAgentToken so
+       *  automatic provisioning can ask for "the token for THIS device"
+       *  idempotently instead of minting a new one every launch. */
+      deviceKey: string;
       appTracking: boolean;
       reason: string | null;
       /** Whether window-TITLE capture works, distinct from `appTracking` —
@@ -161,8 +173,9 @@ const api = {
     } | null> => ipcRenderer.invoke("activity:state"),
     setEnabled: (enabled: boolean): Promise<{ enabled: boolean; paired: boolean } | null> =>
       ipcRenderer.invoke("activity:set-enabled", enabled),
-    /** Pass the one-time secret from Settings → Connect this device. `null`
-     *  unpairs, which also withdraws consent. */
+    /** Pass the one-time secret from Settings → Connect this device (or from
+     *  automatic post-login provisioning). `null` unpairs, which also
+     *  withdraws consent. */
     pair: (token: string | null): Promise<{ enabled: boolean; paired: boolean } | null> =>
       ipcRenderer.invoke("activity:pair", token),
     /** Open the OS page where Screen Recording access is granted. Resolves
@@ -170,6 +183,10 @@ const api = {
      *  "no-op button, not a missing one" contract as `openLocationSettings`. */
     openScreenRecordingSettings: (): Promise<boolean> =>
       ipcRenderer.invoke("activity:open-screen-recording-settings"),
+    /** Explicit sign-out — see signOut.ts. Stops the sampler and clears
+     *  local account-binding immediately, without discarding the pairing (the
+     *  SAME person signing back in does not have to re-pair/re-consent). */
+    signedOut: (): Promise<null> => ipcRenderer.invoke("activity:signed-out"),
   },
 
   /** Phase 10 sender-side streaming sha256 — the renderer feeds file slices and

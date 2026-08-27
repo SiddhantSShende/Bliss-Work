@@ -55,6 +55,9 @@ let windowFocusListeners: Array<(windowId: number) => void | Promise<void>>;
 let idleListeners: Array<(state: string) => void | Promise<void>>;
 let alarmListeners: Array<(alarm: { name: string }) => void | Promise<void>>;
 let messageListeners: Array<(msg: unknown, sender: unknown, reply: (r: unknown) => void) => boolean>;
+let externalMessageListeners: Array<
+  (msg: unknown, sender: unknown, reply: (r: unknown) => void) => boolean
+>;
 let localStorage: ReturnType<typeof makeStorageArea>;
 let sessionStorage: ReturnType<typeof makeStorageArea>;
 let managedStorage: ReturnType<typeof makeStorageArea>;
@@ -72,6 +75,7 @@ function installFakeChrome(): void {
   idleListeners = [];
   alarmListeners = [];
   messageListeners = [];
+  externalMessageListeners = [];
   localStorage = makeStorageArea();
   sessionStorage = makeStorageArea();
   managedStorage = makeStorageArea();
@@ -119,8 +123,26 @@ function installFakeChrome(): void {
         addListener: (cb: (msg: unknown, sender: unknown, reply: (r: unknown) => void) => boolean) =>
           messageListeners.push(cb),
       },
+      onMessageExternal: {
+        addListener: (cb: (msg: unknown, sender: unknown, reply: (r: unknown) => void) => boolean) =>
+          externalMessageListeners.push(cb),
+      },
+      getManifest: () => ({ version: "1.0.0" }),
     },
   };
+}
+
+/** Simulates chrome delivering an externally_connectable message and
+ *  resolving with whatever the listener's `reply` callback was called with —
+ *  Chrome's real contract when a listener returns `true` for an async reply. */
+function sendExternal(msg: unknown): Promise<unknown> {
+  return new Promise((resolve) => {
+    for (const cb of externalMessageListeners) {
+      const handled = cb(msg, {}, resolve);
+      if (handled) return;
+    }
+    resolve(undefined);
+  });
 }
 
 /**
@@ -322,5 +344,72 @@ describe("browser sensor (background.ts): BlissWork -> YouTube -> GitHub -> Chat
     expect((second.detail as Record<string, string>).from).toBeUndefined();
     expect(first.durationMs).toBe(45_000);
     expect(second.durationMs).toBe(20_000);
+  });
+});
+
+describe("automatic provisioning (externally_connectable)", () => {
+  beforeEach(async () => {
+    vi.resetModules();
+    vi.useFakeTimers();
+    fetchMock.mockClear();
+    vi.stubGlobal("fetch", fetchMock);
+    installFakeChrome();
+    // Unpaired by default here — each test sets up the state it needs,
+    // unlike the site-tracking suite above which always starts paired.
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("reports not connected when no token is stored yet", async () => {
+    await import("./background");
+    const res = await sendExternal({ type: "blisswork:ping" });
+    expect(res).toEqual({ connected: false, version: "1.0.0" });
+  });
+
+  it("reports already connected without touching storage", async () => {
+    await localStorage.set({ token: "existing-token", apiBase: API_BASE, paused: false });
+    await import("./background");
+    const res = await sendExternal({ type: "blisswork:ping" });
+    expect(res).toEqual({ connected: true, version: "1.0.0" });
+    expect(localStorage._dump().token).toBe("existing-token");
+  });
+
+  it("provisions a fresh token: verifies it, stores it PAUSED, and pings status", async () => {
+    await import("./background");
+    const res = await sendExternal({
+      type: "blisswork:provision", token: "new-token", apiBase: API_BASE,
+    });
+    expect(res).toEqual({ ok: true });
+    expect(localStorage._dump()).toMatchObject({ token: "new-token", apiBase: API_BASE, paused: true });
+
+    // Verify call (empty batch) and the status ping — never an activity write.
+    const urls = fetchMock.mock.calls.map(([url]) => url);
+    expect(urls).toContain(`${API_BASE}/telemetry/ingest/agent`);
+    expect(urls).toContain(`${API_BASE}/telemetry/tokens/status`);
+  });
+
+  it("rejects an invalid token and stores nothing", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 401 }));
+    await import("./background");
+    const res = await sendExternal({
+      type: "blisswork:provision", token: "bad-token", apiBase: API_BASE,
+    });
+    expect(res).toEqual({ ok: false, reason: "invalid-token" });
+    expect(localStorage._dump().token).toBeUndefined();
+  });
+
+  it("does not record anything as a side effect of provisioning", async () => {
+    // postedEvents() assumes every fetch body has an `events` array, which the
+    // status-ping body does not — inspected directly here instead, over EVERY
+    // call this action makes (verify + status ping), not just the ingest one.
+    await import("./background");
+    await sendExternal({ type: "blisswork:provision", token: "new-token", apiBase: API_BASE });
+    for (const [, init] of fetchMock.mock.calls) {
+      const body = JSON.parse((init as RequestInit).body as string) as { events?: unknown[] };
+      expect(body.events ?? []).toHaveLength(0);
+    }
   });
 });

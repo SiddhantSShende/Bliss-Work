@@ -147,40 +147,93 @@
 }
 
 /* ── Meeting screen theme ─────────────────────────────────────────────────
-   The call surface (CallRoom) always renders dark with a green accent,
-   regardless of the workspace's own light/dark/lime choice — video is easier
-   to read against a dark ground, and a meeting in progress shouldn't flip
-   between light and dark as someone's theme setting changes underneath it.
-   Values mirror `.dark.lime` above; scoped as a class (not tied to
-   `.dark`/`.lime`) so it overrides the CSS custom properties for its subtree
-   no matter what theme classes are on <html>. */
+   The call surface (CallRoom) always renders dark, regardless of the
+   workspace's own light/dark/lime choice — video is easier to read against a
+   dark ground, and a meeting in progress shouldn't flip between light and
+   dark as someone's theme setting changes underneath it. Scoped as a class
+   (not tied to `.dark`/`.lime`) so it overrides the CSS custom properties for
+   its subtree no matter what theme classes are on <html>.
+
+   Cyan/magenta neon-on-deep-space palette — a deliberate one-off, not derived
+   from `.dark.lime` like it used to be: this surface's whole point is to look
+   like nothing else in the app. `--color-accent-2` (magenta) is NOT one of
+   the base tokens in the root `@theme` block above, so it has no generated
+   `bg-accent-2`/`text-accent-2` utility — reference it with Tailwind's
+   arbitrary-value syntax instead, e.g. `text-[var(--color-accent-2)]` or
+   `shadow-[0_0_20px_-4px_var(--color-accent-2)]`, same as `--glass-*` below. */
 .meeting-theme {
-  --color-bg: #0f1412;
-  --color-surface: #1c221f;
-  --color-surface-2: #202824;
-  --color-border: #2a332f;
-  --color-muted: #97a39c;
-  --color-fg: #f2f5f3;
-  --color-accent: #a8d94a;
-  --color-accent-strong: #94c93a;
-  --color-accent-fg: #171d1a;
-  --color-accent-soft: #26302b;
-  --color-brand-from: #a8d94a;
-  --color-brand-to: #94c93a;
-  --color-success: oklch(0.75 0.15 158);
-  --color-danger: oklch(0.68 0.2 25);
-  --color-warning: oklch(0.82 0.15 80);
+  --color-bg: #05060f;
+  --color-surface: #0b0f24;
+  --color-surface-2: #121736;
+  --color-border: #262c55;
+  --color-muted: #8b93c9;
+  --color-fg: #eef1ff;
+  --color-accent: #22d3ee;
+  --color-accent-strong: #67e8f9;
+  --color-accent-fg: #04141a;
+  --color-accent-soft: #123138;
+  --color-accent-2: #e879f9;
+  --color-accent-2-soft: #33163f;
+  --color-brand-from: #22d3ee;
+  --color-brand-to: #e879f9;
+  --color-success: #39ff8f;
+  --color-danger: #ff3b5c;
+  --color-warning: #ffb020;
   --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.35);
   --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.35), 0 16px 40px rgba(0, 0, 0, 0.45);
   --shadow-widget: 0 18px 50px rgba(0, 0, 0, 0.6);
-  /* So `.glass` (used for the video/participants/chat panels) reads the same
-     dark, faintly green-tinted frost regardless of the workspace theme too —
+  /* So `.glass` (used for the sidebar/video/participants/chat panels) reads
+     the same dark, cyan-tinted frost regardless of the workspace theme too —
      otherwise it would pick up whatever `--glass-*` the ambient light/dark
-     theme left behind. Same values as `.dark.lime` above. */
-  --glass-bg: rgba(22, 28, 25, 0.6);
-  --glass-border: rgba(168, 217, 74, 0.08);
-  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+     theme left behind. */
+  --glass-bg: rgba(11, 15, 36, 0.55);
+  --glass-border: rgba(34, 211, 238, 0.16);
+  --glass-shadow: 0 0 30px rgba(34, 211, 238, 0.08), 0 20px 45px rgba(0, 0, 0, 0.55);
   color-scheme: dark;
+}
+
+/* The redesign's deep-space backdrop: a near-black gradient with faint,
+   slow-drifting cyan and magenta nebulae. Reuses `.brand-mesh`'s own
+   `bw-float-a`/`bw-float-b` keyframes rather than defining new ones — same
+   drifting-orb technique, just this surface's two accent colours instead of
+   the brand gradient's white highlights. */
+.meeting-mesh {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse 60% 50% at 15% 20%, rgba(34, 211, 238, 0.1), transparent 65%),
+    radial-gradient(ellipse 55% 45% at 85% 80%, rgba(232, 121, 249, 0.1), transparent 65%),
+    linear-gradient(160deg, #05060f 0%, #0b0f24 55%, #05060f 100%);
+}
+.meeting-mesh::before,
+.meeting-mesh::after {
+  content: "";
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(90px);
+  z-index: -1;
+  opacity: 0.55;
+  will-change: transform;
+}
+.meeting-mesh::before {
+  width: 34rem;
+  height: 34rem;
+  top: -8rem;
+  left: -6rem;
+  background: radial-gradient(circle, rgba(34, 211, 238, 0.35), transparent 70%);
+  animation: bw-float-a 22s ease-in-out infinite;
+}
+.meeting-mesh::after {
+  width: 36rem;
+  height: 36rem;
+  bottom: -10rem;
+  right: -8rem;
+  background: radial-gradient(circle, rgba(232, 121, 249, 0.3), transparent 70%);
+  animation: bw-float-b 27s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .meeting-mesh::before, .meeting-mesh::after { animation: none; }
 }
 
 /* A small audio-wave: three bars pulsing out of phase, staggered with

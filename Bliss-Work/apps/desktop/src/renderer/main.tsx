@@ -18,6 +18,7 @@ declare global {
       onWsEvent: (cb: (e: ServerEvent, meta?: WsEventMeta) => void) => () => void;
       onTokenRequest: (cb: () => void) => () => void;
       onInviteDeepLink: (cb: (token: string) => void) => () => void;
+      onMeetingDeepLink: (cb: (token: string) => void) => () => void;
       openExternal: (url: string) => void;
       hasPreciseLocation: () => Promise<boolean>;
       /** Absent on platforms with no OS location-privacy page (Linux). */
@@ -36,6 +37,7 @@ declare global {
         state: () => Promise<{
           enabled: boolean;
           paired: boolean;
+          deviceKey: string;
           appTracking: boolean;
           reason: string | null;
           titleTracking: boolean;
@@ -44,6 +46,7 @@ declare global {
         setEnabled: (enabled: boolean) => Promise<{ enabled: boolean; paired: boolean } | null>;
         pair: (token: string | null) => Promise<{ enabled: boolean; paired: boolean } | null>;
         openScreenRecordingSettings: () => Promise<boolean>;
+        signedOut: () => Promise<null>;
       };
       rtc: RtcTransport;
       fileSink: FileSink;
@@ -150,6 +153,11 @@ bridge.onTokenRequest(async () => {
 // Invite deep-link → route into the hash router.
 bridge.onInviteDeepLink((token) => {
   location.hash = `#/invite?token=${encodeURIComponent(token)}`;
+});
+
+// Meeting deep-link → the same /join route the web app's own links use.
+bridge.onMeetingDeepLink((token) => {
+  location.hash = `#/join?t=${encodeURIComponent(token)}`;
 });
 
 createRoot(document.getElementById("root")!).render(

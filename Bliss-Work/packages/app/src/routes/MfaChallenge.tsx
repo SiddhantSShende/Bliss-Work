@@ -11,11 +11,16 @@ import { AuthLayout, Field } from "./Onboarding";
 import { TotpEnrollPanel } from "../features/TotpEnrollPanel";
 import { BackupCodesView } from "../features/BackupCodesView";
 import { getPasskeyAssertion, webauthnSupported } from "../lib/webauthn";
+import { safeRedirect } from "../lib/safeRedirect";
 
 interface ChallengeState {
   pendingToken: string;
   methods: ("totp" | "webauthn")[];
   enrollmentRequired: boolean;
+  /** Where to land after verifying, e.g. a meeting link — see Login.tsx.
+   *  Absent from the org-switch caller (OrgSwitcher.tsx), which always wants
+   *  the default /app landing. */
+  redirect?: string;
 }
 
 /**
@@ -40,7 +45,9 @@ export function MfaChallenge() {
     setSession({ user: session.user, accessToken: session.accessToken, expiresIn: session.expiresIn });
     broadcastSession(session);
     qc.clear(); // scoped to whichever org this session belongs to
-    nav("/app");
+    // replace: true for the same reason as Login.tsx's own post-auth nav —
+    // this page must not stay in history once the session is adopted.
+    nav(safeRedirect(state?.redirect), { replace: true });
   };
 
   if (!state?.pendingToken) {

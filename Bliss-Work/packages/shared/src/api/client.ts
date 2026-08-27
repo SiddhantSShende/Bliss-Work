@@ -504,13 +504,20 @@ export class ApiClient {
   // ── activity agents (desktop sampler / browser extension) ───────────────────
   /** Mint a pairing secret for one of YOUR OWN agents. The raw value is
    *  returned exactly once and never again — losing it means minting another,
-   *  which is the correct cost for a credential that writes your activity. */
-  createAgentToken(kind: "desktop" | "extension", label = "") {
+   *  which is the correct cost for a credential that writes your activity.
+   *
+   *  `deviceKey` makes this safe to call automatically (e.g. right after
+   *  login) instead of only from an explicit "Connect" click: a repeat call
+   *  for the same device returns the existing row with `token: null` rather
+   *  than minting a second live secret. Omit it for today's manual
+   *  "Connect" buttons, which must keep minting a fresh token every time. */
+  createAgentToken(kind: "desktop" | "extension", label = "", deviceKey?: string) {
     const q = new URLSearchParams({ kind });
     if (label) q.set("label", label);
+    if (deviceKey) q.set("deviceKey", deviceKey);
     return this.req(this.cfg.telemetryBase, `/telemetry/tokens?${q.toString()}`, {
       method: "POST",
-    }, z.object({ id: z.string(), kind: z.string(), token: z.string() }));
+    }, z.object({ id: z.string(), kind: z.string(), token: z.string().nullable() }));
   }
   listAgentTokens() {
     return this.req(this.cfg.telemetryBase, "/telemetry/tokens", {}, z.array(AgentTokenDTO));
@@ -520,6 +527,13 @@ export class ApiClient {
       method: "DELETE",
     });
   }
+  // NOTE: reporting a status heartbeat (POST /telemetry/tokens/status) is
+  // deliberately NOT a method here. It is called with the agent's OWN
+  // X-Ingest-Token, not the signed-in member's session — this class always
+  // attaches the session bearer token via cfg.getToken() (see req() above),
+  // which is exactly what an agent must never hold. The desktop sampler and
+  // the extension background script call it with a plain fetch(), the same
+  // way they already call /telemetry/ingest/agent.
 
   // ── channel moderation ──────────────────────────────────────────────────────
   /** Members WITH roles, plus anyone blocked. A separate route from

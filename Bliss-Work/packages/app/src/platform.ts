@@ -92,6 +92,17 @@ export interface PlatformConfig {
   wsUrl: string;
   /** "browser" for web, "hash" for the Electron file:// renderer. */
   router: "browser" | "hash";
+  /**
+   * Web only: the built, force-installed BlissWork extension's id, if one is
+   * pinned for this deployment. Unset by default — the self-hosted CRX
+   * signing key is generated fresh per machine today and Chrome Web Store
+   * publishing isn't done, so there is no stable id to target yet (see
+   * apps/extension/scripts/pack-crx.mjs). When absent, ConnectedAgents.tsx's
+   * auto-detect/auto-provision simply never runs and the existing manual
+   * "paste a code" flow is the only path — a safe, deliberate fallback, not a
+   * broken feature.
+   */
+  chromeExtensionId?: string;
   /** Present only in Electron: realtime events relayed from the utilityProcess. */
   eventSource?: EventSource;
   /** Present only in Electron: rtc.* signaling bridged from the ws-process. */
@@ -158,6 +169,10 @@ export interface PlatformConfig {
     state: () => Promise<{
       enabled: boolean;
       paired: boolean;
+      /** Stable per-installation id — pass to createAgentToken(kind, label,
+       *  deviceKey) so provisioning is safe to call automatically (e.g. on
+       *  every login) without minting a fresh secret each time. */
+      deviceKey: string;
       appTracking: boolean;
       reason: string | null;
       /** Whether window-TITLE capture works, separately from `appTracking` —
@@ -174,6 +189,9 @@ export interface PlatformConfig {
      *  false on a platform with no such page (Windows/Linux) — a caller
      *  should not offer the button when `titleTracking` is already true. */
     openScreenRecordingSettings: () => Promise<boolean>;
+    /** Explicit sign-out hook — see signOut.ts. Absent on web, where there is
+     *  no desktop agent to stop. */
+    signedOut?: () => Promise<null>;
   };
   /** Present only in Electron: open a URL in the user's DEFAULT browser.
    *  Google refuses OAuth inside an embedded webview (`disallowed_useragent`),

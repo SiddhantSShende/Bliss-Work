@@ -16,6 +16,7 @@
  * of `chrome.*` so they can be tested.
  */
 import { recordableSite, selfDomain, SELF, toAgentEvent, toVisit, type Candidate } from "./tracker";
+import { provisionToken } from "./provisioning";
 
 /**
  * Which browser this build reports as, for `detail.browser`.
@@ -245,6 +246,37 @@ async function setBadge(text: string): Promise<void> {
   }
 }
 
+/** Re-read config and reflect it immediately — badge, and closing an open
+ *  span if pairing/pausing just made recording it wrong — rather than waiting
+ *  for the next tab event or flush alarm to notice. Shared by the internal
+ *  "the options page changed something" message and the external automatic
+ *  provisioning handoff below: both are "config just changed" from this
+ *  worker's point of view. */
+async function reconcile(): Promise<void> {
+  const cfg = await config();
+  await setBadge(cfg.token && !cfg.paused ? "" : "off");
+  if (!cfg.token || cfg.paused) await closeSpan();
+}
+
+/** Confirm a freshly-provisioned credential actually works, independent of
+ *  the person having clicked Resume yet — the desktop app's activity-
+ *  agent.ts does the identical thing for the identical reason: it is what
+ *  lets a client show CONNECTED before consent, rather than a "paired" state
+ *  nobody has verified reaches the server. Best-effort: provisionToken()
+ *  already verified the token once via a real ingest call, so a failure here
+ *  only means telemetry-svc's lastSeenAt stays stale until the next one. */
+async function pingStatus(token: string, apiBase: string): Promise<void> {
+  try {
+    await fetch(`${apiBase}/telemetry/tokens/status`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "X-Ingest-Token": token },
+      body: JSON.stringify({ version: chrome.runtime.getManifest().version, platform: BROWSER }),
+    });
+  } catch {
+    /* best-effort — see docstring */
+  }
+}
+
 // ── Events ───────────────────────────────────────────────────────────────────
 
 chrome.tabs.onActivated.addListener(async ({ tabId }) => {
@@ -329,13 +361,47 @@ ensureAlarm();
 // stops immediately rather than at the next alarm.
 chrome.runtime.onMessage.addListener((msg: { type?: string }, _sender, reply) => {
   if (msg?.type === "config-changed") {
-    void (async () => {
-      const cfg = await config();
-      await setBadge(cfg.token && !cfg.paused ? "" : "off");
-      if (!cfg.token || cfg.paused) await closeSpan();
-      reply({ ok: true });
-    })();
+    void reconcile().then(() => reply({ ok: true }));
     return true; // async reply
   }
   return false;
 });
+
+/**
+ * Automatic provisioning from a signed-in BlissWork tab — the officially
+ * supported alternative to the manual copy/paste flow in options.ts.
+ *
+ * Reachable ONLY from origins the manifest's `externally_connectable.matches`
+ * lists; Chrome enforces that at the platform level before this listener ever
+ * sees a message, so there is no second origin check to keep in sync here.
+ *
+ *   blisswork:ping        -> { connected, version } for the calling page to
+ *                             decide whether to offer "Connect" or nothing.
+ *   blisswork:provision    -> verify-then-store a freshly minted token, same
+ *                             contract as options.ts's manual connect (see
+ *                             provisionToken's own docstring on why both
+ *                             paths share it) — never immediately recording;
+ *                             provisioning is not consent.
+ */
+chrome.runtime.onMessageExternal.addListener(
+  (msg: { type?: string; token?: string; apiBase?: string }, _sender, reply) => {
+    if (msg?.type === "blisswork:ping") {
+      void config().then((cfg) =>
+        reply({ connected: !!cfg.token, version: chrome.runtime.getManifest().version }),
+      );
+      return true;
+    }
+    if (msg?.type === "blisswork:provision") {
+      void (async () => {
+        const result = await provisionToken(msg.token ?? "", msg.apiBase ?? "");
+        if (result.ok) {
+          await reconcile();
+          void pingStatus(msg.token as string, msg.apiBase as string);
+        }
+        reply(result);
+      })();
+      return true;
+    }
+    return false;
+  },
+);

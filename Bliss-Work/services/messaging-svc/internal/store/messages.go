@@ -248,6 +248,18 @@ func (s *Store) appendMessage(
 	parentMessageID, threadIDHint string,
 	opts appendOpts,
 ) (*SendResult, error) {
+	// See screenshotAttemptBody's doc comment: this kind's body is authored
+	// here from the sender's own projected name, never trusted from the
+	// caller — done before anything below reads `body` (ensureThread, the
+	// encrypt+INSERT, and the inbox preview all have to see the real text).
+	if opts.kind == MessageKindScreenshotAttempt {
+		senderName, senderDisplay, err := s.cachedUserNames(ctx, tx, orgID, senderID)
+		if err != nil {
+			return nil, err
+		}
+		body = screenshotAttemptBody(senderDisplay, senderName)
+	}
+
 	// Idempotency: include thread_id in the lookup so a per-thread clientMsgId
 	// dedupe matches the new wider UNIQUE constraint. The pre-check is cheaper
 	// than catching the unique-violation, and importantly the second-write

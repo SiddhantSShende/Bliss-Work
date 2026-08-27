@@ -100,11 +100,28 @@ class AgentBatch(BaseModel):
 
 
 class AgentTokenCreated(BaseModel):
-    """The ONLY response that ever carries the raw secret. Not recoverable."""
+    """The ONLY response that ever carries the raw secret. Not recoverable.
+
+    `token` is null exactly once: a get-or-create call (device_key supplied)
+    that matched an existing, still-valid row. That row's own raw secret was
+    already shown once, at its own creation, and is genuinely gone — this
+    response is not a second chance to see it, it's confirmation that
+    provisioning has nothing new to do.
+    """
 
     id: str
     kind: str
-    token: str
+    token: str | None
+
+
+class AgentStatusPing(BaseModel):
+    """A heartbeat from a paired agent — proves the credential still works
+    without writing any activity. Must stay safe to call before consent (or
+    while paused): a write here would itself be a data trail, defeating the
+    point of a status check that exists to be checkable pre-consent."""
+
+    version: str | None = Field(default=None, max_length=32)
+    platform: str | None = Field(default=None, max_length=32)
 
 
 class AgentTokenDTO(BaseModel):
@@ -113,6 +130,9 @@ class AgentTokenDTO(BaseModel):
     label: str = ""
     createdAt: str | None = None
     lastUsedAt: str | None = None
+    lastSeenAt: str | None = None
+    agentVersion: str | None = None
+    platform: str | None = None
     expiresAt: str | None = None
 
 

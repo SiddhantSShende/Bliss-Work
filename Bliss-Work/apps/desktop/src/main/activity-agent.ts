@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { win32, posix } from "node:path";
-import { powerMonitor } from "electron";
+import { app, powerMonitor } from "electron";
 import { browserSlug, resolveApp, filterTitle } from "@taskboard/shared";
 import { isActive, getState, setToken } from "./activity-state";
 // Shared with the desktop-note watcher: one provider, loaded once, so the two
@@ -418,6 +418,31 @@ export function stop(): void {
 export function reconcile(base: string): void {
   if (isActive()) start(base);
   else stop();
+}
+
+/**
+ * Confirm a freshly-paired credential actually works, independent of
+ * consent — this is what lets a client show CONNECTED before the person has
+ * said yes, rather than merely "we hold a string we hope is a valid token".
+ *
+ * Deliberately NOT gated on `isActive()`/consent (unlike `sample`/`onLock`/
+ * etc. above): a status ping writes no activity (see the endpoint's own
+ * docstring), so calling it pre-consent is exactly the safe, honest thing to
+ * do — the alternative is a "paired" state nobody has ever actually verified
+ * reaches the server. Best-effort: a failure here does not affect pairing,
+ * which already succeeded server-side the moment the token was minted; it
+ * only means `lastSeenAt` stays stale until the next real ingest.
+ */
+export async function pingStatus(base: string, token: string): Promise<void> {
+  try {
+    await fetch(`${base}/telemetry/tokens/status`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "X-Ingest-Token": token },
+      body: JSON.stringify({ version: app.getVersion(), platform: process.platform }),
+    });
+  } catch {
+    /* best-effort — see docstring */
+  }
 }
 
 /** Last flush before the app exits, so a day's final span is not lost. */

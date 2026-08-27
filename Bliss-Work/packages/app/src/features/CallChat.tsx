@@ -209,7 +209,9 @@ function ChatBubble({
         )}
       >
         <div className="flex items-baseline justify-between gap-2 text-[11px] text-muted">
-          <span className="truncate font-medium text-fg">{mine ? "You" : entry.fromName}</span>
+          <span className={cn("truncate font-medium", mine ? "text-fg" : "text-accent")}>
+            {mine ? "You" : entry.fromName}
+          </span>
           <span className="shrink-0 tabular-nums">
             {new Date(entry.at).toLocaleTimeString(undefined, {
               hour: "numeric",

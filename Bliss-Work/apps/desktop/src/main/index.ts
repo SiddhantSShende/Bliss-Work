@@ -318,6 +318,8 @@ function focusMain() {
  *                                         browser (Google refuses embedded
  *                                         webviews, so it can't run in-app)
  *   taskboard://invite?token=…          → an emailed invite
+ *   taskboard://join?t=…                → a meeting link, handed off from
+ *                                         the browser landing page at /join
  *
  * Parsing lives in shared/deeplink.ts so it can be unit-tested; this function
  * only maps the result onto an IPC channel.
@@ -330,6 +332,8 @@ function forwardDeepLink(url?: string) {
       connected: link.connected,
       error: link.error,
     });
+  } else if (link.kind === "meeting") {
+    mainWindow?.webContents.send("deeplink:meeting", link.token);
   } else {
     mainWindow?.webContents.send("deeplink:invite", link.token);
   }
@@ -524,8 +528,20 @@ ipcMain.on("auth:token", (e, token: string | null) => {
   if (!fromMainWindow(e)) return;
   // Every token change comes through here (login, refresh, sign-out), which
   // makes it the one place that always knows who is signed in.
-  sessionUserId = userIdFromToken(token);
+  const nextUserId = userIdFromToken(token);
+  const accountChanged = nextUserId !== sessionUserId;
+  sessionUserId = nextUserId;
   wsProc?.postMessage({ type: "token", token });
+  if (accountChanged) {
+    // Re-bind (or clear) the activity agent's ownership BEFORE anything else
+    // reacts to this token change — a stale "signed in as the previous
+    // account" must not survive into the new one for even one tick. Covers
+    // login, logout and account-switch alike; explicit sign-out ALSO calls
+    // activity:signed-out directly (see below) rather than relying on this
+    // alone, matching signOut.ts's own "do it here explicitly" philosophy.
+    activityState.setSignedInAccount(nextUserId);
+    activityAgent.reconcile(ENDPOINTS.telemetryBase);
+  }
 });
 
 // See src/main/session-token.ts: the packaged renderer is on file://, so it
@@ -551,11 +567,11 @@ ipcMain.on("auth:set-refresh-token", (e, token: unknown) => {
 // something a sticky-note window should be able to grant.
 ipcMain.handle("activity:state", async (e) => {
   if (!fromMainWindow(e)) return null;
-  const { enabled, token } = activityState.getState();
+  const { enabled, token, deviceKey } = activityState.getState();
   const cap = await activityAgent.capability();
   // `paired` rather than the token itself: the renderer never needs the secret
   // back, and not returning it means an XSS cannot exfiltrate it.
-  return { enabled, paired: !!token, ...cap };
+  return { enabled, paired: !!token, deviceKey, ...cap };
 });
 
 ipcMain.handle("activity:set-enabled", (e, enabled: unknown) => {
@@ -570,7 +586,24 @@ ipcMain.handle("activity:pair", (e, token: unknown) => {
   const value = typeof token === "string" && token.trim() ? token.trim() : null;
   const next = activityState.setToken(value);
   activityAgent.reconcile(ENDPOINTS.telemetryBase);
+  // Confirm the credential actually round-trips, independent of consent —
+  // see pingStatus's own docstring. Fire-and-forget: pairing already
+  // succeeded (this call cannot fail it), a dead token just stays unconfirmed
+  // until the next attempt.
+  if (value) void activityAgent.pingStatus(ENDPOINTS.telemetryBase, value);
   return { enabled: next.enabled, paired: !!next.token };
+});
+
+// Explicit sign-out path, matching signOut.ts's own philosophy of doing
+// things here rather than relying on an indirect mechanism — belt-and-
+// suspenders alongside auth:token's account-change handling above, so a
+// monitoring feature never keeps running for even a few extra ticks after
+// someone pressed "sign out".
+ipcMain.handle("activity:signed-out", (e) => {
+  if (!fromMainWindow(e)) return null;
+  activityState.setSignedInAccount(null);
+  activityAgent.reconcile(ENDPOINTS.telemetryBase);
+  return null;
 });
 
 // Open the OS page where Screen Recording access is granted — the ONE macOS

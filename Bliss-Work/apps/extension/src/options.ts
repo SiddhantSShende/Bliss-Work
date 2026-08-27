@@ -6,6 +6,7 @@
  * answer to "is this recording right now, and what does it send". Everything it
  * claims on screen is enforced in tracker.ts, not just described here.
  */
+import { provisionToken } from "./provisioning";
 
 const $ = <T extends HTMLElement>(id: string): T =>
   document.getElementById(id) as T;
@@ -87,28 +88,17 @@ $("connect").addEventListener("click", async () => {
   ($("connect") as HTMLButtonElement).disabled = true;
   status.textContent = "Checking…";
   try {
-    // Verify BEFORE storing. Saving an unverified code leaves the extension
-    // looking connected while silently 401ing on every batch, which is the
-    // worst of both worlds: it records nothing and says it is fine.
-    const res = await fetch(`${base}/telemetry/ingest/agent`, {
-      method: "POST",
-      headers: { "content-type": "application/json", "X-Ingest-Token": token },
-      body: JSON.stringify({ events: [] }),
-    });
-    if (res.status === 401) {
-      status.textContent = "That connection code isn't valid — generate a new one in BlissWork.";
+    const result = await provisionToken(token, base);
+    if (!result.ok) {
+      status.textContent =
+        result.reason === "invalid-token"
+          ? "That connection code isn't valid — generate a new one in BlissWork."
+          : "Couldn't reach that address. Check it and try again.";
       return;
     }
-    if (!res.ok) {
-      status.textContent = `Couldn't reach BlissWork (${res.status}). Check the address.`;
-      return;
-    }
-    await chrome.storage.local.set({ token, apiBase: base, paused: false });
     ($("token") as HTMLInputElement).value = "";
     await notifyWorker();
     await render();
-  } catch {
-    status.textContent = "Couldn't reach that address. Check it and try again.";
   } finally {
     ($("connect") as HTMLButtonElement).disabled = false;
   }

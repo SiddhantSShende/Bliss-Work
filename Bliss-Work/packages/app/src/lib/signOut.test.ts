@@ -97,4 +97,43 @@ describe("signOut", () => {
     expect(useSession.getState().status).toBe("anon");
     expect(ws.close).toHaveBeenCalledTimes(1);
   });
+
+  it("stops the desktop activity agent explicitly, before the session is cleared", async () => {
+    // Account-switching regression guard: a monitoring feature that keeps
+    // sampling for even a few extra ticks after "sign out" was pressed would
+    // attribute the NEXT person's activity to the account that just left.
+    const signedOut = vi.fn(async () => {
+      expect(useSession.getState().status).toBe("authed");
+    });
+    const config = {
+      kind: "electron",
+      eventSource: { connect: vi.fn(), disconnect: vi.fn(), subscribe: vi.fn() },
+      persistRefreshToken: vi.fn(),
+      activityAgent: { signedOut },
+    } as unknown as PlatformConfig;
+
+    await signOut(apiWith(vi.fn().mockResolvedValue(undefined)), config, { close: vi.fn() });
+
+    expect(signedOut).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not fail sign-out when stopping the activity agent fails", async () => {
+    const config = {
+      kind: "electron",
+      eventSource: { connect: vi.fn(), disconnect: vi.fn(), subscribe: vi.fn() },
+      persistRefreshToken: vi.fn(),
+      activityAgent: { signedOut: vi.fn().mockRejectedValue(new Error("ipc down")) },
+    } as unknown as PlatformConfig;
+
+    await signOut(apiWith(vi.fn().mockResolvedValue(undefined)), config, { close: vi.fn() });
+
+    expect(useSession.getState().status).toBe("anon");
+  });
+
+  it("is a no-op on web, which has no desktop agent to stop", async () => {
+    const ws = { close: vi.fn() };
+    await expect(
+      signOut(apiWith(vi.fn().mockResolvedValue(undefined)), webConfig(), ws),
+    ).resolves.toBeUndefined();
+  });
 });
