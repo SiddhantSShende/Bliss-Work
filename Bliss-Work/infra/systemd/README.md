@@ -190,6 +190,58 @@ and compares sizes. rsync exiting 0 is not proof the bytes landed.
   the *backup target* would defeat the encryption, so put it somewhere else
   entirely.
 
+## blisswork-restore-test.{service,timer}
+
+Daily proof that the previous night's backup set actually restores, via
+`scripts/restore-test.sh`, at 03:30 UTC (after the 02:30 backup) with a
+≤5min jitter.
+
+**Why this exists.** `blisswork-backup.service` verifies each dump decrypts
+and looks like a real `pg_dump`/tar output at backup time — necessary, not
+sufficient. Nothing exercised whether a dump actually *loads*, and there was
+no evidence a restore had ever been run since the backup timer was installed.
+An untested backup is not a backup; this makes "it restores" a fact checked
+every night instead of an assumption discovered wrong during an incident.
+
+**What it does, and does not, touch.** Everything happens inside a disposable
+scratch Postgres container — unpublished, no host port, torn down
+unconditionally on exit via a trap. It never touches the real stack, the real
+`postgres` container, or any live volume. It restores all seven service
+databases from the latest same-timestamp backup set, confirms each one has a
+nonzero table count and a nonzero total row count (a schema-only or empty
+restore exits 0 from `psql` just as cleanly as a real one — those checks are
+the actual test), extracts the media tar and counts what came out, and fails
+loudly — unit goes red, and an alert email fires via the same
+`scripts/send-alert.py` path `blisswork-media-disk` uses — on anything short
+of a full pass.
+
+```sh
+sudo cp infra/systemd/blisswork-restore-test.* /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now blisswork-restore-test.timer
+
+sudo systemctl start blisswork-restore-test.service   # run one now
+sudo journalctl -u blisswork-restore-test.service
+```
+
+| Env | Default | Meaning |
+|---|---|---|
+| `BACKUP_DIR` | `/var/backups/blisswork` | Same directory the backup unit writes to. |
+| `RESTORE_TEST_PG_IMAGE` | `postgres:17-alpine` | Scratch container image. Not pinned to the exact prod digest (`docker-compose.prod.yml`'s `postgres` service) — this is a disposable integrity check, not a security-sensitive pull, but keep the major version in step with prod. |
+
+Reuses `blisswork-backup.service`'s `BACKUP_ENCRYPTION_KEY` file and
+`/etc/blisswork-backup.env`'s `SMTP_*`/`ALERT_EMAIL_TO` — no new secret
+material to provision. `After=blisswork-backup.service` orders it behind the
+backup without `Requires=`: a failed backup run shouldn't also block
+restore-testing whatever the last *successful* set was.
+
+### Known gap
+
+**Does not yet verify PITR/WAL-archive restore** — only the nightly logical
+(`pg_dump`) backups `blisswork-backup.service` produces. If WAL archiving/PITR
+(`docs/BACKUPS.md`) is wired up, this job's scratch-restore-and-verify pattern
+is the natural place to extend, not a reason to write a second script.
+
 ## blisswork-refresh-token-prune.{service,timer}
 
 Deletes refresh-token rows past their expiry, via

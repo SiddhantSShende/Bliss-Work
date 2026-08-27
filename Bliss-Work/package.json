@@ -17,6 +17,7 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "eslint .",
     "check:migrations": "node scripts/check-migrations.mjs",
+    "check:migration-backcompat": "node scripts/check-migration-backcompat.mjs",
     "test": "npm run test --workspaces --if-present",
     "web": "npm run dev -w @taskboard/web",
     "desktop": "npm run dev -w @taskboard/desktop",

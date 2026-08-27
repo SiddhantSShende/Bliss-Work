@@ -194,7 +194,7 @@ class MemberDTO(BaseModel):
 
 
 class AuditEntryDTO(BaseModel):
-    id: int
+    id: str
     actorId: str | None = None
     action: str
     target: str | None = None
@@ -204,10 +204,15 @@ class AuditEntryDTO(BaseModel):
 
 class AuditPage(BaseModel):
     """Keyset page over audit_log, newest first. `nextCursor` is the id to pass
-    back as `before`; null means the caller has reached the first entry."""
+    back as `before`; null means the caller has reached the first entry.
+
+    `id`/`nextCursor` are the audit_log uuid (UUIDv7, time-ordered) as of
+    migrations/0018_audit_log_uuid_id.sql — previously the bigserial id
+    stringified as an int.
+    """
 
     entries: list[AuditEntryDTO]
-    nextCursor: int | None = None
+    nextCursor: str | None = None
 
 
 class DeleteOrgRequest(BaseModel):

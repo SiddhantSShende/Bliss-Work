@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"errors"
+	"log/slog"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -416,10 +418,47 @@ func requireChannelMember(ctx context.Context, tx pgx.Tx, orgID, channelID, user
 	return nil
 }
 
-// channelMemberIDs returns all member user ids of a channel.
+// maxChannelFanout bounds how many member ids a single channelMemberIDs query
+// will ever return.
+//
+// ── Why this exists ───────────────────────────────────────────────────────
+// Every call site below except ChannelMemberIDs (the roster endpoint — see
+// channelMemberIDsAll) embeds this list directly into a Kafka outbox event:
+// SendChannelMessage on the message-send hot path, appendChannelMessageTx for
+// forwards, emitChannelEvent for membership/role changes, and
+// DeleteChannelMessageForAll/SetChannelMessagePin/SetChannelReaction for
+// per-message moderation. ws-gateway routes purely off `members` in the event
+// (packages/shared/src/types/events.ts: "the gateway pushes to each, then
+// DROPS this field" — routing depends on it, so there is no cheaper way for a
+// consumer to reach every member's socket without messaging-svc handing it
+// the list).
+//
+// Without a ceiling, a large enough channel (an org-wide "general") makes
+// every message send embed an unboundedly large array. That does not just add
+// latency: kafka/outbox.go's maxPublishBytes (1 MiB) is checked PER EVENT
+// before anything is sent, and an event over that limit is DEAD-LETTERED, not
+// retried — the sender sees success (the message is already committed) and
+// nobody is ever notified. A bounded roster turns that silent failure into a
+// push that reaches everyone except the newest joiners past the cap, which is
+// a straightforward, honest degradation instead.
+//
+// ── Why 20,000 ────────────────────────────────────────────────────────────
+// Sized to stay comfortably under maxPublishBytes even for the richest
+// producer, ChannelMessageCreated, which also carries up to
+// api.MaxMessageBodyBytes (8 KiB) of body plus the rest of its envelope
+// (call it ~9 KiB total non-members overhead). At ~39 bytes per id (a quoted
+// UUID plus its separator), 20,000 ids costs ~780 KB, leaving a wide margin
+// below the 1 MiB ceiling rather than sizing exactly to it.
+const maxChannelFanout = 20_000
+
+// channelMemberIDs returns member user ids of a channel, oldest-joined-first,
+// capped at maxChannelFanout — see that constant's comment for why the cap
+// exists. A channel over the cap logs a warning so an operator can see it
+// happening rather than only inferring it from missing pushes.
 func channelMemberIDs(ctx context.Context, tx pgx.Tx, channelID string) ([]string, error) {
 	rows, err := tx.Query(ctx,
-		`SELECT user_id FROM channel_members WHERE channel_id = $1 ORDER BY joined_at`, channelID)
+		`SELECT user_id FROM channel_members WHERE channel_id = $1 ORDER BY joined_at LIMIT $2`,
+		channelID, maxChannelFanout+1)
 	if err != nil {
 		return nil, err
 	}
@@ -433,7 +472,78 @@ func channelMemberIDs(ctx context.Context, tx pgx.Tx, channelID string) ([]strin
 		}
 		out = append(out, id)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(out) > maxChannelFanout {
+		slog.Warn("channel membership exceeds the fan-out cap; event will not reach every member",
+			"channelId", channelID, "cap", maxChannelFanout)
+		out = out[:maxChannelFanout]
+	}
+	return out, nil
+}
+
+// channelMemberPageSize is the batch size channelMemberIDsAll fetches per
+// round trip.
+const channelMemberPageSize = 1000
+
+// channelMemberIDsAll returns EVERY member id of a channel — unlike
+// channelMemberIDs, it is not subject to maxChannelFanout. It exists for
+// ChannelMemberIDs (channels_membership.go), the roster read behind
+// GET /channels/{id}/members: the task-creation dialog expands that response
+// into individual task assignees, so a silently truncated roster there would
+// drop assignees rather than merely delay a live push, which is a materially
+// worse failure than what the cap above accepts for fan-out events.
+//
+// It stays bounded end-to-end anyway: rather than one unbounded query, it
+// walks the roster in fixed-size pages keyed on (joined_at, user_id) — the
+// same total row count, but no single round trip can return more than
+// channelMemberPageSize rows.
+func channelMemberIDsAll(ctx context.Context, tx pgx.Tx, channelID string) ([]string, error) {
+	out := []string{}
+	var afterJoined time.Time
+	var afterUser string
+	for page := 0; ; page++ {
+		var rows pgx.Rows
+		var err error
+		if page == 0 {
+			rows, err = tx.Query(ctx,
+				`SELECT user_id, joined_at FROM channel_members
+				 WHERE channel_id = $1
+				 ORDER BY joined_at, user_id
+				 LIMIT $2`,
+				channelID, channelMemberPageSize)
+		} else {
+			rows, err = tx.Query(ctx,
+				`SELECT user_id, joined_at FROM channel_members
+				 WHERE channel_id = $1 AND (joined_at, user_id) > ($2, $3)
+				 ORDER BY joined_at, user_id
+				 LIMIT $4`,
+				channelID, afterJoined, afterUser, channelMemberPageSize)
+		}
+		if err != nil {
+			return nil, err
+		}
+		n := 0
+		for rows.Next() {
+			var id string
+			var joined time.Time
+			if err := rows.Scan(&id, &joined); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			out = append(out, id)
+			afterJoined, afterUser = joined, id
+			n++
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		if n < channelMemberPageSize {
+			return out, nil
+		}
+	}
 }
 
 // cachedUserName is a user_projection row as it is cached.

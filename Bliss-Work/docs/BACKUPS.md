@@ -53,6 +53,24 @@ pgbackrest --stanza=taskboard --type=time \
   --target='2026-06-25 14:30:00+00' restore
 ```
 
-Run backups against a replica where possible; test restores regularly (an
-untested backup is not a backup). Managed Postgres (RDS/Cloud SQL) gives
-encrypted automated backups + PITR out of the box — prefer it in prod.
+Run backups against a replica where possible. Managed Postgres (RDS/Cloud SQL)
+gives encrypted automated backups + PITR out of the box — prefer it in prod.
+
+**PITR itself is documented above, not deployed.** The production host runs
+the nightly logical-dump path only (`blisswork-backup.timer`, below) —
+`archive_mode`/`archive_command` are not set on the live `postgres` service,
+so RPO today is bounded by the nightly backup window (~24h), not continuous.
+Wiring up the `pgbackrest.conf`/`postgresql.conf` blocks above against the
+real deployment is open work (Part A.7 of the scaling roadmap).
+
+## Restore testing
+
+"Test restores regularly (an untested backup is not a backup)" used to be the
+entire content of this section — advice, not a mechanism, and there was no
+evidence a restore had ever actually been exercised. `blisswork-restore-test.timer`
+(see `infra/systemd/README.md`) now does this automatically every night: it
+restores the previous backup set into a disposable scratch Postgres, checks
+every database actually has data in it (not just that `psql` exited 0), and
+alerts on anything short of a full pass. It currently covers the logical-dump
+path only — extending it to verify a PITR restore, once that's wired up, is
+the natural next step rather than a new script.

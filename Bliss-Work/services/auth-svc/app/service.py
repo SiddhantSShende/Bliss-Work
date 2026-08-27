@@ -852,11 +852,14 @@ async def write_audit(
     await conn.execute(
         text(
             """
-            INSERT INTO audit_log (org_id, actor_id, action, target, meta, at, prev_hash, entry_hash)
-            VALUES (:org, :actor, :action, :target, CAST(:meta AS jsonb), :at, :prev_hash, :entry_hash)
+            INSERT INTO audit_log (id, org_id, actor_id, action, target, meta, at, prev_hash, entry_hash)
+            VALUES (:id, :org, :actor, :action, :target, CAST(:meta AS jsonb), :at, :prev_hash, :entry_hash)
             """
         ),
         {
+            # App-generated UUIDv7 (id has no DB-side default — same
+            # convention as every other table's id; see new_uuid()).
+            "id": new_uuid(),
             "org": org_id,
             "actor": actor_id,
             "action": action,
@@ -885,7 +888,7 @@ async def verify_audit_chain(conn: AsyncConnection, org_id: str) -> dict:
     for r in rows:
         stored_prev = bytes(r.prev_hash) if r.prev_hash is not None else None
         if stored_prev != expected_prev:
-            return {"ok": False, "count": len(rows), "broken_at": int(r.id), "reason": "prev_hash mismatch"}
+            return {"ok": False, "count": len(rows), "broken_at": str(r.id), "reason": "prev_hash mismatch"}
         meta_json = _canonical_meta(r.meta) if r.meta is not None else None
         recomputed = _audit_entry_hash(
             expected_prev,
@@ -897,6 +900,6 @@ async def verify_audit_chain(conn: AsyncConnection, org_id: str) -> dict:
             r.at,
         )
         if r.entry_hash is None or bytes(r.entry_hash) != recomputed:
-            return {"ok": False, "count": len(rows), "broken_at": int(r.id), "reason": "entry_hash mismatch"}
+            return {"ok": False, "count": len(rows), "broken_at": str(r.id), "reason": "entry_hash mismatch"}
         expected_prev = bytes(r.entry_hash)
     return {"ok": True, "count": len(rows), "broken_at": None, "reason": None}

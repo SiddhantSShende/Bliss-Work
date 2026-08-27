@@ -292,6 +292,11 @@ func (s *Store) InternalChannelMembership(ctx context.Context, channelID string)
 // must themselves be a member, since this exposes who else is in the room.
 // (For the public "browse open channels" view we surface only the *count*,
 // not the list of members.)
+//
+// Deliberately uses channelMemberIDsAll rather than the capped
+// channelMemberIDs: this is the one call site that genuinely needs the
+// COMPLETE roster (see that function's comment) rather than a bounded
+// fan-out sample.
 func (s *Store) ChannelMemberIDs(ctx context.Context, orgID, channelID, callerID string) ([]string, error) {
 	var out []string
 	err := RetryOnSerializationFailure(ctx, 3, func(ctx context.Context) error {
@@ -309,7 +314,7 @@ func (s *Store) ChannelMemberIDs(ctx context.Context, orgID, channelID, callerID
 		if err := requireChannelMember(ctx, tx, orgID, channelID, callerID); err != nil {
 			return err
 		}
-		ids, err := channelMemberIDs(ctx, tx, channelID)
+		ids, err := channelMemberIDsAll(ctx, tx, channelID)
 		if err != nil {
 			return err
 		}

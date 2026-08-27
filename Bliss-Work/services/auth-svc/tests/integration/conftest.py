@@ -59,8 +59,11 @@ async def pg_dsn():
         await conn.execute(
             "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO rls_test"
         )
-        # audit_log.id is bigserial — inserting as rls_test needs nextval() on its
-        # sequence too; GRANT ... ON ALL TABLES does not imply sequence privileges.
+        # roles.id is still `serial` (0001_init.sql) — inserting as rls_test
+        # needs nextval() on its sequence too; GRANT ... ON ALL TABLES does not
+        # imply sequence privileges. (audit_log.id was also bigserial before
+        # migrations/0018_audit_log_uuid_id.sql switched it to an
+        # app-generated UUIDv7 like every other table's id.)
         await conn.execute(
             "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO rls_test"
         )

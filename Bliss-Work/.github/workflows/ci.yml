@@ -113,6 +113,41 @@ jobs:
         run: node scripts/check-migrations.mjs
 
   # ───────────────────────────────────────────────────────────────────────────
+  # MIGRATION BACKWARD-COMPATIBILITY — flags breaking schema changes in newly
+  # added migration files (A9 in the scaling roadmap).
+  #
+  # Every service applies its own migrations/*.sql in filename order at process
+  # boot (run_migrations() in Python, Store.Migrate in Go), and prod runs 2
+  # replicas per HTTP service behind Caddy with a health-gated IN-PLACE restart
+  # — so old and new code run CONCURRENTLY against the post-migration schema
+  # during every rollout. A DROP COLUMN/TABLE, RENAME, or type-narrowing change
+  # in a new migration breaks the old replica before it's even drained. Until
+  # now that was enforced only by a human writing "this is additive" in a
+  # deploy note. This is a separate job (not a lint-js step) because it needs
+  # full git history to diff against the PR's base ref, which the other lint
+  # steps don't.
+  # ───────────────────────────────────────────────────────────────────────────
+  migration-backcompat:
+    name: Migration backward-compatibility lint
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0 # full history — this job diffs against the PR's base ref
+      - name: Check new migrations for backward-incompatible changes
+        # No database and no npm install: it only reads filenames, file
+        # contents, and `git diff` against the base ref. See
+        # scripts/check-migration-backcompat.mjs for the risky-pattern list and
+        # the `-- ACKNOWLEDGE-BREAKING: <reason>` override for an intentional
+        # breaking change (same house style as scripts/audit-gate.mjs's
+        # advisory allowlist: flag it, allow an explicit documented override,
+        # never silently pass).
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.sha }}
+        run: node scripts/check-migration-backcompat.mjs
+
+  # ───────────────────────────────────────────────────────────────────────────
   # BUILD — compile the front-end bundles (web + desktop renderer).
   # ───────────────────────────────────────────────────────────────────────────
   build-frontend:

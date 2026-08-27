@@ -142,7 +142,7 @@ async def remove_member(
 
 @router.get("/audit", response_model=AuditPage)
 async def list_audit(
-    before: int | None = Query(default=None, ge=1),
+    before: str | None = Query(default=None, max_length=64),
     limit: int = Query(default=50, ge=1, le=200),
     action: str | None = Query(default=None, max_length=64),
     targetId: str | None = Query(default=None, max_length=64),
@@ -152,8 +152,10 @@ async def list_audit(
 
     The hash-chained `audit_log` has existed since 0004 with a verifier and no
     way to read it — every entry written since was invisible outside psql. This
-    is that read path. Keyset-paginated on the bigserial id (`before`), which
-    the existing (org_id, id) chain index already serves.
+    is that read path. Keyset-paginated on id (`before`) — a UUIDv7 as of
+    migrations/0018_audit_log_uuid_id.sql, still time-ordered, so the existing
+    (org_id, id) chain index still serves this exactly as it did for the old
+    bigserial id.
     """
     async with engine.connect() as conn:
         await service.set_org_guc(conn, principal.org_id)
@@ -164,7 +166,11 @@ async def list_audit(
                     SELECT id, actor_id, action, target, meta, at
                     FROM audit_log
                     WHERE org_id = :org
-                      AND (:before IS NULL OR id < :before)
+                      -- CAST: on the first page `before` is NULL, and asyncpg
+                      -- cannot infer a type for a parameter that only ever
+                      -- appears against NULL (see telemetry-svc's timeline
+                      -- endpoint for the same idiom).
+                      AND (CAST(:before AS uuid) IS NULL OR id < CAST(:before AS uuid))
                       AND (:action IS NULL OR action = :action)
                       AND (:target IS NULL OR target = :target)
                     ORDER BY id DESC
@@ -184,7 +190,7 @@ async def list_audit(
     return AuditPage(
         entries=[
             AuditEntryDTO(
-                id=int(r.id),
+                id=str(r.id),
                 actorId=str(r.actor_id) if r.actor_id else None,
                 action=r.action,
                 target=r.target,
@@ -195,5 +201,5 @@ async def list_audit(
         ],
         # One extra row was fetched purely to answer "is there more?" without a
         # second COUNT query over a table that only grows.
-        nextCursor=int(page[-1].id) if len(rows) > limit and page else None,
+        nextCursor=str(page[-1].id) if len(rows) > limit and page else None,
     )
