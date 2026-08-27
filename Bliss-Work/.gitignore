@@ -23,6 +23,7 @@ __pycache__/
 venv/
 .mypy_cache/
 .pytest_cache/
+.coverage
 # build metadata from `pip install -e .` against services/shared/kafka_security
 *.egg-info/
 
