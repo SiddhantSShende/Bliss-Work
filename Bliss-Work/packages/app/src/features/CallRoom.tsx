@@ -31,7 +31,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { Circle, Clock, Globe, Mic, MicOff, Video, VideoOff } from "lucide-react";
+import { AlertCircle, Circle, Clock, Globe, Mic, MicOff, Video, VideoOff } from "lucide-react";
 import { toast } from "sonner";
 import { Button, cn } from "@taskboard/ui";
 import { type CallDTO } from "@taskboard/shared";
@@ -151,6 +151,7 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
   const [previewCamOn, setPreviewCamOn] = useState(true);
   const previewVideoRef = useRef<HTMLVideoElement>(null);
   const [starting, setStarting] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const [panel, setPanel] = useState<Panel>(null);
   // Which tab the closing animation keeps showing underneath itself — `panel`
   // itself goes null immediately, but for the ~300ms it takes the panel to
@@ -302,6 +303,9 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
 
   // Join once, after the pre-join lobby. The hook guards re-entry.
   useEffect(() => {
+    // TEMP DIAGNOSTIC — remove once the stuck-on-"Joining the meeting…" bug
+    // is found. Confirms CallRoom itself mounted and what preJoin is.
+    console.info("[BW-DIAG] CallRoom mounted/effect", { callId: call.id, preJoin });
     if (preJoin) return;
     void join();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -731,6 +735,45 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
 
   }
 
+  /**
+   * The join attempt failed — a token refusal, or `room.connect` timing out
+   * against LiveKit's own signalling/media timeouts (see useCallRoom's join).
+   *
+   * Rendered as its own screen rather than falling through to the room chrome:
+   * that chrome's sidebar (mic/camera/share) has nothing to control without a
+   * room and every button on it silently no-ops, which reads as the app being
+   * stuck rather than the join having failed. `retry` re-enters `join()`
+   * directly — the hook already resets `roomRef`/`joining` on the failure path
+   * (see useCallRoom.ts), so a second call is a clean re-attempt.
+   */
+  if (status === "failed") {
+    const retry = () => {
+      setRetrying(true);
+      void join().finally(() => setRetrying(false));
+    };
+    return (
+      <div className="meeting-theme meeting-mesh fixed inset-0 z-[100] flex flex-col items-center justify-center gap-5 p-6 text-center">
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-danger/10 text-danger">
+          <AlertCircle size={24} />
+        </div>
+        <div className="max-w-sm">
+          <div className="text-lg font-semibold text-fg">Failed to connect to the meeting</div>
+          <p className="mt-1 text-sm text-muted">
+            Check your connection and try again. If this keeps happening, the meeting may no longer be available.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={() => void hangUp()}>
+            Leave
+          </Button>
+          <Button size="sm" onClick={retry} disabled={retrying}>
+            {retrying ? "Retrying…" : "Retry"}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   // Already on the roster, plus ourselves — nobody the picker offers should be
   // someone the server would refuse or silently ignore.
   const onTheCall = new Set(call.participants.map((p) => p.userId));
@@ -845,7 +888,6 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
               )}
               {status === "reconnecting" && <span className="text-warning">Reconnecting…</span>}
               {status === "connecting" && <span>Connecting…</span>}
-              {status === "failed" && <span className="text-danger">Couldn't connect</span>}
             </div>
           </header>
 
@@ -860,7 +902,7 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
               {participants.length === 0 ? (
                 <BracketFrame className="glass min-h-0 flex-1">
                   <div className="flex h-full items-center justify-center text-sm text-muted">
-                    {status === "failed" ? "Couldn't join this call." : "Connecting…"}
+                    Connecting…
                   </div>
                 </BracketFrame>
               ) : stage ? (

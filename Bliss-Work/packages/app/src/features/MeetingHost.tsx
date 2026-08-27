@@ -25,6 +25,10 @@ export function MeetingHost() {
   const { call, enter, exit } = useMeetingSession();
   const { api } = useRuntime();
 
+  // TEMP DIAGNOSTIC — remove once the stuck-on-"Joining the meeting…" bug is
+  // found. Tagged so it's easy to filter/strip.
+  console.info("[BW-DIAG] MeetingHost render", { call: call ? { id: call.id, status: call.status } : call });
+
   useEffect(() => {
     let requestNumber = 0;
     return onMeetingJoinRequest((callId) => {

@@ -71,6 +71,14 @@ export function CallWindow() {
    * closing it means.
    */
   useEffect(() => {
+    // TEMP DIAGNOSTIC — remove once the stuck-on-"Joining the meeting…" bug
+    // is found. Tagged so it's easy to filter/strip.
+    console.info("[BW-DIAG] CallWindow effect", {
+      callId,
+      call: call ? { id: call.id, status: call.status } : call,
+      activeId: active?.id,
+      willEnter: !!call && call.status !== "ENDED" && call.status !== "CANCELLED" && active?.id !== call.id,
+    });
     // A call already ENDED/CANCELLED is not something to connect into — same
     // exclusion RejoinPrompt (MeetingHost.tsx) already applies to its own
     // reload-recovery path. Without this, a hard refresh landing here for a
@@ -78,6 +86,7 @@ export function CallWindow() {
     // which only discovers the problem later via LiveKit's own connect
     // timeout — a needless "Connecting…" instead of an immediate answer.
     if (!call || call.status === "ENDED" || call.status === "CANCELLED" || active?.id === call.id) return;
+    console.info("[BW-DIAG] CallWindow calling enter()", callId);
     enter(call, close);
   }, [call, active?.id, enter, close]);
 

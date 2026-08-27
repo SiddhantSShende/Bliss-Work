@@ -211,11 +211,20 @@ export function useCallRoom(callId: string | null) {
   );
 
   const join = useCallback(async () => {
+    // TEMP DIAGNOSTIC — remove once the stuck-on-"Joining the meeting…" bug
+    // is found. Tagged so it's easy to filter/strip.
+    console.info("[BW-DIAG] join() called", {
+      callId,
+      hasRoomRef: !!roomRef.current,
+      joining: joining.current,
+    });
     if (!callId || roomRef.current || joining.current) return;
     joining.current = true;
     setStatus("connecting");
     try {
+      console.info("[BW-DIAG] requesting call token", callId);
       const grant = await api.callToken(callId);
+      console.info("[BW-DIAG] got call token grant", { state: grant.state });
       // The call has not been started yet. There is no token to connect with —
       // that absence IS the waiting room, not a screen we chose to show — so
       // sit here and ask again until someone entitled to start it does.
@@ -348,6 +357,9 @@ export function useCallRoom(callId: string | null) {
       sync(room);
       scheduleRefresh(room, callId, grant.expiresAt);
     } catch (e) {
+      // TEMP DIAGNOSTIC — remove once the stuck-on-"Joining the meeting…" bug
+      // is found.
+      console.error("[BW-DIAG] join() threw", e);
       roomRef.current = null;
       setStatus("failed");
       // A 503 here means the deployment has no SFU configured, which is a very
