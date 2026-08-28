@@ -20,6 +20,7 @@ declare global {
       onInviteDeepLink: (cb: (token: string) => void) => () => void;
       onMeetingDeepLink: (cb: (token: string) => void) => () => void;
       openExternal: (url: string) => void;
+      openAttachment: (url: string, fileName: string) => Promise<{ ok: boolean; error?: string }>;
       hasPreciseLocation: () => Promise<boolean>;
       /** Absent on platforms with no OS location-privacy page (Linux). */
       openLocationSettings?: () => Promise<boolean>;
@@ -108,6 +109,10 @@ const config: PlatformConfig = {
   // OAuth has to run in the system browser (Google blocks embedded webviews)
   // and return through the taskboard://oauth deep link.
   openExternal: (url) => bridge.openExternal(url),
+  // Non-previewable mail attachment: fetch it in main and hand the FILE to
+  // the OS's native default app, instead of routing a target="_blank" click
+  // through the system browser. See main/attachment-open.ts.
+  openAttachment: (url, fileName) => bridge.openAttachment(url, fileName),
   hasPreciseLocation: () => bridge.hasPreciseLocation(),
   // Forwarded only when the host actually has one, so `config.openLocationSettings`
   // stays a truthful capability check in the shared app code.

@@ -223,12 +223,24 @@ function toMediaItem(a: MailAttachmentDTO): MediaItem {
  * through `setWindowOpenHandler`, which is what reliably hands the URL to
  * `shell.openExternal` (or, on web, just opens a new tab) — the same path
  * ChatAssetsSheet's doc links already use.
+ *
+ * On desktop specifically, `config.openAttachment` (present only in
+ * Electron — see platform.ts) is used instead: it fetches the file in main
+ * and opens it with the OS's native default app, so the click lands on the
+ * file itself rather than on the system browser. Web has no such capability
+ * and keeps the `target="_blank"` anchor exactly as before.
  */
 export function MailAttachmentCards({ attachments }: { attachments: MailAttachmentDTO[] }) {
+  const { config } = useRuntime();
   const ids = useMemo(() => attachments.map((a) => a.id), [attachments]);
   const links = useAttachmentLinks(ids);
   const [preview, setPreview] = useState<MailAttachmentDTO | null>(null);
   if (attachments.length === 0) return null;
+
+  const openNatively = async (filename: string, url: string) => {
+    const result = await config.openAttachment!(url, filename);
+    if (!result.ok) toast.error(`Could not open ${filename}`, { description: result.error });
+  };
 
   return (
     <section className="mt-6 border-t border-border/60 pt-4">
@@ -263,6 +275,16 @@ export function MailAttachmentCards({ attachments }: { attachments: MailAttachme
                   className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 font-medium text-accent hover:bg-accent-soft"
                 >
                   <Eye size={14} /> Preview
+                </button>
+              ) : url && config.openAttachment ? (
+                <button
+                  type="button"
+                  onClick={() => void openNatively(a.filename, url)}
+                  title={`Open ${a.filename}`}
+                  aria-label={`Open ${a.filename}`}
+                  className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 font-medium text-accent hover:bg-accent-soft"
+                >
+                  <Download size={14} /> Open
                 </button>
               ) : url ? (
                 <a

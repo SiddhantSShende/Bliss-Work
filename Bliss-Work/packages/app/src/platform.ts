@@ -228,6 +228,12 @@ export interface PlatformConfig {
    *  so the authorize URL must leave the app entirely. Absent on web, where a
    *  same-tab redirect works and is what users expect. */
   openExternal?: (url: string) => void;
+  /** Present only in Electron: fetch a signed, non-previewable mail attachment
+   *  URL in the MAIN process and open the FILE with the OS's native default
+   *  app (shell.openPath), instead of routing a target="_blank" click through
+   *  the system browser. Absent on web, where target="_blank" is the only —
+   *  and correct — option. See apps/desktop/src/main/attachment-open.ts. */
+  openAttachment?: (url: string, fileName: string) => Promise<{ ok: boolean; error?: string }>;
   /** Present only in Electron: whether this build can resolve a PRECISE
    *  location. Chromium's network locator needs a Google API key Electron does
    *  not ship (see main/geo-key.ts), and Linux has no OS locator to fall back

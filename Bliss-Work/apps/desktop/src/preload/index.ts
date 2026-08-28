@@ -73,6 +73,15 @@ const api = {
    *  re-validates the scheme — never trust the renderer with a shell call. */
   openExternal: (url: string) => ipcRenderer.send("shell:open-external", url),
 
+  /** Fetch a signed attachment URL in MAIN and open the FILE with the OS's
+   *  native default app (shell.openPath) — the desktop-native counterpart of
+   *  a non-previewable mail attachment's `target="_blank"` "Download" link,
+   *  which otherwise routes through openExternal into the system browser.
+   *  Main re-validates the URL — never trust the renderer with a fetch + shell
+   *  call. See main/attachment-open.ts. */
+  openAttachment: (url: string, fileName: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke("attachment:open", { url, fileName }),
+
   /** Whether this build can resolve a PRECISE location. False means location
    *  sharing still works but resolves to a city-level IP fix. */
   hasPreciseLocation: (): Promise<boolean> => ipcRenderer.invoke("geo:precise"),

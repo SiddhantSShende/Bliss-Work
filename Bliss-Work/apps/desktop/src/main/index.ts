@@ -25,6 +25,7 @@ import { flushSync as flushStickyState, initStickyState } from "./sticky-state";
 import { trayIcon } from "./assets";
 import { buildAppMenu } from "./menu";
 import { registerFileSink } from "./file-sink";
+import { registerAttachmentOpen } from "./attachment-open";
 import { checkForUpdatesNow, initAutoUpdate } from "./updater";
 import { installLocationProviderKey, hasPreciseLocationProvider } from "./geo-key";
 import { locationSettingsUrl } from "../shared/location-settings";
@@ -242,6 +243,7 @@ function bootstrap() {
   startWsProcess();
   createTray();
   registerFileSink();
+  registerAttachmentOpen();
 
   // Keep sticky notes on the main desktop screen when the display layout
   // changes (monitor plugged/unplugged/resolution change) — re-confine any note

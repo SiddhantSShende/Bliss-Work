@@ -15,7 +15,16 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MailAttachmentCards } from "./MailAttachments";
 import { useAttachmentLinks as useAttachmentLinksMock } from "../lib/useAttachmentLinks";
+import { useRuntime as useRuntimeMock } from "../lib/runtime";
 import type { MailAttachmentDTO } from "@taskboard/shared";
+
+// MailAttachmentCards now reads config.openAttachment (desktop-only) via
+// useRuntime() — see ChatsList.test.tsx for the same base pattern. Defaults to
+// the plain web `config` (no openAttachment) so every existing assertion
+// below about the `target="_blank"` link stays exactly as it was before this
+// mock was needed; individual tests override it with mockReturnValueOnce to
+// exercise the desktop native-open path.
+vi.mock("../lib/runtime", () => ({ useRuntime: vi.fn(() => ({ config: { kind: "web" } })) }));
 
 vi.mock("../lib/useAttachmentLinks", () => ({
   useAttachmentLinks: vi.fn((ids: string[]) => ({
@@ -99,5 +108,21 @@ describe("MailAttachmentCards", () => {
 
     expect(screen.queryByRole("button", { name: `Preview ${file.filename}` })).not.toBeInTheDocument();
     expect(screen.getByText("Unavailable")).toBeInTheDocument();
+  });
+
+  // Desktop-only: when config.openAttachment exists, a non-previewable file
+  // opens via that IPC call instead of a target="_blank" anchor — no browser
+  // tab, no `<a href>` at all.
+  it("on desktop, opens a non-previewable file via config.openAttachment, not target=_blank", async () => {
+    const openAttachment = vi.fn().mockResolvedValue({ ok: true });
+    vi.mocked(useRuntimeMock).mockReturnValueOnce({ config: { kind: "desktop", openAttachment } } as never);
+    const doc = attachment({ id: "a6", filename: "report.docx", mime: "application/vnd.ms-word" });
+    render(<MailAttachmentCards attachments={[doc]} />);
+
+    expect(screen.queryByRole("link", { name: `Open ${doc.filename}` })).not.toBeInTheDocument();
+    const openBtn = screen.getByRole("button", { name: `Open ${doc.filename}` });
+    await userEvent.click(openBtn);
+
+    expect(openAttachment).toHaveBeenCalledWith("https://example.test/media/a6?t=sig", doc.filename);
   });
 });
