@@ -14,6 +14,7 @@ declare global {
       onTask: (cb: (t: StickyTaskDTO) => void) => () => void;
       act: (taskId: string, action: string) => void;
       setCollapsed: (collapsed: boolean) => void;
+      setBackgroundColor: (color: string) => void;
       ready: () => void;
       dismiss: () => void;
     };
@@ -26,6 +27,20 @@ const VERB: Record<TaskAction, string> = {
   IGNORE: "ignore",
   LEAVE: "leave",
 };
+
+/** `getComputedStyle` always resolves to `rgb(...)`/`rgba(...)`, regardless
+ *  of how the colour was authored (oklch/hex/named) — but `setBackgroundColor`
+ *  is only documented to accept hex, so convert rather than pass the resolved
+ *  form straight through. Falls back to white on a shape it doesn't
+ *  recognise; a wrong-but-valid colour is a cosmetic corner, never worth
+ *  more than that. */
+function toHex(resolved: string): string {
+  const m = /^rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(resolved);
+  if (!m) return "#ffffff";
+  const [, r, g, b] = m;
+  const hex = (n: string) => Number(n).toString(16).padStart(2, "0");
+  return `#${hex(r!)}${hex(g!)}${hex(b!)}`;
+}
 
 /** Apply the persisted theme on the sticky window's <html> so the note's
  *  surface/fg/border colours match the main app rather than being stuck on
@@ -43,6 +58,19 @@ function useSyncedTheme(): void {
       const root = document.documentElement;
       root.classList.remove(...ALL_THEME_CLASSES);
       root.classList.add(...classes);
+      // The OS window is opaque, not transparent (see windows.ts), so its
+      // native background is a fixed colour main doesn't otherwise know —
+      // it has to be told. Read the RESOLVED colour off a throwaway element
+      // (never the raw --color-surface token, which could be oklch()/hex/
+      // anything and isn't what setBackgroundColor accepts) so this works for
+      // every theme family without hardcoding any of their values here.
+      const probe = document.createElement("div");
+      probe.className = "bg-surface";
+      probe.style.cssText = "position:fixed;width:0;height:0;overflow:hidden;pointer-events:none;";
+      document.body.appendChild(probe);
+      const resolved = getComputedStyle(probe).backgroundColor;
+      document.body.removeChild(probe);
+      window.sticky.setBackgroundColor(toHex(resolved));
     };
     apply();
     window.addEventListener("storage", apply);

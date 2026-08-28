@@ -30,6 +30,16 @@ const api = {
   setCollapsed: (collapsed: boolean) =>
     ipcRenderer.send("sticky:collapse", { taskId: api.taskId, collapsed }),
 
+  /** The window is opaque, not transparent (see windows.ts), so its native
+   *  background has to be told what colour to be — it can't just inherit
+   *  whatever CSS variable the theme resolves to. Sent as a resolved `#rrggbb`
+   *  hex string (read off the DOM and converted, never a raw theme token —
+   *  see sticky.tsx's toHex) whenever the active theme changes, so the
+   *  rounded-corner cutouts around the card stay matched instead of showing a
+   *  stale colour. */
+  setBackgroundColor: (color: string) =>
+    ipcRenderer.send("sticky:bg", { taskId: api.taskId, color }),
+
   /** Clear this note from the desktop for good. Distinct from `act(…, "ignore")`
    *  — that is a decision about the TASK; this is only about the note, and the
    *  task keeps its status. Main remembers so the auto-pin doesn't bring it

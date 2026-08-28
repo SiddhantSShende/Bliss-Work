@@ -28,8 +28,8 @@
 export type ThemeId =
   | "blue"
   | "blue-dark"
-  | "red-pink"
-  | "red-pink-dark"
+  | "rose"
+  | "rose-dark"
   | "purple"
   | "purple-dark"
   | "teal"
@@ -44,14 +44,14 @@ export interface ThemeDef {
 /** The non-"dark" class each family layers on top of the light/dark axis.
  *  Blue has none — see the module doc comment above. */
 const FAMILY_CLASSES: Partial<Record<ThemeId, string>> = {
-  "red-pink": "red-pink",
-  "purple": "purple",
-  "teal": "teal",
+  rose: "rose",
+  purple: "purple",
+  teal: "teal",
 };
 
 /** Every family's light class-set. Family order here is menu order. */
 const FAMILIES: readonly { id: Exclude<ThemeId, `${string}-dark`>; name: string }[] = [
-  { id: "red-pink", name: "Red / Pink" },
+  { id: "rose", name: "Red / Rose" },
   { id: "blue", name: "Blue" },
   { id: "purple", name: "Purple" },
   { id: "teal", name: "Cyan / Teal" },

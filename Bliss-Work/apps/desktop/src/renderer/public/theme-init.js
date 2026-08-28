@@ -6,8 +6,8 @@
   const THEME_CLASSES = {
     blue: ["light"],
     "blue-dark": ["dark"],
-    "red-pink": ["light", "red-pink"],
-    "red-pink-dark": ["dark", "red-pink"],
+    "rose": ["light", "rose"],
+    "rose-dark": ["dark", "rose"],
     purple: ["light", "purple"],
     "purple-dark": ["dark", "purple"],
     teal: ["light", "teal"],

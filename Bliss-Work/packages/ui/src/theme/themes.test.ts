@@ -3,7 +3,7 @@ import { THEMES, isThemeId, themeClasses, themeName, darkCounterpart, defaultThe
 
 describe("THEMES", () => {
   it("offers exactly the four light families, in the required order, and nothing else", () => {
-    expect(THEMES.map((t) => t.id)).toEqual(["red-pink", "blue", "purple", "teal"]);
+    expect(THEMES.map((t) => t.id)).toEqual(["rose", "blue", "purple", "teal"]);
   });
 
   it("never offers a dark id directly — only reachable via the toggle", () => {
@@ -15,7 +15,7 @@ describe("THEMES", () => {
   });
 
   it("gives every other family its own class alongside the light/dark axis", () => {
-    expect(THEMES.find((t) => t.id === "red-pink")!.classes).toEqual(["light", "red-pink"]);
+    expect(THEMES.find((t) => t.id === "rose")!.classes).toEqual(["light", "rose"]);
     expect(THEMES.find((t) => t.id === "purple")!.classes).toEqual(["light", "purple"]);
     expect(THEMES.find((t) => t.id === "teal")!.classes).toEqual(["light", "teal"]);
   });
@@ -23,7 +23,7 @@ describe("THEMES", () => {
 
 describe("isThemeId", () => {
   it("accepts every current light and dark id", () => {
-    for (const id of ["blue", "blue-dark", "red-pink", "red-pink-dark", "purple", "purple-dark", "teal", "teal-dark"]) {
+    for (const id of ["blue", "blue-dark", "rose", "rose-dark", "purple", "purple-dark", "teal", "teal-dark"]) {
       expect(isThemeId(id)).toBe(true);
     }
   });
@@ -37,14 +37,14 @@ describe("isThemeId", () => {
 
 describe("darkCounterpart", () => {
   it("maps every light family to its own dark id, never a generic default", () => {
-    expect(darkCounterpart("red-pink")).toBe("red-pink-dark");
+    expect(darkCounterpart("rose")).toBe("rose-dark");
     expect(darkCounterpart("blue")).toBe("blue-dark");
     expect(darkCounterpart("purple")).toBe("purple-dark");
     expect(darkCounterpart("teal")).toBe("teal-dark");
   });
 
   it("is its own inverse — toggling dark off returns exactly the family toggled from", () => {
-    for (const light of ["red-pink", "blue", "purple", "teal"] as const) {
+    for (const light of ["rose", "blue", "purple", "teal"] as const) {
       const dark = darkCounterpart(light);
       expect(darkCounterpart(dark)).toBe(light);
     }
@@ -60,7 +60,7 @@ describe("defaultThemeFor", () => {
 
 describe("themeClasses / themeName", () => {
   it("round-trip every id to its own classes and a non-empty name", () => {
-    for (const id of ["blue", "blue-dark", "red-pink", "red-pink-dark", "purple", "purple-dark", "teal", "teal-dark"] as const) {
+    for (const id of ["blue", "blue-dark", "rose", "rose-dark", "purple", "purple-dark", "teal", "teal-dark"] as const) {
       expect(themeClasses(id).length).toBeGreaterThan(0);
       expect(themeName(id).length).toBeGreaterThan(0);
     }
@@ -74,7 +74,7 @@ describe("themeClasses / themeName", () => {
 
 describe("ALL_THEME_CLASSES", () => {
   it("lists every class any theme can apply — light, dark, and each family", () => {
-    expect(new Set(ALL_THEME_CLASSES)).toEqual(new Set(["light", "dark", "red-pink", "purple", "teal"]));
+    expect(new Set(ALL_THEME_CLASSES)).toEqual(new Set(["light", "dark", "rose", "purple", "teal"]));
   });
 
   it("no longer contains the removed lime family", () => {

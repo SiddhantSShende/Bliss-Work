@@ -465,6 +465,20 @@ export class StickyManager {
     // must not drop an unfinished commitment.
   }
 
+  /**
+   * Keep the note window's native (opaque, not transparent — see
+   * ./windows.ts) background in step with its own renderer's resolved theme.
+   * The renderer computes the colour itself off the DOM (never a raw theme
+   * token trusted verbatim) and reports it here; a malformed value is simply
+   * dropped rather than handed to the native window.
+   */
+  setBackgroundColor(taskId: string, color: string): void {
+    const w = this.widgets.get(taskId);
+    if (!w || w.isDestroyed()) return;
+    if (!/^#[0-9a-fA-F]{6}$/.test(color)) return;
+    w.setBackgroundColor(color);
+  }
+
   private pushTask(w: BrowserWindow, task: StickyTaskDTO): void {
     if (!w.isDestroyed()) w.webContents.send("sticky:task", task);
   }

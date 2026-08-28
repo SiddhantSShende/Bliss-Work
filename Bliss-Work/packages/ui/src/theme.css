@@ -12,20 +12,25 @@
    line and its `@source` paths (which are relative to the shell).
    ───────────────────────────────────────────────────────────────────────────── */
 
-/* ── Tokens. WHITE default; .dark overrides. Blue→violet brand. ───────────── */
+/* ── Tokens. WHITE default; .dark overrides. This IS the "Blue" theme (see
+   themes.ts) — the app's original palette, needing no extra class of its
+   own. Chart/heat tokens stay pinned to their own tuned hue (285/288)
+   independent of the accent below: they're measured for contrast on this
+   surface and out of scope for the per-theme colour system (themes.ts'
+   named families only cover bg/surface/border/text/accent, not charts). ── */
 @theme {
-  --color-bg: oklch(0.965 0.025 260);
-  --color-surface: oklch(1 0 0);
-  --color-surface-2: oklch(0.975 0.015 265);
-  --color-border: oklch(0.91 0.02 270);
-  --color-muted: oklch(0.52 0.03 280);
-  --color-fg: oklch(0.26 0.045 275);
-  --color-accent: oklch(0.58 0.22 285);
-  --color-accent-strong: oklch(0.52 0.22 285);
-  --color-accent-fg: oklch(0.99 0 0);
-  --color-accent-soft: oklch(0.95 0.04 285);
-  --color-brand-from: oklch(0.62 0.19 264);
-  --color-brand-to: oklch(0.6 0.23 302);
+  --color-bg: #f7fbff;
+  --color-surface: #ffffff;
+  --color-surface-2: #e8f1fc;
+  --color-border: #dbeafe;
+  --color-muted: #6b7280;
+  --color-fg: #111827;
+  --color-accent: #2563eb;
+  --color-accent-strong: #1d4ed8;
+  --color-accent-fg: #ffffff;
+  --color-accent-soft: #eff6ff;
+  --color-brand-from: #60a5fa;
+  --color-brand-to: #2563eb;
   --color-success: oklch(0.7 0.15 158);
   --color-danger: oklch(0.62 0.21 25);
   --color-warning: oklch(0.8 0.15 80);
@@ -57,24 +62,24 @@
 }
 
 :root {
-  --glass-bg: rgba(255, 255, 255, 0.3);
+  --glass-bg: rgba(219, 234, 254, 0.4);
   --glass-border: rgba(255, 255, 255, 0.66);
-  --glass-shadow: 0 8px 32px rgba(60, 40, 120, 0.12);
+  --glass-shadow: 0 8px 32px rgba(37, 99, 235, 0.12);
 }
 
 .dark {
-  --color-bg: oklch(0.16 0.02 280);
-  --color-surface: oklch(0.21 0.025 280);
-  --color-surface-2: oklch(0.25 0.028 280);
-  --color-border: oklch(0.31 0.03 280);
-  --color-muted: oklch(0.66 0.03 280);
-  --color-fg: oklch(0.97 0.01 285);
-  --color-accent: oklch(0.66 0.2 288);
-  --color-accent-strong: oklch(0.72 0.2 288);
-  --color-accent-fg: oklch(0.14 0.02 285);
-  --color-accent-soft: oklch(0.3 0.06 288);
-  --color-brand-from: oklch(0.66 0.19 264);
-  --color-brand-to: oklch(0.66 0.23 302);
+  --color-bg: #020817;
+  --color-surface: #0f172a;
+  --color-surface-2: #16213a;
+  --color-border: #1e3a5f;
+  --color-muted: #94a3b8;
+  --color-fg: #f8fafc;
+  --color-accent: #3b82f6;
+  --color-accent-strong: #60a5fa;
+  --color-accent-fg: #020817;
+  --color-accent-soft: #172554;
+  --color-brand-from: #60a5fa;
+  --color-brand-to: #3b82f6;
   --color-success: oklch(0.75 0.15 158);
   --color-danger: oklch(0.68 0.2 25);
   --color-warning: oklch(0.82 0.15 80);
@@ -96,8 +101,8 @@
   --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.35), 0 16px 40px rgba(0, 0, 0, 0.45);
   --shadow-widget: 0 18px 50px rgba(0, 0, 0, 0.6);
 
-  --glass-bg: rgba(30, 28, 54, 0.55);
-  --glass-border: rgba(255, 255, 255, 0.09);
+  --glass-bg: rgba(15, 23, 42, 0.55);
+  --glass-border: rgba(59, 130, 246, 0.1);
   --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
 }
 
@@ -115,117 +120,117 @@
    success/danger/warning are deliberately NOT overridden per family: they're
    semantic (a task overdue is red regardless of whether the theme's OWN
    accent happens to be red too), not brand colour. */
-.red-pink {
-  --color-bg: #fdf2f2;
+.rose {
+  --color-bg: #fff8f9;
   --color-surface: #ffffff;
-  --color-surface-2: #fbe2e0; /* Sidebar — also the hover/subtle-bg tone */
-  --color-border: #f4cdc9;
-  --color-muted: #8a6764;
-  --color-fg: #2b1615;
+  --color-surface-2: #fce8ea; /* Sidebar — also the hover/subtle-bg tone */
+  --color-border: #fce7f3;
+  --color-muted: #71717a;
+  --color-fg: #18181b;
   --color-accent: #e11d48;
   --color-accent-strong: #be123c;
   --color-accent-fg: #ffffff;
-  --color-accent-soft: #fce4e2;
+  --color-accent-soft: #fff1f2;
   --color-brand-from: #fb7185;
   --color-brand-to: #e11d48;
 
-  --glass-bg: rgba(251, 226, 224, 0.55);
+  --glass-bg: rgba(252, 232, 234, 0.55);
   --glass-border: rgba(255, 255, 255, 0.7);
-  --glass-shadow: 0 8px 32px rgba(150, 40, 45, 0.1);
+  --glass-shadow: 0 8px 32px rgba(190, 18, 60, 0.12);
 }
 
-.dark.red-pink {
-  --color-bg: #1a0e0e;
-  --color-surface: #251515;
-  --color-surface-2: #2d1a1a; /* Card — hover/secondary elevation */
-  --color-border: #3d2222;
-  --color-muted: #ba9291;
-  --color-fg: #fbecec;
-  --color-accent: #fb7185;
-  --color-accent-strong: #f43f5e;
-  --color-accent-fg: #1a0e0e;
-  --color-accent-soft: #3d2222;
+.dark.rose {
+  --color-bg: #09090b;
+  --color-surface: #18181b;
+  --color-surface-2: #221419; /* Card — hover/secondary elevation */
+  --color-border: #3f1d2b;
+  --color-muted: #a1a1aa;
+  --color-fg: #fafafa;
+  --color-accent: #f43f5e;
+  --color-accent-strong: #fb7185;
+  --color-accent-fg: #09090b;
+  --color-accent-soft: #4c0519;
   --color-brand-from: #fb7185;
   --color-brand-to: #f43f5e;
 
-  --glass-bg: rgba(37, 21, 21, 0.6);
-  --glass-border: rgba(251, 113, 133, 0.08);
+  --glass-bg: rgba(24, 24, 27, 0.6);
+  --glass-border: rgba(244, 63, 94, 0.1);
   --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
 }
 
 .purple {
-  --color-bg: #f6f4fc;
+  --color-bg: #fbf9ff;
   --color-surface: #ffffff;
-  --color-surface-2: #ece6f9;
-  --color-border: #ddd2f2;
-  --color-muted: #736a8a;
-  --color-fg: #201a33;
+  --color-surface-2: #f1e9fd;
+  --color-border: #e9d5ff;
+  --color-muted: #71717a;
+  --color-fg: #18181b;
   --color-accent: #7c3aed;
   --color-accent-strong: #6d28d9;
   --color-accent-fg: #ffffff;
-  --color-accent-soft: #ede5fd;
-  --color-brand-from: #a78bfa;
+  --color-accent-soft: #f5f3ff;
+  --color-brand-from: #c084fc;
   --color-brand-to: #7c3aed;
 
-  --glass-bg: rgba(236, 230, 249, 0.55);
+  --glass-bg: rgba(233, 213, 255, 0.5);
   --glass-border: rgba(255, 255, 255, 0.7);
-  --glass-shadow: 0 8px 32px rgba(90, 50, 150, 0.1);
+  --glass-shadow: 0 8px 32px rgba(124, 58, 237, 0.1);
 }
 
 .dark.purple {
-  --color-bg: #150f1f;
-  --color-surface: #1e1730;
-  --color-surface-2: #251c3a;
-  --color-border: #332a4d;
-  --color-muted: #a99fc4;
-  --color-fg: #f4f1fc;
-  --color-accent: #a78bfa;
-  --color-accent-strong: #c4b5fd;
-  --color-accent-fg: #150f1f;
-  --color-accent-soft: #332a4d;
-  --color-brand-from: #a78bfa;
-  --color-brand-to: #c084fc;
+  --color-bg: #0d0717;
+  --color-surface: #181024;
+  --color-surface-2: #21172f;
+  --color-border: #3b245a;
+  --color-muted: #a1a1aa;
+  --color-fg: #fafafa;
+  --color-accent: #a855f7;
+  --color-accent-strong: #c084fc;
+  --color-accent-fg: #0d0717;
+  --color-accent-soft: #3b0764;
+  --color-brand-from: #c084fc;
+  --color-brand-to: #a855f7;
 
-  --glass-bg: rgba(30, 23, 48, 0.6);
-  --glass-border: rgba(167, 139, 250, 0.08);
+  --glass-bg: rgba(24, 16, 36, 0.6);
+  --glass-border: rgba(168, 85, 247, 0.1);
   --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
 }
 
 .teal {
-  --color-bg: #f1fafa;
+  --color-bg: #f5feff;
   --color-surface: #ffffff;
-  --color-surface-2: #dcf3f2;
-  --color-border: #c3e8e6;
-  --color-muted: #5f7f7d;
-  --color-fg: #112221;
-  --color-accent: #0d9488;
-  --color-accent-strong: #0f766e;
+  --color-surface-2: #e0fafc;
+  --color-border: #cffafe;
+  --color-muted: #64748b;
+  --color-fg: #164e63;
+  --color-accent: #06b6d4;
+  --color-accent-strong: #0891b2;
   --color-accent-fg: #ffffff;
-  --color-accent-soft: #d3f5f1;
-  --color-brand-from: #2dd4bf;
+  --color-accent-soft: #ecfeff;
+  --color-brand-from: #22d3ee;
   --color-brand-to: #06b6d4;
 
-  --glass-bg: rgba(220, 243, 242, 0.55);
+  --glass-bg: rgba(207, 250, 254, 0.5);
   --glass-border: rgba(255, 255, 255, 0.7);
-  --glass-shadow: 0 8px 32px rgba(15, 110, 100, 0.1);
+  --glass-shadow: 0 8px 32px rgba(6, 182, 212, 0.1);
 }
 
 .dark.teal {
-  --color-bg: #0b1615;
-  --color-surface: #12201f;
-  --color-surface-2: #172826;
-  --color-border: #20332f;
-  --color-muted: #8fb3af;
-  --color-fg: #eafaf8;
-  --color-accent: #2dd4bf;
-  --color-accent-strong: #5eead4;
-  --color-accent-fg: #0b1615;
-  --color-accent-soft: #1c332f;
-  --color-brand-from: #2dd4bf;
-  --color-brand-to: #22d3ee;
+  --color-bg: #031316;
+  --color-surface: #0b2024;
+  --color-surface-2: #0f2a2f;
+  --color-border: #164e63;
+  --color-muted: #94a3b8;
+  --color-fg: #ecfeff;
+  --color-accent: #06b6d4;
+  --color-accent-strong: #22d3ee;
+  --color-accent-fg: #031316;
+  --color-accent-soft: #083344;
+  --color-brand-from: #22d3ee;
+  --color-brand-to: #06b6d4;
 
-  --glass-bg: rgba(18, 32, 31, 0.6);
-  --glass-border: rgba(45, 212, 191, 0.08);
+  --glass-bg: rgba(11, 32, 36, 0.6);
+  --glass-border: rgba(6, 182, 212, 0.1);
   --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
 }
 

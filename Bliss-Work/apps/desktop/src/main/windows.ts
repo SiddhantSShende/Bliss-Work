@@ -160,7 +160,21 @@ export function createStickyWindow(taskId: string, index: number, collapsed = fa
     minWidth: 300,
     minHeight: 140,
     frame: false,
-    transparent: true,
+    // false, not true: a transparent frameless window needs GPU compositing
+    // to actually render as see-through, and on a Linux session without a
+    // compositing window manager (common — no WM here at all is the extreme
+    // case, but plenty of real ones run without compositing too) Chromium
+    // falls back to painting the FULL window rectangle opaque instead — the
+    // small task card ends up sitting inside a large, wrongly-coloured block
+    // that reads as "the whole background came with it". An ordinary opaque
+    // window has no such fallback to fail: it always renders exactly what it
+    // is asked to. `backgroundColor` below keeps the tiny rounded-corner
+    // cutouts around the card (the only bit of the window the card doesn't
+    // paint itself) matching the card's own colour instead of showing a
+    // visible square edge — see useSyncedTheme in ../renderer/sticky.tsx,
+    // which keeps it in step with the active theme over "sticky:bg".
+    transparent: false,
+    backgroundColor: "#ffffff",
     resizable: true,
     movable: true,
     skipTaskbar: true,

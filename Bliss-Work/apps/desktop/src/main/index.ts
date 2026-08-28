@@ -719,6 +719,18 @@ ipcMain.on("sticky:collapse", (_e, p: unknown) => {
     console.error("[sticky] sticky:collapse failed", err);
   }
 });
+// The note's own renderer reporting its resolved theme colour (see
+// StickyManager.setBackgroundColor for why the window needs telling at all).
+ipcMain.on("sticky:bg", (_e, p: unknown) => {
+  if (!p || typeof p !== "object") return;
+  const { taskId, color } = p as { taskId?: unknown; color?: unknown };
+  if (typeof taskId !== "string" || !taskId || typeof color !== "string" || !color) return;
+  try {
+    sticky.setBackgroundColor(taskId, color);
+  } catch (err) {
+    console.error("[sticky] sticky:bg failed", err);
+  }
+});
 // Phase 10: renderer → ws-process WebRTC signaling (rtc.offer/answer/ice/cancel).
 ipcMain.on("rtc:send", (_e, frame: unknown) => {
   // Only forward a well-formed frame ({ type: string, ... }); never relay an
