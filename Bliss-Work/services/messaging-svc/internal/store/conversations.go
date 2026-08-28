@@ -280,7 +280,8 @@ func (s *Store) ListConversations(ctx context.Context, orgID, callerID string) (
 			          AND m2.seq > cm.last_read_seq
 			    ), 0) AS unread,
 			    COALESCE(cm.blocked, false) AS blocked_by_me,
-			    COALESCE(pm.blocked, false) AS blocked_by_peer
+			    COALESCE(pm.blocked, false) AS blocked_by_peer,
+			    lm.sender_id AS last_message_sender_id
 			FROM conversations c
 			JOIN conversation_members cm
 			    ON cm.conversation_id = c.id AND cm.user_id = $2
@@ -288,7 +289,7 @@ func (s *Store) ListConversations(ctx context.Context, orgID, callerID string) (
 			    ON pm.conversation_id = c.id
 			   AND pm.user_id = (CASE WHEN c.user_low = $2 THEN c.user_high ELSE c.user_low END)
 			LEFT JOIN LATERAL (
-			    SELECT body, body_enc FROM messages m
+			    SELECT body, body_enc, sender_id FROM messages m
 			    WHERE m.conversation_id = c.id
 			      -- Skips messages THIS caller cleared/hid, so the preview shows the
 			      -- newest message the caller can actually still see rather than one
@@ -311,18 +312,19 @@ func (s *Store) ListConversations(ctx context.Context, orgID, callerID string) (
 		// Buffer raw rows so the cursor is fully drained before we run any
 		// Decrypt query on the same tx.
 		type rawConv struct {
-			d       ConversationDTO
-			lastMsg *string
-			lastEnc []byte
-			lastAt  *time.Time
-			cleared bool
+			d            ConversationDTO
+			lastMsg      *string
+			lastEnc      []byte
+			lastAt       *time.Time
+			cleared      bool
+			lastSenderID *string
 		}
 		var raws []rawConv
 		for rows.Next() {
 			var rc rawConv
 			if err := rows.Scan(&rc.d.ID, &rc.d.PeerID, &rc.d.PeerUsername, &rc.d.PeerDisplayName,
 				&rc.lastMsg, &rc.lastEnc, &rc.lastAt, &rc.cleared, &rc.d.Unread,
-				&rc.d.BlockedByMe, &rc.d.BlockedByPeer); err != nil {
+				&rc.d.BlockedByMe, &rc.d.BlockedByPeer, &rc.lastSenderID); err != nil {
 				rows.Close()
 				return err
 			}
@@ -336,6 +338,9 @@ func (s *Store) ListConversations(ctx context.Context, orgID, callerID string) (
 		for _, rc := range raws {
 			d := rc.d
 			d.Cleared = rc.cleared
+			if rc.lastSenderID != nil {
+				d.LastMessageSenderID = *rc.lastSenderID
+			}
 			// Decrypt the single last-message preview; legacy plaintext is fallback.
 			if rc.lastEnc != nil {
 				dec, derr := s.crypto.Decrypt(ctx, tx, orgID, rc.lastEnc)

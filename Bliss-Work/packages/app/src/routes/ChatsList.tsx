@@ -15,6 +15,7 @@ import { usePopupDismiss } from "../lib/usePopupDismiss";
 import { useSelectedChat } from "../lib/selectedChat";
 import { listPreview } from "../lib/chatEnvelope";
 import { ConfirmDialog } from "../features/ConfirmDialog";
+import { useSession } from "../store/session";
 
 function ChatListMenu({
   muted,
@@ -113,6 +114,7 @@ function ChatListMenuItem({
 export function ChatsList() {
   const { api } = useRuntime();
   const qc = useQueryClient();
+  const me = useSession((s) => s.user)!;
   const { selectedId, openChat, closeChat } = useSelectedChat();
   const [newOpen, setNewOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -254,7 +256,14 @@ export function ChatsList() {
                   </div>
                   <div className="flex items-center justify-between gap-2">
                     <span className="truncate text-sm text-muted">
-                      {c.cleared ? "" : c.lastMessage ? listPreview(c.lastMessage) : "Start chatting"}
+                      {c.cleared
+                        ? ""
+                        : c.lastMessage
+                          ? listPreview(
+                              c.lastMessage,
+                              c.lastMessageSenderId ? c.lastMessageSenderId === me.id : undefined,
+                            )
+                          : "Start chatting"}
                     </span>
                     {c.unread > 0 && (
                       // A muted chat still says how much is waiting; it just

@@ -19,7 +19,12 @@ type rawChannelRow struct {
 	lastEnc    []byte
 	lastAt     *time.Time
 	lastSender string
-	cleared    bool
+	// lastSenderID is the last message's raw sender id (NULL when the channel
+	// has never had a message) — plaintext, no decrypt needed, unlike
+	// lastSender which is a resolved display name.
+	lastSenderID *string
+	cleared      bool
+	unread       int64
 }
 
 // scanRawChannelRows drains a channel-list cursor into rawChannelRow values and
@@ -35,7 +40,7 @@ func scanRawChannelRows(rows pgx.Rows) ([]rawChannelRow, error) {
 		var createdBy, role *string
 		if err := rows.Scan(&rc.d.ID, &rc.d.Name, &rc.d.MemberCount,
 			&rc.lastMsg, &rc.lastEnc, &rc.lastAt, &rc.lastSender, &rc.cleared, &rc.d.IsLocked,
-			&createdBy, &role); err != nil {
+			&createdBy, &role, &rc.unread, &rc.lastSenderID); err != nil {
 			return nil, err
 		}
 		if createdBy != nil {
@@ -69,7 +74,11 @@ func (s *Store) decryptChannelRow(ctx context.Context, q crypto.Querier, orgID s
 		d.LastMessageAt = &iso
 	}
 	d.LastMessageSender = rc.lastSender
+	if rc.lastSenderID != nil {
+		d.LastMessageSenderID = *rc.lastSenderID
+	}
 	d.Cleared = rc.cleared
+	d.Unread = rc.unread
 	d.IAmMember = iAmMember
 	return d, nil
 }
@@ -94,7 +103,7 @@ func (s *Store) ListChannels(ctx context.Context, orgID, callerID string) ([]Cha
 		// about a handful of channels.
 		rows, err := tx.Query(ctx, `
 			WITH mine AS (
-			    SELECT channel_id, role
+			    SELECT channel_id, role, last_read_seq
 			    FROM channel_members
 			    WHERE user_id = $2
 			),
@@ -122,7 +131,17 @@ func (s *Store) ListChannels(ctx context.Context, orgID, callerID string) ([]Cha
 			    (lm.body IS NULL AND lm.body_enc IS NULL AND c.last_msg_at IS NOT NULL) AS cleared,
 			    c.is_locked,
 			    c.created_by,
-			    mine.role
+			    mine.role,
+			    -- Same read-cursor mechanism 0028_channel_read_receipts.sql added for
+			    -- "Seen by" — mine.last_read_seq — turned into a count, mirroring
+			    -- ListConversations' own unread subquery exactly.
+			    COALESCE((
+			        SELECT count(*) FROM channel_messages m2
+			        WHERE m2.channel_id = c.id
+			          AND m2.sender_id <> $2
+			          AND m2.seq > mine.last_read_seq
+			    ), 0) AS unread,
+			    lm.sender_id AS last_message_sender_id
 			FROM channels c
 			JOIN mine ON mine.channel_id = c.id
 			LEFT JOIN counts ON counts.channel_id = c.id

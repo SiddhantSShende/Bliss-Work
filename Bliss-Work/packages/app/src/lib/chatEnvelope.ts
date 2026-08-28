@@ -218,8 +218,15 @@ export function readablePrefix(body: string): string {
   return (i < 0 ? body : body.slice(0, i)).trim();
 }
 
-/** Short list preview for structured messages; plain text stays unchanged. */
-export function listPreview(body: string): string {
+/**
+ * Short list preview for structured messages; plain text stays unchanged.
+ * @param isOwn Whether the viewer authored this message — only consulted for
+ *  the bare-link case (Link sent/Link received). Every other label stays
+ *  direction-blind, as it always has. `undefined` (an unmigrated caller, or
+ *  no known sender) keeps the pre-existing "Link sent" wording rather than
+ *  silently flipping to "received".
+ */
+export function listPreview(body: string, isOwn?: boolean): string {
   const envelope = parseChatEnvelope(body);
   if (!envelope) {
     const text = readablePrefix(body);
@@ -228,7 +235,9 @@ export function listPreview(body: string): string {
     // than naming what it is. A link that's part of a longer sentence still
     // shows the sentence — there is real text there worth previewing.
     const segments = linkifyMessage(text);
-    if (segments.length === 1 && segments[0]?.type === "link") return "Link sent";
+    if (segments.length === 1 && segments[0]?.type === "link") {
+      return isOwn === false ? "Link received" : "Link sent";
+    }
     return text;
   }
   if (envelope.kind === "location") return "Location shared";

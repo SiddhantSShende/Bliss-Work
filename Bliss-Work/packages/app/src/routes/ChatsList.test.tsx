@@ -21,6 +21,9 @@ const api = {
 };
 
 vi.mock("../lib/runtime", () => ({ useRuntime: () => ({ api, config: { kind: "web" } }) }));
+vi.mock("../store/session", () => ({
+  useSession: (select: (s: unknown) => unknown) => select({ user: { id: "me-1" } }),
+}));
 
 import { ChatsList } from "./ChatsList";
 import { SelectedChatProvider } from "../lib/selectedChat";
@@ -34,6 +37,7 @@ function baseConv(overrides: Partial<ConversationDTO>): ConversationDTO {
     lastMessage: null,
     lastMessageAt: null,
     lastMessageSender: "",
+    lastMessageSenderId: "",
     cleared: false,
     unread: 0,
     blockedByMe: false,

@@ -635,6 +635,11 @@ export const ConversationDTO = z.object({
   lastMessage: z.string().nullable(),
   lastMessageAt: z.string().nullable(),
   lastMessageSender: z.string().default(""),
+  /** Who sent lastMessage — used to tell "I sent it" from "I received it"
+   *  (e.g. the Link sent/Link received preview label) without relying on a
+   *  display name, which is user-editable and can collide between members.
+   *  Empty when there is no last message. */
+  lastMessageSenderId: z.string().default(""),
   /** True once the caller has cleared/hidden every message in this
    *  conversation but it genuinely has history. The list shows a blank
    *  preview rather than `lastMessage` (null here) or a placeholder. */
@@ -956,10 +961,19 @@ export const ChannelDTO = z.object({
   memberCount: z.number().int(),
   lastMessage: z.string().nullable(),
   lastMessageAt: z.string().nullable(),
+  /** Who sent lastMessage — used to tell "I sent it" from "I received it"
+   *  (e.g. the Link sent/Link received preview label) without relying on a
+   *  display name, which is user-editable and can collide between members.
+   *  Empty when there is no last message. */
+  lastMessageSenderId: z.string().default(""),
   /** True once the caller has cleared/hidden every message in this channel
    *  but it genuinely has history. The list shows a blank preview rather
    *  than `lastMessage` (null here) or the member-count placeholder. */
   cleared: z.boolean().default(false),
+  /** The caller's unread count for this channel — messages after their
+   *  read cursor. Mirrors ConversationDTO.unread; 0 for /channels/open
+   *  (unread has no meaning for a channel you have not joined). */
+  unread: z.number().int().default(0),
   /** Locked channels are invite-only; open channels accept self-join via
    *  `POST /channels/{id}/join`. Default false (open) for back-compat. */
   isLocked: z.boolean().default(false),

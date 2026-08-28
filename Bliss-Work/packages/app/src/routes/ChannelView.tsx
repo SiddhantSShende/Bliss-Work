@@ -30,7 +30,6 @@ import { ChatAssetsSheet } from "../features/ChatAssetsSheet";
 import { searchMessages } from "../lib/chatSearch";
 import { exportChatTranscript } from "../lib/chatExport";
 import { toggleConversationPref, useConversationPrefs } from "../lib/conversationPrefs";
-import { markChannelViewed } from "../lib/channelReadState";
 import { useMeetingSession } from "../lib/MeetingSession";
 import { useActiveThread, type ActiveThread } from "../lib/activeThread";
 
@@ -94,16 +93,6 @@ export function ChannelView() {
     return () => clearActiveThread(t);
   }, [channelId, setActiveThread, clearActiveThread]);
 
-  // Marks this channel read for the Unread filter on the channel list — see
-  // lib/channelReadState. Recorded again on the way out (not just on
-  // arrival), so anything that arrived while this channel was open counts as
-  // seen too, without needing to react to every incoming message here.
-  useEffect(() => {
-    if (!channelId) return;
-    markChannelViewed(channelId);
-    return () => markChannelViewed(channelId);
-  }, [channelId]);
-
   // Newest page only; older pages are prepended into the same flat array so
   // the websocket patches and optimistic sends below are unaffected.
   const { data: messages = [] } = useQuery({
@@ -142,10 +131,21 @@ export function ChannelView() {
    * Failures are swallowed deliberately. A read receipt that does not land is
    * worth nothing to the reader and an error toast about it would interrupt
    * them over somebody else's badge.
+   *
+   * The qk.channels invalidation on success is required now that the sidebar's
+   * unread badge is server-computed (ChannelDTO.unread) rather than a
+   * client-local dot: without it, qk.channels — where that count lives — is
+   * never told the read happened, and the badge keeps showing the pre-read
+   * count until something unrelated refetches it. Same fix, same reason, as
+   * DMView's equivalent effect for qk.conversations.
    */
   useEffect(() => {
     const maxSeq = messages.reduce((m: number, x: ChannelMessageDTO) => Math.max(m, x.seq), 0);
-    if (maxSeq > 0) api.markChannelRead(channelId, maxSeq).catch(() => {});
+    if (maxSeq === 0) return;
+    api
+      .markChannelRead(channelId, maxSeq)
+      .then(() => qc.invalidateQueries({ queryKey: qk.channels }))
+      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages.length, channelId]);
 

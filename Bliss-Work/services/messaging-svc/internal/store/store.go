@@ -561,6 +561,10 @@ type ConversationDTO struct {
 	PeerDisplayName string  `json:"peerDisplayName,omitempty"`
 	LastMessage     *string `json:"lastMessage"`
 	LastMessageAt   *string `json:"lastMessageAt"`
+	// LastMessageSenderID is who sent LastMessage — used by the client to tell
+	// "I sent it" from "I received it" (e.g. the Link sent/Link received
+	// preview label). Absent (empty) when there is no last message.
+	LastMessageSenderID string `json:"lastMessageSenderId,omitempty"`
 	// Cleared is true when the caller has cleared/hidden every message in this
 	// conversation but it genuinely has history — the list shows a blank
 	// preview rather than LastMessage (nil here) or a "no messages" placeholder.
@@ -673,12 +677,22 @@ type ChannelDTO struct {
 	LastMessage       *string `json:"lastMessage"`
 	LastMessageAt     *string `json:"lastMessageAt"`
 	LastMessageSender string  `json:"lastMessageSender,omitempty"`
+	// LastMessageSenderID is the raw sender id behind LastMessageSender — used
+	// by the client to tell "I sent the last message" from "I received it"
+	// (e.g. the Link sent/Link received preview label) without relying on a
+	// display name, which is user-editable and can collide between members.
+	LastMessageSenderID string `json:"lastMessageSenderId,omitempty"`
 	// Cleared is true when the caller has cleared/hidden every message in this
 	// channel but it genuinely has history — the list shows a blank preview
 	// rather than LastMessage (nil here) or the member-count placeholder.
-	Cleared   bool `json:"cleared"`
-	IsLocked  bool `json:"isLocked"`
-	IAmMember bool `json:"iAmMember"`
+	Cleared bool `json:"cleared"`
+	// Unread is the caller's unread count for this channel — messages after
+	// their channel_members.last_read_seq cursor (see MarkChannelRead /
+	// 0028_channel_read_receipts.sql, which already tracks this cursor for
+	// "Seen by" receipts). Mirrors ConversationDTO.Unread exactly.
+	Unread    int64 `json:"unread"`
+	IsLocked  bool  `json:"isLocked"`
+	IAmMember bool  `json:"iAmMember"`
 	// Who created the channel. Written since 0002 and, until channel roles
 	// existed, never once read back.
 	CreatedBy string `json:"createdBy"`

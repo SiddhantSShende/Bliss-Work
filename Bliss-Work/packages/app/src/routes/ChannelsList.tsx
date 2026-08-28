@@ -10,10 +10,10 @@ import { qk } from "../lib/queryBridge";
 import { ListHeader, rowClass, relTime } from "../features/ListPane";
 import { CreateChannelDialog } from "../features/CreateChannelDialog";
 import { toggleConversationPref, useConversationPrefs } from "../lib/conversationPrefs";
-import { useChannelReadState } from "../lib/channelReadState";
 import { usePopupDismiss } from "../lib/usePopupDismiss";
 import { listPreview } from "../lib/chatEnvelope";
 import { ConfirmDialog } from "../features/ConfirmDialog";
+import { useSession } from "../store/session";
 
 /**
  * Middle pane of /app/channels.
@@ -37,6 +37,7 @@ const OPEN_PAGE = 50;
 export function ChannelsList() {
   const { api } = useRuntime();
   const qc = useQueryClient();
+  const me = useSession((s) => s.user)!;
   const [newOpen, setNewOpen] = useState(false);
   const [tab, setTab] = useState<Tab>("mine");
   const [leaveTarget, setLeaveTarget] = useState<ChannelDTO | null>(null);
@@ -51,9 +52,6 @@ export function ChannelsList() {
   // back here — this list is the only place either one is observable. Both are
   // device-local; see lib/conversationPrefs.
   const prefs = useConversationPrefs();
-  // Same device-local trade-off as `prefs` above — see lib/channelReadState
-  // for why this isn't a real per-user count the way a DM's is.
-  const readState = useChannelReadState();
 
   // Shortcuts float to the top of "My channels"; everything else keeps the
   // server's order. A stable partition rather than a sort, so two pinned
@@ -69,13 +67,13 @@ export function ChannelsList() {
     const query = search.trim().toLowerCase();
     return orderedMine.filter((c: ChannelDTO) => {
       const matchesSearch = !query || c.name.toLowerCase().includes(query);
-      const matchesFilter = filter === "all" || readState.isUnread(c.id, c.lastMessageAt);
+      const matchesFilter = filter === "all" || c.unread > 0;
       return matchesSearch && matchesFilter;
     });
-  }, [orderedMine, search, filter, readState]);
+  }, [orderedMine, search, filter]);
   const unreadCount = useMemo(
-    () => mine.filter((c: ChannelDTO) => readState.isUnread(c.id, c.lastMessageAt)).length,
-    [mine, readState],
+    () => mine.filter((c: ChannelDTO) => c.unread > 0).length,
+    [mine],
   );
   // Browse lists every open channel in the ORG, so it is paged — the directory
   // grows with the customer, and an org with thousands of channels would
@@ -202,7 +200,7 @@ export function ChannelsList() {
                 channel={c}
                 muted={prefs.isMuted("channel", c.id)}
                 shortcut={prefs.hasShortcut("channel", c.id)}
-                unread={readState.isUnread(c.id, c.lastMessageAt)}
+                isOwnLastMessage={c.lastMessageSenderId ? c.lastMessageSenderId === me.id : undefined}
                 onToggleMute={() => toggleConversationPref("muted", "channel", c.id)}
                 onTogglePin={() => toggleConversationPref("shortcut", "channel", c.id)}
                 onLeave={() => confirmLeave(c)}
@@ -278,7 +276,7 @@ function ChannelRow({
   channel: c,
   muted,
   shortcut,
-  unread,
+  isOwnLastMessage,
   onToggleMute,
   onTogglePin,
   onLeave,
@@ -288,13 +286,15 @@ function ChannelRow({
   /** Muted on this device. */
   muted: boolean;
   shortcut: boolean;
-  /** Device-local — see lib/channelReadState. */
-  unread: boolean;
+  /** Whether the caller sent the channel's last message — only matters for
+   *  the Link sent/Link received preview label; undefined when unknown. */
+  isOwnLastMessage: boolean | undefined;
   onToggleMute: () => void;
   onTogglePin: () => void;
   onLeave: () => void;
   leaving: boolean;
 }) {
+  const unread = c.unread > 0;
   const Icon = c.isLocked ? Lock : Hash;
   // Not a NavLink around the whole row any more — see the same note on
   // ChatsList's row: the overflow menu is a button, and a button inside a
@@ -311,7 +311,6 @@ function ChannelRow({
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-2">
             <span className="flex min-w-0 items-center gap-1.5">
-              {unread && <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
               <span className={`truncate ${unread ? "font-semibold text-fg" : "font-medium text-fg"}`}>
                 {c.name}
               </span>
@@ -322,12 +321,23 @@ function ChannelRow({
               {relTime(c.lastMessageAt)}
             </span>
           </div>
-          <div className="truncate text-sm text-muted">
-            {c.cleared
-              ? ""
-              : c.lastMessage
-                ? listPreview(c.lastMessage)
-                : `${c.memberCount} member${c.memberCount === 1 ? "" : "s"}`}
+          <div className="flex items-center justify-between gap-2">
+            <span className="truncate text-sm text-muted">
+              {c.cleared
+                ? ""
+                : c.lastMessage
+                  ? listPreview(c.lastMessage, isOwnLastMessage)
+                  : `${c.memberCount} member${c.memberCount === 1 ? "" : "s"}`}
+            </span>
+            {c.unread > 0 && (
+              <span
+                className={`shrink-0 rounded-full px-1.5 text-[11px] font-semibold ${
+                  muted ? "bg-surface-2 text-muted" : "bg-accent text-accent-fg"
+                }`}
+              >
+                {c.unread}
+              </span>
+            )}
           </div>
         </div>
       </NavLink>

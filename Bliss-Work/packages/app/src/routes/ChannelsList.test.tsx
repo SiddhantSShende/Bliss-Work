@@ -21,6 +21,9 @@ const api = {
 };
 
 vi.mock("../lib/runtime", () => ({ useRuntime: () => ({ api, config: { kind: "web" } }) }));
+vi.mock("../store/session", () => ({
+  useSession: (select: (s: unknown) => unknown) => select({ user: { id: "me-1" } }),
+}));
 
 import { ChannelsList } from "./ChannelsList";
 
@@ -31,7 +34,9 @@ function baseChannel(overrides: Partial<ChannelDTO>): ChannelDTO {
     memberCount: 5,
     lastMessage: null,
     lastMessageAt: null,
+    lastMessageSenderId: "",
     cleared: false,
+    unread: 0,
     isLocked: false,
     iAmMember: true,
     createdBy: "",

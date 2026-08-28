@@ -105,7 +105,9 @@ func (s *Store) ListOpenChannels(
 			    (lm.body IS NULL AND lm.body_enc IS NULL AND c.last_msg_at IS NOT NULL) AS cleared,
 			    c.is_locked,
 			    c.created_by,
-			    NULL::text AS my_role   -- not a member by definition of this view
+			    NULL::text AS my_role,  -- not a member by definition of this view
+			    0::bigint AS unread,    -- unread has no meaning for a channel you haven't joined
+			    lm.sender_id AS last_message_sender_id
 			FROM channels c
 			JOIN candidates ON candidates.id = c.id
 			LEFT JOIN counts ON counts.channel_id = c.id
