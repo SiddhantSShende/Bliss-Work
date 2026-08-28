@@ -486,13 +486,20 @@ type CallLifecycle struct {
 // into every recipient's Redis replay ZSET, and the client's only reaction to
 // this event is to refetch the feed row it already knows how to render.
 type MailDelivered struct {
-	Type       string   `json:"type"`
-	EventID    string   `json:"eventId"`
-	OrgID      string   `json:"orgId"`
-	OccurredAt string   `json:"occurredAt"`
-	MailID     string   `json:"mailId"`
-	SenderID   string   `json:"senderId"`
-	Members    []string `json:"members"`
+	Type       string `json:"type"`
+	EventID    string `json:"eventId"`
+	OrgID      string `json:"orgId"`
+	OccurredAt string `json:"occurredAt"`
+	MailID     string `json:"mailId"`
+	// SenderID is left unset (and therefore omitted, not "") for inbound mail —
+	// DeliverInboundMail has no local author to name. omitempty matters here:
+	// the shared TS contract types this `z.string().uuid().optional()`, which
+	// accepts an ABSENT key but rejects an empty string, so without omitempty
+	// every inbound MailDelivered event fails ServerEvent.safeParse() on the
+	// client and is silently dropped — the mail lands in the DB and the REST
+	// feed, but nothing tells an open client to refetch it.
+	SenderID string   `json:"senderId,omitempty"`
+	Members  []string `json:"members"`
 }
 
 // MailOutbound is ONE copy of a mail bound for ONE address outside the org,
