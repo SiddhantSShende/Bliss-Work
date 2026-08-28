@@ -96,6 +96,13 @@ jobs:
           version: v2.12.2
           working-directory: Bliss-Work/services/${{ matrix.service }}
           args: --timeout=5m
+          # A run on this same branch reported a finding at a line number that
+          # does not exist in the committed source at that commit (verified
+          # directly against `git show <sha>:<file>` — off by exactly the
+          # length of the fix's own diff, i.e. a stale result for the
+          # pre-fix file). Disable the action's cache to rule it out rather
+          # than land a second guess at the same nolint fix.
+          skip-cache: true
 
   lint-js:
     name: Lint (JS/TS · eslint + tsc)
