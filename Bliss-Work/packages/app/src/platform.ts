@@ -172,6 +172,12 @@ export interface PlatformConfig {
     version?: string;
     message?: string;
   }>;
+  /** Present only in Electron: fires if a download that checkForUpdates()
+   *  kicked off later fails in the background. checkForUpdates() already
+   *  resolved "downloading" by then and told the user to expect a restart
+   *  prompt — this is the only way a subsequent failure can still reach the
+   *  UI, so it doesn't look like the download is silently stuck forever. */
+  onUpdateCheckFailed?: (cb: (message: string) => void) => () => void;
   /** Present only in Electron: consent + pairing for the desktop activity agent.
    *  Absent on web, where the browser gives no way to observe other apps at all
    *  — the Settings section simply does not render. Deliberately narrow: no way

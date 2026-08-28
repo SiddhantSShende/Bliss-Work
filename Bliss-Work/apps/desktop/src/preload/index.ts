@@ -155,6 +155,15 @@ const api = {
     message?: string;
   }> => ipcRenderer.invoke("app:check-updates"),
 
+  /** Fires if a download an on-demand check kicked off later fails —
+   *  checkForUpdates() already resolved "downloading" by then, so this is the
+   *  only way that failure can still reach the UI. */
+  onUpdateCheckFailed: (cb: (message: string) => void) => {
+    const handler = (_: unknown, message: string) => cb(message);
+    ipcRenderer.on("update:check-failed", handler);
+    return () => ipcRenderer.removeListener("update:check-failed", handler);
+  },
+
   /**
    * Desktop activity agent — CONSENT AND PAIRING ONLY.
    *

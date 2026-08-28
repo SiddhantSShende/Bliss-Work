@@ -1,4 +1,4 @@
-import { app, dialog } from "electron";
+import { app, dialog, type BrowserWindow } from "electron";
 import electronUpdater from "electron-updater";
 
 // electron-updater ships CommonJS; under ESM interop the named exports live on the
@@ -26,17 +26,30 @@ const { autoUpdater } = electronUpdater;
  *     electron-updater cannot self-install a Store package. `process.windowsStore`
  *     is true only when running as a Store app.
  */
-export function initAutoUpdate(): void {
+export function initAutoUpdate(getMainWindow: () => BrowserWindow | null): void {
   if (!app.isPackaged) return;
   if ((process as NodeJS.Process & { windowsStore?: boolean }).windowsStore) return;
+
+  windowGetter = getMainWindow;
 
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
 
   autoUpdater.on("error", (err: Error) => {
-    // Never surface update failures to the user (offline, rate-limited, etc.) —
-    // the app keeps running on the current version and retries next launch.
+    // Never surface a BACKGROUND check's failure (the periodic timer,
+    // checkOnWindowFocus) — the app keeps running on the current version and
+    // retries next launch. But an on-demand check (Settings → About → Check
+    // for updates) already told the user "you'll be asked to restart when
+    // it's ready" via checkForUpdatesNow()'s return value — that promise
+    // can't un-say itself if the download later fails, since the promise
+    // already resolved. This is the only way that failure can still reach
+    // the renderer, so forward it as a one-off event instead of leaving the
+    // user thinking a download is quietly still in progress forever.
     console.error("[updater] error:", err?.message ?? err);
+    if (manualCheckInFlight) {
+      manualCheckInFlight = false;
+      windowGetter?.()?.webContents.send("update:check-failed", err?.message ?? "Update download failed");
+    }
   });
 
   autoUpdater.on("update-available", (info: { version: string }) => {
@@ -44,6 +57,7 @@ export function initAutoUpdate(): void {
   });
 
   autoUpdater.on("update-downloaded", (info: { version: string }) => {
+    manualCheckInFlight = false;
     void dialog
       .showMessageBox({
         type: "info",
@@ -93,6 +107,12 @@ const UPDATE_CHECK_INTERVAL_MS = 3 * 60 * 1000;
 const MIN_CHECK_GAP_MS = 60 * 1000;
 
 let lastCheckAt = 0;
+let windowGetter: (() => BrowserWindow | null) | null = null;
+// True only between an on-demand checkForUpdatesNow() finding a newer version
+// and that download finishing (or failing) — never set by the silent
+// background path (check() / checkOnWindowFocus()). Gates whether a later
+// "error" event is worth interrupting the user for.
+let manualCheckInFlight = false;
 
 function check(): void {
   lastCheckAt = Date.now();
@@ -150,7 +170,10 @@ export async function checkForUpdatesNow(): Promise<UpdateCheckResult> {
     const latest = result?.updateInfo?.version;
     if (latest && latest !== app.getVersion()) {
       // autoDownload is on, so it is already fetching; the restart prompt comes
-      // from the update-downloaded handler above.
+      // from the update-downloaded handler above. If the download itself later
+      // fails, the "error" handler forwards it to the renderer — this promise
+      // has already resolved by then and can't say so itself.
+      manualCheckInFlight = true;
       return { status: "downloading", version: latest };
     }
     return { status: "up-to-date", version: app.getVersion() };

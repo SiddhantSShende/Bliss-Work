@@ -159,7 +159,7 @@ if (!app.requestSingleInstanceLock()) {
     );
     bootstrap();
     // Check for a newer release + auto-update (packaged non-Store builds only).
-    initAutoUpdate();
+    initAutoUpdate(() => mainWindow);
     // Screenshot deterrence. Content protection itself is applied per-window by
     // hardenWindow; this wires the focus-scoped capture-key registration and
     // routes a detected attempt to the renderer's toast. Read the header of

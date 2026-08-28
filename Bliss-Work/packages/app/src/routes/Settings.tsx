@@ -217,6 +217,17 @@ function AboutRow() {
     };
   }, [config]);
 
+  // The "downloading" toast below promises a restart prompt "when it's
+  // ready" — that promise already resolved by the time a background download
+  // failure could happen, so this is the only way that failure still reaches
+  // the user instead of the download looking silently stuck forever.
+  useEffect(() => {
+    if (!config.onUpdateCheckFailed) return;
+    return config.onUpdateCheckFailed((message) => {
+      toast.error("Update download failed", { description: message });
+    });
+  }, [config]);
+
   const check = async () => {
     if (!config.checkForUpdates) return;
     setChecking(true);

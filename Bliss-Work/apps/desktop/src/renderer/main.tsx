@@ -34,6 +34,7 @@ declare global {
         version?: string;
         message?: string;
       }>;
+      onUpdateCheckFailed: (cb: (message: string) => void) => () => void;
       activity: {
         state: () => Promise<{
           enabled: boolean;
@@ -123,6 +124,7 @@ const config: PlatformConfig = {
   onOAuthReturn: (cb) => bridge.onOAuthReturn(cb),
   appVersion: () => bridge.appVersion(),
   checkForUpdates: () => bridge.checkForUpdates(),
+  onUpdateCheckFailed: (cb) => bridge.onUpdateCheckFailed(cb),
   activityAgent: bridge.activity,
   browserAgent: bridge.browsers,
   eventSource: {

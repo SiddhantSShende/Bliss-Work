@@ -158,11 +158,56 @@ jobs:
     name: Resolve version
     needs: preflight
     runs-on: ubuntu-latest
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_PATH: ${{ secrets.VPS_PATH }}
     outputs:
       version: ${{ steps.v.outputs.version }}
       sha: ${{ steps.v.outputs.sha }}
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      # `github.run_number` used to be the whole version formula: "monotonic
+      # across the repo, so successive pushes always produce a strictly
+      # increasing semver." That was true for run_number itself, but this
+      # workflow had NEVER run before 2026-08-28 (see the file-location note
+      # at the top) — meanwhile scripts/publish-desktop.sh / `make
+      # desktop-release` had been publishing manually for weeks and had
+      # already reached 0.1.22. The very first automated run started counting
+      # from run_number≈12 and silently published 0.1.12 over the live 0.1.22
+      # — a downgrade electron-updater will never offer to an already-updated
+      # client, permanently stranding it. Verified against
+      # downloads-backup/20260827T123710Z/latest.yml (version: 0.1.21, backed
+      # up moments before that manual release wrote 0.1.22) and a client
+      # report of running 0.1.22 while the feed had regressed to 0.1.13.
+      #
+      # Fix: ask the live feed itself, the same way `make desktop-release` /
+      # scripts/build-desktop-container.sh already do via
+      # scripts/next-desktop-version.mjs — read every latest*.yml that is
+      # ACTUALLY published right now and bump the highest patch found, so
+      # this path and the manual path share one strictly-increasing number
+      # no matter which one published last.
+      - name: Fetch the live update feed
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          mkdir -p /tmp/live-feed
+          scp -i ~/.ssh/id_deploy -o StrictHostKeyChecking=yes \
+            "$VPS_USER@$VPS_HOST:$VPS_PATH/latest*.yml" /tmp/live-feed/
+          rm -f ~/.ssh/id_deploy
+
       - id: v
+        working-directory: Bliss-Work
         run: |
           # `push` now covers BOTH a tag push and an ordinary branch push (see
           # the trigger block above) — event_name alone no longer distinguishes
@@ -171,11 +216,7 @@ jobs:
             # Tag push: v1.2.3 → 1.2.3
             VERSION="${GITHUB_REF_NAME#v}"
           else
-            # github.run_number is monotonic across the repo, so successive
-            # pushes to the production branch always produce a strictly
-            # increasing semver. That is what makes electron-updater see an
-            # update at all.
-            VERSION="0.1.${{ github.run_number }}"
+            VERSION="$(node scripts/next-desktop-version.mjs /tmp/live-feed)"
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"

@@ -1,6 +1,6 @@
 {
   "name": "@taskboard/desktop",
-  "version": "0.1.23",
+  "version": "0.1.0",
   "private": true,
   "description": "BlissWork — desktop app with desktop-pinned sticky task notes",
   "author": "BlissWork",
