@@ -60,11 +60,6 @@ export function initAutoUpdate(): void {
       });
   });
 
-  const check = () =>
-    autoUpdater.checkForUpdates().catch((e: unknown) => {
-      console.error("[updater] check failed:", e instanceof Error ? e.message : e);
-    });
-
   check();
 
   // Re-check periodically, not only at launch. A desktop app routinely stays
@@ -82,11 +77,44 @@ export function initAutoUpdate(): void {
 }
 
 /**
- * How often a running app re-checks the feed. Six hours is frequent enough that
- * an update lands the same day without making the download host field a poll
- * from every installed client every few minutes.
+ * How often a running app re-checks the feed on its own, and (see
+ * checkOnWindowFocus below) the minimum gap enforced between any two checks so
+ * rapid focus/blur cycling can't turn into a poll storm.
+ *
+ * electron-updater is a pure poller against a static latest.yml — there is no
+ * server-side way to tell a running client "a new version just published" (see
+ * the module comment above) — so how quickly an already-open app notices a
+ * release is entirely a function of this number. 3 minutes rather than a
+ * multi-hour interval so a release is noticed almost immediately by anyone
+ * with the app open, while staying cheap: one conditional GET of a
+ * few-hundred-byte file per client per interval.
  */
-const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const UPDATE_CHECK_INTERVAL_MS = 3 * 60 * 1000;
+const MIN_CHECK_GAP_MS = 60 * 1000;
+
+let lastCheckAt = 0;
+
+function check(): void {
+  lastCheckAt = Date.now();
+  autoUpdater.checkForUpdates().catch((e: unknown) => {
+    console.error("[updater] check failed:", e instanceof Error ? e.message : e);
+  });
+}
+
+/**
+ * Re-check the moment the main window regains focus — on top of the periodic
+ * timer, this is the single most likely moment to catch someone actually
+ * looking at the app right after a release went out (reopening it, or
+ * alt-tabbing back to it). Debounced against whatever check ran most
+ * recently, interval or focus-triggered, so switching focus back and forth
+ * doesn't turn into a poll storm.
+ */
+export function checkOnWindowFocus(): void {
+  if (!app.isPackaged) return;
+  if ((process as NodeJS.Process & { windowsStore?: boolean }).windowsStore) return;
+  if (Date.now() - lastCheckAt < MIN_CHECK_GAP_MS) return;
+  check();
+}
 
 export interface UpdateCheckResult {
   status: "available" | "up-to-date" | "downloading" | "unsupported" | "error";

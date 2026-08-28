@@ -26,7 +26,7 @@ import { trayIcon } from "./assets";
 import { buildAppMenu } from "./menu";
 import { registerFileSink } from "./file-sink";
 import { registerAttachmentOpen } from "./attachment-open";
-import { checkForUpdatesNow, initAutoUpdate } from "./updater";
+import { checkForUpdatesNow, checkOnWindowFocus, initAutoUpdate } from "./updater";
 import { installLocationProviderKey, hasPreciseLocationProvider } from "./geo-key";
 import { locationSettingsUrl } from "../shared/location-settings";
 import { initScreenshotGuard } from "./screenshot-guard";
@@ -306,6 +306,7 @@ function wireMainWindow(win: BrowserWindow) {
   // separate feature with their own (unchanged) always-behind behaviour.
   win.on("focus", () => {
     chatSticky.lowerZOrder();
+    checkOnWindowFocus();
   });
   win.on("blur", () => {
     chatSticky.raiseZOrder();
