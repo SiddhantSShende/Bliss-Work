@@ -47,7 +47,7 @@
 # Pull mode requires `docker login` to have been run on this host for REGISTRY.
 #
 # Env overrides: DEPLOY_ALLOW_DIRTY=1 (skip the guard — never in CI),
-# HEALTH_TIMEOUT (seconds, default 180), KEEP_IMAGE_TAGS (default 3),
+# HEALTH_TIMEOUT (seconds, default 420), KEEP_IMAGE_TAGS (default 3),
 # REGISTRY + NAMESPACE (enable pull mode), IMAGE_TAG (deploy a specific tag
 # rather than whatever HEAD resolves to).
 #
@@ -126,7 +126,14 @@ HEALTH_SERVICES=(auth-svc task-svc notification-svc messaging-svc integrations-s
 # `profiles: [routed]` / `profiles: [desktop]`, so they don't need listing here.
 CORE_SERVICES=(postgres redis kafka kafka-init livekit coturn auth-svc email-worker task-svc notification-svc messaging-svc integrations-svc telemetry-svc ws-gateway graph-gw caddy nginx)
 
-HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-180}"
+# 180s (the original default) is too tight on this host: `wait_healthy` polls
+# each of the 9 HEALTH_SERVICES with its own `sudo docker compose ... ps -q` +
+# `docker inspect` call (double --env-file parsing per call), and one full pass
+# alone can take well over a minute — verified 2026-08-28, when a real deploy
+# with every service actually healthy still tripped the 180s deadline mid-poll
+# and triggered a needless rollback. All 9 services were consistently healthy
+# within ~4 minutes; 420s leaves real headroom above that.
+HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-420}"
 KEEP_IMAGE_TAGS="${KEEP_IMAGE_TAGS:-3}"
 
 # A caller may name the tag to deploy. Jenkins does: it knows which tag it
