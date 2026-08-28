@@ -286,14 +286,16 @@ func startNodeRegistration(
 	// accepting sockets, rather than up to one tick later.
 	register()
 
-	go func() {
+	go func() { //nolint:gosec // G118: reported here (the goroutine statement), not on the context.Background() call below — see that line's comment for why it's deliberate
 		ticker := time.NewTicker(store.NodeHeartbeatInterval)
 		defer ticker.Stop()
 		for {
 			select {
 			case <-ctx.Done():
-				// Best-effort: a fresh context, because ctx is already done.
-				delCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second) //nolint:gosec // G118: ctx is already cancelled (see <-ctx.Done() above); deriving from it would cancel this cleanup immediately
+				// Best-effort: a fresh context, because ctx is already done. Deriving
+				// from it (instead of context.Background()) would cancel this cleanup
+				// immediately — that's the G118 finding above; it's a false positive.
+				delCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 				if err := st.DeregisterNode(delCtx, nodeID); err != nil {
 					log.Warn("node deregistration failed", "node", nodeID, "err", err)
 				}
