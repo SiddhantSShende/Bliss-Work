@@ -1,18 +1,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
-import { type ThemeId, isThemeId, themeClasses } from "./themes";
+import { type ThemeId, isThemeId, themeClasses, darkCounterpart, defaultThemeFor, ALL_THEME_CLASSES } from "./themes";
 
 export type { ThemeId as Theme };
-
-const ALL_CLASSES = ["light", "dark", "lime"];
-
-/** The "dark-ish" counterpart of each theme, used by the quick toggle
- *  (ProfileMenu) to flip within the current palette family. */
-const DARK_COUNTERPART: Record<ThemeId, ThemeId> = {
-  light: "dark",
-  dark: "light",
-  "graphite-lime": "graphite-lime-dark",
-  "graphite-lime-dark": "graphite-lime",
-};
 
 const ThemeCtx = createContext<{
   theme: ThemeId;
@@ -20,7 +9,7 @@ const ThemeCtx = createContext<{
   setTheme: (theme: ThemeId) => void;
   toggle: () => void;
 }>({
-  theme: "light",
+  theme: "blue",
   isDark: false,
   setTheme: () => {},
   toggle: () => {},
@@ -29,14 +18,18 @@ const ThemeCtx = createContext<{
 const THEME_KEY = "tb-theme";
 
 function systemTheme(): ThemeId {
-  return typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches
-    ? "dark"
-    : "light";
+  return defaultThemeFor(
+    typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches,
+  );
 }
 
 /** Read the persisted theme, validating the stored value instead of trusting a
  *  bare `as ThemeId` cast (a tampered/corrupted entry would otherwise pass),
- *  and tolerating storage being unavailable (private mode / disabled cookies). */
+ *  and tolerating storage being unavailable (private mode / disabled cookies).
+ *  A value from BEFORE this theme system existed (e.g. the old "light" /
+ *  "graphite-lime") is no longer a valid id either, and falls through the
+ *  same way — a graceful migration to the retained default family rather
+ *  than a special case. */
 function readStoredTheme(): ThemeId {
   try {
     const v = localStorage.getItem(THEME_KEY);
@@ -59,7 +52,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const root = document.documentElement;
-    root.classList.remove(...ALL_CLASSES);
+    root.classList.remove(...ALL_THEME_CLASSES);
     root.classList.add(...themeClasses(theme));
   }, [theme]);
 
@@ -71,7 +64,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       } catch {
         // Follow the system when storage is unavailable.
       }
-      setThemeState(event.matches ? "dark" : "light");
+      setThemeState(defaultThemeFor(event.matches));
     };
     media.addEventListener?.("change", onSystemThemeChange);
     return () => media.removeEventListener?.("change", onSystemThemeChange);
@@ -82,15 +75,18 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     setThemeState(next);
   };
 
+  /** Profile → Dark Mode: flips the CURRENT family's own light↔dark pair,
+   *  never a generic default — Purple Light → Purple Dark → (toggled again)
+   *  → Purple Light again, exactly whichever family was selected. */
   const toggle = () => {
     setThemeState((current) => {
-      const next = DARK_COUNTERPART[current];
+      const next = darkCounterpart(current);
       persistTheme(next);
       return next;
     });
   };
 
-  const isDark = theme === "dark" || theme === "graphite-lime-dark";
+  const isDark = theme.endsWith("-dark");
 
   return <ThemeCtx.Provider value={{ theme, isDark, setTheme, toggle }}>{children}</ThemeCtx.Provider>;
 }

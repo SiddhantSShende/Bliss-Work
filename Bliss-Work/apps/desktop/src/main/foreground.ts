@@ -196,3 +196,27 @@ export function stopDesktopWatch(): void {
   timer = null;
   started = false;
 }
+
+/**
+ * Re-sample immediately instead of waiting for the next poll tick.
+ *
+ * The poll exists because Electron has no event for "some other application
+ * came to the front" — but it DOES fire `browser-window-blur`/
+ * `browser-window-focus` the instant one of BlissWork's own windows gains or
+ * loses OS focus, and that covers the two transitions that matter most: the
+ * user leaving BlissWork entirely, and coming back to it. Calling this from
+ * those events turns "the note gets out of the way" from "up to POLL_MS
+ * late" into "as fast as one activeWindow() call" — without replacing the
+ * poll, which remains what actually decides `safe` and is still needed for
+ * transitions the app's own focus events cannot see (switching between two
+ * foreign applications, or between two of BlissWork's own windows — the
+ * latter still resolves to `safe` either way, since isSafeToFloat matches on
+ * this process's pid, not on any one window).
+ *
+ * A no-op until the poll has actually started (never on Linux) or if the
+ * provider failed to load — same degrade-gracefully rule as the poll itself.
+ */
+export function pokeNow(): void {
+  if (!started || !provider) return;
+  void sample(provider);
+}

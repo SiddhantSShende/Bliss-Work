@@ -8,6 +8,7 @@ import {
   onFloatSafetyChange,
   startDesktopWatch,
   stopDesktopWatch,
+  pokeNow,
 } from "./foreground";
 import { ChatStickyManager, type ChatStickyBootstrap } from "./chat-sticky-manager";
 import { initCache, getTasks, setTasks } from "./cache";
@@ -259,6 +260,16 @@ function bootstrap() {
   // bottom of the stack and the watcher does not run. See ./foreground.
   onFloatSafetyChange((safe) => sticky.setSafeToFloat(safe));
   void startDesktopWatch();
+
+  // Fast path on top of the poll above: the instant ANY of BlissWork's own
+  // windows gains or loses OS focus, re-check right away instead of waiting
+  // up to POLL_MS for the next scheduled sample. This is what makes a note
+  // hide/reappear promptly when the user switches to (or back from) another
+  // application — see pokeNow's doc comment for why this cannot reopen the
+  // "which of BlissWork's windows has focus" bug the poll-only approach
+  // fixed.
+  app.on("browser-window-blur", () => pokeNow());
+  app.on("browser-window-focus", () => pokeNow());
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {

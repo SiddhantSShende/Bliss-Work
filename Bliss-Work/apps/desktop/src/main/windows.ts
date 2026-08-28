@@ -169,7 +169,14 @@ export function createStickyWindow(taskId: string, index: number, collapsed = fa
     // Linux only: elsewhere this is either ignored (Windows) or costs the note
     // every mouse event (macOS). See the note above.
     ...(process.platform === "linux" ? { type: "desktop" } : {}),
-    hasShadow: true,
+    // false, not true: on a transparent frameless window the native OS shadow
+    // is drawn around the whole WINDOW RECTANGLE — including the fully
+    // transparent padding around the rounded card — not the visible card
+    // itself. Stacked with the card's own CSS shadow-widget, that read as a
+    // hazy rectangular halo behind the note. The CSS shadow alone (used by
+    // every other floating widget in the app — MiniMeeting, BrowserStickies,
+    // MeetingHost, sticky-chat) already traces the actual rounded shape.
+    hasShadow: false,
     maximizable: false,
     minimizable: false, // can't be minimised — it's already an unframed widget
     fullscreenable: false,

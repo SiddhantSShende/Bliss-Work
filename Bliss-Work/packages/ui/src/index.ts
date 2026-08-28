@@ -22,5 +22,13 @@ export { RankedBars, type RankedDatum } from "./components/charts/RankedBars";
 export { StatTile, Sparkline } from "./components/charts/StatTile";
 export { formatMs } from "./components/charts/scale";
 export { ThemeProvider, useTheme, type Theme } from "./theme/ThemeProvider";
-export { THEMES, themeClasses, themeName, isThemeId, type ThemeId, type ThemeDef } from "./theme/themes";
+export {
+  THEMES,
+  themeClasses,
+  themeName,
+  isThemeId,
+  ALL_THEME_CLASSES,
+  type ThemeId,
+  type ThemeDef,
+} from "./theme/themes";
 export { cn } from "./lib/cn";

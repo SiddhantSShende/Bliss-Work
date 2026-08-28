@@ -1,12 +1,20 @@
 (() => {
+  // Keep in lock-step with packages/ui/src/theme/themes.ts — this script runs
+  // before any bundler does, so it can't import that module and duplicates
+  // its class map by hand instead. "blue" is the app's original palette and
+  // needs no extra class; the other three each layer one on top of light/dark.
   const THEME_CLASSES = {
-    light: ["light"],
-    dark: ["dark"],
-    "graphite-lime": ["light", "lime"],
-    "graphite-lime-dark": ["dark", "lime"],
+    blue: ["light"],
+    "blue-dark": ["dark"],
+    "red-pink": ["light", "red-pink"],
+    "red-pink-dark": ["dark", "red-pink"],
+    purple: ["light", "purple"],
+    "purple-dark": ["dark", "purple"],
+    teal: ["light", "teal"],
+    "teal-dark": ["dark", "teal"],
   };
   const systemTheme = () =>
-    window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    window.matchMedia("(prefers-color-scheme: dark)").matches ? "blue-dark" : "blue";
   try {
     const stored = localStorage.getItem("tb-theme");
     const theme = Object.prototype.hasOwnProperty.call(THEME_CLASSES, stored ?? "")
