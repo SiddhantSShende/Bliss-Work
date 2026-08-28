@@ -48,6 +48,12 @@ declare global {
         openScreenRecordingSettings: () => Promise<boolean>;
         signedOut: () => Promise<null>;
       };
+      browsers: {
+        list: () => Promise<
+          Array<{ family: string; label: string; path: string | null; installed: boolean }>
+        >;
+        launch: (path: string) => Promise<boolean>;
+      };
       rtc: RtcTransport;
       fileSink: FileSink;
       hash: {
@@ -113,6 +119,7 @@ const config: PlatformConfig = {
   appVersion: () => bridge.appVersion(),
   checkForUpdates: () => bridge.checkForUpdates(),
   activityAgent: bridge.activity,
+  browserAgent: bridge.browsers,
   eventSource: {
     connect: () => bridge.setToken(useSession.getState().accessToken),
     // Sign-out. Clearing the token in the ws-process is what closes its socket,

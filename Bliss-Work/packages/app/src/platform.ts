@@ -1,4 +1,5 @@
 import type { ServerEvent, ClientFrame, ControlFrame, PinResult, WsEventMeta } from "@taskboard/shared";
+import type { BrowserFamily } from "./lib/browserDetect";
 
 /**
  * Platform abstraction — the one seam between the web shell and the Electron
@@ -103,6 +104,17 @@ export interface PlatformConfig {
    * broken feature.
    */
   chromeExtensionId?: string;
+  /**
+   * Web only: where the "Install Browser Extension" CTA sends someone, keyed
+   * by browser family (see lib/browserDetect.ts). Unset — the whole map, or
+   * one family's entry — means this deployment has nothing real to link to
+   * for that browser yet (no Chrome Web Store listing, no Firefox AMO
+   * listing, no Safari App Store distribution — see apps/extension/README.md
+   * "Distribution"). The CTA reflects that honestly ("not available yet")
+   * rather than linking to a placeholder or a raw .crx file, which the target
+   * browser would refuse to install from a webpage regardless.
+   */
+  extensionInstallUrls?: Partial<Record<BrowserFamily, string>>;
   /** Present only in Electron: realtime events relayed from the utilityProcess. */
   eventSource?: EventSource;
   /** Present only in Electron: rtc.* signaling bridged from the ws-process. */
@@ -192,6 +204,24 @@ export interface PlatformConfig {
     /** Explicit sign-out hook — see signOut.ts. Absent on web, where there is
      *  no desktop agent to stop. */
     signedOut?: () => Promise<null>;
+  };
+  /**
+   * Present only in Electron: read-only installed-browser detection, and
+   * launching one at a BlissWork page — see
+   * apps/desktop/src/main/browser-detect.ts's own doc comment for why this,
+   * rather than talking to a browser extension directly, is what the desktop
+   * app can legitimately do to help provision it (there is no `chrome.runtime`
+   * in an Electron renderer). Absent on web, where the browser IS the page
+   * already and BrowserExtensionCTA/ConnectedAgents handle detection
+   * directly via extensionProvisioning.ts.
+   */
+  browserAgent?: {
+    list: () => Promise<
+      Array<{ family: string; label: string; path: string | null; installed: boolean }>
+    >;
+    /** `path` must be one `list()` just returned — the main process
+     *  re-validates it against its own detection before launching anything. */
+    launch: (path: string) => Promise<boolean>;
   };
   /** Present only in Electron: open a URL in the user's DEFAULT browser.
    *  Google refuses OAuth inside an embedded webview (`disallowed_useragent`),

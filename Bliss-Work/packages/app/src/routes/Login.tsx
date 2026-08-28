@@ -9,6 +9,7 @@ import { useSession } from "../store/session";
 import { broadcastSession } from "../lib/authChannel";
 import { AuthLayout, Field } from "./Onboarding";
 import { CaptchaField, useCaptcha } from "../features/Captcha";
+import { BrowserExtensionCTA } from "../features/BrowserExtensionCTA";
 import { safeRedirect } from "../lib/safeRedirect";
 
 export function Login() {
@@ -146,6 +147,9 @@ export function Login() {
           </Link>
         </p>
       </form>
+      <div className="mt-4">
+        <BrowserExtensionCTA />
+      </div>
     </AuthLayout>
   );
 }

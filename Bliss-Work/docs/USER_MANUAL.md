@@ -247,7 +247,7 @@ BlissWork brings actionable tasks front-and-center using sticky notes so critica
 
 When using the desktop app, assigned and acknowledged tasks pin directly to your operating system desktop as frameless widgets:
 
-* **Sit Behind Applications:** Desktop stickies stay anchored behind active application windows, visible whenever you show your desktop.
+* **Float Above BlissWork, Stay Out of Other Apps' Way:** Desktop stickies stay visible above BlissWork's own windows while you're using the app, and get out of the way — not just behind, but hidden — the moment you switch to a different application. They reappear as soon as you come back to BlissWork.
 * **Inline Actions:** Perform **Acknowledge**, **Ignore**, or **Unpin** directly from the desktop sticky note.
 * **Pin Cap:** Desktop supports up to 5 pinned sticky notes simultaneously.
 

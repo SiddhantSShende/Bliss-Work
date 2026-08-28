@@ -67,6 +67,16 @@ const config: PlatformConfig = {
   // on chromeExtensionId), so a build without it just keeps today's manual
   // "paste a code" extension-connect flow instead of the automatic one.
   chromeExtensionId: env.VITE_EXTENSION_ID,
+  // Same reasoning again: no store listing exists for any of these yet (see
+  // extensionInstallUrls' own doc comment) — each is simply absent until this
+  // deployment has somewhere real to publish the extension.
+  extensionInstallUrls: {
+    chrome: env.VITE_EXTENSION_INSTALL_URL_CHROME,
+    edge: env.VITE_EXTENSION_INSTALL_URL_EDGE,
+    brave: env.VITE_EXTENSION_INSTALL_URL_BRAVE,
+    firefox: env.VITE_EXTENSION_INSTALL_URL_FIREFOX,
+    safari: env.VITE_EXTENSION_INSTALL_URL_SAFARI,
+  },
 };
 
 createRoot(document.getElementById("root")!).render(

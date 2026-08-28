@@ -1,8 +1,9 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { useRuntime } from "./runtime";
 import { useSession } from "../store/session";
 import { deviceLabel } from "../features/DeviceActivitySettings";
+import { useExtensionConnection } from "./useExtensionConnection";
 
 /**
  * Auto-provision the desktop activity agent's PAIRING right after login —
@@ -69,6 +70,49 @@ export function AgentProvisioningBridge() {
       cancelled = true;
     };
   }, [config, api, status]);
+
+  return null;
+}
+
+/**
+ * The other half of the sign-in-page "Install Browser Extension" flow (see
+ * features/BrowserExtensionCTA.tsx's own docstring for why the CTA itself
+ * cannot finish this pre-login): once someone signs in, silently check
+ * whether the extension is now reachable and pair it if so.
+ *
+ * `useExtensionConnection` already IS this whole mechanism — ping, and if
+ * installed-but-unpaired, mint + provision (see its own doc comment). This
+ * component only adds the "tell the person it just happened" toast, and only
+ * for a FRESH pairing — not for one that was already connected, which needs
+ * no announcement.
+ *
+ * A no-op everywhere the hook itself already no-ops: no `chromeExtensionId`
+ * configured for this deployment, no `chrome.runtime` (Electron — the
+ * desktop app has its own agent, see AgentProvisioningBridge above), or the
+ * extension genuinely isn't installed.
+ *
+ * Mounted at the app root (present on every route, including pre-login ones),
+ * so it does not even PING until `status === "authed"` — mirrors
+ * AgentProvisioningBridge's own gate above. Pinging pre-login is
+ * BrowserExtensionCTA's job (the sign-in page), not this bridge's; doing it
+ * here too would just be a second, redundant ping racing the same one.
+ */
+export function ExtensionProvisioningBridge() {
+  const status = useSession((s) => s.status);
+  if (status !== "authed") return null;
+  return <ExtensionAutoConnect />;
+}
+
+function ExtensionAutoConnect() {
+  const { status: extensionStatus } = useExtensionConnection(true);
+  const announced = useRef(false);
+
+  useEffect(() => {
+    if (extensionStatus === "provisioned" && !announced.current) {
+      announced.current = true;
+      toast("Browser extension connected", { description: "It will start reporting activity shortly." });
+    }
+  }, [extensionStatus]);
 
   return null;
 }

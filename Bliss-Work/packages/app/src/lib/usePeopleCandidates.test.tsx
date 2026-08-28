@@ -1,9 +1,12 @@
 /**
- * Regression guard for the self-assignment bug: CreateTaskDialog once listed
- * the org directory without excluding the caller, so a task could be assigned
- * to its own sender — nothing server-side rejected it either (see task-svc's
- * tasks_write.py). Every people-picker in the app is now built on this hook
- * specifically so that filter can't be dropped again by a future copy-paste.
+ * Regression guard for the self-exclusion default: CreateTaskDialog once
+ * listed the org directory without excluding the caller by accident. Every
+ * people-picker in the app is built on this hook so that default can't be
+ * dropped again by a future copy-paste — except CreateTaskDialog's own People
+ * tab, which now opts BACK IN via `includeSelf` (task self-assignment is a
+ * deliberate product choice; see task-svc's tasks_write.py). The tests below
+ * cover both: the default stays exclude-self for every other picker, and
+ * `includeSelf=true` deliberately offers the caller.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderHook } from "@testing-library/react";
@@ -52,11 +55,26 @@ describe("usePeopleCandidates", () => {
     const { result } = renderHook(() => usePeopleCandidates("", new Set([BOB.id])));
     expect(result.current.candidates.map((u) => u.id)).toEqual([CARL.id]);
   });
+
+  it("includeSelf=true offers the caller as a candidate, for task self-assignment", () => {
+    const { result } = renderHook(() => usePeopleCandidates("", undefined, true));
+    expect(result.current.candidates.map((u) => u.id)).toEqual([ME.id, BOB.id, CARL.id]);
+  });
+
+  it("includeSelf=true still applies caller-supplied exclusions and search", () => {
+    const { result } = renderHook(() => usePeopleCandidates("alice", new Set([BOB.id]), true));
+    expect(result.current.candidates.map((u) => u.id)).toEqual([ME.id]);
+  });
 });
 
 describe("usePeopleSearch", () => {
   it("owns its own query state and still excludes the caller", () => {
     const { result } = renderHook(() => usePeopleSearch());
     expect(result.current.candidates.map((u) => u.id)).toEqual([BOB.id, CARL.id]);
+  });
+
+  it("includeSelf=true offers the caller alongside everyone else", () => {
+    const { result } = renderHook(() => usePeopleSearch(undefined, true));
+    expect(result.current.candidates.map((u) => u.id)).toEqual([ME.id, BOB.id, CARL.id]);
   });
 });

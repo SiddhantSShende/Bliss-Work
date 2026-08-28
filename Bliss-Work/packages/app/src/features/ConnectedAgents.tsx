@@ -5,7 +5,7 @@ import { Check, Copy, Chrome, Laptop, Trash2 } from "lucide-react";
 import { Badge, Button, Spinner } from "@taskboard/ui";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
-import { getOrCreateBrowserDeviceKey, pingExtension, provisionExtension } from "../lib/extensionProvisioning";
+import { useExtensionConnection } from "../lib/useExtensionConnection";
 
 /**
  * The devices and browsers reporting activity for this person, and the way to
@@ -20,50 +20,28 @@ import { getOrCreateBrowserDeviceKey, pingExtension, provisionExtension } from "
  * being recorded is the person who controls the pairing.
  */
 export function ConnectedAgents() {
-  const { api, config } = useRuntime();
+  const { api } = useRuntime();
   const qc = useQueryClient();
   const [minted, setMinted] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   // Web-only auto-detect/auto-provision of the browser extension — see
-  // extensionProvisioning.ts. "unknown" covers both "hasn't resolved yet" and
-  // "not configured for this deployment" (config.chromeExtensionId unset):
-  // either way the manual flow below renders exactly as it always has.
-  const [autoExtension, setAutoExtension] =
-    useState<"unknown" | "connected" | "provisioned" | "unavailable">("unknown");
+  // useExtensionConnection.ts (also used by the sign-in page CTA and the
+  // post-login provisioning bridge, so this is one protocol implementation,
+  // not three). "checking"/"unsupported" both render the manual flow below
+  // exactly as it always has — the latter covers "not configured for this
+  // deployment" (config.chromeExtensionId unset).
+  const { status: autoExtension } = useExtensionConnection(true);
 
   const { data: agents = [], isLoading } = useQuery({
     queryKey: qk.agentTokens,
     queryFn: () => api.listAgentTokens(),
   });
 
-  const extensionId = config.chromeExtensionId;
+  // The hook has no reason to know about THIS list — only this screen cares
+  // that a freshly auto-provisioned token should appear in it.
   useEffect(() => {
-    if (!extensionId) return;
-    let cancelled = false;
-    void (async () => {
-      const ping = await pingExtension(extensionId);
-      if (cancelled) return;
-      if (!ping) return void setAutoExtension("unavailable");
-      if (ping.connected) return void setAutoExtension("connected");
-
-      try {
-        const deviceKey = getOrCreateBrowserDeviceKey();
-        const created = await api.createAgentToken("extension", "Browser extension", deviceKey);
-        if (cancelled) return;
-        if (!created.token) return void setAutoExtension("unavailable"); // lost double-submit; fall back
-        const result = await provisionExtension(extensionId, created.token, config.telemetryBase);
-        if (cancelled) return;
-        if (!result.ok) return void setAutoExtension("unavailable");
-        setAutoExtension("provisioned");
-        qc.invalidateQueries({ queryKey: qk.agentTokens });
-      } catch {
-        if (!cancelled) setAutoExtension("unavailable");
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [extensionId, api, config.telemetryBase, qc]);
+    if (autoExtension === "provisioned") qc.invalidateQueries({ queryKey: qk.agentTokens });
+  }, [autoExtension, qc]);
 
   const create = useMutation({
     mutationFn: () => api.createAgentToken("extension", "Browser extension"),

@@ -189,6 +189,20 @@ const api = {
     signedOut: (): Promise<null> => ipcRenderer.invoke("activity:signed-out"),
   },
 
+  /**
+   * Read-only installed-browser detection, and launching one at a BlissWork
+   * page — how this app helps provision the browser extension without ever
+   * touching the browser's own install state. See main/browser-detect.ts.
+   */
+  browsers: {
+    list: (): Promise<
+      Array<{ family: string; label: string; path: string | null; installed: boolean }>
+    > => ipcRenderer.invoke("browsers:list"),
+    /** `path` must be one `list()` just returned — main re-validates it
+     *  against its own detection before launching anything. */
+    launch: (path: string): Promise<boolean> => ipcRenderer.invoke("browsers:launch", path),
+  },
+
   /** Phase 10 sender-side streaming sha256 — the renderer feeds file slices and
    *  main hashes them incrementally so a huge file isn't loaded into memory. */
   hash: {

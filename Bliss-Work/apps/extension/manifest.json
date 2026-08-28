@@ -12,6 +12,10 @@
   "storage": { "managed_schema": "managed-schema.json" },
   "icons": { "128": "icons/icon128.png" },
   "externally_connectable": {
-    "matches": ["https://REPLACE-WITH-YOUR-WORKSPACE/*", "http://localhost:5173/*"]
+    "matches": [
+      "https://communication.rnrtechs.com/*",
+      "https://blisswork.rnrtechs.com/*",
+      "http://localhost:5173/*"
+    ]
   }
 }

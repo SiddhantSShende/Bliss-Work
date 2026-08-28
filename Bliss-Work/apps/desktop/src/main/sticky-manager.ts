@@ -25,7 +25,7 @@ import {
   saveGeometry,
   touch,
 } from "./sticky-state";
-import { normalizeZOrder, reclampGroupToPrimary, snapBackIfOffPrimary } from "./sticky-window-group";
+import { reclampGroupToPrimary, snapBackIfOffPrimary } from "./sticky-window-group";
 
 /**
  * Hard cap on simultaneous task widgets. Settings-gated raise to 12 lives in
@@ -315,44 +315,37 @@ export class StickyManager {
     }
   }
 
-  /** Notes are pinned BEHIND every app at the desktop layer and never float on
-   *  top, so main-window focus/blur no longer needs to move them. These remain
-   *  as a hard guarantee that a note is never left always-on-top (re-assert
-   *  alwaysOnTop:false) regardless of any platform quirk. */
-  lowerZOrder(): void {
-    normalizeZOrder(this.widgets.values());
-  }
-
-  /** Kept for symmetry with lowerZOrder / ChatStickyManager: also just re-asserts
-   *  that the note stays behind (never promoted above app windows). */
-  raiseZOrder(): void {
-    normalizeZOrder(this.widgets.values());
-  }
-
   /**
-   * Follow the desktop in and out of view.
+   * Follow BlissWork's own foreground state in and out of view.
    *
-   * On Windows and macOS this is what "pinned to the desktop" actually means —
-   * see ./foreground for why neither platform can put a usable window under the
-   * others. A note is shown while the desktop is what the user is looking at and
-   * taken away the moment any application is, so it is never over somebody's
-   * work. On Linux the window really is at the bottom of the stack and this is
-   * only ever called with `true`.
+   * A note floats ABOVE BlissWork's own windows while the user is looking at
+   * any of them (or the bare desktop) — real `alwaysOnTop`, not just
+   * visibility, because a non-topmost window falls behind the main window the
+   * instant it is clicked, which would defeat "stays above" the moment
+   * someone actually used the app. The moment a DIFFERENT application becomes
+   * frontmost, alwaysOnTop drops FIRST (so the note can never even flicker
+   * above someone else's work) and the note is hidden — see ./foreground for
+   * why hiding, not real z-order, is what "gets out of the way" means on
+   * Windows/macOS. On Linux `type: "desktop"` already keeps the note at the
+   * bottom of the stack and this is only ever called with `true`.
    *
-   * showInactive, never show: a note must not take focus even as it reappears.
-   * The window is non-focusable anyway, which is also why CLICKING a note does
-   * not count as leaving the desktop — the buttons keep working while it's up.
+   * showInactive, never show: a note must not take focus even as it
+   * reappears. The window is non-focusable anyway, which is also why CLICKING
+   * a note does not count as leaving BlissWork — the buttons keep working
+   * while it's up.
    */
-  setDesktopExposed(exposed: boolean): void {
+  setSafeToFloat(safe: boolean): void {
     for (const [, w] of this.widgets) {
       if (w.isDestroyed()) continue;
-      // A note the user minimised stays minimised; this decides visibility on
-      // the desktop, not what the user did with an individual note.
+      // A note the user minimised stays minimised; this decides visibility
+      // relative to other apps, not what the user did with an individual note.
       if (w.isMinimized()) continue;
-      if (exposed) {
+      if (safe) {
         if (!w.isVisible()) w.showInactive();
-      } else if (w.isVisible()) {
-        w.hide();
+        w.setAlwaysOnTop(true);
+      } else {
+        w.setAlwaysOnTop(false);
+        if (w.isVisible()) w.hide();
       }
     }
   }

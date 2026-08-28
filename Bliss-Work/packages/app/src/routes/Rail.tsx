@@ -53,7 +53,7 @@ export function Rail({
       className={`glass rounded-2xl ${
         bottom
           ? "flex items-center justify-around px-1 py-1"
-          : "relative z-30 flex min-h-0 w-[140px] shrink-0 flex-col items-center overflow-hidden px-2 py-4"
+          : "relative z-30 flex min-h-0 w-[160px] shrink-0 flex-col items-center overflow-hidden px-2 py-4"
       } ${className}`}
     >
       {bottom ? (

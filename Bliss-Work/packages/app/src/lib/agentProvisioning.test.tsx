@@ -18,16 +18,29 @@ const api = {
   createAgentToken: vi.fn(),
   revokeAgentToken: vi.fn(),
 };
+// Mutable so the ExtensionProvisioningBridge tests below can swap in a
+// chromeExtensionId-carrying config without disturbing AgentProvisioningBridge's
+// own tests, which always run against the desktop shape.
+let config: Record<string, unknown> = { kind: "desktop", activityAgent: agent };
 
 vi.mock("./runtime", () => ({
-  useRuntime: () => ({ api, config: { kind: "desktop", activityAgent: agent } }),
+  useRuntime: () => ({ api, config }),
 }));
 
 vi.mock("sonner", () => ({
   toast: Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn() }),
 }));
 
-import { AgentProvisioningBridge } from "./agentProvisioning";
+const pingExtension = vi.fn();
+const provisionExtension = vi.fn();
+vi.mock("./extensionProvisioning", () => ({
+  pingExtension: (...args: unknown[]) => pingExtension(...args),
+  provisionExtension: (...args: unknown[]) => provisionExtension(...args),
+  getOrCreateBrowserDeviceKey: () => "browser-device-key",
+}));
+
+import { toast } from "sonner";
+import { AgentProvisioningBridge, ExtensionProvisioningBridge } from "./agentProvisioning";
 
 function pairedState(over: Partial<Awaited<ReturnType<typeof agent.state>>> = {}) {
   return {
@@ -54,6 +67,7 @@ describe("AgentProvisioningBridge", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useSession.getState().clear();
+    config = { kind: "desktop", activityAgent: agent };
   });
 
   afterEach(() => {
@@ -115,5 +129,66 @@ describe("AgentProvisioningBridge", () => {
 
     await new Promise((r) => setTimeout(r, 0));
     expect(agent.state).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The web-side counterpart: finishes connecting the browser extension right
+ * after sign-in, using the exact same detect/mint/provision protocol
+ * ConnectedAgents.tsx uses (see useExtensionConnection.ts) — what's under
+ * test here is only the login gate and the one-time "it just connected"
+ * toast, not the protocol itself.
+ */
+describe("ExtensionProvisioningBridge", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useSession.getState().clear();
+    config = { kind: "web", chromeExtensionId: "ext-id", telemetryBase: "https://telemetry.test" };
+  });
+
+  afterEach(() => {
+    useSession.getState().clear();
+  });
+
+  it("does not even ping before a session exists — minting needs auth, and pinging pre-login is the sign-in page CTA's job, not this bridge's", async () => {
+    render(<ExtensionProvisioningBridge />);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(pingExtension).not.toHaveBeenCalled();
+  });
+
+  it("mints and provisions once signed in, and announces the fresh connection", async () => {
+    pingExtension.mockResolvedValue({ connected: false, version: "1.0.0" });
+    api.createAgentToken.mockResolvedValue({ id: "t1", kind: "extension", token: "raw-secret" });
+    provisionExtension.mockResolvedValue({ ok: true });
+    signIn();
+
+    render(<ExtensionProvisioningBridge />);
+
+    await waitFor(() => expect(provisionExtension).toHaveBeenCalledWith("ext-id", "raw-secret", "https://telemetry.test"));
+    expect(toast).toHaveBeenCalledWith(
+      "Browser extension connected",
+      expect.objectContaining({ description: expect.any(String) }),
+    );
+  });
+
+  it("stays quiet when the extension was already connected — no toast for a no-op", async () => {
+    pingExtension.mockResolvedValue({ connected: true, version: "1.0.0" });
+    signIn();
+
+    render(<ExtensionProvisioningBridge />);
+
+    await waitFor(() => expect(pingExtension).toHaveBeenCalled());
+    expect(api.createAgentToken).not.toHaveBeenCalled();
+    expect(toast).not.toHaveBeenCalled();
+  });
+
+  it("is inert when this deployment has no chromeExtensionId configured", async () => {
+    config = { kind: "web", telemetryBase: "https://telemetry.test" };
+    signIn();
+
+    render(<ExtensionProvisioningBridge />);
+
+    await new Promise((r) => setTimeout(r, 0));
+    expect(pingExtension).not.toHaveBeenCalled();
   });
 });

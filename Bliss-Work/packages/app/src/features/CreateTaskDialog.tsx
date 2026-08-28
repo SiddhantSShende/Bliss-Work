@@ -47,7 +47,10 @@ export function CreateTaskDialog({
   const [selectedPeople, setSelectedPeople] = useState<Set<string>>(new Set());
   const [selectedChannel, setSelectedChannel] = useState<string>("");
 
-  const { q, setQ, candidates, me } = usePeopleSearch();
+  // includeSelf: the People tab allows sending a task to yourself, same as
+  // channel mode already allows fanning a task to a channel you're a member
+  // of (see task-svc's create_task).
+  const { q, setQ, candidates } = usePeopleSearch(undefined, true);
   const { data: channels = [] } = useQuery({
     queryKey: qk.channels,
     queryFn: () => api.channels(),
@@ -57,10 +60,7 @@ export function CreateTaskDialog({
   useEffect(() => {
     if (open) {
       setMode("people");
-      // Defense in depth: a caller passing `me` in preselect (there isn't one
-      // today, but nothing enforces that) must not seed a self-assignment
-      // that the picker below never gets a chance to filter out.
-      setSelectedPeople(new Set(preselect.filter((u) => u.id !== me.id).map((u) => u.id)));
+      setSelectedPeople(new Set(preselect.map((u) => u.id)));
       setSelectedChannel("");
       setQ("");
     }

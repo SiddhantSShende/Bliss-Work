@@ -3,22 +3,13 @@
  * desktop task notes.
  *
  * ── Why this exists ──────────────────────────────────────────────────────────
- * A task note is pinned to the DESKTOP: visible when the desktop is, and never
- * over the top of whatever someone is working in. Electron can only express that
- * directly on Linux, where `type: "desktop"` maps to _NET_WM_WINDOW_TYPE_DESKTOP
- * and the window manager keeps the window at the bottom of the stack for real.
- *
- * The other two platforms cannot:
- *   * Windows supports only `type: "toolbar"` — "desktop" is silently ignored,
- *     and there is no API to lower a window in the z-order. A note therefore
- *     appears ON TOP of the front application when it is first shown.
- *   * macOS does support `type: "desktop"`, but such a window "will not receive
- *     focus, keyboard or mouse events" — which would leave Acknowledge, Ignore
- *     and Complete dead, and those buttons are the entire point of the note.
- *
- * So on Windows and macOS the notes are SHOWN while the desktop is in front and
- * HIDDEN while any other application is, which is the same thing to look at and
- * keeps every button working. Linux keeps the real desktop layer.
+ * A task note is a desktop widget: visible while BlissWork itself is what the
+ * user is looking at (any of its own windows, or the bare desktop), and never
+ * over the top of a DIFFERENT application. Electron's `alwaysOnTop` has no
+ * concept of "above my own other windows only" — it is a single global flag —
+ * so the only way to get that behaviour is to flip it on exactly while BlissWork
+ * is the frontmost app and off the instant anything else is, which needs to
+ * know what the frontmost app actually is.
  *
  * ── Why polling ──────────────────────────────────────────────────────────────
  * Electron reports focus changes for its OWN windows only; there is no event for
@@ -88,18 +79,25 @@ export function providerUnavailableReason(): string | null {
 }
 
 /**
- * Whether a foreground-window reading means "the desktop is what the user is
- * looking at".
+ * Whether a foreground-window reading means "it is safe for a note to float
+ * above whatever is currently showing" — i.e. BlissWork itself (any of its own
+ * windows) is what the user is looking at, or nothing application-level is
+ * (the bare desktop).
  *
- * Every platform assumption in this feature is in this one function, on purpose:
- * it is the part that cannot be verified without the actual operating system in
- * front of you, so it is small and pure rather than spread through the window
- * code.
+ * Every platform assumption in this feature is in this one function, on
+ * purpose: it is the part that cannot be verified without the actual operating
+ * system in front of you, so it is small and pure rather than spread through
+ * the window code.
  */
-export function isDesktopExposed(
+export function isSafeToFloat(
   active: ForegroundWindow | undefined,
   platform: NodeJS.Platform = process.platform,
 ): boolean {
+  // BlissWork's own windows (the main window, a meeting window, …) share this
+  // process — checked first and identically on every platform, since it is
+  // not a platform assumption at all, unlike the desktop-detection below.
+  if (active?.owner?.processId === process.pid) return true;
+
   if (platform === "win32") {
     // The Windows desktop IS a window — Progman, titled "Program Manager" — and
     // it becomes the foreground window both when the desktop is clicked and when
@@ -129,27 +127,27 @@ export function isDesktopExposed(
  * degrading to "the notes behave as they did before" is a far better failure
  * than a native module quietly making the pinned tasks disappear for good.
  */
-let exposed = true;
+let safe = true;
 let timer: NodeJS.Timeout | null = null;
 // Set synchronously on entry, because the provider load below is awaited and a
 // timer-only guard would let two calls both get past it and leave one interval
 // running forever with nothing holding its handle.
 let started = false;
-const listeners = new Set<(exposed: boolean) => void>();
+const listeners = new Set<(safe: boolean) => void>();
 
-export function isDesktopCurrentlyExposed(): boolean {
-  return exposed;
+export function isSafeToFloatNow(): boolean {
+  return safe;
 }
 
 /** Subscribe to changes. Returns an unsubscribe. */
-export function onDesktopExposureChange(cb: (exposed: boolean) => void): () => void {
+export function onFloatSafetyChange(cb: (safe: boolean) => void): () => void {
   listeners.add(cb);
   return () => listeners.delete(cb);
 }
 
 function set(next: boolean): void {
-  if (next === exposed) return;
-  exposed = next;
+  if (next === safe) return;
+  safe = next;
   for (const cb of listeners) cb(next);
 }
 
@@ -163,7 +161,7 @@ async function sample(win: GetWindows): Promise<void> {
     // next tick is a second away.
     return;
   }
-  set(isDesktopExposed(active));
+  set(isSafeToFloat(active));
 }
 
 /**

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { appIcon } from "./assets";
 import { hardenWindow } from "./harden";
-import { isDesktopCurrentlyExposed } from "./foreground";
+import { isSafeToFloatNow } from "./foreground";
 import { isSystemAway } from "./window-state-guard";
 import { getMainWindowBounds, saveMainWindowBounds } from "./sticky-state";
 
@@ -117,37 +117,37 @@ function wireBoundsPersistence(win: BrowserWindow): void {
 }
 
 export function createStickyWindow(taskId: string, index: number, collapsed = false): BrowserWindow {
-  // DESKTOP-PINNED TASK NOTE — an allocated task is pinned to the user's MAIN
-  // desktop (home screen), BEHIND every application window. It must NEVER float
-  // over an open app or sit on top of other windows; it lives at the desktop
-  // layer like a wallpaper widget, visible only when the desktop is (Show
-  // Desktop / everything minimised). This is deliberate per product spec.
+  // DESKTOP-PINNED TASK NOTE — an allocated task floats as a small widget that
+  // stays ABOVE BlissWork's own windows while BlissWork is what the user is
+  // looking at (any of its windows, or the bare desktop), and gets out of the
+  // way — hidden, never merely un-topmost — the instant a DIFFERENT
+  // application is frontmost. It is a desktop task widget, not a global
+  // always-on-top window: nothing here ever floats above another app.
   //
-  // How the "always behind" is achieved without a native module, per platform:
+  // How that is achieved, per platform — see ./foreground (isSafeToFloat) for
+  // the "is BlissWork frontmost" detection this all keys off:
+  //
+  //   • WINDOWS and macOS — real `alwaysOnTop`, toggled dynamically by
+  //     StickyManager.setSafeToFloat() in step with ./foreground's poll:
+  //     true while BlissWork itself is frontmost (so clicking around the main
+  //     window does not bury the note behind it — a non-topmost window falls
+  //     behind whatever is clicked), false the instant another app is, paired
+  //     with hiding the note so it can never even flicker above someone
+  //     else's work in the gap between the two.
   //
   //   • LINUX — type: "desktop" maps to _NET_WM_WINDOW_TYPE_DESKTOP and the
-  //     window manager keeps the window at the very bottom of the stack. Real
-  //     layering: the note stays put, stays clickable, and is simply never in
-  //     the way.
-  //
-  //   • WINDOWS and macOS — the type is NOT set, and ./foreground hides the note
-  //     while another application is in front instead. Neither platform can do
-  //     what Linux does here:
-  //       – Windows supports only type: "toolbar"; "desktop" is silently
-  //         ignored, and Electron has no API to lower a window in the z-order,
-  //         so a shown note sits ON TOP of the front app until something else
-  //         is raised over it.
-  //       – macOS does support type: "desktop", but such a window "will not
-  //         receive focus, keyboard or mouse events" — which would leave
-  //         Acknowledge, Ignore and Complete dead, and those are the note.
+  //     window manager keeps the window at the bottom of the stack for real;
+  //     ./foreground's poll does not run there at all (isSafeToFloat is
+  //     always true), so alwaysOnTop is simply never turned on.
   //
   //   • focusable: false → the note can never take focus or be raised to the
-  //     front by a click, so opening/clicking any app leaves it behind, and
-  //     clicking the note itself does not change which app is in front (which is
-  //     what lets a note stay visible while its buttons are being used). Task
-  //     actions are pure click targets — no text input — so this costs nothing.
-  //   • alwaysOnTop: false + skipTaskbar: true → never promoted above apps, and
-  //     kept out of the taskbar/alt-tab (it's an ambient desktop widget).
+  //     front by a click, so its own alwaysOnTop toggling never fights the
+  //     user for keyboard focus, and clicking the note itself does not count
+  //     as "leaving BlissWork" for the purposes of ./foreground's poll. Task
+  //     actions are pure click targets — no text input — so this costs
+  //     nothing.
+  //   • skipTaskbar: true → kept out of the taskbar/alt-tab, since it is an
+  //     ambient widget, not a window someone switches to directly.
   //   • showInactive() (below) surfaces it WITHOUT stealing focus.
   // The StickyManager confines its position to the primary display.
   const win = new BrowserWindow({
@@ -187,10 +187,10 @@ export function createStickyWindow(taskId: string, index: number, collapsed = fa
     },
   });
 
-  // Belt-and-suspenders: a note must never be left promoted above app windows.
-  // This only re-asserts the constructor option — moveTop has no inverse, so
-  // what actually keeps the note out of the way is type:"desktop" on Linux and
-  // ./foreground hiding it on Windows and macOS.
+  // Safe starting state: not promoted above anything until the very first
+  // ./foreground poll confirms BlissWork is actually what's frontmost — a
+  // note must never even flicker above another app while that first answer
+  // is still in flight. Re-asserts the constructor option; belt-and-suspenders.
   win.setAlwaysOnTop(false);
 
   hardenWindow(win, "sticky");
@@ -199,13 +199,17 @@ export function createStickyWindow(taskId: string, index: number, collapsed = fa
   if (DEV_URL) void win.loadURL(`${DEV_URL}/sticky.html${query}`);
   else void win.loadFile(join(rendererDir, "sticky.html"), { search: query });
 
-  // Show it without grabbing keyboard focus — but only if the desktop is what
-  // the user is looking at. A task allocated while someone is in another
-  // application must not appear over their work, and on Windows a freshly shown
-  // window goes to the top of the stack, so "show it and let it fall behind" is
-  // not available. The watcher shows it the moment they return to the desktop.
+  // Show it without grabbing keyboard focus — but only if it is currently
+  // safe to float (BlissWork frontmost, or the bare desktop). A task
+  // allocated while someone is in another application must not appear over
+  // their work. The watcher (./foreground) raises and shows it the moment
+  // that changes; this only covers the window between creation and the next
+  // poll tick.
   win.on("ready-to-show", () => {
-    if (isDesktopCurrentlyExposed()) win.showInactive();
+    if (isSafeToFloatNow()) {
+      win.showInactive();
+      win.setAlwaysOnTop(true);
+    }
   });
   return win;
 }

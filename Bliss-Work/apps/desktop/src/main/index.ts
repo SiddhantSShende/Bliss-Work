@@ -5,7 +5,7 @@ import type { StickyTaskDTO } from "@taskboard/shared";
 import { createMainWindow } from "./windows";
 import { StickyManager } from "./sticky-manager";
 import {
-  onDesktopExposureChange,
+  onFloatSafetyChange,
   startDesktopWatch,
   stopDesktopWatch,
 } from "./foreground";
@@ -33,6 +33,7 @@ import { popupFor, raise, shouldNotify, userIdFromToken, windowStateOf } from ".
 import { resolveEndpointsFromEnv } from "../shared/endpoints";
 import { findDeepLink, parseDeepLink } from "../shared/deeplink";
 import { openExternalSafely } from "./harden";
+import { detectBrowsers, launchBrowser } from "./browser-detect";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 
@@ -252,12 +253,11 @@ function bootstrap() {
   screen.on("display-removed", reclampStickies);
   screen.on("display-metrics-changed", reclampStickies);
 
-  // Follow the desktop in and out of view, so a task note is only ever up when
-  // the desktop is — never over the application someone is working in. This is
-  // what "pinned to the desktop" has to mean on Windows and macOS; on Linux the
-  // window really is at the bottom of the stack and the watcher does not run.
-  // See ./foreground.
-  onDesktopExposureChange((visible) => sticky.setDesktopExposed(visible));
+  // Follow BlissWork's own foreground state in and out of view, so a task note
+  // floats above BlissWork's own windows and never over a DIFFERENT
+  // application someone is working in. On Linux the window really is at the
+  // bottom of the stack and the watcher does not run. See ./foreground.
+  onFloatSafetyChange((safe) => sticky.setSafeToFloat(safe));
   void startDesktopWatch();
 
   app.on("activate", () => {
@@ -269,10 +269,8 @@ function bootstrap() {
 }
 
 function wireMainWindow(win: BrowserWindow) {
-  // Sticky notes are always pinned on top (see StickyManager), so the main
-  // window's focus/minimize state no longer gates them. We only intercept close
-  // to keep running in the tray — so the widgets + WS survive the window being
-  // dismissed. A real quit sets `quitting`.
+  // Intercept close to keep running in the tray, so the widgets + WS survive
+  // the window being dismissed. A real quit sets `quitting`.
   // Windows only, and it must be registered BEFORE the close handler below so
   // `quitting` is already set by the time the shutdown's close arrives —
   // otherwise the app hides itself instead of quitting, which is what made the
@@ -286,16 +284,17 @@ function wireMainWindow(win: BrowserWindow) {
     }
   });
 
-  // Task notes are pinned to the desktop BEHIND every app and never float on
-  // top, so focus/blur no longer needs to raise or lower them. We still re-assert
-  // "never always-on-top" on both transitions as a hard guarantee against any
-  // platform quirk leaving a note promoted above app windows.
+  // Task notes now float based on BlissWork's own foreground state (see
+  // ./foreground's isSafeToFloat + StickyManager.setSafeToFloat), driven by
+  // the polling watcher started above — main-window focus/blur is no longer
+  // the trigger for them, since the poll already catches "BlissWork itself is
+  // frontmost" regardless of which of its windows has focus, and reacts to a
+  // DIFFERENT app becoming frontmost the same way. Chat stickies are a
+  // separate feature with their own (unchanged) always-behind behaviour.
   win.on("focus", () => {
-    sticky.lowerZOrder();
     chatSticky.lowerZOrder();
   });
   win.on("blur", () => {
-    sticky.raiseZOrder();
     chatSticky.raiseZOrder();
   });
 }
@@ -617,6 +616,36 @@ ipcMain.handle("activity:open-screen-recording-settings", async (e) => {
   if (!url) return false;
   await shell.openExternal(url);
   return true;
+});
+
+// ── Browser extension provisioning helper ────────────────────────────────────
+// The desktop app has no way to talk to a browser extension directly — there
+// is no `chrome.runtime` in an Electron renderer (see extensionProvisioning.ts
+// in packages/app), so the real ping/provision handshake can only run inside
+// an actual browser tab. What this app CAN legitimately do is (a) report which
+// supported browsers are installed, read-only, and (b) open one of them at a
+// BlissWork page, where the existing web-side detection/connection flow
+// (BrowserExtensionCTA / ConnectedAgents) takes over. Guarded by
+// fromMainWindow for the same reason every other renderer-facing IPC here is.
+ipcMain.handle("browsers:list", async (e) => {
+  if (!fromMainWindow(e)) return [];
+  return detectBrowsers();
+});
+
+ipcMain.handle("browsers:launch", async (e, path: unknown) => {
+  if (!fromMainWindow(e)) return false;
+  if (typeof path !== "string" || !path) return false;
+  const detected = await detectBrowsers();
+  // Never launch an arbitrary renderer-supplied path — only one THIS
+  // process's own read-only detection just found on disk.
+  if (!detected.some((b) => b.installed && b.path === path)) return false;
+  const webOrigin = new URL(ENDPOINTS.authBase).origin;
+  try {
+    await launchBrowser(path, `${webOrigin}/login`);
+    return true;
+  } catch {
+    return false;
+  }
 });
 
 ipcMain.on("task:intent", (_e, intent: { taskId: string; action: string }) => {

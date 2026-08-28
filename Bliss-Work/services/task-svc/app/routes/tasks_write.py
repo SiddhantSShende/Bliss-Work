@@ -145,17 +145,13 @@ async def create_task(
     if channel_id:
         assignee_ids = [a for a in dict.fromkeys(await _resolve_channel_members(channel_id, org_id))]
     else:
+        # Self-assignment is allowed here, same as it already is via channel
+        # mode above when the caller happens to be a member of the target
+        # channel: the Acknowledge/Ignore lifecycle (transitions.py) only ever
+        # looks up the real sender_id to stamp events with, it never assumes
+        # that id differs from the assignee, so a self-assigned task flows
+        # through unchanged.
         assignee_ids = [a for a in dict.fromkeys(body.assigneeIds)]
-        # A task always has a distinct sender and assignee — the
-        # Acknowledge/Ignore lifecycle assumes someone else sent it. The People
-        # picker excludes the caller from candidates, but that is client-side
-        # only; this is the boundary that must hold regardless of what any
-        # client (this one, a future one, or a raw API call) sends. Channel
-        # mode is intentionally exempt: fanning a task to a channel the caller
-        # is themselves a member of is a real, distinct product choice, not
-        # this bug.
-        if sender_id in assignee_ids:
-            raise HTTPException(status_code=400, detail="cannot assign a task to yourself")
     if not assignee_ids:
         raise HTTPException(status_code=400, detail="at least one assignee required")
     if len(assignee_ids) > MAX_ASSIGNEES:
