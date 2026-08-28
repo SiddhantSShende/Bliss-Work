@@ -59,11 +59,16 @@ export function CallMembers({
   const current = Math.min(page, pages - 1);
   const shown = participants.slice(current * perPage, current * perPage + perPage);
 
+  // Alone in the room, a tile sized for a multi-person grid reads as small and
+  // stranded in the corner. One participant gets the room's full attention
+  // instead, at the same large sizing a pinned/stage tile already uses
+  // elsewhere — see the `size` prop below.
+  const solo = shown.length === 1;
   // Three or four tiles read better as a small, deliberate 2-up arrangement —
   // centered under an even top row — than left-aligned in whatever column
   // count the area's width happens to offer. Five and up keep the responsive
   // grid, where a half-empty last row is rare enough not to matter.
-  const centered = shown.length === 3 || shown.length === 4;
+  const centered = !solo && (shown.length === 3 || shown.length === 4);
   const orphan = centered && shown.length === 3;
 
   return (
@@ -78,11 +83,13 @@ export function CallMembers({
           // overflow-hidden, not auto: this area is the thing that must not
           // scroll. If tiles do not fit, that is what the pager is for.
           "grid min-h-0 flex-1 gap-2 overflow-hidden",
-          centered
-            ? "grid-cols-2 grid-rows-2"
-            : layout === "grid"
-              ? "auto-rows-fr grid-cols-2 sm:grid-cols-3 xl:grid-cols-4"
-              : "auto-rows-fr grid-cols-2",
+          solo
+            ? "grid-cols-1 grid-rows-1"
+            : centered
+              ? "grid-cols-2 grid-rows-2"
+              : layout === "grid"
+                ? "auto-rows-fr grid-cols-2 sm:grid-cols-3 xl:grid-cols-4"
+                : "auto-rows-fr grid-cols-2",
         )}
       >
         {shown.map((p, i) => {
@@ -95,7 +102,7 @@ export function CallMembers({
               <div className={cn("h-full min-h-0", isOrphan && "w-1/2")}>
                 <CallTile
                   p={p}
-                  size="grid"
+                  size={solo ? "stage" : "grid"}
                   pinned={pinned === p.identity}
                   handRaised={hands.has(p.identity)}
                   onTogglePin={() => onTogglePin(p.identity)}
