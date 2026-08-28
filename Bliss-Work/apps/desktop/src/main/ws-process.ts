@@ -67,13 +67,35 @@ function build(cfg: {
   ws.onControl((f) => send({ type: "rtc-frame", frame: f }));
 }
 
+/** Delays (ms) between refreshSticky's own retry attempts, on top of whatever
+ *  retry api.tasksSticky() already does internally for an expired token. A
+ *  task.* event fires this exactly once per change, so a single transient
+ *  failure here — not "offline", just one dropped request — used to mean the
+ *  ONE fetch that would have auto-pinned a freshly assigned task silently
+ *  never happened, with nothing to trigger it again until some unrelated
+ *  task.* event came in (or the next launch). Short and few: this gates how
+ *  fast a legitimate new allocation appears, so it must not turn a real
+ *  assignment into a multi-minute wait. */
+const STICKY_REFRESH_RETRY_DELAYS_MS = [500, 1500];
+
 async function refreshSticky() {
   if (!api || !token) return;
-  try {
-    stickyTasks = await api.tasksSticky();
-    send({ type: "sticky", tasks: stickyTasks });
-  } catch {
-    /* offline; keep last known */
+  for (let attempt = 0; ; attempt++) {
+    try {
+      stickyTasks = await api.tasksSticky();
+      send({ type: "sticky", tasks: stickyTasks });
+      return;
+    } catch (e) {
+      const delay = STICKY_REFRESH_RETRY_DELAYS_MS[attempt];
+      if (delay === undefined) {
+        // Genuinely offline, or the server is down — keep the last known list
+        // rather than wiping pinned notes off a transient failure. The next
+        // task.* event (or app launch) tries again.
+        console.error("[sticky] refresh failed after retries:", e instanceof Error ? e.message : e);
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
   }
 }
 
