@@ -121,7 +121,18 @@ func (s *Store) SendMail(ctx context.Context, in SendMailInput) (*SendMailResult
 		if err := s.deliverMailInApp(ctx, tx, in, locals, preview, sentAt); err != nil {
 			return err
 		}
-		return s.queueMailOutbound(ctx, tx, in, author, recipients, externals, sentAt)
+		// Every recipient but the author gets a real copy on the wire too, not
+		// just `externals` — a colleague's in-app delivery just above puts the
+		// mail in their BlissWork inbox, it does not put it in their actual
+		// mailbox, and BlissWork mail is required to reach that too. Kept as its
+		// own list rather than widening `externals` itself: `externals` still has
+		// to mean exactly "left the org" everywhere else it's used —
+		// SendMailResult.QueuedExternal and the composer's "delivering to N more"
+		// copy both say that today, correctly, since a colleague already has
+		// their copy the instant deliverMailInApp above returns and is not "N
+		// more" pending anything.
+		relayTo := relayRecipients(recipients, author.address)
+		return s.queueMailOutbound(ctx, tx, in, author, recipients, relayTo, sentAt)
 	})
 	if err != nil {
 		return nil, err
@@ -252,4 +263,26 @@ func splitMailDelivery(recipients []resolvedAddress, authorID string) (locals []
 		}
 	}
 	return locals, externals
+}
+
+// relayRecipients is every distinct recipient address — local org members
+// included — that should receive a real copy of the mail over SMTP/provider
+// send, minus the author's own address (self-send guard, same rule
+// splitMailDelivery applies to the author's in-app copy).
+//
+// Deliberately not the same list as splitMailDelivery's `externals`: that one
+// means "left the org" everywhere else it is used (SendMailResult and the
+// composer's "delivering to N more" copy), and must keep meaning exactly
+// that. This one means "gets a wire copy," which today is everybody.
+func relayRecipients(recipients []resolvedAddress, authorAddress string) []string {
+	seen := map[string]bool{strings.ToLower(authorAddress): true}
+	out := make([]string, 0, len(recipients))
+	for _, r := range recipients {
+		if seen[r.address] {
+			continue
+		}
+		seen[r.address] = true
+		out = append(out, r.address)
+	}
+	return out
 }

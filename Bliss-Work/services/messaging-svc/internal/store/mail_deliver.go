@@ -112,7 +112,10 @@ func (s *Store) upsertMailInboxItem(ctx context.Context, tx pgx.Tx, it mailInbox
 	return err
 }
 
-// queueMailOutbound emits one MailOutbound event per address outside the org.
+// queueMailOutbound emits one MailOutbound event per address that should
+// receive a real copy of the mail over the wire — every recipient but the
+// author, local org members included (see relayRecipients), not only the
+// addresses actually leaving the org.
 //
 // The events carry attachment METADATA, never bytes — see
 // events.MailOutboundAttachment, and internalMailAttachment for the endpoint
@@ -125,12 +128,12 @@ func (s *Store) upsertMailInboxItem(ctx context.Context, tx pgx.Tx, it mailInbox
 // one sent to the Bcc'd person themselves.
 func (s *Store) queueMailOutbound(
 	ctx context.Context, tx pgx.Tx, in SendMailInput, author mailAuthor,
-	recipients []resolvedAddress, externals []string, sentAt time.Time,
+	recipients []resolvedAddress, relayTo []string, sentAt time.Time,
 ) error {
-	if len(externals) == 0 {
+	if len(relayTo) == 0 {
 		return nil
 	}
-	// Read once, not once per copy: every external recipient gets the same file
+	// Read once, not once per copy: every relayed recipient gets the same file
 	// list, and this is a decrypt-per-filename query.
 	files, err := s.loadMailAttachments(ctx, tx, in.OrgID, in.MailID)
 	if err != nil {
@@ -151,10 +154,13 @@ func (s *Store) queueMailOutbound(
 			cc = append(cc, r.address)
 		}
 	}
-	providerTo, providerCc, providerBcc := splitExternalsByKind(recipients, externals)
+	// The name says "externals" because that is its usual caller elsewhere;
+	// handed relayTo here it regroups by kind exactly the same way — it only
+	// ever looks at whether an address is IN the set it's given.
+	providerTo, providerCc, providerBcc := splitExternalsByKind(recipients, relayTo)
 	occurred := sentAt.Format("2006-01-02T15:04:05.000Z")
-	payloads := make([]any, 0, len(externals))
-	for i, addr := range externals {
+	payloads := make([]any, 0, len(relayTo))
+	for i, addr := range relayTo {
 		ev := events.MailOutbound{
 			Type:        events.TypeMailOutbound,
 			EventID:     uuid.Must(uuid.NewV7()).String(),

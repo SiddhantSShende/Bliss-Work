@@ -135,3 +135,38 @@ func TestSplitMailDelivery_NoAuthorKeepsEveryLocalRecipient(t *testing.T) {
 		t.Errorf("externals = %v, want none", externals)
 	}
 }
+
+// relayRecipients is what makes a colleague's mail also reach their real
+// mailbox, not just their BlissWork inbox — the bug this file's SendMail
+// change exists to fix. It must include local recipients (unlike externals),
+// still dedup an address that appears in two headers, and still exclude the
+// author even when they cc'd themselves.
+func TestRelayRecipients(t *testing.T) {
+	const author = "author-id"
+	recipients := []resolvedAddress{
+		{kind: MailKindTo, address: "colleague@acme.com", userID: ptr("colleague-id")},
+		{kind: MailKindTo, address: "outside@partner.com"},
+		// Same external address again via Bcc — one wire copy, not two.
+		{kind: MailKindBcc, address: "outside@partner.com"},
+		// The author cc'd themselves — must not get mailed their own mail.
+		{kind: MailKindCc, address: "me@acme.com", userID: ptr(author)},
+	}
+
+	got := relayRecipients(recipients, "Me@Acme.com") // case mismatch, deliberately
+
+	want := []string{"colleague@acme.com", "outside@partner.com"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("relayRecipients = %v, want %v (colleague included, external deduped, author excluded case-insensitively)", got, want)
+	}
+}
+
+func TestRelayRecipients_NoAuthorKeepsEveryone(t *testing.T) {
+	recipients := []resolvedAddress{
+		{kind: MailKindTo, address: "a@acme.com", userID: ptr("user-a")},
+		{kind: MailKindCc, address: "b@partner.com"},
+	}
+	got := relayRecipients(recipients, "")
+	if len(got) != 2 {
+		t.Errorf("relayRecipients = %v, want both addresses", got)
+	}
+}
