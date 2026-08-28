@@ -207,6 +207,15 @@ async def _summary_for(
                                   "foreground_ms", "switches", start, end)
         sites = await _top_overall(db, org_id, user_id, "site_usage_daily", "domain",
                                    "visit_ms", "visits", start, end)
+        # Same reasoning as the `days` top-up above: app_usage_daily/site_usage_daily
+        # are rollup tables the nightly job (jobs/rollup.py) only ever writes for
+        # YESTERDAY and earlier, so without this, using the app today never shows
+        # up under "Top Applications"/"Top Sites" until tomorrow — active/idle
+        # time already accounts for today, but the per-app breakdown silently did
+        # not.
+        if start <= today <= end:
+            apps = _merge_top(apps, await _live_top_targets(db, org_id, user_id, today, "app"))
+            sites = _merge_top(sites, await _live_top_targets(db, org_id, user_id, today, "site"))
 
     return SummaryDTO(
         **{"from": start.isoformat(), "to": end.isoformat()},
@@ -253,6 +262,51 @@ async def _today_live(db, org_id: str, user_id: str, today: date) -> DayBucket |
         day=today.isoformat(), activeMs=int(s.a or 0), idleMs=int(s.i or 0),
         onlineMs=int(s.o or 0), sessions=int(s.n or 0), events=int(e.n if e else 0),
     )
+
+
+async def _live_top_targets(
+    db, org_id: str, user_id: str, today: date, target_kind: str
+) -> dict[str, tuple[str, int, int]]:
+    """Today's {app,site} usage straight from activity_events — the raw rows
+    jobs/rollup.py's _APP_ROLLUP/_SITE_ROLLUP has not processed yet (it only
+    ever rolls up the PREVIOUS day). Mirrors that job's own GROUP BY, restricted
+    to today. target_id is plaintext (unlike detail_enc), so no decrypt is
+    needed here — same reason the rollup job itself can group by it.
+
+    Keyed by lower(target_id), same as app_usage_daily/site_usage_daily's own
+    dedup key, so a live row merges onto the right rolled-up row regardless of
+    casing differences between how two different days reported the same app.
+    """
+    start = datetime.combine(today, time.min, tzinfo=timezone.utc)
+    rows = (
+        await db.execute(
+            text(
+                "SELECT lower(target_id) k, MAX(target_id) label, "
+                "COALESCE(SUM(duration_ms), 0) ms, COUNT(*) n "
+                "FROM activity_events "
+                "WHERE org_id = :org AND user_id = :uid AND occurred_at >= :s "
+                "AND target_kind = :kind AND target_id IS NOT NULL "
+                "GROUP BY lower(target_id)"
+            ),
+            {"org": org_id, "uid": user_id, "s": start, "kind": target_kind},
+        )
+    ).all()
+    return {r.k: (r.label, int(r.ms or 0), int(r.n or 0)) for r in rows}
+
+
+def _merge_top(rolled: list[NamedCount], live: dict[str, tuple[str, int, int]]) -> list[NamedCount]:
+    """Adds today's live counts onto the rolled-up ones sharing a key, appends
+    any key the rollup has not seen yet, then re-sorts/caps exactly as
+    _top_overall's own `ORDER BY ms DESC LIMIT 10` does."""
+    merged: dict[str, NamedCount] = {r.key.lower(): r.model_copy() for r in rolled}
+    for key, (label, ms, n) in live.items():
+        existing = merged.get(key)
+        if existing is not None:
+            existing.valueMs += ms
+            existing.count += n
+        else:
+            merged[key] = NamedCount(key=label, label=label, valueMs=ms, count=n)
+    return sorted(merged.values(), key=lambda r: -r.valueMs)[:10]
 
 
 async def _top_overall(db, org_id, user_id, table, key_col, ms_col, count_col, start, end):
