@@ -24,8 +24,23 @@ ALTER TABLE channel_members
 -- statements each one is its own implicit transaction, so the bypass would have
 -- expired before the UPDATE ran. A DO block is a single statement, so the whole
 -- backfill shares one transaction and one GUC.
+--
+-- Restores the PREVIOUS value at the end rather than hard-setting 'off': this
+-- used to hard-set 'off', which is harmless once 0012 is already in the ledger
+-- (the deployed-database path), but Store.Migrate runs every file in ONE
+-- shared transaction, so on a first boot against an empty database that 'off'
+-- leaked forward and turned the bypass off for every later migration in that
+-- same run too — see calls_lifecycle_db_test.go's header, which documents
+-- exactly this defect via 0020_hide_chat_inbox_items.sql refusing to run
+-- without the bypass. Saving and restoring the prior value (which Store.Migrate
+-- already set to 'on' before the loop) keeps this file's own habit of not
+-- leaving the bypass on any longer than its own statement needs, without
+-- clobbering it for whatever runs after it in the same transaction.
 DO $bf$
+DECLARE
+    prev_bypass text;
 BEGIN
+    prev_bypass := current_setting('app.bypass_rls', true);
     PERFORM set_config('app.bypass_rls', 'on', true);
 
     UPDATE channel_members cm
@@ -35,7 +50,7 @@ BEGIN
        AND c.created_by = cm.user_id
        AND cm.role = 'member';
 
-    PERFORM set_config('app.bypass_rls', 'off', true);
+    PERFORM set_config('app.bypass_rls', COALESCE(prev_bypass, ''), true);
 END
 $bf$;
 
