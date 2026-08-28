@@ -229,20 +229,31 @@ stash, or merge it first."
 wait_healthy() {
     local deadline=$((SECONDS + HEALTH_TIMEOUT))
     local svc cid status
-    local -a pending
+    local -a cids pending
 
     while :; do
         pending=()
         for svc in "${HEALTH_SERVICES[@]}"; do
-            cid="$(compose ps -q "$svc" 2>/dev/null || true)"
-            if [[ -z "$cid" ]]; then
+            # `ps -q` prints one container ID per line for a replicated service
+            # (auth-svc, task-svc, etc. run 2 replicas). The previous version
+            # captured that as a single newline-joined string and fed it to one
+            # `docker inspect` call, which either errored (unknown container
+            # "id1\nid2") or, unquoted, returned one status line per container
+            # ("healthy\nhealthy") — either way `[[ "$status" == "healthy" ]]`
+            # can never match a multi-line value, so a replicated service was
+            # always reported pending until HEALTH_TIMEOUT, even fully healthy.
+            # Verified 2026-08-28 against live 2-replica services.
+            mapfile -t cids < <(compose ps -q "$svc" 2>/dev/null)
+            if [[ ${#cids[@]} -eq 0 ]]; then
                 pending+=("$svc(missing)")
                 continue
             fi
-            status="$($DOCKER inspect \
-                --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' \
-                "$cid" 2>/dev/null || echo unknown)"
-            [[ "$status" == "healthy" ]] || pending+=("$svc($status)")
+            for cid in "${cids[@]}"; do
+                status="$($DOCKER inspect \
+                    --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' \
+                    "$cid" 2>/dev/null || echo unknown)"
+                [[ "$status" == "healthy" ]] || pending+=("$svc($status)")
+            done
         done
 
         (( ${#pending[@]} == 0 )) && return 0
