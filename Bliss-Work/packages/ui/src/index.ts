@@ -27,6 +27,7 @@ export {
   themeClasses,
   themeName,
   isThemeId,
+  defaultThemeFor,
   ALL_THEME_CLASSES,
   type ThemeId,
   type ThemeDef,

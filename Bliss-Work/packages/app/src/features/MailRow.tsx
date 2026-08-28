@@ -120,7 +120,7 @@ export function MailRow({
             when a row is read. */}
         <span
           aria-hidden
-          className={`mt-3.5 h-2 w-2 shrink-0 rounded-full ${isUnread ? "bg-accent" : "bg-transparent"}`}
+          className={`mt-3.5 h-2 w-2 shrink-0 rounded-full ${isUnread ? "bg-unread" : "bg-transparent"}`}
         />
         {isTask ? (
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">

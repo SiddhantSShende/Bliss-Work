@@ -78,7 +78,11 @@ const DARK_THEMES: readonly ThemeDef[] = FAMILIES.map(({ id, name }) => ({
   classes: classesFor(id, true),
 }));
 
-const DEFAULT_THEME: ThemeDef = THEMES[1]!; // "blue" — the app's original palette
+/** The default theme for anyone with no saved preference (first-ever visit,
+ *  or storage unavailable) — see readStoredTheme in ThemeProvider.tsx. Looked
+ *  up by id rather than a positional THEMES[n] index so this stays correct if
+ *  FAMILIES is ever reordered. */
+const DEFAULT_THEME: ThemeDef = THEMES.find((t) => t.id === "purple")!;
 
 const ALL_THEMES: readonly ThemeDef[] = [...THEMES, ...DARK_THEMES];
 const ALL_THEME_IDS: readonly ThemeId[] = ALL_THEMES.map((t) => t.id);

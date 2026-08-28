@@ -14,10 +14,11 @@
 
 /* ── Tokens. WHITE default; .dark overrides. This IS the "Blue" theme (see
    themes.ts) — the app's original palette, needing no extra class of its
-   own. Chart/heat tokens stay pinned to their own tuned hue (285/288)
-   independent of the accent below: they're measured for contrast on this
-   surface and out of scope for the per-theme colour system (themes.ts'
-   named families only cover bg/surface/border/text/accent, not charts). ── */
+   own. Blue's chart/heat tokens stay pinned to their own tuned hue (285/288),
+   measured for contrast on this surface — the other three families now carry
+   their own chart/heat values (see the .rose/.purple/.teal blocks below),
+   rotated to each family's own accent hue so Analytics visibly matches the
+   selected theme. ── */
 @theme {
   --color-bg: #f7fbff;
   --color-surface: #ffffff;
@@ -34,6 +35,11 @@
   --color-success: oklch(0.7 0.15 158);
   --color-danger: oklch(0.62 0.21 25);
   --color-warning: oklch(0.8 0.15 80);
+  /* Unread indicator dots. Fixed blue regardless of the selected theme family
+     — like success/danger/warning below, this is semantic (an unread mark),
+     not brand colour, so it is NOT redefined in .rose/.purple/.teal. Value is
+     today's base/blue --color-accent, unchanged by which family is active. */
+  --color-unread: #2563eb;
 
   /* ── Chart tokens ──────────────────────────────────────────────────────────
      Deliberately ONE hue plus a de-emphasis gray, not a categorical palette.
@@ -83,6 +89,8 @@
   --color-success: oklch(0.75 0.15 158);
   --color-danger: oklch(0.68 0.2 25);
   --color-warning: oklch(0.82 0.15 80);
+  /* See the light block's --color-unread comment above. */
+  --color-unread: #3b82f6;
 
   /* Dark steps are CHOSEN for the dark surface, not an inversion of the light
      ramp: the same hue, re-stepped so the ramp still runs low→high away from a
@@ -117,9 +125,13 @@
    off the theme's reference swatch — see themes.ts for the class wiring and
    Settings' theme menu for where these are picked.
 
-   success/danger/warning are deliberately NOT overridden per family: they're
-   semantic (a task overdue is red regardless of whether the theme's OWN
-   accent happens to be red too), not brand colour. */
+   success/danger/warning (and --color-unread, above) are deliberately NOT
+   overridden per family: they're semantic (a task overdue is red regardless
+   of whether the theme's OWN accent happens to be red too; an unread dot is
+   always blue), not brand colour. Chart/heat tokens ARE overridden per
+   family below — rotated to each family's own accent hue, same lightness
+   steps as Blue's base ramp, chroma capped to what's in-gamut for that hue —
+   so Analytics visibly follows the selected theme. */
 .rose {
   --color-bg: #fff8f9;
   --color-surface: #ffffff;
@@ -133,6 +145,16 @@
   --color-accent-soft: #fff1f2;
   --color-brand-from: #fb7185;
   --color-brand-to: #e11d48;
+
+  --color-chart-ink: oklch(0.58 0.22 17);
+  --color-chart-context: oklch(0.72 0.02 17);
+  --color-chart-grid: oklch(0.93 0.01 17);
+  --color-heat-0: oklch(0.965 0.012 17);
+  --color-heat-1: oklch(0.9 0.05 17);
+  --color-heat-2: oklch(0.82 0.098 17);
+  --color-heat-3: oklch(0.72 0.16 17);
+  --color-heat-4: oklch(0.63 0.19 17);
+  --color-heat-5: oklch(0.52 0.2 17);
 
   --glass-bg: rgba(252, 232, 234, 0.55);
   --glass-border: rgba(255, 255, 255, 0.7);
@@ -153,6 +175,16 @@
   --color-brand-from: #fb7185;
   --color-brand-to: #f43f5e;
 
+  --color-chart-ink: oklch(0.66 0.22 16);
+  --color-chart-context: oklch(0.5 0.02 16);
+  --color-chart-grid: oklch(0.3 0.01 16);
+  --color-heat-0: oklch(0.24 0.012 16);
+  --color-heat-1: oklch(0.32 0.06 16);
+  --color-heat-2: oklch(0.42 0.11 16);
+  --color-heat-3: oklch(0.52 0.16 16);
+  --color-heat-4: oklch(0.62 0.19 16);
+  --color-heat-5: oklch(0.74 0.154 16);
+
   --glass-bg: rgba(24, 24, 27, 0.6);
   --glass-border: rgba(244, 63, 94, 0.1);
   --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
@@ -171,6 +203,16 @@
   --color-accent-soft: #f5f3ff;
   --color-brand-from: #c084fc;
   --color-brand-to: #7c3aed;
+
+  --color-chart-ink: oklch(0.58 0.22 293);
+  --color-chart-context: oklch(0.72 0.02 293);
+  --color-chart-grid: oklch(0.93 0.01 293);
+  --color-heat-0: oklch(0.965 0.012 293);
+  --color-heat-1: oklch(0.9 0.051 293);
+  --color-heat-2: oklch(0.82 0.096 293);
+  --color-heat-3: oklch(0.72 0.155 293);
+  --color-heat-4: oklch(0.63 0.19 293);
+  --color-heat-5: oklch(0.52 0.22 293);
 
   --glass-bg: rgba(233, 213, 255, 0.5);
   --glass-border: rgba(255, 255, 255, 0.7);
@@ -191,6 +233,18 @@
   --color-brand-from: #c084fc;
   --color-brand-to: #a855f7;
 
+  /* heat-5's chroma is 0.16, not the 0.22 the light block's step implies —
+     at L=0.74/H=304 0.22 is out of sRGB gamut, confirmed by binary search. */
+  --color-chart-ink: oklch(0.66 0.216 304);
+  --color-chart-context: oklch(0.5 0.02 304);
+  --color-chart-grid: oklch(0.3 0.01 304);
+  --color-heat-0: oklch(0.24 0.012 304);
+  --color-heat-1: oklch(0.32 0.06 304);
+  --color-heat-2: oklch(0.42 0.11 304);
+  --color-heat-3: oklch(0.52 0.16 304);
+  --color-heat-4: oklch(0.62 0.19 304);
+  --color-heat-5: oklch(0.74 0.16 304);
+
   --glass-bg: rgba(24, 16, 36, 0.6);
   --glass-border: rgba(168, 85, 247, 0.1);
   --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
@@ -210,6 +264,25 @@
   --color-brand-from: #22d3ee;
   --color-brand-to: #06b6d4;
 
+  /* Teal's own accent tops out around C=0.126 in sRGB, well under the other
+     families' ~0.19-0.22 — chroma here is capped accordingly, confirmed by
+     binary search against the gamut boundary. The heat ramp's chroma is NOT
+     monotonically increasing (0.098, 0.02, 0.01, 0.012, 0.06, 0.11, 0.122,
+     0.107, 0.088 — it peaks at heat-2/3 and comes back down for heat-4/5).
+     That is not a mistake: at hue 215, gamut chroma capacity shrinks as
+     lightness moves away from the ~0.7-0.8 mid-range, so the darker top heat
+     steps physically cannot carry as much saturation as the lighter middle
+     ones. Don't "fix" this back to a straight progression — it will clip. */
+  --color-chart-ink: oklch(0.58 0.098 215);
+  --color-chart-context: oklch(0.72 0.02 215);
+  --color-chart-grid: oklch(0.93 0.01 215);
+  --color-heat-0: oklch(0.965 0.012 215);
+  --color-heat-1: oklch(0.9 0.06 215);
+  --color-heat-2: oklch(0.82 0.11 215);
+  --color-heat-3: oklch(0.72 0.122 215);
+  --color-heat-4: oklch(0.63 0.107 215);
+  --color-heat-5: oklch(0.52 0.088 215);
+
   --glass-bg: rgba(207, 250, 254, 0.5);
   --glass-border: rgba(255, 255, 255, 0.7);
   --glass-shadow: 0 8px 32px rgba(6, 182, 212, 0.1);
@@ -228,6 +301,16 @@
   --color-accent-soft: #083344;
   --color-brand-from: #22d3ee;
   --color-brand-to: #06b6d4;
+
+  --color-chart-ink: oklch(0.66 0.112 215);
+  --color-chart-context: oklch(0.5 0.02 215);
+  --color-chart-grid: oklch(0.3 0.01 215);
+  --color-heat-0: oklch(0.24 0.012 215);
+  --color-heat-1: oklch(0.32 0.054 215);
+  --color-heat-2: oklch(0.42 0.071 215);
+  --color-heat-3: oklch(0.52 0.088 215);
+  --color-heat-4: oklch(0.62 0.105 215);
+  --color-heat-5: oklch(0.74 0.126 215);
 
   --glass-bg: rgba(11, 32, 36, 0.6);
   --glass-border: rgba(6, 182, 212, 0.1);

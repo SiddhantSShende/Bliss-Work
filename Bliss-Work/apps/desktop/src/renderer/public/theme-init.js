@@ -14,7 +14,7 @@
     "teal-dark": ["dark", "teal"],
   };
   const systemTheme = () =>
-    window.matchMedia("(prefers-color-scheme: dark)").matches ? "blue-dark" : "blue";
+    window.matchMedia("(prefers-color-scheme: dark)").matches ? "purple-dark" : "purple";
   try {
     const stored = localStorage.getItem("tb-theme");
     const theme = Object.prototype.hasOwnProperty.call(THEME_CLASSES, stored ?? "")

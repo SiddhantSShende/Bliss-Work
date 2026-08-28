@@ -52,9 +52,9 @@ describe("darkCounterpart", () => {
 });
 
 describe("defaultThemeFor", () => {
-  it("resolves to the Blue family — the retained default — in the requested mode", () => {
-    expect(defaultThemeFor(false)).toBe("blue");
-    expect(defaultThemeFor(true)).toBe("blue-dark");
+  it("resolves to the Purple family — the default for anyone with no saved preference — in the requested mode", () => {
+    expect(defaultThemeFor(false)).toBe("purple");
+    expect(defaultThemeFor(true)).toBe("purple-dark");
   });
 });
 
@@ -66,9 +66,9 @@ describe("themeClasses / themeName", () => {
     }
   });
 
-  it("falls back to the Blue default for an invalid id rather than throwing", () => {
+  it("falls back to the Purple default for an invalid id rather than throwing", () => {
     // @ts-expect-error deliberately invalid input, mirroring a corrupted localStorage value
-    expect(themeClasses("not-a-real-theme")).toEqual(themeClasses("blue"));
+    expect(themeClasses("not-a-real-theme")).toEqual(themeClasses("purple"));
   });
 });
 
