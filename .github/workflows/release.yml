@@ -466,7 +466,13 @@ jobs:
         run: |
           MIN_BYTES=$((5 * 1024 * 1024))
           bad=0
+          # *.blockmap is a small (~100-200 KB) checksum manifest electron-builder
+          # emits alongside each .zip/.dmg for delta updates — never itself an
+          # installer, so it must not be held to the installer size floor.
           for f in BlissWork-*; do
+            case "$f" in
+              *.blockmap) continue ;;
+            esac
             size=$(stat -c%s "$f")
             if [ "$size" -lt "$MIN_BYTES" ]; then
               echo "::error file=$f::$f is only $size bytes — not a real installer"
