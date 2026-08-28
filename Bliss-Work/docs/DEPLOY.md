@@ -7,34 +7,44 @@ for backups, key rotation and the WAF see [`OPERATIONS.md`](OPERATIONS.md).
 
 ## The pipeline
 
+All four workflows below live in `.github/workflows/` at the **monorepo root**
+(not inside `Bliss-Work/` or `Bliss-Website/`) — GitHub Actions only ever
+discovers workflows there. Each is a separate, directly push-triggered job;
+only `deploy-prod.yml` additionally waits on CI.
+
 ```
-                 push / merge to main
-                          │
-                          ▼
-                  ┌───────────────┐
-                  │  CI (ci.yml)  │   lint · typecheck · unit · integration
-                  │               │   go -race · trivy · codeql · e2e
-                  └───────┬───────┘
-                          │ success only
-              ┌───────────┴───────────┐
-              ▼                       ▼
-   ┌────────────────────┐   ┌──────────────────────┐
-   │  deploy-prod.yml   │   │    release.yml       │
-   │  ssh → VPS         │   │  build win/mac/linux │
-   │  deploy-prod.sh    │   │  sign · manifest     │
-   └─────────┬──────────┘   └──────────┬───────────┘
-             ▼                         ▼
-   web app + 7 services       rsync → /downloads/
-   live at communication      ↳ installers + latest*.yml
-   .rnrtechs.com             ↳ electron-updater feed
-                                        │
-                                        ▼
-                          installed apps self-update on next launch
+                          push to Prod-Sid
+                                │
+        ┌───────────┬──────────┼──────────────┐
+        ▼           ▼          ▼              ▼
+ ┌─────────────┐ ┌─────────┐ ┌──────────────┐ ┌────────────────┐
+ │  CI (ci.yml)│ │release  │ │ deploy-site  │ │ (deploy-prod    │
+ │  lint·test  │ │.yml     │ │ .yml         │ │  waits below)   │
+ │  go -race   │ │build    │ │ ssh → VPS    │ └────────────────┘
+ │  trivy·e2e  │ │win/mac/ │ │ deploy-site  │
+ └──────┬──────┘ │linux    │ │ .sh          │
+        │success │sign     │ └──────┬───────┘
+        ▼        │manifest │        ▼
+ ┌──────────────┐└────┬────┘  marketing site live at
+ │deploy-prod   │     ▼       blisswork.rnrtechs.com
+ │.yml          │  rsync → /downloads/
+ │ssh → VPS     │  ↳ installers + latest*.yml
+ │deploy-prod.sh│  ↳ electron-updater feed
+ └──────┬───────┘       │
+        ▼               ▼
+ web app + 7 services   installed apps self-update
+ live at communication  on next launch
+ .rnrtechs.com
 ```
 
 Nothing deploys from a feature branch or a pull request. `workflow_run` never
-fires for `pull_request` events, and both deploy workflows are gated on
-`conclusion == 'success'`, so a red CI run leaves them **skipped**.
+fires for `pull_request` events, and `deploy-prod.yml` is gated on
+`conclusion == 'success'`, so a red CI run leaves it **skipped**. `release.yml`
+and `deploy-site.yml` are NOT gated on CI — they fire directly on push, so a
+release or site deploy is never blocked by an unrelated CI failure elsewhere in
+the monorepo. (`release.yml` used to be CI-gated too, back when `ci.yml` was
+never discovered at all and the gate could never fire; see the comment in
+`release.yml` for why that gate was not reinstated once `ci.yml` was fixed.)
 
 ## Web app + backend
 
@@ -44,12 +54,18 @@ in a PR and reproducible by hand when GitHub is down.
 
 What the script does, in order:
 
-1. **Guards.** Refuses to run unless the checkout is on `main` with a clean tree.
-2. **Fast-forwards** to `origin/main` (never `reset --hard`, never a merge commit).
+1. **Guards.** Refuses to run unless the checkout is on `Prod-Sid` with a clean tree.
+2. **Fast-forwards** to `origin/Prod-Sid` (never `reset --hard`, never a merge commit).
 3. **Tags images with the commit SHA** — `IMAGE_TAG=$(git rev-parse --short HEAD)`,
    exported so it wins over the value in `.env`. The previous image set stays in
    the local store, which is what makes rollback fast.
-4. **Builds and rolls** the seven services plus caddy. Each service runs its own
+4. **Builds and rolls** `CORE_SERVICES` — the application + its infra (postgres,
+   redis, kafka, livekit, coturn, the 8 app services, graph-gw, caddy, nginx) —
+   via `compose up -d`, explicitly scoped to that list rather than the whole
+   compose file. The observability stack (prometheus, grafana, loki, tempo,
+   otel-collector, alertmanager, 3 exporters, cadvisor) declares no `profiles:`,
+   so an unscoped `up -d` would sweep it into every application deploy; naming
+   `CORE_SERVICES` explicitly leaves it untouched. Each app service runs its own
    migrations at boot, so there is no separate migration step.
 5. **Rebuilds the web bundle** via the one-shot `web-builder`, then force-recreates
    `nginx`. `index.html` is served `no-cache`, so browsers pick the new bundle up
@@ -60,13 +76,19 @@ What the script does, in order:
    and the previous image tag, then exits non-zero so the job goes red.
 8. **Prunes** all but the 3 most recent image tags per service.
 
+Compose is always called with **both** `--env-file .env --env-file .env.prod`.
+`.env` alone is not enough: `${LIVEKIT_API_KEY}` / `${LIVEKIT_API_SECRET}` are
+interpolated directly into livekit's `LIVEKIT_KEYS` in `docker-compose.prod.yml`
+and exist only in `.env.prod` — with `.env` alone that resolves to `": "` and
+LiveKit authenticates nobody.
+
 ### The clean-tree guard, and why it exists
 
 `/home/ubuntu/BlissWork/Bliss-Work` is simultaneously your working copy **and**
 production's docker build context. There is no separate deploy checkout, because
 a second clone would spawn a second compose project with its own volumes.
 
-So a deploy that blindly synced to `origin/main` would either destroy uncommitted
+So a deploy that blindly synced to `origin/Prod-Sid` would either destroy uncommitted
 work or ship something nobody reviewed. The script fails closed instead. If you
 see
 
@@ -87,7 +109,7 @@ tree and production.
 # Normal deploy, by hand
 bash scripts/deploy-prod.sh
 
-# Deploy the current (possibly dirty, possibly non-main) tree — you own this
+# Deploy the current (possibly dirty, possibly non-Prod-Sid) tree — you own this
 DEPLOY_ALLOW_DIRTY=1 bash scripts/deploy-prod.sh
 
 # Roll back to a specific previous release without rebuilding
@@ -115,7 +137,7 @@ the marketing site wiped the entire installer set and update feed. If you ever
 repoint it, keep that property — and update the `VPS_PATH` secret, the nginx
 bind-mount in `docker-compose.prod.yml`, and nothing else.
 
-**Versioning is automatic.** Every green build of `main` publishes
+**Versioning is automatic.** Every push to `Prod-Sid` publishes
 `0.1.<github.run_number>`. `run_number` only ever increases, so each release
 compares greater than the last, which is the only reason electron-updater sees an
 update at all. `scripts/set-desktop-version.mjs` stamps it at build time and
@@ -227,9 +249,9 @@ ends with the tail of each unhealthy service's output — start there.
    `openssl dgst -sha512 -binary BlissWork-windows-x64.exe | openssl base64 -A`.
    A mismatch means the manifest was not regenerated after signing.
 
-**`Cannot fast-forward to origin/main`.** The host has commits `origin/main` does
-not. Someone committed on the box. Resolve by hand — the script will not rewrite
-history under a live build context.
+**`Cannot fast-forward to origin/Prod-Sid`.** The host has commits `origin/Prod-Sid`
+does not. Someone committed on the box. Resolve by hand — the script will not
+rewrite history under a live build context.
 
 ## Notes for the next deploy
 

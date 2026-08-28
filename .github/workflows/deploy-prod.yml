@@ -1,7 +1,16 @@
 name: Deploy Production
 
+# ── Why this file lives at the repository root ───────────────────────────────
+# Same reason as release.yml: GitHub Actions only reads `.github/workflows/` at
+# the true repo root, and this monorepo's root holds Bliss-Work/ and
+# Bliss-Website/ as siblings. This file used to sit in
+# Bliss-Work/.github/workflows/ — one directory too deep — so it had never
+# fired even once. It needs no `working-directory:` fix beyond that: it never
+# checks out the repo locally, it only SSHes into the VPS and runs whatever is
+# already on disk at $VPS_REPO_DIR/scripts/deploy-prod.sh.
+#
 # Auto-deploys the web app + backend to the production VPS after CI passes on
-# `main`. Merge to main → CI runs → this fires → the site is live.
+# `Prod-Sid`. Push to Prod-Sid → CI runs → this fires → the site is live.
 #
 # All the logic lives in `scripts/deploy-prod.sh`, in the repo, so a deploy is
 # reviewable in a PR and reproducible by hand when GitHub is down. This workflow
@@ -25,7 +34,7 @@ on:
   workflow_run:
     workflows: ["CI"]
     types: [completed]
-    branches: [main]
+    branches: [Prod-Sid]
   workflow_dispatch:
 
 # Never cancel a deploy in flight: a half-applied rollout is worse than a queued

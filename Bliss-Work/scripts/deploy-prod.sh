@@ -12,18 +12,23 @@
 # very working tree, so the checkout and the deployment target are the same
 # directory. That has two consequences the script is built around:
 #
-#   1. It refuses to run on a dirty tree or a non-main branch (see `guard`).
+#   1. It refuses to run on a dirty tree or a non-production branch (see `guard`).
 #      A `git reset --hard` here would destroy uncommitted work AND deploy
 #      something nobody reviewed. Failing closed is the correct behavior.
 #   2. Images are tagged with the deployed commit SHA rather than only `latest`,
 #      so the previous release stays in the local image store and rollback is a
 #      container restart instead of a five-minute rebuild.
 #
-# No `--env-file` is passed to compose, deliberately. `.env` (gitignored, on the
-# host) supplies compose *interpolation* — ${DOMAIN}, ${IMAGE_TAG}, the
-# ${*_DB_PASSWORD}s — while each service reads `.env.prod` through its own
-# `env_file:` key. Passing `--env-file .env.prod` would silently swap the
-# interpolation source and is not the same thing.
+# Both `.env` AND `.env.prod` (gitignored, on the host) are passed as
+# `--env-file` for compose *interpolation* — ${DOMAIN}, ${IMAGE_TAG}, the
+# ${*_DB_PASSWORD}s live in `.env`, but ${LIVEKIT_API_KEY} / ${LIVEKIT_API_SECRET}
+# (interpolated directly into livekit's `LIVEKIT_KEYS` in the compose file, not
+# just read by a service's own `env_file:` key) exist ONLY in `.env.prod`.
+# `.env` alone silently resolves those to empty, and LiveKit authenticates
+# nobody — every group call dies with no error at deploy time. Verified
+# 2026-08-18 by diffing `compose config` under each source; see
+# docs/DEPLOY.md and the `prod-compose-needs-both-env-files` runbook note.
+# Later `--env-file` wins on overlapping keys, so `.env.prod` layers on top.
 #
 # ── Two modes ───────────────────────────────────────────────────────────────
 # Everything above describes BUILD MODE, which is still the default and is
@@ -77,11 +82,11 @@ if [[ -n "$REGISTRY" ]]; then
     REGISTRY_PREFIX="$REGISTRY/$NAMESPACE"
     # The overlay repoints nginx at the prebuilt web image and drops the
     # one-shot that used to fill the web_dist volume.
-    COMPOSE_ARGS=(-f "$COMPOSE_FILE" -f docker-compose.registry.yml)
+    COMPOSE_ARGS=(--env-file .env --env-file .env.prod -f "$COMPOSE_FILE" -f docker-compose.registry.yml)
 else
     PULL_MODE=0
     REGISTRY_PREFIX="task-board"
-    COMPOSE_ARGS=(-f "$COMPOSE_FILE")
+    COMPOSE_ARGS=(--env-file .env --env-file .env.prod -f "$COMPOSE_FILE")
 fi
 export REGISTRY_PREFIX
 
@@ -109,6 +114,17 @@ SHA_TAGGED_IMAGES=(auth-svc email-worker task-svc notification-svc messaging-svc
 # healthy while the edge itself crash-looped — the gate was measuring the wrong
 # eight things.
 HEALTH_SERVICES=(auth-svc task-svc notification-svc messaging-svc integrations-svc telemetry-svc ws-gateway nginx caddy)
+
+# The full application scope for `compose up -d` — deliberately EXCLUDES the
+# observability stack (otel-collector, prometheus, the 3 exporters, cadvisor,
+# alertmanager, tempo, loki, grafana). None of those declare a `profiles:` key,
+# so a bare `compose up -d` over the whole file sweeps them into every deploy —
+# as of 2026-08-20 that stack is already running on the production host, so an
+# unscoped `up -d` would needlessly recreate it (and re-fetch/rebuild it on a
+# host that never intended to redeploy monitoring) on every single app deploy.
+# `delivery-svc` and `desktop-builder` are already excluded via their own
+# `profiles: [routed]` / `profiles: [desktop]`, so they don't need listing here.
+CORE_SERVICES=(postgres redis kafka kafka-init livekit coturn auth-svc email-worker task-svc notification-svc messaging-svc integrations-svc telemetry-svc ws-gateway graph-gw caddy nginx)
 
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-180}"
 KEEP_IMAGE_TAGS="${KEEP_IMAGE_TAGS:-3}"
@@ -183,10 +199,10 @@ guard() {
         return
     fi
 
-    [[ "$branch" == "main" ]] || die \
-"Refusing to deploy: on branch '$branch', expected 'main'.
+    [[ "$branch" == "Prod-Sid" ]] || die \
+"Refusing to deploy: on branch '$branch', expected 'Prod-Sid'.
 
-This checkout is production's build context. Switch it to main, or set
+This checkout is production's build context. Switch it to Prod-Sid, or set
 DEPLOY_ALLOW_DIRTY=1 if you are deliberately deploying a branch by hand."
 
     if [[ -n "$dirty" ]]; then
@@ -290,7 +306,7 @@ rollback() {
         # The previous image set is still in the local store, so this is a
         # container restart, not a rebuild.
         export IMAGE_TAG="$prev_tag"
-        compose up -d --remove-orphans
+        compose up -d --remove-orphans "${CORE_SERVICES[@]}"
     elif (( PULL_MODE )); then
         # Pull mode makes rollback strictly better than it was: the previous tag
         # lives in the registry, so it is recoverable even after the local store
@@ -298,11 +314,11 @@ rollback() {
         warn "No local image set tagged '${prev_tag:-unknown}' — pulling it from $REGISTRY."
         export IMAGE_TAG="${prev_tag:-latest}"
         compose pull "${BUILT_SERVICES[@]}" nginx
-        compose up -d --remove-orphans
+        compose up -d --remove-orphans "${CORE_SERVICES[@]}"
     else
         warn "No local image set tagged '${prev_tag:-unknown}' — rebuilding from $prev_sha."
         export IMAGE_TAG="${prev_tag:-latest}"
-        compose up -d --build --remove-orphans
+        compose up -d --build --remove-orphans "${CORE_SERVICES[@]}"
     fi
     deploy_web_bundle
 
@@ -380,7 +396,7 @@ else
 fi
 
 log "Rolling services (each service runs its migrations at boot)"
-compose up -d --remove-orphans
+compose up -d --remove-orphans "${CORE_SERVICES[@]}"
 
 deploy_web_bundle
 

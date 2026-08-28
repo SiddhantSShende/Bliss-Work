@@ -1,8 +1,23 @@
 name: CI
 
+# ── Why this file lives at the repository root ───────────────────────────────
+# Same reason as release.yml: GitHub Actions only reads `.github/workflows/` at
+# the true repo root, and this monorepo's root holds Bliss-Work/ and
+# Bliss-Website/ as siblings. This file used to sit in
+# Bliss-Work/.github/workflows/ — one directory too deep — so it had never run
+# once (`gh api .../actions/workflows/ci.yml` 404s). Every path below that was
+# written assuming the checkout root IS Bliss-Work now needs an explicit prefix
+# or the job-level `defaults.run.working-directory` below, because the checkout
+# root here is the monorepo root, with Bliss-Work and Bliss-Website as siblings.
+# `defaults.run.working-directory` only affects `run:` (shell) steps — action
+# `with:` inputs (cache-dependency-path, docker build context, the golangci-lint
+# working-directory) and `actions/upload-artifact`'s `path:` always resolve
+# against the checkout root regardless, so those carry an explicit `Bliss-Work/`
+# prefix instead.
+
 on:
   push:
-    branches: [main]
+    branches: [Prod-Sid]
   pull_request:
 
 # Cancel superseded in-flight runs for the same ref to save runner minutes.
@@ -17,6 +32,10 @@ env:
   GO_VERSION: "1.26"
   NODE_VERSION: "20"
   PYTHON_VERSION: "3.13"
+
+defaults:
+  run:
+    working-directory: Bliss-Work
 
 jobs:
   # ───────────────────────────────────────────────────────────────────────────
@@ -70,12 +89,12 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: services/${{ matrix.service }}/go.sum
+          cache-dependency-path: Bliss-Work/services/${{ matrix.service }}/go.sum
       - name: golangci-lint
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: v2.12.2
-          working-directory: services/${{ matrix.service }}
+          working-directory: Bliss-Work/services/${{ matrix.service }}
           args: --timeout=5m
 
   lint-js:
@@ -221,7 +240,7 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Create venv and install deps (runtime + dev/test)
-        working-directory: services/${{ matrix.service }}
+        working-directory: Bliss-Work/services/${{ matrix.service }}
         run: |
           python -m venv .venv
           . .venv/bin/activate
@@ -231,7 +250,7 @@ jobs:
         # Unit suites are self-contained (no live Postgres/Kafka) and now GATE
         # the build. The `integration` marker selects the testcontainers suites,
         # which run in their own job with Docker available.
-        working-directory: services/${{ matrix.service }}
+        working-directory: Bliss-Work/services/${{ matrix.service }}
         run: |
           . .venv/bin/activate
           pytest -m "not integration" --cov=app --cov-report=term-missing
@@ -253,14 +272,14 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Create venv and install deps
-        working-directory: services/shared/${{ matrix.pkg }}
+        working-directory: Bliss-Work/services/shared/${{ matrix.pkg }}
         run: |
           python -m venv .venv
           . .venv/bin/activate
           python -m pip install --upgrade pip
           pip install -e . -r requirements-dev.txt
       - name: pytest
-        working-directory: services/shared/${{ matrix.pkg }}
+        working-directory: Bliss-Work/services/shared/${{ matrix.pkg }}
         run: |
           . .venv/bin/activate
           pytest
@@ -283,14 +302,14 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Create venv and install deps (runtime + dev/test)
-        working-directory: services/${{ matrix.service }}
+        working-directory: Bliss-Work/services/${{ matrix.service }}
         run: |
           python -m venv .venv
           . .venv/bin/activate
           python -m pip install --upgrade pip
           pip install -r requirements.txt -r requirements-dev.txt
       - name: pytest -m integration (real Postgres via testcontainers)
-        working-directory: services/${{ matrix.service }}
+        working-directory: Bliss-Work/services/${{ matrix.service }}
         run: |
           . .venv/bin/activate
           pytest -m integration -p no:cacheprovider
@@ -307,12 +326,12 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: services/${{ matrix.service }}/go.sum
+          cache-dependency-path: Bliss-Work/services/${{ matrix.service }}/go.sum
       - name: go build
-        working-directory: services/${{ matrix.service }}
+        working-directory: Bliss-Work/services/${{ matrix.service }}
         run: go build ./...
       - name: go test -race
-        working-directory: services/${{ matrix.service }}
+        working-directory: Bliss-Work/services/${{ matrix.service }}
         run: go test -race -count=1 ./...
 
   # ws-gateway presence against a REAL Redis.
@@ -342,9 +361,9 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: services/ws-gateway/go.sum
+          cache-dependency-path: Bliss-Work/services/ws-gateway/go.sum
       - name: go test -race (integration)
-        working-directory: services/ws-gateway
+        working-directory: Bliss-Work/services/ws-gateway
         env:
           REDIS_TEST_URL: redis://127.0.0.1:6379/0
         run: go test -race -count=1 ./internal/store/ -run Integration -v
@@ -376,9 +395,9 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: services/messaging-svc/go.sum
+          cache-dependency-path: Bliss-Work/services/messaging-svc/go.sum
       - name: go test -race (object store)
-        working-directory: services/messaging-svc
+        working-directory: Bliss-Work/services/messaging-svc
         env:
           S3_TEST_ENDPOINT: 127.0.0.1:9000
           S3_TEST_BUCKET: blisswork-test
@@ -413,7 +432,7 @@ jobs:
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: fs
-          scan-ref: .
+          scan-ref: Bliss-Work
           format: sarif
           output: trivy-fs.sarif
           severity: CRITICAL,HIGH
@@ -441,7 +460,7 @@ jobs:
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: fs
-          scan-ref: .
+          scan-ref: Bliss-Work
           format: table
           severity: CRITICAL
           ignore-unfixed: true
@@ -462,7 +481,7 @@ jobs:
       - name: Build image for scanning
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
-          context: services/${{ matrix.service }}
+          context: Bliss-Work/services/${{ matrix.service }}
           load: true
           tags: taskboard/${{ matrix.service }}:scan
           cache-from: type=gha,scope=${{ matrix.service }}
@@ -490,11 +509,11 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: services/${{ matrix.service }}/go.sum
+          cache-dependency-path: Bliss-Work/services/${{ matrix.service }}/go.sum
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@latest
       - name: govulncheck
-        working-directory: services/${{ matrix.service }}
+        working-directory: Bliss-Work/services/${{ matrix.service }}
         run: govulncheck ./...
 
   security-python:
@@ -591,4 +610,4 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: compose-logs
-          path: compose-logs.txt
+          path: Bliss-Work/compose-logs.txt

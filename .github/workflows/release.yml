@@ -35,22 +35,24 @@ name: Release Desktop
 #      .exe and electron-updater verifies that hash before installing.
 #
 # ── Triggers ─────────────────────────────────────────────────────────────────
-#   - every push to `VPS-Shristi` (the production branch — see below) →
+#   - every push to `Prod-Sid` (the production branch — see below) →
 #     auto-publishes version 0.1.<run_number>
 #   - a `v*` tag            → publishes that exact version
 #   - manual dispatch       → 0.1.<run_number>
 #
 # This used to be `workflow_run: workflows: ["CI"]`, gated on CI passing first.
-# CI (`ci.yml`) has the same undiscovered-location problem as this file — it has
-# never run either, registering it is a larger, separate piece of work — so a
-# gate on it would never fire and no release would ever auto-publish. Triggering
-# on push instead means every push actually produces a release, which is the
-# literal, current requirement; the CI gate can be reinstated by swapping this
-# back to `workflow_run` once `ci.yml` is registered and green.
+# `ci.yml` had the same undiscovered-location problem as this file — it had
+# never run either — so a gate on it would never fire and no release would ever
+# auto-publish. `ci.yml` and `deploy-prod.yml` are now registered at the repo
+# root too (2026-08-28), but this stays a plain push trigger rather than
+# reinstating the `workflow_run` gate: unlike `deploy-prod.yml` (which only ever
+# deploys the current HEAD of Prod-Sid), gating the desktop release on CI would
+# make its version number depend on which commit CI happened to be validating,
+# not necessarily the one that triggered this run. Revisit if that gap matters.
 #
-# The branch is `VPS-Shristi`, not `main`: this repository deploys from
-# VPS-Shristi (also its GitHub default branch); `main` exists only as a stale
-# first commit with no remote pushes. Update this if that ever changes.
+# The branch is `Prod-Sid`, not `main`: this repository deploys from Prod-Sid
+# (also its GitHub default branch, since 2026-08-28); `main` exists only as a
+# stale first commit with no remote pushes. Update this if that ever changes.
 #
 # Every run also uploads the installers as workflow artifacts, so a dry run
 # without secrets still produces (unsigned) builds you can inspect.

@@ -36,7 +36,8 @@
 # run of this script would have deleted them. Do not move them back.
 #
 # Env overrides: DEPLOY_ALLOW_DIRTY=1 (skip the clean-tree guard — never in CI),
-# DEPLOY_REF (default origin/main).
+# DEPLOY_REF (default origin/Prod-Sid — the production branch; see
+# Bliss-Work/.github/workflows/release.yml for why it isn't main).
 #
 set -Eeuo pipefail
 
@@ -44,7 +45,7 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOCK_FILE="/tmp/blisswork-site-deploy.lock"
 STAGING_DIR="$REPO_DIR/.dist-staging"
 DIST_DIR="$REPO_DIR/dist"
-DEPLOY_REF="${DEPLOY_REF:-origin/main}"
+DEPLOY_REF="${DEPLOY_REF:-origin/Prod-Sid}"
 
 log()  { printf '\n\033[1;36m▶ %s\033[0m\n' "$*"; }
 warn() { printf '\033[1;33m! %s\033[0m\n' "$*" >&2; }
@@ -106,5 +107,5 @@ rm -rf "$STAGING_DIR"
 
 log "Deployed $NEW_SHA"
 # Not `git reset --hard && deploy`: the script re-fetches and resets to
-# $DEPLOY_REF, which would immediately undo the reset and redeploy main.
+# $DEPLOY_REF, which would immediately undo the reset and redeploy Prod-Sid.
 echo "  Rollback:  DEPLOY_REF=$PREV_SHA bash scripts/deploy-site.sh"
