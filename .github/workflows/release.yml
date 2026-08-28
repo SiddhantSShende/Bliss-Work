@@ -203,6 +203,13 @@ jobs:
     defaults:
       run:
         working-directory: Bliss-Work
+    # Mirrored into env, then checked as env.MAC_CSC_LINK below — matching the
+    # convention already used by the preflight job and deploy-prod.yml/
+    # deploy-site.yml. `secrets.*` directly inside a step `if:` is rejected by
+    # GitHub's workflow schema validator (the whole run fails before any job
+    # starts, with no logs — verified 2026-08-28).
+    env:
+      MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -251,7 +258,7 @@ jobs:
       # expression still creates the key. Only export them here, in a step
       # that plainly does not run at all when the secret is absent.
       - name: Configure macOS signing credentials
-        if: runner.os == 'macOS' && secrets.MAC_CSC_LINK != ''
+        if: runner.os == 'macOS' && env.MAC_CSC_LINK != ''
         env:
           CSC_LINK_VALUE: ${{ secrets.MAC_CSC_LINK }}
           CSC_KEY_PASSWORD_VALUE: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
@@ -277,7 +284,7 @@ jobs:
           # instead of failing. The afterSign hook (build/notarize.cjs) notarizes
           # only when the APPLE_* creds are also set. CSC_LINK/CSC_KEY_PASSWORD
           # are NOT set here — see "Configure macOS signing credentials" above.
-          CSC_IDENTITY_AUTO_DISCOVERY: ${{ (runner.os == 'macOS' && secrets.MAC_CSC_LINK != '') && 'true' || 'false' }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ (runner.os == 'macOS' && env.MAC_CSC_LINK != '') && 'true' || 'false' }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
