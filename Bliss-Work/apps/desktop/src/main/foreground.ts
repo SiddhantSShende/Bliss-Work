@@ -27,12 +27,19 @@ export type GetWindows = { activeWindow: () => Promise<ForegroundWindow | undefi
 /**
  * How often the foreground application is sampled.
  *
- * This IS the delay between switching to another app and the note getting out of
- * its way, so it wants to be short. It is not shorter because on macOS every
- * sample runs a helper binary — a second is unnoticeable to a person and cheap
- * enough to run for as long as the app does.
+ * This IS the delay between switching apps and the note reacting — both
+ * getting out of the way, AND (the case with no Electron focus event to poke
+ * an immediate re-sample — see pokeNow's own doc comment) coming BACK when
+ * the user returns to the bare desktop rather than to one of BlissWork's own
+ * windows. At the previous 1000ms, that second case read as the note taking
+ * "a couple of seconds" to reappear — worse than a single poll's worth of
+ * lag, since a transition landing just after a tick waits nearly a full
+ * interval. Lowered to close that gap to something that reads as instant.
+ * Still cheap even though on macOS every sample runs a helper binary: four
+ * short-lived subprocesses a second is not a meaningful cost for as long as
+ * the app runs.
  */
-const POLL_MS = 1_000;
+const POLL_MS = 250;
 
 let provider: GetWindows | null = null;
 let providerChecked = false;
