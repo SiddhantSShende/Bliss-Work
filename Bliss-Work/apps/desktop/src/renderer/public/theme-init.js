@@ -12,6 +12,8 @@
     "purple-dark": ["dark", "purple"],
     teal: ["light", "teal"],
     "teal-dark": ["dark", "teal"],
+    lime: ["light", "lime"],
+    "lime-dark": ["dark", "lime"],
   };
   const systemTheme = () =>
     window.matchMedia("(prefers-color-scheme: dark)").matches ? "purple-dark" : "purple";

@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { THEMES, isThemeId, themeClasses, themeName, darkCounterpart, defaultThemeFor, ALL_THEME_CLASSES } from "./themes";
 
 describe("THEMES", () => {
-  it("offers exactly the four light families, in the required order, and nothing else", () => {
-    expect(THEMES.map((t) => t.id)).toEqual(["rose", "blue", "purple", "teal"]);
+  it("offers exactly the five light families, in the required order, and nothing else", () => {
+    expect(THEMES.map((t) => t.id)).toEqual(["rose", "blue", "purple", "teal", "lime"]);
   });
 
   it("never offers a dark id directly — only reachable via the toggle", () => {
@@ -18,17 +18,24 @@ describe("THEMES", () => {
     expect(THEMES.find((t) => t.id === "rose")!.classes).toEqual(["light", "rose"]);
     expect(THEMES.find((t) => t.id === "purple")!.classes).toEqual(["light", "purple"]);
     expect(THEMES.find((t) => t.id === "teal")!.classes).toEqual(["light", "teal"]);
+    expect(THEMES.find((t) => t.id === "lime")!.classes).toEqual(["light", "lime"]);
   });
 });
 
 describe("isThemeId", () => {
   it("accepts every current light and dark id", () => {
-    for (const id of ["blue", "blue-dark", "rose", "rose-dark", "purple", "purple-dark", "teal", "teal-dark"]) {
+    for (const id of [
+      "blue", "blue-dark", "rose", "rose-dark", "purple", "purple-dark", "teal", "teal-dark", "lime", "lime-dark",
+    ]) {
       expect(isThemeId(id)).toBe(true);
     }
   });
 
   it("rejects removed/old ids — the pre-rewrite theme system had these", () => {
+    // "graphite-lime"/"graphite-lime-dark" were the OLD lime system's ids (lime
+    // layered as a toggle over the light/dark axis) — still invalid even though
+    // lime itself is back, because it's now a plain family id ("lime") like
+    // every other family, not that two-part scheme.
     for (const id of ["light", "dark", "graphite-lime", "graphite-lime-dark", "orange", "green"]) {
       expect(isThemeId(id)).toBe(false);
     }
@@ -41,10 +48,11 @@ describe("darkCounterpart", () => {
     expect(darkCounterpart("blue")).toBe("blue-dark");
     expect(darkCounterpart("purple")).toBe("purple-dark");
     expect(darkCounterpart("teal")).toBe("teal-dark");
+    expect(darkCounterpart("lime")).toBe("lime-dark");
   });
 
   it("is its own inverse — toggling dark off returns exactly the family toggled from", () => {
-    for (const light of ["rose", "blue", "purple", "teal"] as const) {
+    for (const light of ["rose", "blue", "purple", "teal", "lime"] as const) {
       const dark = darkCounterpart(light);
       expect(darkCounterpart(dark)).toBe(light);
     }
@@ -60,7 +68,9 @@ describe("defaultThemeFor", () => {
 
 describe("themeClasses / themeName", () => {
   it("round-trip every id to its own classes and a non-empty name", () => {
-    for (const id of ["blue", "blue-dark", "rose", "rose-dark", "purple", "purple-dark", "teal", "teal-dark"] as const) {
+    for (const id of [
+      "blue", "blue-dark", "rose", "rose-dark", "purple", "purple-dark", "teal", "teal-dark", "lime", "lime-dark",
+    ] as const) {
       expect(themeClasses(id).length).toBeGreaterThan(0);
       expect(themeName(id).length).toBeGreaterThan(0);
     }
@@ -74,10 +84,10 @@ describe("themeClasses / themeName", () => {
 
 describe("ALL_THEME_CLASSES", () => {
   it("lists every class any theme can apply — light, dark, and each family", () => {
-    expect(new Set(ALL_THEME_CLASSES)).toEqual(new Set(["light", "dark", "rose", "purple", "teal"]));
+    expect(new Set(ALL_THEME_CLASSES)).toEqual(new Set(["light", "dark", "rose", "purple", "teal", "lime"]));
   });
 
-  it("no longer contains the removed lime family", () => {
-    expect(ALL_THEME_CLASSES).not.toContain("lime");
+  it("brings the lime family back as a proper fifth family", () => {
+    expect(ALL_THEME_CLASSES).toContain("lime");
   });
 });

@@ -317,6 +317,75 @@
   --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
 }
 
+/* ── Lime ──────────────────────────────────────────────────────────────────
+   The pre-rework "Graphite + Lime" theme, brought back as a proper fifth
+   family. --color-bg/surface/border/accent/brand below are the ORIGINAL
+   Graphite+Lime values verbatim (same theme people remember); the
+   chart-ink/context/grid and heat ramp are new — chart theming didn't exist
+   yet when this palette was last live, so there was nothing to carry forward.
+   Lime's hue (~125deg light / ~126deg dark, measured off the accent colour
+   below) has a narrower sRGB gamut at the ramp's darker/more-saturated end
+   than rose/purple's, so those steps are chroma-capped below the other
+   families' target curve — confirmed by binary search against the gamut
+   boundary, same approach as `.teal` above. */
+.lime {
+  --color-bg: #f5f6f3;
+  --color-surface: #ffffff;
+  --color-surface-2: #e7eae5; /* Sidebar — also the hover/subtle-bg tone */
+  --color-border: #d9ded7;
+  --color-muted: #6c756f;
+  --color-fg: #202723;
+  --color-accent: #b5e34d;
+  --color-accent-strong: #9bc93e;
+  --color-accent-fg: #181d1a; /* Dark Graphite — text on lime */
+  --color-accent-soft: #e7f5c8;
+  --color-brand-from: #b5e34d;
+  --color-brand-to: #9bc93e;
+
+  --color-chart-ink: oklch(0.58 0.139 125);
+  --color-chart-context: oklch(0.72 0.02 125);
+  --color-chart-grid: oklch(0.93 0.01 125);
+  --color-heat-0: oklch(0.965 0.012 125);
+  --color-heat-1: oklch(0.9 0.05 125);
+  --color-heat-2: oklch(0.82 0.098 125);
+  --color-heat-3: oklch(0.72 0.16 125);
+  --color-heat-4: oklch(0.63 0.151 125);
+  --color-heat-5: oklch(0.52 0.124 125);
+
+  --glass-bg: rgba(231, 234, 229, 0.55);
+  --glass-border: rgba(255, 255, 255, 0.7);
+  --glass-shadow: 0 8px 32px rgba(37, 45, 41, 0.1);
+}
+
+.dark.lime {
+  --color-bg: #0f1412;
+  --color-surface: #1c221f;
+  --color-surface-2: #202824; /* Card — hover/secondary elevation */
+  --color-border: #2a332f;
+  --color-muted: #97a39c;
+  --color-fg: #f2f5f3;
+  --color-accent: #a8d94a;
+  --color-accent-strong: #94c93a;
+  --color-accent-fg: #171d1a; /* Dark Graphite — text on lime */
+  --color-accent-soft: #26302b; /* Graphite — no separate "soft lime" for dark */
+  --color-brand-from: #a8d94a;
+  --color-brand-to: #94c93a;
+
+  --color-chart-ink: oklch(0.66 0.16 126);
+  --color-chart-context: oklch(0.5 0.02 126);
+  --color-chart-grid: oklch(0.3 0.01 126);
+  --color-heat-0: oklch(0.24 0.012 126);
+  --color-heat-1: oklch(0.32 0.06 126);
+  --color-heat-2: oklch(0.42 0.102 126);
+  --color-heat-3: oklch(0.52 0.126 126);
+  --color-heat-4: oklch(0.62 0.15 126);
+  --color-heat-5: oklch(0.74 0.16 126);
+
+  --glass-bg: rgba(22, 28, 25, 0.6); /* Sidebar, translucent */
+  --glass-border: rgba(168, 217, 74, 0.08);
+  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
 /* ── Meeting screen theme ─────────────────────────────────────────────────
    The call surface (CallRoom) always renders dark, regardless of the
    workspace's own light/dark/lime choice — video is easier to read against a

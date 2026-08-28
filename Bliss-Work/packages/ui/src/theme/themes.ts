@@ -33,7 +33,9 @@ export type ThemeId =
   | "purple"
   | "purple-dark"
   | "teal"
-  | "teal-dark";
+  | "teal-dark"
+  | "lime"
+  | "lime-dark";
 
 export interface ThemeDef {
   id: ThemeId;
@@ -47,14 +49,20 @@ const FAMILY_CLASSES: Partial<Record<ThemeId, string>> = {
   rose: "rose",
   purple: "purple",
   teal: "teal",
+  lime: "lime",
 };
 
-/** Every family's light class-set. Family order here is menu order. */
+/** Every family's light class-set. Family order here is menu order. Lime is
+ *  the pre-rework Graphite+Lime palette, brought back as a proper fifth
+ *  family (its own light/dark pair, like the other four) rather than the
+ *  old system's separate "lime layered on the light/dark axis" toggle —
+ *  same accent colours, current architecture. */
 const FAMILIES: readonly { id: Exclude<ThemeId, `${string}-dark`>; name: string }[] = [
   { id: "rose", name: "Red / Rose" },
   { id: "blue", name: "Blue" },
   { id: "purple", name: "Purple" },
   { id: "teal", name: "Cyan / Teal" },
+  { id: "lime", name: "Lime" },
 ];
 
 function classesFor(family: string, dark: boolean): readonly string[] {
