@@ -240,6 +240,33 @@ jobs:
           TB_GOOGLE_API_KEY: ${{ secrets.TB_GOOGLE_API_KEY }}
         run: npm run build -w @taskboard/desktop
 
+      # electron-builder's own cscLink resolution (app-builder-lib's
+      # `chooseNotNull`) only checks `== null` — an env var that is SET but
+      # empty ('') counts as "a cert was provided" exactly like a real one,
+      # and it then tries to read that empty string as a certificate file
+      # path, which resolves to the project directory itself and crashes with
+      # "<projectDir> not a file". So CSC_LINK/CSC_KEY_PASSWORD must be
+      # genuinely UNSET (not set to '') when there is no cert — which a
+      # static `env:` map cannot express, since every branch of a `${{ }}`
+      # expression still creates the key. Only export them here, in a step
+      # that plainly does not run at all when the secret is absent.
+      - name: Configure macOS signing credentials
+        if: runner.os == 'macOS' && secrets.MAC_CSC_LINK != ''
+        env:
+          CSC_LINK_VALUE: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD_VALUE: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+        run: |
+          # Heredoc form (not `KEY=value`) because a base64 blob may be
+          # multi-line depending on how it was generated (see SIGNING.md).
+          {
+            echo "CSC_LINK<<CSC_LINK_EOF"
+            echo "$CSC_LINK_VALUE"
+            echo "CSC_LINK_EOF"
+            echo "CSC_KEY_PASSWORD<<CSC_KEY_PASSWORD_EOF"
+            echo "$CSC_KEY_PASSWORD_VALUE"
+            echo "CSC_KEY_PASSWORD_EOF"
+          } >> "$GITHUB_ENV"
+
       - name: Package installers (mac signed + notarized here)
         # A step's own working-directory replaces the job default rather than
         # nesting under it, so this needs the full prefix.
@@ -248,9 +275,8 @@ jobs:
           # macOS Developer ID signing — scoped to the mac runner. When no cert
           # secret is present, CSC_IDENTITY_AUTO_DISCOVERY=false builds unsigned
           # instead of failing. The afterSign hook (build/notarize.cjs) notarizes
-          # only when the APPLE_* creds are also set.
-          CSC_LINK: ${{ runner.os == 'macOS' && secrets.MAC_CSC_LINK || '' }}
-          CSC_KEY_PASSWORD: ${{ runner.os == 'macOS' && secrets.MAC_CSC_KEY_PASSWORD || '' }}
+          # only when the APPLE_* creds are also set. CSC_LINK/CSC_KEY_PASSWORD
+          # are NOT set here — see "Configure macOS signing credentials" above.
           CSC_IDENTITY_AUTO_DISCOVERY: ${{ (runner.os == 'macOS' && secrets.MAC_CSC_LINK != '') && 'true' || 'false' }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}

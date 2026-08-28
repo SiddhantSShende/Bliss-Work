@@ -106,6 +106,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
+          cache-dependency-path: Bliss-Work/package-lock.json
       - run: npm ci
       - name: Typecheck (tsc) — all workspaces
         run: npm run typecheck --workspaces --if-present
@@ -178,6 +179,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
+          cache-dependency-path: Bliss-Work/package-lock.json
       - run: npm ci
       - run: npm run build -w @taskboard/web
       - run: npm run build -w @taskboard/desktop
@@ -412,6 +414,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
+          cache-dependency-path: Bliss-Work/package-lock.json
       - run: npm ci
       - name: vitest / npm test (all workspaces)
         run: npm test --workspaces --if-present
@@ -481,7 +484,12 @@ jobs:
       - name: Build image for scanning
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
-          context: Bliss-Work/services/${{ matrix.service }}
+          # Each service's Dockerfile COPYs sibling services/shared/* packages
+          # with paths like `COPY services/shared/kafkaauth ...`, so it needs
+          # the workspace root as context, not the service's own subdirectory
+          # (that would put every sibling package outside the build context).
+          context: Bliss-Work
+          file: Bliss-Work/services/${{ matrix.service }}/Dockerfile
           load: true
           tags: taskboard/${{ matrix.service }}:scan
           cache-from: type=gha,scope=${{ matrix.service }}
@@ -546,6 +554,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
+          cache-dependency-path: Bliss-Work/package-lock.json
       - run: npm ci
       - name: npm audit (high+, production deps)
         # Blocking, scoped to production deps, WITH a justified allowlist.
@@ -584,6 +593,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
+          cache-dependency-path: Bliss-Work/package-lock.json
       - run: npm ci
       - run: cp .env.example .env && npm run gen:keys
       # auth-svc runs as uid 10001 and mounts ./keys read-only, but gen:keys
