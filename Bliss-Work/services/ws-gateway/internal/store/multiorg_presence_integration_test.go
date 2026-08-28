@@ -19,6 +19,10 @@ import (
 // Requires REDIS_TEST_URL; skipped otherwise. See presence_integration_test.go.
 
 // connect mirrors what conn.go does on socket open, for one membership.
+//
+//nolint:unparam // node is always "node-1" in this file (it tests multi-ORG behavior for
+// one node, not multi-node routing), but the parameter mirrors AddPresence's real signature
+// deliberately — dropping it would break the "this is what conn.go does" fidelity above.
 func connect(t *testing.T, s *Store, ctx context.Context, orgID, userID, node, conn string) bool {
 	t.Helper()
 	if err := s.AddPresence(ctx, userID, node, conn); err != nil {
@@ -32,6 +36,8 @@ func connect(t *testing.T, s *Store, ctx context.Context, orgID, userID, node, c
 }
 
 // disconnect mirrors what conn.go does on socket close, for one membership.
+//
+//nolint:unparam // node is always "node-1" in this file, same reason as connect() above.
 func disconnect(t *testing.T, s *Store, ctx context.Context, orgID, userID, node, conn string) bool {
 	t.Helper()
 	if err := s.RemovePresence(ctx, userID, node, conn); err != nil {

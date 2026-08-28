@@ -142,6 +142,7 @@ func TestWithoutASharedStoreBehaviourIsUnchanged(t *testing.T) {
 	if l.Shared() {
 		t.Error("Shared() is true with no store attached")
 	}
+	//nolint:staticcheck // SA4000: not identical — AllowCtx is stateful, this deliberately consumes 2 of the 2 burst tokens
 	if !l.AllowCtx(context.Background(), "k", 2) || !l.AllowCtx(context.Background(), "k", 2) {
 		t.Fatal("the first two requests within a burst of 2 were refused")
 	}

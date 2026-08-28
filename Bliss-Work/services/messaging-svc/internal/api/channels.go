@@ -95,7 +95,7 @@ func (s *Server) deleteChannel(w http.ResponseWriter, r *http.Request) {
 // one. Both parameters are clamped again in the store — see ListOpenChannels.
 func (s *Server) listOpenChannels(w http.ResponseWriter, r *http.Request) {
 	claims, _ := auth.FromContext(r.Context())
-	limit, offset := pageOffsetParams(r, DefaultChannelPageSize, MaxChannelPageSize)
+	limit, offset := pageOffsetParams(r)
 	chans, err := s.store.ListOpenChannels(r.Context(), claims.OrgID, claims.UserID, limit, offset)
 	if err != nil {
 		s.mapErr(w, err)

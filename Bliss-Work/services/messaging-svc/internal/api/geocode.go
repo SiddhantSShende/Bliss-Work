@@ -290,12 +290,19 @@ func (s *Server) fetchIPLocation(ctx context.Context, ip string) (whereamiRespon
 
 // getJSON performs one bounded GET and returns the body, refusing anything that
 // is not JSON so a provider error page is never parsed as a result.
+//
+// gosec flags this as G704 (SSRF via taint analysis) because `endpoint`
+// traces back to user-influenced values (lat/lng, an IP from a header). Both
+// call sites build `endpoint` from a HARDCODED host literal
+// (api.geoapify.com / api.maptiler.com) with only query parameters
+// interpolated, every one `url.QueryEscape`d — the destination is fixed at
+// compile time and never attacker-controlled, so this is not a real SSRF.
 func (s *Server) getJSON(ctx context.Context, endpoint string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil) //nolint:gosec // G704: endpoint host is a hardcoded literal, see doc comment above
 	if err != nil {
 		return nil, err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := http.DefaultClient.Do(req) //nolint:gosec // G704: same fixed-host endpoint, see doc comment above
 	if err != nil {
 		return nil, err
 	}

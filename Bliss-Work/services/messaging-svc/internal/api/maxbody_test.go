@@ -91,6 +91,9 @@ func TestEverySendHandlerChecksTheBodyCap(t *testing.T) {
 	}
 
 	fset := token.NewFileSet()
+	//nolint:staticcheck // SA1019: ParseDir is deprecated in favor of golang.org/x/tools/go/packages,
+	// but this parses one build-tag-free directory into its single package — exactly what ParseDir
+	// still does correctly; packages.Load would add a new dependency for no behavior change here.
 	pkgs, err := parser.ParseDir(fset, ".", nil, 0)
 	if err != nil {
 		t.Fatalf("parse package: %v", err)

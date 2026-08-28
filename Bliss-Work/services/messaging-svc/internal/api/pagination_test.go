@@ -84,7 +84,7 @@ func TestPageOffsetParams(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			r := httptest.NewRequest("GET", "/x"+tc.query, nil)
-			limit, offset := pageOffsetParams(r, DefaultChannelPageSize, MaxChannelPageSize)
+			limit, offset := pageOffsetParams(r)
 			if limit != tc.wantLimit {
 				t.Errorf("limit = %d, want %d", limit, tc.wantLimit)
 			}
@@ -102,7 +102,7 @@ func TestPageOffsetParamsNeverExceedsMax(t *testing.T) {
 		"?limit=1e9", "?limit=+100000", "?limit=0xC8",
 	} {
 		r := httptest.NewRequest("GET", "/x"+q, nil)
-		limit, _ := pageOffsetParams(r, DefaultChannelPageSize, MaxChannelPageSize)
+		limit, _ := pageOffsetParams(r)
 		if limit > MaxChannelPageSize {
 			t.Errorf("%s produced limit %d, above the cap %d", q, limit, MaxChannelPageSize)
 		}
@@ -113,7 +113,7 @@ func TestPageOffsetParamsNeverExceedsMax(t *testing.T) {
 func TestPageOffsetParamsNeverNegative(t *testing.T) {
 	for _, q := range []string{"?offset=-1", "?offset=-99999", "?offset=-0", "?offset=nope"} {
 		r := httptest.NewRequest("GET", "/x"+q, nil)
-		if _, offset := pageOffsetParams(r, DefaultChannelPageSize, MaxChannelPageSize); offset < 0 {
+		if _, offset := pageOffsetParams(r); offset < 0 {
 			t.Errorf("%s produced a negative offset %d", q, offset)
 		}
 	}

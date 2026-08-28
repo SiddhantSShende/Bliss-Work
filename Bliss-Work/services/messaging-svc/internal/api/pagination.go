@@ -48,13 +48,13 @@ const (
 // changing list can repeat or skip a row between pages, which for a browse
 // screen is a cosmetic flaw rather than a correctness one — message history,
 // where skipping is not acceptable, uses beforeSeq above instead.
-func pageOffsetParams(r *http.Request, def, max int) (limit, offset int) {
+func pageOffsetParams(r *http.Request) (limit, offset int) {
 	if v := r.URL.Query().Get("offset"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			offset = n
 		}
 	}
-	return limitParam(r, def, max), offset
+	return limitParam(r, DefaultChannelPageSize, MaxChannelPageSize), offset
 }
 
 // limitParam reads ?limit=, falling back to def and refusing anything above max.

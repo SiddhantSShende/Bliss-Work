@@ -293,7 +293,7 @@ func startNodeRegistration(
 			select {
 			case <-ctx.Done():
 				// Best-effort: a fresh context, because ctx is already done.
-				delCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				delCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second) //nolint:gosec // G118: ctx is already cancelled (see <-ctx.Done() above); deriving from it would cancel this cleanup immediately
 				if err := st.DeregisterNode(delCtx, nodeID); err != nil {
 					log.Warn("node deregistration failed", "node", nodeID, "err", err)
 				}
