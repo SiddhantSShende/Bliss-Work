@@ -71,6 +71,69 @@ const ALLOW = [
       "server-side router, and no router actions.",
     reviewBy: "2026-10-01",
   },
+  // ── tar (12 advisories) ──────────────────────────────────────────────────
+  // `npm ls tar` (2026-08-28) traces every copy to @taskboard/desktop's native-
+  // module build tooling: electron-builder's own tar@7.5.19 (already the fixed
+  // line — not one of these advisories) and get-windows's install-time chain
+  // (@mapbox/node-pre-gyp, node-gyp → tar@6.2.1, the vulnerable one). None of
+  // it ships in the packaged app or runs in any deployed service; it only runs
+  // on the build machine during `npm install`/`electron-builder`, extracting
+  // prebuilt binaries get-windows fetches from its own GitHub releases — never
+  // an attacker-supplied archive, which every one of these CVEs requires
+  // (symlink/hardlink path traversal, decompression DoS, etc., all specific to
+  // EXTRACTING a malicious .tar). Forcing tar@7 via an npm `overrides` was
+  // considered and rejected: node-gyp/node-pre-gyp are not verified compatible
+  // with tar's v7 API and this is exactly the desktop build this session spent
+  // real effort getting green — not worth risking to silence an unreachable
+  // build-time-only advisory.
+  ...[
+    ["GHSA-34x7-hfp2-rc4v", "Arbitrary File Creation/Overwrite via Hardlink Path Traversal"],
+    ["GHSA-8qq5-rm4j-mr97", "Arbitrary File Overwrite and Symlink Poisoning via Insufficient Path Sanitization"],
+    ["GHSA-83g3-92jg-28cx", "Arbitrary File Read/Write via Hardlink Target Escape Through Symlink Chain"],
+    ["GHSA-qffp-2rhf-9h96", "Hardlink Path Traversal via Drive-Relative Linkpath"],
+    ["GHSA-9ppj-qmqm-q256", "Symlink Path Traversal via Drive-Relative Linkpath"],
+    ["GHSA-r6q2-hw4h-h46w", "Race Condition in Path Reservations via Unicode Ligature Collisions on macOS APFS"],
+    ["GHSA-vmf3-w455-68vh", "PAX size override causes tar parser interpretation differential (file smuggling)"],
+    ["GHSA-w8wr-v893-vjvp", "Process crash via PAX numeric path type confusion"],
+    ["GHSA-23hp-3jrh-7fpw", "Decompression/parse DoS via unlimited input"],
+    ["GHSA-8x88-c5mf-7j5w", "Negative tar entry size causes infinite loop in archive replace"],
+    ["GHSA-gvwx-54wh-qm9j", "Uncaught Exception DoS via NUL byte in PAX path/linkpath records"],
+    ["GHSA-r292-9mhp-454m", "Uncontrolled recursion in mapHas/filesFilter — stack-overflow DoS via crafted long-path tar"],
+  ].map(([id, title]) => ({
+    id,
+    package: "tar",
+    why: `${title} — build-time-only dependency chain, see the block comment above.`,
+    notAffected:
+      "Reached only by node-gyp/node-pre-gyp extracting get-windows's own prebuilt " +
+      "binaries from its GitHub releases during `npm install`; never an attacker-" +
+      "supplied archive, and never executed by any deployed service or the packaged app.",
+    reviewBy: "2026-10-01",
+  })),
+  // ── OpenTelemetry (2 advisories, both DoS via malformed HTTP input) ──────
+  // Both are transitive dependencies of @taskboard/graph-gw's
+  // @opentelemetry/sdk-node. Verified against services/graph-gw/src/tracing.ts
+  // (2026-08-28): it dynamically imports only sdk-node, exporter-trace-otlp-
+  // grpc, instrumentation-http, resources and semantic-conventions to build an
+  // OTLP/gRPC trace exporter — it never imports or instantiates
+  // PrometheusExporter or JaegerPropagator. Unimported code never runs, so
+  // these two are unreachable regardless of what reaches the process over the
+  // network. (Tracing itself is also gated on OTEL_EXPORTER_OTLP_ENDPOINT being
+  // set at all — a second, independent reason the vulnerable code never loads
+  // when it's unset.)
+  {
+    id: "GHSA-q7rr-3cgh-j5r3",
+    package: "@opentelemetry/exporter-prometheus / @opentelemetry/sdk-node",
+    why: "Prometheus exporter process crash via malformed HTTP request — fix requires a semver-major sdk-node bump (0.57.2 → 0.221.0) with unverified API compatibility.",
+    notAffected: "PrometheusExporter is never imported by graph-gw — see the block comment above.",
+    reviewBy: "2026-10-01",
+  },
+  {
+    id: "GHSA-45rx-2jwx-cxfr",
+    package: "@opentelemetry/propagator-jaeger",
+    why: "JaegerPropagator DoS via malformed header — same semver-major sdk-node bump required as GHSA-q7rr-3cgh-j5r3.",
+    notAffected: "JaegerPropagator is never imported by graph-gw — see the block comment above.",
+    reviewBy: "2026-10-01",
+  },
 ];
 
 const allowedIds = new Set(ALLOW.map((a) => a.id));

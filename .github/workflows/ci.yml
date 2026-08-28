@@ -173,6 +173,21 @@ jobs:
   build-frontend:
     name: Build (web + desktop)
     runs-on: ubuntu-latest
+    # apps/web/vite.config.ts refuses a production build without every
+    # VITE_*_BASE service URL set (see its requireServiceUrls plugin) — the
+    # deliberate gate that turns "app throws on boot in the browser" into a
+    # build-time failure instead. This job never publishes its output
+    # anywhere, so CI-only placeholder values are fine; only their presence
+    # is checked. Real values live in .env.prod on the VPS (see
+    # .env.prod.example) and are supplied by web-builder at actual deploy time.
+    env:
+      VITE_AUTH_BASE: https://ci.invalid/api/auth
+      VITE_TASK_BASE: https://ci.invalid/api/tasks
+      VITE_NOTIFICATION_BASE: https://ci.invalid/api/notifications
+      VITE_MESSAGING_BASE: https://ci.invalid/api/messaging
+      VITE_INTEGRATIONS_BASE: https://ci.invalid/api/integrations
+      VITE_TELEMETRY_BASE: https://ci.invalid/api/telemetry
+      VITE_WS_URL: wss://ci.invalid/ws
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -379,31 +394,47 @@ jobs:
   test-go-s3:
     name: Test (Go · messaging-svc blobs vs MinIO)
     runs-on: ubuntu-latest
-    services:
-      minio:
-        image: bitnami/minio:latest
-        ports: ["9000:9000"]
-        env:
-          MINIO_ROOT_USER: minioadmin
-          MINIO_ROOT_PASSWORD: minioadmin
-          MINIO_DEFAULT_BUCKETS: blisswork-test
-        options: >-
-          --health-cmd "curl -sf http://localhost:9000/minio/health/live"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 20
+    # bitnami/minio was pulled from Docker Hub entirely (verified 2026-08-28:
+    # `docker pull bitnami/minio:latest` and every other tag tried 404s —
+    # Bitnami moved its catalog behind a paid tier) — not a flake, every run
+    # failed the same way. Switched to the official minio/minio image, which
+    # is still free, but as a manual `docker run` step rather than a
+    # `services:` container: GitHub Actions' `services:` schema has no way to
+    # override a container's command, and unlike bitnami's image, official
+    # minio/minio does not run without one (`server /data`) — it just prints
+    # usage and exits. It also has no MINIO_DEFAULT_BUCKETS equivalent, so the
+    # bucket is created explicitly with the official minio/mc client instead.
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: Bliss-Work/services/messaging-svc/go.sum
+      - name: Start MinIO
+        run: |
+          docker run -d --name minio --network host \
+            -e MINIO_ROOT_USER=minioadmin \
+            -e MINIO_ROOT_PASSWORD=minioadmin \
+            minio/minio:latest server /data
+          for i in $(seq 1 20); do
+            curl -sf http://127.0.0.1:9000/minio/health/live && break
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:9000/minio/health/live \
+            || { echo "::error::MinIO never became healthy"; docker logs minio; exit 1; }
+      - name: Create the test bucket
+        run: |
+          docker run --rm --network host minio/mc:latest \
+            mb --ignore-existing minioadmin:minioadmin@http://127.0.0.1:9000/blisswork-test
       - name: go test -race (object store)
         working-directory: Bliss-Work/services/messaging-svc
         env:
           S3_TEST_ENDPOINT: 127.0.0.1:9000
           S3_TEST_BUCKET: blisswork-test
         run: go test -race -count=1 ./internal/blob/ -run S3Integration -v
+      - name: Stop MinIO
+        if: always()
+        run: docker rm -f minio
 
   test-js:
     name: Test (JS/TS · vitest)
@@ -436,6 +467,7 @@ jobs:
         with:
           scan-type: fs
           scan-ref: Bliss-Work
+          trivyignores: Bliss-Work/.trivyignore
           format: sarif
           output: trivy-fs.sarif
           severity: CRITICAL,HIGH
@@ -464,6 +496,7 @@ jobs:
         with:
           scan-type: fs
           scan-ref: Bliss-Work
+          trivyignores: Bliss-Work/.trivyignore
           format: table
           severity: CRITICAL
           ignore-unfixed: true
@@ -543,7 +576,13 @@ jobs:
       - name: Install pip-audit
         run: pip install "pip-audit==2.7.3"
       - name: pip-audit
-        run: pip-audit -r services/${{ matrix.service }}/requirements.txt
+        # requirements.txt has local path requirements like
+        # `../shared/kafka_security`, resolved relative to pip's CWD, not to
+        # the requirements file's own location — so this must run from inside
+        # services/${{ matrix.service }} (matching the test-python job above),
+        # not from the job's default Bliss-Work working directory.
+        working-directory: Bliss-Work/services/${{ matrix.service }}
+        run: pip-audit -r requirements.txt
 
   security-npm:
     name: Security (npm · audit)

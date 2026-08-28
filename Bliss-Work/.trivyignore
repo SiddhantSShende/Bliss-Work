@@ -1,0 +1,14 @@
+# Trivy filesystem-scan exceptions. Each entry needs a reason and the date it
+# was added — see docs/DEPLOY.md / scripts/audit-gate.mjs for the equivalent
+# npm-side allowlist and its house rules (this file has no automated
+# staleness check, so review these by hand alongside that one).
+
+# CVE-2026-59873 — node-tar: Denial of Service via crafted gzip bomb (tar@6.2.1).
+# Same root cause and same "not affected" evidence as the tar entries in
+# scripts/audit-gate.mjs (added 2026-08-28): every copy of tar@6.2.1 traces to
+# @taskboard/desktop's native-module build tooling (get-windows's
+# @mapbox/node-pre-gyp / node-gyp chain), which only ever extracts prebuilt
+# binaries get-windows fetches from its own GitHub releases — never an
+# attacker-supplied archive — and never ships in the packaged app or runs in
+# any deployed service. Review alongside the audit-gate.mjs entries.
+CVE-2026-59873
