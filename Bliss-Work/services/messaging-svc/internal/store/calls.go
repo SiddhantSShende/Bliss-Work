@@ -621,11 +621,30 @@ func endCallTx(ctx context.Context, tx pgx.Tx, callID string) (*CallDTO, error) 
 	// departed participant being shown to their colleagues as still in a
 	// meeting was the call leaving LIVE, which is precisely the state a call
 	// with no end time never leaves.
-	if _, err := tx.Exec(ctx, `
+	//
+	// Same reason clearLobbyTx (above) widens app.bypass_rls: call_participants
+	// carries the PARTICIPANT's own org, not the call's, so a cross-org guest's
+	// row is invisible under the host's own RLS (EndCall/LeaveCall both run
+	// this via s.withCaller). Without the widening, ending or leaving a
+	// meeting closed out every same-org row correctly and silently left every
+	// cross-org guest's row open — joinedAt set, leftAt null — on a call the
+	// data already says ENDED.
+	prevBypass, err := beginBypassGUC(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	_, uerr := tx.Exec(ctx, `
 		UPDATE call_participants SET left_at = now()
 		WHERE call_id = $1 AND joined_at IS NOT NULL AND left_at IS NULL`,
-		callID); err != nil {
-		return nil, err
+		callID)
+	// Back to what it WAS, same as clearLobbyTx — this function is also called
+	// from the sweeper's already-bypassed transaction, and hard-setting 'off'
+	// here would break that path the same way it would have broken clearLobbyTx.
+	if serr := restoreBypassGUC(ctx, tx, prevBypass); serr != nil {
+		return nil, serr
+	}
+	if uerr != nil {
+		return nil, uerr
 	}
 	// Close every live share. Passing nil means "everyone's" — the one
 	// place a share is stopped by someone other than the person sharing,
