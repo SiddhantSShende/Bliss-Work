@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // Recording states. RECORDING is the live one; the other two are terminal.
@@ -40,6 +41,15 @@ const (
 // STATE, not a failure — most calls are not recorded — and the handler answers
 // 404 with it rather than logging it as an error.
 var ErrNoRecording = errors.New("no recording for this call")
+
+// ErrAlreadyRecording is returned by StartRecording when another request won
+// the race to start THIS call's recording first (see
+// idx_call_recordings_one_active_per_call, 0029). The caller's own egress is
+// already running and orphaned at this point — it must be stopped, not left
+// billing and writing a duplicate file nobody will ever read back.
+var ErrAlreadyRecording = errors.New("call is already being recorded")
+
+const oneActiveRecordingPerCallIndex = "idx_call_recordings_one_active_per_call"
 
 // CallRecordingDTO is one recording as the API returns it.
 //
@@ -88,6 +98,14 @@ func (s *Store) StartRecording(ctx context.Context, id, callID, egressID, storag
 	if errors.Is(err, pgx.ErrNoRows) {
 		// The call vanished between starting it and asking for the egress.
 		return ErrForbidden
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == oneActiveRecordingPerCallIndex {
+		// Lost the race to another "start recording" for the same call — see
+		// 0029. The caller's own egress (a DIFFERENT egress_id, or this insert
+		// would have hit the OTHER unique index instead) is running and
+		// orphaned; the caller must stop it.
+		return ErrAlreadyRecording
 	}
 	return err
 }
