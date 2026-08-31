@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" class="light">
+<html lang="en" class="light sticky-window">
   <head>
     <meta charset="UTF-8" />
     <!--
@@ -16,9 +16,23 @@
     />
     <title>Task</title>
     <style>
-      html,
-      body,
-      #root {
+      /*
+        The note is a frameless, `transparent: true` window: everything except
+        the task card itself must let the desktop through, so that what floats
+        is a card and not a slab of BlissWork chrome.
+
+        Scoped to the .sticky-window class on <html> ON PURPOSE. The bundled
+        app stylesheet (packages/ui theme.css) sets an OPAQUE
+        `body { background: var(--color-bg) }`, and Vite injects its <link>
+        AFTER this block — so a plain `body { background: transparent }` here
+        has equal specificity, loses on source order, and the window paints the
+        whole app page background behind the card. The class raises specificity
+        above the theme rule, which makes the result independent of wherever
+        the bundler decides to put the stylesheet.
+      */
+      html.sticky-window,
+      html.sticky-window body,
+      html.sticky-window #root {
         background: transparent;
         margin: 0;
         height: 100%;

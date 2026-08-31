@@ -5,11 +5,11 @@ import type { StickyTaskDTO } from "@taskboard/shared";
 import { createMainWindow } from "./windows";
 import { StickyManager } from "./sticky-manager";
 import {
-  onFloatSafetyChange,
-  startDesktopWatch,
-  stopDesktopWatch,
-  pokeNow,
-} from "./foreground";
+  onAppActiveChange,
+  startAppActiveWatch,
+  stopAppActiveWatch,
+  trackMainWindow,
+} from "./app-active";
 import { ChatStickyManager, type ChatStickyBootstrap } from "./chat-sticky-manager";
 import { initCache, getTasks, setTasks } from "./cache";
 import {
@@ -29,6 +29,7 @@ import { registerAttachmentOpen } from "./attachment-open";
 import { checkForUpdatesNow, checkOnWindowFocus, initAutoUpdate } from "./updater";
 import { installLocationProviderKey, hasPreciseLocationProvider } from "./geo-key";
 import { locationSettingsUrl } from "../shared/location-settings";
+import { mediaSettingsUrl } from "../shared/media-settings";
 import { initScreenshotGuard } from "./screenshot-guard";
 import { initWindowStateGuard } from "./window-state-guard";
 import { popupFor, raise, shouldNotify, userIdFromToken, windowStateOf } from "./notifier";
@@ -53,7 +54,6 @@ const ENDPOINTS = resolveEndpointsFromEnv(app.isPackaged, {
   taskBase: process.env.TB_TASK_BASE,
   notificationBase: process.env.TB_NOTIFICATION_BASE,
   messagingBase: process.env.TB_MESSAGING_BASE,
-  integrationsBase: process.env.TB_INTEGRATIONS_BASE,
   // See the note in src/renderer/main.tsx: this key was missing from both
   // override maps, making TB_TELEMETRY_BASE silently inert on desktop.
   telemetryBase: process.env.TB_TELEMETRY_BASE,
@@ -64,6 +64,13 @@ let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let wsProc: UtilityProcess | null = null;
 let quitting = false;
+// Separate from `quitting`: quitApp() (tray/menu Quit) already sets
+// `quitting = true` BEFORE calling app.quit() — the very call that fires
+// `before-quit` — so reusing that flag as this section's re-entry guard
+// would make the most common quit path skip the notify-and-wait sequence
+// below entirely. This one only guards against starting that sequence twice
+// (e.g. a second Cmd+Q while the first quit is still waiting on its timeout).
+let quitTeardownStarted = false;
 // ws-process crash-recovery state: exponential backoff so a persistently
 // crashing child doesn't spin-restart, reset once the child is healthy again.
 let wsRestarts = 0;
@@ -187,7 +194,7 @@ if (!app.requestSingleInstanceLock()) {
 // NSIS/AppX installer stamps on the Start-menu shortcut. No-op off Windows.
 app.setAppUserModelId("com.blisswork.desktop");
 
-// Custom protocol for emailed invite + OAuth-return deep-links.
+// Custom protocol for emailed invite + meeting-join deep-links.
 if (process.defaultApp) app.setAsDefaultProtocolClient("taskboard", process.execPath, [process.argv[1] ?? ""]);
 else app.setAsDefaultProtocolClient("taskboard");
 
@@ -232,7 +239,7 @@ function bootstrap() {
   // COLD START: on Windows/Linux a deep link that LAUNCHES the app arrives in
   // argv, not through `second-instance` (which only fires when an instance is
   // already running) and not through `open-url` (macOS only). Without this,
-  // clicking an invite or an OAuth-return link while the app is closed opens a
+  // clicking an invite or a meeting-join link while the app is closed opens a
   // blank app and silently drops the token. Wait for the renderer to be ready,
   // or the IPC lands before anything is listening.
   const launchLink = findDeepLink(process.argv);
@@ -256,22 +263,13 @@ function bootstrap() {
   screen.on("display-removed", reclampStickies);
   screen.on("display-metrics-changed", reclampStickies);
 
-  // Follow BlissWork's own foreground state in and out of view, so a task note
-  // floats above BlissWork's own windows and never over a DIFFERENT
-  // application someone is working in. On Linux the window really is at the
-  // bottom of the stack and the watcher does not run. See ./foreground.
-  onFloatSafetyChange((safe) => sticky.setSafeToFloat(safe));
-  void startDesktopWatch();
-
-  // Fast path on top of the poll above: the instant ANY of BlissWork's own
-  // windows gains or loses OS focus, re-check right away instead of waiting
-  // up to POLL_MS for the next scheduled sample. This is what makes a note
-  // hide/reappear promptly when the user switches to (or back from) another
-  // application — see pokeNow's doc comment for why this cannot reopen the
-  // "which of BlissWork's windows has focus" bug the poll-only approach
-  // fixed.
-  app.on("browser-window-blur", () => pokeNow());
-  app.on("browser-window-focus", () => pokeNow());
+  // Show the task notes exactly while BlissWork is the application the user is
+  // in, and take them off screen the moment it is not. Ownership (each note is
+  // an Electron child of the main window) is what keeps them from ever being
+  // ABOVE another application; this is what keeps them from being on screen at
+  // all while someone is working elsewhere. See ./app-active.
+  onAppActiveChange((active) => sticky.setAppActive(active));
+  startAppActiveWatch();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -282,6 +280,14 @@ function bootstrap() {
 }
 
 function wireMainWindow(win: BrowserWindow) {
+  // The task notes are COMPANION windows of this one: owned by it at the OS
+  // level (so they sit above BlissWork and can never rise above another
+  // application) and shown/hidden with it. Both are re-pointed here rather
+  // than captured once, because this window can be recreated — notes restored
+  // at bootstrap are built before it exists at all.
+  sticky.setParentWindow(win);
+  trackMainWindow(win);
+
   // Intercept close to keep running in the tray, so the widgets + WS survive
   // the window being dismissed. A real quit sets `quitting`.
   // Windows only, and it must be registered BEFORE the close handler below so
@@ -297,13 +303,10 @@ function wireMainWindow(win: BrowserWindow) {
     }
   });
 
-  // Task notes now float based on BlissWork's own foreground state (see
-  // ./foreground's isSafeToFloat + StickyManager.setSafeToFloat), driven by
-  // the polling watcher started above — main-window focus/blur is no longer
-  // the trigger for them, since the poll already catches "BlissWork itself is
-  // frontmost" regardless of which of its windows has focus, and reacts to a
-  // DIFFERENT app becoming frontmost the same way. Chat stickies are a
-  // separate feature with their own (unchanged) always-behind behaviour.
+  // Task-note visibility is NOT wired here: ./app-active listens app-wide, so
+  // that focus moving between BlissWork's own windows (main window → a chat
+  // note) never reads as leaving the app. Chat stickies are a separate feature
+  // with their own (unchanged) always-behind behaviour.
   win.on("focus", () => {
     chatSticky.lowerZOrder();
     checkOnWindowFocus();
@@ -327,9 +330,6 @@ function focusMain() {
 /**
  * Route one taskboard:// deep link to the renderer.
  *
- *   taskboard://oauth?connected=gmail   → an OAuth flow finished in the system
- *                                         browser (Google refuses embedded
- *                                         webviews, so it can't run in-app)
  *   taskboard://invite?token=…          → an emailed invite
  *   taskboard://join?t=…                → a meeting link, handed off from
  *                                         the browser landing page at /join
@@ -340,12 +340,7 @@ function focusMain() {
 function forwardDeepLink(url?: string) {
   const link = parseDeepLink(url);
   if (!link) return;
-  if (link.kind === "oauth") {
-    mainWindow?.webContents.send("deeplink:oauth", {
-      connected: link.connected,
-      error: link.error,
-    });
-  } else if (link.kind === "meeting") {
+  if (link.kind === "meeting") {
     mainWindow?.webContents.send("deeplink:meeting", link.token);
   } else {
     mainWindow?.webContents.send("deeplink:invite", link.token);
@@ -489,8 +484,9 @@ function isChatStickyBootstrap(v: unknown): v is ChatStickyBootstrap {
 }
 
 // ── IPC from the main renderer ────────────────────────────────────────────────
-// Open a URL in the user's DEFAULT browser — used for OAuth, which Google
-// refuses to run inside an embedded webview (`disallowed_useragent`).
+// Open a URL in the user's DEFAULT browser — used for handoffs like the
+// WhatsApp forward link and map links, which have no business opening inside
+// the app's own renderer.
 //
 // The allowlist lives in shared/external-url.ts and is shared with the
 // window-open / navigation guards in harden.ts, so every path from renderer
@@ -524,6 +520,21 @@ ipcMain.handle("geo:precise", () => hasPreciseLocationProvider());
 // omits the bridge method there so the renderer never offers the button.
 ipcMain.handle("geo:open-settings", async () => {
   const url = locationSettingsUrl();
+  if (!url) return false;
+  await shell.openExternal(url);
+  return true;
+});
+
+// Same design as geo:open-settings above, one per media kind: no argument,
+// main resolves the fixed per-platform URL itself. See shared/media-settings.
+ipcMain.handle("media:open-camera-settings", async () => {
+  const url = mediaSettingsUrl("camera");
+  if (!url) return false;
+  await shell.openExternal(url);
+  return true;
+});
+ipcMain.handle("media:open-microphone-settings", async () => {
+  const url = mediaSettingsUrl("microphone");
   if (!url) return false;
   await shell.openExternal(url);
   return true;
@@ -580,11 +591,20 @@ ipcMain.on("auth:set-refresh-token", (e, token: unknown) => {
 // something a sticky-note window should be able to grant.
 ipcMain.handle("activity:state", async (e) => {
   if (!fromMainWindow(e)) return null;
-  const { enabled, token, deviceKey } = activityState.getState();
+  const { token, deviceKey } = activityState.getState();
   const cap = await activityAgent.capability();
-  // `paired` rather than the token itself: the renderer never needs the secret
-  // back, and not returning it means an XSS cannot exfiltrate it.
-  return { enabled, paired: !!token, deviceKey, ...cap };
+  // `enabled` reports whether the sampler is ACTUALLY running (`isActive()`),
+  // not merely the last-saved preference — the two can silently diverge (most
+  // commonly an auto-update bumping `app.getVersion()` past the stored
+  // `consentedVersion`, which sends `reconcile()` to `stop()` while the saved
+  // preference stays on). Reporting the raw preference here left Settings
+  // showing "recording" while nothing was: a click of the same-looking toggle
+  // then landed on `setEnabled(false)` instead of the `setEnabled(true)` that
+  // would have refreshed `consentedVersion` and actually restarted it.
+  // `paired` stays keyed off the raw token: a device with a token but a stale
+  // consent is still paired, just not currently recording, and should show
+  // Pause/Resume rather than reverting to "Turn on for this device".
+  return { enabled: activityState.isActive(), paired: !!token, deviceKey, ...cap };
 });
 
 ipcMain.handle("activity:set-enabled", (e, enabled: unknown) => {
@@ -806,13 +826,29 @@ function onSystemShutdown(): void {
   quitting = true;
   flushStickyState();
   void activityAgent.flushOnQuit();
+  // Best-effort only — see before-quit below for the real notify-and-wait
+  // sequence. OS shutdown runs on a budget this app does not control (Windows
+  // can force-terminate a slow WM_ENDSESSION responder), so this never
+  // preventDefaults the close or waits on a reply; it just gives an active
+  // meeting a CHANCE to hear about it if the renderer is still around to.
+  mainWindow?.webContents.send("app:before-quit");
 }
 
 powerMonitor.on("shutdown", onSystemShutdown);
 
-app.on("before-quit", () => {
+/**
+ * Give an active meeting a chance to leave cleanly before the process dies.
+ *
+ * Neither a hang-up click nor a React unmount is coming on a real quit — the
+ * renderer can be torn down before either runs — so without this, the server
+ * is never told the user left and the "resume this meeting" marker never
+ * clears (see MeetingSession.tsx). This pauses the quit just long enough for
+ * the renderer to disconnect the room and call leaveCall(), then lets it
+ * proceed either way.
+ */
+app.on("before-quit", (e) => {
   quitting = true;
-  stopDesktopWatch();
+  stopAppActiveWatch();
   // Flush any pending sticky-state writes so the user's geometry survives a
   // tray-quit. The atomic temp-then-rename means a SIGKILL during this call
   // still leaves a valid prior file in place.
@@ -821,4 +857,40 @@ app.on("before-quit", () => {
   // quit on a network call would hang the app when offline, and one lost span
   // matters far less than an app that will not close.
   void activityAgent.flushOnQuit();
+
+  if (quitTeardownStarted) return;
+  quitTeardownStarted = true;
+
+  const win = mainWindow;
+  if (!win || win.isDestroyed() || win.webContents.isDestroyed()) {
+    finishQuit();
+    return;
+  }
+
+  e.preventDefault();
+  let done = false;
+  const finish = () => {
+    if (done) return;
+    done = true;
+    clearTimeout(safety);
+    ipcMain.removeListener("app:quit-ready", onReady);
+    finishQuit();
+  };
+  const onReady = () => finish();
+  ipcMain.once("app:quit-ready", onReady);
+  win.webContents.send("app:before-quit");
+  // No meeting active is the common case, and nothing on the renderer side
+  // subscribes to app:before-quit then — this keeps that quit from hanging.
+  const safety = setTimeout(finish, 1200);
 });
+
+function finishQuit(): void {
+  // Reuses the same graceful-close path explicit sign-out already sends (see
+  // ws-process.ts's `case "token"`), rather than abandoning the socket.
+  wsProc?.postMessage({ type: "token", token: null });
+  sticky.destroyAll();
+  chatSticky.destroyAll();
+  // app.exit(), not app.quit() — Electron does not re-emit before-quit/
+  // will-quit for app.exit(), so this cannot loop back into the handler above.
+  app.exit(0);
+}

@@ -46,8 +46,6 @@ export const EventType = {
   TaskLeft: "task.left",
   TaskReviewed: "task.reviewed",
   NotificationCreated: "notification.created",
-  IntegrationActivityCreated: "integration.activity.created",
-  IntegrationMentionCreated: "integration.mention.created",
   /** A mail landed in someone's Inbox. Signal-only — see MailDelivered. */
   MailDelivered: "mail.delivered",
   PresenceOnline: "presence.online",
@@ -507,47 +505,12 @@ export const NotificationCreated = z.object({
 });
 
 /**
- * IntegrationActivityCreated is the live-hub signal: new inbound/outbound activity
- * (a Slack/WhatsApp message, etc.) landed on a connected account. Signal-only —
- * the PII (peer/body) is never on the event; the client refetches the hub feed.
- * Routed to [recipientId] = the user who owns/connected the account.
- */
-export const IntegrationActivityCreated = z.object({
-  type: z.literal(EventType.IntegrationActivityCreated),
-  ...envelope,
-  recipientId: z.string().uuid(),
-  activityId: z.string().uuid(),
-  connectionId: z.string().uuid(),
-  provider: z.string(),
-  kind: z.string(), // 'message' | 'call' | 'email'
-  direction: z.string(), // 'inbound' | 'outbound'
-});
-
-/**
- * IntegrationMentionCreated fires when an inbound message on a connected account
- * @-mentions a Bliss-Work user. Signal-only, like its activity sibling — the
- * mention text and peer never ride the event; the client refetches the mentions
- * feed. This is the ONLY integration event the client notifies on, which is what
- * keeps the hub to "someone tagged me" instead of every message on the account.
- * Routed to [recipientId] = the MENTIONED user (not the connection owner).
- */
-export const IntegrationMentionCreated = z.object({
-  type: z.literal(EventType.IntegrationMentionCreated),
-  ...envelope,
-  recipientId: z.string().uuid(),
-  activityId: z.string().uuid(),
-  connectionId: z.string().uuid(),
-  provider: z.string(),
-  kind: z.string(), // 'message' | 'email'
-});
-
-/**
  * MailDelivered fires when an email is filed into one or more Inboxes — sent
  * from the composer to a colleague, or received from outside via the inbound
  * ingestion endpoint.
  *
- * Signal-only, like its integration siblings, and for a stronger reason: the
- * gateway writes every routed event into each recipient's Redis replay outbox,
+ * Signal-only, and for a stronger reason: the gateway writes every routed
+ * event into each recipient's Redis replay outbox,
  * so carrying the subject and body here would put the contents of everybody's
  * mail in Redis. The client's only reaction is to refetch the feed row it
  * already knows how to render, so the id is all it needs.
@@ -872,8 +835,6 @@ export const ServerEvent = z.discriminatedUnion("type", [
   TaskLeft,
   TaskReviewed,
   NotificationCreated,
-  IntegrationActivityCreated,
-  IntegrationMentionCreated,
   MailDelivered,
   PresenceOnline,
   PresenceOffline,
@@ -907,8 +868,6 @@ export type TaskIgnored = z.infer<typeof TaskIgnored>;
 export type TaskLeft = z.infer<typeof TaskLeft>;
 export type TaskReviewed = z.infer<typeof TaskReviewed>;
 export type NotificationCreated = z.infer<typeof NotificationCreated>;
-export type IntegrationActivityCreated = z.infer<typeof IntegrationActivityCreated>;
-export type IntegrationMentionCreated = z.infer<typeof IntegrationMentionCreated>;
 export type MailDelivered = z.infer<typeof MailDelivered>;
 export type PresenceOnline = z.infer<typeof PresenceOnline>;
 export type PresenceOffline = z.infer<typeof PresenceOffline>;
@@ -1131,10 +1090,7 @@ export const NO_DELIVERY_ACK_FOR = new Set<string>([
   EventType.TaskLeft,
   EventType.TaskReviewed,
   EventType.NotificationCreated,
-  // Integration events carry no messaging `messageId`, so a delivery ack
-  // derived from one has nothing to ack and would 400 downstream.
-  EventType.IntegrationActivityCreated,
-  EventType.IntegrationMentionCreated,
-  // Same reason: a mail is not a chat message and carries no `messageId`.
+  // A mail is not a chat message and carries no `messageId`, so a delivery
+  // ack derived from one has nothing to ack and would 400 downstream.
   EventType.MailDelivered,
 ]);

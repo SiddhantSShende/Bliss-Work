@@ -12,12 +12,6 @@ callers must handle differently.
 
 Auth is per-connection OAuth (see providers/oauth.py); this module never sees
 the org's client credentials, only the resolved access token.
-
-INGEST NOTE: `get_message` fetches format=metadata with an explicit header
-allowlist. Mention detection needs To/Cc/From plus the bulk-mail markers, and
-nothing else — pulling `format=full` would drag the entire message body and
-every attachment through this service for no benefit, and put more PII in
-flight than we store.
 """
 from __future__ import annotations
 
@@ -32,22 +26,6 @@ from ..resilience import CircuitBreaker, retry_async
 _GMAIL_API = "https://gmail.googleapis.com/gmail/v1"
 _TIMEOUT = 15.0
 _gmail_breaker = CircuitBreaker(fail_max=5, reset_timeout=30.0, name="gmail")
-
-#: Headers `mentions.detect_mentions` actually reads. Keep in sync with
-#: mentions._mail_scan — an omission here silently disables a filter, which
-#: shows up as newsletters appearing in someone's mention feed.
-METADATA_HEADERS = (
-    "From",
-    "To",
-    "Cc",
-    "Subject",
-    "Date",
-    "Message-Id",
-    "List-Id",
-    "List-Unsubscribe",
-    "Precedence",
-    "Auto-Submitted",
-)
 
 
 class GmailError(Exception):
@@ -114,79 +92,6 @@ async def _request(token: str, method: str, path: str, **kw) -> dict:
             return r.json() if r.content else {}
 
     return await retry_async(_attempt, attempts=3, breaker=_gmail_breaker)
-
-
-# ── identity ──────────────────────────────────────────────────────────────────
-async def profile(token: str) -> dict:
-    """The mailbox's own profile — emailAddress plus the current historyId.
-
-    That historyId is the ingest starting point: it means "everything from here
-    on", so a freshly connected mailbox does not replay its entire history into
-    the mention feed.
-    """
-    return await _request(token, "GET", "/users/me/profile")
-
-
-# ── push subscription ─────────────────────────────────────────────────────────
-async def watch(token: str, topic: str, *, label_ids: list[str] | None = None) -> dict:
-    """Start (or renew) a push subscription to the org's own Pub/Sub topic.
-
-    Returns {historyId, expiration}. Watches expire after 7 days, so the worker
-    re-arms well before that. Calling watch again on an active mailbox is the
-    documented renewal path — it is not an error.
-
-    Scoped to INBOX by default: without a label filter Google notifies on every
-    mailbox change including sent mail and label edits, which is a lot of push
-    traffic to discard.
-    """
-    return await _request(
-        token,
-        "POST",
-        "/users/me/watch",
-        json={
-            "topicName": topic,
-            "labelIds": label_ids or ["INBOX"],
-            "labelFilterBehavior": "INCLUDE",
-        },
-    )
-
-
-async def stop(token: str) -> None:
-    """Cancel the push subscription. Called on disconnect so Google stops
-    publishing to a topic nobody is reading."""
-    await _request(token, "POST", "/users/me/stop")
-
-
-# ── reading ───────────────────────────────────────────────────────────────────
-async def history_list(
-    token: str, start_history_id: str, *, page_token: str | None = None
-) -> dict:
-    """Changes since `start_history_id`, restricted to newly-added messages.
-
-    A 404 here means the history id is too old to serve (Google keeps roughly a
-    week). Callers must treat that as "re-baseline from profile().historyId"
-    rather than an error — the alternative is a connection that never ingests
-    again after a long outage.
-    """
-    params: dict[str, str] = {
-        "startHistoryId": start_history_id,
-        "historyTypes": "messageAdded",
-        "labelId": "INBOX",
-    }
-    if page_token:
-        params["pageToken"] = page_token
-    return await _request(token, "GET", "/users/me/history", params=params)
-
-
-async def get_message(token: str, message_id: str) -> dict:
-    """Fetch one message's metadata — headers only, never the body.
-
-    See the module docstring: mention detection needs the addressing headers and
-    the bulk-mail markers, and pulling the full body would move more PII through
-    this service than it stores.
-    """
-    params = [("format", "metadata")] + [("metadataHeaders", h) for h in METADATA_HEADERS]
-    return await _request(token, "GET", f"/users/me/messages/{message_id}", params=params)
 
 
 # ── sending ───────────────────────────────────────────────────────────────────

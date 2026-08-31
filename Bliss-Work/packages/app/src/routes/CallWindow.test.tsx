@@ -86,4 +86,34 @@ describe("CallWindow", () => {
     ).toBeTruthy();
     expect(enter).not.toHaveBeenCalled();
   });
+
+  it("offers a reload if the meeting overlay never takes over within the handoff window", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    api.call.mockResolvedValue({ id: "c1", title: "Standup", status: "ACTIVE" });
+    renderAt("c1");
+
+    await vi.waitFor(() => expect(enter).toHaveBeenCalledTimes(1));
+    expect(screen.getByText("Joining the meeting…")).toBeTruthy();
+
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    expect(await screen.findByText("This is taking longer than expected")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Reload" })).toBeTruthy();
+    vi.useRealTimers();
+  });
+
+  it("the handoff-timeout reload button reloads the page", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    api.call.mockResolvedValue({ id: "c1", title: "Standup", status: "ACTIVE" });
+    const reload = vi.fn();
+    vi.stubGlobal("location", { ...window.location, reload });
+    renderAt("c1");
+
+    await vi.advanceTimersByTimeAsync(15_000);
+    (await screen.findByRole("button", { name: "Reload" })).click();
+
+    expect(reload).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
 });

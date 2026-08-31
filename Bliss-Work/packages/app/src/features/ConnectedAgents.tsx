@@ -6,6 +6,7 @@ import { Badge, Button, Spinner } from "@taskboard/ui";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { useExtensionConnection } from "../lib/useExtensionConnection";
+import { detectBrowserFamily, supportsAutoExtensionIntegration } from "../lib/browserDetect";
 
 /**
  * The devices and browsers reporting activity for this person, and the way to
@@ -20,17 +21,29 @@ import { useExtensionConnection } from "../lib/useExtensionConnection";
  * being recorded is the person who controls the pairing.
  */
 export function ConnectedAgents() {
-  const { api } = useRuntime();
+  const { api, config } = useRuntime();
   const qc = useQueryClient();
   const [minted, setMinted] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [rechecking, setRechecking] = useState(false);
   // Web-only auto-detect/auto-provision of the browser extension — see
   // useExtensionConnection.ts (also used by the sign-in page CTA and the
   // post-login provisioning bridge, so this is one protocol implementation,
   // not three). "checking"/"unsupported" both render the manual flow below
   // exactly as it always has — the latter covers "not configured for this
   // deployment" (config.chromeExtensionId unset).
-  const { status: autoExtension } = useExtensionConnection(true);
+  const { status: autoExtension, recheck } = useExtensionConnection(true);
+
+  // Same browser-family lookup BrowserExtensionCTA.tsx uses on the sign-in
+  // page — reused here rather than re-derived, so the two surfaces can never
+  // disagree about which browsers this deployment can actually help install
+  // into. `installUrl` is only ever present once this deployment has
+  // something real to link to (see extensionInstallUrls' own doc comment on
+  // PlatformConfig) — no store listing means no download link, not a broken
+  // one.
+  const family = detectBrowserFamily();
+  const installUrl = config.extensionInstallUrls?.[family];
+  const canAutoInstall = supportsAutoExtensionIntegration(family) && !!installUrl;
 
   const { data: agents = [], isLoading } = useQuery({
     queryKey: qk.agentTokens,
@@ -130,6 +143,43 @@ export function ConnectedAgents() {
         </p>
       ) : autoExtension === "connected" ? (
         <p className="text-xs text-muted">Browser extension already connected.</p>
+      ) : autoExtension === "not-installed" && canAutoInstall ? (
+        <div className="space-y-2 rounded-lg bg-accent-soft p-3">
+          <p className="text-xs font-medium text-accent">
+            Download the extension, then load it in your browser — it pairs with your
+            account automatically once it's running.
+          </p>
+          <ol className="list-decimal space-y-0.5 pl-4 text-xs leading-relaxed text-muted">
+            <li>Download and unzip it.</li>
+            <li>Open your browser's extensions page and turn on Developer mode.</li>
+            <li>Click "Load unpacked" and select the unzipped folder.</li>
+          </ol>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => window.open(installUrl, "_blank", "noopener,noreferrer")}
+            >
+              Download extension
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              loading={rechecking}
+              onClick={() => {
+                setRechecking(true);
+                void recheck().finally(() => setRechecking(false));
+              }}
+            >
+              I installed it — check again
+            </Button>
+          </div>
+        </div>
+      ) : autoExtension === "not-installed" ? (
+        <p className="text-xs text-muted">
+          Automatic setup isn't available for this browser yet — connect from Chrome,
+          Edge or Brave instead.
+        </p>
       ) : minted ? (
         <div className="space-y-2 rounded-lg bg-accent-soft p-3">
           <p className="text-xs font-medium text-accent">

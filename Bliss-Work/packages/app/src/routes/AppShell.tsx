@@ -21,6 +21,7 @@ import { TasksList } from "./TasksList";
 import { ChannelsList } from "./ChannelsList";
 import { MembersList } from "./MembersList";
 import { MailFolders } from "./MailFolders";
+import { MeetingFolders } from "./MeetingFolders";
 
 export function AppShell() {
   const { api } = useRuntime();
@@ -46,11 +47,11 @@ export function AppShell() {
   const railBadges: Record<string, number> = { mail: inboxUnread, tasks: unread };
 
   // mail/chats/tasks/channels drive the contextual list pane; utility pages
-  // (search/invite/profile) render full-width with no list pane. Integrations
-  // and Org are full-width but ARE rail items, so the rail gets its own
-  // highlight-only key. Both live in lib/section.ts, which telemetry shares —
-  // three copies of this prefix chain is three chances for a new route to be
-  // classified inconsistently.
+  // (search/invite/profile) render full-width with no list pane. Org is
+  // full-width but IS a rail item, so the rail gets its own highlight-only
+  // key. Both live in lib/section.ts, which telemetry shares — three copies
+  // of this prefix chain is three chances for a new route to be classified
+  // inconsistently.
   const section = listSectionOf(loc.pathname);
   const railSection = railSectionOf(loc.pathname);
 
@@ -88,14 +89,16 @@ export function AppShell() {
         {section && (
           <aside
             className={`glass min-h-0 w-full shrink-0 flex-col overflow-hidden rounded-2xl md:my-0 ${
-              // Mail is the one section whose main pane is itself two columns
-              // (message list + reading pane, see MailLayout), so its folder
-              // column is narrower — three panes at 24rem each leaves the mail
-              // itself nothing to be read in. Every other section fills the pane.
-              section === "mail" ? "md:w-72 lg:w-80" : "md:w-80 lg:w-96"
+              // Mail and Meetings are the sections whose main pane is
+              // itself two columns (list + reading pane, see MailLayout and
+              // MeetingsLayout), so their first column is narrower — three
+              // panes at 24rem each leaves the thing being read nothing to be
+              // read in. Every other section fills the pane.
+              section === "mail" || section === "meetings" ? "md:w-72 lg:w-80" : "md:w-80 lg:w-96"
             } ${showListOnMobile ? "flex" : "hidden"} md:flex`}
           >
             {section === "mail" && <MailFolders />}
+            {section === "meetings" && <MeetingFolders />}
             {section === "chats" && <ChatsList />}
             {section === "tasks" && <TasksList />}
             {section === "channels" && <ChannelsList />}

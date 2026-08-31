@@ -101,7 +101,10 @@ vi.mock("../lib/useCallRoom", () => ({
 }));
 
 vi.mock("../lib/runtime", () => ({
-  useRuntime: () => ({ api: { stopCallRecording: vi.fn(), startCallRecording: vi.fn() } }),
+  // `config` mirrors the web build: no Electron-only capabilities present, so
+  // CallRoom's presence-gated calls (onBeforeQuit, openCameraSettings, …)
+  // correctly no-op instead of throwing on undefined.
+  useRuntime: () => ({ api: { stopCallRecording: vi.fn(), startCallRecording: vi.fn() }, config: {} }),
 }));
 
 vi.mock("../store/session", () => ({
@@ -303,13 +306,18 @@ describe("the manual picture-in-picture button", () => {
     expect(h.pip.toggle).toHaveBeenCalledTimes(1);
   });
 
-  it("is not offered at all when the platform has no Picture-in-Picture support", () => {
+  it("still offers the invite link when the platform has no Picture-in-Picture support", async () => {
     h.pip.supported = false;
     renderRoom();
 
-    // With no session either (this test doesn't set one), the More menu has
-    // nothing left to offer and omits its own button entirely.
-    expect(screen.queryByRole("button", { name: "More" })).toBeNull();
+    // The invite link is a normally-available action (this MEETING-kind call
+    // is connected), so unlike PiP/Minimise it keeps the More button around
+    // even with nothing else to offer.
+    await act(async () => {
+      screen.getAllByRole("button", { name: "More" }).at(0)!.click();
+    });
+    expect(screen.getByRole("menuitem", { name: "Copy invite link" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Picture-in-picture" })).toBeNull();
   });
 
   it("reflects an active PiP session in its label", async () => {

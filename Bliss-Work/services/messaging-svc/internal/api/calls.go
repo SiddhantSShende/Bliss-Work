@@ -579,6 +579,11 @@ func (s *Server) callToken(w http.ResponseWriter, r *http.Request) {
 		if access.NewlyWaiting {
 			s.notifyStarters(r.Context(), callID, claims.UserID)
 		}
+		// The only trace this endpoint left before: either outcome, so a stuck
+		// client can be told apart from a client that never reached the server
+		// at all without needing ad-hoc diagnostic logging re-added after the
+		// fact.
+		s.log.Info("call token request", "call", callID, "user", claims.UserID, "state", "WAITING")
 		writeJSON(w, http.StatusAccepted, callWaitingResp{
 			State:    "WAITING",
 			CallID:   callID,
@@ -621,6 +626,7 @@ func (s *Server) callToken(w http.ResponseWriter, r *http.Request) {
 		s.mapErrR(w, r, err)
 		return
 	}
+	s.log.Info("call token request", "call", callID, "user", claims.UserID, "state", "JOINED")
 	writeJSON(w, http.StatusOK, callTokenResp{
 		State:     "JOINED",
 		URL:       s.livekit.URL(),

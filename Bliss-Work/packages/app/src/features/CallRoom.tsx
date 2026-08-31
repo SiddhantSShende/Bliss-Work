@@ -37,7 +37,7 @@ import { Button, cn } from "@taskboard/ui";
 import { type CallDTO } from "@taskboard/shared";
 import { useSession } from "../store/session";
 import { useRuntime } from "../lib/runtime";
-import { useCallRoom } from "../lib/useCallRoom";
+import { isGetUserMediaDenied, useCallRoom } from "../lib/useCallRoom";
 import { useCollapseTransition } from "../lib/useCollapseTransition";
 import { CHAT_SYNC_MAX, NOTES_SYNC_MAX } from "../lib/roomMessages";
 import {
@@ -136,7 +136,7 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
     onData,
     identity,
   } = room;
-  const { api } = useRuntime();
+  const { api, config } = useRuntime();
   const me = useSession((s) => s.user);
   /**
    * Optional so this component can still be rendered on its own — the dev
@@ -149,6 +149,12 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
   const [previewStream, setPreviewStream] = useState<MediaStream | null>(null);
   const [previewMicOn, setPreviewMicOn] = useState(true);
   const [previewCamOn, setPreviewCamOn] = useState(true);
+  /** Why the preview has no stream: a denied permission vs. anything else
+   *  (no device, already in use). Null while it hasn't failed (or hasn't
+   *  been tried yet). */
+  const [previewError, setPreviewError] = useState<"denied" | "other" | null>(null);
+  /** Bumped by the "Try again" button to re-run the getUserMedia effect. */
+  const [previewAttempt, setPreviewAttempt] = useState(0);
   const previewVideoRef = useRef<HTMLVideoElement>(null);
   const [starting, setStarting] = useState(false);
   const [retrying, setRetrying] = useState(false);
@@ -240,6 +246,7 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
   useEffect(() => {
     if (!preJoin || !navigator.mediaDevices?.getUserMedia) return;
     let cancelled = false;
+    setPreviewError(null);
     navigator.mediaDevices
       .getUserMedia({ audio: true, video: true })
       .then((stream) => {
@@ -250,9 +257,10 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
         setPreviewStream(stream);
         if (previewVideoRef.current) previewVideoRef.current.srcObject = stream;
       })
-      .catch(() => {
+      .catch((e) => {
         setPreviewCamOn(false);
         setPreviewMicOn(false);
+        setPreviewError(isGetUserMediaDenied(e) ? "denied" : "other");
       });
     return () => {
       cancelled = true;
@@ -261,7 +269,7 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
         return null;
       });
     };
-  }, [preJoin]);
+  }, [preJoin, previewAttempt]);
 
   useEffect(() => {
     if (previewVideoRef.current && previewStream) {
@@ -300,6 +308,29 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
   recordingRef.current = recording;
   const pinnedRef = useRef(pinned);
   pinnedRef.current = pinned;
+  // Read by the before-quit effect below, which is mount-once so it does not
+  // resubscribe on every render — it still needs the CURRENT leave/session.
+  const leaveRef = useRef(leave);
+  leaveRef.current = leave;
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
+
+  // The desktop app is about to quit. Neither a hang-up click nor a React
+  // unmount is coming — the process can be torn down before either would run
+  // — so this is the one chance to disconnect the room, tell the server we
+  // left, and clear the "resume this meeting" marker before that happens.
+  // Only present on Electron (see PlatformConfig.onBeforeQuit); a no-op on
+  // web. Only subscribed while a meeting is actually up, since that is
+  // exactly when this component is mounted.
+  useEffect(() => {
+    if (!config.onBeforeQuit) return;
+    return config.onBeforeQuit(() => {
+      void leaveRef.current({ awaitServer: true }).finally(() => {
+        sessionRef.current?.exit();
+        config.notifyQuitReady?.();
+      });
+    });
+  }, [config]);
 
   // Join once, after the pre-join lobby. The hook guards re-entry.
   useEffect(() => {
@@ -503,6 +534,27 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
     sendData({ t: "hand", raised: next });
   };
 
+  /**
+   * Keep one entry on the server as well as on the wire.
+   *
+   * Fire and forget, and deliberately so: the data channel is what the room
+   * sees, and it has already carried this entry to everybody by the time this
+   * runs. A meeting must not break — or make anybody wait — because the
+   * transcript write was slow, or offline, or talking to a deployment that
+   * predates it. A failure is logged and the meeting carries on; the entry is
+   * simply not in the record.
+   *
+   * Each client keeps only what IT wrote. The server refuses a line written in
+   * somebody else's name, and one poster per entry is one request per entry
+   * rather than one per participant per entry.
+   */
+  const keep = (what: "chat" | "note", entry: { id: string; text: string; at: number }) => {
+    const save = what === "chat" ? api.saveCallChat(call.id, entry) : api.saveCallNote(call.id, entry);
+    void save.catch((err: unknown) => {
+      console.warn(`[meeting] could not keep this ${what} in the record`, err);
+    });
+  };
+
   const addNote = (text: string) => {
     const entry: NoteEntry = {
       // Unique without coordination: whose client wrote it, when, and a little
@@ -514,6 +566,7 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
     };
     setNotes((prev) => mergeNotes(prev, [entry]));
     sendData({ t: "note", note: entry });
+    keep("note", { id: entry.id, text: entry.text, at: entry.at });
   };
 
   const exportNotes = () => {
@@ -536,6 +589,12 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
     const entry = newChatEntry({ from: identity, fromName: myName, to, text });
     setChat((prev) => mergeChat(prev, [entry]));
     sendData({ t: "chat", msg: entry }, to ? [to] : undefined);
+    // ROOM-WIDE ONLY. A direct message was transmitted to one identity and to
+    // nobody else; writing it down would make it readable by everyone the
+    // meeting's record admits, which is not what the sender chose when they
+    // picked one person out of the "To:" list. The server has nowhere to put
+    // one either — see messaging-svc migration 0029.
+    if (to === null) keep("chat", { id: entry.id, text: entry.text, at: entry.at });
   };
 
   const exportChat = () => {
@@ -637,12 +696,42 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
                 playsInline
                 className={`h-full w-full -scale-x-100 object-cover ${previewCamOn ? "" : "hidden"}`}
               />
-              {!previewCamOn && (
+              {!previewCamOn && !previewError && (
                 <div className="text-center text-muted">
                   <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-accent-soft text-2xl font-semibold text-accent">
                     {myName.slice(0, 2).toUpperCase()}
                   </div>
                   <div className="text-sm">Your camera is off</div>
+                </div>
+              )}
+              {previewError && (
+                <div className="max-w-xs px-4 text-center text-muted">
+                  <AlertCircle className="mx-auto mb-2 text-danger" size={28} />
+                  <div className="text-sm font-medium text-fg">
+                    {previewError === "denied"
+                      ? "Camera and microphone are blocked"
+                      : "Couldn't access your camera or microphone"}
+                  </div>
+                  <p className="mt-1 text-xs">
+                    {previewError === "denied"
+                      ? "Check this app's camera and microphone permission, then try again."
+                      : "Make sure a camera and microphone are connected and not already in use, then try again."}
+                  </p>
+                  <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+                    <Button size="sm" variant="ghost" onClick={() => setPreviewAttempt((n) => n + 1)}>
+                      Try again
+                    </Button>
+                    {previewError === "denied" && config.openCameraSettings && (
+                      <Button size="sm" variant="ghost" onClick={() => void config.openCameraSettings!()}>
+                        Open camera settings
+                      </Button>
+                    )}
+                    {previewError === "denied" && config.openMicrophoneSettings && (
+                      <Button size="sm" variant="ghost" onClick={() => void config.openMicrophoneSettings!()}>
+                        Open microphone settings
+                      </Button>
+                    )}
+                  </div>
                 </div>
               )}
               <div className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-surface/95 p-1.5 shadow-card">

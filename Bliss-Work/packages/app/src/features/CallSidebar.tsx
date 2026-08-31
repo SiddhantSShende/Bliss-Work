@@ -11,12 +11,13 @@
  * both are real capabilities (keep the call running while you do something
  * else) with nothing else offering them, so they're kept — tucked into a
  * small "More" menu at the bottom rather than given two more first-class
- * icons the reference design didn't ask for.
+ * icons the reference design didn't ask for. The invite link lives there too
+ * now, alongside them, to keep this dock from growing without bound as more
+ * secondary actions show up — see CallMoreMenu.
  */
 import {
   Disc,
   Hand,
-  Link2,
   MessageSquare,
   Mic,
   MicOff,
@@ -102,7 +103,7 @@ export function CallSidebar({
   return (
     <nav
       aria-label="Meeting controls"
-      className="glass relative z-20 flex w-20 shrink-0 flex-col items-center gap-1 overflow-y-auto rounded-r-3xl py-4"
+      className="glass relative z-20 flex min-h-0 w-20 shrink-0 flex-col items-center gap-1 overflow-y-auto overscroll-contain rounded-r-3xl py-4 [scrollbar-color:var(--color-border)_transparent] [scrollbar-width:thin]"
     >
       <SidebarButton
         icon={micOn ? <Mic size={20} /> : <MicOff size={20} />}
@@ -145,13 +146,6 @@ export function CallSidebar({
         disabled={!canAddPeople}
         title={canAddPeople ? "Add people" : addPeopleTitle}
       />
-      <SidebarButton
-        icon={<Link2 size={20} />}
-        label="Invite"
-        onClick={onCopyInviteLink}
-        disabled={!canInviteLink || mintingInviteLink}
-        title={canInviteLink ? "Copy invite link" : inviteLinkTitle}
-      />
       {/* Chats — the reference design's example of the active treatment every
           toggle above and below also uses: a cyan glow, not a one-off. */}
       <SidebarButton
@@ -184,6 +178,10 @@ export function CallSidebar({
       <div className="my-1 h-px w-8 shrink-0 bg-border/70" />
 
       <CallMoreMenu
+        canInviteLink={canInviteLink}
+        inviteLinkTitle={inviteLinkTitle}
+        mintingInviteLink={mintingInviteLink}
+        onCopyInviteLink={onCopyInviteLink}
         pipSupported={pipSupported}
         pipActive={pipActive}
         onTogglePip={onTogglePip}

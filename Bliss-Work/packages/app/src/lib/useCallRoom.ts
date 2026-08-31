@@ -63,6 +63,15 @@ export type RoomStatus =
  *  host was a hundred access decisions a second, every second, on the primary. */
 const LOBBY_POLL_MS = 30_000;
 
+/** Whether `e` is exactly a media-capture prompt's "the OS/browser refused
+ *  this" rejection — as opposed to "no such device" (NotFoundError),
+ *  "already in use" (NotReadableError), or anything else. Shared by every
+ *  getUserMedia/getDisplayMedia call site below (mic, camera, screen share)
+ *  since they all throw the same DOMException shape on denial. */
+export function isGetUserMediaDenied(e: unknown): boolean {
+  return e instanceof DOMException && e.name === "NotAllowedError";
+}
+
 /**
  * Joins the SFU room backing a call.
  *
@@ -429,7 +438,7 @@ export function useCallRoom(callId: string | null) {
   /** Our own identity in the room, or "" before we are in one. */
   const identity = participants.find((p) => p.isLocal)?.identity ?? "";
 
-  const leave = useCallback(async () => {
+  const leave = useCallback(async (opts?: { awaitServer?: boolean }) => {
     stopWaiting();
     const room = roomRef.current;
     // Leaving the WAITING ROOM is a real departure too — there is no room to
@@ -440,7 +449,8 @@ export function useCallRoom(callId: string | null) {
         setStatus("idle");
         if (callId && !leftRef.current) {
           leftRef.current = true;
-          api.leaveCall(callId).catch(() => {});
+          const p = api.leaveCall(callId).catch(() => {});
+          if (opts?.awaitServer) await p;
         }
       }
       return;
@@ -448,25 +458,57 @@ export function useCallRoom(callId: string | null) {
     await room.disconnect();
     if (callId && !leftRef.current) {
       leftRef.current = true;
-      api.leaveCall(callId).catch(() => {});
+      const p = api.leaveCall(callId).catch(() => {});
+      if (opts?.awaitServer) await p;
     }
   }, [api, callId, status, stopWaiting]);
 
   const toggleMic = useCallback(async () => {
     const room = roomRef.current;
     if (!room) return;
-    const next = !micOn;
-    await room.localParticipant.setMicrophoneEnabled(next);
-    setMicOn(next);
+    // Only ENABLING risks a permission prompt/denial — disabling an
+    // already-negotiated track cannot fail this way, so only that path needs
+    // the try/catch (mirrors toggleShare's own on/off split below).
+    if (micOn) {
+      await room.localParticipant.setMicrophoneEnabled(false);
+      setMicOn(false);
+      sync(room);
+      return;
+    }
+    try {
+      await room.localParticipant.setMicrophoneEnabled(true);
+    } catch (e) {
+      toast(isGetUserMediaDenied(e) ? "Microphone blocked" : "Microphone unavailable", {
+        description: isGetUserMediaDenied(e)
+          ? "Check this app's microphone permission."
+          : "Check that a microphone is connected and not already in use.",
+      });
+      return;
+    }
+    setMicOn(true);
     sync(room);
   }, [micOn, sync]);
 
   const toggleCam = useCallback(async () => {
     const room = roomRef.current;
     if (!room) return;
-    const next = !camOn;
-    await room.localParticipant.setCameraEnabled(next);
-    setCamOn(next);
+    if (camOn) {
+      await room.localParticipant.setCameraEnabled(false);
+      setCamOn(false);
+      sync(room);
+      return;
+    }
+    try {
+      await room.localParticipant.setCameraEnabled(true);
+    } catch (e) {
+      toast(isGetUserMediaDenied(e) ? "Camera blocked" : "Camera unavailable", {
+        description: isGetUserMediaDenied(e)
+          ? "Check this app's camera permission."
+          : "Check that a camera is connected and not already in use.",
+      });
+      return;
+    }
+    setCamOn(true);
     sync(room);
   }, [camOn, sync]);
 
@@ -495,7 +537,7 @@ export function useCallRoom(callId: string | null) {
       pub = await room.localParticipant.setScreenShareEnabled(true);
     } catch (e) {
       // Dismissing the picker is a normal thing to do, and not an error.
-      if (!(e instanceof DOMException) || e.name !== "NotAllowedError") {
+      if (!isGetUserMediaDenied(e)) {
         toast.error("Couldn't share your screen");
       }
       return;

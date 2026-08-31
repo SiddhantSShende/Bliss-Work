@@ -196,9 +196,9 @@ identically on every platform, and `get-windows` itself is what differs
 underneath. macOS is the one platform with an OS-level permission gate on
 part of what the sensor reads, handled in its own module,
 `apps/desktop/src/main/macos-permissions.ts`, kept isolated from the shared
-sampling logic for the same reason `foreground.ts`'s `isSafeToFloat`
-already isolates its own platform branches: it is the part that cannot be
-verified without the real operating system in front of you.
+sampling logic: a platform assumption is the part that cannot be verified
+without the real operating system in front of you, so it belongs in one small
+module of its own rather than spread through the sensor.
 
 ### 8.1 Required permission
 

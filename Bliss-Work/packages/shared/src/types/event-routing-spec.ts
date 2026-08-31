@@ -45,8 +45,6 @@ import {
   TaskLeft,
   TaskReviewed,
   NotificationCreated,
-  IntegrationActivityCreated,
-  IntegrationMentionCreated,
   MailDelivered,
   UserCreated,
   UserRoleChanged,
@@ -96,8 +94,6 @@ export const DomainEvent = z.discriminatedUnion("type", [
   TaskLeft,
   TaskReviewed,
   NotificationCreated,
-  IntegrationActivityCreated,
-  IntegrationMentionCreated,
   MailDelivered,
   UserCreated,
   UserRoleChanged,
@@ -215,12 +211,6 @@ export function recipientsOf(e: DomainEvent): string[] {
       // Assignee sees the review land live; sender's other devices sync.
       return [e.senderId, e.assigneeId];
     case EventType.NotificationCreated:
-      return [e.recipientId];
-    case EventType.IntegrationActivityCreated:
-      return [e.recipientId];
-    case EventType.IntegrationMentionCreated:
-      // The mentioned user only — the connection owner already got the
-      // activity event, and a mention is personal to whoever was tagged.
       return [e.recipientId];
     case EventType.MailDelivered:
       // Every local recipient plus the author. Must stay in lockstep with

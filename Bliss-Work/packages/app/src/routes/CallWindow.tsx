@@ -18,7 +18,7 @@
  * ended by navigating this tab into /app — a second copy of BlissWork left open
  * instead of the tab closing.
  */
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { AlertCircle } from "lucide-react";
@@ -27,6 +27,16 @@ import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { OPENED_BY_APP_PARAM, closeMeetingTab, rememberMeetingTab } from "../lib/callWindow";
 import { useMeetingSession } from "../lib/MeetingSession";
+
+/**
+ * How long this route waits for the meeting overlay (MeetingHost/CallRoom) to
+ * take over before offering a way out. Matches CallRoomLazy's own chunk-load
+ * timeout, since that is the same order of magnitude as everything this route
+ * hands off to. Below this route has no fallback of its own at all — a stall
+ * anywhere in enter()/MeetingHost's render (whatever the cause) left the user
+ * staring at inert placeholder text with no error and no recourse.
+ */
+const HANDOFF_TIMEOUT_MS = 15_000;
 
 export function CallWindow() {
   const { callId = "" } = useParams();
@@ -81,6 +91,19 @@ export function CallWindow() {
     enter(call, close);
   }, [call, active?.id, enter, close]);
 
+  // A bounded backstop for the same handoff: if the overlay hasn't taken over
+  // within HANDOFF_TIMEOUT_MS of a valid call loading, offer a reload instead
+  // of leaving "Joining the meeting…" on screen forever. Harmless if the
+  // overlay DID mount by then — it covers this route entirely (fixed inset-0),
+  // so this fallback would render invisibly underneath it.
+  const [handoffTimedOut, setHandoffTimedOut] = useState(false);
+  useEffect(() => {
+    if (!call || call.status === "ENDED" || call.status === "CANCELLED") return;
+    setHandoffTimedOut(false);
+    const timer = setTimeout(() => setHandoffTimedOut(true), HANDOFF_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [call]);
+
   // The tab's own title says which meeting, because a person in three of these
   // has three identical tabs otherwise.
   useEffect(() => {
@@ -110,6 +133,21 @@ export function CallWindow() {
         />
         <Button variant="ghost" size="sm" onClick={close}>
           Close
+        </Button>
+      </div>
+    );
+  }
+
+  if (handoffTimedOut) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-4 bg-surface p-6">
+        <EmptyState
+          icon={<AlertCircle size={24} />}
+          title="This is taking longer than expected"
+          hint="Reloading the page usually fixes this."
+        />
+        <Button variant="ghost" size="sm" onClick={() => window.location.reload()}>
+          Reload
         </Button>
       </div>
     );

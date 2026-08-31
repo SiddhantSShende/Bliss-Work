@@ -6,7 +6,6 @@ var FanoutTopics = []string{
 	"messaging.events.v1",
 	"task.events.v1",
 	"notification.events.v1",
-	"integration.events.v1",
 }
 
 // Event is the partially-parsed envelope used for routing. Only the fields the
@@ -39,11 +38,11 @@ type Event struct {
 }
 
 // RecipientsOf is the live routing implementation — this is what ws-gateway
-// actually runs. It must stay in lockstep with the TS spec/test pair in
-// packages/shared/src/types/event-routing-spec.ts (recipientsOf) and
-// events.mention.test.ts, which pin the same rules in the schema's own
-// language for reviewers who don't read Go. Neither side is generated from
-// the other; a routing change must be made in both.
+// actually runs. It must stay in lockstep with the TS spec in
+// packages/shared/src/types/event-routing-spec.ts (recipientsOf), which pins
+// the same rules in the schema's own language for reviewers who don't read
+// Go. Neither side is generated from the other; a routing change must be
+// made in both.
 func (e *Event) RecipientsOf() []string {
 	switch e.Type {
 	case "message.created":
@@ -97,13 +96,6 @@ func (e *Event) RecipientsOf() []string {
 	case "task.acknowledged", "task.completed", "task.ignored", "task.left", "task.reviewed":
 		return dedupe([]string{e.SenderID, e.AssigneeID})
 	case "notification.created":
-		return dedupe([]string{e.RecipientID})
-	case "integration.activity.created":
-		// Live hub push to the account owner/connector.
-		return dedupe([]string{e.RecipientID})
-	case "integration.mention.created":
-		// The mentioned user only — the connection owner already got the
-		// activity event, and a mention is personal to whoever was tagged.
 		return dedupe([]string{e.RecipientID})
 	case "call.scheduled", "call.ring", "call.participant_added", "call.ended",
 		"call.started", "call.waiting",
@@ -161,10 +153,6 @@ var NoDeliveryAckFor = map[string]struct{}{
 	"task.left":              {},
 	"task.reviewed":          {},
 	"notification.created":   {},
-	// Integration events carry no messaging messageId, so a delivery ack
-	// derived from one has nothing to ack and would 400 downstream.
-	"integration.activity.created": {},
-	"integration.mention.created":  {},
 	// Mail carries no messaging messageId, so an ack derived from one has
 	// nothing to ack and would 400 at the delivery endpoint.
 	"mail.delivered": {},

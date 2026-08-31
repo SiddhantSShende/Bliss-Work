@@ -56,10 +56,20 @@ const LazyCallRoom = lazy(() =>
  * that flashes and vanishes is worse than a still frame, so this is a calm
  * placeholder on the same dark ground the call UI uses — the transition reads
  * as the room opening rather than as something loading.
+ *
+ * `fixed inset-0 z-[100]` (matching CallRoom's own top-level positioning) is
+ * load-bearing, not decorative: MeetingHost renders `<CallRoom>` as a plain
+ * sibling AFTER whatever the router rendered (App.tsx), with nothing giving
+ * it an overlay context of its own — it relies entirely on this component's
+ * own positioning. Without it, this rendered in NORMAL DOCUMENT FLOW below
+ * the current route's content instead of over it: on /call/:callId that put
+ * it a full viewport-height scroll below CallWindow's own "Joining the
+ * meeting…" placeholder, invisible unless the user happened to scroll past
+ * it — indistinguishable from the chunk never loading at all.
  */
 function CallRoomFallback() {
   return (
-    <div className="flex h-full w-full items-center justify-center bg-surface text-sm text-muted">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-surface text-sm text-muted">
       Connecting…
     </div>
   );
@@ -73,10 +83,15 @@ function CallRoomFallback() {
  * — the same reasoning `chunkReloadRecovery.ts` already documents for the
  * same class of failure ("reloading once fetches a fresh index.html and the
  * current chunk hashes").
+ *
+ * `fixed inset-0 z-[100]` for the same reason as CallRoomFallback above: this
+ * has no overlay context of its own from MeetingHost, so without it the
+ * Reload button this exists to offer rendered off-screen, not merely
+ * unstyled.
  */
 function CallRoomLoadError() {
   return (
-    <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-surface p-6 text-center">
+    <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-3 bg-surface p-6 text-center">
       <div className="text-sm font-medium text-fg">Something went wrong opening the meeting room.</div>
       <div className="max-w-xs text-xs text-muted">Reloading the page usually fixes this.</div>
       <button

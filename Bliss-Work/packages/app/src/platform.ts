@@ -81,8 +81,6 @@ export interface PlatformConfig {
   taskBase: string;
   notificationBase: string;
   messagingBase: string;
-  /** External Integrations service (OAuth/webhooks/provider connections). */
-  integrationsBase: string;
   telemetryBase: string;
   /**
    * Read-composition GraphQL gateway. OPTIONAL — absent means every screen
@@ -258,6 +256,31 @@ export interface PlatformConfig {
    *  Resolves false if the host declined to open anything. Takes no URL — the
    *  host owns it, deliberately (see desktop shared/location-settings.ts). */
   openLocationSettings?: () => Promise<boolean>;
+  /** Present only in Electron: the OS page where camera/microphone access for
+   *  desktop apps is granted, one per media kind.
+   *
+   *  Present ONLY where such a page exists (Windows and macOS — see
+   *  desktop/shared/media-settings.ts, which mirrors openLocationSettings'
+   *  own reasoning exactly). Absent on web and on Linux, which has no such
+   *  page; render nothing rather than a button that opens nothing.
+   *
+   *  Resolves false if the host declined to open anything. Takes no URL —
+   *  the host owns it, deliberately, same as openLocationSettings. */
+  openCameraSettings?: () => Promise<boolean>;
+  openMicrophoneSettings?: () => Promise<boolean>;
+  /** Present only in Electron: the app is about to quit.
+   *
+   *  Neither a hang-up click nor a React unmount is coming — the process can
+   *  be torn down before either runs — so this is the renderer's one chance
+   *  to disconnect an active meeting's room, tell the server the user left,
+   *  and clear its "resume this meeting" marker before that happens. Main
+   *  PAUSES the quit briefly to give this a chance to finish; call
+   *  notifyQuitReady() once done (or immediately if there is nothing to do)
+   *  so the quit does not wait out the full safety timeout for no reason.
+   *  Returns an unsubscribe fn. Absent on web, where there is no process to
+   *  quit out from under the page. */
+  onBeforeQuit?: (cb: () => void) => () => void;
+  notifyQuitReady?: () => void;
   /** Present only in Electron: the app detected and refused a screenshot
    *  attempt.
    *
@@ -271,12 +294,6 @@ export interface PlatformConfig {
    *  Returns an unsubscribe fn. */
   onScreenshotBlocked?: (
     cb: (info: { chord: string; recorded: boolean }) => void,
-  ) => () => void;
-  /** Present only in Electron: the OAuth flow returning through the
-   *  `taskboard://oauth` deep link. Mirrors the ?connected=/?error= query the
-   *  web build reads off its own URL. Returns an unsubscribe fn. */
-  onOAuthReturn?: (
-    cb: (r: { connected?: string; error?: string }) => void,
   ) => () => void;
 }
 

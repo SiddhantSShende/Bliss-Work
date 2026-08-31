@@ -9,7 +9,7 @@
  */
 
 /** Sections that own a contextual list pane in the shell. */
-export type ListSection = "mail" | "chats" | "channels" | "members" | "tasks";
+export type ListSection = "mail" | "chats" | "channels" | "members" | "tasks" | "meetings";
 
 /** Every part of the product a user can be "in", for time attribution. */
 export type Surface =
@@ -18,17 +18,15 @@ export type Surface =
   | "invite"
   | "profile"
   | "settings"
-  | "integrations"
   | "meetings"
   | "org";
 
-const LIST_SECTIONS: ListSection[] = ["mail", "tasks", "channels", "members", "chats"];
+const LIST_SECTIONS: ListSection[] = ["mail", "tasks", "channels", "members", "chats", "meetings"];
 const UTILITY: Surface[] = [
   "search",
   "invite",
   "profile",
   "settings",
-  "integrations",
   "meetings",
   "org",
 ];
@@ -44,11 +42,10 @@ export function listSectionOf(pathname: string): ListSection | null {
 }
 
 /**
- * The rail item to highlight. Meetings, Integrations and Org are rail entries
- * but render full-width, so they highlight without opening a list pane.
+ * The rail item to highlight. Meetings and Org are rail entries but render
+ * full-width, so they highlight without opening a list pane.
  */
 export function railSectionOf(pathname: string): string | null {
-  if (pathname.startsWith("/app/integrations")) return "integrations";
   if (pathname.startsWith("/app/settings")) return "settings";
   if (pathname.startsWith("/app/meetings")) return "meetings";
   if (pathname.startsWith("/app/org")) return "org";

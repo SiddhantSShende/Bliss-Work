@@ -297,32 +297,6 @@ async def _make_connection(org_id: str, provider: str, token: str, account: str)
     return conn_id
 
 
-async def test_webhook_token_resolves_exactly_one_connection(db_app):
-    from app.db import get_engine
-    from app.routes.webhooks import _conn_by_token
-
-    await _make_connection(ORG, "slack", "token-org-a", "T-AAA")
-    await _make_connection(OTHER_ORG, "slack", "token-org-b", "T-BBB")
-
-    async with get_engine().begin() as db:
-        await db.execute(text("SELECT set_config('app.bypass_rls', 'on', true)"))
-
-        a = await _conn_by_token(db, "slack", "token-org-a")
-        b = await _conn_by_token(db, "slack", "token-org-b")
-        assert str(a.org_id) == ORG
-        assert str(b.org_id) == OTHER_ORG
-
-        # A wrong token is a miss, not a partial match…
-        assert await _conn_by_token(db, "slack", "token-org-") is None
-        assert await _conn_by_token(db, "slack", "nope") is None
-        # …and the token is scoped by provider, so it can't be replayed against
-        # a different provider's handler.
-        assert await _conn_by_token(db, "gmail", "token-org-a") is None
-        # No token at all → no connection (the bare legacy path).
-        assert await _conn_by_token(db, "slack", None) is None
-        assert await _conn_by_token(db, "slack", "") is None
-
-
 async def test_webhook_tokens_are_globally_unique(db_app):
     import asyncpg
     import sqlalchemy.exc

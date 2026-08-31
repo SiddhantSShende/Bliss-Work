@@ -306,6 +306,10 @@ func (s *Server) Router(webOrigin string) http.Handler {
 			// cannot read the literal "on-call" as a call id — the same
 			// ordering rule the channel roster route carries a note about.
 			r.Get("/calls/on-call", s.onCallUsers)
+			// Every meeting this caller has ever been in that is over, paged.
+			// Registered BEFORE /calls/{id} for the same reason as on-call:
+			// otherwise chi reads the literal "history" as a call id.
+			r.Get("/calls/history", s.listMyCallHistory)
 			r.Get("/calls", s.listMyCalls)
 			r.Get("/calls/{id}", s.getCall)
 			r.Post("/calls/{id}/participants", s.addCallParticipant)
@@ -335,6 +339,16 @@ func (s *Server) Router(webOrigin string) http.Handler {
 			// note on stopCallRecording for why the stop is not a DELETE.
 			r.Post("/calls/{id}/recording/start", s.startCallRecording)
 			r.Post("/calls/{id}/recording/stop", s.stopCallRecording)
+			// The meeting's transcript: its room-wide chat and its shared
+			// notes, which used to exist only on the data channel and in each
+			// participant's own browser. The live copies still travel over the
+			// SFU; these are what survive the room. Room-wide chat only — a
+			// directed message has no representation here on purpose (see
+			// call_transcript.go).
+			r.Post("/calls/{id}/chat", s.postCallChat)
+			r.Get("/calls/{id}/chat", s.listCallChat)
+			r.Post("/calls/{id}/notes", s.postCallNote)
+			r.Get("/calls/{id}/notes", s.listCallNotes)
 
 			// Attachment metadata routes — small JSON, so they stay behind the
 			// 1 MiB cap (and, at the edge, behind the WAF) unlike the upload.
@@ -386,8 +400,7 @@ func (s *Server) Router(webOrigin string) http.Handler {
 			r.Get("/channels/{id}/receipts", s.listChannelReadReceipts)
 			// Moderation. `/members/roster` is registered BEFORE the
 			// `/members/{userId}` routes so chi does not treat the literal
-			// "roster" as a user id — same registration-order rule the
-			// app-credentials routes rely on in integrations-svc.
+			// "roster" as a user id.
 			r.Get("/channels/{id}/members/roster", s.channelRoster)
 			r.Delete("/channels/{id}/members/{userId}", s.kickChannelMember)
 			r.Patch("/channels/{id}/members/{userId}", s.setChannelRole)

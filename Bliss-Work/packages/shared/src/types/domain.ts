@@ -500,123 +500,6 @@ export const ReactionDTO = z.object({
 export type ReactionDTO = z.infer<typeof ReactionDTO>;
 export type MessageDTO = z.infer<typeof MessageDTO>;
 
-// ── External Integrations ────────────────────────────────────────────────────
-export const IntegrationProvider = z.enum(["slack", "whatsapp", "gmail", "outlook", "teams"]);
-export type IntegrationProvider = z.infer<typeof IntegrationProvider>;
-
-export const IntegrationStatus = z.enum(["pending", "connected", "error", "revoked"]);
-export type IntegrationStatus = z.infer<typeof IntegrationStatus>;
-
-/** A connected external account. NEVER carries tokens — those stay encrypted
- *  server-side and are never serialized to the client. */
-export const IntegrationConnectionDTO = z.object({
-  id: z.string().uuid(),
-  provider: z.string(),
-  status: IntegrationStatus,
-  /** 'user' = per-user account (Gmail); 'org' = workspace-wide (Slack bot). */
-  scopeKind: z.enum(["user", "org"]),
-  displayLabel: z.string(),
-  scopes: z.array(z.string()),
-  lastError: z.string().nullable().optional(),
-  /** Per-connection webhook URL to paste into the provider's dashboard. Only
-   *  set for providers that call us (Slack). Not a secret on its own —
-   *  the provider's HMAC signature still authenticates every delivery. */
-  webhookUrl: z.string().nullable().optional(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-});
-export type IntegrationConnectionDTO = z.infer<typeof IntegrationConnectionDTO>;
-
-/** One OAuth vendor's app setup for this workspace.
- *
- *  Integrations are user-driven: each org registers its OWN Google Cloud / Entra
- *  app rather than authorizing a central Bliss-Work one. The client secret is
- *  write-only — it is never returned by the API, at any point. */
-export const AppCredentialDTO = z.object({
-  vendor: z.enum(["google", "microsoft"]),
-  configured: z.boolean(),
-  /** 'org' = this workspace's own app; 'server' = the deployment-wide fallback. */
-  source: z.enum(["org", "server"]).nullable().optional(),
-  /** Not secret — it travels in the authorize URL the browser follows. */
-  clientId: z.string().default(""),
-  tenant: z.string().nullable().optional(),
-  pubsubTopic: z.string().nullable().optional(),
-  updatedAt: z.string().nullable().optional(),
-  /** Which providers these credentials unlock (microsoft → outlook + teams). */
-  providers: z.array(z.string()).default([]),
-  /** The exact URIs to register in the vendor's console. Mismatch here is the
-   *  most common OAuth setup failure, so the server hands over literal strings. */
-  redirectUris: z.array(z.string()).default([]),
-});
-export type AppCredentialDTO = z.infer<typeof AppCredentialDTO>;
-
-/** Result of starting a connect flow. OAuth providers return an authorizeUrl to
- *  redirect the user to; token-paste providers return the created connection. */
-export const ConnectStartDTO = z.object({
-  authorizeUrl: z.string().nullable().optional(),
-  connection: IntegrationConnectionDTO.nullable().optional(),
-});
-export type ConnectStartDTO = z.infer<typeof ConnectStartDTO>;
-
-/** One row of the unified hub activity timeline (inbound + outbound messages
- *  across connected accounts). peer/body are decrypted server-side for display. */
-export const ProviderActivityDTO = z.object({
-  id: z.string().uuid(),
-  provider: z.string(),
-  direction: z.enum(["inbound", "outbound"]),
-  kind: z.string(),
-  peer: z.string(),
-  body: z.string(),
-  status: z.string().nullable().optional(),
-  occurredAt: z.string(),
-});
-export type ProviderActivityDTO = z.infer<typeof ProviderActivityDTO>;
-
-/** Lifecycle of a mention: untouched → turned into a task, or dismissed. */
-export const MentionState = z.enum(["pending", "claimed", "ignored"]);
-export type MentionState = z.infer<typeof MentionState>;
-
-/** One @-mention of the caller on a connected external account. peer/body are
- *  decrypted server-side for display; the raw provider payload never leaves the
- *  service. `taskId` is set once the mention has been claimed. */
-export const MentionDTO = z.object({
-  id: z.string().uuid(),
-  provider: z.string(),
-  kind: z.string(),
-  /** Who tagged you — a handle/address, not a Bliss-Work user. */
-  peer: z.string(),
-  body: z.string(),
-  threadRef: z.string().nullable().optional(),
-  /** Deep link back to the message on the provider, when it gives us one. */
-  permalink: z.string().nullable().optional(),
-  state: MentionState,
-  taskId: z.string().uuid().nullable().optional(),
-  occurredAt: z.string(),
-});
-export type MentionDTO = z.infer<typeof MentionDTO>;
-
-/** Keyset page of mentions, newest first. `nextCursor` is opaque — pass it back
- *  verbatim; null means this was the last page. */
-export const MentionPageDTO = z.object({
-  items: z.array(MentionDTO),
-  nextCursor: z.string().nullable(),
-});
-export type MentionPageDTO = z.infer<typeof MentionPageDTO>;
-
-/** A handle the caller owns on an external platform — what mention detection
- *  matches an incoming message against. 'oauth' handles are derived from a
- *  connected account (self-proving); 'declared' ones are typed in by the user. */
-export const ProviderIdentityDTO = z.object({
-  id: z.string().uuid(),
-  provider: z.string(),
-  handleKind: z.enum(["account", "email", "phone", "alias"]),
-  handle: z.string(),
-  source: z.enum(["oauth", "declared"]),
-  verified: z.boolean(),
-  createdAt: z.string(),
-});
-export type ProviderIdentityDTO = z.infer<typeof ProviderIdentityDTO>;
-
 /**
  * @deprecated In the Inbox model use InboxItemDTO + ThreadDTO. ConversationDTO
  * is now the peer-drill-down view at /chats only.
@@ -1210,6 +1093,61 @@ export const CallDTO = z.object({
   recordingStatus: CallRecordingStatus.exclude(["FAILED"]).nullish(),
 });
 export type CallDTO = z.infer<typeof CallDTO>;
+
+/** One message from a meeting's chat, as it was KEPT.
+ *
+ *  Only messages addressed to the whole room are stored. A directed message is
+ *  delivered by the SFU to one participant and to nobody else, and persisting
+ *  it would widen an audience the sender deliberately narrowed — so the server
+ *  has nowhere to put one and the client never offers it one. The live chat in
+ *  the room still carries both; this is the durable record, and the record is
+ *  of what the room said.
+ *
+ *  No sender NAME: it is looked up from the directory at render time like every
+ *  other author in this product, so an old transcript does not keep calling
+ *  somebody by a name they have since changed. */
+export const CallChatMessageDTO = z.object({
+  id: z.string(),
+  callId: z.string().uuid(),
+  senderId: z.string().uuid(),
+  text: z.string(),
+  sentAt: z.string(),
+});
+export type CallChatMessageDTO = z.infer<typeof CallChatMessageDTO>;
+
+/** One point somebody wrote down during a meeting. */
+export const CallNoteDTO = z.object({
+  id: z.string(),
+  callId: z.string().uuid(),
+  authorId: z.string().uuid(),
+  text: z.string(),
+  writtenAt: z.string(),
+});
+export type CallNoteDTO = z.infer<typeof CallNoteDTO>;
+
+/** A page of a transcript, oldest first, plus the cursor that continues it.
+ *  `nextCursor` is null on the last page — which is what "load more" keys off,
+ *  rather than guessing from a short page. */
+export const CallChatPageDTO = z.object({
+  items: z.array(CallChatMessageDTO).default([]),
+  nextCursor: z.string().nullish(),
+});
+export type CallChatPageDTO = z.infer<typeof CallChatPageDTO>;
+
+export const CallNotePageDTO = z.object({
+  items: z.array(CallNoteDTO).default([]),
+  nextCursor: z.string().nullish(),
+});
+export type CallNotePageDTO = z.infer<typeof CallNotePageDTO>;
+
+/** A page of finished meetings, newest first. Separate from `myCalls()`, which
+ *  answers "what am I expected at" in one bounded shot — this one has no end,
+ *  so it has a cursor. */
+export const CallPageDTO = z.object({
+  items: z.array(CallDTO).default([]),
+  nextCursor: z.string().nullish(),
+});
+export type CallPageDTO = z.infer<typeof CallPageDTO>;
 
 /** Returned ONCE, when the link is minted. The server stores only a SHA-256 of
  *  the token, so this value cannot be recovered afterwards — if it is lost, mint

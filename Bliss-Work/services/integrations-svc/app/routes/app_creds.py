@@ -12,9 +12,9 @@ to a client — not even to the admin who set it. Rotation is a re-PUT.
 
 NOTE — do NOT add `@limiter.limit` decorators to the PUT below. Under
 `from __future__ import annotations` slowapi's decorator breaks FastAPI's body
-parsing for routes with a pydantic body (the same bug already documented in
-routes/mentions.py). These are admin-frequency endpoints behind JWT auth; the
-gateway's global limits cover them.
+parsing for routes with a pydantic body (the same bug auth-svc/app/rate_limit.py
+documents and routes around with middleware). These are admin-frequency
+endpoints behind JWT auth; the gateway's global limits cover them.
 """
 from __future__ import annotations
 

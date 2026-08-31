@@ -22,13 +22,10 @@ from .middleware import BodySizeLimitMiddleware, PrincipalMiddleware, RequestIDM
 from .org_consumer import consumer as org_consumer
 from .outbox import poller
 from .rate_limit import limiter, rate_limit_handler
-from .push_worker import worker as push_worker
 from .refresh_worker import worker as refresh_worker
 from .routes import router
 from .routes.internal import router as internal_router
 from .routes.oauth import router as oauth_router
-from .routes.push import router as push_router
-from .routes.webhooks import router as webhooks_router
 from .tracing import setup_tracing
 from tracing import shutdown_tracing
 
@@ -47,9 +44,6 @@ async def lifespan(app: FastAPI):
     await poller.start()
     # Refresh OAuth access tokens (Gmail/Microsoft) before they expire.
     await refresh_worker.start()
-    # Renew Gmail/Graph push subscriptions (they expire silently) and reconcile
-    # anything push dropped — both vendors deliver best-effort.
-    await push_worker.start()
     # The one thing this service consumes: org.deleted. It holds OAuth refresh
     # tokens against Gmail/Outlook/Teams/Slack, so a deleted workspace has to
     # reach them. See app/org_consumer.py.
@@ -59,7 +53,6 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         await org_consumer.stop()
-        await push_worker.stop()
         await refresh_worker.stop()
         await poller.stop()
         await dispose_engine()
@@ -135,12 +128,5 @@ async def readyz() -> JSONResponse:
 app.include_router(router)
 # Private service-to-service endpoints (shared-secret; edge-blocked by the WAF).
 app.include_router(internal_router, prefix="/internal")
-# Public inbound webhooks (provider-signature authenticated; NOT under /internal/).
-app.include_router(webhooks_router, prefix="/ext")
 # Public OAuth authorization-code callbacks (state/PKCE authenticated).
 app.include_router(oauth_router, prefix="/ext")
-# Public push receivers: Gmail via Pub/Sub (Google-signed OIDC JWT, audience
-# pinned to our endpoint) and Graph change notifications (constant-time
-# clientState). Mounted BEFORE nothing in particular — their paths don't
-# collide with the webhook routes' /{provider}/webhook shape.
-app.include_router(push_router, prefix="/ext")

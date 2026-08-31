@@ -2,6 +2,7 @@
   "manifest_version": 3,
   "name": "BlissWork Activity",
   "version": "1.0.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAkNBNm+UR4gPp/n0gmA3/3g4f232f+qPfOh/qpLpnisoUOn+iBatzdCWQim6lgmS1UJ6/ISuIKxFKiFchDBQFi6oH4uiYHb1+GXjBl46G6empYHzMB+GeZulWowVev+s0o7MsWS+zL2mAkJmsadRoev+6Fw0XCgqo0ZlB+YtiFrAtfZVkXFGb+HcEExlN+L7fTvRMysZ5jGQ3BWsSJzkqhmMyKTmstCv68s4RAGUCW2qrBbn4dav+URy02jWVNFyv2izxGtgApv14H8DKThC2ijah3CB5Iq7Icj1Kzjzq/y8Wo7Cp/8SG52fPyoU17d0ePArN5DolFfE72YmOmrGLRQIDAQAB",
   "description": "Adds the sites you use to your BlissWork activity record. You and your workspace admins can see it.",
   "minimum_chrome_version": "116",
   "background": { "service_worker": "background.js", "type": "module" },

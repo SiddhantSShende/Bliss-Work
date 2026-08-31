@@ -113,16 +113,12 @@ and publish with `bash scripts/publish-desktop.sh <dir>`.
   sender. **Ignore** removes it from both views.
 - **Desktop sticky widget:** assigned tasks pin to the desktop as frameless widgets that sit
   *behind* every application window — visible when the desktop is — with inline actions.
-- **Hub mentions:** a message that tags you on a connected platform appears with **Claim** and
-  **Ignore**. Claim creates a task assigned to you; from there the normal task flow applies.
-  Only tagged messages surface — `@here`/`@channel` and bulk mail are deliberately excluded.
 
 ## Docs
 
 | Doc | What it covers |
 |---|---|
 | [`docs/DEPLOY.md`](docs/DEPLOY.md) | The CI/CD pipeline, required secrets, manual deploy + rollback |
-| [`docs/INTEGRATIONS-SETUP.md`](docs/INTEGRATIONS-SETUP.md) | Connecting Slack / Gmail / Outlook / Teams with your own apps |
 | [`docs/OPERATIONS.md`](docs/OPERATIONS.md) | Backups, key rotation, WAF rollout |
 | [`docs/GRAPH-GATEWAY.md`](docs/GRAPH-GATEWAY.md) | The GraphQL gateway: what it fronts, what it must never front, trusted documents |
 | [`docs/TELEMETRY.md`](docs/TELEMETRY.md) | What the activity record collects, retention, the nightly jobs |

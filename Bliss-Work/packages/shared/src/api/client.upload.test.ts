@@ -71,7 +71,6 @@ function makeClient(getToken = () => "tok") {
     taskBase: "https://api.test/tasks",
     notificationBase: "https://api.test/notifications",
     messagingBase: "https://api.test/messaging",
-    integrationsBase: "https://api.test/integrations",
     wsUrl: "wss://api.test/ws",
     getToken,
   } as never);
