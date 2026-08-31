@@ -135,8 +135,8 @@ async def request_delete(
         # one of those writes is data someone will later be surprised to lose.
         await conn.execute(
             text(
-                "UPDATE refresh_tokens SET revoked_at = now() "
-                "WHERE revoked_at IS NULL AND user_id IN "
+                "UPDATE refresh_tokens SET revoked = true "
+                "WHERE NOT revoked AND user_id IN "
                 "(SELECT id FROM users WHERE org_id = :org)"
             ),
             {"org": principal.org_id},
