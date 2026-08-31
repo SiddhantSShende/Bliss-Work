@@ -42,6 +42,20 @@ var orgPurgeTables = []string{
 	"channel_member_history",
 	"channel_blocks",
 	"channels",
+	// Calls. call_participants is handled separately, above the main loop,
+	// because its org_id is the PARTICIPANT's own org rather than the call's
+	// hosting org (see 0015_calls.sql) — a plain `WHERE org_id = $1` here
+	// would miss a cross-org guest's row in one of THIS org's calls. The other
+	// three all carry the hosting org (call_recordings/call_invites/
+	// call_screenshares' own doc comments say so explicitly), so a plain
+	// org-scoped delete is correct for them. call_recordings has an actual
+	// `ON DELETE CASCADE` off calls, but is still listed explicitly per this
+	// file's own rule: a purge that relies on a cascade is a purge that
+	// silently stops working the day someone drops the foreign key.
+	"call_recordings",
+	"call_invites",
+	"call_screenshares",
+	"calls",
 	// Attachment ROWS. The bytes on disk are removed separately by
 	// blob.Store.RemoveOrg — they are not in the database and, unlike every
 	// encrypted column here, they are not covered by the crypto-shred either.
@@ -77,6 +91,23 @@ func (s *Store) PurgeOrg(ctx context.Context, orgID string) (map[string]int64, e
 		}
 		if n := tag.RowsAffected(); n > 0 {
 			deleted["message_delivery"] = n
+		}
+
+		// call_participants: same reasoning as message_delivery above, and for
+		// the same underlying reason — org_id here is the PARTICIPANT's own
+		// org, so a purged org's OWN users' rows (in ANY org's call) need the
+		// plain filter, while a cross-org GUEST's row in one of THIS org's
+		// calls needs the subquery instead; a row can only ever match one of
+		// the two. Must run before `calls` is dropped in the main loop below —
+		// the subquery needs it to still exist.
+		tag, err = tx.Exec(ctx,
+			`DELETE FROM call_participants
+			  WHERE org_id = $1 OR call_id IN (SELECT id FROM calls WHERE org_id = $1)`, orgID)
+		if err != nil {
+			return fmt.Errorf("purge call_participants: %w", err)
+		}
+		if n := tag.RowsAffected(); n > 0 {
+			deleted["call_participants"] = n
 		}
 
 		for _, table := range orgPurgeTables {
