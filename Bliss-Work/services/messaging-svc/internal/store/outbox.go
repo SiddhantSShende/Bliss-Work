@@ -135,8 +135,27 @@ func (s *Store) SetUserActive(ctx context.Context, userID string, active bool) e
 }
 
 // ── Consumer dedup ──────────────────────────────────────────────────────────────
+//
+// Split into a cheap read-only check and a claim, rather than one
+// check-and-claim INSERT, because a caller now needs BOTH: a fast skip for an
+// already-fully-applied redelivery (IsConsumed, before doing any work) and a
+// claim that only lands once the work it is vouching for has actually
+// succeeded (MarkConsumed, after). Claiming up front — the shape this used to
+// have — makes a genuine write failure indistinguishable from success the
+// moment the SAME event is redelivered: the claim is already there, so the
+// retry that redelivery exists to provide never happens.
 
-// MarkConsumed records an event_id; returns false if it was already processed.
+// IsConsumed reports whether an event has already been durably processed. Not
+// a claim — call MarkConsumed once the work it precedes has succeeded.
+func (s *Store) IsConsumed(ctx context.Context, eventID string) (bool, error) {
+	var exists bool
+	err := s.pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM consumed_events WHERE event_id = $1)`, eventID).Scan(&exists)
+	return exists, err
+}
+
+// MarkConsumed claims an event_id; returns false if it was already claimed
+// (a benign race between two callers who both passed the IsConsumed check).
 func (s *Store) MarkConsumed(ctx context.Context, eventID string) (bool, error) {
 	ct, err := s.pool.Exec(ctx,
 		`INSERT INTO consumed_events (event_id) VALUES ($1) ON CONFLICT DO NOTHING`, eventID)
@@ -146,9 +165,17 @@ func (s *Store) MarkConsumed(ctx context.Context, eventID string) (bool, error) 
 	return ct.RowsAffected() > 0, nil
 }
 
-// MarkConsumedInboxTasks dedups events in the *task projector* consumer group,
-// kept separate from the auth-projection dedup so two groups consuming
-// overlapping eventIds don't collide on the per-event_id PK.
+// IsConsumedInboxTasks / MarkConsumedInboxTasks dedup events in the *task
+// projector* consumer group, kept separate from the auth-projection dedup so
+// two groups consuming overlapping eventIds don't collide on the per-event_id
+// PK.
+func (s *Store) IsConsumedInboxTasks(ctx context.Context, eventID string) (bool, error) {
+	var exists bool
+	err := s.pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM consumed_events_inbox_tasks WHERE event_id = $1)`, eventID).Scan(&exists)
+	return exists, err
+}
+
 func (s *Store) MarkConsumedInboxTasks(ctx context.Context, eventID string) (bool, error) {
 	ct, err := s.pool.Exec(ctx,
 		`INSERT INTO consumed_events_inbox_tasks (event_id) VALUES ($1) ON CONFLICT DO NOTHING`, eventID)

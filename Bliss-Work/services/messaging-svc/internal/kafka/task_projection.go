@@ -55,10 +55,15 @@ func NewTaskProjectionConsumer(st *store.Store, brokers []string, log *slog.Logg
 }
 
 // Run consumes until ctx is cancelled.
+//
+// FetchMessage + an explicit CommitMessages after a SUCCESSFUL handle — see
+// consumer.go's Run for why: ReadMessage commits before returning whenever
+// the reader belongs to a consumer group, which could commit an offset before
+// the message behind it was ever actually applied.
 func (c *TaskProjectionConsumer) Run(ctx context.Context) {
 	defer c.r.Close()
 	for {
-		m, err := c.r.ReadMessage(ctx)
+		m, err := c.r.FetchMessage(ctx)
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				return
@@ -67,9 +72,28 @@ func (c *TaskProjectionConsumer) Run(ctx context.Context) {
 			continue
 		}
 		msgCtx, span := startConsumeSpan(ctx, m)
-		c.handle(msgCtx, m.Value)
+		ok := c.handleSafely(msgCtx, m.Value)
 		span.End()
+		if !ok {
+			continue
+		}
+		if err := c.r.CommitMessages(ctx, m); err != nil {
+			c.log.Error("task projector commit failed", "err", err)
+		}
 	}
+}
+
+// handleSafely recovers a panic in handle — see consumer.go's handleSafely
+// for why a crash-loop is worse than logging and moving on to the next
+// message. Reports false (do not commit) on a recovered panic.
+func (c *TaskProjectionConsumer) handleSafely(ctx context.Context, value []byte) (ok bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			c.log.Error("task projector handler panicked", "panic", r)
+			ok = false
+		}
+	}()
+	return c.handle(ctx, value)
 }
 
 // taskEvent is the union envelope we partially decode for routing. Only the
@@ -89,27 +113,31 @@ type taskEvent struct {
 	Description    string `json:"description"`
 }
 
-func (c *TaskProjectionConsumer) handle(ctx context.Context, value []byte) {
+// handle processes one message and reports whether its offset is safe to
+// commit — see consumer.go's handle for the true/false contract.
+func (c *TaskProjectionConsumer) handle(ctx context.Context, value []byte) bool {
 	var evt taskEvent
 	if err := json.Unmarshal(value, &evt); err != nil {
 		c.log.Error("task projector bad json", "err", err)
-		return
+		return true
 	}
 	switch evt.Type {
 	case typeTaskAssigned, typeTaskAcknowledged, typeTaskCompleted, typeTaskIgnored, typeTaskLeft:
 		// supported
 	default:
-		return
+		return true
 	}
 
-	// Per-group dedup (separate table from AuthConsumer).
-	fresh, err := c.store.MarkConsumedInboxTasks(ctx, evt.EventID)
+	// Cheap pre-check, not a claim — see consumer.go's IsConsumed call for
+	// why: claiming here instead of after a successful write would make a
+	// genuine write failure indistinguishable from success on redelivery.
+	done, err := c.store.IsConsumedInboxTasks(ctx, evt.EventID)
 	if err != nil {
-		c.log.Error("task projector dedup failed", "eventId", evt.EventID, "err", err)
-		return
+		c.log.Error("task projector dedup check failed", "eventId", evt.EventID, "err", err)
+		return false
 	}
-	if !fresh {
-		return
+	if done {
+		return true
 	}
 
 	occurred, err := time.Parse(time.RFC3339Nano, evt.OccurredAt)
@@ -119,32 +147,40 @@ func (c *TaskProjectionConsumer) handle(ctx context.Context, value []byte) {
 		occurred = time.Now().UTC()
 	}
 
+	var werr error
 	switch evt.Type {
 	case typeTaskAssigned:
-		if err := c.store.InsertTaskInboxItem(
+		werr = c.store.InsertTaskInboxItem(
 			ctx, evt.OrgID, evt.AssigneeID, evt.TaskID, evt.SenderID,
 			evt.Title, evt.Description, occurred,
-		); err != nil {
-			c.log.Error("InsertTaskInboxItem failed",
-				"eventId", evt.EventID, "taskId", evt.TaskID, "err", err)
-		}
+		)
 	case typeTaskAcknowledged:
-		c.updateBadge(ctx, evt, occurred, "ACKNOWLEDGED")
+		werr = c.updateBadge(ctx, evt, occurred, "ACKNOWLEDGED")
 	case typeTaskCompleted:
-		c.updateBadge(ctx, evt, occurred, "COMPLETED")
+		werr = c.updateBadge(ctx, evt, occurred, "COMPLETED")
 	case typeTaskLeft:
-		c.updateBadge(ctx, evt, occurred, "LEFT")
+		werr = c.updateBadge(ctx, evt, occurred, "LEFT")
 	case typeTaskIgnored:
-		if err := c.store.HideTaskInboxItem(ctx, evt.AssigneeID, evt.TaskID, occurred); err != nil {
-			c.log.Error("HideTaskInboxItem failed",
-				"eventId", evt.EventID, "taskId", evt.TaskID, "err", err)
-		}
+		werr = c.store.HideTaskInboxItem(ctx, evt.AssigneeID, evt.TaskID, occurred)
 	}
+	if werr != nil {
+		c.log.Error("task projector write failed",
+			"eventId", evt.EventID, "taskId", evt.TaskID, "type", evt.Type, "err", werr)
+		return false
+	}
+
+	// Dedup AFTER the write, not before (separate table from AuthConsumer):
+	// every write above is already an idempotent upsert, so a redelivery
+	// replaying it is harmless — but marking consumed before a write that then
+	// fails would make that failure permanent, since the redelivery this fix
+	// exists to enable would just see the event already claimed and skip it.
+	if _, err := c.store.MarkConsumedInboxTasks(ctx, evt.EventID); err != nil {
+		c.log.Error("task projector dedup failed", "eventId", evt.EventID, "err", err)
+		return false
+	}
+	return true
 }
 
-func (c *TaskProjectionConsumer) updateBadge(ctx context.Context, evt taskEvent, occurred time.Time, badge string) {
-	if err := c.store.UpdateTaskStatusBadge(ctx, evt.AssigneeID, evt.TaskID, badge, occurred); err != nil {
-		c.log.Error("UpdateTaskStatusBadge failed",
-			"eventId", evt.EventID, "taskId", evt.TaskID, "badge", badge, "err", err)
-	}
+func (c *TaskProjectionConsumer) updateBadge(ctx context.Context, evt taskEvent, occurred time.Time, badge string) error {
+	return c.store.UpdateTaskStatusBadge(ctx, evt.AssigneeID, evt.TaskID, badge, occurred)
 }

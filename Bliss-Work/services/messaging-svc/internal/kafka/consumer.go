@@ -65,10 +65,24 @@ func NewAuthConsumer(st *store.Store, blobs blob.Store, brokers []string, log *s
 }
 
 // Run consumes until ctx is cancelled.
+//
+// FetchMessage + an explicit CommitMessages after a SUCCESSFUL handle, not
+// ReadMessage: ReadMessage commits the offset itself before returning
+// whenever the reader belongs to a consumer group (see kafka-go's own doc
+// comment on it), which means a transient Postgres error or a panic partway
+// through handling one message would already have advanced past it — the
+// event is gone, with no error and no way to ever retry it. Withholding the
+// commit on failure means a restart redelivers this message instead.
+//
+// (Kafka tracks one offset per partition, so a LATER message's successful
+// commit still implicitly advances past an earlier failed one that was never
+// individually committed — this closes "committed before the handler ever
+// ran," not every possible interaction with a stuck partition. handle()'s
+// dedup insert is what makes redelivering an already-applied message safe.)
 func (c *AuthConsumer) Run(ctx context.Context) {
 	defer c.r.Close()
 	for {
-		m, err := c.r.ReadMessage(ctx)
+		m, err := c.r.FetchMessage(ctx)
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				return
@@ -77,44 +91,75 @@ func (c *AuthConsumer) Run(ctx context.Context) {
 			continue
 		}
 		msgCtx, span := startConsumeSpan(ctx, m)
-		c.handle(msgCtx, m.Value)
+		ok := c.handleSafely(msgCtx, m.Value)
 		span.End()
+		if !ok {
+			continue
+		}
+		if err := c.r.CommitMessages(ctx, m); err != nil {
+			c.log.Error("auth consumer commit failed", "err", err)
+		}
 	}
 }
 
-func (c *AuthConsumer) handle(ctx context.Context, value []byte) {
+// handleSafely recovers a panic in handle so one malformed or unexpected
+// message cannot crash the whole consumer process — a crash-loop would also
+// redeliver every OTHER partition's in-flight, not-yet-committed message on
+// restart, a much bigger blast radius than logging this one and moving on.
+// Reports false (do not commit) on a recovered panic, same as any other
+// transient failure.
+func (c *AuthConsumer) handleSafely(ctx context.Context, value []byte) (ok bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			c.log.Error("auth consumer handler panicked", "panic", r)
+			ok = false
+		}
+	}()
+	return c.handle(ctx, value)
+}
+
+// handle processes one message and reports whether its offset is safe to
+// commit: true for a genuine success OR a message this consumer deliberately
+// skips (malformed payload, an event type it does not handle — retrying
+// either would never produce a different outcome); false only for a real
+// failure, so Run leaves the offset uncommitted and a restart retries it.
+func (c *AuthConsumer) handle(ctx context.Context, value []byte) bool {
 	var head struct {
 		Type    string `json:"type"`
 		EventID string `json:"eventId"`
 	}
 	if err := json.Unmarshal(value, &head); err != nil {
 		c.log.Error("auth consumer bad json", "err", err)
-		return
+		return true
 	}
 	// Org deletion is handled before the dedup claim below, deliberately: the
 	// purge empties consumed_events for this org, so a claim would delete
 	// itself and a redelivery would look new. PurgeOrg is idempotent instead,
 	// which is the property that actually matters.
 	if head.Type == events.TypeOrgDeleted {
-		c.purgeOrg(ctx, value)
-		return
+		return c.purgeOrg(ctx, value)
 	}
 
 	switch head.Type {
 	case events.TypeUserCreated, events.TypeUserDeactivated,
 		events.TypeUserReactivated, events.TypeUserRemoved:
 	default:
-		return
+		return true
 	}
 
-	// Dedup before applying side effects.
-	fresh, err := c.store.MarkConsumed(ctx, head.EventID)
+	// Cheap pre-check, not a claim: skip straight past an already-applied
+	// redelivery without redoing its write. The actual claim happens only
+	// after that write succeeds, below — claiming here instead would make a
+	// genuine write failure indistinguishable from success the moment this
+	// event is redelivered, since the check would then report "already done"
+	// and skip the retry this fix exists to enable.
+	done, err := c.store.IsConsumed(ctx, head.EventID)
 	if err != nil {
-		c.log.Error("dedup insert failed", "eventId", head.EventID, "err", err)
-		return
+		c.log.Error("dedup check failed", "eventId", head.EventID, "err", err)
+		return false
 	}
-	if !fresh {
-		return // already processed
+	if done {
+		return true
 	}
 
 	if head.Type != events.TypeUserCreated {
@@ -123,27 +168,36 @@ func (c *AuthConsumer) handle(ctx context.Context, value []byte) {
 		var evt events.MembershipChanged
 		if err := json.Unmarshal(value, &evt); err != nil {
 			c.log.Error("auth consumer decode membership change", "type", head.Type, "err", err)
-			return
+			return true
 		}
 		active := head.Type == events.TypeUserReactivated
 		if err := c.store.SetUserActive(ctx, evt.UserID, active); err != nil {
 			c.log.Error("user_projection set active failed", "userId", evt.UserID, "err", err)
-			return
+			return false
+		}
+		if _, err := c.store.MarkConsumed(ctx, head.EventID); err != nil {
+			c.log.Error("dedup insert failed", "eventId", head.EventID, "err", err)
+			return false
 		}
 		c.log.Info("user_projection membership changed", "userId", evt.UserID, "active", active)
-		return
+		return true
 	}
 
 	var evt events.UserCreated
 	if err := json.Unmarshal(value, &evt); err != nil {
 		c.log.Error("auth consumer decode user.created", "err", err)
-		return
+		return true
 	}
 	if err := c.store.UpsertUser(ctx, evt.UserID, evt.OrgID, evt.Username, evt.DisplayName, evt.Email); err != nil {
 		c.log.Error("upsert user_projection failed", "userId", evt.UserID, "err", err)
-		return
+		return false
+	}
+	if _, err := c.store.MarkConsumed(ctx, head.EventID); err != nil {
+		c.log.Error("dedup insert failed", "eventId", head.EventID, "err", err)
+		return false
 	}
 	c.log.Info("user_projection upserted", "userId", evt.UserID, "username", evt.Username)
+	return true
 }
 
 // purgeOrg erases one organization: its rows, then its attachment bytes.
@@ -153,25 +207,32 @@ func (c *AuthConsumer) handle(ctx context.Context, value []byte) {
 // encrypted column unreadable — and the next redelivery finishes the job. The
 // other order would leave rows pointing at files that are already gone, which
 // renders as broken attachments rather than as an absent workspace.
-func (c *AuthConsumer) purgeOrg(ctx context.Context, value []byte) {
+//
+// PurgeOrg's row deletes and RemoveOrg's blob sweep are both safe to repeat —
+// deleting or unlinking something already gone is a no-op — so returning
+// false on either failure and letting Run withhold the commit is what
+// actually makes "the next redelivery finishes the job" true, rather than
+// aspirational: before FetchMessage/CommitMessages replaced the old
+// auto-committing ReadMessage, the offset was already gone by the time this
+// function even started.
+func (c *AuthConsumer) purgeOrg(ctx context.Context, value []byte) bool {
 	var evt struct {
 		OrgID string `json:"orgId"`
 	}
 	if err := json.Unmarshal(value, &evt); err != nil || evt.OrgID == "" {
 		c.log.Error("auth consumer decode org.deleted", "err", err)
-		return
+		return true
 	}
 
 	deleted, err := c.store.PurgeOrg(ctx, evt.OrgID)
 	if err != nil {
 		c.log.Error("org purge failed", "orgId", evt.OrgID, "err", err)
-		return
+		return false
 	}
 	if err := c.blobs.RemoveOrg(evt.OrgID); err != nil {
-		// Loud, and NOT fatal to the rows we already removed. Leftover bytes on
-		// a disk are a cleanup task; a half-purged database is a correctness
-		// problem. The retry comes with the next redelivery.
 		c.log.Error("org blob purge failed", "orgId", evt.OrgID, "err", err)
+		return false
 	}
 	c.log.Warn("org purged", "orgId", evt.OrgID, "rows", deleted)
+	return true
 }
