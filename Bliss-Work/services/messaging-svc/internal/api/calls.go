@@ -764,9 +764,14 @@ func (s *Server) leaveCall(w http.ResponseWriter, r *http.Request) {
 	// else out of the room rather than leaving them in one nobody is hosting.
 	// Announced BEFORE the share notice is skipped: `call.ended` already says
 	// the room is gone, so a separate "their share stopped" is noise.
+	//
+	// endedCallSideEffects, not the notify+stopRecording pair inline: this is
+	// one of the four ways a call ends its own doc comment names, and closing
+	// the SFU room is what makes ending authoritative instead of a database
+	// fact every client is trusted to act on — a host who closes their laptop
+	// rather than pressing End must not leave the room open behind them either.
 	if ended != nil {
-		s.notifyCall(r.Context(), ended, events.TypeCallEnded, claims.UserID)
-		s.stopRecording(r.Context(), callID)
+		s.endedCallSideEffects(r.Context(), ended, claims.UserID)
 		s.log.Info("call ended by host leaving", "call", callID, "by", claims.UserID)
 		w.WriteHeader(http.StatusNoContent)
 		return
