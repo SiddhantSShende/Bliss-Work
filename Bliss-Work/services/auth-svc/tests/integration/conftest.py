@@ -14,7 +14,7 @@ import pathlib
 
 import asyncpg
 import pytest_asyncio
-from sqlalchemy import text
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 MIGRATIONS = pathlib.Path(__file__).resolve().parents[2] / "migrations"
@@ -96,5 +96,31 @@ async def sa_conn(pg_dsn: str):
         async with engine.connect() as conn:
             await conn.execute(text("SET ROLE rls_test"))
             yield conn
+    finally:
+        await engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def sa_engine(pg_dsn: str):
+    """A full `AsyncEngine` (not one connection) at the RLS-scoped
+    least-privilege role, for tests that call a ROUTE HANDLER directly rather
+    than a service function — handlers open their own `engine.begin()` block
+    instead of accepting an injected connection, so `sa_conn`'s single
+    already-ROLE-set connection doesn't fit; the handler needs an engine it
+    can pull fresh connections from itself. `SET ROLE` is applied via a
+    connect-pool event, not a one-time statement after connecting, because it
+    has to reach every connection the pool ever hands out across the whole
+    test, not just the first one."""
+    sa_dsn = pg_dsn.replace("postgresql://", "postgresql+asyncpg://", 1)
+    engine = create_async_engine(sa_dsn)
+
+    @event.listens_for(engine.sync_engine, "connect")
+    def _set_role(dbapi_conn, _record):
+        cursor = dbapi_conn.cursor()
+        cursor.execute("SET ROLE rls_test")
+        cursor.close()
+
+    try:
+        yield engine
     finally:
         await engine.dispose()

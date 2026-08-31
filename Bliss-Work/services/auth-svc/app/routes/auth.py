@@ -125,13 +125,39 @@ async def create_org(body: CreateOrgRequest, response: Response) -> SessionDTO:
         existing_ident = (
             await conn.execute(
                 text(
-                    "SELECT id, password_hash, email_verified FROM identities WHERE email_bidx = :b"
+                    "SELECT id, password_hash, email_verified, failed_login_count, locked_until "
+                    "FROM identities WHERE email_bidx = :b"
                 ),
                 {"b": email_bidx},
             )
         ).first()
         if existing_ident is not None:
+            # Same lockout the password-guess surface at /auth/login and
+            # /auth/invites/accept already have — this is a password-guessing
+            # surface too. See docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 5.
+            now = datetime.now(timezone.utc)
+            if existing_ident.locked_until is not None and existing_ident.locked_until > now:
+                retry = max(1, int((existing_ident.locked_until - now).total_seconds()))
+                raise HTTPException(
+                    status.HTTP_429_TOO_MANY_REQUESTS,
+                    "account temporarily locked due to failed logins; try again later",
+                    headers={"Retry-After": str(retry)},
+                )
             if not await verify_password_async(existing_ident.password_hash, body.password):
+                # A SEPARATE transaction, deliberately — this whole handler runs
+                # inside the outer `engine.begin()` block above, and the
+                # HTTPException below aborts THAT transaction. The failed-attempt
+                # counter must survive the abort, so it commits on its own
+                # connection instead (mirrors invites_service.py's identical
+                # existing-identity check).
+                async with engine.begin() as lockout_conn:
+                    locked_secs = await service.register_failed_login(lockout_conn, existing_ident)
+                if locked_secs > 0:
+                    raise HTTPException(
+                        status.HTTP_429_TOO_MANY_REQUESTS,
+                        "account temporarily locked due to failed logins; try again later",
+                        headers={"Retry-After": str(locked_secs)},
+                    )
                 raise HTTPException(status.HTTP_409_CONFLICT, "that email is already registered")
             identity_id = str(existing_ident.id)
             ph = existing_ident.password_hash
