@@ -27,8 +27,8 @@ import { RequireAuth } from "./lib/RequireAuth";
 // ── Route loading: eager for signed-out, lazy for everything behind the login ─
 //
 // Every route used to be a static import, which put all thirty of them plus the
-// video-call stack and the integrations hub into ONE 1.45 MB entry chunk. A
-// visitor downloaded and parsed the entire product to reach a login form.
+// video-call stack into ONE 1.45 MB entry chunk. A visitor downloaded and
+// parsed the entire product to reach a login form.
 //
 // (INFRASTRUCTURE.md used to claim "the Vite build already splits by route." It
 // did not — there was exactly one dynamic import in the whole application, for
@@ -46,8 +46,8 @@ import { RequireAuth } from "./lib/RequireAuth";
 //   background. /join is the one exception with a signed-out surface of its
 //   own (the desktop-handoff landing page) — it stays lazy anyway since a
 //   meeting link is still reached far less often than the routes above.
-//   Splitting here is what removes the call stack, the integrations hub, the
-//   charts and the task board from first paint.
+//   Splitting here is what removes the call stack, the charts and the task
+//   board from first paint.
 import { Onboarding } from "./routes/Onboarding";
 import { Login } from "./routes/Login";
 import { InviteAccept } from "./routes/InviteAccept";
@@ -72,7 +72,6 @@ const InvitePage = lazyRoute(() => import("./routes/InvitePage"), "InvitePage");
 const Profile = lazyRoute(() => import("./routes/Profile"), "Profile");
 const Settings = lazyRoute(() => import("./routes/Settings"), "Settings");
 const MfaSettings = lazyRoute(() => import("./routes/MfaSettings"), "MfaSettings");
-const Integrations = lazyRoute(() => import("./routes/Integrations"), "Integrations");
 const Org = lazyRoute(() => import("./routes/Org"), "Org");
 // The Mail layout owns the message column; the routes below it are what shows
 // in the reading pane beside it. Both named exports live in one module, so the
@@ -83,7 +82,9 @@ const MailThread = lazyRoute(() => import("./routes/MailThread"), "MailThread");
 const MailTask = lazyRoute(() => import("./routes/MailTask"), "MailTask");
 const MailDetail = lazyRoute(() => import("./routes/MailDetail"), "MailDetail");
 const MailCompose = lazyRoute(() => import("./routes/MailCompose"), "MailCompose");
-const Meetings = lazyRoute(() => import("./routes/Meetings"), "Meetings");
+const MeetingsLayout = lazyRoute(() => import("./routes/MeetingsLayout"), "MeetingsLayout");
+const MeetingsWelcome = lazyRoute(() => import("./routes/MeetingsLayout"), "MeetingsWelcome");
+const MeetingDetail = lazyRoute(() => import("./routes/MeetingDetail"), "MeetingDetail");
 const JoinCallView = lazyRoute(() => import("./routes/JoinCallView"), "JoinCallView");
 const CallWindow = lazyRoute(() => import("./routes/CallWindow"), "CallWindow");
 
@@ -101,8 +102,8 @@ const CallWindow = lazyRoute(() => import("./routes/CallWindow"), "CallWindow");
  * that is not a component export of that module is a type error.
  *
  * Chunk naming is left to Rollup, which derives it from the module path — so
- * `Integrations.tsx` becomes `Integrations-<hash>.js` and a waterfall is
- * readable without a source map.
+ * `Settings.tsx` becomes `Settings-<hash>.js` and a waterfall is readable
+ * without a source map.
  */
 /**
  * How long a route chunk gets before this gives up waiting and self-heals,
@@ -277,7 +278,19 @@ export function App({ config }: { config: PlatformConfig }) {
                     </Route>
                     {/* Everything this section was called before Mail. */}
                     <Route path="inbox/*" element={<LegacyInboxRedirect />} />
-                    <Route path="meetings" element={<Meetings />} />
+                    {/* Meetings is a LAYOUT, not a page — the same three
+                        containers Mail has. MeetingsLayout renders the meeting
+                        list and the pane a meeting opens in; the bucket column
+                        (Upcoming / Live / Past) is a level up, in AppShell, and
+                        the chosen bucket rides in ?view= so both the list and
+                        the way back out read the same one. See lib/meetingView. */}
+                    <Route path="meetings" element={<MeetingsLayout />}>
+                      {/* Nothing opened yet — from xl up the pane holds an empty
+                          state beside the list; below xl the list has it all. */}
+                      <Route index element={<MeetingsWelcome />} />
+                      <Route path="all" element={<MeetingsWelcome />} />
+                      <Route path=":callId" element={<MeetingDetail />} />
+                    </Route>
                     {/* ONE route for the whole section. Which conversation is
                         open is held in memory (lib/selectedChat) rather than in
                         the path, so a private chat's UUID never reaches the
@@ -302,7 +315,6 @@ export function App({ config }: { config: PlatformConfig }) {
                     <Route path="settings" element={<Settings />} />
                     <Route path="settings/activity" element={<MyActivity />} />
                     <Route path="settings/security" element={<MfaSettings />} />
-                    <Route path="integrations" element={<Integrations />} />
                     <Route path="org" element={<Org />} />
                   </Route>
                   <Route path="*" element={<Navigate to="/app" replace />} />

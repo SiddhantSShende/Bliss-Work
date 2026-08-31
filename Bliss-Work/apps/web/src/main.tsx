@@ -33,7 +33,6 @@ const REQUIRED_ENV = [
   "VITE_TASK_BASE",
   "VITE_NOTIFICATION_BASE",
   "VITE_MESSAGING_BASE",
-  "VITE_INTEGRATIONS_BASE",
   "VITE_TELEMETRY_BASE",
   "VITE_WS_URL",
 ] as const;
@@ -53,7 +52,6 @@ const config: PlatformConfig = {
   taskBase: env.VITE_TASK_BASE ?? "http://localhost:8002",
   notificationBase: env.VITE_NOTIFICATION_BASE ?? "http://localhost:8003",
   messagingBase: env.VITE_MESSAGING_BASE ?? "http://localhost:8004",
-  integrationsBase: env.VITE_INTEGRATIONS_BASE ?? "http://localhost:8005",
   telemetryBase: env.VITE_TELEMETRY_BASE ?? "http://localhost:8006",
   // Deliberately absent from REQUIRED_ENV: the GraphQL gateway fronts a few
   // read paths, and a build without it simply takes the REST path on those

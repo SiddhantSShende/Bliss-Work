@@ -31,7 +31,6 @@ function cspPlugin(isProd: boolean, env: Record<string, string | undefined>) {
           taskBase: env.VITE_TASK_BASE,
           notificationBase: env.VITE_NOTIFICATION_BASE,
           messagingBase: env.VITE_MESSAGING_BASE,
-          integrationsBase: env.VITE_INTEGRATIONS_BASE,
           wsUrl: env.VITE_WS_URL,
         });
         const origins = new Set<string>();

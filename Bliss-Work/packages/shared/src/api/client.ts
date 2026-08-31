@@ -17,6 +17,11 @@ import {
   AvailabilityDTO,
   CaptchaChallengeDTO,
   CallDTO,
+  CallChatMessageDTO,
+  CallChatPageDTO,
+  CallNoteDTO,
+  CallNotePageDTO,
+  CallPageDTO,
   CallInviteDTO,
   CallJoinDTO,
   CallRecordingDTO,
@@ -28,14 +33,7 @@ import {
   type ChannelRole,
   ChannelMessageDTO,
   ChannelReadReceiptDTO,
-  AppCredentialDTO,
-  ConnectStartDTO,
   ConversationDTO,
-  IntegrationConnectionDTO,
-  MentionPageDTO,
-  MentionState,
-  ProviderActivityDTO,
-  ProviderIdentityDTO,
   ReactionDTO,
   type Role,
   InboxItemKind,
@@ -80,7 +78,6 @@ export interface ApiConfig {
   authBase: string; // e.g. http://localhost:8001
   taskBase: string; // e.g. http://localhost:8002
   messagingBase: string; // e.g. http://localhost:8004
-  integrationsBase: string; // external integrations svc, e.g. http://localhost:8005
   telemetryBase: string; // member activity record, e.g. http://localhost:8006
   notificationBase: string; // notifications are served by task/notification svc
   presenceBase: string; // ws-gateway HTTP, e.g. http://localhost:8090
@@ -1553,155 +1550,6 @@ export class ApiClient {
       }),
     );
   }
-  // ── External Integrations (integrations-svc) ─────────────────────────────
-  /** Connected external accounts for the caller/org. Never returns tokens. */
-  integrations() {
-    return this.req(
-      this.cfg.integrationsBase,
-      "/api/v1/integrations",
-      {},
-      z.array(IntegrationConnectionDTO),
-    );
-  }
-  /** Start connecting a provider. Token-paste providers (Slack/WhatsApp) accept
-   *  their credentials in `credentials` and return the created connection; OAuth
-   *  providers (Gmail/Outlook/Teams) ignore it and return an authorizeUrl to
-   *  redirect to. */
-  connectIntegration(
-    provider: string,
-    credentials: Record<string, unknown> = {},
-    returnTo?: "web" | "desktop",
-  ) {
-    // `returnTo` is a MODE, not a URL — the server maps it to one of two
-    // known destinations so this can never become an open redirect. "desktop"
-    // returns through the taskboard:// deep link because the consent screen
-    // runs in the system browser there.
-    return this.req(
-      this.cfg.integrationsBase,
-      `/api/v1/integrations/${provider}/connect/start`,
-      { method: "POST", body: JSON.stringify({ ...credentials, returnTo }) },
-      ConnectStartDTO,
-    );
-  }
-  /** Disconnect + revoke a connection (purges its stored tokens). Idempotent. */
-  disconnectIntegration(id: string) {
-    return this.req<void>(this.cfg.integrationsBase, `/api/v1/integrations/${id}`, {
-      method: "DELETE",
-    });
-  }
-  /** Unified hub activity timeline (inbound + outbound), newest first.
-   *  Audit/debug surface — the Hub UI renders `mentions()` instead. */
-  integrationActivity() {
-    return this.req(
-      this.cfg.integrationsBase,
-      "/api/v1/integrations/activity",
-      {},
-      z.array(ProviderActivityDTO),
-    );
-  }
-
-  /** My @-mentions across connected accounts, newest first. Keyset-paginated —
-   *  pass the previous page's `nextCursor` back verbatim. */
-  mentions(state: MentionState = "pending", cursor?: string, limit = 25) {
-    const q = new URLSearchParams({ state, limit: String(limit) });
-    if (cursor) q.set("cursor", cursor);
-    return this.req(
-      this.cfg.integrationsBase,
-      `/api/v1/integrations/mentions?${q.toString()}`,
-      {},
-      MentionPageDTO,
-    );
-  }
-
-  /** Turn a mention into a task assigned to me. Idempotent: a retry returns the
-   *  SAME taskId (the server derives a deterministic key from the mention), so
-   *  a double-click or a reconnect can never produce two tasks. 409 when the
-   *  mention was already dismissed. */
-  claimMention(activityId: string) {
-    return this.req(
-      this.cfg.integrationsBase,
-      `/api/v1/integrations/mentions/${activityId}/claim`,
-      { method: "POST", body: "{}" },
-      z.object({ taskId: z.string().uuid(), state: MentionState }),
-    );
-  }
-
-  /** Dismiss a mention permanently. Idempotent; 409 if already claimed. */
-  ignoreMention(activityId: string) {
-    return this.req(
-      this.cfg.integrationsBase,
-      `/api/v1/integrations/mentions/${activityId}/ignore`,
-      { method: "POST", body: "{}" },
-      z.object({ state: MentionState }),
-    );
-  }
-
-  /** My handles on each platform — what mention matching resolves against. */
-  providerIdentities() {
-    return this.req(
-      this.cfg.integrationsBase,
-      "/api/v1/integrations/identities",
-      {},
-      z.array(ProviderIdentityDTO),
-    );
-  }
-
-  /** Declare a handle. 409 when a teammate already owns it. */
-  addProviderIdentity(provider: string, handle: string) {
-    return this.req(
-      this.cfg.integrationsBase,
-      "/api/v1/integrations/identities",
-      { method: "POST", body: JSON.stringify({ provider, handle }) },
-      ProviderIdentityDTO,
-    );
-  }
-
-  removeProviderIdentity(id: string) {
-    return this.req<void>(
-      this.cfg.integrationsBase,
-      `/api/v1/integrations/identities/${id}`,
-      { method: "DELETE" },
-    );
-  }
-
-  /** This workspace's own OAuth apps, one entry per vendor. Includes the exact
-   *  redirect URIs to register; never includes a client secret. */
-  appCredentials() {
-    return this.req(
-      this.cfg.integrationsBase,
-      "/api/v1/integrations/app-credentials",
-      {},
-      z.array(AppCredentialDTO),
-    );
-  }
-
-  /** Save or rotate this workspace's OAuth app for a vendor.
-   *  `tenant` is Microsoft-only; `pubsubTopic` is Google-only — the server
-   *  rejects the wrong one rather than storing a value it will never read. */
-  saveAppCredentials(
-    vendor: "google" | "microsoft",
-    creds: {
-      clientId: string;
-      clientSecret: string;
-      tenant?: string;
-      pubsubTopic?: string;
-    },
-  ) {
-    return this.req(
-      this.cfg.integrationsBase,
-      `/api/v1/integrations/app-credentials/${vendor}`,
-      { method: "PUT", body: JSON.stringify(creds) },
-      AppCredentialDTO,
-    );
-  }
-
-  removeAppCredentials(vendor: "google" | "microsoft") {
-    return this.req<void>(
-      this.cfg.integrationsBase,
-      `/api/v1/integrations/app-credentials/${vendor}`,
-      { method: "DELETE" },
-    );
-  }
   readThread(threadId: string, upToSeq: number) {
     return this.req<void>(this.cfg.messagingBase, `/api/v1/threads/${threadId}/read`, {
       method: "POST",
@@ -2131,6 +1979,81 @@ export class ApiClient {
 
   call(callId: string) {
     return this.req(this.cfg.messagingBase, `/api/v1/calls/${callId}`, {}, CallDTO);
+  }
+
+  /** Finished meetings the caller was in, newest first, paged.
+   *
+   *  Deliberately NOT `myCalls()` with a bigger limit. That one answers "what
+   *  am I expected at" and caps its history at a month, which is right for
+   *  Upcoming and Live and silently truncates a Past list. This has no day cap
+   *  and no end, so it has a cursor: pass `nextCursor` back to continue. */
+  myCallHistory(cursor?: string, limit?: number) {
+    const q = new URLSearchParams();
+    if (cursor) q.set("cursor", cursor);
+    if (limit) q.set("limit", String(limit));
+    const qs = q.toString();
+    return this.req(
+      this.cfg.messagingBase,
+      `/api/v1/calls/history${qs ? `?${qs}` : ""}`,
+      {},
+      CallPageDTO,
+    );
+  }
+
+  /** A meeting's chat transcript, OLDEST first — a conversation is read
+   *  forwards. Room-wide messages only; see CallChatMessageDTO. */
+  callChat(callId: string, cursor?: string, limit?: number) {
+    const q = new URLSearchParams();
+    if (cursor) q.set("cursor", cursor);
+    if (limit) q.set("limit", String(limit));
+    const qs = q.toString();
+    return this.req(
+      this.cfg.messagingBase,
+      `/api/v1/calls/${callId}/chat${qs ? `?${qs}` : ""}`,
+      {},
+      CallChatPageDTO,
+    );
+  }
+
+  /** Keep one room-wide chat message against the meeting.
+   *
+   *  `id` and `at` are the ones the data-channel copy already carries, so the
+   *  stored line and the one everybody saw live are the same entry — and a
+   *  retry is one row, not two. Called ONLY for a message addressed to
+   *  everyone: a directed message stays on the wire, where its audience is
+   *  what the sender chose. */
+  saveCallChat(callId: string, entry: { id: string; text: string; at: number }) {
+    return this.req(
+      this.cfg.messagingBase,
+      `/api/v1/calls/${callId}/chat`,
+      { method: "POST", body: JSON.stringify(entry) },
+      CallChatMessageDTO,
+    );
+  }
+
+  /** A meeting's shared notes, oldest first. */
+  callNotes(callId: string, cursor?: string, limit?: number) {
+    const q = new URLSearchParams();
+    if (cursor) q.set("cursor", cursor);
+    if (limit) q.set("limit", String(limit));
+    const qs = q.toString();
+    return this.req(
+      this.cfg.messagingBase,
+      `/api/v1/calls/${callId}/notes${qs ? `?${qs}` : ""}`,
+      {},
+      CallNotePageDTO,
+    );
+  }
+
+  /** Keep one shared note against the meeting. Same id/at contract as
+   *  saveCallChat. */
+  saveCallNote(callId: string, entry: { id: string; text: string; at: number }) {
+    return this.req(
+      this.cfg.messagingBase,
+      `/api/v1/calls/${callId}/notes`,
+      { method: "POST", body: JSON.stringify(entry) },
+      CallNoteDTO,
+    );
   }
 
   /** Back a 1:1 ring with a persistent call, so it can later be widened. */

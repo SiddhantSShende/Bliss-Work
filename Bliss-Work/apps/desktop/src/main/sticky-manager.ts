@@ -54,15 +54,20 @@ const FULL_W = 360;
 const FULL_H = 200;
 
 /**
- * Owns the always-on-top task widget windows — the product differentiator.
+ * Owns the floating task widget windows — the product differentiator.
  *
- * A task floats on the desktop iff it is PINNED AND still actionable (SENT or
- * ACKNOWLEDGED). Actionable tasks auto-pin on every live server push (see
- * autopinActionable), so a freshly ALLOCATED task pops up on its own showing
- * Acknowledge / Ignore — no manual pin or prior acknowledge needed. (The manual
- * "Pin to desktop" button remains as a fallback.) A pinned note stays visible on
- * all workspaces at ALL times, regardless of whether the main window is open,
- * focused, minimized, or closed to tray.
+ * A task floats iff it is PINNED AND still actionable (SENT or ACKNOWLEDGED).
+ * Actionable tasks auto-pin on every live server push (see autopinActionable),
+ * so a freshly ALLOCATED task pops up on its own showing Acknowledge / Ignore —
+ * no manual pin or prior acknowledge needed. (The manual "Pin to desktop"
+ * button remains as a fallback.)
+ *
+ * A note is a COMPANION WINDOW of the BlissWork app, not a global always-on-top
+ * one: it is an Electron child of the main window (setParentWindow), so the OS
+ * keeps it above BlissWork and only above BlissWork, and it is shown/hidden
+ * with the app itself (setAppActive). Switching to another application takes
+ * every note off screen; coming back brings the same notes, in the same state,
+ * back. Nothing here ever sits over another application's work.
  *
  * Lifecycle on the note: a SENT note offers Acknowledge / Ignore. Ignoring drops
  * it from the server's actionable list → prunePinned tears the window down.
@@ -74,15 +79,31 @@ const FULL_H = 200;
  * Inherited from Phase 7:
  *   * Geometry restore + persist via ./sticky-state (per-widget x/y/w/h + a
  *     collapsed flag and last-expanded size).
- *   * Z-order downgrade (downgradeToNormal/restoreScreenSaver) so the main
- *     window stays clickable when focused without losing the always-on-top
- *     promise the rest of the time.
  *   * Display-aware clamp so an unplugged external monitor doesn't strand
  *     widgets off-screen on relaunch.
  */
 export class StickyManager {
   private widgets = new Map<string, BrowserWindow>();
   private tasks: StickyTaskDTO[] = [];
+  /** The main window every note is an OS-level child of. Held here rather than
+   *  captured at construction because the main window can be recreated. */
+  private parent: BrowserWindow | null = null;
+
+  /**
+   * Adopt (or re-adopt) the main window as the owner of every note.
+   *
+   * Ownership is what keeps a note above BlissWork's windows and never above
+   * another application — see createStickyWindow. Call on every creation of the
+   * main window: notes restored at bootstrap are built BEFORE it exists, and
+   * the window can be recreated later (macOS `activate`, the tray path), which
+   * would otherwise leave live notes owned by a destroyed window.
+   */
+  setParentWindow(win: BrowserWindow | null): void {
+    this.parent = win && !win.isDestroyed() ? win : null;
+    for (const [, w] of this.widgets) {
+      if (!w.isDestroyed()) w.setParentWindow(this.parent);
+    }
+  }
 
   /** Latest known actionable task list (server returns only SENT/ACKNOWLEDGED).
    *  Stored whole so taskCount()/tray reflect ALL active tasks, while only the
@@ -167,9 +188,9 @@ export class StickyManager {
       if (existing && !existing.isDestroyed()) {
         if (existing.isMinimized()) existing.restore();
         if (getGeometry(taskId)?.collapsed) this.setCollapsed(taskId, false);
-        // Deliberately do NOT focus()/raise the note: it stays pinned behind
-        // all apps on the desktop (the window is non-focusable anyway). Making
-        // it visible again just means restoring/expanding it in place.
+        // Deliberately do NOT focus()/raise the note: it is a non-focusable
+        // companion window whose z-order is the OS's business, not ours.
+        // Making it visible again just means restoring/expanding it in place.
       } else {
         this.reconcile();
       }
@@ -251,7 +272,8 @@ export class StickyManager {
   }
 
   /** Collapse a note to a small pill, or expand it back. The note window is
-   *  resized in place (never recreated, so it keeps its always-on-top level).
+   *  resized in place — never recreated, so it keeps its owner and its place
+   *  in the group.
    *  Order matters: when shrinking below the normal minimum we must lower the
    *  minimum size BEFORE setBounds, and restore it AFTER expanding. */
   setCollapsed(taskId: string, collapsed: boolean): void {
@@ -316,36 +338,31 @@ export class StickyManager {
   }
 
   /**
-   * Follow BlissWork's own foreground state in and out of view.
+   * Follow BlissWork in and out of view.
    *
-   * A note floats ABOVE BlissWork's own windows while the user is looking at
-   * any of them (or the bare desktop) — real `alwaysOnTop`, not just
-   * visibility, because a non-topmost window falls behind the main window the
-   * instant it is clicked, which would defeat "stays above" the moment
-   * someone actually used the app. The moment a DIFFERENT application becomes
-   * frontmost, alwaysOnTop drops FIRST (so the note can never even flicker
-   * above someone else's work) and the note is hidden — see ./foreground for
-   * why hiding, not real z-order, is what "gets out of the way" means on
-   * Windows/macOS. On Linux `type: "desktop"` already keeps the note at the
-   * bottom of the stack and this is only ever called with `true`.
+   * This is the whole of "the note is only there while I'm in BlissWork".
+   * Ownership (the `parent` window) already guarantees a note can never be
+   * ABOVE another application; hiding is what makes it not merely un-topmost
+   * but gone, so it never occupies screen space over someone else's work
+   * either. The same windows come back on return — nothing is recreated, so a
+   * note keeps its position, its size, its collapsed state and its task.
    *
-   * showInactive, never show: a note must not take focus even as it
-   * reappears. The window is non-focusable anyway, which is also why CLICKING
-   * a note does not count as leaving BlissWork — the buttons keep working
-   * while it's up.
+   * showInactive, never show: a note must not take focus even as it reappears.
+   * The window is non-focusable anyway, which is also why CLICKING a note does
+   * not count as leaving BlissWork — the buttons keep working while it's up.
+   *
+   * See ./app-active for how "is BlissWork the active application" is decided.
    */
-  setSafeToFloat(safe: boolean): void {
+  setAppActive(active: boolean): void {
     for (const [, w] of this.widgets) {
       if (w.isDestroyed()) continue;
       // A note the user minimised stays minimised; this decides visibility
       // relative to other apps, not what the user did with an individual note.
       if (w.isMinimized()) continue;
-      if (safe) {
+      if (active) {
         if (!w.isVisible()) w.showInactive();
-        w.setAlwaysOnTop(true);
-      } else {
-        w.setAlwaysOnTop(false);
-        if (w.isVisible()) w.hide();
+      } else if (w.isVisible()) {
+        w.hide();
       }
     }
   }
@@ -379,7 +396,7 @@ export class StickyManager {
       const w = this.widgets.get(task.taskId);
       if (!w || w.isDestroyed()) {
         const collapsed = getGeometry(task.taskId)?.collapsed ?? false;
-        const win = createStickyWindow(task.taskId, i, collapsed);
+        const win = createStickyWindow(task.taskId, i, collapsed, this.parent);
         this.widgets.set(task.taskId, win);
         this.positionWidget(win, task.taskId, i);
         this.wireGeometryPersistence(win, task.taskId);

@@ -51,7 +51,6 @@ export function RuntimeProvider({
       authBase: config.authBase,
       taskBase: config.taskBase,
       messagingBase: config.messagingBase,
-      integrationsBase: config.integrationsBase,
       telemetryBase: config.telemetryBase,
       notificationBase: config.notificationBase,
       graphBase: config.graphBase,

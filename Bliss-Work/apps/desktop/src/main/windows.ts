@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { appIcon } from "./assets";
 import { hardenWindow } from "./harden";
-import { isSafeToFloatNow } from "./foreground";
+import { isAppActiveNow } from "./app-active";
 import { isSystemAway } from "./window-state-guard";
 import { getMainWindowBounds, saveMainWindowBounds } from "./sticky-state";
 
@@ -116,39 +116,48 @@ function wireBoundsPersistence(win: BrowserWindow): void {
   win.on("close", persist);
 }
 
-export function createStickyWindow(taskId: string, index: number, collapsed = false): BrowserWindow {
-  // DESKTOP-PINNED TASK NOTE — an allocated task floats as a small widget that
-  // stays ABOVE BlissWork's own windows while BlissWork is what the user is
-  // looking at (any of its windows, or the bare desktop), and gets out of the
-  // way — hidden, never merely un-topmost — the instant a DIFFERENT
-  // application is frontmost. It is a desktop task widget, not a global
-  // always-on-top window: nothing here ever floats above another app.
+export function createStickyWindow(
+  taskId: string,
+  index: number,
+  collapsed = false,
+  parent: BrowserWindow | null = null,
+): BrowserWindow {
+  // DESKTOP-PINNED TASK NOTE — an allocated task floats as a small companion
+  // window of the BlissWork application. It stays ABOVE BlissWork's own windows
+  // while the user is in BlissWork, and is hidden the instant they are not.
+  // Nothing here ever floats above another application.
   //
-  // How that is achieved, per platform — see ./foreground (isSafeToFloat) for
-  // the "is BlissWork frontmost" detection this all keys off:
+  // How that is achieved:
   //
-  //   • WINDOWS and macOS — real `alwaysOnTop`, toggled dynamically by
-  //     StickyManager.setSafeToFloat() in step with ./foreground's poll:
-  //     true while BlissWork itself is frontmost (so clicking around the main
-  //     window does not bury the note behind it — a non-topmost window falls
-  //     behind whatever is clicked), false the instant another app is, paired
-  //     with hiding the note so it can never even flicker above someone
-  //     else's work in the gap between the two.
+  //   • `parent` — the note is an Electron CHILD of the main window, i.e. an
+  //     OWNED window at the OS level (an owner relationship on Windows, an
+  //     NSWindow child on macOS, WM_TRANSIENT_FOR on Linux). The OS keeps an
+  //     owned window above its owner and ONLY above its owner: it cannot rise
+  //     above another application even in principle, and it follows the owner
+  //     into and out of a minimize. This is what replaced the previous
+  //     `alwaysOnTop` toggling — see ./app-active for why that mechanism could
+  //     not keep the promise it made.
   //
-  //   • LINUX — type: "desktop" maps to _NET_WM_WINDOW_TYPE_DESKTOP and the
-  //     window manager keeps the window at the bottom of the stack for real;
-  //     ./foreground's poll does not run there at all (isSafeToFloat is
-  //     always true), so alwaysOnTop is simply never turned on.
+  //   • alwaysOnTop is NEVER turned on, on any platform. `false` is set at
+  //     construction and re-asserted below; ownership is the entire z-order
+  //     story. Visibility is the whole of the rest of it: ./app-active drives
+  //     StickyManager.setAppActive(), which shows and hides the note as the
+  //     user enters and leaves BlissWork.
   //
   //   • focusable: false → the note can never take focus or be raised to the
-  //     front by a click, so its own alwaysOnTop toggling never fights the
-  //     user for keyboard focus, and clicking the note itself does not count
-  //     as "leaving BlissWork" for the purposes of ./foreground's poll. Task
-  //     actions are pure click targets — no text input — so this costs
-  //     nothing.
-  //   • skipTaskbar: true → kept out of the taskbar/alt-tab, since it is an
-  //     ambient widget, not a window someone switches to directly.
+  //     front by a click. That is what makes clicking a note NOT count as
+  //     leaving BlissWork (the main window keeps focus, so the app-wide focus
+  //     read in ./app-active stays true) and keeps the note from ever fighting
+  //     the user for the keyboard. Task actions are pure click targets — no
+  //     text input — so this costs nothing.
+  //   • skipTaskbar: true → kept out of the taskbar/alt-tab, since it is a
+  //     companion widget, not a window someone switches to directly.
   //   • showInactive() (below) surfaces it WITHOUT stealing focus.
+  //
+  // NOT set: `type: "desktop"` on Linux, which this window used to carry. That
+  // maps to _NET_WM_WINDOW_TYPE_DESKTOP and pins the window to the BOTTOM of
+  // the stack — under the ownership model that would bury every note behind
+  // the very window it is a companion to, which is the opposite of the point.
   // The StickyManager confines its position to the primary display.
   const win = new BrowserWindow({
     // Wide enough for "Acknowledge" and "Ignore" to sit side by side with their
@@ -159,16 +168,17 @@ export function createStickyWindow(taskId: string, index: number, collapsed = fa
     height: 200,
     minWidth: 300,
     minHeight: 140,
+    // Omitted rather than passed as null when there is no main window yet: the
+    // bootstrap restore runs before the main window exists, and StickyManager
+    // adopts those notes via setParentWindow() the moment it does.
+    ...(parent && !parent.isDestroyed() ? { parent } : {}),
     frame: false,
     transparent: true,
     resizable: true,
     movable: true,
     skipTaskbar: true,
     alwaysOnTop: false,
-    focusable: false, // never raises to the front — stays pinned behind all apps
-    // Linux only: elsewhere this is either ignored (Windows) or costs the note
-    // every mouse event (macOS). See the note above.
-    ...(process.platform === "linux" ? { type: "desktop" } : {}),
+    focusable: false, // never raises to the front, never steals focus
     hasShadow: true,
     maximizable: false,
     minimizable: false, // can't be minimised — it's already an unframed widget
@@ -187,10 +197,10 @@ export function createStickyWindow(taskId: string, index: number, collapsed = fa
     },
   });
 
-  // Safe starting state: not promoted above anything until the very first
-  // ./foreground poll confirms BlissWork is actually what's frontmost — a
-  // note must never even flicker above another app while that first answer
-  // is still in flight. Re-asserts the constructor option; belt-and-suspenders.
+  // Re-asserts the constructor option. Deliberately the ONLY setAlwaysOnTop
+  // call on this window, and deliberately `false`: a note must never be
+  // promoted above anything, and the one way that regresses is somebody
+  // reaching for `true` here again.
   win.setAlwaysOnTop(false);
 
   hardenWindow(win, "sticky");
@@ -199,17 +209,12 @@ export function createStickyWindow(taskId: string, index: number, collapsed = fa
   if (DEV_URL) void win.loadURL(`${DEV_URL}/sticky.html${query}`);
   else void win.loadFile(join(rendererDir, "sticky.html"), { search: query });
 
-  // Show it without grabbing keyboard focus — but only if it is currently
-  // safe to float (BlissWork frontmost, or the bare desktop). A task
-  // allocated while someone is in another application must not appear over
-  // their work. The watcher (./foreground) raises and shows it the moment
-  // that changes; this only covers the window between creation and the next
-  // poll tick.
+  // Show it without grabbing keyboard focus — but only if BlissWork is the
+  // application the user is actually in. A task allocated while someone is in
+  // another application must not appear over their work; it waits, and
+  // StickyManager.setAppActive() brings it up the moment they come back.
   win.on("ready-to-show", () => {
-    if (isSafeToFloatNow()) {
-      win.showInactive();
-      win.setAlwaysOnTop(true);
-    }
+    if (isAppActiveNow()) win.showInactive();
   });
   return win;
 }

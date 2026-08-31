@@ -3,7 +3,7 @@
  * web-only auto-detect/auto-provision path layered on top of it.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const api = {
@@ -11,7 +11,11 @@ const api = {
   createAgentToken: vi.fn(),
   revokeAgentToken: vi.fn(),
 };
-let config: { chromeExtensionId?: string; telemetryBase: string };
+let config: {
+  chromeExtensionId?: string;
+  extensionInstallUrls?: Partial<Record<string, string>>;
+  telemetryBase: string;
+};
 
 vi.mock("../lib/runtime", () => ({
   useRuntime: () => ({ api, config }),
@@ -27,6 +31,14 @@ vi.mock("../lib/extensionProvisioning", () => ({
   pingExtension: (...args: unknown[]) => pingExtension(...args),
   provisionExtension: (...args: unknown[]) => provisionExtension(...args),
   getOrCreateBrowserDeviceKey: () => "browser-device-key",
+}));
+
+// Same mocking convention BrowserExtensionCTA.test.tsx uses — a mutable
+// `family` rather than fighting jsdom's fixed navigator.userAgent.
+let family: "chrome" | "edge" | "brave" | "firefox" | "safari" | "unknown" = "chrome";
+vi.mock("../lib/browserDetect", () => ({
+  detectBrowserFamily: () => family,
+  supportsAutoExtensionIntegration: (f: string) => f === "chrome" || f === "edge" || f === "brave",
 }));
 
 import { ConnectedAgents } from "./ConnectedAgents";
@@ -45,6 +57,7 @@ describe("ConnectedAgents", () => {
     vi.clearAllMocks();
     api.listAgentTokens.mockResolvedValue([]);
     config = { telemetryBase: "https://telemetry.test" };
+    family = "chrome";
   });
 
   afterEach(() => {
@@ -58,13 +71,47 @@ describe("ConnectedAgents", () => {
     expect(pingExtension).not.toHaveBeenCalled();
   });
 
-  it("falls back to the manual flow when the extension cannot be detected", async () => {
+  it("shows an unsupported message, not the manual paste flow, when nothing is detected and no install URL exists", async () => {
+    // No extensionInstallUrls configured — pasting a code into an extension
+    // that was never given anywhere to download it from would be exactly the
+    // dead end this fix removes.
     config = { chromeExtensionId: "ext-id", telemetryBase: "https://telemetry.test" };
     pingExtension.mockResolvedValue(null);
     renderWithClient();
     await waitFor(() => expect(pingExtension).toHaveBeenCalledWith("ext-id"));
-    expect(await screen.findByText("Connect a browser extension")).toBeTruthy();
+    expect(
+      await screen.findByText(
+        "Automatic setup isn't available for this browser yet — connect from Chrome, Edge or Brave instead.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText("Connect a browser extension")).toBeNull();
     expect(api.createAgentToken).not.toHaveBeenCalled();
+  });
+
+  it("offers a download link and re-check action when not installed and this deployment has somewhere to send them", async () => {
+    config = {
+      chromeExtensionId: "ext-id",
+      telemetryBase: "https://telemetry.test",
+      extensionInstallUrls: { chrome: "https://downloads.example/blisswork-extension.zip" },
+    };
+    pingExtension.mockResolvedValue(null);
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+    renderWithClient();
+
+    await waitFor(() => expect(pingExtension).toHaveBeenCalledWith("ext-id"));
+    const download = await screen.findByRole("button", { name: "Download extension" });
+    expect(screen.queryByText("Connect a browser extension")).toBeNull();
+
+    fireEvent.click(download);
+    expect(openSpy).toHaveBeenCalledWith(
+      "https://downloads.example/blisswork-extension.zip",
+      "_blank",
+      "noopener,noreferrer",
+    );
+
+    pingExtension.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "I installed it — check again" }));
+    await waitFor(() => expect(pingExtension).toHaveBeenCalledWith("ext-id"));
   });
 
   it("skips minting entirely when the extension is already connected", async () => {

@@ -23,10 +23,16 @@ declare global {
       hasPreciseLocation: () => Promise<boolean>;
       /** Absent on platforms with no OS location-privacy page (Linux). */
       openLocationSettings?: () => Promise<boolean>;
+      /** Absent on platforms with no OS camera/microphone-privacy page (Linux). */
+      openCameraSettings?: () => Promise<boolean>;
+      openMicrophoneSettings?: () => Promise<boolean>;
+      /** Main is about to quit; call the returned unsubscribe or notifyQuitReady
+       *  once cleanup is done. See PlatformConfig.onBeforeQuit. */
+      onBeforeQuit: (cb: () => void) => () => void;
+      notifyQuitReady: () => void;
       onScreenshotBlocked: (
         cb: (info: { chord: string; recorded: boolean }) => void,
       ) => () => void;
-      onOAuthReturn: (cb: (r: { connected?: string; error?: string }) => void) => () => void;
       appVersion: () => Promise<string>;
       checkForUpdates: () => Promise<{
         status: "checking" | "available" | "up-to-date" | "downloading" | "unsupported" | "error";
@@ -83,7 +89,6 @@ const ENDPOINTS = resolveEndpointsFromEnv(!env.DEV, {
   taskBase: env.VITE_TASK_BASE,
   notificationBase: env.VITE_NOTIFICATION_BASE,
   messagingBase: env.VITE_MESSAGING_BASE,
-  integrationsBase: env.VITE_INTEGRATIONS_BASE,
   // Was MISSING here and in the main process, which made VITE_TELEMETRY_BASE a
   // web-only override: the desktop silently used the baked default, so a
   // deployment that moved telemetry broke member activity on desktop alone.
@@ -105,8 +110,8 @@ const config: PlatformConfig = {
   getRefreshToken: () => bridge.getRefreshToken(),
   persistRefreshToken: (t) => bridge.setRefreshToken(t),
   chatSticky: window.chatSticky,
-  // OAuth has to run in the system browser (Google blocks embedded webviews)
-  // and return through the taskboard://oauth deep link.
+  // Handoffs like the WhatsApp forward link have no business opening inside
+  // the app's own renderer, so they go to the system browser instead.
   openExternal: (url) => bridge.openExternal(url),
   hasPreciseLocation: () => bridge.hasPreciseLocation(),
   // Forwarded only when the host actually has one, so `config.openLocationSettings`
@@ -114,8 +119,13 @@ const config: PlatformConfig = {
   openLocationSettings: bridge.openLocationSettings
     ? () => bridge.openLocationSettings!()
     : undefined,
+  openCameraSettings: bridge.openCameraSettings ? () => bridge.openCameraSettings!() : undefined,
+  openMicrophoneSettings: bridge.openMicrophoneSettings
+    ? () => bridge.openMicrophoneSettings!()
+    : undefined,
+  onBeforeQuit: (cb) => bridge.onBeforeQuit(cb),
+  notifyQuitReady: () => bridge.notifyQuitReady(),
   onScreenshotBlocked: (cb) => bridge.onScreenshotBlocked(cb),
-  onOAuthReturn: (cb) => bridge.onOAuthReturn(cb),
   appVersion: () => bridge.appVersion(),
   checkForUpdates: () => bridge.checkForUpdates(),
   activityAgent: bridge.activity,

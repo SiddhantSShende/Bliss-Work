@@ -55,7 +55,10 @@ PROVIDERS: dict[str, ProviderSpec] = {
             ProviderField("signingSecret", "Signing secret"),
         ),
         default_scopes=("chat:write", "channels:read", "users:read", "im:history"),
-        receives_webhooks=True,
+        # The inbound webhook receiver (routes/webhooks.py) was removed with Hub
+        # Mentions, its only consumer — so this no longer advertises a
+        # per-connection URL that would 404.
+        receives_webhooks=False,
     ),
     # WhatsApp was here. It required a Meta Business account (system-user token,
     # WABA id, phone number id, app secret), which most orgs do not have and

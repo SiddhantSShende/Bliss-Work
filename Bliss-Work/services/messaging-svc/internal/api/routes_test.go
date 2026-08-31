@@ -161,6 +161,10 @@ var cappedRoutes = map[string]string{
 	// /api/v1 group that applies mw.MaxBytes(smallBody).
 	"POST /api/v1/calls/{id}/recording/start": "small",
 	"POST /api/v1/calls/{id}/recording/stop":  "small",
+	// A meeting's transcript. One chat line or one note per request, both
+	// bounded to store.CallTranscriptTextMax, so "small" is generous already.
+	"POST /api/v1/calls/{id}/chat":  "small",
+	"POST /api/v1/calls/{id}/notes": "small",
 
 	// LiveKit's egress/room webhook. PUBLIC — it is reached without a session,
 	// so an uncapped body here would be a denial-of-service anyone could send.

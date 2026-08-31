@@ -78,8 +78,6 @@ create() {
 
 create "messaging.events.v1"
 create "task.events.v1"
-# External-integrations activity fanout (integrations-svc -> ws-gateway live hub).
-create "integration.events.v1"
 # Notification is the high-fan-out hot path — extra partitions in prod (200+).
 create "notification.events.v1" "${NOTIFICATION_PARTITIONS}"
 create "auth.events"

@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { Mail, Calendar, MessageSquare, ListTodo, Hash, Users, Plug, Building2, Settings } from "lucide-react";
+import { Mail, Calendar, MessageSquare, ListTodo, Hash, Users, Building2, Settings } from "lucide-react";
 import { ProfileMenu } from "../features/ProfileMenu";
 
 const ITEMS = [
@@ -10,9 +10,6 @@ const ITEMS = [
   { key: "channels", label: "Channels", icon: Hash, to: "/app/channels" },
   { key: "members", label: "Members", icon: Users, to: "/app/members" },
   { key: "org", label: "Org", icon: Building2, to: "/app/org" },
-  // External Integrations + forward-tracking. Available to every org (each org
-  // supplies its own third-party credentials) — not a Bliss-Work paid tier.
-  { key: "integrations", label: "Integrations", icon: Plug, to: "/app/integrations" },
   { key: "settings", label: "Settings", icon: Settings, to: "/app/settings" },
 ] as const;
 

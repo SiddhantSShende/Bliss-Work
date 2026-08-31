@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import { hasLocationSettingsPage } from "../shared/location-settings";
+import { hasMediaSettingsPage } from "../shared/media-settings";
 import type { ServerEvent, ClientFrame, ControlFrame, PinResult, WsEventMeta } from "@taskboard/shared";
 
 /**
@@ -88,6 +89,28 @@ const api = {
     ? (): Promise<boolean> => ipcRenderer.invoke("geo:open-settings")
     : undefined,
 
+  /** Open the OS page where camera/microphone access for desktop apps is
+   *  granted, one per media kind. Same "absent, not a no-op" contract as
+   *  openLocationSettings above — see shared/media-settings.ts. */
+  openCameraSettings: hasMediaSettingsPage("camera")
+    ? (): Promise<boolean> => ipcRenderer.invoke("media:open-camera-settings")
+    : undefined,
+  openMicrophoneSettings: hasMediaSettingsPage("microphone")
+    ? (): Promise<boolean> => ipcRenderer.invoke("media:open-microphone-settings")
+    : undefined,
+
+  /** The app is about to quit. Main is PAUSING the quit briefly to give an
+   *  active meeting a chance to leave the room and clear its resumable-
+   *  meeting marker first — call notifyQuitReady() once that is done (or
+   *  immediately if there is nothing to do), so the quit does not wait out
+   *  the full safety timeout for no reason. */
+  onBeforeQuit: (cb: () => void) => {
+    const handler = () => cb();
+    ipcRenderer.on("app:before-quit", handler);
+    return () => ipcRenderer.removeListener("app:before-quit", handler);
+  },
+  notifyQuitReady: () => ipcRenderer.send("app:quit-ready"),
+
   /** Emitted when the app detects and refuses a screenshot attempt.
    *
    *  The message is fixed; the payload says WHAT was pressed and whether main
@@ -98,13 +121,6 @@ const api = {
     const handler = (_: unknown, info: { chord: string; recorded: boolean }) => cb(info);
     ipcRenderer.on("security:screenshot-blocked", handler);
     return () => ipcRenderer.removeListener("security:screenshot-blocked", handler);
-  },
-
-  /** Emitted when an OAuth flow returns via taskboard://oauth?connected=… */
-  onOAuthReturn: (cb: (r: { connected?: string; error?: string }) => void) => {
-    const handler = (_: unknown, r: { connected?: string; error?: string }) => cb(r);
-    ipcRenderer.on("deeplink:oauth", handler);
-    return () => ipcRenderer.removeListener("deeplink:oauth", handler);
   },
 
   /** Phase 10 WebRTC signaling, bridged to the ws-process socket: outbound

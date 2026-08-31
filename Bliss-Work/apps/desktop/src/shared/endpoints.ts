@@ -20,7 +20,6 @@ export interface Endpoints {
   taskBase: string;
   notificationBase: string;
   messagingBase: string;
-  integrationsBase: string;
   telemetryBase: string;
   wsUrl: string;
 }
@@ -34,7 +33,6 @@ export const PROD_ENDPOINTS: Endpoints = {
   taskBase: `${PROD_ORIGIN}/api/tasks`,
   notificationBase: `${PROD_ORIGIN}/api/notifications`,
   messagingBase: `${PROD_ORIGIN}/api/messaging`,
-  integrationsBase: `${PROD_ORIGIN}/api/integrations`,
   telemetryBase: `${PROD_ORIGIN}/api/telemetry`,
   wsUrl: "wss://communication.rnrtechs.com/ws",
 };
@@ -45,7 +43,6 @@ export const DEV_ENDPOINTS: Endpoints = {
   taskBase: "http://localhost:8002",
   notificationBase: "http://localhost:8003",
   messagingBase: "http://localhost:8004",
-  integrationsBase: "http://localhost:8005",
   telemetryBase: "http://localhost:8006",
   wsUrl: "ws://localhost:8090/ws",
 };
@@ -68,7 +65,6 @@ export function resolveEndpoints(
     taskBase: pick("taskBase"),
     notificationBase: pick("notificationBase"),
     messagingBase: pick("messagingBase"),
-    integrationsBase: pick("integrationsBase"),
     telemetryBase: pick("telemetryBase"),
     wsUrl: pick("wsUrl"),
   };

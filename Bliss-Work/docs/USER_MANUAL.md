@@ -23,16 +23,11 @@ BlissWork is available both as a modern Web application and as an Electron Deskt
 4. [Desktop Sticky Notes & Browser Overlay](#4-desktop-sticky-notes--browser-overlay)
    - [Electron Desktop Stickies](#electron-desktop-stickies)
    - [In-Browser Floating Notes](#in-browser-floating-notes)
-5. [External Integrations & Hub Mentions](#5-external-integrations--hub-mentions)
-   - [Connecting External Apps (Slack, Gmail, Outlook, Teams)](#connecting-external-apps-slack-gmail-outlook-teams)
-   - [Setting Up Webhooks](#setting-up-webhooks)
-   - [Hub Mentions & Claiming Mentions as Tasks](#hub-mentions--claiming-mentions-as-tasks)
-   - [Mapping External Handles](#mapping-external-handles)
-6. [Organization & Account Administration](#6-organization--account-administration)
+5. [Organization & Account Administration](#5-organization--account-administration)
    - [Inviting & Managing Members](#inviting--managing-members)
    - [Leaving an Organization](#leaving-an-organization)
    - [Profile & Security Settings](#profile--security-settings)
-7. [Keyboard Shortcuts & Quick Reference](#7-keyboard-shortcuts--quick-reference)
+6. [Keyboard Shortcuts & Quick Reference](#6-keyboard-shortcuts--quick-reference)
 
 ---
 
@@ -43,7 +38,7 @@ BlissWork is available both as a modern Web application and as an Electron Deskt
 BlissWork can be accessed via any web browser or through the dedicated Electron desktop application:
 
 * **Web Application:** Access via your web browser (Default local URL: `http://localhost:5173`). Supported on Chrome, Edge, Firefox, and Safari.
-* **Electron Desktop Application:** Native application available for Windows (`.exe`), Linux (`AppImage`/`.deb`), and macOS. Provides always-on-top desktop sticky widgets that sit behind open application windows.
+* **Electron Desktop Application:** Native application available for Windows (`.exe`), Linux (`AppImage`/`.deb`), and macOS. Provides floating sticky task widgets that appear over BlissWork while you are using it and hide automatically the moment you switch to another application, so they never cover other work.
 
 ### Account Registration & Login
 
@@ -261,43 +256,7 @@ When using the Web version, floating sticky notes render directly inside the bro
 
 ---
 
-## 5. External Integrations & Hub Mentions
-
-BlissWork connects with external workplace tools (Slack, Gmail, Outlook, Microsoft Teams) to consolidate notifications and action items into a single dashboard.
-
-### Connecting External Apps (Slack, Gmail, Outlook, Teams)
-
-Navigate to **Integrations** (`/app/integrations`) to link accounts:
-
-| Provider | Method | Credentials Required |
-|---|---|---|
-| **Slack** | Token / Webhook | Bot Token (`xoxb-…`), Signing Secret |
-| **Gmail** | OAuth 2.0 | Google Account Sign-In |
-| **Outlook** | OAuth 2.0 | Microsoft Account Sign-In |
-| **Microsoft Teams** | OAuth 2.0 | Microsoft Account Sign-In |
-
-### Setting Up Webhooks
-
-1. **Webhook URL:** After connecting a provider (e.g. Slack), expand **Show Webhook Setup** on the connection card and copy the generated Webhook URL into the provider's developer dashboard.
-
-### Hub Mentions & Claiming Mentions as Tasks
-
-BlissWork deliberately filters out bulk noise (`@here`, `@channel`, marketing mail) and surfaces **ONLY direct `@mentions` targeting you** across connected platforms under **Mentions** (`/app/integrations`):
-
-* **Claim as Task:** Click **Claim** on any mention to instantly turn it into an internal BlissWork task allocated to yourself.
-* **Ignore Mention:** Click **Ignore** to dismiss the mention.
-
-### Mapping External Handles
-
-To ensure BlissWork recognizes external `@mentions` as belonging to you:
-
-1. Scroll to **My Handles** on the Integrations page.
-2. Click **+ Add handle**.
-3. Select the platform (e.g., Slack, Gmail) and enter your exact handle ID or email address.
-
----
-
-## 6. Organization & Account Administration
+## 5. Organization & Account Administration
 
 ### Inviting & Managing Members
 
@@ -331,7 +290,7 @@ Navigate to **Settings** (`/app/settings`) or click your profile avatar:
 
 ---
 
-## 7. Keyboard Shortcuts & Quick Reference
+## 6. Keyboard Shortcuts & Quick Reference
 
 | Shortcut | Action |
 |---|---|
@@ -342,4 +301,4 @@ Navigate to **Settings** (`/app/settings`) or click your profile avatar:
 ---
 
 > [!TIP]
-> For infrastructure setup, self-hosting details, or API key configuration, please refer to [`README.md`](file:///home/ubuntu/BlissWork/Bliss-Work/README.md) and [`docs/INTEGRATIONS-SETUP.md`](file:///home/ubuntu/BlissWork/Bliss-Work/docs/INTEGRATIONS-SETUP.md).
+> For infrastructure setup, self-hosting details, or API key configuration, please refer to [`README.md`](file:///home/ubuntu/BlissWork/Bliss-Work/README.md).

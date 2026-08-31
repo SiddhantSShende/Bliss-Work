@@ -215,7 +215,7 @@ func Load() (*Config, error) {
 // not merely a convenience for: org data is partitioned by site and never
 // replicated, so without the directory reaching every site, a request that lands
 // on the wrong one has no way to discover where its data actually lives.
-const defaultTopics = "messaging.events.v1,task.events.v1,notification.events.v1,integration.events.v1,auth.events,routing.events.v1"
+const defaultTopics = "messaging.events.v1,task.events.v1,notification.events.v1,auth.events,routing.events.v1"
 
 // OutboundStream is the name of the stream this region publishes into.
 func (c *Config) OutboundStream() string { return "EVENTS_OUT_" + Upper(c.Region) }

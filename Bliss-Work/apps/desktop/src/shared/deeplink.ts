@@ -15,12 +15,6 @@
  * Kept dependency-free (no electron import) for exactly that reason.
  */
 
-export interface OAuthDeepLink {
-  kind: "oauth";
-  connected?: string;
-  error?: string;
-}
-
 export interface InviteDeepLink {
   kind: "invite";
   token: string;
@@ -31,14 +25,14 @@ export interface MeetingDeepLink {
   token: string;
 }
 
-export type DeepLink = OAuthDeepLink | InviteDeepLink | MeetingDeepLink;
+export type DeepLink = InviteDeepLink | MeetingDeepLink;
 
 /**
  * Extract the host from a custom-scheme URL.
  *
  * Custom schemes are NOT special-scheme URLs, so the WHATWG parser treats them
- * as opaque: `taskboard://oauth?x=1` may expose "oauth" as `hostname` on one
- * platform and as `pathname` ("//oauth") on another, depending on how the OS
+ * as opaque: `taskboard://join?x=1` may expose "join" as `hostname` on one
+ * platform and as `pathname` ("//join") on another, depending on how the OS
  * handed us the string. Reading both is what makes this work cross-platform.
  */
 function hostOf(u: URL): string {
@@ -67,14 +61,6 @@ export function parseDeepLink(url: string | undefined | null): DeepLink | null {
   // query param — including an https one an attacker got into a shortcut —
   // would be treated as an invite.
   if (u.protocol !== "taskboard:") return null;
-
-  if (hostOf(u) === "oauth") {
-    return {
-      kind: "oauth",
-      connected: u.searchParams.get("connected") ?? undefined,
-      error: u.searchParams.get("error") ?? undefined,
-    };
-  }
 
   // Unlike `invite` below, this keys off the HOST rather than the param —
   // safe because only this codebase ever mints a taskboard://join link

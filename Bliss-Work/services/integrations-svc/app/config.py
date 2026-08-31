@@ -57,15 +57,6 @@ class Settings(BaseSettings):
     # clicked Claim rather than by a trusted service impersonating them.
     task_internal_base: str = "http://task-svc:8002"
 
-    # messaging-svc base + ITS OWN shared secret, for delivering a mail from a
-    # connected mailbox into the BlissWork inbox. Private-network only, and
-    # authenticated with messaging-svc's own internal token rather than a user
-    # JWT: the sweep that produces these runs on a timer with no caller to
-    # borrow an identity from, and messaging-svc decides for itself which
-    # members the mail's recipients resolve to.
-    messaging_internal_base: str = "http://messaging-svc:8004"
-    messaging_internal_token: str = Field(default="", validation_alias="MESSAGING_INTERNAL_TOKEN")
-
     # ── App-level OAuth client credentials (OUR developer apps) ─────────────────
     # Per-user tokens obtained through these flows are stored encrypted per-row.
     # All optional: a provider whose creds are unset is simply not connectable.
@@ -74,13 +65,6 @@ class Settings(BaseSettings):
     ms_client_id: str = ""
     ms_client_secret: str = ""
     ms_tenant: str = "common"
-
-    # App-level Slack signing secret (a Slack app has ONE signing secret). Used to
-    # verify inbound Events-API webhooks — including the url_verification handshake,
-    # which carries no team_id to resolve a per-connection secret. When unset, the
-    # per-connection signing secret (collected at connect time) is used for events.
-    slack_signing_secret: str = ""
-
 
     # Redis for distributed rate limiting (honest across replicas). Empty =
     # in-process fallback (per-replica, fails open). slowapi_storage_uri
@@ -125,8 +109,6 @@ class Settings(BaseSettings):
             problems.append("INTEGRATIONS_DATABASE_URL must use sslmode=verify-full in production")
         if not self.internal_token:
             problems.append("INTEGRATIONS_INTERNAL_TOKEN must be set in production")
-        if not self.messaging_internal_token:
-            problems.append("MESSAGING_INTERNAL_TOKEN must be set in production")
         if not self.public_base_url:
             problems.append("PUBLIC_BASE_URL must be set in production (OAuth/webhook callbacks)")
         if self.data_kek_provider == "kms":

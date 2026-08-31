@@ -45,10 +45,36 @@ describe("CallRoomLazy", () => {
     render(<CallRoom call={CALL} onClose={() => {}} />);
     await vi.advanceTimersByTimeAsync(15_000);
 
-    expect(
-      await screen.findByText("Something went wrong opening the meeting room."),
-    ).toBeTruthy();
+    const message = await screen.findByText("Something went wrong opening the meeting room.");
+    expect(message).toBeTruthy();
     expect(screen.getByRole("button", { name: "Reload" })).toBeTruthy();
+    // MeetingHost renders <CallRoom> as a plain sibling after whatever the
+    // router rendered — nothing else gives this an overlay context, so
+    // without fixed/inset-0 the Reload button rendered a full viewport
+    // below the current route's content: present in the DOM, invisible to
+    // the user, indistinguishable from the chunk never loading at all.
+    const overlay = message.parentElement;
+    expect(overlay?.className).toContain("fixed");
+    expect(overlay?.className).toContain("inset-0");
+    expect(overlay?.className).toContain("z-[100]");
+  });
+
+  it("keeps the loading placeholder on-screen (fixed overlay) rather than in normal document flow", async () => {
+    let resolveImport!: (v: { CallRoom: () => null }) => void;
+    vi.doMock(
+      "./CallRoom",
+      () => new Promise((resolve) => { resolveImport = resolve; }),
+    );
+    const { CallRoom } = await import("./CallRoomLazy");
+
+    render(<CallRoom call={CALL} onClose={() => {}} />);
+    const placeholder = await screen.findByText("Connecting…");
+    const overlay = placeholder.closest("div");
+    expect(overlay?.className).toContain("fixed");
+    expect(overlay?.className).toContain("inset-0");
+    expect(overlay?.className).toContain("z-[100]");
+
+    resolveImport({ CallRoom: () => null });
   });
 
   it("shows the same actionable error when the chunk import rejects outright", async () => {

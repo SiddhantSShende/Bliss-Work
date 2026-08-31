@@ -3,37 +3,13 @@
  *
  * These strings reach us from the OS — via `open-url`, `second-instance` argv,
  * or `process.argv` on a cold start — so they are untrusted input arriving on a
- * path the user did not consciously choose. Three kinds are handled: the
- * emailed invite link, the OAuth return, and a meeting join link.
+ * path the user did not consciously choose. Two kinds are handled: the
+ * emailed invite link and a meeting join link.
  */
 import { describe, it, expect } from "vitest";
 import { parseDeepLink, findDeepLink } from "./deeplink";
 
 describe("parseDeepLink", () => {
-  it("routes an OAuth return", () => {
-    expect(parseDeepLink("taskboard://oauth?connected=gmail")).toEqual({
-      kind: "oauth",
-      connected: "gmail",
-      error: undefined,
-    });
-  });
-
-  it("routes an OAuth failure", () => {
-    expect(parseDeepLink("taskboard://oauth?error=access_denied")).toEqual({
-      kind: "oauth",
-      connected: undefined,
-      error: "access_denied",
-    });
-  });
-
-  it("accepts the host in pathname form", () => {
-    // Custom schemes are opaque to the WHATWG parser, so depending on platform
-    // and how the OS handed us the string the host may land in `pathname`
-    // instead of `hostname`. Both must route identically.
-    const viaPath = parseDeepLink("taskboard:///oauth?connected=slack");
-    expect(viaPath).toMatchObject({ kind: "oauth", connected: "slack" });
-  });
-
   it("routes an emailed invite", () => {
     expect(parseDeepLink("taskboard://invite?token=abc123")).toEqual({
       kind: "invite",
@@ -83,7 +59,7 @@ describe("parseDeepLink", () => {
     ["https://evil.example/?token=stolen", "https with a token param"],
     ["file:///tmp/x?token=abc", "file with a token param"],
     ["javascript:void(0)?token=abc", "javascript"],
-    ["taskboardx://oauth?connected=gmail", "look-alike scheme"],
+    ["taskboardx://invite?token=abc", "look-alike scheme"],
     // Same case for the join/meeting branch and its `t` param.
     ["https://evil.example/join?t=stolen", "https join host with a t param"],
   ])("ignores %s (%s)", (input, _label) => {
@@ -111,9 +87,9 @@ describe("findDeepLink", () => {
     const argv = [
       "C:\\Users\\x\\AppData\\Local\\Programs\\BlissWork\\BlissWork.exe",
       "--allow-file-access-from-files",
-      "taskboard://oauth?connected=gmail",
+      "taskboard://invite?token=abc123",
     ];
-    expect(findDeepLink(argv)).toBe("taskboard://oauth?connected=gmail");
+    expect(findDeepLink(argv)).toBe("taskboard://invite?token=abc123");
   });
 
   it("returns undefined for an ordinary launch", () => {

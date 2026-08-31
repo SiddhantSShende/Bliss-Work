@@ -54,6 +54,22 @@ export const qk = {
    *  of the call, because the link EXPIRES and is refetched on a timer while
    *  the call row itself does not change. */
   callRecording: (callId: string) => ["calls", callId, "recording"] as const,
+  /** Finished meetings, keyset-paged.
+   *
+   *  A ROOT key of its own, deliberately not under ["calls"]. Everything under
+   *  that prefix is invalidated together on every call event, and this is an
+   *  infinite query — invalidating it refetches every page already scrolled
+   *  into, so a user who had paged back through a year of meetings would
+   *  re-download all of it each time somebody in the org joined a call.
+   *
+   *  It is invalidated explicitly on the one event that actually changes it: a
+   *  call ending is what moves a meeting into Past. See the CallEnded case. */
+  callHistory: ["callHistory"] as const,
+  /** A finished meeting's chat transcript and shared notes. Separate keys
+   *  because they are separate endpoints with separate cursors, and a meeting
+   *  can easily have one and not the other. */
+  callChat: (callId: string) => ["calls", callId, "chat"] as const,
+  callNotes: (callId: string) => ["calls", callId, "notes"] as const,
   /** Calls scheduled or live in one channel. */
   channelCalls: (channelId: string) => ["channelCalls", channelId] as const,
   directory: ["directory"] as const,
@@ -130,25 +146,12 @@ export const qk = {
    *  feed. A draft is in nobody's inbox_items, so there is no feed row to
    *  patch and nothing here shares a namespace with one. */
   mailDrafts: ["mailDrafts"] as const,
-  /** Connected external accounts (integrations-svc). */
-  integrations: ["integrations"] as const,
   /** Organizations the signed-in identity belongs to (org switcher). */
   myOrgs: ["myOrgs"] as const,
   /** The current org plus any pending deletion (admin-only). */
   org: ["org"] as const,
   /** The org's mandatory-MFA-for-admins policy + grace-period deadline (admin-only). */
   orgMfaSettings: ["orgMfaSettings"] as const,
-  /** Unified hub activity timeline (inbound + outbound external messages).
-   *  Audit surface — the Hub renders `mentions` instead. */
-  integrationActivity: ["integrationActivity"] as const,
-  /** "Someone tagged me" feed, per state tab. The bare ["mentions"] prefix
-   *  invalidates every tab at once, which is what a claim/ignore needs (a row
-   *  moves BETWEEN tabs, so refreshing only the source tab leaves the
-   *  destination stale). */
-  mentions: (state: string) => ["mentions", state] as const,
-  /** My declared/derived handles on external platforms. */
-  providerIdentities: ["providerIdentities"] as const,
-  appCredentials: ["appCredentials"] as const,
   inboxPins: ["inboxPins"] as const,
   /** Task ids pinned to the desktop (Electron-only; empty on web). */
   taskPins: ["taskPins"] as const,
@@ -216,6 +219,11 @@ export function WsEventBridge() {
           invalidate(qk.onCall);
           invalidate(qk.calls);
           invalidate(qk.call(e.callId));
+          // A call that has ENDED has just moved into the Past list, which is a
+          // separate paged read that the ["calls"] prefix deliberately does not
+          // reach (see qk.callHistory). Only on the end: scheduling one or
+          // adding somebody to one changes nothing about what is already over.
+          if (e.type === EventType.CallEnded) invalidate(qk.callHistory);
           if (e.channelId) {
             invalidate(qk.channelCalls(e.channelId));
           }
@@ -615,25 +623,6 @@ export function WsEventBridge() {
         }
         case EventType.NotificationCreated: {
           if (e.recipientId === me) invalidate(qk.notifications);
-          break;
-        }
-        case EventType.IntegrationActivityCreated: {
-          // Every message on a connected account lands here. Refresh the audit
-          // timeline but do NOT notify — a connected mailbox or Slack workspace
-          // produces constant traffic, and toasting all of it is the firehose
-          // the mentions feed exists to replace. Notification is the mention
-          // event's job, below.
-          if (e.recipientId === me) {
-            invalidate(qk.integrationActivity);
-          }
-          break;
-        }
-        case EventType.IntegrationMentionCreated: {
-          // Someone actually tagged me — this one is worth interrupting for.
-          if (e.recipientId === me) {
-            invalidate(["mentions"]);
-            if (live) toast(`You were mentioned on ${e.provider}`);
-          }
           break;
         }
         case EventType.MailDelivered: {
