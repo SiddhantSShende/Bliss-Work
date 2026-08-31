@@ -54,6 +54,33 @@ type ThreadDTO struct {
 //
 // Called from inside appendMessage (Phase 1 dual-write) under the same tx as
 // the message insert, so a partial failure rolls everything back.
+// lockConversationForRootSend takes the SELECT FOR UPDATE on the parent
+// conversation that guards a root send, WITHOUT creating anything yet.
+//
+// Split out of ensureThread (which used to take this lock and immediately
+// create the thread in the same call) so appendMessage can acquire the lock
+// — and only then run its idempotency check — before deciding whether a
+// thread needs creating at all. Locking after that check, the original
+// order, let two concurrent root-sends for the same clientMsgId both pass
+// the (unlocked) check, then both proceed to create their own thread once
+// each finally got the lock in turn: the second one's check had already run
+// before the first one committed, so it never saw the row that would have
+// stopped it. Postgres row locks are re-entrant within one transaction, so
+// ensureThread taking this same lock again below is a harmless no-op once a
+// thread genuinely needs creating.
+func lockConversationForRootSend(ctx context.Context, tx pgx.Tx, convID, orgID string) error {
+	var convOrg string
+	if err := tx.QueryRow(ctx,
+		`SELECT org_id FROM conversations WHERE id = $1 FOR UPDATE`, convID).
+		Scan(&convOrg); err != nil {
+		return err
+	}
+	if convOrg != orgID {
+		return ErrForbidden
+	}
+	return nil
+}
+
 func (s *Store) ensureThread(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -65,17 +92,8 @@ func (s *Store) ensureThread(
 	threadID = uuid.Must(uuid.NewV7()).String()
 	preview := truncatePreview(body)
 
-	// SELECT FOR UPDATE on the parent conversation guards against a concurrent
-	// second root-send winning the race and creating two threads for the same
-	// "first message" — the loser falls through to the existing row.
-	var convOrg string
-	if err = tx.QueryRow(ctx,
-		`SELECT org_id FROM conversations WHERE id = $1 FOR UPDATE`, convID).
-		Scan(&convOrg); err != nil {
+	if err = lockConversationForRootSend(ctx, tx, convID, orgID); err != nil {
 		return "", err
-	}
-	if convOrg != orgID {
-		return "", ErrForbidden
 	}
 
 	// Encrypt the subject preview under the org DEK (created lazily in this tx);

@@ -260,17 +260,74 @@ func (s *Store) appendMessage(
 		body = screenshotAttemptBody(senderDisplay, senderName)
 	}
 
-	// Idempotency: include thread_id in the lookup so a per-thread clientMsgId
-	// dedupe matches the new wider UNIQUE constraint. The pre-check is cheaper
-	// than catching the unique-violation, and importantly the second-write
-	// rollback would lose the inbox_items upserts.
+	msgID := opts.messageID
+	if msgID == "" {
+		msgID = uuid.Must(uuid.NewV7()).String()
+	}
+
+	// Resolve (or, for a top-level send, lock the conversation for) the
+	// thread BEFORE checking idempotency — not after, as this used to. Two
+	// reasons, one per case below:
+	//
+	//   - A reply's thread has to be known before the check runs because the
+	//     UNIQUE constraint this check stands in for is keyed on thread_id.
+	//     Checking without it can match an EARLIER message in a DIFFERENT
+	//     thread that happens to share this sender+clientMsgId, and silently
+	//     hand back that unrelated message's id instead of ever creating the
+	//     one this call was actually asked to send.
+	//
+	//   - A top-level send has no thread yet — one is about to be created —
+	//     so locking the conversation (lockConversationForRootSend) is what
+	//     has to happen before the check instead: two concurrent sends of the
+	//     same brand-new clientMsgId used to both pass the check unlocked,
+	//     then each mint its OWN fresh thread once it in turn got the lock
+	//     ensureThread took only at that later point — different thread ids,
+	//     so the (correctly thread_id-aware) UNIQUE constraint never caught
+	//     it either. Locking first serializes them: the loser's check, now
+	//     running after the winner has committed, finds the winner's row.
+	var (
+		threadID  string
+		parentArg *string
+		origin    = opts.origin
+	)
+	switch {
+	case parentMessageID != "":
+		// Reply with explicit parent — inherit parent's thread.
+		var err error
+		threadID, _, _, err = resolveThreadForReply(ctx, tx, convID, parentMessageID)
+		if err != nil {
+			return nil, err
+		}
+		parentArg = &parentMessageID
+	case threadIDHint != "":
+		// Server-chosen thread (legacy reply with no parent).
+		threadID = threadIDHint
+	default:
+		// Top-level. threadID stays "" — a genuinely new send creates one
+		// further down, once the idempotency check below confirms this is
+		// not a retry.
+		if err := lockConversationForRootSend(ctx, tx, convID, orgID); err != nil {
+			return nil, err
+		}
+	}
+
+	// Idempotency. threadID is either resolved (a reply) or intentionally
+	// still empty (a top-level send, whose conversation is now locked above)
+	// — never checked before one of those two is true, per the comment above.
+	// The pre-check is cheaper than catching the unique-violation, and
+	// importantly the second-write rollback would lose the inbox_items
+	// upserts.
+	idemptQuery := `SELECT id, seq, thread_id FROM messages
+		 WHERE conversation_id = $1 AND sender_id = $2 AND client_msg_id = $3`
+	idemptArgs := []any{convID, senderID, clientMsgID}
+	if threadID != "" {
+		idemptQuery += ` AND thread_id = $4`
+		idemptArgs = append(idemptArgs, threadID)
+	}
 	var existingID string
 	var existingSeq int64
 	var existingThread *string
-	err := tx.QueryRow(ctx,
-		`SELECT id, seq, thread_id FROM messages
-		 WHERE conversation_id = $1 AND sender_id = $2 AND client_msg_id = $3`,
-		convID, senderID, clientMsgID).Scan(&existingID, &existingSeq, &existingThread)
+	err := tx.QueryRow(ctx, idemptQuery, idemptArgs...).Scan(&existingID, &existingSeq, &existingThread)
 	if err == nil {
 		if cerr := tx.Commit(ctx); cerr != nil {
 			return nil, cerr
@@ -294,39 +351,15 @@ func (s *Store) appendMessage(
 		return nil, err
 	}
 
-	msgID := opts.messageID
-	if msgID == "" {
-		msgID = uuid.Must(uuid.NewV7()).String()
-	}
-
-	// Resolve thread & parent before INSERT so the row carries the right keys.
-	var (
-		threadID     string
-		isThreadRoot bool
-		parentArg    *string
-		origin       = opts.origin
-	)
-	switch {
-	case parentMessageID != "":
-		// Reply with explicit parent — inherit parent's thread.
-		var rootSender, rootRecipient string
-		threadID, rootSender, rootRecipient, err = resolveThreadForReply(ctx, tx, convID, parentMessageID)
-		_ = rootSender
-		_ = rootRecipient
-		if err != nil {
-			return nil, err
-		}
-		parentArg = &parentMessageID
-	case threadIDHint != "":
-		// Server-chosen thread (legacy reply with no parent).
-		threadID = threadIDHint
-	default:
-		// Top-level — create a new thread with THIS message as root.
+	isThreadRoot := threadID == ""
+	if isThreadRoot {
+		// ensureThread re-takes the same lock acquired above — a harmless
+		// no-op re-entrant lock within one transaction — and actually
+		// creates the thread now that this is confirmed to be new.
 		threadID, err = s.ensureThread(ctx, tx, orgID, convID, msgID, senderID, recipientID, body, origin)
 		if err != nil {
 			return nil, err
 		}
-		isThreadRoot = true
 	}
 
 	// A reply lives in whatever kind of thread it joined; only a NEW thread gets
