@@ -234,7 +234,18 @@ func (s *Store) ListInbox(
 			} else if r.previewPln != nil {
 				it.Preview = *r.previewPln
 			}
-			it.LastEventAt = r.lastAt.UTC().Format("2006-01-02T15:04:05.000Z")
+			// RFC3339Nano, not the millisecond-truncated format used for
+			// display-only timestamps elsewhere in this package: this value
+			// becomes the next page's cursor below, and last_event_at is a
+			// microsecond-precision timestamptz. On a busy inbox — this
+			// package's own docs call it the busiest service in the platform —
+			// two rows landing in the same millisecond is routine, and a
+			// cursor truncated to millisecond precision silently drops
+			// whichever one falls strictly between the truncated cursor and
+			// the true boundary row's timestamp: it matches neither page's
+			// WHERE clause. decodeInboxCursor already parses with
+			// RFC3339Nano; only the encode side was still truncating.
+			it.LastEventAt = r.lastAt.UTC().Format(time.RFC3339Nano)
 			items = append(items, it)
 		}
 		return nil
