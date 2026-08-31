@@ -480,8 +480,19 @@ func (s *Store) ReapExpiredAttachments(ctx context.Context, limit int) ([]Expire
 			)
 			SELECT g.org_id::text, g.sha256 FROM gone g
 			WHERE NOT EXISTS (
+				-- Every sub-statement of a data-modifying WITH query runs against
+				-- the SAME pre-DELETE snapshot, so a plain scan of attachments
+				-- here would always find each doomed row's own about-to-be-deleted
+				-- self as a "sibling" and this would always come back empty. The
+				-- doomed CTE above is a plain read-only SELECT, computed once and
+				-- unaffected by the DELETE, so excluding its ids is what actually
+				-- asks "is there a surviving row with this content" instead of
+				-- "did the DELETE run" (see outbox.go's recordPublishFailure for
+				-- the same CTE-snapshot mistake caught once already, in a
+				-- different shape).
 				SELECT 1 FROM attachments k
 				WHERE k.org_id = g.org_id AND k.sha256 = g.sha256
+				  AND k.id NOT IN (SELECT id FROM doomed)
 			)`, limit)
 		if err != nil {
 			return err
