@@ -198,6 +198,22 @@ func Load() (*Config, error) {
 	if len(c.KafkaBrokers) == 0 {
 		return nil, fmt.Errorf("KAFKA_BROKERS is required")
 	}
+	// Mirrors the Python services' TB_ENV=production fail-closed check
+	// (auth-svc/app/config.py _enforce_prod_safety): the dev KEK
+	// passphrase/salt are public, committed-to-source values, so leaving
+	// them in place in production would encrypt every message body, mail,
+	// and call transcript with a key anyone can read in the repo. Fail
+	// loudly at boot rather than silently running with no real
+	// confidentiality at rest.
+	tbEnv := strings.ToLower(strings.TrimSpace(getenv("TB_ENV", "development")))
+	if tbEnv == "production" || tbEnv == "prod" {
+		if c.Data.MasterPassphrase == "dev-master-passphrase-change-me" {
+			return nil, fmt.Errorf("DATA_MASTER_PASSPHRASE is still the dev default; refusing to start in production")
+		}
+		if c.Data.MasterSalt == "dev-master-salt-change-me-16+bytes" {
+			return nil, fmt.Errorf("DATA_MASTER_SALT is still the dev default; refusing to start in production")
+		}
+	}
 	// Required, with no default, deliberately. This key signs every attachment
 	// download URL: a defaulted or guessable value is not a degraded mode, it is
 	// a universal read primitive over every file in every org. Fail at boot.
