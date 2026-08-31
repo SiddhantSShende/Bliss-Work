@@ -150,6 +150,13 @@ type mailAuthor struct {
 
 // loadSendableDraft checks the draft exists, belongs to the caller, and has not
 // already been sent, then returns the From identity to stamp on it.
+//
+// FOR UPDATE OF m: locks the same row requireOwnDraft locks (mail.go), for the
+// same reason — without it, this and a concurrent DiscardMailDraft /
+// SaveMailDraft / RemoveDraftAttachment can each see DRAFT before either
+// commits. "OF m" rather than a bare FOR UPDATE because user_projection is on
+// the nullable side of the LEFT JOIN; Postgres refuses to lock across an outer
+// join, and the author's identity row is not what needs locking here anyway.
 func loadSendableDraft(ctx context.Context, tx pgx.Tx, orgID, userID, mailID string) (mailAuthor, error) {
 	var a mailAuthor
 	var author *string
@@ -159,7 +166,8 @@ func loadSendableDraft(ctx context.Context, tx pgx.Tx, orgID, userID, mailID str
 		       COALESCE(up.email, ''), COALESCE(up.display_name, up.username, '')
 		FROM mail_messages m
 		LEFT JOIN user_projection up ON up.user_id = m.author_user_id
-		WHERE m.id = $1 AND m.org_id = $2`,
+		WHERE m.id = $1 AND m.org_id = $2
+		FOR UPDATE OF m`,
 		mailID, orgID).Scan(&author, &status, &a.address, &a.name)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return a, ErrNotFound
@@ -200,13 +208,26 @@ func (s *Store) writeSentMail(
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `
+	// The status='DRAFT' predicate is belt-and-suspenders on top of
+	// loadSendableDraft's FOR UPDATE lock (which is what actually prevents two
+	// concurrent sends of the same draft) — but checking RowsAffected is what
+	// makes that predicate mean something. A 0-row match here must fail the
+	// send, not be treated as success: every write below this point (recipient
+	// rows, in-app delivery, the outbound Kafka batch) assumes it just flipped
+	// the mail to SENT for the first time.
+	tag, err := tx.Exec(ctx, `
 		UPDATE mail_messages
 		SET status = 'SENT', subject_enc = $3, body_text_enc = $4,
 		    from_address_enc = $5, from_name_enc = $6, sent_at = $7, updated_at = now()
 		WHERE id = $1 AND org_id = $2 AND status = 'DRAFT'`,
 		in.MailID, in.OrgID, subjectEnc, bodyEnc, fromEnc, nameEnc, sentAt)
-	return err
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrMailAlreadySent
+	}
+	return nil
 }
 
 // writeMailRecipients stores the To/Cc/Bcc header, addresses encrypted.

@@ -175,9 +175,23 @@ func (s *Store) DiscardMailDraft(ctx context.Context, orgID, userID, mailID stri
 		if err := requireOwnDraft(ctx, tx, orgID, userID, mailID); err != nil {
 			return err
 		}
-		// mail_recipients / mail_deliveries cascade off this row.
-		_, err := tx.Exec(ctx, `DELETE FROM mail_messages WHERE id = $1 AND org_id = $2`, mailID, orgID)
-		return err
+		// The status predicate here is belt-and-suspenders on top of the FOR
+		// UPDATE lock requireOwnDraft just took: that lock is what actually
+		// stops a concurrent SendMail from being deleted out from under its own
+		// recipients (mail_recipients / mail_deliveries cascade off this row),
+		// but a bare DELETE with no predicate of its own would silently do the
+		// wrong thing the moment anything ever calls this without going through
+		// requireOwnDraft first.
+		tag, err := tx.Exec(ctx,
+			`DELETE FROM mail_messages WHERE id = $1 AND org_id = $2 AND status = 'DRAFT'`,
+			mailID, orgID)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrMailAlreadySent
+		}
+		return nil
 	})
 }
 
@@ -187,12 +201,21 @@ func (s *Store) DiscardMailDraft(ctx context.Context, orgID, userID, mailID stri
 // One definition because the three failures are meaningfully different and each
 // caller must report the same one — a draft somebody else owns is ErrForbidden,
 // not ErrNotFound, and a draft that has already left is neither.
+//
+// FOR UPDATE: every caller of this function goes on to write based on the
+// status it returns (delete the row, overwrite the body, drop an attachment).
+// A plain SELECT here would let one of those writes run concurrently with
+// SendMail's own status flip — both transactions see DRAFT, SendMail commits
+// first, and the other proceeds to mutate (or delete) a mail that has already
+// gone out to other people. The lock is what makes "read DRAFT, then act on
+// it" a single atomic step for the lifetime of the caller's transaction.
 func requireOwnDraft(ctx context.Context, tx pgx.Tx, orgID, userID, mailID string) error {
 	var author *string
 	var status string
 	err := tx.QueryRow(ctx, `
 		SELECT author_user_id::text, status FROM mail_messages
-		WHERE id = $1 AND org_id = $2`, mailID, orgID).Scan(&author, &status)
+		WHERE id = $1 AND org_id = $2
+		FOR UPDATE`, mailID, orgID).Scan(&author, &status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	}
