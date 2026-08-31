@@ -230,12 +230,13 @@ export function listPreview(body: string, isOwn?: boolean): string {
   const envelope = parseChatEnvelope(body);
   if (!envelope) {
     const text = readablePrefix(body);
-    // Same treatment as an image/file message: when the WHOLE body is one
-    // link with no other words around it, the raw URL is a worse preview
-    // than naming what it is. A link that's part of a longer sentence still
-    // shows the sentence — there is real text there worth previewing.
+    // Same treatment as an image/file message: a raw URL in the list preview
+    // exposes where a link points before the recipient has opened the chat,
+    // so any message containing a link — bare, or with surrounding text —
+    // is named rather than shown verbatim. The full text (link included)
+    // still renders normally inside the conversation itself.
     const segments = linkifyMessage(text);
-    if (segments.length === 1 && segments[0]?.type === "link") {
+    if (segments.some((segment) => segment.type === "link")) {
       return isOwn === false ? "Link received" : "Link sent";
     }
     return text;

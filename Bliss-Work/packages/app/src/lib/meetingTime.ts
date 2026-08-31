@@ -42,18 +42,23 @@ export function timeLabel(t: number): string {
 }
 
 /**
- * The one line a card prints for "when": the day, the start time, and — only
- * once a call has actually finished — the time it ended.
+ * The one line a card prints for "when": the day, the start time, and an end
+ * time wherever one is known.
  *
- * The end is deliberately absent while a call is live: `endedAt` is not set yet,
- * and a scheduled call carries no duration anywhere in the API, so anything
- * printed there would be invented.
+ * `endedAt` (the ACTUAL end) wins once a call has genuinely finished; before
+ * that, `endsAt` (the PLANNED end — every scheduling endpoint's own
+ * durationMinutes, see calls.go's parseSchedule) is shown instead, so an
+ * upcoming or live call whose organiser gave it a length says so rather than
+ * only ever showing one once it is already over. Absent entirely for a call
+ * with neither — "No end time" is a real, deliberate choice (ScheduleCallDialog's
+ * own option), and printing anything there would be invented.
  */
 export function whenLabel(c: CallDTO): string {
   const start = whenOf(c);
   const line = `${dayLabel(start)}, ${timeLabel(start)}`;
-  if (!c.endedAt) return line;
-  const end = new Date(c.endedAt).getTime();
+  const endIso = c.endedAt || c.endsAt;
+  if (!endIso) return line;
+  const end = new Date(endIso).getTime();
   // A call that ran past midnight ends on a different day than it started, and
   // "9:40 PM – 12:10 AM" reads as a typo unless the day comes with it.
   const sameDay = startOfDay(end) === startOfDay(start);

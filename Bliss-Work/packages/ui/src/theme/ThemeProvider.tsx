@@ -9,7 +9,7 @@ const ThemeCtx = createContext<{
   setTheme: (theme: ThemeId) => void;
   toggle: () => void;
 }>({
-  theme: "blue",
+  theme: "default",
   isDark: false,
   setTheme: () => {},
   toggle: () => {},

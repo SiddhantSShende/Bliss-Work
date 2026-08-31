@@ -7,6 +7,30 @@
  * the app shell would put a sidebar beside a video grid in a window that exists
  * to hold the video grid.
  *
+ * ── Renders CallRoom directly ────────────────────────────────────────────────
+ * This used to hand the call to `MeetingSession`/`MeetingHost` (`enter(call)`)
+ * and show a static "Joining the meeting…" placeholder, trusting a component
+ * mounted elsewhere in the tree to pick it up and render the room over it. That
+ * placeholder had no connection to whether the hand-off actually worked — no
+ * signal back if `MeetingHost` never rendered the room, if its lazy chunk
+ * failed, or if the pre-join screen (the thing that actually requests the
+ * meeting token — see CallRoom's `preJoin`) never appeared for the user to
+ * click. Any hiccup there left the tab exactly on that placeholder forever,
+ * with no token request ever made, and nothing on screen to say why.
+ *
+ * This route now owns the room directly: fetch the call, then render `CallRoom`
+ * (still lazy — see features/CallRoomLazy) itself. `MeetingSession`/
+ * `MeetingHost` remain exactly as they were for every OTHER way a meeting is
+ * entered (Meetings, ChannelView, JoinCallView, the call-started toast) — this
+ * tab's whole reason to exist is the meeting, so it does not need a piece of
+ * state that lets a meeting survive navigating to some other page. It renders
+ * inside `<MeetingSessionContext.Provider value={null}>` for the same reason:
+ * CallRoom already has a "no session" mode (built for its own dev-preview
+ * harness) that shows no Minimise control and no MiniMeeting bubble, which is
+ * the right behaviour here — the app-wide session's `minimize()` would
+ * navigate this very tab to /app/meetings, tearing down the room this route
+ * itself is now responsible for keeping mounted.
+ *
  * Closing behaves like whatever this tab is. One this app opened can close
  * itself; one someone bookmarked or reloaded into cannot — `window.close()` is
  * refused for a tab the script did not open — so that case goes back to
@@ -26,7 +50,8 @@ import { Button, EmptyState } from "@taskboard/ui";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { OPENED_BY_APP_PARAM, closeMeetingTab, rememberMeetingTab } from "../lib/callWindow";
-import { useMeetingSession } from "../lib/MeetingSession";
+import { MeetingSessionContext } from "../lib/MeetingSession";
+import { CallRoom } from "../features/CallRoomLazy";
 
 /**
  * How long this route waits for the meeting overlay (MeetingHost/CallRoom) to
@@ -43,12 +68,13 @@ export function CallWindow() {
   const [params] = useSearchParams();
   const { api } = useRuntime();
   const nav = useNavigate();
-  const { enter, call: active } = useMeetingSession();
+  const [retrying, setRetrying] = useState(false);
 
   const {
     data: call,
     isError,
     isLoading,
+    refetch,
   } = useQuery({
     queryKey: qk.call(callId),
     queryFn: () => api.call(callId),
@@ -71,25 +97,20 @@ export function CallWindow() {
     closeMeetingTab(() => nav("/app/meetings", { replace: true }));
   }, [nav]);
 
-  /**
-   * Hand the meeting to the session that lives above the router.
-   *
-   * This route does NOT render the room. A room mounted by a route dies the
-   * moment the user goes anywhere — that unmount is what disconnects and posts
-   * the leave — so the meeting is owned one level up and this page only asks
-   * for it. What stays here is the tab's own business: its title, and what
-   * closing it means.
-   */
+  // By the time this route renders at all, RequireAuth + SessionBootstrap
+  // (App.tsx) have already resolved a session — there is no unauthenticated
+  // path into this component.
   useEffect(() => {
-    // A call already ENDED/CANCELLED is not something to connect into — same
-    // exclusion RejoinPrompt (MeetingHost.tsx) already applies to its own
-    // reload-recovery path. Without this, a hard refresh landing here for a
-    // call that ended while the tab was gone would still hand it to the room,
-    // which only discovers the problem later via LiveKit's own connect
-    // timeout — a needless "Connecting…" instead of an immediate answer.
-    if (!call || call.status === "ENDED" || call.status === "CANCELLED" || active?.id === call.id) return;
-    enter(call, close);
-  }, [call, active?.id, enter, close]);
+    console.debug("[CALL WINDOW] Session initialized");
+  }, []);
+
+  useEffect(() => {
+    if (callId) console.debug("[CALL WINDOW] Loading call:", callId);
+  }, [callId]);
+
+  useEffect(() => {
+    if (call) console.debug("[CALL WINDOW] Call loaded");
+  }, [call]);
 
   // A bounded backstop for the same handoff: if the overlay hasn't taken over
   // within HANDOFF_TIMEOUT_MS of a valid call loading, offer a reload instead
@@ -115,15 +136,49 @@ export function CallWindow() {
     };
   }, [call]);
 
+  const retry = () => {
+    setRetrying(true);
+    void refetch().finally(() => setRetrying(false));
+  };
+
   if (isLoading) {
     return (
       <div className="flex h-full items-center justify-center bg-surface text-sm text-muted">
-        Opening the meeting…
+        Loading meeting…
       </div>
     );
   }
 
-  if (isError || !call || call.status === "ENDED" || call.status === "CANCELLED") {
+  // The call row itself could not be fetched at all — a network failure, or an
+  // invalid/unknown call id. Distinct from "the meeting ended" below: this is
+  // something a retry can plausibly fix, that one is not.
+  if (isError || !call) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-4 bg-surface p-6">
+        <EmptyState
+          icon={<AlertCircle size={24} />}
+          title="Unable to load this meeting."
+          hint="Check your connection and try again."
+        />
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={close}>
+            Return to Meetings
+          </Button>
+          <Button size="sm" onClick={retry} disabled={retrying}>
+            {retrying ? "Retrying…" : "Retry"}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // A call already ENDED/CANCELLED is not something to connect into — same
+  // exclusion RejoinPrompt (MeetingHost.tsx) applies to its own reload-recovery
+  // path. Without this, a hard refresh landing here for a call that ended
+  // while the tab was gone would hand it to the room, which only discovers the
+  // problem later via LiveKit's own connect timeout — a needless "Connecting…"
+  // instead of an immediate answer.
+  if (call.status === "ENDED" || call.status === "CANCELLED") {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 bg-surface p-6">
         <EmptyState
@@ -153,9 +208,10 @@ export function CallWindow() {
     );
   }
 
+  console.debug("[CALL WINDOW] Rendering CallRoom directly");
   return (
-    <div className="flex h-full items-center justify-center bg-surface text-sm text-muted">
-      Joining the meeting…
-    </div>
+    <MeetingSessionContext.Provider value={null}>
+      <CallRoom call={call} onClose={close} />
+    </MeetingSessionContext.Provider>
   );
 }

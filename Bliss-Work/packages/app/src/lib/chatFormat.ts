@@ -66,6 +66,25 @@ export function linkifyMessage(body: string): MessageSegment[] {
   return segments;
 }
 
+/**
+ * True when `text`, as a whole, is nothing but a single URL — no surrounding
+ * words, no second URL. Built on `linkifyMessage` rather than a second regex,
+ * so "is this a link" can never disagree between what gets sent and what
+ * later renders as one.
+ *
+ * Used by useChatMedia's paste/drop handlers to tell a genuine link paste/drop
+ * apart from a file: the OS clipboard/drag payload for copying or dragging a
+ * link can carry a synthetic file entry (e.g. an Internet Shortcut) alongside
+ * the very same URL text, particularly on Electron's bundled Chromium — a
+ * file-kind item alone is not proof of an actual file.
+ */
+export function isUrlOnly(text: string): boolean {
+  const segments = linkifyMessage(text);
+  if (segments.length !== 1) return false;
+  const only = segments[0];
+  return only !== undefined && only.type === "link" && only.value === text;
+}
+
 /** HH:MM for a message timestamp. */
 export function clock(iso?: string): string {
   if (!iso) return "";

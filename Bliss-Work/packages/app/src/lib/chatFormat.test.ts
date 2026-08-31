@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { linkifyMessage } from "./chatFormat";
+import { isUrlOnly, linkifyMessage } from "./chatFormat";
 
 describe("linkifyMessage", () => {
   it("turns a plain call URL into a single link segment", () => {
@@ -107,5 +107,43 @@ describe("linkifyMessage", () => {
     const body = 'Join my call: https://x.example.com/join?t=ABC123 — see you there!';
     const segments = linkifyMessage(body);
     expect(segments.map((s) => s.value).join("")).toBe(body);
+  });
+});
+
+describe("isUrlOnly", () => {
+  it("is true for a bare URL and nothing else", () => {
+    expect(isUrlOnly("https://example.com")).toBe(true);
+  });
+
+  it("is true for a bare URL with a path and query string", () => {
+    expect(isUrlOnly("https://example.com/join?t=ABC123&x=1")).toBe(true);
+  });
+
+  it("is false for a URL with surrounding words", () => {
+    expect(isUrlOnly("see https://example.com for details")).toBe(false);
+  });
+
+  it("is false for two URLs, even with nothing else", () => {
+    expect(isUrlOnly("https://a.example.com https://b.example.com")).toBe(false);
+  });
+
+  it("is false for plain text with no URL at all", () => {
+    expect(isUrlOnly("just a normal message")).toBe(false);
+  });
+
+  it("is false for an empty string", () => {
+    expect(isUrlOnly("")).toBe(false);
+  });
+
+  it("is false for a non-http(s) scheme", () => {
+    expect(isUrlOnly("javascript:alert(1)")).toBe(false);
+    expect(isUrlOnly("mailto:a@b.com")).toBe(false);
+  });
+
+  it("is false once trailing punctuation is trimmed off the URL, leaving stray text", () => {
+    // linkifyMessage trims a trailing "." into its own text segment — so
+    // "https://example.com." is a link segment PLUS a one-character text
+    // segment, not a single bare-URL segment.
+    expect(isUrlOnly("https://example.com.")).toBe(false);
   });
 });

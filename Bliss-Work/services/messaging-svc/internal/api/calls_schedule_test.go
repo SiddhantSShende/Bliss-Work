@@ -100,5 +100,72 @@ func TestParseScheduleRefusesADurationItWillNotHonour(t *testing.T) {
 	}
 }
 
+func rfc3339(t time.Time) string {
+	return t.UTC().Format(time.RFC3339)
+}
+
+func TestParseScheduleAcceptsAnEmptyScheduledAtAsStartNow(t *testing.T) {
+	sc, ok := parseSchedule(scheduleCallReq{Title: "Weekly review"})
+	if !ok {
+		t.Fatal("parseSchedule rejected a request with no scheduledAt at all")
+	}
+	if sc.At != nil {
+		t.Errorf("At = %v, want nil for start-now", sc.At)
+	}
+}
+
+func TestParseScheduleAcceptsAFutureScheduledAt(t *testing.T) {
+	at := time.Now().Add(time.Hour)
+	sc, ok := parseSchedule(scheduleCallReq{Title: "Weekly review", ScheduledAt: rfc3339(at)})
+	if !ok {
+		t.Fatal("parseSchedule rejected a plain future scheduledAt")
+	}
+	if sc.At == nil {
+		t.Fatal("At is nil for a future scheduledAt")
+	}
+	if diff := sc.At.Sub(at).Abs(); diff > time.Second {
+		t.Errorf("At = %v, want ~%v (diff %v)", sc.At, at, diff)
+	}
+}
+
+func TestParseScheduleRejectsAMalformedScheduledAt(t *testing.T) {
+	if _, ok := parseSchedule(scheduleCallReq{Title: "x", ScheduledAt: "not-a-date"}); ok {
+		t.Error("parseSchedule accepted a scheduledAt that is not RFC3339")
+	}
+}
+
+// THE new rule: a meeting cannot be put in the past. "Start now" is what an
+// omitted scheduledAt already means (see the test above) — a genuinely past
+// date is never a real schedule request.
+func TestParseScheduleRejectsAScheduledAtWellInThePast(t *testing.T) {
+	at := time.Now().Add(-24 * time.Hour)
+	if _, ok := parseSchedule(scheduleCallReq{Title: "x", ScheduledAt: rfc3339(at)}); ok {
+		t.Error("parseSchedule accepted a scheduledAt 24 hours in the past")
+	}
+}
+
+// The grace window absorbs ordinary clock skew and the gap between a client
+// picking a time and the request arriving — it must not reject a value that
+// was valid the instant it was chosen.
+func TestParseScheduleAcceptsAScheduledAtJustInsideTheGraceWindow(t *testing.T) {
+	at := time.Now().Add(-10 * time.Second)
+	if _, ok := parseSchedule(scheduleCallReq{Title: "x", ScheduledAt: rfc3339(at)}); !ok {
+		t.Error("parseSchedule rejected a scheduledAt only 10s in the past")
+	}
+}
+
+func TestParseScheduleRejectsBadMedia(t *testing.T) {
+	if _, ok := parseSchedule(scheduleCallReq{Title: "x", Media: "holographic"}); ok {
+		t.Error("parseSchedule accepted an unknown media value")
+	}
+}
+
+func TestParseScheduleDefaultsMediaToVideo(t *testing.T) {
+	sc, ok := parseSchedule(scheduleCallReq{Title: "x"})
+	if !ok || sc.Media != "video" {
+		t.Errorf("Media = %q, ok = %v, want %q, true", sc.Media, ok, "video")
+	}
+}
+
 func ptr(t time.Time) *time.Time { return &t }
 func intPtr(n int) *int          { return &n }

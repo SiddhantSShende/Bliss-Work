@@ -10,10 +10,10 @@
  *                              glass tints).
  *   - one of the FAMILY_CLASSES below, or none → which colour family. "Blue"
  *     is the app's original palette and needs no extra class (bare
- *     `:root`/`.dark` in theme.css already IS Blue); the other three each
+ *     `:root`/`.dark` in theme.css already IS Blue); the other families each
  *     layer their own class on top, exactly like "Blue" would if it had one.
  *
- * Only the four LIGHT ids are offered in Settings — see THEMES vs.
+ * Only the five LIGHT ids are offered in Settings — see THEMES vs.
  * DARK_THEMES below. The dark ids exist only to be reached via
  * ThemeProvider's toggle (Profile → Dark Mode), never picked directly: a
  * dark id selected directly would have no "which light theme was this dark
@@ -26,6 +26,8 @@
  * ThemeProvider derives its light↔dark pairing from the two arrays' order.
  */
 export type ThemeId =
+  | "default"
+  | "default-dark"
   | "blue"
   | "blue-dark"
   | "rose"
@@ -33,9 +35,7 @@ export type ThemeId =
   | "purple"
   | "purple-dark"
   | "teal"
-  | "teal-dark"
-  | "lime"
-  | "lime-dark";
+  | "teal-dark";
 
 export interface ThemeDef {
   id: ThemeId;
@@ -46,23 +46,25 @@ export interface ThemeDef {
 /** The non-"dark" class each family layers on top of the light/dark axis.
  *  Blue has none — see the module doc comment above. */
 const FAMILY_CLASSES: Partial<Record<ThemeId, string>> = {
+  default: "default",
   rose: "rose",
   purple: "purple",
   teal: "teal",
-  lime: "lime",
 };
 
-/** Every family's light class-set. Family order here is menu order. Lime is
- *  the pre-rework Graphite+Lime palette, brought back as a proper fifth
- *  family (its own light/dark pair, like the other four) rather than the
- *  old system's separate "lime layered on the light/dark axis" toggle —
- *  same accent colours, current architecture. */
+/** Every family's light class-set. Family order here is menu order — Default
+ *  first, since it's the app's fallback for anyone with no saved preference
+ *  (see DEFAULT_THEME below). Default's own CSS block (`.default`/
+ *  `.dark.default` in theme.css) carries BlissWork's original/current
+ *  branding — the palette every user saw before the other colour families
+ *  existed, preserved under its own id so it stays stable even if another
+ *  family's values are tweaked later. */
 const FAMILIES: readonly { id: Exclude<ThemeId, `${string}-dark`>; name: string }[] = [
+  { id: "default", name: "Default" },
   { id: "rose", name: "Red / Rose" },
   { id: "blue", name: "Blue" },
   { id: "purple", name: "Purple" },
   { id: "teal", name: "Cyan / Teal" },
-  { id: "lime", name: "Lime" },
 ];
 
 function classesFor(family: string, dark: boolean): readonly string[] {
@@ -90,7 +92,7 @@ const DARK_THEMES: readonly ThemeDef[] = FAMILIES.map(({ id, name }) => ({
  *  or storage unavailable) — see readStoredTheme in ThemeProvider.tsx. Looked
  *  up by id rather than a positional THEMES[n] index so this stays correct if
  *  FAMILIES is ever reordered. */
-const DEFAULT_THEME: ThemeDef = THEMES.find((t) => t.id === "purple")!;
+const DEFAULT_THEME: ThemeDef = THEMES.find((t) => t.id === "default")!;
 
 const ALL_THEMES: readonly ThemeDef[] = [...THEMES, ...DARK_THEMES];
 const ALL_THEME_IDS: readonly ThemeId[] = ALL_THEMES.map((t) => t.id);

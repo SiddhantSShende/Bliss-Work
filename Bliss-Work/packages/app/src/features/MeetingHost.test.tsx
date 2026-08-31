@@ -16,7 +16,10 @@ const enter = vi.fn();
 const exit = vi.fn();
 vi.mock("../lib/MeetingSession", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/MeetingSession")>();
-  return { ...actual, useMeetingSession: () => ({ call: null, enter, exit }) };
+  return {
+    ...actual,
+    useMeetingSession: () => ({ call: null, enter, exit, autoJoinMedia: null }),
+  };
 });
 
 vi.mock("../lib/callWindow", () => ({ closeMeetingTab: vi.fn() }));
@@ -53,8 +56,23 @@ describe("MeetingHost: notification-toast join path", () => {
 
     requestMeetingJoin("c1");
 
-    await waitFor(() => expect(enter).toHaveBeenCalledWith({ id: "c1", status: "LIVE" }));
+    await waitFor(() =>
+      expect(enter).toHaveBeenCalledWith({ id: "c1", status: "LIVE" }, undefined, undefined),
+    );
     expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it("passes the Video/Voice choice through to enter, for CallRoom's autoJoin", async () => {
+    // This is how the incoming-meeting popup's Video Call / Voice Call
+    // buttons reach the room — see IncomingMeetingNotice.
+    api.call.mockResolvedValue({ id: "c1", status: "LIVE" });
+    renderHost();
+
+    requestMeetingJoin("c1", "voice");
+
+    await waitFor(() =>
+      expect(enter).toHaveBeenCalledWith({ id: "c1", status: "LIVE" }, undefined, "voice"),
+    );
   });
 
   it("shows an error instead of silently doing nothing when the call fetch fails", async () => {
@@ -87,7 +105,9 @@ describe("MeetingHost: notification-toast join path", () => {
 
     requestMeetingJoin("c1");
     requestMeetingJoin("c2");
-    await waitFor(() => expect(enter).toHaveBeenCalledWith({ id: "c2", status: "LIVE" }));
+    await waitFor(() =>
+      expect(enter).toHaveBeenCalledWith({ id: "c2", status: "LIVE" }, undefined, undefined),
+    );
 
     // The first (superseded) request resolving afterwards must not also enter.
     resolveFirst({ id: "c1", status: "LIVE" });

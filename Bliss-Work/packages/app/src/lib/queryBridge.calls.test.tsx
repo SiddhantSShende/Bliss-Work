@@ -24,6 +24,13 @@ const ws = vi.hoisted(() => ({
   emit: undefined as ((e: unknown, meta?: WsEventMeta) => void) | undefined,
 }));
 const toasts = vi.hoisted(() => ({ shown: [] as string[] }));
+/** call.started/call.waiting/call.ring no longer toast — they announce the
+ *  incoming-meeting popup via a window event (see MeetingSession's
+ *  announceIncomingMeeting). Captured the same way the popup itself listens,
+ *  rather than mocking MeetingSession, so this proves the real wiring. Plain
+ *  (not vi.hoisted): nothing here needs to be visible inside a vi.mock
+ *  factory, only inside the tests below. */
+const announced: { callId: string; title: string }[] = [];
 
 vi.mock("sonner", () => {
   const toast = Object.assign(
@@ -126,12 +133,22 @@ function callEvent(type: ServerEvent["type"], over: Record<string, unknown> = {}
 const has = (keys: unknown[][], key: readonly unknown[]) =>
   keys.some((k) => JSON.stringify(k) === JSON.stringify(key));
 
+function onAnnounced(event: Event) {
+  const detail = (event as CustomEvent<{ callId?: unknown; title?: unknown }>).detail;
+  if (typeof detail?.callId === "string") {
+    announced.push({ callId: detail.callId, title: typeof detail.title === "string" ? detail.title : "" });
+  }
+}
+
 beforeEach(() => {
   toasts.shown = [];
+  announced.length = 0;
+  window.addEventListener("taskboard:incoming-meeting", onAnnounced);
   vi.useFakeTimers();
 });
 
 afterEach(() => {
+  window.removeEventListener("taskboard:incoming-meeting", onAnnounced);
   vi.useRealTimers();
 });
 
@@ -200,16 +217,16 @@ describe("WsEventBridge — calls", () => {
     expect(has(h.invalidated, qk.channelCalls(CHANNEL))).toBe(true);
   });
 
-  it("announces a start somebody else made, with a way to get there", () => {
+  it("pops the incoming-meeting popup for a start somebody else made", () => {
     const h = harness();
     h.fire(callEvent(EventType.CallStarted));
-    expect(toasts.shown).toContain("Weekly review has started");
+    expect(announced).toEqual([{ callId: CALL, title: "Weekly review" }]);
   });
 
   it("does not announce my own start", () => {
     const h = harness();
     h.fire(callEvent(EventType.CallStarted, { actorId: ME }));
-    expect(toasts.shown).toHaveLength(0);
+    expect(announced).toHaveLength(0);
     // …but still refreshes: my other tabs are looking at the same stale row.
     expect(has(h.invalidated, qk.calls)).toBe(true);
   });
@@ -219,8 +236,14 @@ describe("WsEventBridge — calls", () => {
     // — and finished — this morning must not ring on every launch.
     const h = harness();
     h.fire(callEvent(EventType.CallStarted), { replayed: true });
-    expect(toasts.shown).toHaveLength(0);
+    expect(announced).toHaveLength(0);
     expect(has(h.invalidated, qk.calls)).toBe(true);
+  });
+
+  it("falls back to a title rather than announcing a blank one", () => {
+    const h = harness();
+    h.fire(callEvent(EventType.CallStarted, { title: undefined }));
+    expect(announced).toEqual([{ callId: CALL, title: "Meeting" }]);
   });
 
   it("tells whoever can open a call that somebody is waiting on it", () => {
@@ -228,13 +251,27 @@ describe("WsEventBridge — calls", () => {
     // which is why there is no recipient check here.
     const h = harness();
     h.fire(callEvent(EventType.CallWaiting));
-    expect(toasts.shown).toContain("Someone is waiting for Weekly review");
+    expect(announced).toEqual([{ callId: CALL, title: "Weekly review" }]);
   });
 
   it("does not replay a stale 'someone is waiting'", () => {
     const h = harness();
     h.fire(callEvent(EventType.CallWaiting), { replayed: true });
-    expect(toasts.shown).toHaveLength(0);
+    expect(announced).toHaveLength(0);
+  });
+
+  it("pops the popup for an incoming ring, with a way to join it", () => {
+    // "You were added to a call in progress" — the one case with no toast to
+    // update, since it never had one asserted before this popup replaced it.
+    const h = harness();
+    h.fire(callEvent(EventType.CallRing));
+    expect(announced).toEqual([{ callId: CALL, title: "Weekly review" }]);
+  });
+
+  it("does not announce my own ring", () => {
+    const h = harness();
+    h.fire(callEvent(EventType.CallRing, { actorId: ME }));
+    expect(announced).toHaveLength(0);
   });
 
   // One harness per event: the runtime mock hands out a single subscription

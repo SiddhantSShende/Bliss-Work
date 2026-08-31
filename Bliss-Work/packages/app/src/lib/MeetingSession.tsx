@@ -53,19 +53,50 @@ const APP_HOME = "/app/meetings";
 /** Remembers "you were in a meeting" across a reload. See useResumableMeeting. */
 const RESUME_KEY = "tb.meeting-resume.v1";
 const JOIN_REQUEST_EVENT = "taskboard:join-meeting";
+const INCOMING_MEETING_EVENT = "taskboard:incoming-meeting";
 
-/** Ask the global meeting host to open a call's pre-join screen. */
-export function requestMeetingJoin(callId: string) {
-  window.dispatchEvent(new CustomEvent(JOIN_REQUEST_EVENT, { detail: { callId } }));
+/** Which way to open the local mic/camera the moment a meeting connects — set
+ *  by the incoming-meeting popup's Video Call / Voice Call buttons (see
+ *  features/IncomingMeetingNotice) so that choice is honoured without asking
+ *  again in the pre-join lobby. See CallRoom's `autoJoin` prop. */
+export type AutoJoinMedia = "video" | "voice";
+
+/** Ask the global meeting host to open a call's pre-join screen. `media`, when
+ *  given, skips the lobby and joins straight in with that camera/mic state. */
+export function requestMeetingJoin(callId: string, media?: AutoJoinMedia) {
+  window.dispatchEvent(new CustomEvent(JOIN_REQUEST_EVENT, { detail: { callId, media } }));
 }
 
-export function onMeetingJoinRequest(listener: (callId: string) => void) {
+export function onMeetingJoinRequest(listener: (callId: string, media?: AutoJoinMedia) => void) {
   const handle = (event: Event) => {
-    const callId = (event as CustomEvent<{ callId?: unknown }>).detail?.callId;
-    if (typeof callId === "string" && callId) listener(callId);
+    const detail = (event as CustomEvent<{ callId?: unknown; media?: unknown }>).detail;
+    if (typeof detail?.callId !== "string" || !detail.callId) return;
+    const media = detail.media === "video" || detail.media === "voice" ? detail.media : undefined;
+    listener(detail.callId, media);
   };
   window.addEventListener(JOIN_REQUEST_EVENT, handle);
   return () => window.removeEventListener(JOIN_REQUEST_EVENT, handle);
+}
+
+/**
+ * Tell the incoming-meeting popup (features/IncomingMeetingNotice) that a call
+ * started, is waiting, or is ringing for the current user. A plain window
+ * event rather than context, matching requestMeetingJoin above — the socket
+ * bridge that raises this (lib/queryBridge) has no reason to sit inside the
+ * meeting session's own provider tree.
+ */
+export function announceIncomingMeeting(callId: string, title: string) {
+  window.dispatchEvent(new CustomEvent(INCOMING_MEETING_EVENT, { detail: { callId, title } }));
+}
+
+export function onIncomingMeetingAnnounced(listener: (callId: string, title: string) => void) {
+  const handle = (event: Event) => {
+    const detail = (event as CustomEvent<{ callId?: unknown; title?: unknown }>).detail;
+    if (typeof detail?.callId !== "string" || !detail.callId) return;
+    listener(detail.callId, typeof detail.title === "string" ? detail.title : "");
+  };
+  window.addEventListener(INCOMING_MEETING_EVENT, handle);
+  return () => window.removeEventListener(INCOMING_MEETING_EVENT, handle);
 }
 
 export interface MeetingSessionApi {
@@ -73,6 +104,11 @@ export interface MeetingSessionApi {
   call: CallDTO | null;
   /** Running, but out of the way: the floating window instead of the room. */
   minimized: boolean;
+  /** Which camera/mic state to auto-apply once `call` connects — the third
+   *  argument `enter` was last called with. Consumed once by CallRoom's
+   *  `autoJoin` prop; null for every ordinary join (Meetings list, a channel,
+   *  the rejoin offer), which keeps the pre-join lobby exactly as it was. */
+  autoJoinMedia: AutoJoinMedia | null;
   /**
    * Take over the screen with this meeting.
    *
@@ -80,7 +116,7 @@ export interface MeetingSessionApi {
    * meeting is over — back to the channel, back to Meetings, or closing the tab
    * — because only the caller knows what it interrupted.
    */
-  enter: (call: CallDTO, onExit?: () => void) => void;
+  enter: (call: CallDTO, onExit?: () => void, autoJoinMedia?: AutoJoinMedia) => void;
   /** The meeting is over. Runs the entering caller's `onExit`. */
   exit: () => void;
   minimize: () => void;
@@ -89,9 +125,27 @@ export interface MeetingSessionApi {
 
 const Ctx = createContext<MeetingSessionApi | null>(null);
 
+/**
+ * The raw context, exported for the one caller that needs to shadow it
+ * rather than read it: the dedicated `/call/:callId` tab (routes/CallWindow)
+ * renders `CallRoom` itself now instead of asking `MeetingHost` to, and does
+ * so wrapped in `<MeetingSessionContext.Provider value={null}>`. `CallRoom`
+ * already has a defined "no session" behaviour — see its own `session`
+ * comment — built for the standalone dev-preview harness: no Minimise
+ * control, no MiniMeeting bubble, the room simply always shows itself. That
+ * is exactly right for a tab whose entire purpose IS the meeting; without
+ * this, `useMeetingSessionOptional()` would still find the app-wide provider
+ * (it wraps the whole router) and offer a Minimise that navigates the tab to
+ * /app/meetings — tearing this directly-mounted room down along with the
+ * navigation, which `enter()`-based minimising was never meant to do to a
+ * room a route owns.
+ */
+export { Ctx as MeetingSessionContext };
+
 export function MeetingSessionProvider({ children }: { children: ReactNode }) {
   const [call, setCall] = useState<CallDTO | null>(null);
   const [minimized, setMinimized] = useState(false);
+  const [autoJoinMedia, setAutoJoinMedia] = useState<AutoJoinMedia | null>(null);
   const onExitRef = useRef<(() => void) | null>(null);
   const nav = useNavigate();
   const location = useLocation();
@@ -103,10 +157,11 @@ export function MeetingSessionProvider({ children }: { children: ReactNode }) {
   /** The route the full-screen room covers; null when it is not covering one. */
   const anchorRef = useRef<string | null>(null);
 
-  const enter = useCallback((next: CallDTO, onExit?: () => void) => {
+  const enter = useCallback((next: CallDTO, onExit?: () => void, media?: AutoJoinMedia) => {
     onExitRef.current = onExit ?? null;
     setCall(next);
     setMinimized(false);
+    setAutoJoinMedia(media ?? null);
     rememberResumableMeeting(next.id);
   }, []);
 
@@ -115,6 +170,7 @@ export function MeetingSessionProvider({ children }: { children: ReactNode }) {
     onExitRef.current = null;
     setCall(null);
     setMinimized(false);
+    setAutoJoinMedia(null);
     forgetResumableMeeting();
     onExit?.();
   }, []);
@@ -167,8 +223,8 @@ export function MeetingSessionProvider({ children }: { children: ReactNode }) {
   }, [call, minimized, location.pathname, minimize]);
 
   const value = useMemo<MeetingSessionApi>(
-    () => ({ call, minimized, enter, exit, minimize, restore }),
-    [call, minimized, enter, exit, minimize, restore],
+    () => ({ call, minimized, autoJoinMedia, enter, exit, minimize, restore }),
+    [call, minimized, autoJoinMedia, enter, exit, minimize, restore],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

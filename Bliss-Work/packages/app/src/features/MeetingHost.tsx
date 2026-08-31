@@ -20,14 +20,15 @@ import { onMeetingJoinRequest, useMeetingSession, useResumableMeeting } from "..
 import { closeMeetingTab } from "../lib/callWindow";
 import { useSession } from "../store/session";
 import { CallRoom } from "./CallRoomLazy";
+import { IncomingMeetingNotice } from "./IncomingMeetingNotice";
 
 export function MeetingHost() {
-  const { call, enter, exit } = useMeetingSession();
+  const { call, enter, exit, autoJoinMedia } = useMeetingSession();
   const { api } = useRuntime();
 
   useEffect(() => {
     let requestNumber = 0;
-    return onMeetingJoinRequest((callId) => {
+    return onMeetingJoinRequest((callId, media) => {
       const request = ++requestNumber;
       void api
         .call(callId)
@@ -36,7 +37,7 @@ export function MeetingHost() {
           // one's own outcome (success or its own toast) is what matters now.
           if (request !== requestNumber) return;
           if (next.status !== "ENDED" && next.status !== "CANCELLED") {
-            enter(next);
+            enter(next, undefined, media);
           }
         })
         .catch((e: unknown) => {
@@ -53,8 +54,9 @@ export function MeetingHost() {
 
   return (
     <>
-      {call && <CallRoom call={call} onClose={exit} />}
+      {call && <CallRoom call={call} onClose={exit} autoJoin={autoJoinMedia ?? undefined} />}
       {!call && <RejoinPrompt />}
+      <IncomingMeetingNotice />
     </>
   );
 }

@@ -59,6 +59,22 @@ describe("MediaBubble FileCard", () => {
     expect(link).toHaveAttribute("rel", "noopener noreferrer");
   });
 
+  it("renders no share/external-link icon — the whole card is already the open action", () => {
+    const item = fileItem();
+    render(
+      <MediaBubble
+        items={[item]}
+        mine={false}
+        urlFor={() => "https://example.test/media/att-1?t=sig"}
+        isResolved
+        onOpen={vi.fn()}
+      />,
+    );
+
+    const card = screen.getByRole("button", { name: `Open ${item.name}` });
+    expect(card.querySelector("svg.lucide-external-link")).not.toBeInTheDocument();
+  });
+
   it("is not clickable while the signed link is still being minted", () => {
     const item = fileItem();
     render(

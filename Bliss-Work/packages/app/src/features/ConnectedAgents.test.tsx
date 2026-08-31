@@ -99,6 +99,11 @@ describe("ConnectedAgents", () => {
     renderWithClient();
 
     await waitFor(() => expect(pingExtension).toHaveBeenCalledWith("ext-id"));
+    expect(
+      await screen.findByText(
+        "Download the BlissWork extension for Google Chrome, then load it — it pairs with your account automatically once it's running.",
+      ),
+    ).toBeTruthy();
     const download = await screen.findByRole("button", { name: "Download extension" });
     expect(screen.queryByText("Connect a browser extension")).toBeNull();
 
@@ -112,6 +117,35 @@ describe("ConnectedAgents", () => {
     pingExtension.mockClear();
     fireEvent.click(screen.getByRole("button", { name: "I installed it — check again" }));
     await waitFor(() => expect(pingExtension).toHaveBeenCalledWith("ext-id"));
+  });
+
+  it("shows a detecting state during the initial silent check, never the manual button", async () => {
+    config = { chromeExtensionId: "ext-id", telemetryBase: "https://telemetry.test" };
+    let resolvePing!: (v: null) => void;
+    pingExtension.mockReturnValue(new Promise((resolve) => { resolvePing = resolve; }));
+    renderWithClient();
+
+    expect(await screen.findByText("Detecting browser…")).toBeTruthy();
+    expect(screen.queryByText("Connect a browser extension")).toBeNull();
+
+    resolvePing(null);
+    await waitFor(() => expect(pingExtension).toHaveBeenCalled());
+  });
+
+  it("shows a connecting state while auto-pairing an already-installed extension", async () => {
+    config = { chromeExtensionId: "ext-id", telemetryBase: "https://telemetry.test" };
+    pingExtension.mockResolvedValue({ connected: false, version: "1.0.0" });
+    api.createAgentToken.mockResolvedValue({ id: "t1", kind: "extension", token: "raw-secret" });
+    let resolveProvision!: (v: { ok: boolean }) => void;
+    provisionExtension.mockReturnValue(new Promise((resolve) => { resolveProvision = resolve; }));
+    renderWithClient();
+
+    expect(await screen.findByText("Connecting extension…")).toBeTruthy();
+
+    resolveProvision({ ok: true });
+    await waitFor(() =>
+      expect(screen.getByText("Browser extension connected. Open it to start recording.")).toBeTruthy(),
+    );
   });
 
   it("skips minting entirely when the extension is already connected", async () => {

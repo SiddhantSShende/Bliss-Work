@@ -15,7 +15,7 @@ import {
   actionsFor,
 } from "@taskboard/shared";
 import { useRuntime } from "./runtime";
-import { requestMeetingJoin } from "./MeetingSession";
+import { announceIncomingMeeting } from "./MeetingSession";
 import {
   createCoalescedInvalidator,
   type CoalescedInvalidator,
@@ -157,6 +157,14 @@ export const qk = {
   taskPins: ["taskPins"] as const,
 };
 
+/** "Meeting" for a MEETING/DIRECT call, "Channel call" for a CHANNEL one — the
+ *  same fallback CallRoom.tsx uses once you're actually in the room, so the
+ *  incoming-meeting popup (announceIncomingMeeting) never shows a blank or
+ *  undefined title. */
+function meetingTitle(e: { title?: string; kind: "DIRECT" | "CHANNEL" | "MEETING" }): string {
+  return e.title || (e.kind === "CHANNEL" ? "Channel call" : "Meeting");
+}
+
 /**
  * Connects the WebSocket and maps every inbound ServerEvent to a TanStack Query
  * cache patch so all open screens update live. Also mirrors the actionable task
@@ -247,15 +255,12 @@ export function WsEventBridge() {
           if (e.channelId) {
             invalidate(qk.channelCalls(e.channelId));
           }
-          // Worth interrupting for: it is starting NOW, and the toast is the
+          // Worth interrupting for: it is starting NOW, and the popup is the
           // only thing that reaches someone who is not looking at Meetings.
           // Never from the reconnect replay — that would announce a meeting
           // that started (and ended) hours ago.
           if (live && e.actorId !== me) {
-            toast(e.title ? `${e.title} has started` : "A call has started", {
-              action: { label: "Join", onClick: () => requestMeetingJoin(e.callId) },
-              duration: 20_000,
-            });
+            announceIncomingMeeting(e.callId, meetingTitle(e));
           }
           break;
         }
@@ -266,14 +271,7 @@ export function WsEventBridge() {
         case EventType.CallWaiting: {
           invalidate(qk.call(e.callId));
           if (live && e.actorId !== me) {
-            toast(
-              e.title ? `Someone is waiting for ${e.title}` : "Someone is waiting for your call",
-              {
-                description: "They can't get in until you start it.",
-                action: { label: "Open", onClick: () => requestMeetingJoin(e.callId) },
-                duration: 20_000,
-              },
-            );
+            announceIncomingMeeting(e.callId, meetingTitle(e));
           }
           break;
         }
@@ -285,10 +283,7 @@ export function WsEventBridge() {
             // With somewhere to go: this is how someone pulled into a call in
             // progress gets there, and "you were added to a call" with no way
             // to join it is a dead end.
-            toast(e.title ? `Incoming call: ${e.title}` : "You were added to a call", {
-              action: { label: "Join", onClick: () => requestMeetingJoin(e.callId) },
-              duration: 20_000,
-            });
+            announceIncomingMeeting(e.callId, meetingTitle(e));
           }
           break;
         }

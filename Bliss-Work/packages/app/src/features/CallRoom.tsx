@@ -114,13 +114,27 @@ const SIDE_PANEL_TRANSITION_BASE =
 const SIDE_PANEL_OPEN = "max-h-64 opacity-100 lg:w-72 xl:w-80";
 const SIDE_PANEL_CLOSED = "pointer-events-none max-h-0 opacity-0 lg:w-0";
 
-export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void }) {
+export function CallRoom({
+  call,
+  onClose,
+  autoJoin,
+}: {
+  call: CallDTO;
+  onClose: () => void;
+  /** Skip the pre-join lobby and apply this camera/mic state once the room
+   *  connects — set when entered from the incoming-meeting popup's Video Call
+   *  / Voice Call button (see MeetingHost, MeetingSession's `enter`).
+   *  Undefined for every other entry point, which leaves the lobby exactly as
+   *  it was. */
+  autoJoin?: "video" | "voice";
+}) {
   const room = useCallRoom(call.id);
   const {
     join,
     leave,
     start,
     status,
+    failStage,
     canStart,
     ended,
     participants,
@@ -145,7 +159,7 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
    */
   const session = useMeetingSessionOptional();
   const [addOpen, setAddOpen] = useState(false);
-  const [preJoin, setPreJoin] = useState(true);
+  const [preJoin, setPreJoin] = useState(() => !autoJoin);
   const [previewStream, setPreviewStream] = useState<MediaStream | null>(null);
   const [previewMicOn, setPreviewMicOn] = useState(true);
   const [previewCamOn, setPreviewCamOn] = useState(true);
@@ -244,6 +258,11 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
   const localRec = useLocalRecording(participants, title);
 
   useEffect(() => {
+    console.debug("[CALL ROOM] Mounted");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
     if (!preJoin || !navigator.mediaDevices?.getUserMedia) return;
     let cancelled = false;
     setPreviewError(null);
@@ -338,6 +357,23 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
     void join();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [call.id, preJoin]);
+
+  // The incoming-meeting popup's Video Call / Voice Call choice (`autoJoin`),
+  // applied once the room actually connects. toggleCam/toggleMic are the ONLY
+  // way to publish either track (see useCallRoom's join, which always
+  // connects muted and camera-off), so there is nothing to pass into join()
+  // itself — this is the post-connect equivalent of clicking the same control
+  // a person would click by hand once in the room.
+  const autoJoinAppliedRef = useRef(false);
+  useEffect(() => {
+    autoJoinAppliedRef.current = false;
+  }, [call.id]);
+  useEffect(() => {
+    if (!autoJoin || autoJoinAppliedRef.current || status !== "connected") return;
+    autoJoinAppliedRef.current = true;
+    if (autoJoin === "video") void toggleCam();
+    else void toggleMic();
+  }, [autoJoin, status, toggleCam, toggleMic]);
 
   // The host ended it. The hook has already disconnected and told the server we
   // are out, so this only has to close the screen — going through hangUp would
@@ -837,16 +873,20 @@ export function CallRoom({ call, onClose }: { call: CallDTO; onClose: () => void
       setRetrying(true);
       void join().finally(() => setRetrying(false));
     };
+    const failTitle =
+      failStage === "token" ? "Unable to obtain meeting credentials" : "Unable to connect to the meeting";
+    const failHint =
+      failStage === "token"
+        ? "The token request didn't go through. Check your connection and try again."
+        : "The connection to the meeting server didn't go through. Check your connection and try again.";
     return (
       <div className="meeting-theme meeting-mesh fixed inset-0 z-[100] flex flex-col items-center justify-center gap-5 p-6 text-center">
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-danger/10 text-danger">
           <AlertCircle size={24} />
         </div>
         <div className="max-w-sm">
-          <div className="text-lg font-semibold text-fg">Failed to connect to the meeting</div>
-          <p className="mt-1 text-sm text-muted">
-            Check your connection and try again. If this keeps happening, the meeting may no longer be available.
-          </p>
+          <div className="text-lg font-semibold text-fg">{failTitle}</div>
+          <p className="mt-1 text-sm text-muted">{failHint}</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="sm" onClick={() => void hangUp()}>

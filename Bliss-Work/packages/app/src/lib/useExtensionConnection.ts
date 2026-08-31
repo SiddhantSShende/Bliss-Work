@@ -11,9 +11,15 @@ import { getOrCreateBrowserDeviceKey, pingExtension, provisionExtension } from "
  *  - "not-installed" the runtime exists and an id is configured, but the
  *                     extension didn't answer (not installed, or this origin
  *                     isn't in its `externally_connectable` list).
+ *  - "connecting"    the extension answered, holds no token yet, and
+ *                     autoProvision is on — a mint-and-pair round trip is in
+ *                     flight. Kept distinct from "checking" (the ping alone)
+ *                     so a caller can show "Connecting…" rather than
+ *                     "Detecting…" for what is actually the slower half.
  *  - "installed"     the extension answered but holds no token yet — present,
  *                     not yet paired to an account, and either autoProvision
- *                     was off or the attempt failed.
+ *                     was off or the attempt (the "connecting" phase above)
+ *                     failed.
  *  - "connected"     the extension ALREADY held a live token when pinged.
  *  - "provisioned"   this hook just finished pairing it (freshly connected,
  *                     not merely found already-connected) — kept distinct
@@ -24,6 +30,7 @@ export type ExtensionConnectionStatus =
   | "checking"
   | "unsupported"
   | "not-installed"
+  | "connecting"
   | "installed"
   | "connected"
   | "provisioned";
@@ -76,6 +83,7 @@ export function useExtensionConnection(autoProvision: boolean) {
       setStatus("installed");
       return;
     }
+    setStatus("connecting");
     try {
       const deviceKey = getOrCreateBrowserDeviceKey();
       const created = await api.createAgentToken("extension", "Browser extension", deviceKey);

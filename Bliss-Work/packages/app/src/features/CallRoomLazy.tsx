@@ -114,7 +114,7 @@ function CallRoomLoadError() {
  * before this existed, so a stalled/failed chunk load — or a runtime error
  * inside the loaded room — blanked far more of the app than just the room.
  */
-export function CallRoom(props: { call: CallDTO; onClose: () => void }) {
+export function CallRoom(props: { call: CallDTO; onClose: () => void; autoJoin?: "video" | "voice" }) {
   return (
     <ErrorBoundary fallback={() => <CallRoomLoadError />}>
       <Suspense fallback={<CallRoomFallback />}>

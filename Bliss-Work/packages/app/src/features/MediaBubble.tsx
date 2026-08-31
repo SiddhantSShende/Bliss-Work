@@ -1,4 +1,4 @@
-import { AlertCircle, ExternalLink, FileIcon, Loader2, Play } from "lucide-react";
+import { AlertCircle, FileIcon, Loader2, Play } from "lucide-react";
 import { canPreviewDocInApp, prettySize, type MediaItem } from "../lib/chatEnvelope";
 
 /**
@@ -214,8 +214,6 @@ function FileCard({
       </div>
       {!url && !isResolved ? (
         <Loader2 size={15} className="shrink-0 animate-spin opacity-60" />
-      ) : clickable ? (
-        <ExternalLink size={14} className={`shrink-0 ${mine ? "opacity-70" : "opacity-50"}`} />
       ) : null}
     </>
   );

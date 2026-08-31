@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@taskboard/ui";
 import { AuthLayout } from "../routes/Onboarding";
 import { meetingDeepLink } from "../lib/meetingDeepLink";
-import { GetAppButton } from "./GetAppButton";
 
 /** iOS/Android can't run the desktop app — attempting a taskboard:// launch
  *  there just produces a jarring "Cannot open page" prompt before the
@@ -58,7 +57,6 @@ export function MeetingHandoffLanding({ token }: { token: string }) {
         <Button size="lg" className="w-full" onClick={continueInBrowser}>
           Continue in Browser
         </Button>
-        <GetAppButton mode="inline" />
       </div>
     </AuthLayout>
   );

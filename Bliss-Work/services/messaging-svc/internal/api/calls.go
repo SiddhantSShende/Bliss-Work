@@ -98,6 +98,14 @@ const defaultCallMinutes = 60
 // years out, which is the same as having none at all.
 const maxCallMinutes = 12 * 60
 
+// scheduleGraceWindow is how far into the past a scheduledAt may still fall
+// and be accepted rather than rejected as a stale request — ordinary clock
+// skew and the gap between a client picking a time and the request actually
+// arriving, nothing more. A genuinely past date (yesterday, last week) is
+// never a real schedule request; the client's own "start now" (an omitted
+// scheduledAt, handled separately) is the only intended way to mean "now".
+const scheduleGraceWindow = time.Minute
+
 type scheduleCallReq struct {
 	Title string `json:"title"`
 	Media string `json:"media"`
@@ -123,7 +131,7 @@ type scheduleCallReq struct {
 // badScheduleMsg is the single 400 all three scheduling endpoints answer with.
 // One string because they run the same validation: three copies is three places
 // for the wording to drift from what parseSchedule actually enforces.
-const badScheduleMsg = "media must be audio or video, scheduledAt must be RFC3339, " +
+const badScheduleMsg = "media must be audio or video, scheduledAt must be RFC3339 and not in the past, " +
 	"durationMinutes must be between 0 and 720"
 
 type schedule struct {
@@ -156,6 +164,13 @@ func parseSchedule(req scheduleCallReq) (schedule, bool) {
 			return schedule{}, false
 		}
 		utc := t.UTC()
+		// A meeting cannot be scheduled in the past — "start now" is what an
+		// omitted scheduledAt already means, handled above this block. The
+		// grace window absorbs clock skew and request latency, not a stale
+		// date.
+		if utc.Before(time.Now().UTC().Add(-scheduleGraceWindow)) {
+			return schedule{}, false
+		}
 		out.At = &utc
 	}
 	// Omitted (nil): defaultCallMinutes when scheduled, no scheduled end at

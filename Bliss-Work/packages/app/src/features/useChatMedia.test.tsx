@@ -270,6 +270,32 @@ describe("the open-location-settings button", () => {
   });
 });
 
+/** A file-only drop's dataTransfer — no text/plain representation, matching a
+ *  real OS file drag (Finder/Explorer). */
+function fileDataTransfer(files: File[]) {
+  return { files, types: ["Files"], getData: () => "" };
+}
+
+/**
+ * A LINK drag that ALSO advertises a "Files" type — the exact drag/paste
+ * shape behind the desktop link-as-attachment bug: some sources (a browser's
+ * address bar, an Internet Shortcut) put a synthetic file on the
+ * clipboard/drag alongside the plain-text URL, particularly on Electron's
+ * bundled Chromium. `files` defaults to a stand-in for that synthetic file.
+ */
+function urlDataTransfer(url: string, files: File[] = [new File([""], "link.url")]) {
+  return { files, types: ["Files"], getData: () => url };
+}
+
+/** Same shape as urlDataTransfer, but for clipboardData (paste rather than
+ *  drop) — a DataTransferItemList of one file-kind item plus the URL text. */
+function urlClipboardData(url: string, file: File = new File([""], "link.url")) {
+  return {
+    items: [{ kind: "file", getAsFile: () => file }],
+    getData: () => url,
+  };
+}
+
 describe("attaching a file", () => {
   it("opens the file picker when the paperclip is clicked", async () => {
     renderHarness();
@@ -320,7 +346,7 @@ describe("attaching a file", () => {
     const dropzone = screen.getByLabelText("Attach a file").closest("div")!.parentElement!;
     const file = new File(["abc"], "photo.png", { type: "image/png" });
 
-    fireEvent.drop(dropzone, { dataTransfer: { files: [file], types: ["Files"] } });
+    fireEvent.drop(dropzone, { dataTransfer: fileDataTransfer([file]) });
 
     // Nothing is uploaded on the drop itself: an accidental drop must cost
     // nothing, not even an orphaned upload waiting to lapse.
@@ -342,7 +368,7 @@ describe("attaching a file", () => {
     const dropzone = screen.getByLabelText("Attach a file").closest("div")!.parentElement!;
     const file = new File(["abc"], "photo.png", { type: "image/png" });
 
-    fireEvent.drop(dropzone, { dataTransfer: { files: [file], types: ["Files"] } });
+    fireEvent.drop(dropzone, { dataTransfer: fileDataTransfer([file]) });
     await screen.findByText("Attach this file?");
 
     await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
@@ -425,5 +451,87 @@ describe("attaching a file", () => {
       new File(["b"], "b.pdf", { type: "application/pdf" }),
     ]);
     await waitFor(() => expect(uploadAttachment).toHaveBeenCalledTimes(2));
+  });
+});
+
+/**
+ * THE reported bug: on desktop, sending a bare link (e.g. https://example.com)
+ * was detected/sent as a file attachment instead of a plain link message.
+ * Root cause — the OS clipboard/drag payload for copying or dragging a LINK
+ * can carry a synthetic file (e.g. an Internet Shortcut) alongside the very
+ * same URL text, particularly on Electron's bundled Chromium; onPaste/onDrop
+ * used to treat the presence of any file-kind item as proof of a real file.
+ * These pin the fix: a paste/drop is only ever treated as a file when its
+ * text is not JUST a bare URL — real file pastes/drops (no such text) must
+ * keep working exactly as before.
+ */
+describe("sending a link, not a file", () => {
+  it("pasting a bare URL sends it as a normal message, not an attachment", async () => {
+    hostKind = "electron";
+    const { send } = renderHarness();
+    const textarea = screen.getByPlaceholderText("Write a message…");
+
+    fireEvent.paste(textarea, { clipboardData: urlClipboardData("https://example.com") });
+
+    // Never treated as a file: no upload, no staged chip, nothing to send yet.
+    expect(uploadAttachment).not.toHaveBeenCalled();
+    expect(screen.queryByText("link.url")).not.toBeInTheDocument();
+
+    // The native paste was left alone, so the URL landed in the textarea as
+    // ordinary text — the same as typing it — and Send fires the plain text
+    // message, exactly like the web app.
+    fireEvent.change(textarea, { target: { value: "https://example.com" } });
+    await userEvent.click(screen.getByTitle("Send"));
+
+    expect(send).toHaveBeenCalledWith("https://example.com");
+    expect(commitAttachment).not.toHaveBeenCalled();
+  });
+
+  it("pasting a file with no URL text still uploads as an attachment", async () => {
+    hostKind = "electron";
+    renderHarness();
+    const textarea = screen.getByPlaceholderText("Write a message…");
+    const file = new File(["abc"], "photo.png", { type: "image/png" });
+
+    fireEvent.paste(textarea, {
+      clipboardData: { items: [{ kind: "file", getAsFile: () => file }], getData: () => "" },
+    });
+
+    await waitFor(() => expect(uploadAttachment).toHaveBeenCalled());
+    expect((uploadAttachment.mock.calls[0]![2] as File).name).toBe("photo.png");
+  });
+
+  it("dropping a bare URL sends it as a normal message, not an attachment", async () => {
+    hostKind = "electron";
+    renderHarness();
+    const dropzone = screen.getByLabelText("Attach a file").closest("div")!.parentElement!;
+
+    fireEvent.drop(dropzone, { dataTransfer: urlDataTransfer("https://example.com") });
+
+    expect(uploadAttachment).not.toHaveBeenCalled();
+    expect(screen.queryByText("Attach this file?")).not.toBeInTheDocument();
+  });
+
+  it("dropping a real file with no URL text still asks to attach it", async () => {
+    hostKind = "electron";
+    renderHarness();
+    const dropzone = screen.getByLabelText("Attach a file").closest("div")!.parentElement!;
+    const file = new File(["abc"], "photo.png", { type: "image/png" });
+
+    fireEvent.drop(dropzone, { dataTransfer: fileDataTransfer([file]) });
+
+    await screen.findByText("Attach this file?");
+    expect(uploadAttachment).not.toHaveBeenCalled();
+  });
+
+  it("behaves identically on web — the fix is platform-agnostic", async () => {
+    hostKind = "web";
+    const { send } = renderHarness();
+    const dropzone = screen.getByLabelText("Attach a file").closest("div")!.parentElement!;
+
+    fireEvent.drop(dropzone, { dataTransfer: urlDataTransfer("https://example.com") });
+
+    expect(uploadAttachment).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
   });
 });

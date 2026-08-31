@@ -54,6 +54,65 @@ function toRFC3339(local: string): string | undefined {
   return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
 }
 
+/** Mirrors the server's own scheduleGraceWindow (calls.go): ordinary clock
+ *  skew and the gap between picking a time and submitting, not a real past
+ *  date. Kept in step so the client never rejects a value the server would
+ *  have accepted, or the reverse. */
+const SCHEDULE_GRACE_MS = 60_000;
+
+interface MeetingFormErrors {
+  title?: string;
+  when?: string;
+  endWhen?: string;
+}
+
+/**
+ * Client-side mirror of the "New meeting" popup's own rules (see the task
+ * this shipped with): title required; start time optional but, once given,
+ * not in the past; end time required only once a start time is set, and only
+ * ever later than it. Pure so it can run on every render — cheap, and it
+ * means the Cancel/Submit row never has to guess whether it is stale.
+ */
+function meetingValidation(title: string, when: string, endWhen: string): MeetingFormErrors {
+  const errors: MeetingFormErrors = {};
+  if (!title.trim()) errors.title = "Meeting title is required.";
+
+  let start: Date | null = null;
+  if (when) {
+    start = new Date(when);
+    if (Number.isNaN(start.getTime())) {
+      errors.when = "Enter a valid start time.";
+    } else if (start.getTime() < Date.now() - SCHEDULE_GRACE_MS) {
+      errors.when = "Start time can't be in the past.";
+    }
+  }
+
+  if (when) {
+    if (!endWhen) {
+      errors.endWhen = "End time is required once you set a start time.";
+    } else {
+      const end = new Date(endWhen);
+      if (Number.isNaN(end.getTime())) {
+        errors.endWhen = "Enter a valid end time.";
+      } else if (start && !Number.isNaN(start.getTime()) && end.getTime() <= start.getTime()) {
+        errors.endWhen = "End time must be later than the start time.";
+      }
+    }
+  }
+
+  return errors;
+}
+
+/** Whole minutes between two datetime-local values, for the API's
+ *  `durationMinutes` — the only knob it accepts for how long a call runs
+ *  (see calls.go's scheduleCallReq). Rounded rather than truncated: the two
+ *  values come from the same minute-granularity picker, so any fractional
+ *  difference is floating-point noise in the Date round-trip, not a real
+ *  sub-minute duration. */
+function minutesBetween(fromLocal: string, toLocal: string): number {
+  return Math.round((new Date(toLocal).getTime() - new Date(fromLocal).getTime()) / 60_000);
+}
+
 export function ScheduleCallDialog({
   scope,
   onClose,
@@ -70,20 +129,42 @@ export function ScheduleCallDialog({
   const [media, setMedia] = useState<"audio" | "video">("video");
   const [when, setWhen] = useState("");
   const [minutes, setMinutes] = useState(DEFAULT_MINUTES);
+  /** Meeting scope only — the popup's "End Time" field. A literal end time
+   *  rather than the duration presets the other two scopes use (see the New
+   *  Meeting popup's own spec: title, start time, end time, nothing else). */
+  const [endWhen, setEndWhen] = useState("");
+  /** Meeting scope only — set on the first submit attempt, so validation
+   *  messages appear once the user has tried to go rather than nagging them
+   *  before they have typed anything. */
+  const [attempted, setAttempted] = useState(false);
   const [created, setCreated] = useState<CallDTO | null>(null);
   const [link, setLink] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
+  const meetingErrors = scope.kind === "meeting" ? meetingValidation(title, when, endWhen) : {};
+  const hasMeetingErrors = Object.keys(meetingErrors).length > 0;
+
   const create = useMutation({
     mutationFn: async () => {
       const at = toRFC3339(when);
+      if (scope.kind === "meeting") {
+        return api.scheduleMeeting({
+          title: title.trim(),
+          media: "video",
+          scheduledAt: at,
+          // No start time at all -> omit durationMinutes too, so the server's
+          // own default applies: no scheduled end for "start now" (see
+          // parseSchedule in calls.go). A start time always carries an end
+          // time here (the popup requires one), so its exact length is what
+          // gets sent rather than a preset.
+          durationMinutes: at && endWhen ? minutesBetween(when, endWhen) : undefined,
+        });
+      }
       const body = { title: title.trim(), media, scheduledAt: at, durationMinutes: minutes };
       if (scope.kind === "channel") return api.scheduleChannelCall(scope.channelId, body);
       // The submit control is disabled without a time in this scope, so `at`
       // is present by the time this runs.
-      if (scope.kind === "direct")
-        return api.scheduleDirectCall(scope.peerId, { ...body, scheduledAt: at! });
-      return api.scheduleMeeting(body);
+      return api.scheduleDirectCall(scope.peerId, { ...body, scheduledAt: at! });
     },
     onSuccess: (call) => {
       void qc.invalidateQueries({ queryKey: qk.calls });
@@ -96,6 +177,14 @@ export function ScheduleCallDialog({
     },
     onError: () => toast.error("Couldn't schedule that call"),
   });
+
+  const submit = () => {
+    if (scope.kind === "meeting" && hasMeetingErrors) {
+      setAttempted(true);
+      return;
+    }
+    create.mutate();
+  };
 
   const mintLink = useMutation({
     mutationFn: async () => {
@@ -137,7 +226,10 @@ export function ScheduleCallDialog({
         {!created ? (
           <div className="flex flex-col gap-3">
             <label className="flex flex-col gap-1">
-              <span className="text-xs font-medium text-muted">Title</span>
+              <span className="text-xs font-medium text-muted">
+                Title{" "}
+                {scope.kind === "meeting" && <span className="font-normal">— required</span>}
+              </span>
               <input
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
@@ -145,31 +237,39 @@ export function ScheduleCallDialog({
                 placeholder={scope.kind === "channel" ? "Design sync" : "Weekly review"}
                 className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-fg outline-none focus:border-accent"
               />
+              {scope.kind === "meeting" && attempted && meetingErrors.title && (
+                <span className="text-xs text-danger">{meetingErrors.title}</span>
+              )}
             </label>
 
-            <div className="flex flex-col gap-1">
-              <span className="text-xs font-medium text-muted">Type</span>
-              <div className="flex gap-2">
-                <Button
-                  variant={media === "video" ? "primary" : "ghost"}
-                  size="sm"
-                  onClick={() => setMedia("video")}
-                >
-                  <Video size={14} /> Video
-                </Button>
-                <Button
-                  variant={media === "audio" ? "primary" : "ghost"}
-                  size="sm"
-                  onClick={() => setMedia("audio")}
-                >
-                  <Phone size={14} /> Audio
-                </Button>
+            {/* Not part of the New Meeting popup's own spec (title, start,
+                end, Cancel, Start Now/Schedule — nothing else) — channel and
+                direct calls keep choosing audio vs video here. */}
+            {scope.kind !== "meeting" && (
+              <div className="flex flex-col gap-1">
+                <span className="text-xs font-medium text-muted">Type</span>
+                <div className="flex gap-2">
+                  <Button
+                    variant={media === "video" ? "primary" : "ghost"}
+                    size="sm"
+                    onClick={() => setMedia("video")}
+                  >
+                    <Video size={14} /> Video
+                  </Button>
+                  <Button
+                    variant={media === "audio" ? "primary" : "ghost"}
+                    size="sm"
+                    onClick={() => setMedia("audio")}
+                  >
+                    <Phone size={14} /> Audio
+                  </Button>
+                </div>
               </div>
-            </div>
+            )}
 
             <label className="flex flex-col gap-1">
               <span className="text-xs font-medium text-muted">
-                When{" "}
+                {scope.kind === "meeting" ? "Start time" : "When"}{" "}
                 <span className="font-normal">
                   {scope.kind === "direct" ? "— required" : "— leave empty to start now"}
                 </span>
@@ -180,26 +280,50 @@ export function ScheduleCallDialog({
                 onChange={(e) => setWhen(e.target.value)}
                 className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-fg outline-none focus:border-accent"
               />
+              {scope.kind === "meeting" && attempted && meetingErrors.when && (
+                <span className="text-xs text-danger">{meetingErrors.when}</span>
+              )}
             </label>
 
-            <div className="flex flex-col gap-1">
-              <span className="text-xs font-medium text-muted">
-                Length{" "}
-                <span className="font-normal">— the call ends automatically when it runs out</span>
-              </span>
-              <div className="flex flex-wrap gap-2">
-                {DURATIONS.map((d) => (
-                  <Button
-                    key={d.minutes}
-                    variant={minutes === d.minutes ? "primary" : "ghost"}
-                    size="sm"
-                    onClick={() => setMinutes(d.minutes)}
-                  >
-                    {d.label}
-                  </Button>
-                ))}
+            {scope.kind === "meeting" ? (
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-medium text-muted">
+                  End time{" "}
+                  <span className="font-normal">
+                    {when ? "— required" : "— set a start time first"}
+                  </span>
+                </span>
+                <input
+                  type="datetime-local"
+                  value={endWhen}
+                  onChange={(e) => setEndWhen(e.target.value)}
+                  disabled={!when}
+                  className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-fg outline-none focus:border-accent disabled:opacity-50"
+                />
+                {attempted && meetingErrors.endWhen && (
+                  <span className="text-xs text-danger">{meetingErrors.endWhen}</span>
+                )}
+              </label>
+            ) : (
+              <div className="flex flex-col gap-1">
+                <span className="text-xs font-medium text-muted">
+                  Length{" "}
+                  <span className="font-normal">— the call ends automatically when it runs out</span>
+                </span>
+                <div className="flex flex-wrap gap-2">
+                  {DURATIONS.map((d) => (
+                    <Button
+                      key={d.minutes}
+                      variant={minutes === d.minutes ? "primary" : "ghost"}
+                      size="sm"
+                      onClick={() => setMinutes(d.minutes)}
+                    >
+                      {d.label}
+                    </Button>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
 
             <div className="mt-2 flex justify-end gap-2">
               <Button variant="ghost" size="sm" onClick={onClose}>
@@ -207,10 +331,16 @@ export function ScheduleCallDialog({
               </Button>
               <Button
                 size="sm"
-                onClick={() => create.mutate()}
+                onClick={submit}
                 disabled={create.isPending || (scope.kind === "direct" && !when)}
               >
-                {when || scope.kind === "direct" ? "Schedule" : "Start now"}
+                {scope.kind === "meeting"
+                  ? when
+                    ? "Schedule"
+                    : "Start Now"
+                  : when || scope.kind === "direct"
+                    ? "Schedule"
+                    : "Start now"}
               </Button>
             </div>
           </div>

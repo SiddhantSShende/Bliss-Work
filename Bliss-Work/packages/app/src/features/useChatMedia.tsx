@@ -12,6 +12,7 @@ import {
   prettySize,
   type MediaItem,
 } from "../lib/chatEnvelope";
+import { isUrlOnly } from "../lib/chatFormat";
 import { makeThumbnail } from "../lib/thumbnail";
 import { useAttachmentLinks } from "../lib/useAttachmentLinks";
 import { useFileTransfers } from "../lib/fileTransfer";
@@ -523,6 +524,14 @@ export function useChatMedia(opts: ChatMediaOptions) {
         if (!Array.from(e.dataTransfer.types).includes("Files")) return;
         e.preventDefault();
         setDragging(false);
+        // Dragging a LINK (a browser's address bar, a hyperlink on a page)
+        // can still advertise a "Files" type — the OS/Chromium hands drop
+        // targets a synthetic file (e.g. an Internet Shortcut) for the same
+        // drag, particularly on Electron's bundled Chromium. `getData` is
+        // only readable at drop time (not dragover), so this is the first
+        // point a bare-URL drag can be told apart from an actual file drop —
+        // see isUrlOnly's own doc for why.
+        if (isUrlOnly(e.dataTransfer.getData("text/plain").trim())) return;
         // COPY THE FILES OUT NOW. `e.dataTransfer.files` is only valid during
         // the event; holding the FileList to read after the confirmation
         // dialog would find it empty.
@@ -540,6 +549,15 @@ export function useChatMedia(opts: ChatMediaOptions) {
         .map((i) => i.getAsFile())
         .filter((f): f is File => f !== null);
       if (files.length === 0) return;
+      // Copying a LINK (a browser's address bar, an app's "Copy Link") can
+      // still populate a file-kind clipboard item alongside the plain-text
+      // URL — the OS clipboard hands paste targets a synthetic file (e.g. an
+      // Internet Shortcut) for the same copy, particularly on Electron's
+      // bundled Chromium, which is why a link only mis-sent as an attachment
+      // on desktop. A file-kind item alone is not proof of an actual file:
+      // when the pasted text is nothing but a URL, let it through as an
+      // ordinary link message instead — see isUrlOnly's own doc.
+      if (isUrlOnly((e.clipboardData?.getData("text/plain") ?? "").trim())) return;
       // Let a normal text paste through untouched.
       e.preventDefault();
       runFiles(files);

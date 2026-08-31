@@ -6,7 +6,15 @@ import { Badge, Button, Spinner } from "@taskboard/ui";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { useExtensionConnection } from "../lib/useExtensionConnection";
-import { detectBrowserFamily, supportsAutoExtensionIntegration } from "../lib/browserDetect";
+import { detectBrowserFamily, supportsAutoExtensionIntegration, type BrowserFamily } from "../lib/browserDetect";
+
+// Chrome/Edge/Brave only — the only families supportsAutoExtensionIntegration
+// ever returns true for, so this never needs Firefox/Safari/unknown entries.
+const BROWSER_LABELS: Partial<Record<BrowserFamily, string>> = {
+  chrome: "Google Chrome",
+  edge: "Microsoft Edge",
+  brave: "Brave",
+};
 
 /**
  * The devices and browsers reporting activity for this person, and the way to
@@ -44,6 +52,7 @@ export function ConnectedAgents() {
   const family = detectBrowserFamily();
   const installUrl = config.extensionInstallUrls?.[family];
   const canAutoInstall = supportsAutoExtensionIntegration(family) && !!installUrl;
+  const browserLabel = BROWSER_LABELS[family] ?? "your browser";
 
   const { data: agents = [], isLoading } = useQuery({
     queryKey: qk.agentTokens,
@@ -143,11 +152,20 @@ export function ConnectedAgents() {
         </p>
       ) : autoExtension === "connected" ? (
         <p className="text-xs text-muted">Browser extension already connected.</p>
-      ) : autoExtension === "not-installed" && canAutoInstall ? (
+      ) : autoExtension === "connecting" ? (
+        <p className="text-xs text-muted">Connecting extension…</p>
+      ) : autoExtension === "checking" && !rechecking ? (
+        // Only the SILENT initial ping, never a manual recheck — a recheck
+        // keeps the box below on screen (see its condition) instead of
+        // dropping to this generic line, since the person just clicked a
+        // button in that exact box and watching it vanish mid-click would
+        // read as the click having failed.
+        <p className="text-xs text-muted">Detecting browser…</p>
+      ) : (autoExtension === "not-installed" || rechecking) && canAutoInstall ? (
         <div className="space-y-2 rounded-lg bg-accent-soft p-3">
           <p className="text-xs font-medium text-accent">
-            Download the extension, then load it in your browser — it pairs with your
-            account automatically once it's running.
+            Download the BlissWork extension for {browserLabel}, then load it — it
+            pairs with your account automatically once it's running.
           </p>
           <ol className="list-decimal space-y-0.5 pl-4 text-xs leading-relaxed text-muted">
             <li>Download and unzip it.</li>

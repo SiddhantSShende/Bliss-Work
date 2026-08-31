@@ -106,6 +106,12 @@ export function useCallRoom(callId: string | null) {
   /** The call is over — the host ended it or walked out. Latches, and the screen
    *  showing this room is expected to close itself on it. */
   const [ended, setEnded] = useState(false);
+  /** Which half of `join()` a "failed" status came from — the token request
+   *  or the room connect that follows it — so the UI can tell a credentials
+   *  problem from a connectivity one instead of one generic message for both.
+   *  Meaningful only while status is "failed"; reset at the start of every
+   *  attempt. */
+  const [failStage, setFailStage] = useState<"token" | "connect" | null>(null);
   const roomRef = useRef<Room | null>(null);
   /**
    * A join is in flight.
@@ -223,8 +229,12 @@ export function useCallRoom(callId: string | null) {
     if (!callId || roomRef.current || joining.current) return;
     joining.current = true;
     setStatus("connecting");
+    setFailStage(null);
+    let stage: "token" | "connect" = "token";
     try {
+      console.debug("[CALL ROOM] Requesting meeting token");
       const grant = await api.callToken(callId);
+      console.debug("[CALL ROOM] Token received");
       // The call has not been started yet. There is no token to connect with —
       // that absence IS the waiting room, not a screen we chose to show — so
       // sit here and ask again until someone entitled to start it does.
@@ -347,6 +357,8 @@ export function useCallRoom(callId: string | null) {
 
       // We are in, so stop asking whether we may come in.
       if (lobbyTimer.current) clearTimeout(lobbyTimer.current);
+      stage = "connect";
+      console.debug("[CALL ROOM] Connecting to LiveKit");
       await room.connect(grant.url, grant.token);
       // Camera and mic are NOT published on join — the participant arrives
       // muted and camera-off, and only the controls below (toggleMic/toggleCam)
@@ -354,11 +366,14 @@ export function useCallRoom(callId: string | null) {
       // enables them.
       setConnectedAt(Date.now());
       setStatus("connected");
+      console.debug("[CALL ROOM] Connected");
       sync(room);
       scheduleRefresh(room, callId, grant.expiresAt);
     } catch (e) {
       roomRef.current = null;
       setStatus("failed");
+      setFailStage(stage);
+      console.error(`[CALL ROOM] Join failed at "${stage}" stage`, e);
       // A 503 here means the deployment has no SFU configured, which is a very
       // different problem from a denied join — say which.
       const msg =
@@ -623,6 +638,7 @@ export function useCallRoom(callId: string | null) {
 
   return {
     status,
+    failStage,
     participants,
     micOn,
     camOn,

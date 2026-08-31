@@ -115,15 +115,14 @@
 }
 
 /* ── Named colour themes ──────────────────────────────────────────────────
-   Four theme families selectable from Settings → Theme (light ids only —
+   Five theme families selectable from Settings → Theme (light ids only —
    see themes.ts). "Blue" is the app's original palette (the bare
-   `:root`/`.dark` above) and needs no extra class; the other three each
-   layer their own class on top of the light/dark axis, so the dark variant
-   still gets the `.dark` treatment everywhere else in this file (brand-mesh,
-   shadows) and just gets re-coloured — the same technique the old
-   Graphite+Lime theme (now removed) used. Every value below comes straight
-   off the theme's reference swatch — see themes.ts for the class wiring and
-   Settings' theme menu for where these are picked.
+   `:root`/`.dark` above) and needs no extra class; every other family,
+   including "Default" below, layers its own class on top of the light/dark
+   axis, so the dark variant still gets the `.dark` treatment everywhere else
+   in this file (brand-mesh, shadows) and just gets re-coloured. Every value
+   below comes straight off the theme's reference swatch — see themes.ts for
+   the class wiring and Settings' theme menu for where these are picked.
 
    success/danger/warning (and --color-unread, above) are deliberately NOT
    overridden per family: they're semantic (a task overdue is red regardless
@@ -132,6 +131,70 @@
    family below — rotated to each family's own accent hue, same lightness
    steps as Blue's base ramp, chroma capped to what's in-gamut for that hue —
    so Analytics visibly follows the selected theme. */
+
+/* Default — BlissWork's current/original branding: the soft white surface
+   with lavender-purple accents every user already sees today, kept as its
+   own family (rather than an alias of `.purple`) so it stays visually stable
+   as the app's fallback even if Purple's own values are tweaked later. Values
+   below are reused verbatim from `.purple`/`.dark.purple`, not invented. */
+.default {
+  --color-bg: #fbf9ff;
+  --color-surface: #ffffff;
+  --color-surface-2: #f1e9fd;
+  --color-border: #e9d5ff;
+  --color-muted: #71717a;
+  --color-fg: #18181b;
+  --color-accent: #7c3aed;
+  --color-accent-strong: #6d28d9;
+  --color-accent-fg: #ffffff;
+  --color-accent-soft: #f5f3ff;
+  --color-brand-from: #c084fc;
+  --color-brand-to: #7c3aed;
+
+  --color-chart-ink: oklch(0.58 0.22 293);
+  --color-chart-context: oklch(0.72 0.02 293);
+  --color-chart-grid: oklch(0.93 0.01 293);
+  --color-heat-0: oklch(0.965 0.012 293);
+  --color-heat-1: oklch(0.9 0.051 293);
+  --color-heat-2: oklch(0.82 0.096 293);
+  --color-heat-3: oklch(0.72 0.155 293);
+  --color-heat-4: oklch(0.63 0.19 293);
+  --color-heat-5: oklch(0.52 0.22 293);
+
+  --glass-bg: rgba(233, 213, 255, 0.5);
+  --glass-border: rgba(255, 255, 255, 0.7);
+  --glass-shadow: 0 8px 32px rgba(124, 58, 237, 0.1);
+}
+
+.dark.default {
+  --color-bg: #0d0717;
+  --color-surface: #181024;
+  --color-surface-2: #21172f;
+  --color-border: #3b245a;
+  --color-muted: #a1a1aa;
+  --color-fg: #fafafa;
+  --color-accent: #a855f7;
+  --color-accent-strong: #c084fc;
+  --color-accent-fg: #0d0717;
+  --color-accent-soft: #3b0764;
+  --color-brand-from: #c084fc;
+  --color-brand-to: #a855f7;
+
+  --color-chart-ink: oklch(0.66 0.216 304);
+  --color-chart-context: oklch(0.5 0.02 304);
+  --color-chart-grid: oklch(0.3 0.01 304);
+  --color-heat-0: oklch(0.24 0.012 304);
+  --color-heat-1: oklch(0.32 0.06 304);
+  --color-heat-2: oklch(0.42 0.11 304);
+  --color-heat-3: oklch(0.52 0.16 304);
+  --color-heat-4: oklch(0.62 0.19 304);
+  --color-heat-5: oklch(0.74 0.16 304);
+
+  --glass-bg: rgba(24, 16, 36, 0.6);
+  --glass-border: rgba(168, 85, 247, 0.1);
+  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
 .rose {
   --color-bg: #fff8f9;
   --color-surface: #ffffff;
@@ -317,86 +380,17 @@
   --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
 }
 
-/* ── Lime ──────────────────────────────────────────────────────────────────
-   The pre-rework "Graphite + Lime" theme, brought back as a proper fifth
-   family. --color-bg/surface/border/accent/brand below are the ORIGINAL
-   Graphite+Lime values verbatim (same theme people remember); the
-   chart-ink/context/grid and heat ramp are new — chart theming didn't exist
-   yet when this palette was last live, so there was nothing to carry forward.
-   Lime's hue (~125deg light / ~126deg dark, measured off the accent colour
-   below) has a narrower sRGB gamut at the ramp's darker/more-saturated end
-   than rose/purple's, so those steps are chroma-capped below the other
-   families' target curve — confirmed by binary search against the gamut
-   boundary, same approach as `.teal` above. */
-.lime {
-  --color-bg: #f5f6f3;
-  --color-surface: #ffffff;
-  --color-surface-2: #e7eae5; /* Sidebar — also the hover/subtle-bg tone */
-  --color-border: #d9ded7;
-  --color-muted: #6c756f;
-  --color-fg: #202723;
-  --color-accent: #b5e34d;
-  --color-accent-strong: #9bc93e;
-  --color-accent-fg: #181d1a; /* Dark Graphite — text on lime */
-  --color-accent-soft: #e7f5c8;
-  --color-brand-from: #b5e34d;
-  --color-brand-to: #9bc93e;
-
-  --color-chart-ink: oklch(0.58 0.139 125);
-  --color-chart-context: oklch(0.72 0.02 125);
-  --color-chart-grid: oklch(0.93 0.01 125);
-  --color-heat-0: oklch(0.965 0.012 125);
-  --color-heat-1: oklch(0.9 0.05 125);
-  --color-heat-2: oklch(0.82 0.098 125);
-  --color-heat-3: oklch(0.72 0.16 125);
-  --color-heat-4: oklch(0.63 0.151 125);
-  --color-heat-5: oklch(0.52 0.124 125);
-
-  --glass-bg: rgba(231, 234, 229, 0.55);
-  --glass-border: rgba(255, 255, 255, 0.7);
-  --glass-shadow: 0 8px 32px rgba(37, 45, 41, 0.1);
-}
-
-.dark.lime {
-  --color-bg: #0f1412;
-  --color-surface: #1c221f;
-  --color-surface-2: #202824; /* Card — hover/secondary elevation */
-  --color-border: #2a332f;
-  --color-muted: #97a39c;
-  --color-fg: #f2f5f3;
-  --color-accent: #a8d94a;
-  --color-accent-strong: #94c93a;
-  --color-accent-fg: #171d1a; /* Dark Graphite — text on lime */
-  --color-accent-soft: #26302b; /* Graphite — no separate "soft lime" for dark */
-  --color-brand-from: #a8d94a;
-  --color-brand-to: #94c93a;
-
-  --color-chart-ink: oklch(0.66 0.16 126);
-  --color-chart-context: oklch(0.5 0.02 126);
-  --color-chart-grid: oklch(0.3 0.01 126);
-  --color-heat-0: oklch(0.24 0.012 126);
-  --color-heat-1: oklch(0.32 0.06 126);
-  --color-heat-2: oklch(0.42 0.102 126);
-  --color-heat-3: oklch(0.52 0.126 126);
-  --color-heat-4: oklch(0.62 0.15 126);
-  --color-heat-5: oklch(0.74 0.16 126);
-
-  --glass-bg: rgba(22, 28, 25, 0.6); /* Sidebar, translucent */
-  --glass-border: rgba(168, 217, 74, 0.08);
-  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-}
-
 /* ── Meeting screen theme ─────────────────────────────────────────────────
    The call surface (CallRoom) always renders dark, regardless of the
-   workspace's own light/dark/lime choice — video is easier to read against a
-   dark ground, and a meeting in progress shouldn't flip between light and
+   workspace's own light/dark/family choice — video is easier to read against
+   a dark ground, and a meeting in progress shouldn't flip between light and
    dark as someone's theme setting changes underneath it. Scoped as a class
-   (not tied to `.dark`/`.lime`) so it overrides the CSS custom properties for
-   its subtree no matter what theme classes are on <html>.
+   (not tied to `.dark`) so it overrides the CSS custom properties for its
+   subtree no matter what theme classes are on <html>.
 
    Cyan/magenta neon-on-deep-space palette — a deliberate one-off, not derived
-   from `.dark.lime` like it used to be: this surface's whole point is to look
-   like nothing else in the app. `--color-accent-2` (magenta) is NOT one of
+   from any selectable family: this surface's whole point is to look like
+   nothing else in the app. `--color-accent-2` (magenta) is NOT one of
    the base tokens in the root `@theme` block above, so it has no generated
    `bg-accent-2`/`text-accent-2` utility — reference it with Tailwind's
    arbitrary-value syntax instead, e.g. `text-[var(--color-accent-2)]` or

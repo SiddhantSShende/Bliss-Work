@@ -131,6 +131,22 @@ export function popupFor(event: unknown, meId: string | null): Popup | null {
         body: channel ? `You were added to #${channel}` : "You were added to a channel",
       };
     }
+    // Mirrors the recipient/actor gate lib/queryBridge applies before it pops
+    // the in-app incoming-meeting popup (features/IncomingMeetingNotice), so
+    // the two never disagree about whose action this was.
+    case "call.started":
+    case "call.waiting":
+    case "call.ring": {
+      if (!meId || str("actorId") === meId) return null;
+      const title = str("title") || (str("kind") === "CHANNEL" ? "Channel call" : "Meeting");
+      if (e.type === "call.waiting") {
+        return { title: "Someone is waiting", body: `Waiting for you to start ${title}` };
+      }
+      if (e.type === "call.ring") {
+        return { title: "Incoming call", body: title };
+      }
+      return { title: "Meeting started", body: `${title} is starting now` };
+    }
     default:
       return null;
   }

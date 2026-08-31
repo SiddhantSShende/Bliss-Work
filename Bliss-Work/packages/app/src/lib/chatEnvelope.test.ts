@@ -207,9 +207,13 @@ describe("listPreview", () => {
     expect(listPreview("  https://example.com/roadmap  ")).toBe("Link sent");
   });
 
-  it("leaves a message that merely contains a link unchanged", () => {
-    expect(listPreview("check this out: https://example.com/roadmap")).toBe(
-      "check this out: https://example.com/roadmap",
+  it("shows Link sent when a link is embedded in a longer message", () => {
+    expect(listPreview("check this out: https://example.com/roadmap")).toBe("Link sent");
+  });
+
+  it("is direction-aware for an embedded link, like a bare one", () => {
+    expect(listPreview("check this out: https://example.com/roadmap", false)).toBe(
+      "Link received",
     );
   });
 
