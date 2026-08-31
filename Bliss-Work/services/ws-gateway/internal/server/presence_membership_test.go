@@ -68,13 +68,65 @@ func TestPresenceIsRegisteredForEveryMembership(t *testing.T) {
 	}
 
 	// And the loop itself: the calls above are meaningless if nothing iterates.
-	loop := regexp.MustCompile(`for\s+_,\s*m\s*:=\s*range\s+claims\.Memberships`)
-	if n := len(loop.FindAllString(body, -1)); n < 2 {
-		t.Errorf("found %d `range claims.Memberships` loops in conn.go, want at "+
-			"least 2 (connect and disconnect)", n)
+	// Connect uses the claims this function was handed (nothing has changed
+	// yet); disconnect and the writeLoop heartbeat deliberately read
+	// sess.claims.Load() instead — the LATEST, possibly-renewed list — so a
+	// membership added or removed by auth.renew since connect is still
+	// reflected when the socket closes or next beats, not the stale one this
+	// function started with.
+	connectLoop := regexp.MustCompile(`for\s+_,\s*m\s*:=\s*range\s+claims\.Memberships`)
+	if n := len(connectLoop.FindAllString(body, -1)); n < 1 {
+		t.Errorf("found %d `range claims.Memberships` loops in conn.go, want at least 1 (connect)", n)
 	}
-	if !strings.Contains(body, "s.writeLoop(ctx, cancel, ws, conn, claims.Memberships)") {
-		t.Error("writeLoop is no longer given the membership list, so the presence " +
-			"heartbeat can only cover one org")
+	liveLoop := regexp.MustCompile(`for\s+_,\s*m\s*:=\s*range\s+sess\.claims\.Load\(\)\.Memberships`)
+	if n := len(liveLoop.FindAllString(body, -1)); n < 2 {
+		t.Errorf("found %d `range sess.claims.Load().Memberships` loops in conn.go, want at "+
+			"least 2 (disconnect cleanup and the writeLoop heartbeat) — reverting either to the "+
+			"frozen `claims.Memberships` this function was called with would silently undo "+
+			"auth.renew's presence reconciliation on the very next beat or on disconnect", n)
+	}
+	if !strings.Contains(body, "s.writeLoop(ctx, cancel, ws, conn, sess)") {
+		t.Error("writeLoop is no longer given sess, so its heartbeat can't see a membership " +
+			"change made after the socket connected")
+	}
+
+	// auth.renew must reconcile presence, not just swap the claims pointer —
+	// this is the actual bug TestPresenceIsRegisteredForEveryMembership's
+	// sibling checks above cannot see: they cover connect/disconnect/heartbeat,
+	// none of which fire the moment a token renews mid-connection.
+	renewIdx := strings.Index(body, `case "auth.renew":`)
+	if renewIdx < 0 {
+		t.Fatal(`case "auth.renew": is gone from conn.go; if it moved, update this test rather than deleting the case`)
+	}
+	// Scoped to roughly the case body (next "case " or end of the enclosing
+	// switch), so this does not accidentally match reconcilePresence's own
+	// definition or an unrelated later case.
+	renewBody := body[renewIdx:]
+	if end := strings.Index(renewBody[len(`case "auth.renew":`):], "\n\tcase "); end >= 0 {
+		renewBody = renewBody[:len(`case "auth.renew":`)+end]
+	}
+	if !strings.Contains(renewBody, "s.reconcilePresence(") {
+		t.Error(`case "auth.renew" no longer calls reconcilePresence — a membership added or ` +
+			"removed by a token refresh would update sess.claims but leave presence exactly as " +
+			"it was: a removed org's member keeps showing online (and reachable for RTC " +
+			"signaling) there for as long as the socket stays open")
+	}
+
+	// reconcilePresence itself must actually touch all four presence calls —
+	// the same ones the connect/disconnect loops use — for both directions of
+	// the delta (see the calls table above for why each argument matters).
+	reconcileIdx := strings.Index(body, "func (s *Server) reconcilePresence(")
+	if reconcileIdx < 0 {
+		t.Fatal("reconcilePresence is gone from conn.go; if it moved, update this test rather than deleting the case")
+	}
+	reconcileBody := body[reconcileIdx:]
+	for _, call := range []string{
+		"s.store.AddPresence(", "s.store.AddOrgPresence(",
+		"s.store.RemovePresence(", "s.store.RemoveOrgPresenceIfLast(",
+	} {
+		if !strings.Contains(reconcileBody, call) {
+			t.Errorf("reconcilePresence no longer calls %s — a membership delta from auth.renew "+
+				"would go (partly) unreconciled", call)
+		}
 	}
 }

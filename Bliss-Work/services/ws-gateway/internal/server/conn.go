@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -21,15 +22,22 @@ const (
 )
 
 // session holds the mutable per-connection auth state.
+//
+// claims is an atomic.Pointer, not a plain field: auth.renew (readLoop's
+// goroutine) swaps it wholesale on every token refresh, and writeLoop's own
+// goroutine now reads it every heartbeat tick (see writeLoop's doc comment)
+// — two goroutines, one shared pointer, so a plain field would be a genuine
+// data race the moment writeLoop started reading it.
 type session struct {
-	claims  *auth.Claims
+	claims  atomic.Pointer[auth.Claims]
 	rtcRate signal.Limiter
 }
 
 func (s *Server) serveConn(parent context.Context, ws *websocket.Conn, claims *auth.Claims) {
 	connID := uuid.NewString()
 	conn := hub.NewConn(claims.UserID, connID)
-	sess := &session{claims: claims}
+	sess := &session{}
+	sess.claims.Store(claims)
 
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
@@ -84,7 +92,15 @@ func (s *Server) serveConn(parent context.Context, ws *websocket.Conn, claims *a
 		// Mirror of the connect loop: this socket's presence is withdrawn from
 		// every org it registered in, and each org decides independently whether
 		// that was the person's last connection.
-		for _, m := range claims.Memberships {
+		//
+		// Reads sess.claims (the LATEST, possibly-renewed membership list), not
+		// the claims this function was called with: auth.renew already keeps
+		// presence itself in sync with each renewal via reconcilePresence, but
+		// if this read the original claims instead, it would re-add presence
+		// for an org membership that renewal had removed (or leave a joined
+		// org's presence never withdrawn), undoing that reconciliation the
+		// moment the socket closed.
+		for _, m := range sess.claims.Load().Memberships {
 			if err := s.store.RemovePresence(cleanupCtx, m.UserID, s.nodeID, connID); err != nil {
 				s.log.Error("remove presence failed", "err", err, "org", m.OrgID)
 			}
@@ -101,8 +117,69 @@ func (s *Server) serveConn(parent context.Context, ws *websocket.Conn, claims *a
 		s.log.Info("ws disconnected", "user", claims.UserID, "conn", connID)
 	}()
 
-	go s.writeLoop(ctx, cancel, ws, conn, claims.Memberships)
+	go s.writeLoop(ctx, cancel, ws, conn, sess)
 	s.readLoop(ctx, ws, conn, sess)
+}
+
+// reconcilePresence updates presence for a token renewal's membership DELTA.
+//
+// Before this, auth.renew swapped sess.claims and stopped there — it never
+// touched presence at all. Joining a new org left that org's members unaware
+// this person was even connected until their next full reconnect. Leaving an
+// org was worse: the person kept showing online, and reachable for RTC
+// signaling (signal.Dispatcher.Forward gates delivery on presence), to every
+// remaining member of an org they had just been removed from, for as long as
+// the socket stayed open — auth-svc's own token-refresh contract says a
+// membership change "reaches presence within one token lifetime without a
+// re-login"; this is what makes that true on the ws-gateway side too.
+//
+// added orgs get AddPresence/AddOrgPresence, broadcasting presence.online on
+// the absent→present transition — the same call connect-time registration
+// makes. Removed orgs get RemovePresence/RemoveOrgPresenceIfLast,
+// broadcasting presence.offline on the present→absent transition — the same
+// call disconnect cleanup makes. An org present in both lists (the ordinary
+// case: nothing changed) is touched by neither.
+func (s *Server) reconcilePresence(ctx context.Context, conn *hub.Conn, oldMemberships, newMemberships []auth.Membership) {
+	oldByOrg := make(map[string]string, len(oldMemberships)) // orgID -> member user id
+	for _, m := range oldMemberships {
+		oldByOrg[m.OrgID] = m.UserID
+	}
+	newByOrg := make(map[string]string, len(newMemberships))
+	for _, m := range newMemberships {
+		newByOrg[m.OrgID] = m.UserID
+	}
+
+	for orgID, userID := range newByOrg {
+		if _, stillMember := oldByOrg[orgID]; stillMember {
+			continue
+		}
+		if err := s.store.AddPresence(ctx, userID, s.nodeID, conn.ConnID); err != nil {
+			s.log.Error("auth.renew: add presence failed", "err", err, "org", orgID)
+		}
+		becameOnline, err := s.store.AddOrgPresence(ctx, orgID, userID)
+		if err != nil {
+			s.log.Error("auth.renew: add org presence failed", "err", err, "org", orgID)
+		}
+		if becameOnline && s.presence != nil {
+			s.presence.Online(ctx, orgID, userID)
+		}
+	}
+
+	for orgID, userID := range oldByOrg {
+		if _, stillMember := newByOrg[orgID]; stillMember {
+			continue
+		}
+		if err := s.store.RemovePresence(ctx, userID, s.nodeID, conn.ConnID); err != nil {
+			s.log.Error("auth.renew: remove presence failed", "err", err, "org", orgID)
+		}
+		becameOffline, err := s.store.RemoveOrgPresenceIfLast(ctx, orgID, userID)
+		if err != nil {
+			s.log.Error("auth.renew: remove org presence failed", "err", err, "org", orgID)
+		}
+		if becameOffline && s.presence != nil {
+			s.presence.Offline(ctx, orgID, userID)
+		}
+	}
 }
 
 // writeLoop drains the send channel, writes a periodic ping, refreshes this
@@ -121,7 +198,14 @@ func (s *Server) serveConn(parent context.Context, ws *websocket.Conn, claims *a
 // Separated, each is sized for its own job: pings stay at 20s, the heartbeat
 // moves to 45s inside a 120s stale window, and the write rate more than halves
 // without changing how fast a dead socket is noticed.
-func (s *Server) writeLoop(ctx context.Context, cancel context.CancelFunc, ws *websocket.Conn, conn *hub.Conn, memberships []auth.Membership) {
+//
+// Takes sess (not a frozen membership list) so each beat reads
+// sess.claims.Load().Memberships fresh: a membership added or removed by
+// auth.renew since this loop started must be reflected on the very next
+// heartbeat, or a stale frozen list would either let a removed org's
+// presence entry get silently re-created here (undoing reconcilePresence's
+// removal) or never heartbeat a newly joined org's entry until it aged out.
+func (s *Server) writeLoop(ctx context.Context, cancel context.CancelFunc, ws *websocket.Conn, conn *hub.Conn, sess *session) {
 	pingTicker := time.NewTicker(pingInterval)
 	defer pingTicker.Stop()
 	beatTicker := time.NewTicker(store.PresenceHeartbeatInterval)
@@ -168,7 +252,7 @@ func (s *Server) writeLoop(ctx context.Context, cancel context.CancelFunc, ws *w
 			// stale window and show them offline while they are plainly
 			// connected — which is the bug this whole path exists to fix.
 			tctx, tc := context.WithTimeout(ctx, pingTimeout)
-			for _, m := range memberships {
+			for _, m := range sess.claims.Load().Memberships {
 				if err := s.store.TouchPresence(tctx, m.OrgID, m.UserID, s.nodeID, conn.ConnID); err != nil {
 					s.log.Warn("presence heartbeat failed", "err", err, "user", m.UserID, "org", m.OrgID)
 				}
@@ -247,7 +331,7 @@ func (s *Server) handleClientFrame(ctx context.Context, conn *hub.Conn, sess *se
 			ids = ids[:maxAckBatch]
 		}
 		for _, id := range ids {
-			s.dispatcher.Ack(sess.claims.UserID, id)
+			s.dispatcher.Ack(sess.claims.Load().UserID, id)
 		}
 	case "auth.renew":
 		newClaims, err := s.verifier.Verify(ctx, f.Token)
@@ -256,13 +340,15 @@ func (s *Server) handleClientFrame(ctx context.Context, conn *hub.Conn, sess *se
 			s.enqueueJSON(conn, map[string]string{"type": "token.refresh.required"})
 			return
 		}
-		if newClaims.UserID != sess.claims.UserID {
+		oldClaims := sess.claims.Load()
+		if newClaims.UserID != oldClaims.UserID {
 			// Refuse to switch identity on an existing socket.
-			s.log.Warn("auth.renew identity mismatch", "old", sess.claims.UserID, "new", newClaims.UserID)
+			s.log.Warn("auth.renew identity mismatch", "old", oldClaims.UserID, "new", newClaims.UserID)
 			conn.Close()
 			return
 		}
-		sess.claims = newClaims
+		s.reconcilePresence(ctx, conn, oldClaims.Memberships, newClaims.Memberships)
+		sess.claims.Store(newClaims)
 		s.log.Debug("auth.renew accepted", "user", newClaims.UserID)
 	case "rtc.offer", "rtc.answer", "rtc.ice", "rtc.cancel":
 		s.handleSignalingFrame(ctx, conn, sess, &f)
@@ -296,7 +382,7 @@ func (s *Server) handleSignalingFrame(ctx context.Context, conn *hub.Conn, sess 
 		}
 		return
 	}
-	if f.ToUserID == "" || f.ToUserID == sess.claims.UserID {
+	if f.ToUserID == "" || f.ToUserID == sess.claims.Load().UserID {
 		// Bad target or self-send. Quietly drop.
 		return
 	}
@@ -308,7 +394,7 @@ func (s *Server) handleSignalingFrame(ctx context.Context, conn *hub.Conn, sess 
 		Reason:               f.Reason,
 		ResumeFromChunkIndex: f.ResumeFromChunkIndex,
 	}
-	delivered := s.signal.Forward(ctx, sess.claims.OrgID, sess.claims.UserID, f.ToUserID, frame)
+	delivered := s.signal.Forward(ctx, sess.claims.Load().OrgID, sess.claims.Load().UserID, f.ToUserID, frame)
 	if !delivered {
 		if raw, err := signal.UnreachableFrame(f.OfferID, "offline"); err == nil {
 			select {
@@ -331,13 +417,13 @@ func (s *Server) handleTypingFrame(ctx context.Context, sess *session, f *client
 	if !sess.rtcRate.Allow(time.Now()) {
 		return
 	}
-	if f.ToUserID == "" || f.ToUserID == sess.claims.UserID {
+	if f.ToUserID == "" || f.ToUserID == sess.claims.Load().UserID {
 		return
 	}
 	if f.State != "start" && f.State != "stop" {
 		return
 	}
-	_ = s.signal.Forward(ctx, sess.claims.OrgID, sess.claims.UserID, f.ToUserID, signal.Frame{
+	_ = s.signal.Forward(ctx, sess.claims.Load().OrgID, sess.claims.Load().UserID, f.ToUserID, signal.Frame{
 		Type:           "typing",
 		ConversationID: f.ConversationID,
 		State:          f.State,
@@ -354,7 +440,7 @@ func callFrameFor(sess *session, f *clientFrame) signal.Frame {
 		Type:     f.Type,
 		CallID:   f.CallID,
 		Media:    f.Media,
-		FromName: sess.claims.Username,
+		FromName: sess.claims.Load().Username,
 	}
 }
 
@@ -371,10 +457,10 @@ func (s *Server) handleCallFrame(ctx context.Context, conn *hub.Conn, sess *sess
 	if !sess.rtcRate.Allow(time.Now()) {
 		return
 	}
-	if f.ToUserID == "" || f.ToUserID == sess.claims.UserID || f.CallID == "" {
+	if f.ToUserID == "" || f.ToUserID == sess.claims.Load().UserID || f.CallID == "" {
 		return
 	}
-	delivered := s.signal.Forward(ctx, sess.claims.OrgID, sess.claims.UserID, f.ToUserID, callFrameFor(sess, f))
+	delivered := s.signal.Forward(ctx, sess.claims.Load().OrgID, sess.claims.Load().UserID, f.ToUserID, callFrameFor(sess, f))
 	if !delivered && f.Type == "call.invite" {
 		if raw, err := signal.UnreachableFrame(f.CallID, "offline"); err == nil {
 			select {
@@ -400,8 +486,8 @@ func (s *Server) handleCallFrame(ctx context.Context, conn *hub.Conn, sess *sess
 func (s *Server) onHello(ctx context.Context, conn *hub.Conn, sess *session, lastSeenSeq *int64) {
 	if !s.deliverJSONCtx(ctx, conn, map[string]string{
 		"type":   "ready",
-		"userId": sess.claims.UserID,
-		"orgId":  sess.claims.OrgID,
+		"userId": sess.claims.Load().UserID,
+		"orgId":  sess.claims.Load().OrgID,
 	}) {
 		return
 	}
@@ -410,8 +496,8 @@ func (s *Server) onHello(ctx context.Context, conn *hub.Conn, sess *session, las
 	// online/offline state immediately, rather than waiting for the next 20s poll
 	// or for the next transition event from a peer.
 	if s.presence != nil {
-		if ids, err := s.store.OnlineUserIDs(ctx, sess.claims.OrgID); err == nil {
-			if raw, err := s.presence.SnapshotRaw(sess.claims.OrgID, ids); err == nil {
+		if ids, err := s.store.OnlineUserIDs(ctx, sess.claims.Load().OrgID); err == nil {
+			if raw, err := s.presence.SnapshotRaw(sess.claims.Load().OrgID, ids); err == nil {
 				if !deliverCtx(ctx, conn, raw) {
 					return
 				}
@@ -423,9 +509,9 @@ func (s *Server) onHello(ctx context.Context, conn *hub.Conn, sess *session, las
 	if lastSeenSeq != nil {
 		seq = *lastSeenSeq
 	}
-	events, err := s.store.Replay(ctx, sess.claims.UserID, seq)
+	events, err := s.store.Replay(ctx, sess.claims.Load().UserID, seq)
 	if err != nil {
-		s.log.Error("replay failed", "user", sess.claims.UserID, "err", err)
+		s.log.Error("replay failed", "user", sess.claims.Load().UserID, "err", err)
 		return
 	}
 	for _, raw := range events {

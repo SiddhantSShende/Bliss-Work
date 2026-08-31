@@ -54,7 +54,9 @@ func newTestServer(st *store.Store, d *delivery.Dispatcher) *Server {
 }
 
 func testSession() *session {
-	return &session{claims: &auth.Claims{UserID: "u-sender", OrgID: "org-1"}}
+	sess := &session{}
+	sess.claims.Store(&auth.Claims{UserID: "u-sender", OrgID: "org-1"})
+	return sess
 }
 
 func TestHandleClientFrame_Routing(t *testing.T) {
@@ -219,7 +221,8 @@ func TestCallFrameFor_StampsCallerNameFromClaims(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	sess := &session{claims: &auth.Claims{UserID: "u-sender", OrgID: "org-1", Username: "alice"}}
+	sess := &session{}
+	sess.claims.Store(&auth.Claims{UserID: "u-sender", OrgID: "org-1", Username: "alice"})
 	got := callFrameFor(sess, &f)
 
 	if got.FromName != "alice" {
