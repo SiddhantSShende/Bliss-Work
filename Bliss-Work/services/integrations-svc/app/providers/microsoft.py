@@ -69,7 +69,13 @@ def _raise_for_status(r: httpx.Response) -> None:
 
 
 async def _request(
-    token: str, method: str, url: str, *, extra_headers: dict[str, str] | None = None, **kw
+    token: str,
+    method: str,
+    url: str,
+    *,
+    extra_headers: dict[str, str] | None = None,
+    idempotent: bool = True,
+    **kw,
 ) -> dict:
     """`url` may be absolute (a nextLink/deltaLink Graph handed us) or a path."""
     full = url if url.startswith("http") else f"{_GRAPH}{url}"
@@ -81,7 +87,7 @@ async def _request(
             _raise_for_status(r)
             return r.json() if r.content else {}
 
-    return await retry_async(_attempt, attempts=3, breaker=_ms_breaker)
+    return await retry_async(_attempt, attempts=3, breaker=_ms_breaker, idempotent=idempotent)
 
 
 # ── sending ───────────────────────────────────────────────────────────────────
@@ -163,19 +169,24 @@ async def send_mail(
             for name, mime, data in files
         ]
 
+    # idempotent=False: this creates a new outbound email on every execution.
+    # A ReadTimeout after Graph already accepted the send must not be retried.
     await _request(
         token,
         "POST",
         "/me/sendMail",
         json={"message": message, "saveToSentItems": save_to_sent_items},
+        idempotent=False,
     )
 
 
 async def send_chat_message(token: str, chat_id: str, text: str) -> dict:
     """Post to a Teams chat. Returns the created message (with its id)."""
+    # idempotent=False: this creates a new chat message on every execution.
     return await _request(
         token,
         "POST",
         f"/chats/{chat_id}/messages",
         json={"body": {"contentType": "text", "content": text}},
+        idempotent=False,
     )

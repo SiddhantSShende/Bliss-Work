@@ -79,7 +79,7 @@ def _raise_for_status(r: httpx.Response) -> None:
     raise GmailError(f"{r.status_code}: {msg}")
 
 
-async def _request(token: str, method: str, path: str, **kw) -> dict:
+async def _request(token: str, method: str, path: str, *, idempotent: bool = True, **kw) -> dict:
     async def _attempt() -> dict:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             r = await client.request(
@@ -91,7 +91,7 @@ async def _request(token: str, method: str, path: str, **kw) -> dict:
             _raise_for_status(r)
             return r.json() if r.content else {}
 
-    return await retry_async(_attempt, attempts=3, breaker=_gmail_breaker)
+    return await retry_async(_attempt, attempts=3, breaker=_gmail_breaker, idempotent=idempotent)
 
 
 # ── sending ───────────────────────────────────────────────────────────────────
@@ -124,7 +124,11 @@ async def send_message(token: str, raw: str, *, thread_id: str | None = None) ->
     payload: dict[str, str] = {"raw": raw}
     if thread_id:
         payload["threadId"] = thread_id
-    return await _request(token, "POST", "/users/me/messages/send", json=payload)
+    # idempotent=False: this creates a new outbound email on every execution.
+    # A ReadTimeout after Gmail already accepted the send must not be retried.
+    return await _request(
+        token, "POST", "/users/me/messages/send", json=payload, idempotent=False
+    )
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────

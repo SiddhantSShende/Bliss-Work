@@ -53,7 +53,10 @@ async def post_message(bot_token: str, channel: str, text: str) -> dict:
             r.raise_for_status()
             return r.json()
 
-    data = await retry_async(_attempt, attempts=3, breaker=_slack_breaker)
+    # idempotent=False: this creates a new outbound chat message on every
+    # execution. A ReadTimeout after Slack already accepted the post must not
+    # be retried.
+    data = await retry_async(_attempt, attempts=3, breaker=_slack_breaker, idempotent=False)
     if not data.get("ok"):
         raise SlackError(data.get("error", "chat.postMessage failed"))
     return data
