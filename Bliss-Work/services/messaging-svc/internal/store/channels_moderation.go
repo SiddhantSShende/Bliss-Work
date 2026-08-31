@@ -180,11 +180,26 @@ func (s *Store) BlockFromChannel(
 		if targetRole == RoleOwner {
 			return ErrLastOwner
 		}
+		// Same rule KickChannelMember enforces, and for the same reason: this is
+		// a STRICTLY more drastic removal (it also bars rejoining an open
+		// channel, which a plain kick does not), so it must not be reachable by
+		// one admin against another when the milder kick explicitly is not.
+		// Without this, block was the side door around "two moderators cannot
+		// get into a removal war."
+		if targetRole == RoleAdmin {
+			callerRole, err := channelRole(ctx, tx, channelID, callerID)
+			if err != nil {
+				return err
+			}
+			if callerRole != RoleOwner && !isOrgAdmin(claimRoles) {
+				return ErrForbidden
+			}
+		}
 
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO channel_blocks (channel_id, org_id, user_id, blocked_by, reason)
 			 VALUES ($1, $2, $3, $4, $5)
-			 ON CONFLICT (channel_id, user_id) DO UPDATE SET blocked_by = EXCLUDED.blocked_by`,
+			 ON CONFLICT (channel_id, user_id) DO UPDATE SET blocked_by = EXCLUDED.blocked_by, reason = EXCLUDED.reason`,
 			channelID, orgID, targetID, callerID, reason); err != nil {
 			return err
 		}
