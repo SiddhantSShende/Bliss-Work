@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -60,6 +61,49 @@ func TestLimiter_429AfterBudgetExceeded(t *testing.T) {
 	body := r3.Body.String()
 	if !strings.Contains(body, `"code":"rate_limited"`) {
 		t.Errorf("body missing canonical code; got %s", body)
+	}
+}
+
+// ── The bug: an attacker-controlled X-Request-Id must not be able to inject
+// arbitrary JSON structure into the 429 response body ────────────────────────
+func TestLimiter_RateLimitedBody_EscapesAttackerControlledRequestID(t *testing.T) {
+	l := NewLimiter(Limits{IPPerMinute: 1, UserReadsPerMin: 10, UserWritesPerMin: 5})
+	// RequestID wraps the limiter, same order api.go's router uses — writeRateLimited
+	// reads RequestIDFromContext, which only the RequestID middleware populates.
+	h := RequestID(l.PerIPMiddleware(passthroughOK()))
+
+	const malicious = `x","injected":true,"z":"`
+
+	hit := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.RemoteAddr = "8.8.8.8:1111"
+		req.Header.Set(HeaderRequestID, malicious)
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		return rr
+	}
+
+	if got := hit(); got.Code != http.StatusOK {
+		t.Fatalf("warmup: got %d, want 200", got.Code)
+	}
+	r2 := hit()
+	if r2.Code != http.StatusTooManyRequests {
+		t.Fatalf("got %d, want 429", r2.Code)
+	}
+
+	body := r2.Body.Bytes()
+	var parsed rateLimitedBody
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		t.Fatalf("429 body is not valid JSON: %v\nbody: %s", err, body)
+	}
+	if parsed.Error.RequestID != malicious {
+		t.Errorf("requestId round-tripped as %q, want the exact attacker-supplied string %q — "+
+			"it must land as a STRING VALUE, not be interpreted as JSON structure",
+			parsed.Error.RequestID, malicious)
+	}
+	if parsed.Error.Code != "rate_limited" {
+		t.Errorf("code = %q, want \"rate_limited\" — the injected header content must not be "+
+			"able to overwrite a sibling field", parsed.Error.Code)
 	}
 }
 

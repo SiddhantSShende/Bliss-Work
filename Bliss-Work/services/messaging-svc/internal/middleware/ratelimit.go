@@ -22,6 +22,7 @@ package middleware
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"net/http"
 	"os"
@@ -392,16 +393,41 @@ func isWrite(method string) bool {
 	return false
 }
 
-// writeRateLimited emits 429 + canonical body + Retry-After. The body shape
-// matches packages/shared ApiErrorBody so the frontend toasts the same way
-// for every kind of error.
+// rateLimitedBody is the same envelope shape errors.go's apiErrorBody
+// produces (packages/shared/src/types/errors.ts ApiErrorBody) — duplicated
+// rather than imported, since internal/api already imports this package and
+// importing back would cycle.
+type rateLimitedBody struct {
+	Error rateLimitedPayload `json:"error"`
+}
+
+type rateLimitedPayload struct {
+	Code      string `json:"code"`
+	Message   string `json:"message"`
+	RequestID string `json:"requestId"`
+}
+
+// writeRateLimited emits 429 + canonical body + Retry-After.
 func writeRateLimited(w http.ResponseWriter, r *http.Request, perMin int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Retry-After", "60") // one bucket window
 	w.WriteHeader(http.StatusTooManyRequests)
-	rid := RequestIDFromContext(r.Context())
-	_, _ = w.Write([]byte(
-		`{"error":{"code":"rate_limited","message":"too many requests","requestId":"` + rid + `"}}`,
-	))
+	// json.Marshal, not string concatenation: rid is the caller-supplied
+	// X-Request-Id header (requestid.go accepts anything up to 128 bytes with
+	// no character filtering, by design — it exists to echo back whatever the
+	// client sent). Splicing it into a hand-built JSON literal let a quote or
+	// brace in that header inject arbitrary sibling keys into this response
+	// body; Marshal escapes it like any other string value instead.
+	body, err := json.Marshal(rateLimitedBody{Error: rateLimitedPayload{
+		Code:      "rate_limited",
+		Message:   "too many requests",
+		RequestID: RequestIDFromContext(r.Context()),
+	}})
+	if err != nil {
+		// Every field above is a plain string; Marshal cannot fail on this
+		// shape. Fall back to a body with no requestId rather than 0 bytes.
+		body = []byte(`{"error":{"code":"rate_limited","message":"too many requests"}}`)
+	}
+	_, _ = w.Write(body)
 	_ = perMin // reserved for future per-route budget labels
 }
