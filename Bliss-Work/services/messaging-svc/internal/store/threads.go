@@ -292,10 +292,19 @@ func (s *Store) GetThread(ctx context.Context, orgID, callerID, threadID string)
 		// last_event_at was previously scanned into the wrong dest (a *string),
 		// 500-ing this endpoint and leaving LastEventAt empty. Populate it now.
 		d.LastEventAt = lastAt.UTC().Format("2006-01-02T15:04:05.000Z")
-		// Unread = messages from peer with seq > my last_read_seq.
+		// Unread = messages from peer with seq > my last_read_seq, excluding
+		// ones this caller hid — same exclusion ListThreadMessages already
+		// applies. HideMessage/ClearConversation only ever insert into
+		// message_hides, never touch last_read_seq, so without this a hidden
+		// message stayed counted as unread forever with nothing left in the
+		// thread for the client to mark read.
 		return tx.QueryRow(ctx, `
-			SELECT count(*) FROM messages
-			WHERE thread_id = $1 AND sender_id <> $2 AND seq > $3`,
+			SELECT count(*) FROM messages m
+			WHERE m.thread_id = $1 AND m.sender_id <> $2 AND m.seq > $3
+			  AND NOT EXISTS (
+			      SELECT 1 FROM message_hides h
+			      WHERE h.message_id = m.id AND h.user_id = $2
+			  )`,
 			threadID, callerID, d.MyLastReadSeq).Scan(&d.UnreadCount)
 	})
 	if err != nil {

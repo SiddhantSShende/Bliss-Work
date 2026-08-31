@@ -278,6 +278,18 @@ func (s *Store) ListConversations(ctx context.Context, orgID, callerID string) (
 			        WHERE m2.conversation_id = c.id
 			          AND m2.sender_id <> $2
 			          AND m2.seq > cm.last_read_seq
+			          -- Same exclusion the lm preview below already applies:
+			          -- ClearConversation/HideMessage only ever insert into
+			          -- message_hides, never touch last_read_seq (there is
+			          -- nothing left to mark read once every message is
+			          -- hidden). Without this, clearing a chat left its badge
+			          -- permanently stuck on a conversation that looks empty,
+			          -- with no message left for the client to ever call
+			          -- MarkRead against.
+			          AND NOT EXISTS (
+			              SELECT 1 FROM message_hides h
+			              WHERE h.message_id = m2.id AND h.user_id = $2
+			          )
 			    ), 0) AS unread,
 			    COALESCE(cm.blocked, false) AS blocked_by_me,
 			    COALESCE(pm.blocked, false) AS blocked_by_peer,
