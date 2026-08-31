@@ -124,7 +124,11 @@ async def send(
         return False
 
     try:
-        return await retry_async(_attempt, attempts=3, breaker=_breaker)
+        # idempotent=False: integrations-svc's /internal/mail/send triggers a
+        # real provider send on every execution. A ReadTimeout on THIS hop
+        # doesn't mean the send failed — it may already have gone out — so it
+        # must not be retried.
+        return await retry_async(_attempt, attempts=3, breaker=_breaker, idempotent=False)
     except CircuitOpenError:
         # integrations-svc is known-bad. See the module note: mail goes out over
         # the relay rather than waiting for a service it does not depend on.

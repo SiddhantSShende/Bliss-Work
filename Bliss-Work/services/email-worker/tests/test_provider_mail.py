@@ -100,6 +100,25 @@ async def test_a_server_fault_is_transient_and_raises():
 
 
 @pytest.mark.asyncio
+async def test_a_server_fault_is_not_retried_within_the_same_send():
+    # The bug this pins: retrying a 503/timeout from THIS hop is exactly the
+    # risk the module docstring calls out above — integrations-svc may have
+    # already handed the mail to the provider before the response was lost,
+    # so a second attempt here can mean a real duplicate email. One attempt,
+    # then raise (the caller redelivers the event, not this function).
+    calls = {"n": 0}
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(503)
+
+    async with _client(handler) as c:
+        with pytest.raises(pm.ProviderMailUnavailable):
+            await _send(c)
+    assert calls["n"] == 1
+
+
+@pytest.mark.asyncio
 async def test_a_refusal_the_provider_will_repeat_falls_back_to_the_relay():
     # 400 is the message itself being unacceptable — most often attachments too
     # large to send inline. A retry reproduces it exactly; SMTP will not.
