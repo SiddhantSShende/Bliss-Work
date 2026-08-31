@@ -32,6 +32,19 @@ import type { Metrics } from "./metrics.js";
  */
 export const USER_BATCH_SIZE = 200;
 
+/**
+ * Ceiling for `Query.users(ids)` ITSELF — distinct from `USER_BATCH_SIZE`,
+ * which only bounds each individual upstream call once a request is already
+ * underway and chunking. Without a ceiling on the resolver's own input, a
+ * caller can put an arbitrarily large `ids` array in a registered
+ * operation's VARIABLES: the persisted-operation allow-list (persisted.ts)
+ * only constrains the query DOCUMENT, never the values a caller sends for
+ * it, and depthLimit.ts only counts field nesting, not array-argument size.
+ * A 50,000-id array would fan this resolver out into 250 sequential upstream
+ * calls in one request — a trivial DoS from any authenticated caller.
+ */
+export const MAX_USERS_QUERY_IDS = 500;
+
 const UserList = z.array(UserDTO);
 
 export interface Loaders {

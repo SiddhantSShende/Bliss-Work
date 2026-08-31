@@ -10,6 +10,8 @@
 import { InboxItemKind, InboxPeerDTO, UserDTO } from "@taskboard/shared";
 import { z } from "zod";
 import type { GraphContext } from "./context.js";
+import { MAX_USERS_QUERY_IDS } from "./loaders.js";
+import { badRequest } from "./persisted.js";
 
 const InboxPeerList = z.array(InboxPeerDTO);
 
@@ -19,6 +21,13 @@ type PeerSource = z.infer<typeof InboxPeerDTO>;
 export const resolvers = {
   Query: {
     async users(_root: unknown, args: { ids: string[] }, ctx: GraphContext) {
+      // The allow-list locks the query DOCUMENT, not the VARIABLES a caller
+      // sends for it — so this is the only thing standing between a
+      // registered operation and an arbitrarily large ids array. See
+      // MAX_USERS_QUERY_IDS's own doc comment.
+      if (args.ids.length > MAX_USERS_QUERY_IDS) {
+        throw badRequest(`users(ids) accepts at most ${MAX_USERS_QUERY_IDS} ids per request`);
+      }
       // loadMany resolves through the same per-request batch as every other
       // user reference in this operation, so asking for people the page already
       // referenced costs nothing extra.
