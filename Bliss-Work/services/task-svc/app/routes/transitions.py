@@ -36,9 +36,11 @@ async def acknowledge(task_id: str, principal: Principal = PrincipalDep) -> Tran
         )
         updated = res.first()
         if updated is None:
-            # No-op: already past SENT. Idempotent success, emit nothing.
             await db.rollback()
-            return TransitionResponse(status=current.status, statusVersion=current.status_version)
+            if current.status == "ACKNOWLEDGED":
+                # Idempotent: already acknowledged, emit nothing.
+                return TransitionResponse(status=current.status, statusVersion=current.status_version)
+            raise HTTPException(status_code=409, detail=f"cannot acknowledge from {current.status}")
 
         sender_id = await task_sender(db, org_id, task_id) or me
         assignee_username = await resolve_username(db, org_id, me) or principal.username
