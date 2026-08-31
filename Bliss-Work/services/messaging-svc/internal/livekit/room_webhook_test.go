@@ -29,6 +29,53 @@ func TestParseRoomWebhookReadsAParticipantLeaving(t *testing.T) {
 	}
 }
 
+// participant_joined tells this service which SFU connection is now current
+// for an identity — the guard MarkLeftFromSFU needs to tell a stale
+// participant_left for a superseded reconnect apart from a real departure.
+// See call_participants.session_id (0030).
+func TestParseRoomWebhookReadsAParticipantJoiningWithItsSID(t *testing.T) {
+	m, err := New(testKey, testSecret, "wss://sfu.example", MinterOptions{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	body := []byte(`{"event":"participant_joined",` +
+		`"room":{"name":"call-1"},"participant":{"identity":"user-7","sid":"PA_abc123"}}`)
+
+	ev, err := m.ParseRoomWebhook("Bearer "+signWebhook(t, body, testSecret), body)
+	if err != nil {
+		t.Fatalf("ParseRoomWebhook: %v", err)
+	}
+	if ev.Event != EventParticipantJoined {
+		t.Errorf("event = %q, want %q", ev.Event, EventParticipantJoined)
+	}
+	if ev.Room != "call-1" {
+		t.Errorf("room = %q, want the call id", ev.Room)
+	}
+	if ev.Identity != "user-7" {
+		t.Errorf("identity = %q, want the BlissWork user id", ev.Identity)
+	}
+	if ev.SID != "PA_abc123" {
+		t.Errorf("sid = %q, want the connection's own SID — this is what lets a "+
+			"later stale participant_left be told apart from a real departure", ev.SID)
+	}
+}
+
+// The leave event must ALSO carry the SID now — MarkLeftFromSFU needs it to
+// know WHICH session is leaving.
+func TestParseRoomWebhookReadsAParticipantLeavingWithItsSID(t *testing.T) {
+	m, _ := New(testKey, testSecret, "wss://sfu.example", MinterOptions{})
+	body := []byte(`{"event":"participant_left",` +
+		`"room":{"name":"call-1"},"participant":{"identity":"user-7","sid":"PA_xyz789"}}`)
+
+	ev, err := m.ParseRoomWebhook("Bearer "+signWebhook(t, body, testSecret), body)
+	if err != nil {
+		t.Fatalf("ParseRoomWebhook: %v", err)
+	}
+	if ev.SID != "PA_xyz789" {
+		t.Errorf("sid = %q, want the leaving connection's own SID", ev.SID)
+	}
+}
+
 func TestParseRoomWebhookReadsARoomFinishing(t *testing.T) {
 	m, _ := New(testKey, testSecret, "wss://sfu.example", MinterOptions{})
 	body := []byte(`{"event":"room_finished","room":{"name":"call-2"}}`)
@@ -49,11 +96,11 @@ func TestParseRoomWebhookIgnoresEventsItDoesNotActuponAndIncompleteOnes(t *testi
 	m, _ := New(testKey, testSecret, "wss://sfu.example", MinterOptions{})
 
 	for _, body := range []string{
-		`{"event":"participant_joined","room":{"name":"call-1"},"participant":{"identity":"u"}}`,
 		`{"event":"room_started","room":{"name":"call-1"}}`,
 		`{"event":"egress_ended","egressInfo":{"egress_id":"EG_1"}}`,
 		// A participant event naming no participant, and a room event naming no
 		// room: nothing to act on, and not worth a retry.
+		`{"event":"participant_joined","room":{"name":"call-1"}}`,
 		`{"event":"participant_left","room":{"name":"call-1"}}`,
 		`{"event":"room_finished"}`,
 	} {

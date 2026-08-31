@@ -331,7 +331,7 @@ func TestCallLifecycleUnannouncedHostDepartureEndsTheCallAfterTheGrace(t *testin
 	ctx := context.Background()
 	c := seedLiveCall(t, s, nil) // no scheduled end: the sweeper's clock rule cannot save this one
 
-	if _, err := s.MarkLeftFromSFU(ctx, c.id, c.host); err != nil {
+	if _, err := s.MarkLeftFromSFU(ctx, c.id, c.host, ""); err != nil {
 		t.Fatalf("MarkLeftFromSFU: %v", err)
 	}
 	if got := callStatus(t, s, c.id); got != CallLive {
@@ -378,7 +378,7 @@ func TestCallLifecycleADuplicateDepartureIsHarmless(t *testing.T) {
 	ctx := context.Background()
 	c := seedLiveCall(t, s, nil)
 
-	if _, err := s.MarkLeftFromSFU(ctx, c.id, c.host); err != nil {
+	if _, err := s.MarkLeftFromSFU(ctx, c.id, c.host, ""); err != nil {
 		t.Fatalf("first departure: %v", err)
 	}
 	var first time.Time
@@ -389,7 +389,7 @@ func TestCallLifecycleADuplicateDepartureIsHarmless(t *testing.T) {
 		t.Fatalf("read left_at: %v", err)
 	}
 
-	if _, err := s.MarkLeftFromSFU(ctx, c.id, c.host); err != nil {
+	if _, err := s.MarkLeftFromSFU(ctx, c.id, c.host, ""); err != nil {
 		t.Fatalf("duplicate departure: %v", err)
 	}
 	var second time.Time
@@ -414,10 +414,10 @@ func TestCallLifecycleAnUnknownRoomOrIdentityIsNotAnError(t *testing.T) {
 	c := seedLiveCall(t, s, nil)
 	stranger := uuid.Must(uuid.NewV7()).String()
 
-	if _, err := s.MarkLeftFromSFU(ctx, uuid.Must(uuid.NewV7()).String(), stranger); err != nil {
+	if _, err := s.MarkLeftFromSFU(ctx, uuid.Must(uuid.NewV7()).String(), stranger, ""); err != nil {
 		t.Errorf("a departure from an unknown room: %v", err)
 	}
-	if _, err := s.MarkLeftFromSFU(ctx, c.id, stranger); err != nil {
+	if _, err := s.MarkLeftFromSFU(ctx, c.id, stranger, ""); err != nil {
 		t.Errorf("a departure by somebody not on the roster: %v", err)
 	}
 	if n := openParticipants(t, s, c.id); n != 2 {
@@ -435,7 +435,7 @@ func TestCallLifecycleAHostWhoReconnectsWithinTheGraceKeepsTheCallLive(t *testin
 	ctx := context.Background()
 	c := seedLiveCall(t, s, nil)
 
-	if _, err := s.MarkLeftFromSFU(ctx, c.id, c.host); err != nil {
+	if _, err := s.MarkLeftFromSFU(ctx, c.id, c.host, ""); err != nil {
 		t.Fatalf("MarkLeftFromSFU: %v", err)
 	}
 	if err := s.MarkJoined(ctx, c.orgID, c.host, c.id); err != nil {

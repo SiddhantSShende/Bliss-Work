@@ -66,23 +66,45 @@ import (
 // sweeper (ExpireHostlessCalls) a grace period later, where a host who
 // reconnects has simply cleared the condition.
 //
+// ── Why `sid` guards this too ─────────────────────────────────────────────────
+// A departure and a reconnect are told apart by TIME above, but a reconnect can
+// ALSO race the webhook that reports the OLD connection's own departure: LiveKit
+// webhooks are at-least-once and not guaranteed ordered, so a stale
+// participant_left for a session that has already been superseded can arrive
+// AFTER MarkJoinedFromSFU has already recorded the new one. Closing the row on
+// identity alone in that case marks someone who is still in the call as having
+// left — session_id (0030) is what lets this UPDATE tell "this really is the
+// current session leaving" from "this is an old session's stale echo", the same
+// way the whole file tells a reload from a departure: by checking something the
+// SFU's own state has since moved past. NULL session_id (no join webhook seen
+// yet for this row) matches unconditionally, so this only ever narrows
+// behaviour once a session has actually been observed.
+//
 // Returns whether the departure closed a screen share, so the caller knows
 // whether to say so. A call or participant this service does not recognise is
 // reported as nothing having happened rather than an error: the SFU also runs
 // rooms this deployment did not create, and a webhook about one of those is
 // noise, not a failure.
-func (s *Store) MarkLeftFromSFU(ctx context.Context, callID, userID string) (bool, error) {
+func (s *Store) MarkLeftFromSFU(ctx context.Context, callID, userID, sid string) (bool, error) {
 	var wasSharing bool
 	err := s.withBypass(ctx, func(tx pgx.Tx) error {
+		// $3 = '' matches unconditionally too, alongside a NULL row: every real
+		// LiveKit participant event carries a sid, so an empty one here means
+		// the caller genuinely has none to give (a malformed payload, or a
+		// pre-0030 code path) — falling back to identity-only matching is the
+		// pre-fix behaviour, not a new hole, and is safer than dropping a real
+		// departure because we cannot name the session that made it.
 		ct, err := tx.Exec(ctx, `
 			UPDATE call_participants SET left_at = now(), waiting_since = NULL
-			WHERE call_id = $1 AND user_id = $2 AND left_at IS NULL`, callID, userID)
+			WHERE call_id = $1 AND user_id = $2 AND left_at IS NULL
+			  AND (session_id IS NULL OR $3 = '' OR session_id = $3)`, callID, userID, sid)
 		if err != nil {
 			return err
 		}
 		if ct.RowsAffected() == 0 {
-			// Not on this roster, or their own leave request already landed.
-			// Either way there is nothing to record and nothing to announce.
+			// Not on this roster, their own leave request already landed, or
+			// (see above) this is a stale echo for a session a newer one has
+			// since replaced. Either way there is nothing to record.
 			return nil
 		}
 		wasSharing, err = stopSharesTx(ctx, tx, callID, &userID)
@@ -92,6 +114,28 @@ func (s *Store) MarkLeftFromSFU(ctx context.Context, callID, userID string) (boo
 		return false, err
 	}
 	return wasSharing, nil
+}
+
+// MarkJoinedFromSFU records which SFU connection is now current for a
+// participant, so a later stale participant_left for the connection it
+// replaces can be recognised as stale rather than closing the roster row out
+// from under whoever is actually still in the call.
+//
+// Deliberately separate from MarkJoined (calls.go): that one is the CLIENT's
+// own "I connected" request and drives attendance (joined_at, waiting_since);
+// this one is the SFU's report of a NEW connection and drives only
+// session_id — the two can arrive in either order relative to each other,
+// and this one has no opinion about attendance at all. A call or participant
+// this service does not recognise is reported as nothing having happened,
+// matching MarkLeftFromSFU: the SFU also runs rooms this deployment did not
+// create.
+func (s *Store) MarkJoinedFromSFU(ctx context.Context, callID, userID, sid string) error {
+	return s.withBypass(ctx, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
+			UPDATE call_participants SET session_id = $3
+			WHERE call_id = $1 AND user_id = $2`, callID, userID, sid)
+		return err
+	})
 }
 
 // EndCallFromSFU closes a call whose room the SFU has finished with.
@@ -265,6 +309,87 @@ func (s *Store) ExpireHostlessCalls(
 		return nil, err
 	}
 	return ended, nil
+}
+
+// DueSweepLimit bounds one pass of the auto-start sweep — same reasoning as
+// OverdueSweepLimit: small on purpose, so a backlog drains over several ticks
+// rather than in one burst competing with live traffic.
+const DueSweepLimit = 50
+
+// ActivateDueCalls starts every SCHEDULED call whose scheduled start has
+// arrived, admitting anyone already waiting in its lobby, and returns the ones
+// this pass actually started.
+//
+// Mirrors StartCall's own SCHEDULED -> LIVE transition (calls_lobby.go) so a
+// call the CLOCK starts looks, to every client, identical to one a host
+// started by hand. started_by is left NULL — the same "nobody did this, the
+// clock did" convention endCallTx's callers already use for actorID when a
+// call ends by itself.
+//
+// SAFE TO RUN ON EVERY REPLICA CONCURRENTLY, on the same terms as
+// ExpireOverdueCalls: FOR UPDATE SKIP LOCKED claims each row exclusively, and
+// the UPDATE's own `status = 'SCHEDULED'` guard means only the sweeper that
+// actually claimed a row reports having started it.
+func (s *Store) ActivateDueCalls(ctx context.Context, limit int) ([]*CallDTO, error) {
+	if limit <= 0 {
+		limit = DueSweepLimit
+	}
+	var started []*CallDTO
+	err := s.withBypass(ctx, func(tx pgx.Tx) error {
+		ids, err := callIDsTx(ctx, tx, `
+			SELECT id FROM calls
+			WHERE status = 'SCHEDULED'
+			  AND scheduled_at IS NOT NULL
+			  AND scheduled_at <= now()
+			ORDER BY scheduled_at
+			LIMIT $1
+			FOR UPDATE SKIP LOCKED`, limit)
+		if err != nil {
+			return err
+		}
+		for _, id := range ids {
+			c, err := activateCallTx(ctx, tx, id)
+			if err != nil {
+				return err
+			}
+			if c != nil {
+				started = append(started, c)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return started, nil
+}
+
+// activateCallTx opens a SCHEDULED call inside an existing transaction and
+// returns it as it is AFTER starting, or nil if somebody else already did (the
+// UPDATE's own status guard reports zero rows affected).
+//
+// The batched, no-caller counterpart to StartCall's single-call transition:
+// same status/started_at UPDATE, same lobby clear, with no canStartCallTx
+// check because there is no caller to authorise — this only ever runs from
+// ActivateDueCalls, over a row the sweep itself already claimed with
+// FOR UPDATE SKIP LOCKED.
+func activateCallTx(ctx context.Context, tx pgx.Tx, callID string) (*CallDTO, error) {
+	ct, err := tx.Exec(ctx, `
+		UPDATE calls SET status = 'LIVE', started_at = COALESCE(started_at, now())
+		WHERE id = $1 AND status = 'SCHEDULED'`, callID)
+	if err != nil {
+		return nil, err
+	}
+	if ct.RowsAffected() == 0 {
+		return nil, nil
+	}
+	// Admit anyone already parked in the lobby — the same thing StartCall does
+	// for a human-started call. A scheduled call the clock opens must let its
+	// early arrivals in exactly like one a host opens by hand.
+	if _, err := clearLobbyTx(ctx, tx, callID); err != nil {
+		return nil, err
+	}
+	return getCallTx(ctx, tx, callID)
 }
 
 // EndsAtFor computes a call's scheduled end from its start and a duration.

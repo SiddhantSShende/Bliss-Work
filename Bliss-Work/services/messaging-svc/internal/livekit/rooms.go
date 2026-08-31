@@ -133,11 +133,18 @@ func (m *Minter) roomManagementToken() (string, error) {
 // ── Room lifecycle, as the SFU reports it ────────────────────────────────────
 
 // Room webhook events this service acts on. LiveKit sends several more
-// (room_started, participant_joined, track_published…) and they are read as
-// "nothing to do" rather than errors — the route answers 200 to everything it
-// can authenticate, because a non-2xx makes the SFU retry an event we will
-// ignore again.
+// (room_started, track_published…) and they are read as "nothing to do"
+// rather than errors — the route answers 200 to everything it can
+// authenticate, because a non-2xx makes the SFU retry an event we will ignore
+// again.
 const (
+	// EventParticipantJoined fires when a NEW SFU connection is established —
+	// including a reconnect, which gets its own fresh participant SID even
+	// though the identity is unchanged. Read purely to record which session is
+	// now current for that identity (see call_participants.session_id, 0030),
+	// so a stale EventParticipantLeft for a superseded connection can be told
+	// apart from a real departure.
+	EventParticipantJoined = "participant_joined"
 	// EventParticipantLeft fires when the SFU loses a participant, whether they
 	// disconnected politely or their client simply stopped answering. The
 	// second is the case this whole path exists for: it is the only signal
@@ -148,8 +155,8 @@ const (
 	EventRoomFinished = "room_finished"
 )
 
-// RoomEvent is what a room-lifecycle webhook said, reduced to the three facts
-// this service uses.
+// RoomEvent is what a room-lifecycle webhook said, reduced to the facts this
+// service uses.
 type RoomEvent struct {
 	// Event is one of the constants above, or "" for an event to ignore.
 	Event string
@@ -159,6 +166,12 @@ type RoomEvent struct {
 	// Identity is the participant's identity, which IS the BlissWork user id.
 	// Set on participant events only.
 	Identity string
+	// SID is LiveKit's own handle for THIS connection — unique per connect,
+	// even for a reconnect of the same identity. Set on participant events
+	// only. See call_participants.session_id (0030) for why this exists: an
+	// identity-keyed roster row cannot otherwise tell "this session left" from
+	// "a DIFFERENT, newer session for the same person left".
+	SID string
 }
 
 // roomWebhookBody is the subset of LiveKit's WebhookEvent this reads.
@@ -179,6 +192,10 @@ type roomInfo struct {
 
 type participantInfo struct {
 	Identity string `json:"identity"`
+	// SID is a single proto word, so protojson emits the same spelling either
+	// way — unlike the multi-word fields elsewhere in this file, one tag covers
+	// both senders.
+	SID string `json:"sid"`
 }
 
 // ParseRoomWebhook authenticates a LiveKit webhook and extracts what it says
@@ -204,7 +221,7 @@ func (m *Minter) ParseRoomWebhook(authHeader string, body []byte) (*RoomEvent, e
 	if err := json.Unmarshal(body, &wb); err != nil {
 		return nil, fmt.Errorf("livekit: webhook body: %w", err)
 	}
-	if wb.Event != EventParticipantLeft && wb.Event != EventRoomFinished {
+	if wb.Event != EventParticipantJoined && wb.Event != EventParticipantLeft && wb.Event != EventRoomFinished {
 		return &RoomEvent{}, nil
 	}
 	ev := &RoomEvent{Event: wb.Event}
@@ -213,11 +230,13 @@ func (m *Minter) ParseRoomWebhook(authHeader string, body []byte) (*RoomEvent, e
 	}
 	if wb.Participant != nil {
 		ev.Identity = wb.Participant.Identity
+		ev.SID = wb.Participant.SID
 	}
+	isParticipantEvent := ev.Event == EventParticipantJoined || ev.Event == EventParticipantLeft
 	// A room event with no room names nothing to act on. Reported as an ignored
 	// event rather than an error: it is the SFU being odd, not an attack, and
 	// there is nothing to retry.
-	if ev.Room == "" || (ev.Event == EventParticipantLeft && ev.Identity == "") {
+	if ev.Room == "" || (isParticipantEvent && ev.Identity == "") {
 		return &RoomEvent{}, nil
 	}
 	return ev, nil

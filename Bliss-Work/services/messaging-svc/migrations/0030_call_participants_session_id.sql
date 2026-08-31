@@ -1,0 +1,26 @@
+-- 0030_call_participants_session_id.sql — tell one SFU connection from another.
+--
+-- This migration is IDEMPOTENT. Store.Migrate re-Execs every file on EVERY boot,
+-- so every statement guards re-execution.
+--
+-- ── The race this closes ─────────────────────────────────────────────────────
+-- call_participants has one row per (call_id, user_id) — a rejoin reuses the
+-- SAME row (see AddParticipant/MarkJoined's ON CONFLICT / left_at = NULL). But
+-- LiveKit assigns a fresh, unique participant SID to every individual
+-- connection, even for the same identity: a flaky network triggering a fast
+-- reconnect produces an OLD session and a NEW session with different SIDs for
+-- the same user.
+--
+-- MarkLeftFromSFU used to close the roster row on `user_id` alone. Webhook
+-- delivery is at-least-once and not guaranteed ordered, so a stale
+-- participant_left for the OLD, already-superseded session can arrive AFTER
+-- the NEW session has already re-joined — and closing the row on identity
+-- alone marked an actively-present user as having left.
+--
+-- session_id records which SFU connection the row currently represents.
+-- Nullable: existing rows, and rows written before the participant_joined
+-- webhook lands, carry no session yet — NULL is treated as "unknown, match
+-- anything" so the guard only ever narrows behaviour for calls where a
+-- session actually was observed, never breaks one where it wasn't.
+
+ALTER TABLE call_participants ADD COLUMN IF NOT EXISTS session_id text;

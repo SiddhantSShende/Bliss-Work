@@ -38,13 +38,25 @@ func (s *Server) handleRoomEvent(ctx context.Context, ev *livekit.RoomEvent) {
 	defer cancel()
 
 	switch ev.Event {
+	case livekit.EventParticipantJoined:
+		// Records WHICH connection is now current for this identity — nothing
+		// else. See MarkJoinedFromSFU and, for why this matters,
+		// MarkLeftFromSFU's own doc comment on session_id: a fast reconnect can
+		// leave a stale participant_left for the OLD connection in flight, and
+		// this is what lets that be recognised as stale instead of closing the
+		// roster row on somebody who is still in the call.
+		if err := s.store.MarkJoinedFromSFU(ctx, ev.Room, ev.Identity, ev.SID); err != nil {
+			s.log.Warn("could not record an SFU connection",
+				"call_id", ev.Room, "user_id", ev.Identity, "err", err)
+		}
+
 	case livekit.EventParticipantLeft:
 		// Records the departure and nothing more, even when the person who
 		// disconnected is the host — see MarkLeftFromSFU for why ending the
 		// call here would take a meeting away from everyone in it because its
 		// organiser reloaded the page. A host who really has gone is closed by
 		// the sweeper a grace period later.
-		wasSharing, err := s.store.MarkLeftFromSFU(ctx, ev.Room, ev.Identity)
+		wasSharing, err := s.store.MarkLeftFromSFU(ctx, ev.Room, ev.Identity, ev.SID)
 		if err != nil {
 			s.log.Warn("could not record an SFU departure",
 				"call_id", ev.Room, "user_id", ev.Identity, "err", err)
@@ -123,14 +135,32 @@ func (s *Server) RunCallSweeper(ctx context.Context) {
 	}
 }
 
-// sweepOverdueCalls runs one pass of both rules. Separated from the loop so it
-// is testable without a clock.
+// sweepOverdueCalls runs one pass of all three rules. Separated from the loop
+// so it is testable without a clock.
 //
-// Both run every tick, and neither short-circuits the other: a call can be
-// overdue AND hostless, and whichever query claims it first ends it while the
-// other simply finds nothing. They are separate queries rather than one because
-// they are separate reasons, and the log line has to be able to say which.
+// All three run every tick, and none short-circuits another: a call can be
+// overdue AND hostless (though not also due — activating requires SCHEDULED,
+// which the other two never leave a call in), and whichever query claims a row
+// first is the one that acts on it while the others simply find nothing. They
+// are separate queries rather than one because they are separate reasons, and
+// the log line has to be able to say which.
 func (s *Server) sweepOverdueCalls(ctx context.Context) {
+	due, err := s.store.ActivateDueCalls(ctx, store.DueSweepLimit)
+	if err != nil {
+		s.log.Warn("call sweep failed", "rule", "due", "err", err)
+	}
+	for _, c := range due {
+		// No actor: nobody did this, the clock did — same convention the
+		// ending rules below use for actorID, from the other end of a call's
+		// life.
+		s.notifyCall(ctx, c, events.TypeCallStarted, "")
+		// A call the clock starts records with a deployment that records at
+		// all, exactly like one a host starts by hand (startCall).
+		s.startRecording(ctx, c.ID, c.OrgID, c.Kind)
+		s.log.Info("call started: it reached its scheduled start",
+			"call_id", c.ID, "kind", c.Kind, "scheduled_at", c.ScheduledAt)
+	}
+
 	overdue, err := s.store.ExpireOverdueCalls(ctx, store.OverdueSweepLimit)
 	if err != nil {
 		s.log.Warn("call sweep failed", "rule", "overdue", "err", err)
