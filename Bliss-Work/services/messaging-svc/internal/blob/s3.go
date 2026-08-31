@@ -38,6 +38,41 @@ type S3Store struct {
 	prefix string
 }
 
+// Every S3 call below used to run on context.Background() — no deadline at
+// all, so a backend that stops answering (network partition, an overloaded
+// MinIO, a stalled TLS handshake) hangs the calling goroutine FOREVER. For
+// Open/WriteStream that is a request handler that never returns; for
+// RemoveOrg it is the only thing that reaches attachment bytes on org
+// deletion (see its own doc comment) silently wedged.
+//
+// Three bounds rather than one: the calls have genuinely different natural
+// durations, and a single timeout would either fire on legitimate large
+// uploads or be too generous to bound a hung small delete promptly.
+//
+// var, not const: FOR TESTS ONLY, so a test proving a hung backend no longer
+// blocks forever can use a millisecond-scale bound instead of actually
+// waiting out the production value.
+var (
+	// s3ControlTimeout bounds a single metadata/control-plane round trip:
+	// the existence probe in open(), Remove, CachePut's few-hundred-KB write.
+	// Generous relative to a healthy backend's real latency, so it only ever
+	// fires against one that has stopped answering entirely.
+	s3ControlTimeout = 30 * time.Second
+
+	// s3WriteTimeout bounds WriteStream's upload. Sized against
+	// MEDIA_MAX_BYTES at a pessimistic sustained rate, so a legitimate
+	// large-but-slow upload still completes rather than being cut off by an
+	// overly tight bound.
+	s3WriteTimeout = 5 * time.Minute
+
+	// s3BulkTimeout bounds RemoveOrg, which lists and deletes every object
+	// under one org's prefix. Unlike the other calls this can legitimately
+	// take a while for an org with many attachments, and unlike a live HTTP
+	// request nothing is blocked on it synchronously — it is fine to be more
+	// patient here than anywhere else in this file.
+	s3BulkTimeout = 10 * time.Minute
+)
+
 // S3Config is the operator-facing configuration.
 type S3Config struct {
 	Endpoint  string // host:port — no scheme; UseSSL carries that
@@ -144,7 +179,8 @@ func (s *S3Store) WriteStream(orgID string, r io.Reader, max int64) (string, int
 	if _, err := uuid.Parse(orgID); err != nil {
 		return "", 0, ErrBadKey
 	}
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), s3WriteTimeout)
+	defer cancel()
 
 	tmpKey := s.join("tmp", uuid.NewString())
 	h := sha256.New()
@@ -156,9 +192,14 @@ func (s *S3Store) WriteStream(orgID string, r io.Reader, max int64) (string, int
 	if err != nil {
 		return "", 0, fmt.Errorf("blob: upload: %w", err)
 	}
-	// Whatever happens next, the spool object does not survive it.
+	// Whatever happens next, the spool object does not survive it. A fresh
+	// timeout, not `ctx`: if WriteStream is returning because ITS deadline
+	// already fired, ctx is already cancelled and cleanup would no-op instead
+	// of actually trying.
 	defer func() {
-		_ = s.c.RemoveObject(context.Background(), s.bucket, tmpKey, minio.RemoveObjectOptions{})
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), s3ControlTimeout)
+		defer cleanupCancel()
+		_ = s.c.RemoveObject(cleanupCtx, s.bucket, tmpKey, minio.RemoveObjectOptions{})
 	}()
 
 	if info.Size > max {
@@ -198,17 +239,34 @@ func (r *s3Reader) Size() int64        { return r.size }
 func (r *s3Reader) ModTime() time.Time { return r.modTime }
 
 func (s *S3Store) open(key string) (Reader, error) {
-	ctx := context.Background()
-	obj, err := s.c.GetObject(ctx, s.bucket, key, minio.GetObjectOptions{})
+	// GetObject is lazy — it does not talk to the server until first use — but
+	// Stat below forces that first round trip right here, synchronously, so a
+	// missing object surfaces as the 404 the handler wants instead of a torn
+	// body mid-response. minio-go ties Stat (and every later Read/Seek) to the
+	// SAME context GetObject was given, so bounding that context to fail fast
+	// against a hung backend would just as surely cut off a slow-but-healthy
+	// download partway through streaming — video scrubbing on a large
+	// recording can legitimately run far longer than any reasonable timeout.
+	//
+	// So: probe with a bounded, throwaway handle just to force and time out
+	// the existence/metadata round trip, then hand the caller a SECOND,
+	// unbounded handle for the actual read. GetObject itself does no network
+	// call, so the second construction costs nothing extra — only Stat (used
+	// once, on the probe) is a real round trip.
+	probeCtx, cancel := context.WithTimeout(context.Background(), s3ControlTimeout)
+	defer cancel()
+	probe, err := s.c.GetObject(probeCtx, s.bucket, key, minio.GetObjectOptions{})
 	if err != nil {
 		return nil, err
 	}
-	// GetObject is lazy: it does not talk to the server until first use, so a
-	// missing object would otherwise surface mid-response as a torn body rather
-	// than as the 404 the handler wants. Stat forces the round trip now.
-	st, err := obj.Stat()
+	st, err := probe.Stat()
+	_ = probe.Close()
 	if err != nil {
-		_ = obj.Close()
+		return nil, err
+	}
+
+	obj, err := s.c.GetObject(context.Background(), s.bucket, key, minio.GetObjectOptions{})
+	if err != nil {
 		return nil, err
 	}
 	return &s3Reader{Object: obj, size: st.Size, modTime: st.LastModified}, nil
@@ -241,7 +299,9 @@ func (s *S3Store) Remove(orgID, sha string) error {
 	if err != nil {
 		return err
 	}
-	err = s.c.RemoveObject(context.Background(), s.bucket, k, minio.RemoveObjectOptions{})
+	ctx, cancel := context.WithTimeout(context.Background(), s3ControlTimeout)
+	defer cancel()
+	err = s.c.RemoveObject(ctx, s.bucket, k, minio.RemoveObjectOptions{})
 	if isNotFound(err) {
 		return nil
 	}
@@ -258,9 +318,14 @@ func (s *S3Store) RemoveOrg(orgID string) error {
 	if _, err := uuid.Parse(orgID); err != nil {
 		return ErrBadKey
 	}
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), s3BulkTimeout)
+	defer cancel()
 	prefix := s.join("blobs", orgID) + "/"
 
+	// listErr is written only by the goroutine below, and only read after its
+	// `objects` channel has been drained AND closed by RemoveObjects — the
+	// close is a synchronization point, so this needs no lock.
+	var listErr error
 	objects := make(chan minio.ObjectInfo)
 	go func() {
 		defer close(objects)
@@ -268,6 +333,14 @@ func (s *S3Store) RemoveOrg(orgID string) error {
 			Prefix: prefix, Recursive: true,
 		}) {
 			if obj.Err != nil {
+				// Was silently discarded here before: with no timeout, the
+				// only realistic source of obj.Err was a genuine listing
+				// fault. Now that ctx can expire mid-list, minio-go reports
+				// THAT as one final obj.Err before closing the channel — so
+				// swallowing it would make a timed-out, incomplete erasure
+				// return nil, i.e. report success for an org that still has
+				// attachment bytes sitting in the bucket.
+				listErr = obj.Err
 				continue
 			}
 			objects <- obj
@@ -282,6 +355,9 @@ func (s *S3Store) RemoveOrg(orgID string) error {
 		if e.Err != nil && firstErr == nil {
 			firstErr = e.Err
 		}
+	}
+	if firstErr == nil {
+		firstErr = listErr
 	}
 	return firstErr
 }
@@ -312,7 +388,9 @@ func (s *S3Store) CachePut(kind, key string, r io.Reader, max int64) error {
 	if int64(len(buf)) > max {
 		return ErrTooLarge
 	}
-	_, err = s.c.PutObject(context.Background(), s.bucket, k,
+	ctx, cancel := context.WithTimeout(context.Background(), s3ControlTimeout)
+	defer cancel()
+	_, err = s.c.PutObject(ctx, s.bucket, k,
 		bytes.NewReader(buf), int64(len(buf)), minio.PutObjectOptions{})
 	return err
 }
