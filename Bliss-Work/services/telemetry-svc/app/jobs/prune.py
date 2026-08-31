@@ -65,33 +65,36 @@ async def expired_partitions(db, cutoff: date) -> list[tuple[str, date]]:
 
 
 async def assert_rolled_up(db, day: date) -> None:
-    """Refuse to drop a day whose aggregates were never computed.
+    """Refuse to drop a day whose aggregates were never computed, for every org
+    that had activity that day.
 
-    A day with no events at all is fine — nothing to lose. A day with events but
-    no rollup means the nightly job did not run, and dropping it would delete the
-    only copy.
+    Rollups are per (org_id, user_id, day) — activity_daily's own primary key —
+    so "was this day rolled up" has to be asked per org, not once for the whole
+    table. An org whose events for this day arrived late (a Kafka consumer
+    catching up after downtime, or a backdated event clamped into a day whose
+    rollup already ran for every other org) would otherwise be invisible to a
+    single EXISTS check the moment any OTHER org's rollup for the same day
+    exists, and dropping the day would then delete that org's only copy of its
+    raw activity while looking, from this check's point of view, perfectly
+    rolled up.
     """
-    had_events = (
+    unrolled = (
         await db.execute(
             text(
-                "SELECT EXISTS (SELECT 1 FROM activity_events "
-                "WHERE occurred_at >= :d AND occurred_at < :d2)"
+                "SELECT DISTINCT ae.org_id FROM activity_events ae "
+                "WHERE ae.occurred_at >= :d AND ae.occurred_at < :d2 "
+                "AND NOT EXISTS ("
+                "  SELECT 1 FROM activity_daily ad "
+                "  WHERE ad.org_id = ae.org_id AND ad.day = :d"
+                ")"
             ),
             {"d": day, "d2": day + timedelta(days=1)},
         )
-    ).scalar()
-    if not had_events:
-        return
-    rolled = (
-        await db.execute(
-            text("SELECT EXISTS (SELECT 1 FROM activity_daily WHERE day = :d)"),
-            {"d": day},
-        )
-    ).scalar()
-    if not rolled:
+    ).all()
+    if unrolled:
         raise UnrolledDayError(
-            f"{day.isoformat()} has raw events but no activity_daily rows — "
-            f"run `python -m app.jobs.rollup --day={day.isoformat()}` first"
+            f"{day.isoformat()} has raw events for {len(unrolled)} org(s) with no "
+            f"activity_daily rollup — run `python -m app.jobs.rollup --day={day.isoformat()}` first"
         )
 
 
