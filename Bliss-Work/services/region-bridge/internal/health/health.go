@@ -148,6 +148,19 @@ type Readiness struct {
 	Pending        uint64
 	SinceProgress  time.Duration
 	StallAfter     time.Duration
+
+	// Export has no queue-depth signal the way Import has Pending (it reads a
+	// local Kafka topic, not a lagging JetStream consumer this process can
+	// size), so its stall guard uses a different "is there work to do"
+	// witness: ExportFaulting is whether the exporter has recorded a failure
+	// since its last successful publish. That is exactly what the retry loop
+	// in internal/bridge/export.go already tracks — Fault() on every failed
+	// attempt, cleared by Progress() on the next success — so a healthy idle
+	// exporter (no failures, ever-growing SinceProgress) never trips this,
+	// while one stuck retrying a batch it cannot get rid of does.
+	ExportEnabled       bool
+	ExportFaulting      bool
+	ExportSinceProgress time.Duration
 }
 
 // Ready reports whether this replica should receive traffic, and why not.
@@ -168,6 +181,12 @@ func Ready(r Readiness) (bool, string) {
 	// replica out of rotation for the crime of having nothing to do.
 	if r.ImportEnabled && r.Pending > 0 && r.SinceProgress > r.StallAfter {
 		return false, "import stalled: " + r.Pending2String()
+	}
+	// The export-side equivalent: see ExportFaulting's own doc comment for why
+	// it, not a pending count, is the "is there work to do" witness here.
+	if r.ExportEnabled && r.ExportFaulting && r.ExportSinceProgress > r.StallAfter {
+		return false, "export stalled: no successful publish in " +
+			r.ExportSinceProgress.Round(time.Second).String()
 	}
 	return true, "ok"
 }
@@ -193,17 +212,23 @@ func (s *State) Handler(mux *http.ServeMux, metrics http.Handler) {
 	mux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) {
 		s.mu.RLock()
 		r := Readiness{
-			NATSConnected:  s.natsConnected,
-			KafkaReachable: s.kafkaReachable,
-			ImportEnabled:  s.enabled[Import],
-			Pending:        s.pending,
-			SinceProgress:  time.Since(s.lastSuccess[Import]),
-			StallAfter:     s.stallAfter,
+			NATSConnected:       s.natsConnected,
+			KafkaReachable:      s.kafkaReachable,
+			ImportEnabled:       s.enabled[Import],
+			Pending:             s.pending,
+			SinceProgress:       time.Since(s.lastSuccess[Import]),
+			StallAfter:          s.stallAfter,
+			ExportEnabled:       s.enabled[Export],
+			ExportFaulting:      s.lastError[Export] != "",
+			ExportSinceProgress: time.Since(s.lastSuccess[Export]),
 		}
 		if s.lastSuccess[Import].IsZero() {
 			// Never having succeeded is not a stall: a replica that has just
 			// started has not had the chance. Uptime is the honest clock here.
 			r.SinceProgress = time.Since(s.startedAt)
+		}
+		if s.lastSuccess[Export].IsZero() {
+			r.ExportSinceProgress = time.Since(s.startedAt)
 		}
 		s.mu.RUnlock()
 

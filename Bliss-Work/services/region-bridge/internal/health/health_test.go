@@ -82,6 +82,63 @@ func TestADisabledImportCannotStall(t *testing.T) {
 	}
 }
 
+// ── The bug: export had no stall guard at all — only Import did ─────────────
+func TestAStalledExportIsNotReady(t *testing.T) {
+	// A wedged JetStream publish (export.go's maxPublishAttempts retry loop)
+	// used to have no effect on readiness whatsoever: nothing here read
+	// export's own progress or fault state.
+	r := Readiness{
+		NATSConnected: true, KafkaReachable: true,
+		ExportEnabled: true, ExportFaulting: true,
+		ExportSinceProgress: 10 * time.Minute, StallAfter: time.Minute,
+	}
+	ok, why := Ready(r)
+	if ok {
+		t.Fatal("a wedged export reported ready")
+	}
+	if why == "" {
+		t.Fatal("readiness must say why, or the probe is a coin toss to whoever is paged")
+	}
+}
+
+func TestAnIdleExportIsHealthyEvenAfterHours(t *testing.T) {
+	// THE false alarm this design exists to avoid, on the export side: no new
+	// Kafka messages for hours is normal when there is nothing to export, and
+	// export never calls Fault() when it has nothing to retry.
+	r := Readiness{
+		NATSConnected: true, KafkaReachable: true,
+		ExportEnabled: true, ExportFaulting: false,
+		ExportSinceProgress: 6 * time.Hour, StallAfter: time.Minute,
+	}
+	if ok, why := Ready(r); !ok {
+		t.Fatalf("idle export reported unready: %q", why)
+	}
+}
+
+func TestExportFaultingAloneIsNotAStallUntilTheBudgetElapses(t *testing.T) {
+	// One recent failure that has not yet had time to become a stall must not
+	// flip readiness — the budget is what turns "failing" into "wedged".
+	r := Readiness{
+		NATSConnected: true, KafkaReachable: true,
+		ExportEnabled: true, ExportFaulting: true,
+		ExportSinceProgress: time.Second, StallAfter: time.Minute,
+	}
+	if ok, why := Ready(r); !ok {
+		t.Fatalf("a fresh export fault reported unready before its own budget: %q", why)
+	}
+}
+
+func TestADisabledExportCannotStall(t *testing.T) {
+	r := Readiness{
+		NATSConnected: true, KafkaReachable: true,
+		ExportEnabled: false, ExportFaulting: true,
+		ExportSinceProgress: time.Hour, StallAfter: time.Minute,
+	}
+	if ok, why := Ready(r); !ok {
+		t.Fatalf("a deliberately paused export reported unready: %q", why)
+	}
+}
+
 func TestResumingClearsAStaleFault(t *testing.T) {
 	s := New(time.Minute)
 	s.Fault(Import, errFake{})
