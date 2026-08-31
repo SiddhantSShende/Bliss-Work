@@ -20,10 +20,13 @@ OTHER_ORG = "22222222-2222-2222-2222-222222222222"
 ME = "33333333-3333-3333-3333-333333333333"
 
 
-def _principal(user_id=ME, org_id=ORG):
+def _principal(user_id=ME, org_id=ORG, plan="enterprise"):
     from app.auth import Principal
 
-    return Principal(user_id=user_id, org_id=org_id, roles=["admin"], username="me")
+    # Every fixture in this file predates the plan gate and exercises the
+    # connect flow, so default to "enterprise" here — the free-plan case is
+    # exercised explicitly, by name, in the connect-gating tests below.
+    return Principal(user_id=user_id, org_id=org_id, roles=["admin"], username="me", plan=plan)
 
 
 async def _client(principal=None):
@@ -232,6 +235,35 @@ async def test_connect_start_works_once_credentials_exist(db_app):
         assert "client_id=goog-live-id" in url
         # …and the secret never travels in the browser-followed URL.
         assert "goog-live-secret" not in url
+
+
+async def test_connect_start_is_forbidden_for_a_non_enterprise_org(db_app):
+    # External Integrations is an enterprise-only entitlement. A free-plan org
+    # must not be able to acquire a new connection by calling the API
+    # directly, even with valid app credentials on file — this is the actual
+    # authorization boundary; the frontend gate is not one.
+    async with await _client(_principal(plan="enterprise")) as c:
+        await c.put(
+            "/api/v1/integrations/app-credentials/google",
+            json={"clientId": "goog-live-id", "clientSecret": "goog-live-secret"},
+        )
+
+    async with await _client(_principal(plan="free")) as c:
+        r = await c.post("/api/v1/integrations/gmail/connect/start", json={})
+        assert r.status_code == 403
+        assert "enterprise" in r.json()["error"]["message"].lower()
+
+    # And nothing was created for it to abuse — no leftover oauth_states row.
+    from app.db import get_engine
+
+    async with get_engine().begin() as conn:
+        await conn.execute(text("SELECT set_config('app.bypass_rls', 'on', true)"))
+        n = (
+            await conn.execute(
+                text("SELECT count(*) FROM oauth_states WHERE org_id = :o"), {"o": ORG}
+            )
+        ).scalar_one()
+    assert n == 0
 
 
 async def test_the_oauth_state_is_pinned_to_the_credential_row(db_app):

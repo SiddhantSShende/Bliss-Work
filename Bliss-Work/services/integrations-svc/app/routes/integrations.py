@@ -229,6 +229,18 @@ async def connect_start(
     if spec is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="unknown provider")
 
+    # External Integrations is an enterprise-only entitlement (see the `plan`
+    # claim's doc comment in auth.py and migrations/0006_org_plan.sql) — this
+    # is the ONE place that gate needs enforcing: both branches below (OAuth
+    # and token-paste) create a new connection through this function, and the
+    # OAuth callback cannot complete without the oauth_states row only this
+    # branch inserts, so refusing it here closes both paths.
+    if principal.plan != "enterprise":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="External Integrations requires the enterprise plan",
+        )
+
     # Parsed up front because BOTH branches need it now: token-paste reads the
     # credentials, OAuth reads `returnTo`.
     try:
