@@ -281,12 +281,13 @@ async def delete_task_by_title_internal(
     plaintext column and no search index, so matching by title means fetching
     candidate rows and decrypting each with its own org_id before comparing.
 
-    The unscoped (no username) branch is capped at _CANDIDATE_LIMIT candidate
-    rows: an org-wide delete by title has no bound on how many tasks could
-    match, and decrypting every task in a large org on a single internal-token
-    call is both an unbounded-cost query and an unbounded-blast-radius delete.
-    A caller that hits the cap must narrow with `username` instead of getting
-    a silently-truncated delete.
+    Both branches are capped at _CANDIDATE_LIMIT candidate rows: an org-wide
+    delete by title has no bound on how many tasks could match, and a single
+    heavy sender's tasks can just as easily approach the size of an entire
+    org, so decrypting every candidate on one internal-token call is an
+    unbounded-cost query and an unbounded-blast-radius delete either way. A
+    caller that hits the cap must narrow further instead of getting a
+    silently-truncated delete.
     """
     # Verify internal token (constant-time — a stolen internal secret should
     # not be discoverable via response-timing on this comparison).
@@ -299,16 +300,29 @@ async def delete_task_by_title_internal(
         if username:
             # Only tasks created by the specified username, in this org.
             # The explicit org_id filter is defense-in-depth alongside RLS.
+            # Capped for the same reason as the unscoped branch below: a
+            # heavy sender can have as many tasks as an entire org, and
+            # nothing about naming one username bounds the decrypt loop or
+            # the delete's blast radius on its own.
             candidates = (
                 await db.execute(
                     text(
                         "SELECT t.id, t.org_id, t.title_enc FROM tasks t "
                         "JOIN user_projection u ON t.sender_id = u.user_id "
-                        "WHERE u.username = :username AND t.org_id = :org_id"
+                        "WHERE u.username = :username AND t.org_id = :org_id "
+                        "LIMIT :limit"
                     ),
-                    {"username": username, "org_id": org_id},
+                    {"username": username, "org_id": org_id, "limit": _CANDIDATE_LIMIT + 1},
                 )
             ).all()
+            if len(candidates) > _CANDIDATE_LIMIT:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"{username} has more than {_CANDIDATE_LIMIT} tasks in this org; "
+                        "narrow further or delete in batches"
+                    ),
+                )
         else:
             # All tasks in this org (never across orgs), capped so a caller
             # can't force an unbounded decrypt loop / unbounded delete.

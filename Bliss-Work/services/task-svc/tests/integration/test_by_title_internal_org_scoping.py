@@ -156,6 +156,24 @@ async def test_unscoped_delete_errors_past_the_candidate_cap(db_app):
         assert "username" in r.json()["error"]["message"]
 
 
+async def test_username_scoped_delete_errors_past_the_candidate_cap(db_app):
+    """The bug: the `username`-scoped branch had no LIMIT at all, unlike the
+    unscoped branch above — a single heavy sender's tasks could force an
+    unbounded decrypt loop and an unbounded-blast-radius delete in one call."""
+    from app.routes.tasks_write import _CANDIDATE_LIMIT
+
+    for i in range(_CANDIDATE_LIMIT + 1):
+        await _seed_task(ORG_A, f"decoy task {i}", username="prolific-bot")
+    async with await _client() as c:
+        r = await c.delete(
+            "/api/v1/internal/tasks/by-title/nonexistent title",
+            params={"org_id": ORG_A, "username": "prolific-bot"},
+            headers={"X-Internal-Token": TEST_INTERNAL_TOKEN},
+        )
+        assert r.status_code == 400, r.text
+        assert "prolific-bot" in r.json()["error"]["message"]
+
+
 async def test_wrong_internal_token_is_rejected(db_app):
     async with await _client() as c:
         r = await c.delete(
