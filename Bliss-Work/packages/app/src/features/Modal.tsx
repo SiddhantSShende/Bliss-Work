@@ -16,8 +16,11 @@ import { X } from "lucide-react";
  * the visible area, which is exactly the case we're trying to fix.
  */
 
-/** Escape-to-close + focus trap + focus restore, shared by Modal and Sheet. */
-function useDialogBehavior(open: boolean, onClose: () => void) {
+/** Escape-to-close + focus trap + focus restore, shared by Modal and Sheet —
+ *  and exported for a dialog that needs this exact behavior but not Modal's
+ *  own themed chrome (e.g. NewMeetingDialog, which is deliberately NOT
+ *  theme-surface-colored — see its own doc comment). */
+export function useDialogBehavior(open: boolean, onClose: () => void) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const restoreTo = useRef<HTMLElement | null>(null);
 

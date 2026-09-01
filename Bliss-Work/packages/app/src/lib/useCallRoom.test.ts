@@ -19,6 +19,8 @@ const h = vi.hoisted(() => ({
   api: {
     callToken: vi.fn(),
     leaveCall: vi.fn(async () => {}),
+    callTelemetryReconnected: vi.fn(async (_callId: string) => {}),
+    callTelemetrySetupComplete: vi.fn(async (_callId: string, _setupMs: number) => {}),
   },
   wsOn: vi.fn((_handler: EventHandler) => () => {}),
   // Undefined by default (the web shape: config.eventSource absent, so the
@@ -105,6 +107,8 @@ beforeEach(() => {
   h.rooms.length = 0;
   h.api.callToken.mockReset().mockResolvedValue(grant());
   h.api.leaveCall.mockClear();
+  h.api.callTelemetryReconnected.mockClear();
+  h.api.callTelemetrySetupComplete.mockClear();
   h.wsOn.mockClear();
   h.eventSource = undefined;
 });
@@ -209,6 +213,49 @@ describe("the call ending under us", () => {
 
     await waitFor(() => expect(result.current.ended).toBe(true));
     expect(room.disconnect).toHaveBeenCalled();
+  });
+});
+
+describe("call telemetry", () => {
+  it("reports setup duration once, right after connecting", async () => {
+    await joined();
+    expect(h.api.callTelemetrySetupComplete).toHaveBeenCalledTimes(1);
+    const [calledCallId, setupMs] = h.api.callTelemetrySetupComplete.mock.calls[0]!;
+    expect(calledCallId).toBe(CALL_ID);
+    expect(setupMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it("reports a reconnect only when the room actually reconnects", async () => {
+    const { room } = await joined();
+    expect(h.api.callTelemetryReconnected).not.toHaveBeenCalled();
+
+    act(() => room.emit("reconnecting"));
+    expect(h.api.callTelemetryReconnected).not.toHaveBeenCalled();
+
+    act(() => room.emit("reconnected"));
+    expect(h.api.callTelemetryReconnected).toHaveBeenCalledExactlyOnceWith(CALL_ID);
+  });
+
+  /** Regression test: an earlier version called these unguarded, and a
+   *  mock/consumer without the method (or any other synchronous throw) took
+   *  the whole join down with it — a call that had just connected successfully
+   *  was reported to the user as "failed" purely because of a telemetry bug. */
+  it("a telemetry call that throws does not affect join status", async () => {
+    h.api.callTelemetrySetupComplete.mockImplementationOnce(() => {
+      throw new Error("boom");
+    });
+    const { result } = await joined();
+    expect(result.current.status).toBe("connected");
+  });
+
+  it("a telemetry call that rejects does not affect reconnect status", async () => {
+    h.api.callTelemetryReconnected.mockRejectedValueOnce(new Error("boom"));
+    const { result, room } = await joined();
+
+    act(() => room.emit("reconnecting"));
+    act(() => room.emit("reconnected"));
+
+    await waitFor(() => expect(result.current.status).toBe("connected"));
   });
 });
 

@@ -199,6 +199,15 @@ function DocList({
       {assets.map((asset) => {
         const { item, messageId, senderName, at } = asset;
         const url = urlFor(item.id);
+        const previewable = canPreviewDocInApp(item.mime);
+        // Openable only once resolved AND of a type the app can actually
+        // render — a type outside canPreviewDocInApp has nowhere in-app to
+        // open into (see MediaBubble's FileCard, which carries the full
+        // reasoning for why this can no longer fall back to a link: the
+        // server forces Content-Disposition: attachment for everything
+        // outside its own inline allowlist, so that link was a download
+        // wearing an Open label).
+        const openable = !!url && previewable;
         const rowClass = `flex items-center gap-3 rounded-xl px-2 py-2 text-left transition-colors hover:bg-surface-2 ${
           url ? "" : "pointer-events-none opacity-50"
         }`;
@@ -216,14 +225,16 @@ function DocList({
                 </span>
                 <Shared senderName={senderName} at={at} />
               </span>
+              {url && !previewable && (
+                <span className="text-xs text-muted">Preview isn&apos;t available for this file type</span>
+              )}
             </span>
           </>
         );
 
         // A type the app can preview itself opens in-app, in the same
-        // Lightbox the chat bubble and the Media tab use — everything else
-        // opens via the system/browser default, same as before.
-        if (url && canPreviewDocInApp(item.mime)) {
+        // Lightbox the chat bubble and the Media tab use.
+        if (openable) {
           return (
             <li key={`${messageId}:${item.id}`}>
               <button
@@ -238,17 +249,16 @@ function DocList({
           );
         }
 
+        // Not yet resolved, or resolved but not a previewable type: inert
+        // either way — never a link, so there is nothing here to download.
         return (
           <li key={`${messageId}:${item.id}`}>
-            <a
-              href={url ?? undefined}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label={`Open ${item.name}`}
+            <div
               className={rowClass}
+              aria-label={url ? `${item.name} — preview not available` : undefined}
             >
               {row}
-            </a>
+            </div>
           </li>
         );
       })}

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
@@ -27,7 +28,9 @@ async def jwks_endpoint() -> dict:
 async def healthz() -> dict:
     # Cheap liveness probe: process is up and serving. Does NOT touch the DB —
     # see /readyz for the dependency (readiness) check.
-    return {"status": "ok"}
+    # IMAGE_TAG is set by docker-compose.prod.yml from the deployed commit's
+    # short SHA; defaults to "dev" when unset (e.g. a local run outside compose).
+    return {"status": "ok", "version": os.environ.get("IMAGE_TAG", "dev")}
 
 
 @router.get("/readyz")

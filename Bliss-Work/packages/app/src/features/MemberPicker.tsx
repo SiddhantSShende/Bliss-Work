@@ -4,13 +4,15 @@ import { usePeopleSearch } from "../lib/usePeopleCandidates";
 import { useToggleSet } from "../lib/useToggleSet";
 
 /**
- * Pick teammates. Used to add people to an existing channel; the same shape as
- * the picker inside CreateChannelDialog, which keeps its own copy because it is
- * part of one form rather than a standalone control with confirm/cancel.
+ * Pick teammates. Used to add people to an existing channel (ChannelMembersSheet)
+ * and, identically, to add initial members while creating a new one
+ * (CreateChannelPanel) — both just accumulate ids locally until their own
+ * form/mutation submits.
  *
- * `exclude` is the set already in the channel (members AND blocked users): a
+ * `exclude` is the set already in the channel (members AND blocked users) for
+ * ChannelMembersSheet, or the already-picked set for CreateChannelPanel: a
  * blocked user in this list would be a button that 403s, and re-adding an
- * existing member would silently do nothing.
+ * existing/already-picked member would silently do nothing useful.
  */
 export function MemberPicker({
   exclude,

@@ -14,6 +14,7 @@ import (
 	"github.com/task-board/ws-gateway/internal/auth"
 	"github.com/task-board/ws-gateway/internal/delivery"
 	"github.com/task-board/ws-gateway/internal/hub"
+	rtcsignal "github.com/task-board/ws-gateway/internal/signal"
 	"github.com/task-board/ws-gateway/internal/store"
 )
 
@@ -46,11 +47,37 @@ func drainSendTypes(t *testing.T, conn *hub.Conn) []string {
 // newTestServer builds a Server with just the dependencies a given frame path
 // needs. store may be nil for paths that never touch it (ping / unknown).
 func newTestServer(st *store.Store, d *delivery.Dispatcher) *Server {
+	return newTestServerWithSignal(st, d, nil)
+}
+
+// newTestServerWithSignal is newTestServer plus a signal.Dispatcher, for
+// exercising handleCallFrame / handleSignalingFrame end to end (those return
+// immediately when s.signal is nil).
+func newTestServerWithSignal(st *store.Store, d *delivery.Dispatcher, sig *rtcsignal.Dispatcher) *Server {
 	return &Server{
 		store:      st,
 		dispatcher: d,
+		signal:     sig,
 		log:        discardLog(),
 	}
+}
+
+// fakePresenceChecker answers the same-org online question from a controlled
+// table — the server-package twin of signal package's own fakeChecker, needed
+// here because unexported test types cannot cross a package boundary.
+type fakePresenceChecker struct{ online map[string]bool }
+
+func (f *fakePresenceChecker) IsOnlineInOrg(_ context.Context, orgID, userID string) (bool, error) {
+	return f.online[orgID+"\x00"+userID], nil
+}
+
+// fakeBlockChecker answers the block question from a controlled table,
+// checked in both orderings — mirroring how messaging-svc's bool_or(blocked)
+// rule treats a block from either side as blocking both directions.
+type fakeBlockChecker struct{ blocked map[string]bool }
+
+func (f *fakeBlockChecker) IsBlocked(_ context.Context, _ string, userA, userB string) (bool, error) {
+	return f.blocked[userA+"\x00"+userB] || f.blocked[userB+"\x00"+userA], nil
 }
 
 func testSession() *session {
@@ -246,6 +273,92 @@ func TestCallFrameFor_StampsCallerNameFromClaims(t *testing.T) {
 	}
 	if wire["fromName"] != "alice" {
 		t.Fatalf("wire fromName = %v, want alice (%s)", wire["fromName"], out)
+	}
+}
+
+// ── handleCallFrame block enforcement (P0-A) ──────────────────────────────────
+//
+// These exercise the WS layer end to end, over an already-registered live hub
+// connection for both sender and target — the actual authorization boundary
+// for a 1:1 ring (see CallInviteAllowed's doc comment on the signal package):
+// CreateDirectCall's history write is best-effort and unawaited, so this is
+// where a blocked caller's invite is actually stopped, or would leak through
+// if it were not.
+
+func callInviteFrame(toUserID, callID string) []byte {
+	raw, _ := json.Marshal(clientFrame{Type: "call.invite", ToUserID: toUserID, CallID: callID, Media: "video"})
+	return raw
+}
+
+// Test 4: a blocked caller's call.invite must never reach the target's socket.
+func TestHandleCallFrame_BlockedCallerInviteNeverReachesTarget(t *testing.T) {
+	h := hub.New()
+	presence := &fakePresenceChecker{online: map[string]bool{"org-1\x00u-target": true}}
+	blocks := &fakeBlockChecker{blocked: map[string]bool{"u-sender\x00u-target": true}}
+	sig := rtcsignal.New(h, presence, blocks, nil, discardLog())
+	s := newTestServerWithSignal(nil, nil, sig)
+
+	target := hub.NewConn("u-target", "c-target")
+	h.Add(target, 0, 0)
+	caller := hub.NewConn("u-sender", "c-sender")
+	h.Add(caller, 0, 0)
+
+	s.handleClientFrame(context.Background(), caller, testSession(), callInviteFrame("u-target", "call-1"))
+
+	if got := drainSendTypes(t, target); len(got) != 0 {
+		t.Fatalf("target socket received frames from a blocked caller: %v", got)
+	}
+}
+
+// Test 5: the same assertion, but proving it's not merely "offline" doing the
+// work — the target is genuinely connected and would receive a call.invite
+// from an unblocked sender (see the next test), so a live WebSocket
+// connection alone is not enough to bypass the block.
+func TestHandleCallFrame_ExistingConnectionCannotBypassBlock(t *testing.T) {
+	h := hub.New()
+	presence := &fakePresenceChecker{online: map[string]bool{"org-1\x00u-target": true}}
+	blocks := &fakeBlockChecker{blocked: map[string]bool{"u-sender\x00u-target": true}}
+	sig := rtcsignal.New(h, presence, blocks, nil, discardLog())
+	s := newTestServerWithSignal(nil, nil, sig)
+
+	target := hub.NewConn("u-target", "c-target")
+	h.Add(target, 0, 0)
+	caller := hub.NewConn("u-sender", "c-sender")
+	h.Add(caller, 0, 0)
+
+	s.handleClientFrame(context.Background(), caller, testSession(), callInviteFrame("u-target", "call-1"))
+
+	// The caller is told the same "offline" reason a genuinely unreachable
+	// peer gets — never that they are blocked — and the target hears nothing.
+	callerFrames := drainSendTypes(t, caller)
+	if len(callerFrames) != 1 || callerFrames[0] != "rtc.peer.unreachable" {
+		t.Fatalf("caller frames = %v, want exactly one rtc.peer.unreachable", callerFrames)
+	}
+	if got := drainSendTypes(t, target); len(got) != 0 {
+		t.Fatalf("target received %v despite the block", got)
+	}
+}
+
+// Test 6: same-org peers with no block relationship must still be able to
+// call each other — the new check must not become a new way to fail an
+// otherwise-legitimate call.
+func TestHandleCallFrame_SameOrgNoBlockStillDelivers(t *testing.T) {
+	h := hub.New()
+	presence := &fakePresenceChecker{online: map[string]bool{"org-1\x00u-target": true}}
+	blocks := &fakeBlockChecker{blocked: map[string]bool{}} // nobody blocked
+	sig := rtcsignal.New(h, presence, blocks, nil, discardLog())
+	s := newTestServerWithSignal(nil, nil, sig)
+
+	target := hub.NewConn("u-target", "c-target")
+	h.Add(target, 0, 0)
+	caller := hub.NewConn("u-sender", "c-sender")
+	h.Add(caller, 0, 0)
+
+	s.handleClientFrame(context.Background(), caller, testSession(), callInviteFrame("u-target", "call-1"))
+
+	got := drainSendTypes(t, target)
+	if len(got) != 1 || got[0] != "call.invite" {
+		t.Fatalf("target frames = %v, want exactly one call.invite", got)
 	}
 }
 

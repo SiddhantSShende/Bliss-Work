@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/task-board/messaging-svc/internal/livekit"
+	"github.com/task-board/messaging-svc/internal/metrics"
+	"github.com/task-board/messaging-svc/internal/store"
 )
 
 // A deployment that does not run LiveKit Egress is a SUPPORTED configuration,
@@ -66,5 +68,31 @@ func TestUnknownErrorStaysInternal(t *testing.T) {
 	if status != http.StatusInternalServerError || code != CodeInternalError {
 		t.Errorf("unknown error mapped to (%d, %q), want (500, %q)",
 			status, code, CodeInternalError)
+	}
+}
+
+// callFailReason feeds messaging_call_failed_total's "reason" label, which
+// Prometheus/alerting treats as a fixed, bounded set — every store/livekit
+// error callToken can actually return needs a stable home in that taxonomy,
+// and an error that fell through to server_error unnoticed would silently
+// misclassify every failure of that kind on every dashboard built on it.
+func TestCallFailReasonClassifiesEveryKnownCallError(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"forbidden", store.ErrForbidden, metrics.FailReasonPermissionDenied},
+		{"call ended", store.ErrCallEnded, metrics.FailReasonCallUnavailable},
+		{"call not started", store.ErrCallNotStarted, metrics.FailReasonCallUnavailable},
+		{"livekit not configured", livekit.ErrNotConfigured, metrics.FailReasonLiveKitConnection},
+		{"wrapped forbidden", fmt.Errorf("authorize: %w", store.ErrForbidden), metrics.FailReasonPermissionDenied},
+		{"unknown", errors.New("something nobody has seen before"), metrics.FailReasonServerError},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := callFailReason(tc.err); got != tc.want {
+				t.Errorf("callFailReason(%v) = %q, want %q", tc.err, got, tc.want)
+			}
+		})
 	}
 }

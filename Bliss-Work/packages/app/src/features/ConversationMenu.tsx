@@ -27,6 +27,7 @@ import {
   Download,
   Eraser,
   Images,
+  ListChecks,
   LogOut,
   MoreVertical,
   Pencil,
@@ -63,6 +64,12 @@ export interface ConversationMenuProps {
   /** Download the loaded conversation as a transcript. */
   onExport: () => void;
   /**
+   * Enter multi-message selection mode. Same contract as `onClearChat`: omit
+   * it and the row renders inert with UNAVAILABLE_HINT rather than opening a
+   * mode nothing backs.
+   */
+  onSelectMessages?: () => void;
+  /**
    * Clear this conversation for the caller. OMIT while nothing backs it: the
    * row then renders disabled with UNAVAILABLE_HINT rather than half-clearing
    * the page that happens to be loaded and calling it done.
@@ -92,6 +99,7 @@ export function ConversationMenu({
   shortcut,
   onToggleShortcut,
   onExport,
+  onSelectMessages,
   onClearChat,
   onLeave,
   leaving = false,
@@ -170,6 +178,12 @@ export function ConversationMenu({
               icon={<Images size={15} />}
               label="Media, Links & Docs"
               onClick={pick(onMedia)}
+            />
+            <Item
+              icon={<ListChecks size={15} />}
+              label="Select Messages"
+              onClick={onSelectMessages ? pick(onSelectMessages) : undefined}
+              hint={onSelectMessages ? undefined : UNAVAILABLE_HINT}
             />
             <Item
               icon={muted ? <BellOff size={15} /> : <Bell size={15} />}

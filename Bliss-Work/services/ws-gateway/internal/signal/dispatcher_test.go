@@ -43,8 +43,34 @@ func (f *fakeChecker) callCount() int {
 	return f.calls
 }
 
+// fakeBlocks answers the block question from a controlled table and counts
+// how often it was asked — CallInviteAllowed has no cache in front of it (see
+// its doc comment), so every call.invite must reach this fake exactly once.
+type fakeBlocks struct {
+	mu      sync.Mutex
+	blocked map[string]bool // "userA\x00userB", checked both orderings
+	err     error
+	calls   int
+}
+
+func (f *fakeBlocks) IsBlocked(_ context.Context, _ string, userA, userB string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	if f.err != nil {
+		return false, f.err
+	}
+	return f.blocked[userA+"\x00"+userB] || f.blocked[userB+"\x00"+userA], nil
+}
+
+func (f *fakeBlocks) callCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls
+}
+
 func newDispatcher(c PresenceChecker) *Dispatcher {
-	return New(hub.New(), c, nil, discardLog())
+	return New(hub.New(), c, &fakeBlocks{}, nil, discardLog())
 }
 
 // unreachableStore returns a real Store whose Redis dials a closed local port,
@@ -280,5 +306,56 @@ func TestForwardStampsTheSenderAndStripsTheDestination(t *testing.T) {
 	}
 	if strings.Contains(raw, "someone-else") || strings.Contains(raw, `"toUserId"`) {
 		t.Errorf("frame %s still carries a destination; the recipient's own id is implicit", raw)
+	}
+}
+
+// ── CallInviteAllowed (P0-A: blocked users must not be able to call) ─────────
+
+func TestCallInviteAllowed_TrueWithNoBlock(t *testing.T) {
+	d := newDispatcher(&fakeChecker{})
+	d.blocks = &fakeBlocks{blocked: map[string]bool{}}
+
+	allowed, err := d.CallInviteAllowed(context.Background(), "org-1", "u-a", "u-b")
+	if err != nil || !allowed {
+		t.Fatalf("CallInviteAllowed with no block = (%v, %v), want (true, nil)", allowed, err)
+	}
+}
+
+// Test 1: caller blocks recipient.
+func TestCallInviteAllowed_FalseWhenCallerBlockedRecipient(t *testing.T) {
+	d := newDispatcher(&fakeChecker{})
+	d.blocks = &fakeBlocks{blocked: map[string]bool{"u-caller\x00u-recipient": true}}
+
+	allowed, err := d.CallInviteAllowed(context.Background(), "org-1", "u-caller", "u-recipient")
+	if err != nil || allowed {
+		t.Fatalf("CallInviteAllowed(caller, recipient) after caller blocked recipient = (%v, %v), want (false, nil)", allowed, err)
+	}
+}
+
+// Test 2: recipient blocks caller — the check must catch the reverse
+// direction too, exactly like messaging's bool_or(blocked) rule.
+func TestCallInviteAllowed_FalseWhenRecipientBlockedCaller(t *testing.T) {
+	d := newDispatcher(&fakeChecker{})
+	// The block row names (recipient, caller) — the fake stores it in the
+	// order it was set, IsBlocked below asks it in the (caller, recipient)
+	// order the dispatcher always uses.
+	fb := &fakeBlocks{blocked: map[string]bool{}}
+	fb.blocked["u-recipient\x00u-caller"] = true
+	d.blocks = fb
+
+	allowed, err := d.CallInviteAllowed(context.Background(), "org-1", "u-caller", "u-recipient")
+	if err != nil || allowed {
+		t.Fatalf("CallInviteAllowed(caller, recipient) after recipient blocked caller = (%v, %v), want (false, nil)", allowed, err)
+	}
+}
+
+// Fails closed: an error from messaging-svc must never be treated as "allowed."
+func TestCallInviteAllowed_FailsClosedOnError(t *testing.T) {
+	d := newDispatcher(&fakeChecker{})
+	d.blocks = &fakeBlocks{err: errors.New("messaging-svc unreachable")}
+
+	allowed, err := d.CallInviteAllowed(context.Background(), "org-1", "u-a", "u-b")
+	if err == nil || allowed {
+		t.Fatalf("CallInviteAllowed on a block-check error = (%v, %v), want (false, non-nil)", allowed, err)
 	}
 }

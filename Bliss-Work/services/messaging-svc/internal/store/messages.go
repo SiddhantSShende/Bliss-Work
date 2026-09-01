@@ -100,6 +100,59 @@ func (s *Store) SendMessage(ctx context.Context, orgID, senderID, recipientID, b
 	return out, nil
 }
 
+// blockedPairTx is the tx-scoped block lookup IsBlockedPair and
+// CreateDirectCall's in-transaction check both share, so a caller that
+// already holds an open transaction (CreateDirectCall) can ask the question
+// without opening a second one — RLS is scoped per-transaction via the
+// app.org_id GUC, and a nested Begin would just be a second connection
+// answering the same question under the same GUC value.
+//
+// Read-only and side-effect free: unlike SendMessage/OpenConversation, this
+// does NOT create a conversation row for a pair that has never had one — a
+// call-authorization check must not have the side effect of making two
+// strangers visible to each other. bool_or over zero matched rows is NULL,
+// which COALESCE turns into false, so a pair with no conversation yet is
+// correctly "not blocked."
+func blockedPairTx(ctx context.Context, tx pgx.Tx, orgID, userA, userB string) (bool, error) {
+	low, high := orderedPair(userA, userB)
+	var blocked bool
+	err := tx.QueryRow(ctx,
+		`SELECT COALESCE(bool_or(cm.blocked), false)
+		 FROM conversation_members cm
+		 JOIN conversations c ON c.id = cm.conversation_id
+		 WHERE c.org_id = $1 AND c.user_low = $2 AND c.user_high = $3`,
+		orgID, low, high).Scan(&blocked)
+	if err != nil {
+		return false, err
+	}
+	return blocked, nil
+}
+
+// IsBlockedPair reports whether either user in a pair has blocked the other,
+// using the SAME rule SendMessage/Reply enforce above: a block gates BOTH
+// directions, because a block only means something if the blocked person can
+// no longer reach the blocker either.
+//
+// Used by the /internal/calls/blocked endpoint ws-gateway calls before
+// forwarding a call.invite — the actual authorization boundary for a 1:1
+// ring, since CreateDirectCall's row is written best-effort and does not gate
+// delivery of the WebSocket invite (see useCall.tsx's backWithRecord on the
+// frontend). CreateDirectCall runs the same check itself via blockedPairTx,
+// against its own already-open transaction, as defense in depth on the
+// call-history write.
+func (s *Store) IsBlockedPair(ctx context.Context, orgID, userA, userB string) (bool, error) {
+	var blocked bool
+	err := s.withOrg(ctx, orgID, func(tx pgx.Tx) error {
+		var err error
+		blocked, err = blockedPairTx(ctx, tx, orgID, userA, userB)
+		return err
+	})
+	if err != nil {
+		return false, err
+	}
+	return blocked, nil
+}
+
 // Reply appends a message to an existing conversation; the caller must be a member.
 // If parentMessageID is empty the reply nests under the conversation's *most recent*
 // thread (rare; used by legacy /conversations/{id}/reply with no thread context).
@@ -231,9 +284,37 @@ func (o appendOpts) kindArg() string {
 	return o.kind
 }
 
-// appendMessage allocates a seq, inserts the message (idempotent), creates or
-// joins the right thread, writes inbox_items rows for BOTH sender and
-// recipient in the same tx, and emits MessageCreated through the outbox.
+// appendMessage is appendMessageTx plus the commit. Unchanged contract for
+// its three call sites (SendMessage, replyImpl, ForwardLinkRecord's DM
+// branch), which hand over a transaction they expect closed on return.
+func (s *Store) appendMessage(
+	ctx context.Context,
+	tx pgx.Tx,
+	orgID, convID, senderID, recipientID, body, clientMsgID string,
+	parentMessageID, threadIDHint string,
+	opts appendOpts,
+) (*SendResult, error) {
+	res, err := s.appendMessageTx(ctx, tx, orgID, convID, senderID, recipientID, body, clientMsgID,
+		parentMessageID, threadIDHint, opts)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// appendMessageTx is appendMessage on a transaction the CALLER owns and
+// commits. Split out because a batch forward appends N messages into ONE
+// destination transaction (store/forward_batch.go) — appendMessage's own
+// COMMIT, needed by its other three callers, would have closed that
+// transaction after the first message and left the rest with nothing open
+// to run in.
+//
+// Allocates a seq, inserts the message (idempotent), creates or joins the
+// right thread, writes inbox_items rows for BOTH sender and recipient in the
+// same tx, and emits MessageCreated through the outbox.
 //
 // parentMessageID == "" + threadIDHint == "" → top-level send (new thread).
 // parentMessageID != ""                       → reply (inherit parent's thread).
@@ -241,7 +322,7 @@ func (o appendOpts) kindArg() string {
 //
 //	/conversations/{id}/reply
 //	without explicit parent).
-func (s *Store) appendMessage(
+func (s *Store) appendMessageTx(
 	ctx context.Context,
 	tx pgx.Tx,
 	orgID, convID, senderID, recipientID, body, clientMsgID string,
@@ -329,9 +410,6 @@ func (s *Store) appendMessage(
 	var existingThread *string
 	err := tx.QueryRow(ctx, idemptQuery, idemptArgs...).Scan(&existingID, &existingSeq, &existingThread)
 	if err == nil {
-		if cerr := tx.Commit(ctx); cerr != nil {
-			return nil, cerr
-		}
 		out := &SendResult{ConversationID: convID, MessageID: existingID, Seq: existingSeq}
 		if existingThread != nil {
 			out.ThreadID = *existingThread
@@ -463,9 +541,6 @@ func (s *Store) appendMessage(
 		return nil, err
 	}
 
-	if err := tx.Commit(ctx); err != nil {
-		return nil, err
-	}
 	return &SendResult{
 		ConversationID: convID,
 		ThreadID:       threadID,

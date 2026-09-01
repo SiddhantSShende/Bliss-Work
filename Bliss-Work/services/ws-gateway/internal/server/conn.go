@@ -447,9 +447,18 @@ func callFrameFor(sess *session, f *clientFrame) signal.Frame {
 // handleCallFrame relays a 1:1 call lifecycle frame (invite/accept/decline/
 // cancel/end) to the peer over the same signaling path as rtc.*. The media SDP
 // and ICE candidates ride the existing rtc.offer/answer/ice frames (offerId ==
-// callId). Only a call.invite to an offline / cross-org peer echoes back a
-// peer.unreachable (reusing the rtc frame with offerId == callId) so the caller
-// stops ringing; the rest are best-effort.
+// callId). Only a call.invite to an offline / cross-org / blocked peer echoes
+// back a peer.unreachable (reusing the rtc frame with offerId == callId) so
+// the caller stops ringing; the rest are best-effort.
+//
+// call.invite alone also runs the block check (P0-A): a caller who has
+// blocked, or been blocked by, the target must never have their ring
+// forwarded. accept/decline/cancel/end need no check of their own — they only
+// exist in response to an invite that already had to pass this gate, and the
+// high-frequency rtc.offer/answer/ice frames that carry the actual media
+// negotiation are deliberately left out of scope (see
+// signal.Dispatcher.CallInviteAllowed's doc comment for why a per-frame check
+// there would be too expensive).
 func (s *Server) handleCallFrame(ctx context.Context, conn *hub.Conn, sess *session, f *clientFrame) {
 	if s.signal == nil {
 		return
@@ -460,6 +469,27 @@ func (s *Server) handleCallFrame(ctx context.Context, conn *hub.Conn, sess *sess
 	if f.ToUserID == "" || f.ToUserID == sess.claims.Load().UserID || f.CallID == "" {
 		return
 	}
+
+	if f.Type == "call.invite" {
+		allowed, err := s.signal.CallInviteAllowed(ctx, sess.claims.Load().OrgID, sess.claims.Load().UserID, f.ToUserID)
+		if err != nil {
+			s.log.Warn("call block check failed", "from", sess.claims.Load().UserID, "to", f.ToUserID, "err", err)
+		}
+		if err != nil || !allowed {
+			// Same "offline" reason a genuinely unreachable peer gets below —
+			// a blocked caller must learn nothing from this failure beyond
+			// "the call did not go through."
+			if raw, uerr := signal.UnreachableFrame(f.CallID, "offline"); uerr == nil {
+				select {
+				case conn.Send <- raw:
+				default:
+					conn.Close()
+				}
+			}
+			return
+		}
+	}
+
 	delivered := s.signal.Forward(ctx, sess.claims.Load().OrgID, sess.claims.Load().UserID, f.ToUserID, callFrameFor(sess, f))
 	if !delivered && f.Type == "call.invite" {
 		if raw, err := signal.UnreachableFrame(f.CallID, "offline"); err == nil {

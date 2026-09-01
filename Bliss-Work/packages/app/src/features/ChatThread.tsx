@@ -1,6 +1,6 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { MessageSquare, Ban, Forward, PhoneMissed, Pin, Camera } from "lucide-react";
+import { MessageSquare, Ban, Check, Forward, PhoneMissed, Pin, Camera } from "lucide-react";
 import { Avatar } from "@taskboard/ui";
 import { clock, groupMessages } from "../lib/chatFormat";
 import type { ChannelReadReceiptDTO, MessageDTO, ReactionDTO } from "@taskboard/shared";
@@ -175,6 +175,10 @@ export function ChatThread({
   onLoadOlder,
   loadingOlder = false,
   hasOlder = false,
+  selectionMode = false,
+  selectedIds,
+  onToggleSelect,
+  selectionToolbar,
 }: {
   /**
    * Conversation/channel id. ChatThread is never remounted on a chat switch
@@ -269,6 +273,23 @@ export function ChatThread({
   loadingOlder?: boolean;
   /** False once the server returns a short page, i.e. we hold the whole history. */
   hasOlder?: boolean;
+  /**
+   * When true, every selectable bubble shows a selection indicator instead of
+   * its normal actions, and `selectionToolbar` replaces the composer. Absent
+   * or false: current behaviour, unchanged.
+   */
+  selectionMode?: boolean;
+  /** The currently-selected message ids. Only consulted while `selectionMode`. */
+  selectedIds?: ReadonlySet<string>;
+  /** Toggle one message's selection. Required, alongside `selectedIds`, for
+   *  `selectionMode` to actually render indicators — both are optional props
+   *  so every existing caller that omits them keeps today's behaviour. */
+  onToggleSelect?: (messageId: string) => void;
+  /** Replaces the composer while `selectionMode` is on, exactly as `notice`
+   *  replaces it while `disabled`. Rendered rather than built here because the
+   *  bulk actions it offers depend on permissions this presentational
+   *  component has no way to know. */
+  selectionToolbar?: React.ReactNode;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -374,6 +395,13 @@ export function ChatThread({
             // never treat a message as "mine" (which would right-align the whole
             // thread). A received message must default to the left.
             const mine = !!meId && m.senderId === meId;
+            const selecting = selectionMode && !!onToggleSelect;
+            // Not everything is selectable. A pending send has a `temp:` id
+            // the server has never heard of; a tombstone has nothing left to
+            // delete or forward — same exclusions MessageActions already
+            // applies to its own render below.
+            const selectable = selecting && !m.pending && !m.deletedForAll;
+            const picked = !!selectedIds?.has(m.id);
             const dayChip = day && (
               <div className="my-3 flex justify-center">
                 <span className="rounded-full bg-surface-2 px-3 py-0.5 text-[11px] font-medium text-muted">{day}</span>
@@ -427,11 +455,51 @@ export function ChatThread({
             return (
               <div key={m.id}>
                 {dayChip}
+                <div
+                  className={`flex items-center gap-2 ${
+                    selectable
+                      ? `-mx-1 cursor-pointer rounded-xl px-1 ${picked ? "bg-accent-soft/40" : "hover:bg-surface-2/50"}`
+                      : ""
+                  }`}
+                  {...(selectable
+                    ? {
+                        role: "button" as const,
+                        tabIndex: 0,
+                        "aria-pressed": picked,
+                        "aria-label": `Select message${m.senderName ? ` from ${m.senderName}` : ""}`,
+                        onClick: () => onToggleSelect!(m.id),
+                        onKeyDown: (e: React.KeyboardEvent) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            onToggleSelect!(m.id);
+                          }
+                        },
+                      }
+                    : {})}
+                >
+                  {/* Rendered whenever selection mode is on, even for a message
+                      that is not itself selectable (pending, tombstoned) — a
+                      transparent ring rather than an absent one, so bubbles
+                      don't shift horizontally between selectable and not. */}
+                  {selecting && (
+                    <span
+                      aria-hidden
+                      className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full ring-1 transition-colors ${
+                        !selectable
+                          ? "ring-transparent"
+                          : picked
+                            ? "bg-accent text-accent-fg ring-accent"
+                            : "text-transparent ring-border"
+                      }`}
+                    >
+                      <Check size={13} />
+                    </span>
+                  )}
                 <motion.div
                   initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.16 }}
-                  className={`flex items-end gap-2 ${mine ? "justify-end" : "justify-start"} ${grouped ? "mt-0.5" : "mt-2"}`}
+                  className={`flex flex-1 items-end gap-2 ${mine ? "justify-end" : "justify-start"} ${grouped ? "mt-0.5" : "mt-2"}`}
                 >
                   {!mine && showSenderNames && (
                     <div className="w-7 shrink-0">{!grouped && <Avatar name={m.senderName || "?"} size="sm" />}</div>
@@ -469,21 +537,24 @@ export function ChatThread({
                           <Ban size={13} /> This message was deleted
                         </div>
                       ) : custom ? (
-                        <div className={m.pending ? "opacity-60" : ""}>{custom}</div>
+                        // pointer-events-none while selecting: a tap on a
+                        // photo/file/location must toggle selection (the row's
+                        // own click handler), not open the lightbox or a link.
+                        <div className={`${m.pending ? "opacity-60" : ""} ${selecting ? "pointer-events-none select-none" : ""}`}>{custom}</div>
                       ) : (
                         <div
-                          className={emojiOnly
+                          className={(emojiOnly
                             ? `whitespace-pre-wrap break-words text-4xl leading-none ${m.pending ? "opacity-60" : ""}`
                             : `whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2 text-sm shadow-[0_2px_10px_-4px_rgba(40,30,90,0.25)] ${mine
                               ? "rounded-br-md bg-gradient-to-br from-brand-from to-brand-to text-accent-fg"
                               : "rounded-bl-md bg-surface text-fg ring-1 ring-border/60"
-                              } ${m.pending ? "opacity-60" : ""}`}
+                              } ${m.pending ? "opacity-60" : ""}`) + (selecting ? " pointer-events-none select-none" : "")}
                         >
                           {quoted(m, byId)}
                           {renderMessageBody(m.body)}
                         </div>
                       )}
-                      {!m.pending && !m.deletedForAll && (
+                      {!m.pending && !m.deletedForAll && !selecting && (
                         <MessageActions
                           mine={mine}
                           // Built here because this is where the body lives.
@@ -513,7 +584,13 @@ export function ChatThread({
                     {onReact && m.reactions && (
                       <ReactionChips
                         reactions={m.reactions}
-                        onToggle={(emoji, on) => onReact(m.id, emoji, on)}
+                        // Visible but inert while selecting — see the file's
+                        // selection-mode notes: normal actions should not fire
+                        // from a bubble click during selection.
+                        onToggle={(emoji, on) => {
+                          if (selecting) return;
+                          onReact(m.id, emoji, on);
+                        }}
                       />
                     )}
                     <span className="mt-0.5 flex items-center gap-1 px-1 text-[10px] text-muted/70">
@@ -534,6 +611,7 @@ export function ChatThread({
                     </span>
                   </div>
                 </motion.div>
+                </div>
               </div>
             );
           })
@@ -551,7 +629,9 @@ export function ChatThread({
         </div>
       )}
 
-      {disabled ? (
+      {selectionToolbar ? (
+        selectionToolbar
+      ) : disabled ? (
         <div className="flex items-center justify-center gap-2 border-t border-border/60 bg-surface-2/60 p-4 text-sm text-muted">
           <Ban size={15} className="shrink-0 text-danger" />
           <span>{notice ?? "You can't message this conversation."}</span>

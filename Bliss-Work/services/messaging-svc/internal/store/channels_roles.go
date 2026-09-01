@@ -62,34 +62,58 @@ func isOrgAdmin(claimRoles []string) bool {
 	return false
 }
 
-// requireChannelManager returns ErrForbidden unless the caller may moderate the
-// channel: its owner, one of its admins, or an org_admin.
+// channelManagerCheck answers whether the caller may moderate the channel —
+// its owner, one of its admins, or an org_admin — rather than refusing when
+// they may not.
 //
-// An org_admin is NOT required to be a member — moderating a channel you are not
-// in is the point of the capability. The channel must still belong to the
-// caller's org, which the explicit org check below enforces alongside RLS.
-func requireChannelManager(
+// Split out of requireChannelManager so a bulk operation (delete, say) can
+// decide ONCE, up front, which of two authorized-sets a whole batch falls
+// under (moderator: everyone's messages; plain member: only their own)
+// instead of asking "am I allowed to touch THIS one" per row.
+//
+// A channel that does not exist or belongs to another org still returns
+// ErrForbidden directly (not (false, nil)) — that is not a question about the
+// caller's standing, it is the same "this id is not something you get an
+// answer about" refusal every other id-taking path in this package makes.
+func channelManagerCheck(
 	ctx context.Context, tx pgx.Tx, orgID, channelID, userID string, claimRoles []string,
-) error {
+) (bool, error) {
 	var cOrg string
 	err := tx.QueryRow(ctx, `SELECT org_id FROM channels WHERE id = $1`, channelID).Scan(&cOrg)
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && cOrg != orgID) {
-		return ErrForbidden
+		return false, ErrForbidden
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	if isOrgAdmin(claimRoles) {
-		return nil
+		return true, nil
 	}
 	role, err := channelRole(ctx, tx, channelID, userID)
 	if err != nil {
+		return false, err
+	}
+	return role == RoleOwner || role == RoleAdmin, nil
+}
+
+// requireChannelManager returns ErrForbidden unless the caller may moderate
+// the channel: its owner, one of its admins, or an org_admin.
+//
+// An org_admin is NOT required to be a member — moderating a channel you are not
+// in is the point of the capability. The channel must still belong to the
+// caller's org, which channelManagerCheck's explicit org check enforces
+// alongside RLS.
+func requireChannelManager(
+	ctx context.Context, tx pgx.Tx, orgID, channelID, userID string, claimRoles []string,
+) error {
+	ok, err := channelManagerCheck(ctx, tx, orgID, channelID, userID, claimRoles)
+	if err != nil {
 		return err
 	}
-	if role == RoleOwner || role == RoleAdmin {
-		return nil
+	if !ok {
+		return ErrForbidden
 	}
-	return ErrForbidden
+	return nil
 }
 
 // isBlocked reports whether a user is barred from a channel.

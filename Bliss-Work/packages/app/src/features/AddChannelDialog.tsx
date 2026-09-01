@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Check, Compass, Globe, Lock, LogIn, Plus, Search } from "lucide-react";
+import { Check, Compass, Globe, Lock, LogIn, Search } from "lucide-react";
 import { Button, EmptyState, Input } from "@taskboard/ui";
 import type { ChannelDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { Modal } from "./Modal";
-import { CreateChannelDialog } from "./CreateChannelDialog";
+import { CreateChannelPanel } from "./CreateChannelPanel";
 
 /** The backend's own page-size cap (messaging-svc's maxChannelPage) — one
  *  request covers every realistic org, so this popup can offer a single
@@ -15,10 +15,12 @@ import { CreateChannelDialog } from "./CreateChannelDialog";
 const ALL_OPEN_LIMIT = 200;
 
 /**
- * "+ Add Channel" popup: search every channel this user is allowed to know
- * about, join one with a click, or fall through to creating a brand-new one.
+ * "+" popup: one dialog, two tabs — create a brand-new channel (the default),
+ * or search every channel this user is allowed to know about and join one.
+ * Switching tabs swaps content in place; it never closes or stacks a second
+ * popup.
  *
- * ── Why locked channels you're not in are never listed ──────────────────────
+ * ── Why locked channels you're not in are never listed on the Add tab ───────
  * api.openChannels() deliberately excludes them — see its own doc comment:
  * "Locked channels are never listed here; you only see them via explicit
  * invite" — and joinChannel() 403s a self-join to one regardless. Listing
@@ -30,26 +32,26 @@ const ALL_OPEN_LIMIT = 200;
  *
  * ── Reuses, doesn't replace ──────────────────────────────────────────────────
  * routes/ChannelsList.tsx's own "My channels"/"Browse" tabs are untouched —
- * same queries, same join mutation, same CreateChannelDialog at the bottom.
- * This is a second, faster entry point onto the same data, not a redesign.
+ * same queries, same join mutation. This is a second, faster entry point onto
+ * the same data, not a redesign.
  */
 export function AddChannelDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { api } = useRuntime();
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
-  const [createOpen, setCreateOpen] = useState(false);
+  const [tab, setTab] = useState<"create" | "browse">("create");
 
   useEffect(() => {
     if (open) {
       setSearch("");
-      setCreateOpen(false);
+      setTab("create");
     }
   }, [open]);
 
   const { data: mine = [], isPending: minePending } = useQuery({
     queryKey: qk.channels,
     queryFn: () => api.channels(),
-    enabled: open,
+    enabled: open && tab === "browse",
   });
   // A key distinct from qk.openChannels (["channels","open"]) on purpose: the
   // sidebar's own Browse tab reads THAT key through useInfiniteQuery, whose
@@ -64,7 +66,7 @@ export function AddChannelDialog({ open, onClose }: { open: boolean; onClose: ()
   } = useQuery({
     queryKey: [...qk.openChannels, "all"],
     queryFn: () => api.openChannels({ limit: ALL_OPEN_LIMIT }),
-    enabled: open,
+    enabled: open && tab === "browse",
   });
 
   const all = useMemo(() => {
@@ -94,65 +96,78 @@ export function AddChannelDialog({ open, onClose }: { open: boolean; onClose: ()
   });
 
   return (
-    <>
-      <Modal open={open && !createOpen} onClose={onClose} title="Add Channel">
-        <div className="flex flex-col gap-3">
-          <div className="relative">
-            <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-            <Input
-              className="pl-9"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search channels…"
-              autoFocus
-            />
-          </div>
+    <Modal open={open} onClose={onClose} title="Add Channel">
+      <div className="flex flex-col gap-3.5">
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => setTab("create")}
+            className={`rounded-xl border px-3 py-2 text-sm font-medium transition ${
+              tab === "create" ? "border-accent bg-accent-soft text-accent" : "border-border text-muted hover:bg-surface-2"
+            }`}
+          >
+            Create New Channel
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab("browse")}
+            className={`rounded-xl border px-3 py-2 text-sm font-medium transition ${
+              tab === "browse" ? "border-accent bg-accent-soft text-accent" : "border-border text-muted hover:bg-surface-2"
+            }`}
+          >
+            Add Channel
+          </button>
+        </div>
 
-          <div className="max-h-80 min-h-32 space-y-0.5 overflow-y-auto">
-            {loading ? (
-              <div className="py-8 text-center text-sm text-muted">Loading channels…</div>
-            ) : filtered.length === 0 ? (
-              <EmptyState
-                className="py-8"
-                icon={<Compass size={20} />}
-                title={query ? "No matching channels" : "No channels yet"}
-                hint={query ? "Try another search." : "Create the first one below."}
+        {tab === "create" ? (
+          <CreateChannelPanel onCreated={onClose} />
+        ) : (
+          <div className="flex flex-col gap-3">
+            <div className="relative">
+              <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+              <Input
+                className="pl-9"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search channels…"
+                autoFocus
               />
-            ) : (
-              filtered.map((c) => (
-                <AddChannelRow
-                  key={c.id}
-                  channel={c}
-                  onJoin={() => joinMut.mutate(c.id)}
-                  joining={joinMut.isPending && joinMut.variables === c.id}
+            </div>
+
+            <div className="max-h-80 min-h-32 space-y-0.5 overflow-y-auto">
+              {loading ? (
+                <div className="py-8 text-center text-sm text-muted">Loading channels…</div>
+              ) : filtered.length === 0 ? (
+                <EmptyState
+                  className="py-8"
+                  icon={<Compass size={20} />}
+                  title={query ? "No matching channels" : "No channels yet"}
+                  hint={query ? "Try another search." : "Create one from the other tab."}
                 />
-              ))
+              ) : (
+                filtered.map((c) => (
+                  <AddChannelRow
+                    key={c.id}
+                    channel={c}
+                    onJoin={() => joinMut.mutate(c.id)}
+                    joining={joinMut.isPending && joinMut.variables === c.id}
+                  />
+                ))
+              )}
+            </div>
+
+            {openFailed && (
+              <div className="flex items-center justify-between gap-2 rounded-lg bg-warning/10 px-3 py-2 text-xs text-warning">
+                Couldn't load the full channel directory.
+                <button type="button" onClick={() => void retryOpen()} className="font-semibold underline">
+                  Retry
+                </button>
+              </div>
             )}
           </div>
-
-          {openFailed && (
-            <div className="flex items-center justify-between gap-2 rounded-lg bg-warning/10 px-3 py-2 text-xs text-warning">
-              Couldn't load the full channel directory.
-              <button type="button" onClick={() => void retryOpen()} className="font-semibold underline">
-                Retry
-              </button>
-            </div>
-          )}
-
-          <Button className="w-full" onClick={() => setCreateOpen(true)}>
-            <Plus size={15} /> Create New Channel
-          </Button>
-        </div>
-      </Modal>
-
-      <CreateChannelDialog
-        open={createOpen}
-        onClose={() => {
-          setCreateOpen(false);
-          onClose();
-        }}
-      />
-    </>
+        )}
+      </div>
+    </Modal>
   );
 }
 

@@ -322,6 +322,52 @@ describe("the pre-join camera/mic preview", () => {
     expect(screen.queryByText("Camera and microphone are blocked")).toBeNull();
     expect(screen.queryByText("Couldn't access your camera or microphone")).toBeNull();
   });
+
+  /**
+   * Regression coverage for a second false "blocked" banner: CallRoom is
+   * never remounted between calls (see CallRoomLazy — it keeps one instance
+   * alive across surfaces so the LiveKit connection survives), so a denial
+   * left over from a PRIOR call must not bleed into a later call's lobby.
+   * Before this fix, the preview effect only re-ran on `preJoin`/
+   * `previewAttempt`, so switching `call` while still on the lobby kept
+   * showing the previous call's stale "denied" state without ever asking
+   * for permission again.
+   */
+  it("re-checks permission instead of reusing a previous call's denial when the call itself changes", async () => {
+    const pending: Array<{ resolve: (s: MediaStream) => void; reject: (e: unknown) => void }> = [];
+    const getUserMedia = vi.fn(
+      () =>
+        new Promise<MediaStream>((resolve, reject) => {
+          pending.push({ resolve, reject });
+        }),
+    );
+    vi.stubGlobal("navigator", { mediaDevices: { getUserMedia } });
+
+    const qc = new QueryClient();
+    const build = (c: CallDTO) => (
+      <QueryClientProvider client={qc}>
+        <CallRoom call={c} onClose={() => {}} />
+      </QueryClientProvider>
+    );
+    const { rerender } = render(build(call));
+
+    expect(getUserMedia).toHaveBeenCalledTimes(1);
+    await act(async () => pending[0]!.reject(new DOMException("denied", "NotAllowedError")));
+    expect(screen.getByText("Camera and microphone are blocked")).toBeInTheDocument();
+
+    // Routed into a different call while still sitting on the lobby (e.g.
+    // accepting a new incoming meeting) — a fresh permission check must
+    // fire rather than trusting the previous call's denial.
+    rerender(build({ ...call, id: "call-2" }));
+    expect(getUserMedia).toHaveBeenCalledTimes(2);
+
+    const fakeStream = { getTracks: () => [{ stop: vi.fn() }] } as unknown as MediaStream;
+    await act(async () => pending[1]!.resolve(fakeStream));
+
+    expect(screen.queryByText("Camera and microphone are blocked")).toBeNull();
+    expect(screen.getByRole("button", { name: "Mute microphone" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Turn camera off" })).toBeInTheDocument();
+  });
 });
 
 describe("the automatic speaker's silence timeout", () => {

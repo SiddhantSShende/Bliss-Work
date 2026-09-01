@@ -1,0 +1,37 @@
+# Auto-provisioned Grafana dashboard PROVIDER config for the local
+# observability stack. This is deliberately a separate file from
+# grafana-datasources.yaml: Grafana's provisioning system treats datasources
+# and dashboards as two different provisioner types, each reading its own
+# provisioning/<type>/ directory, and mounting this file into the wrong one
+# would make Grafana ignore it.
+#
+# This file only tells Grafana WHERE to look for dashboard JSON — it is not
+# the dashboard itself. The actual dashboard JSON (infra/observability/
+# dashboards/calling.json) is mounted separately, as a directory, into the
+# `path` below.
+#
+# Mirroring grafana-datasources.yaml's mount in docker-compose.yml today:
+#   ./infra/observability/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
+#
+# this file is intended to be mounted the same way, one level up, as:
+#   ./infra/observability/grafana-dashboards.yaml:/etc/grafana/provisioning/dashboards/dashboards.yaml:ro
+#   ./infra/observability/dashboards:/etc/grafana/dashboards:ro
+#
+# i.e. TWO mounts: this provider config into
+# /etc/grafana/provisioning/dashboards/, and the dashboards/ directory
+# (containing calling.json) into /etc/grafana/dashboards — matching the
+# `path` option below. Wiring those mounts into docker-compose.yml is a
+# separate piece of this task, not done by this file.
+apiVersion: 1
+
+providers:
+  - name: 'BlissWork'
+    orgId: 1
+    folder: 'Calling'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /etc/grafana/dashboards
+      foldersFromFilesStructure: false

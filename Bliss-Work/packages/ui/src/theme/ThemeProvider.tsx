@@ -47,18 +47,55 @@ function persistTheme(theme: ThemeId) {
   }
 }
 
-export function ThemeProvider({ children }: { children: React.ReactNode }) {
+export function ThemeProvider({
+  children,
+  forceDefault = false,
+}: {
+  children: React.ReactNode;
+  /**
+   * True while the current screen must show the default BlissWork theme
+   * regardless of what's stored — e.g. the caller's Login/Signup pages. This
+   * provider has no notion of routes itself (it lives in a route-agnostic
+   * package); the caller decides when to pass this, from wherever it does
+   * know the current route.
+   *
+   * The stored/selected theme keeps being tracked normally underneath —
+   * `setTheme`/`toggle` still work exactly as before, and `theme`/`isDark`
+   * in the context value still report the REAL selection — only the DOM
+   * classes the effect below writes are affected. That's what makes leaving
+   * a forced-default screen automatic: the moment the caller passes
+   * `forceDefault={false}` again, this effect re-runs and the real theme is
+   * back on screen with no separate restoration step anywhere.
+   */
+  forceDefault?: boolean;
+}) {
   const [theme, setThemeState] = useState<ThemeId>(readStoredTheme);
+  // Tracked independently of `theme` so a forced-default screen still
+  // follows the OS/browser's light/dark preference live (STEP 5 of the task
+  // this shipped with: a forced screen may still support dark mode, it just
+  // never shows the user's chosen accent family) — `theme` itself only
+  // updates from a system-preference change when nothing has been
+  // explicitly stored (see the listener below), which forceDefault must not
+  // depend on.
+  const [systemDark, setSystemDark] = useState<boolean>(
+    () => typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches,
+  );
 
   useEffect(() => {
     const root = document.documentElement;
+    const effective = forceDefault ? defaultThemeFor(systemDark) : theme;
     root.classList.remove(...ALL_THEME_CLASSES);
-    root.classList.add(...themeClasses(theme));
-  }, [theme]);
+    root.classList.add(...themeClasses(effective));
+  }, [theme, forceDefault, systemDark]);
 
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     const onSystemThemeChange = (event: MediaQueryListEvent) => {
+      setSystemDark(event.matches);
+      // Auto-follow system for the REAL selection only when the user has
+      // never made an explicit choice — unchanged from before. A
+      // forced-default screen still benefits from `systemDark` above
+      // regardless of whether a real theme is stored underneath.
       try {
         if (localStorage.getItem(THEME_KEY)) return;
       } catch {

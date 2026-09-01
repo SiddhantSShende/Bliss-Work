@@ -253,6 +253,18 @@ func (s *Store) ScheduleMeeting(
 			if invOrg != orgID {
 				return ErrForbidden
 			}
+			// Same roster-wide block check AddParticipant runs (see
+			// participantBlockConflict): an up-front invitee list is just
+			// AddParticipant called in a loop, so it is exactly as able to
+			// seat two blocked users in the same room. Checked against
+			// whoever this loop has already inserted (the host included,
+			// from the INSERT above), which is why this must run inside the
+			// loop rather than once against the original inviteeIDs list.
+			if conflict, berr := participantBlockConflict(ctx, tx, orgID, id, uid); berr != nil {
+				return berr
+			} else if conflict {
+				return ErrForbidden
+			}
 			if _, err := tx.Exec(ctx, `
 				INSERT INTO call_participants (call_id, user_id, org_id, role, invited_by)
 				VALUES ($1, $2, $3, 'PARTICIPANT', $4)
@@ -308,6 +320,22 @@ func (s *Store) CreateDirectCall(
 			return ErrForbidden
 		}
 
+		// Defense in depth: the same bool_or(blocked) rule that already gates
+		// SendMessage/Reply (see blockedPairTx in messages.go). This is NOT the
+		// ring's actual authorization boundary — invite() sends the WebSocket
+		// call.invite frame immediately and does not wait on this endpoint, so
+		// the frame that actually rings the callee is gated separately, by
+		// ws-gateway's call to /internal/calls/blocked before it forwards
+		// call.invite. This check exists so a blocked pair's call-history row
+		// is refused too, rather than recording a call that could never
+		// actually connect. Runs against this function's own open tx rather
+		// than IsBlockedPair's, so it costs no second transaction.
+		if blocked, berr := blockedPairTx(ctx, tx, orgID, callerID, peerID); berr != nil {
+			return berr
+		} else if blocked {
+			return ErrForbidden
+		}
+
 		id := uuid.Must(uuid.NewV7()).String()
 		status := CallScheduled
 		var startedAt *time.Time
@@ -341,6 +369,60 @@ func (s *Store) CreateDirectCall(
 }
 
 // ── Roster ───────────────────────────────────────────────────────────────────
+
+// participantBlockConflict reports whether inviteeID has a block
+// relationship, in either direction, with any participant CURRENTLY active
+// (left_at IS NULL) in callID — the same bool_or(blocked) rule
+// SendMessage/Reply and CreateDirectCall already enforce (see blockedPairTx),
+// applied to a roster instead of a single pair.
+//
+// This is P0-A's other half. CallInviteAllowed / CreateDirectCall close the
+// direct-ring door; without this, the same two blocked users could be put in
+// the same LiveKit room anyway, by a third party who is not blocked by
+// either of them, via AddParticipant or ScheduleMeeting's up-front roster.
+// Neither of those callers is necessarily one of the two people at risk, so
+// the check has to run against every participant already in the call, not
+// just the caller performing the add.
+//
+// A small, bounded loop rather than one join: callID's roster is a handful
+// of people (a human-triggered roster change, not a signaling frame — see
+// CallInviteAllowed's doc comment for why THAT path can never do this), and
+// reusing blockedPairTx per pair avoids duplicating its SQL or depending on
+// conversations.user_low/high ordering matching some new query's own
+// LEAST/GREATEST — orderedPair's Go-side comparison is the only place that
+// ordering is defined.
+func participantBlockConflict(ctx context.Context, tx pgx.Tx, orgID, callID, inviteeID string) (bool, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT user_id FROM call_participants
+		WHERE call_id = $1 AND left_at IS NULL AND user_id <> $2`,
+		callID, inviteeID)
+	if err != nil {
+		return false, err
+	}
+	var active []string
+	for rows.Next() {
+		var uid string
+		if err := rows.Scan(&uid); err != nil {
+			rows.Close()
+			return false, err
+		}
+		active = append(active, uid)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+	for _, uid := range active {
+		blocked, err := blockedPairTx(ctx, tx, orgID, inviteeID, uid)
+		if err != nil {
+			return false, err
+		}
+		if blocked {
+			return true, nil
+		}
+	}
+	return false, nil
+}
 
 // AddParticipant pulls another user into an existing call.
 //
@@ -402,6 +484,15 @@ func (s *Store) AddParticipant(
 			return err
 		}
 		if inviteeOrg != orgID {
+			return ErrForbidden
+		}
+		// The invitee must not have a block relationship with anyone already
+		// in the room — see participantBlockConflict's doc comment. Same
+		// ErrForbidden as the org checks above, so a caller who is not one of
+		// the blocked pair learns nothing beyond "cannot add this person."
+		if conflict, berr := participantBlockConflict(ctx, tx, orgID, callID, inviteeID); berr != nil {
+			return berr
+		} else if conflict {
 			return ErrForbidden
 		}
 		_, err = tx.Exec(ctx, `

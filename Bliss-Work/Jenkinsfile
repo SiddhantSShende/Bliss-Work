@@ -2,7 +2,7 @@
 // BlissWork - build and deploy pipeline
 //
 // The flow:
-//   1. Someone pushes to `main` on GitHub
+//   1. Someone pushes to `Prod-Sid` on GitHub
 //   2. Jenkins (BUILD VM) builds only the images that actually changed
 //   3. Jenkins pushes them to the REGISTRY VM
 //   4. Production pulls those images and restarts    <- optional, off by default
@@ -10,7 +10,9 @@
 // Nothing gets compiled on the production server any more.
 //
 // Before this can run:
-//   - `main` must exist on GitHub (right now the repo only has VPS-Shristi)
+//   - `Prod-Sid` must exist on GitHub (it does; `main` never did, which is
+//     why this pipeline could not build anything until RELEASE_BRANCH below
+//     was pointed at the real branch)
 //   - Add a Jenkins credential `docker-registry` (username + password)
 //   - Add `prod-ssh` (SSH key) if you turn DEPLOY_TO_PROD on
 //   - The build agent needs docker + buildx. That's it, everything else runs
@@ -157,7 +159,7 @@ pipeline {
         NAMESPACE       = 'blisswork'
 
         // ---- Only this branch is allowed to build and deploy ----
-        RELEASE_BRANCH  = 'main'
+        RELEASE_BRANCH  = 'Prod-Sid'
 
         // ---- Production VM (only used if DEPLOY_TO_PROD is on) ----
         PROD_HOST       = 'communication.rnrtechs.com'
@@ -216,7 +218,7 @@ pipeline {
         }
 
         // ---------------------------------------------------------------------
-        // Only main is allowed to publish images.
+        // Only Prod-Sid is allowed to publish images.
         // ---------------------------------------------------------------------
         stage('Validate Branch') {
             steps {

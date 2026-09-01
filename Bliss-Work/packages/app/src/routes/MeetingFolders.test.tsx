@@ -19,7 +19,7 @@ vi.mock("../lib/callWindow", () => ({ openCallTab: vi.fn() }));
 vi.mock("../lib/MeetingSession", () => ({
   useMeetingSession: () => ({ enter: vi.fn(), restore: vi.fn(), call: null }),
 }));
-vi.mock("../features/ScheduleCallDialog", () => ({ ScheduleCallDialog: () => null }));
+vi.mock("../features/NewMeetingDialog", () => ({ NewMeetingDialog: () => null }));
 
 import { MeetingFolders } from "./MeetingFolders";
 

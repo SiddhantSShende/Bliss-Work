@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -160,8 +161,13 @@ func (s *Server) Router(webOrigin string) http.Handler {
 	}))
 
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
+		// IMAGE_TAG is set by docker-compose.prod.yml from the deployed commit's
+		// short SHA; defaults to "dev" when unset (e.g. a local run outside compose).
+		version := os.Getenv("IMAGE_TAG")
+		if version == "" {
+			version = "dev"
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "version": version})
 	})
 
 	// Phase 5: Prometheus scrape endpoint. Sibling of /healthz — outside the
@@ -185,6 +191,11 @@ func (s *Server) Router(webOrigin string) http.Handler {
 		// task-svc resolves channel members here when fanning out a channel-
 		// allocated task. Same shared-secret auth as the delivery endpoint.
 		g.Get("/internal/channels/{id}/members", s.internalChannelMembers)
+		// ws-gateway calls this once per call.invite — the actual
+		// authorization boundary for a 1:1 call ring, since the frame is
+		// forwarded independently of CreateDirectCall's (unawaited) history
+		// write. Same shared-secret auth as the delivery endpoint.
+		g.Get("/internal/calls/blocked", s.internalCallBlocked)
 		// Inbound mail from outside BlissWork. Posted by whatever terminates
 		// SMTP for the deployment, in already-parsed form — see
 		// store.InboundMailInput for why the contract is not raw RFC 5322.
@@ -278,6 +289,11 @@ func (s *Server) Router(webOrigin string) http.Handler {
 			r.Get("/conversations/{id}/messages", s.listMessages)
 			r.Get("/conversations/{id}/reactions", s.listConversationReactions)
 			r.Post("/conversations/{id}/read", s.markRead)
+			// Bulk "delete for everyone", scoped to the conversation so the
+			// store authorizes and resolves the member list ONCE for the
+			// whole batch. Not in the idempotency-key group below — see
+			// deleteMessages's own doc comment for why.
+			r.Post("/conversations/{id}/messages/delete", s.deleteMessages)
 
 			// Reactions. Same URL under two verbs, so a double-tap is
 			// idempotent at the HTTP layer and not only in SQL.
@@ -318,6 +334,10 @@ func (s *Server) Router(webOrigin string) http.Handler {
 			// never be cached or prefetched. Answers 202 with the waiting
 			// room, and no token, for a call that has not started.
 			r.Post("/calls/{id}/token", s.callToken)
+			// Two client-observed timing facts a token/webhook cannot see —
+			// see callTelemetry's own doc comment for why it is limited to
+			// exactly these two events.
+			r.Post("/calls/{id}/telemetry", s.callTelemetry)
 			// Opens a scheduled call and admits everyone waiting on it. The
 			// authority to do this is narrow (host / org admin / channel
 			// owner or admin) and is what the waiting room waits for.
@@ -381,6 +401,21 @@ func (s *Server) Router(webOrigin string) http.Handler {
 			// group for the same reason forward-link does.
 			r.Post("/messages/{id}/forward", s.forwardMessage)
 
+			// Batch forward: N source messages → M destinations, in seq
+			// order, each destination getting its own transaction so one
+			// failing destination does not take the others with it. The
+			// single-pair route above is untouched and still serves any
+			// other caller; this is what the multi-select forward dialog
+			// calls. `/forwards` rather than `/messages/forward`: chi would
+			// resolve the latter correctly (a static segment outranks a
+			// param one) but it sits one segment from
+			// `/messages/{id}/forward`, and the channel-messages file's own
+			// note already argues a prefix that cannot collide is cheaper
+			// than a comment explaining why one does not. Idempotent on a
+			// derived per-(message, destination) client_msg_id, so it stays
+			// out of the idempotency group for the same reason forward does.
+			r.Post("/forwards", s.forwardMessages)
+
 			r.Post("/channels", s.createChannel)
 			r.Get("/channels", s.listChannels)
 			r.Get("/channels/open", s.listOpenChannels)
@@ -411,6 +446,11 @@ func (s *Server) Router(webOrigin string) http.Handler {
 			// twins above; see api/channel_message_actions.go for why the
 			// prefix is `/channel-messages/` rather than `/channels/messages/`.
 			r.Get("/channels/{id}/reactions", s.listChannelReactions)
+			// Bulk "delete for everyone", scoped to the channel so the store
+			// can decide ONCE whether this caller moderates it. Not in the
+			// idempotency-key group below — see deleteChannelMessages's own
+			// doc comment for why.
+			r.Post("/channels/{id}/messages/delete", s.deleteChannelMessages)
 			r.Put("/channel-messages/{id}/reactions/{emoji}", s.setChannelReaction)
 			r.Delete("/channel-messages/{id}/reactions/{emoji}", s.setChannelReaction)
 			r.Put("/channel-messages/{id}/pin", s.pinChannelMessage)

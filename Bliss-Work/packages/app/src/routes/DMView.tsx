@@ -16,6 +16,9 @@ import { deliverCallLink } from "../lib/deliverCallLink";
 import { ChatThread } from "../features/ChatThread";
 import { ConversationMenu } from "../features/ConversationMenu";
 import { ConfirmDialog } from "../features/ConfirmDialog";
+import { SelectionToolbar } from "../features/SelectionToolbar";
+import { useMessageSelection } from "../lib/useMessageSelection";
+import { canDeleteForAll } from "../lib/messagePermissions";
 import { ChatSearchBar } from "../features/ChatSearchBar";
 import { ChatAssetsSheet } from "../features/ChatAssetsSheet";
 import { searchMessages } from "../lib/chatSearch";
@@ -97,8 +100,10 @@ export function DMView() {
   // record is written only once the user comes back. Available to every org
   // member — the link needs no connected account.
   const recordForward = useWhatsAppForward();
-  // The message being forwarded to another chat or channel (null = closed).
-  const [forwardTo, setForwardTo] = useState<{ id: string; body: string } | null>(null);
+  // The message(s) being forwarded to another chat or channel (null = closed).
+  // A single-message forward is a one-element `ids` array — same dialog, same
+  // mutation, same code path as a bulk-selection forward.
+  const [forwardTo, setForwardTo] = useState<{ ids: string[]; preview: string } | null>(null);
   // "Schedule Call" from the header's call menu.
   const [scheduleOpen, setScheduleOpen] = useState(false);
   /** The "who else gets the link" dialog. */
@@ -109,6 +114,8 @@ export function DMView() {
   const [query, setQuery] = useState("");
   const [assetsOpen, setAssetsOpen] = useState(false);
   const [clearChatOpen, setClearChatOpen] = useState(false);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const selection = useMessageSelection(conversationId);
 
   // Same route-reuse trap as ChannelView's members sheet: navigating to another
   // conversation keeps this component mounted, so the scheduler — which is
@@ -122,6 +129,9 @@ export function DMView() {
     setQuery("");
     setAssetsOpen(false);
     setClearChatOpen(false);
+    setBulkDeleteOpen(false);
+    // Selection state itself resets inside useMessageSelection, which owns
+    // this same conversationId — see that hook's own doc comment.
   }, [conversationId]);
 
   useEffect(() => {
@@ -200,6 +210,39 @@ export function DMView() {
     mutationFn: (id: string) => api.deleteMessageForAll(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.messages(conversationId) }),
     onError: () => toast.error("Couldn't delete that message"),
+  });
+
+  // The selected rows, and how many of them this caller may delete for
+  // everyone (author-only in a DM) — drives the confirm dialog's wording
+  // only. The mutation itself always sends every selected id; the server
+  // decides which it will actually delete.
+  const selectedMessages = useMemo(
+    () => messages.filter((m) => selection.selected.has(m.id)),
+    [messages, selection.selected],
+  );
+  const deletableCount = useMemo(
+    () => selectedMessages.filter((m) => canDeleteForAll(m, me.id)).length,
+    [selectedMessages, me.id],
+  );
+
+  const bulkDelete = useMutation({
+    mutationFn: (ids: string[]) => api.deleteMessagesForAll(conversationId, ids),
+    onSuccess: (res) => {
+      void qc.invalidateQueries({ queryKey: qk.messages(conversationId) });
+      void qc.invalidateQueries({ queryKey: qk.conversations });
+      setBulkDeleteOpen(false);
+      selection.exit();
+      const total = res.deleted.length + res.skipped.length;
+      if (res.skipped.length === 0) {
+        toast.success(`Deleted ${res.deleted.length} message${res.deleted.length === 1 ? "" : "s"}`);
+      } else {
+        toast.warning(`Deleted ${res.deleted.length} of ${total}`, {
+          description: `${res.skipped.length} couldn't be deleted — only their author can.`,
+        });
+      }
+    },
+    // Selection is deliberately KEPT on failure, so a retry is one click.
+    onError: () => toast.error("Couldn't delete those messages"),
   });
 
   const reply = useMutation({
@@ -519,6 +562,7 @@ export function DMView() {
             shortcut={prefs.hasShortcut("chat", conversationId)}
             onToggleShortcut={() => toggleConversationPref("shortcut", "chat", conversationId)}
             onExport={exportChat}
+            onSelectMessages={() => { closeSearch(); selection.enter(); }}
             onClearChat={() => setClearChatOpen(true)}
             // Sits alongside two `Button variant="ghost" size="sm"` controls,
             // so it takes their height and radius rather than the bare
@@ -560,6 +604,35 @@ export function DMView() {
         }}
         onDeleteForAll={(id) => removeForAll.mutate(id)}
         onReact={(id, emoji, on) => react.mutate({ id, emoji, on })}
+        selectionMode={selection.active}
+        selectedIds={selection.selected}
+        onToggleSelect={selection.toggle}
+        selectionToolbar={
+          selection.active ? (
+            <SelectionToolbar
+              count={selection.count}
+              deletableCount={deletableCount}
+              busy={bulkDelete.isPending}
+              onCancel={selection.exit}
+              onDelete={() => {
+                if (deletableCount === 0) {
+                  toast.error("None of the selected messages can be deleted for everyone");
+                  return;
+                }
+                setBulkDeleteOpen(true);
+              }}
+              onForward={() => {
+                setForwardTo({
+                  // `messages` is already seq-ordered, so filtering it
+                  // preserves that order — this is only for the dialog's own
+                  // preview strip; the server sorts authoritatively.
+                  ids: selectedMessages.map((m) => m.id),
+                  preview: selectedMessages[0]?.body ?? "",
+                });
+              }}
+            />
+          ) : undefined
+        }
         onType={onType}
         peerTyping={peerTyping}
         peerName={peerName}
@@ -574,7 +647,7 @@ export function DMView() {
         }
         onForwardTo={(id) => {
           const msg = messages.find((m) => m.id === id);
-          setForwardTo({ id, body: msg?.body ?? "" });
+          setForwardTo({ ids: [id], preview: msg?.body ?? "" });
         }}
         onForward={recordForward}
         renderBody={media.renderBody}
@@ -592,8 +665,9 @@ export function DMView() {
       <ForwardToDialog
         open={!!forwardTo}
         onClose={() => setForwardTo(null)}
-        sourceMessageId={forwardTo?.id ?? null}
-        preview={forwardTo?.body}
+        sourceMessageIds={forwardTo?.ids ?? []}
+        preview={forwardTo?.preview}
+        onDone={selection.exit}
       />
       {/* Mounted only while open, as MeetingCard does with its roster sheet:
           the panel mints one signed link per attachment in the thread, and a
@@ -635,6 +709,20 @@ export function DMView() {
           setClearChatOpen(false);
           clearChat();
         }}
+      />
+      <ConfirmDialog
+        open={bulkDeleteOpen}
+        onClose={() => setBulkDeleteOpen(false)}
+        title={`Delete ${deletableCount} message${deletableCount === 1 ? "" : "s"}?`}
+        message={
+          deletableCount === selection.count
+            ? "This deletes them for everyone in this chat. It can't be undone."
+            : `${selection.count - deletableCount} of the ${selection.count} selected can't be deleted for everyone — only their author can. The other ${deletableCount} will be deleted for everyone, and that can't be undone.`
+        }
+        confirmLabel="Delete"
+        danger
+        busy={bulkDelete.isPending}
+        onConfirm={() => bulkDelete.mutate(selectedMessages.map((m) => m.id))}
       />
     </div>
   );

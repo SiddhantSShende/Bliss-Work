@@ -6,7 +6,7 @@ import { Button } from "@taskboard/ui";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { ListHeader, rowClass } from "../features/ListPane";
-import { ScheduleCallDialog } from "../features/ScheduleCallDialog";
+import { NewMeetingDialog } from "../features/NewMeetingDialog";
 import { openCallTab } from "../lib/callWindow";
 import { useMeetingSession } from "../lib/MeetingSession";
 import { MEETING_BUCKETS, bucketFor, bucketOf, meetingSearch, type MeetingBucket } from "../lib/meetingView";
@@ -114,8 +114,7 @@ export function MeetingFolders() {
       </nav>
 
       {scheduleOpen && (
-        <ScheduleCallDialog
-          scope={{ kind: "meeting" }}
+        <NewMeetingDialog
           onClose={() => setScheduleOpen(false)}
           onStarted={(call) => {
             setScheduleOpen(false);

@@ -62,49 +62,16 @@ func waitForBlockedQuery(t *testing.T, s *Store, like string, proceed chan struc
 	t.Fatalf("no backend ever blocked waiting on a query matching %q — the row lock this test depends on was never contended", like)
 }
 
-// mailDeliveryRow is one mail_deliveries row, read back under bypass.
-type mailDeliveryRow struct {
-	folder string
-}
+// mailDeliveryRow/mailDeliveryFor: defined once, in mail_send_db_test.go —
+// this file and that one are the same package, and a second identical helper
+// here previously collided with it at compile time (both declared the same
+// name). Removed here rather than there since this file's version was a
+// strict subset (folder only, no read) and only used for .folder.
 
-func mailDeliveryFor(t *testing.T, s *Store, orgID, mailID, userID string) (mailDeliveryRow, bool) {
-	t.Helper()
-	ctx := context.Background()
-	var row mailDeliveryRow
-	var found bool
-	if err := s.withBypass(ctx, func(tx pgx.Tx) error {
-		err := tx.QueryRow(ctx, `
-			SELECT folder FROM mail_deliveries
-			WHERE mail_id = $1 AND owner_user_id = $2 AND org_id = $3`,
-			mailID, userID, orgID).Scan(&row.folder)
-		if err == pgx.ErrNoRows {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		found = true
-		return nil
-	}); err != nil {
-		t.Fatalf("read mail_deliveries: %v", err)
-	}
-	return row, found
-}
-
-func unreadCountFor(t *testing.T, s *Store, orgID, mailID, ownerID string) int64 {
-	t.Helper()
-	ctx := context.Background()
-	var n int64
-	if err := s.withBypass(ctx, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `
-			SELECT unread_count FROM inbox_items
-			WHERE owner_user_id = $1 AND item_kind = 'MAIL' AND ref_id = $2`,
-			ownerID, mailID).Scan(&n)
-	}); err != nil {
-		t.Fatalf("read inbox_items: %v", err)
-	}
-	return n
-}
+// unreadCountFor is defined once, in mail_send_db_test.go (same package) —
+// removed here for the same reason mailDeliveryRow/mailDeliveryFor were: a
+// second, byte-for-byte identical definition collided with it at compile
+// time.
 
 func countMailRows(t *testing.T, s *Store, query string, args ...any) int {
 	t.Helper()

@@ -41,6 +41,16 @@ export interface WsClientOptions {
 const PING_INTERVAL_MS = 20_000;
 const MAX_BACKOFF_MS = 30_000;
 const DEDUP_LRU = 2048;
+/** How long to wait for `onopen` before giving up on this attempt. A refused
+ *  connection fires `onerror`/`onclose` promptly on its own; this exists for the
+ *  case a handshake just HANGS (a proxy/firewall swallowing the WS upgrade, a
+ *  dead-but-not-reset network path) rather than being actively rejected — with
+ *  no timeout, the socket sits in CONNECTING forever, `scheduleReconnect()` is
+ *  never reached (only `onclose` calls it), and `connect()`'s own idempotency
+ *  guard (readyState 0 or 1 → no-op, see below) then makes every later
+ *  token-forward a silent no-op too. Generous by design — bound the failure,
+ *  don't time the happy path — same reasoning as REPLAY_GRACE_MS. */
+const CONNECT_TIMEOUT_MS = 10_000;
 /** How long to wait for `replay.done` before assuming it isn't coming. The
  *  catch-up burst is written in one pass immediately after `hello`, so this is
  *  generous by an order of magnitude — it exists to bound the failure, not to

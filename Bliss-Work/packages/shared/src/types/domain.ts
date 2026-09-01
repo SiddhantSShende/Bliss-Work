@@ -501,6 +501,51 @@ export type ReactionDTO = z.infer<typeof ReactionDTO>;
 export type MessageDTO = z.infer<typeof MessageDTO>;
 
 /**
+ * What a bulk "delete for everyone" actually did, shared by the conversation
+ * and channel endpoints. `skipped` carries no per-id reason on purpose — the
+ * server refuses to say WHY an id it would not delete was skipped (not yours,
+ * not found, another scope), the same restraint it applies everywhere else an
+ * id could otherwise become an existence oracle. `deleted.length +
+ * skipped.length` always equals what was requested.
+ */
+export const BulkDeleteResultDTO = z.object({
+  deleted: z.array(z.string().uuid()),
+  skipped: z.array(z.string().uuid()),
+});
+export type BulkDeleteResultDTO = z.infer<typeof BulkDeleteResultDTO>;
+
+export const ForwardTargetKind = z.enum(["user", "channel"]);
+export type ForwardTargetKind = z.infer<typeof ForwardTargetKind>;
+
+/**
+ * One destination's outcome from a batch forward (N messages → M
+ * destinations). Destination-granular rather than per (message ×
+ * destination): the server gives a destination one transaction for the whole
+ * ordered batch, so it either takes all of it or none of it.
+ */
+export const ForwardDestinationResultDTO = z.object({
+  targetKind: ForwardTargetKind,
+  targetId: z.string().uuid(),
+  ok: z.boolean(),
+  /** Coarse code ("forbidden" | "internal") when !ok — never the raw server
+   *  error text. */
+  error: z.string().optional(),
+  /** Set for a "user" target — the conversation the copies landed in. */
+  conversationId: z.string().uuid().optional(),
+  /** Set for a "channel" target. */
+  channelId: z.string().uuid().optional(),
+  /** The delivered clones, in the order the sources were sent — empty when
+   *  !ok. */
+  messageIds: z.array(z.string().uuid()).default([]),
+});
+export type ForwardDestinationResultDTO = z.infer<typeof ForwardDestinationResultDTO>;
+
+export const BulkForwardResultDTO = z.object({
+  results: z.array(ForwardDestinationResultDTO),
+});
+export type BulkForwardResultDTO = z.infer<typeof BulkForwardResultDTO>;
+
+/**
  * @deprecated In the Inbox model use InboxItemDTO + ThreadDTO. ConversationDTO
  * is now the peer-drill-down view at /chats only.
  */

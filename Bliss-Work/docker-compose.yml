@@ -381,6 +381,27 @@ services:
     ports: ["127.0.0.1:9091:9090"] # host 9090 is commonly taken; Grafana reaches it in-network
     networks: [taskboard]
 
+  # Pushgateway — Prometheus only ever PULLS from a scrape target, which does
+  # not fit a batch/cron-shaped job: scripts/synthetic-call-check.mjs (the
+  # synthetic call check, docs/OBSERVABILITY-ALERTS.md) runs, reports one
+  # result, and exits, so there is no live process left for Prometheus to
+  # scrape at the moment it actually ran. Pushgateway inverts the model for
+  # exactly that shape of job — the script POSTs its result here once when it
+  # finishes, and Prometheus scrapes THIS gateway on its normal interval,
+  # seeing whatever was last pushed until the next run overwrites it.
+  pushgateway:
+    image: prom/pushgateway:v1.9.0
+    profiles: ["observability"]
+    restart: unless-stopped
+    # Container keeps its native port 9091 — that's what prometheus.yml's
+    # pushgateway scrape target uses in-network. Published on host 9099, NOT
+    # 9091: this file's own prometheus service two blocks up already owns
+    # host port 9091 (remapped from its container port 9090). See
+    # scripts/synthetic-call-check.mjs's PUSHGATEWAY_URL default, which
+    # matches this.
+    ports: ["127.0.0.1:9099:9091"]
+    networks: [taskboard]
+
   # Alertmanager — routes Prometheus alerts to receivers. Dev config sends every
   # alert to a webhook sink; prod options (Slack/PagerDuty/email) are documented
   # in docs/OBSERVABILITY-ALERTS.md and stubbed in alertmanager.yml.
@@ -425,6 +446,12 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: admin
     volumes:
       - ./infra/observability/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
+      # Dashboard auto-loading needs TWO mounts: the provider config (how often
+      # to rescan, which folder to file dashboards under) and the directory of
+      # dashboard JSON itself — see grafana-dashboards.yaml's own comment for
+      # why these are separate paths and cannot share one mount.
+      - ./infra/observability/grafana-dashboards.yaml:/etc/grafana/provisioning/dashboards/dashboards.yaml:ro
+      - ./infra/observability/dashboards:/etc/grafana/dashboards:ro
       - grafanadata:/var/lib/grafana
     ports: ["127.0.0.1:3000:3000"]
     networks: [taskboard]

@@ -64,6 +64,52 @@ func (s *Server) deleteChannelMessage(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// deleteChannelMessages serves POST /api/v1/channels/{id}/messages/delete —
+// the batch form of deleteChannelMessage above. Scoped to the channel so the
+// store can decide ONCE whether this caller moderates it (authorizing the
+// whole batch) or only their own messages within it, rather than asking per
+// message. Shares bulkDeleteReq/bulkDeleteResp/maxBulkMessageIDs with the DM
+// twin in message_actions.go — same shape, different store call.
+//
+// NOT in the idempotency-key group, for the same reason deleteMessages is
+// not: it must return a results body, and DeleteChannelMessagesForAll's own
+// COALESCE already makes a retry safe.
+func (s *Server) deleteChannelMessages(w http.ResponseWriter, r *http.Request) {
+	claims, _ := auth.FromContext(r.Context())
+	channelID := chi.URLParam(r, "id")
+	if !validUUID(channelID) {
+		writeErr(w, http.StatusBadRequest, "invalid channel id")
+		return
+	}
+	var req bulkDeleteReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if len(req.MessageIDs) == 0 {
+		writeErr(w, http.StatusBadRequest, "messageIds required")
+		return
+	}
+	if len(req.MessageIDs) > maxBulkMessageIDs {
+		writeErr(w, http.StatusBadRequest, "at most 100 messages per request")
+		return
+	}
+	for _, id := range req.MessageIDs {
+		if !validUUID(id) {
+			writeErr(w, http.StatusBadRequest, "invalid messageId in batch")
+			return
+		}
+	}
+	res, err := s.store.DeleteChannelMessagesForAll(
+		r.Context(), claims.OrgID, claims.UserID, channelID, req.MessageIDs, claims.Roles,
+	)
+	if err != nil {
+		s.mapErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, bulkDeleteResp{Deleted: res.Deleted, Skipped: res.Skipped})
+}
+
 // pinChannelMessage serves PUT/DELETE /api/v1/channel-messages/{id}/pin.
 //
 // Same verb-pair-on-one-URL shape as reactions, for the same reason: it makes a

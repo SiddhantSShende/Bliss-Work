@@ -122,3 +122,16 @@ room:
 # embedded TURN is left OFF so the two do not fight over ports 3478/5349.
 turn:
   enabled: false
+
+# Prometheus metrics — room/participant counts, forward jitter/latency,
+# dropped-packet rate, webhook queue depth (livekit_* series). Verified
+# directly against this pinned image (v1.13.5): the flat `prometheus_port` key
+# still works but logs "prometheus_port is deprecated, please switch
+# prometheus.port instead" at startup, so this uses the nested form. Adjacent
+# to 7880/7881 rather than in the 8000s the rest of the platform's services
+# use for /metrics, because this process is host-networked and has no
+# compose-assigned port of its own — see infra/observability/prometheus.yml's
+# livekit job and docker-compose.prod.yml's extra_hosts on the prometheus
+# service for how a bridge-networked scraper reaches it.
+prometheus:
+  port: 7882

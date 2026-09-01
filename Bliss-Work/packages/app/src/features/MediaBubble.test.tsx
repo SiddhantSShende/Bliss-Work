@@ -1,10 +1,16 @@
 /**
  * FileCard — the non-image/video attachment inside a chat bubble.
  *
- * Regression coverage for the bug this feature request fixed: FileCard used
- * to render as an inert `<div>` with no href and no click handler at all, so
- * a shared PDF or spreadsheet inside a conversation could not be opened from
- * the bubble itself (only from the separate "Media, Links & Docs" panel).
+ * Two generations of regression coverage live here: FileCard used to render
+ * as an inert `<div>` with no href and no click handler at all, so a shared
+ * PDF could not be opened from the bubble itself (only from the separate
+ * "Media, Links & Docs" panel) — fixed by opening previewable types in-app.
+ * It THEN used `target="_blank"` for everything else, which looked like an
+ * "Open" action but was actually a download: the server forces
+ * `Content-Disposition: attachment` for every type outside its own inline
+ * allowlist (media/mime.go), so that link silently downloaded the file
+ * instead of opening it anywhere. There is no fallback to downloading now —
+ * an unsupported type renders an inert tile that says so.
  */
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
@@ -41,7 +47,7 @@ describe("MediaBubble FileCard", () => {
     expect(onOpen).toHaveBeenCalledWith(0);
   });
 
-  it("opens an unsupported document type via the system/browser default, not in-app", () => {
+  it("never downloads an unsupported document type — no link, just a clear message", () => {
     const item = fileItem({ id: "att-2", name: "archive.zip", mime: "application/zip" });
     render(
       <MediaBubble
@@ -53,10 +59,11 @@ describe("MediaBubble FileCard", () => {
       />,
     );
 
-    const link = screen.getByRole("link", { name: `Open ${item.name}` });
-    expect(link).toHaveAttribute("href", "https://example.test/media/att-2?t=sig");
-    expect(link).toHaveAttribute("target", "_blank");
-    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    // No <a>, no <button> — nothing clicking it could do, on either platform.
+    expect(screen.queryByRole("link", { name: `Open ${item.name}` })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: `Open ${item.name}` })).not.toBeInTheDocument();
+    expect(screen.getByText(item.name)).toBeInTheDocument();
+    expect(screen.getByText("Preview isn't available for this file type")).toBeInTheDocument();
   });
 
   it("renders no share/external-link icon — the whole card is already the open action", () => {

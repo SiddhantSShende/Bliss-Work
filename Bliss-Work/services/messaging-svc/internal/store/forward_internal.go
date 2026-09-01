@@ -93,7 +93,11 @@ func (s *Store) ForwardMessage(
 			return err
 		}
 		out = res
-		return nil
+		// forwardToUser/forwardToChannel no longer commit themselves — see
+		// their own doc comments — so this is the one place that does, for
+		// both the ordinary success path and the idempotent-retry
+		// short-circuit inside them.
+		return tx.Commit(ctx)
 	})
 	if err != nil {
 		return nil, err
@@ -101,19 +105,39 @@ func (s *Store) ForwardMessage(
 	return out, nil
 }
 
-// forwardToUser delivers into the 1:1 conversation between the forwarder and the
-// target, creating it if they have never spoken.
-//
-// The conversation upsert, the block gate and the member revival are the same
-// three steps SendMessage performs, and for the same reasons — a forward is an
-// ordinary send with a provenance edge attached, not a privileged write that may
-// bypass a block.
+// forwardToUser delivers into the 1:1 conversation between the forwarder and
+// the target, creating it if they have never spoken. A thin wrapper over
+// resolveForwardDestUser (once-per-destination) + forwardOneToConversation
+// (once-per-message) — split apart because a batch forward
+// (forward_batch.go) calls the same two halves once and N times,
+// respectively, inside ONE destination transaction. Neither half commits;
+// see forwardOneToConversation's doc comment for who does.
 func (s *Store) forwardToUser(
 	ctx context.Context, tx pgx.Tx, orgID, forwarderID, sourceMessageID, targetUserID, clientMsgID string,
 	fc *ForwardSourceCtx,
 ) (*ForwardResult, error) {
+	convID, err := s.resolveForwardDestUser(ctx, tx, orgID, forwarderID, targetUserID)
+	if err != nil {
+		return nil, err
+	}
+	msgID, err := s.forwardOneToConversation(ctx, tx, orgID, forwarderID, sourceMessageID, convID, targetUserID, clientMsgID, fc)
+	if err != nil {
+		return nil, err
+	}
+	return &ForwardResult{MessageID: msgID, ConversationID: convID}, nil
+}
+
+// resolveForwardDestUser is the once-per-destination half of forwardToUser:
+// resolves (or creates) the 1:1 conversation with targetUserID, and checks it
+// is not blocked in either direction. The org check, the conversation upsert
+// and the block gate are the same steps SendMessage performs, and for the
+// same reasons — a forward is an ordinary send with a provenance edge
+// attached, not a privileged write that may bypass a block.
+func (s *Store) resolveForwardDestUser(
+	ctx context.Context, tx pgx.Tx, orgID, forwarderID, targetUserID string,
+) (string, error) {
 	if targetUserID == forwarderID {
-		return nil, ErrForbidden
+		return "", ErrForbidden
 	}
 	// The target must belong to this org. Without it a forward is a way to open
 	// a conversation with a user id guessed from another org — the upsert below
@@ -128,13 +152,13 @@ func (s *Store) forwardToUser(
 	err := tx.QueryRow(ctx,
 		`SELECT org_id::text FROM user_projection WHERE user_id = $1`, targetUserID).Scan(&targetOrg)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrForbidden
+		return "", ErrForbidden
 	}
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	if targetOrg != orgID {
-		return nil, ErrForbidden
+		return "", ErrForbidden
 	}
 
 	low, high := orderedPair(forwarderID, targetUserID)
@@ -145,7 +169,7 @@ func (s *Store) forwardToUser(
 		 ON CONFLICT (org_id, user_low, user_high) DO UPDATE SET org_id = EXCLUDED.org_id
 		 RETURNING id`,
 		convID, orgID, low, high).Scan(&convID); err != nil {
-		return nil, err
+		return "", err
 	}
 
 	// A block in EITHER direction closes the conversation to both parties.
@@ -154,110 +178,141 @@ func (s *Store) forwardToUser(
 		`SELECT COALESCE(bool_or(blocked), false) FROM conversation_members
 		 WHERE conversation_id = $1`, convID).Scan(&blocked); err != nil &&
 		!errors.Is(err, pgx.ErrNoRows) {
-		return nil, err
+		return "", err
 	}
 	if blocked {
-		return nil, ErrForbidden
+		return "", ErrForbidden
 	}
+	return convID, nil
+}
 
+// forwardOneToConversation is the once-per-MESSAGE half of forwardToUser, in
+// exactly the order forwardToUser has always run it: the clientMsgId
+// idempotency check, the two member revivals, the attachment re-scope, the
+// provenance edge, then the append.
+//
+// Does NOT commit — the caller owns and commits the transaction: ForwardMessage
+// commits once after dispatch (single-message forward); ForwardMessages
+// (forward_batch.go) commits once per destination, after this has been called
+// once per source message in that destination's own transaction.
+func (s *Store) forwardOneToConversation(
+	ctx context.Context, tx pgx.Tx, orgID, forwarderID, sourceMessageID, convID, targetUserID, clientMsgID string,
+	fc *ForwardSourceCtx,
+) (string, error) {
 	// Retry of a request that already landed: return the message it wrote. This
-	// is checked BEFORE the edge is written, not left to appendMessage's own
+	// is checked BEFORE the edge is written, not left to appendMessageTx's own
 	// dedupe, which happens too late to stop a second message_forwards row —
 	// the same ordering ForwardLinkRecord relies on.
 	var existingID string
-	err = tx.QueryRow(ctx,
+	err := tx.QueryRow(ctx,
 		`SELECT id::text FROM messages
 		  WHERE conversation_id = $1 AND sender_id = $2 AND client_msg_id = $3`,
 		convID, forwarderID, clientMsgID).Scan(&existingID)
 	if err == nil {
-		if cerr := tx.Commit(ctx); cerr != nil {
-			return nil, cerr
-		}
-		return &ForwardResult{MessageID: existingID, ConversationID: convID}, nil
+		return existingID, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
-		return nil, err
+		return "", err
 	}
 
 	if err := s.upsertMember(ctx, tx, convID, orgID, forwarderID); err != nil {
-		return nil, err
+		return "", err
 	}
 	if err := s.upsertMember(ctx, tx, convID, orgID, targetUserID); err != nil {
-		return nil, err
+		return "", err
 	}
 
 	body, err := s.rescopeForwardBody(ctx, tx, orgID, forwarderID, ScopeConversation, convID, fc.Body)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
-	// The clone's id is minted HERE rather than inside appendMessage because the
-	// provenance edge references it and must be written on the same transaction —
-	// and appendMessage owns the COMMIT, so nothing may be written after it.
+	// The clone's id is minted HERE rather than inside appendMessageTx because
+	// the provenance edge references it and must be written on the same
+	// transaction, before the append itself.
 	cloneID := uuid.Must(uuid.NewV7()).String()
 	if err := s.recordInternalForward(ctx, tx, orgID, forwarderID, sourceMessageID, cloneID,
 		targetUserID, "", convID, body, fc); err != nil {
-		return nil, err
+		return "", err
 	}
 
-	res, err := s.appendMessage(ctx, tx, orgID, convID, forwarderID, targetUserID,
+	res, err := s.appendMessageTx(ctx, tx, orgID, convID, forwarderID, targetUserID,
 		body, clientMsgID, "", "",
 		appendOpts{messageID: cloneID, isForward: true, forwardedFrom: sourceMessageID})
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	return &ForwardResult{MessageID: res.MessageID, ConversationID: convID}, nil
+	return res.MessageID, nil
 }
 
-// forwardToChannel delivers into a channel the forwarder belongs to.
+// forwardToChannel delivers into a channel the forwarder belongs to. A thin
+// wrapper over resolveForwardDestChannel + forwardOneToChannel — see
+// forwardToUser's doc comment for why the split exists. Neither half
+// commits; ForwardMessage/ForwardMessages own that, same as the user path.
 func (s *Store) forwardToChannel(
 	ctx context.Context, tx pgx.Tx, orgID, forwarderID, sourceMessageID, channelID, clientMsgID string,
 	fc *ForwardSourceCtx,
 ) (*ForwardResult, error) {
-	if err := requireChannelMember(ctx, tx, orgID, channelID, forwarderID); err != nil {
+	if err := s.resolveForwardDestChannel(ctx, tx, orgID, forwarderID, channelID); err != nil {
 		return nil, err
 	}
-	// A block without a kick is a mute: still reading, not posting. A forward is
-	// a post.
-	if blocked, err := isBlocked(ctx, tx, channelID, forwarderID); err != nil {
+	msgID, err := s.forwardOneToChannel(ctx, tx, orgID, forwarderID, sourceMessageID, channelID, clientMsgID, fc)
+	if err != nil {
 		return nil, err
-	} else if blocked {
-		return nil, ErrForbidden
 	}
+	return &ForwardResult{MessageID: msgID, ChannelID: channelID}, nil
+}
 
+// resolveForwardDestChannel is the once-per-destination half of
+// forwardToChannel: membership and block checks. A block without a kick is a
+// mute — still reading, not posting — and a forward is a post.
+func (s *Store) resolveForwardDestChannel(
+	ctx context.Context, tx pgx.Tx, orgID, forwarderID, channelID string,
+) error {
+	if err := requireChannelMember(ctx, tx, orgID, channelID, forwarderID); err != nil {
+		return err
+	}
+	if blocked, err := isBlocked(ctx, tx, channelID, forwarderID); err != nil {
+		return err
+	} else if blocked {
+		return ErrForbidden
+	}
+	return nil
+}
+
+// forwardOneToChannel is the once-per-MESSAGE half of forwardToChannel. Does
+// NOT commit — see forwardOneToConversation's doc comment for who does.
+func (s *Store) forwardOneToChannel(
+	ctx context.Context, tx pgx.Tx, orgID, forwarderID, sourceMessageID, channelID, clientMsgID string,
+	fc *ForwardSourceCtx,
+) (string, error) {
 	var existingID string
 	err := tx.QueryRow(ctx,
 		`SELECT id::text FROM channel_messages
 		  WHERE channel_id = $1 AND sender_id = $2 AND client_msg_id = $3`,
 		channelID, forwarderID, clientMsgID).Scan(&existingID)
 	if err == nil {
-		if cerr := tx.Commit(ctx); cerr != nil {
-			return nil, cerr
-		}
-		return &ForwardResult{MessageID: existingID, ChannelID: channelID}, nil
+		return existingID, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
-		return nil, err
+		return "", err
 	}
 
 	body, err := s.rescopeForwardBody(ctx, tx, orgID, forwarderID, ScopeChannel, channelID, fc.Body)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
 	cloneID := uuid.Must(uuid.NewV7()).String()
 	if err := s.recordInternalForward(ctx, tx, orgID, forwarderID, sourceMessageID, cloneID,
 		"", channelID, "", body, fc); err != nil {
-		return nil, err
+		return "", err
 	}
 	if _, err := s.appendChannelMessageTx(ctx, tx, orgID, channelID, forwarderID, body, clientMsgID,
 		channelAppendOpts{messageID: cloneID, isForward: true, forwardedFrom: sourceMessageID}); err != nil {
-		return nil, err
+		return "", err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, err
-	}
-	return &ForwardResult{MessageID: cloneID, ChannelID: channelID}, nil
+	return cloneID, nil
 }
 
 // rescopeForwardBody clones whatever files the body references into the

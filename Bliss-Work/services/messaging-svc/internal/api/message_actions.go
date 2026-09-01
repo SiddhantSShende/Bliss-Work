@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 	"unicode/utf8"
 
@@ -44,6 +45,69 @@ func (s *Server) deleteMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// maxBulkMessageIDs bounds one bulk-delete request. REJECTED over the cap
+// rather than truncated the way /internal/messages/delivered silently
+// truncates its own 256-id batch: a dropped delivery ack there is
+// self-healing, but a silently half-honoured DELETE is exactly the outcome
+// this endpoint exists to never produce. 100 also bounds how many websocket
+// pushes one click can fan out — 100 deletes into a large channel is already
+// real load.
+const maxBulkMessageIDs = 100
+
+type bulkDeleteReq struct {
+	MessageIDs []string `json:"messageIds"`
+}
+
+type bulkDeleteResp struct {
+	Deleted []string `json:"deleted"`
+	Skipped []string `json:"skipped"`
+}
+
+// deleteMessages serves POST /api/v1/conversations/{id}/messages/delete — the
+// batch form of deleteMessage above. Scoped to the conversation (rather than
+// taking bare message ids) because the store authorizes once and resolves the
+// member list once for the whole batch, the same way the single-message path
+// resolves them per message.
+//
+// NOT in the idempotency-key group deleteMessage sits in: that middleware
+// replays as a bare 204 and does not cache response bodies, and this endpoint
+// must return one (which ids were actually deleted vs. skipped). Its SQL is
+// idempotent on its own — DeleteMessagesForAll's COALESCE keeps re-deleting a
+// no-op — so a retried request is already safe without it.
+func (s *Server) deleteMessages(w http.ResponseWriter, r *http.Request) {
+	claims, _ := auth.FromContext(r.Context())
+	convID := chi.URLParam(r, "id")
+	if !validUUID(convID) {
+		writeErr(w, http.StatusBadRequest, "invalid conversation id")
+		return
+	}
+	var req bulkDeleteReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if len(req.MessageIDs) == 0 {
+		writeErr(w, http.StatusBadRequest, "messageIds required")
+		return
+	}
+	if len(req.MessageIDs) > maxBulkMessageIDs {
+		writeErr(w, http.StatusBadRequest, "at most 100 messages per request")
+		return
+	}
+	for _, id := range req.MessageIDs {
+		if !validUUID(id) {
+			writeErr(w, http.StatusBadRequest, "invalid messageId in batch")
+			return
+		}
+	}
+	res, err := s.store.DeleteMessagesForAll(r.Context(), claims.OrgID, claims.UserID, convID, req.MessageIDs)
+	if err != nil {
+		s.mapErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, bulkDeleteResp{Deleted: res.Deleted, Skipped: res.Skipped})
 }
 
 // maxEmojiBytes bounds the reaction column so it stays an EMOJI field rather

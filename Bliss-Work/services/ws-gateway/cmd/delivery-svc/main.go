@@ -29,6 +29,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"os"
@@ -111,8 +112,14 @@ func main() {
 	// has something to probe.
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
+		// IMAGE_TAG is set by docker-compose.prod.yml from the deployed commit's
+		// short SHA; defaults to "dev" when unset (e.g. a local run outside compose).
+		version := os.Getenv("IMAGE_TAG")
+		if version == "" {
+			version = "dev"
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "version": version})
 	})
 	mux.HandleFunc("/readyz", func(w http.ResponseWriter, req *http.Request) {
 		ctx, cancel := context.WithTimeout(req.Context(), 3*time.Second)

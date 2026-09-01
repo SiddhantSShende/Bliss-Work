@@ -22,7 +22,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ConversationMenu, type ConversationMenuProps } from "./ConversationMenu";
 
-const CHAT_ROWS = ["View Profile", "Search", "Media, Links & Docs", "Mute Notifications", "More"];
+const CHAT_ROWS = ["View Profile", "Search", "Media, Links & Docs", "Select Messages", "Mute Notifications", "More"];
 const MORE_ROWS = ["Clear Chat", "Export Chat", "Pin Chat"];
 
 function menu(props: Partial<ConversationMenuProps> = {}) {
@@ -159,6 +159,23 @@ describe("ConversationMenu", () => {
     await user.click(screen.getByRole("menuitem", { name: "More" }));
     await user.click(screen.getByRole("menuitem", { name: "Clear Chat" }));
     expect(onClearChat).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
+  it("leaves Select Messages inert while no selection mode backs it, and says why", async () => {
+    menu();
+    await openMenu();
+    const row = screen.getByRole("menuitem", { name: "Select Messages" });
+    expect(row).toBeDisabled();
+    expect(row.parentElement).toHaveAttribute("title", expect.stringContaining("Not available"));
+  });
+
+  it("enters selection mode once a handler is supplied, and closes the menu behind it", async () => {
+    const onSelectMessages = vi.fn();
+    menu({ onSelectMessages });
+    const user = await openMenu();
+    await user.click(screen.getByRole("menuitem", { name: "Select Messages" }));
+    expect(onSelectMessages).toHaveBeenCalledOnce();
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 

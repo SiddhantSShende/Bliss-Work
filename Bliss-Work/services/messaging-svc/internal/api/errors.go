@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/task-board/messaging-svc/internal/livekit"
+	"github.com/task-board/messaging-svc/internal/metrics"
 	mw "github.com/task-board/messaging-svc/internal/middleware"
 	"github.com/task-board/messaging-svc/internal/store"
 )
@@ -103,6 +104,11 @@ func mapStoreError(err error) (int, ErrorCode, string) {
 			"a channel must keep an owner — transfer ownership first"
 	case errors.Is(err, store.ErrForbidden):
 		return http.StatusForbidden, CodeForbidden, "forbidden"
+	case errors.Is(err, store.ErrMixedForwardScope):
+		// 400, not 403: the caller can read every source message named — the
+		// request just asks for an order (chronological, across two scopes)
+		// that does not exist.
+		return http.StatusBadRequest, CodeValidationError, err.Error()
 	case errors.Is(err, store.ErrInviteInvalid):
 		// 404, not 403. A 403 would confirm the token names a real meeting,
 		// turning this endpoint into an oracle for guessing links; and the
@@ -176,5 +182,28 @@ func mapStoreError(err error) (int, ErrorCode, string) {
 		return http.StatusGatewayTimeout, CodeGatewayTimeout, "request timed out"
 	default:
 		return http.StatusInternalServerError, CodeInternalError, "internal error"
+	}
+}
+
+// callFailReason classifies an error from the call-join path into the
+// bounded taxonomy metrics.CallFailedTotal accepts. Deliberately separate
+// from mapStoreError: that function's job is picking an HTTP status and a
+// user-facing message, and several of its distinctions do not matter for a
+// metric label (ErrCallEnded and ErrCallNotStarted are different 409s for a
+// user, but the same "the call isn't joinable right now" reason for an
+// alert). Kept here, not in the metrics package, so the package that reads
+// store/livekit error sentinels is the package that already imports
+// store/livekit — metrics stays a leaf package with no reason to import
+// either (see metrics/calls.go's own doc comment).
+func callFailReason(err error) string {
+	switch {
+	case errors.Is(err, store.ErrForbidden):
+		return metrics.FailReasonPermissionDenied
+	case errors.Is(err, store.ErrCallEnded), errors.Is(err, store.ErrCallNotStarted):
+		return metrics.FailReasonCallUnavailable
+	case errors.Is(err, livekit.ErrNotConfigured):
+		return metrics.FailReasonLiveKitConnection
+	default:
+		return metrics.FailReasonServerError
 	}
 }

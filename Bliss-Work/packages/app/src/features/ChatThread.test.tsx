@@ -11,6 +11,7 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 // ChatThread resolves sender avatars via useUserLabels, which needs
@@ -108,5 +109,58 @@ describe("call links in the chat thread", () => {
     // No <script> element was ever created — the text is inert, not parsed.
     expect(container.querySelectorAll("script")).toHaveLength(0);
     expect(container.textContent).toContain("<script>alert(1)</script>");
+  });
+});
+
+/**
+ * Selection mode: the per-message actions row is replaced by a selection
+ * indicator, and normal actions must not fire from a bubble click while it is
+ * active. Both guarantees are structural (MessageActions is conditionally
+ * unmounted, not merely intercepted) — see ChatThread's own comments on why.
+ */
+describe("ChatThread — selection mode", () => {
+  function renderSelectable(messages: ThreadMessage[], onToggleSelect = vi.fn()) {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const utils = render(
+      <QueryClientProvider client={qc}>
+        <ChatThread
+          threadId="conv-1"
+          messages={messages}
+          meId={ME}
+          onSend={() => {}}
+          peerName="Alice"
+          selectionMode
+          selectedIds={new Set()}
+          onToggleSelect={onToggleSelect}
+        />
+      </QueryClientProvider>,
+    );
+    return { ...utils, onToggleSelect, user: userEvent.setup() };
+  }
+
+  it("renders no per-message actions trigger while selecting", () => {
+    renderSelectable([message()]);
+    expect(screen.queryByRole("button", { name: "Message actions" })).toBeNull();
+  });
+
+  it("restores the normal actions trigger once selection mode is off", () => {
+    renderThread([message()]);
+    expect(screen.getByRole("button", { name: "Message actions" })).toBeInTheDocument();
+  });
+
+  it("toggles selection by the message's stable id when its row is clicked", async () => {
+    const { user, onToggleSelect } = renderSelectable([message({ id: "msg-abc" })]);
+    await user.click(screen.getByRole("button", { name: /Select message/ }));
+    expect(onToggleSelect).toHaveBeenCalledWith("msg-abc");
+  });
+
+  it("offers no selection control for a pending (unsent) message", () => {
+    renderSelectable([message({ id: "temp:1", pending: true })]);
+    expect(screen.queryByRole("button", { name: /Select message/ })).toBeNull();
+  });
+
+  it("offers no selection control for a message already deleted for everyone", () => {
+    renderSelectable([message({ deletedForAll: true, body: "" })]);
+    expect(screen.queryByRole("button", { name: /Select message/ })).toBeNull();
   });
 });

@@ -153,10 +153,17 @@ function VisualTile({
  * Clicking it opens the file — never downloads it, matching the rest of the
  * app's "view, don't save" policy for chat attachments (see Lightbox's own
  * note, and internal/api/attachments.go's server-side enforcement, which
- * ignores `?dl=1`): a type the app can render itself (`canPreviewDocInApp`)
- * opens in the same in-app Lightbox the gallery uses; everything else opens
- * via the system/browser default, exactly like the identical file's link in
- * the conversation's "Media, Links & Docs" panel (ChatAssetsSheet).
+ * ignores `?dl=1`). A type the app can render itself (`canPreviewDocInApp`)
+ * opens in the same in-app Lightbox the gallery uses, exactly like the
+ * identical file's row in the conversation's "Media, Links & Docs" panel
+ * (ChatAssetsSheet).
+ *
+ * Everything else — Office documents, archives, anything outside that
+ * allowlist — is NOT a link to the file any more. It used to open via
+ * `target="_blank"`, but the server forces `Content-Disposition: attachment`
+ * for every type outside its own inline allowlist (media/mime.go), so that
+ * "Open" was actually a download wearing an Open label. There is no fallback
+ * to downloading: the tile is inert and says why.
  */
 function FileCard({
   item,
@@ -174,12 +181,17 @@ function FileCard({
   onOpen: () => void;
 }) {
   const clickable = !progress && !!url;
+  const previewable = canPreviewDocInApp(item.mime);
+  // Openable only when there is something to open it INTO — a type outside
+  // canPreviewDocInApp has nowhere to go (see the file doc comment above), so
+  // the tile stays inert for it even once its URL has resolved.
+  const openable = clickable && previewable;
 
   const bubbleClass = `flex items-center gap-2.5 rounded-2xl px-3.5 py-2.5 text-left text-sm shadow-[0_2px_10px_-4px_rgba(40,30,90,0.25)] ${
     mine
       ? "rounded-br-md bg-gradient-to-br from-brand-from to-brand-to text-accent-fg"
       : "rounded-bl-md bg-surface text-fg ring-1 ring-border/60"
-  } ${clickable ? "transition-[filter] hover:brightness-95" : ""}`;
+  } ${openable ? "transition-[filter] hover:brightness-95" : ""}`;
 
   const content = (
     <>
@@ -199,6 +211,8 @@ function FileCard({
             `Uploading… ${Math.round(progress.ratio * 100)}%`
           ) : !url && isResolved ? (
             "Not available to you"
+          ) : clickable && !previewable ? (
+            "Preview isn't available for this file type"
           ) : (
             prettySize(item.size)
           )}
@@ -218,31 +232,23 @@ function FileCard({
     </>
   );
 
-  if (!clickable) return <div className={bubbleClass}>{content}</div>;
-
-  if (canPreviewDocInApp(item.mime)) {
+  if (!openable) {
     return (
-      <button
-        type="button"
-        onClick={onOpen}
-        aria-label={`Open ${item.name}`}
-        className={`${bubbleClass} w-full`}
-      >
+      <div className={bubbleClass} aria-label={!clickable ? undefined : `${item.name} — preview not available`}>
         {content}
-      </button>
+      </div>
     );
   }
 
   return (
-    <a
-      href={url}
-      target="_blank"
-      rel="noopener noreferrer"
+    <button
+      type="button"
+      onClick={onOpen}
       aria-label={`Open ${item.name}`}
-      className={bubbleClass}
+      className={`${bubbleClass} w-full`}
     >
       {content}
-    </a>
+    </button>
   );
 }
 

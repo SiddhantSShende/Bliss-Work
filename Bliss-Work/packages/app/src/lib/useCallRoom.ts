@@ -244,6 +244,13 @@ export function useCallRoom(callId: string | null) {
     setStatus("connecting");
     setFailStage(null);
     let stage: "token" | "connect" = "token";
+    // The setup-duration clock starts HERE, not at room.connect(): a slow
+    // token request is as much "how long did joining take" as a slow SFU
+    // handshake is, and the server cannot see either half itself — see
+    // messaging-svc's metrics/calls.go for why this measurement lives here,
+    // client-side, rather than being reconstructed from two timestamps on
+    // two different service replicas.
+    const attemptStartedAt = Date.now();
     try {
       console.debug("[CALL ROOM] Requesting meeting token");
       const grant = await api.callToken(callId);
@@ -357,6 +364,17 @@ export function useCallRoom(callId: string | null) {
         .on(RoomEvent.Reconnected, () => {
           setStatus("connected");
           resync();
+          // Best-effort: a lost telemetry POST — or even a THROWING one, which
+          // a plain .catch() would not protect against, since the exception
+          // happens before there is a promise to attach it to — must never
+          // affect the call itself, only the dashboard measuring it.
+          if (callId) {
+            try {
+              void api.callTelemetryReconnected(callId).catch(() => {});
+            } catch {
+              // reported nowhere on purpose — see above.
+            }
+          }
         })
         .on(RoomEvent.Disconnected, () => {
           setStatus("idle");
@@ -382,6 +400,14 @@ export function useCallRoom(callId: string | null) {
       console.debug("[CALL ROOM] Connected");
       sync(room);
       scheduleRefresh(room, callId, grant.expiresAt);
+      // Best-effort, same contract as the reconnect report above — a throw
+      // here must not turn a call that just connected into one reported as
+      // "failed".
+      try {
+        void api.callTelemetrySetupComplete(callId, Date.now() - attemptStartedAt).catch(() => {});
+      } catch {
+        // reported nowhere on purpose — see the reconnect handler's comment.
+      }
     } catch (e) {
       roomRef.current = null;
       setStatus("failed");

@@ -15,6 +15,8 @@ import {
   ActivitySummaryDTO,
   AuditPage,
   AvailabilityDTO,
+  BulkDeleteResultDTO,
+  BulkForwardResultDTO,
   CaptchaChallengeDTO,
   CallDTO,
   CallChatMessageDTO,
@@ -1374,6 +1376,23 @@ export class ApiClient {
       headers: { "idempotency-key": uuid() },
     });
   }
+  /**
+   * The batch form of deleteMessageForAll: tombstones every id in
+   * messageIds that this caller authored, in one request. Ids the caller
+   * did not send come back in `skipped` rather than failing the whole
+   * request — the server is the authority on which of a mixed selection it
+   * will actually delete. Not idempotency-keyed like the single-message
+   * form: its own SQL is idempotent (re-deleting is a no-op), so a retry
+   * needs nothing extra to stay safe.
+   */
+  deleteMessagesForAll(conversationId: string, messageIds: string[]) {
+    return this.req(
+      this.cfg.messagingBase,
+      `/api/v1/conversations/${conversationId}/messages/delete`,
+      { method: "POST", body: JSON.stringify({ messageIds }) },
+      BulkDeleteResultDTO,
+    );
+  }
   /** Add or remove one emoji reaction. Returns the message's new tally. */
   setReaction(messageId: string, emoji: string, on: boolean) {
     return this.req(
@@ -1430,6 +1449,19 @@ export class ApiClient {
       this.cfg.messagingBase,
       `/api/v1/channel-messages/${messageId}`,
       { method: "DELETE", headers: { "idempotency-key": uuid() } },
+    );
+  }
+  /** The batch form of deleteChannelMessageForAll — same contract as
+   *  deleteMessagesForAll, scoped to a channel instead of a conversation. A
+   *  moderator's batch may authorize every selected message; an ordinary
+   *  member's authorizes only their own, with the rest coming back in
+   *  `skipped`. */
+  deleteChannelMessagesForAll(channelId: string, messageIds: string[]) {
+    return this.req(
+      this.cfg.messagingBase,
+      `/api/v1/channels/${channelId}/messages/delete`,
+      { method: "POST", body: JSON.stringify({ messageIds }) },
+      BulkDeleteResultDTO,
     );
   }
   /** Pin or unpin a message for the whole channel. Moderators only. */
@@ -1548,6 +1580,38 @@ export class ApiClient {
         /** Always "confirmed" here: the copy is in the database. */
         delivery: z.string(),
       }),
+    );
+  }
+  /**
+   * Forward N messages to M destinations in one request — the batch form of
+   * forwardMessage. Sources are delivered in `seq` order (the SERVER sorts;
+   * it does not trust the array's order) and each destination gets its own
+   * transaction, so one destination's refusal does not cost the others —
+   * check `results[i].ok` per destination rather than relying on this
+   * promise rejecting.
+   *
+   * `clientBatchId` should be minted ONCE per user action (e.g. once per
+   * dialog submission) and reused if that submission is retried: the server
+   * derives a stable per-(message, destination) idempotency key from it, so
+   * a retry re-uses what already landed instead of duplicating it.
+   */
+  forwardMessages(input: {
+    messageIds: string[];
+    targets: { kind: "user" | "channel"; id: string }[];
+    clientBatchId?: string;
+  }) {
+    return this.req(
+      this.cfg.messagingBase,
+      `/api/v1/forwards`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          messageIds: input.messageIds,
+          targets: input.targets.map((t) => ({ targetKind: t.kind, targetId: t.id })),
+          clientBatchId: input.clientBatchId ?? uuid(),
+        }),
+      },
+      BulkForwardResultDTO,
     );
   }
   readThread(threadId: string, upToSeq: number) {
@@ -2243,6 +2307,28 @@ export class ApiClient {
       { method: "POST" },
       CallJoinDTO,
     );
+  }
+
+  /** Reports a client-observed WebRTC reconnect after a transient disruption
+   *  (LiveKit's `Reconnected` room event) — see messaging-svc's
+   *  metrics/calls.go for why this cannot be derived server-side. Fire-and-
+   *  forget from the caller's point of view: a failed telemetry POST must
+   *  never affect the call itself. */
+  callTelemetryReconnected(callId: string) {
+    return this.req<void>(this.cfg.messagingBase, `/api/v1/calls/${callId}/telemetry`, {
+      method: "POST",
+      body: JSON.stringify({ event: "reconnected" }),
+    });
+  }
+
+  /** Reports how long THIS client measured from requesting callId's token to
+   *  its LiveKit Room reporting Connected. See callTelemetryReconnected's
+   *  comment — same fire-and-forget contract. */
+  callTelemetrySetupComplete(callId: string, setupMs: number) {
+    return this.req<void>(this.cfg.messagingBase, `/api/v1/calls/${callId}/telemetry`, {
+      method: "POST",
+      body: JSON.stringify({ event: "setup_complete", setupMs }),
+    });
   }
 
   leaveCall(callId: string) {

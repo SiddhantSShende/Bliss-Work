@@ -14,6 +14,7 @@ import (
 	"github.com/task-board/messaging-svc/internal/auth"
 	"github.com/task-board/messaging-svc/internal/events"
 	"github.com/task-board/messaging-svc/internal/livekit"
+	"github.com/task-board/messaging-svc/internal/metrics"
 	"github.com/task-board/messaging-svc/internal/store"
 )
 
@@ -585,6 +586,10 @@ func (s *Server) callToken(w http.ResponseWriter, r *http.Request) {
 	access, err := s.store.AuthorizeCallAccess(
 		r.Context(), claims.OrgID, claims.UserID, callID, claims.Roles)
 	if err != nil {
+		// Kind is unknown here — AuthorizeCallAccess failed before it could
+		// resolve one — so this is the one place CallTypeUnknown is used.
+		metrics.CallAttemptTotal.WithLabelValues(metrics.CallTypeUnknown).Inc()
+		metrics.CallFailedTotal.WithLabelValues(metrics.CallTypeUnknown, callFailReason(err)).Inc()
 		s.mapErrR(w, r, err)
 		return
 	}
@@ -613,6 +618,7 @@ func (s *Server) callToken(w http.ResponseWriter, r *http.Request) {
 	// on the video tiles. The store resolved the real name under the caller's
 	// own org scope; claims.Username remains only as the last resort for a
 	// member with no projection row yet.
+	callType := metrics.CallTypeFor(access.Kind)
 	name := access.DisplayName
 	if name == "" {
 		name = claims.Username
@@ -634,13 +640,18 @@ func (s *Server) callToken(w http.ResponseWriter, r *http.Request) {
 		RoomAdmin:      access.Role == store.RoleHost,
 	})
 	if err != nil {
+		metrics.CallAttemptTotal.WithLabelValues(callType).Inc()
+		metrics.CallFailedTotal.WithLabelValues(callType, metrics.FailReasonLiveKitConnection).Inc()
 		s.mapErrR(w, r, err)
 		return
 	}
 	if err := s.store.MarkJoined(r.Context(), claims.OrgID, claims.UserID, callID); err != nil {
+		metrics.CallAttemptTotal.WithLabelValues(callType).Inc()
+		metrics.CallFailedTotal.WithLabelValues(callType, callFailReason(err)).Inc()
 		s.mapErrR(w, r, err)
 		return
 	}
+	metrics.CallAttemptTotal.WithLabelValues(callType).Inc()
 	s.log.Info("call token request", "call", callID, "user", claims.UserID, "state", "JOINED")
 	writeJSON(w, http.StatusOK, callTokenResp{
 		State:     "JOINED",
@@ -651,6 +662,71 @@ func (s *Server) callToken(w http.ResponseWriter, r *http.Request) {
 		ExpiresAt: exp.Format("2006-01-02T15:04:05.000Z"),
 		Role:      access.Role,
 	})
+}
+
+// callTelemetryReq bounds callTelemetry's accepted body to exactly two
+// events. Anything else is a 400, not a new label some future client could
+// invent unboundedly.
+type callTelemetryReq struct {
+	// Event is "reconnected" or "setup_complete" — see callTelemetry.
+	Event string `json:"event"`
+	// SetupMs is required for "setup_complete", ignored otherwise: the
+	// client's own measured milliseconds from requesting this call's token to
+	// its LiveKit Room reporting Connected.
+	SetupMs *int `json:"setupMs,omitempty"`
+}
+
+// maxCallSetupMs bounds what callTelemetry will record into
+// CallSetupDurationSeconds. Five minutes is already far past anything a real
+// join could plausibly take (the histogram's own top bucket is 30s) — this
+// exists only to keep a buggy or hostile client from writing an
+// observation so large it would distort percentile math for everyone else's
+// dashboards, not to model a real setup time.
+const maxCallSetupMs = 5 * 60 * 1000
+
+// callTelemetry serves POST /api/v1/calls/{id}/telemetry — see
+// metrics/calls.go's package doc comment for why this endpoint exists and,
+// just as importantly, why it accepts only these two events. It cannot
+// report a call as "connected" or "dropped": those stay derived from
+// LiveKit's own webhook, because a client is not a trustworthy witness to its
+// own connection outcome, only to how long things took.
+//
+// The caller only needs to be ON the call, same bar as callToken; GetCall's
+// existing RLS-scoped visibility is enough to resolve call_type without a new
+// query, and this is not sensitive data — reusing it here does not need a
+// bespoke roster check.
+func (s *Server) callTelemetry(w http.ResponseWriter, r *http.Request) {
+	claims, _ := auth.FromContext(r.Context())
+	callID := chi.URLParam(r, "id")
+	if !validUUID(callID) {
+		writeErr(w, http.StatusBadRequest, "invalid call id")
+		return
+	}
+	var req callTelemetryReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	call, err := s.store.GetCall(r.Context(), claims.OrgID, claims.UserID, callID)
+	if err != nil {
+		s.mapErrR(w, r, err)
+		return
+	}
+	callType := metrics.CallTypeFor(call.Kind)
+	switch req.Event {
+	case "reconnected":
+		metrics.CallReconnectTotal.WithLabelValues(callType).Inc()
+	case "setup_complete":
+		if req.SetupMs == nil || *req.SetupMs < 0 || *req.SetupMs > maxCallSetupMs {
+			writeErr(w, http.StatusBadRequest, "setupMs out of range")
+			return
+		}
+		metrics.CallSetupDurationSeconds.WithLabelValues(callType).Observe(float64(*req.SetupMs) / 1000)
+	default:
+		writeErr(w, http.StatusBadRequest, "unknown event")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // startCall serves POST /api/v1/calls/{id}/start — the act the waiting room is

@@ -9,7 +9,6 @@ import { usePeopleSearch } from "../lib/usePeopleCandidates";
  * cancel, which is right for "Add people to this call" and wrong here: the
  * confirm for this selection is the form's own submit button, and the selection
  * has to be read alongside the rest of the form rather than acted on by itself.
- * CreateChannelDialog makes the same choice for the same reason.
  *
  * The list is the caller's ACTIVE organisation, which is the only roster the
  * server will accept: every participant on a call must belong to the hosting

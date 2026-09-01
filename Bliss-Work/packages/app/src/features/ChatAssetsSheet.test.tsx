@@ -1,10 +1,13 @@
 /**
  * The Docs tab's click routing, and the panel's own layout safety.
  *
- * Two things this pins down:
- *  - a previewable doc (PDF) opens the in-app Lightbox; anything else opens
- *    via the system/browser default, same split as the inline chat bubble
- *    (MediaBubble.test.tsx) uses.
+ * Three things this pins down:
+ *  - a previewable doc (PDF) opens the in-app Lightbox.
+ *  - anything else is inert — never a link. It used to be `target="_blank"`,
+ *    which looked like "open via the system/browser default" but the server
+ *    forces `Content-Disposition: attachment` outside its own inline
+ *    allowlist (media/mime.go), so that link silently downloaded the file.
+ *    Same fix, same reasoning, as the inline chat bubble (MediaBubble.test.tsx).
  *  - the Lightbox it opens is NOT nested inside the Sheet's animated panel —
  *    it renders as a sibling. Sheet's panel carries a framer-motion transform
  *    even at rest, which becomes a new containing block for a `position:
@@ -70,13 +73,14 @@ describe("ChatAssetsSheet Docs tab", () => {
     expect(dialog.closest('[aria-label="#general"]')).toBeNull();
   });
 
-  it("opens a non-previewable document via the system/browser default", async () => {
+  it("never downloads a non-previewable document — no link, just a clear message", async () => {
     const zip = item({ id: "doc-2", name: "archive.zip", mime: "application/zip" });
     const docsTab = renderDocsTab(zip);
     await userEvent.click(docsTab);
 
-    const link = screen.getByRole("link", { name: `Open ${zip.name}` });
-    expect(link).toHaveAttribute("href", "https://example.test/media/doc-2");
-    expect(link).toHaveAttribute("target", "_blank");
+    expect(screen.queryByRole("link", { name: `Open ${zip.name}` })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: `Open ${zip.name}` })).not.toBeInTheDocument();
+    expect(screen.getByText(zip.name)).toBeInTheDocument();
+    expect(screen.getByText("Preview isn't available for this file type")).toBeInTheDocument();
   });
 });

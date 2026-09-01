@@ -1,0 +1,788 @@
+{
+  "id": null,
+  "uid": "calling-livekit",
+  "title": "Calling & LiveKit",
+  "description": "Calling and LiveKit SFU observability: infrastructure health, SFU media-plane signals, coturn TURN relay, application-level call funnel (messaging-svc), and a best-effort synthetic call check.",
+  "tags": ["calling", "livekit", "coturn", "webrtc"],
+  "timezone": "browser",
+  "editable": true,
+  "graphTooltip": 1,
+  "liveNow": false,
+  "schemaVersion": 39,
+  "version": 1,
+  "weekStart": "",
+  "fiscalYearStartMonth": 0,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0,211,255,1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "templating": { "list": [] },
+  "links": [],
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Infrastructure",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "LiveKit Up",
+      "description": "up{job=\"livekit\"} from prometheus.yml's livekit job (host.docker.internal:7882). 1 = the SFU's /metrics endpoint answered the last scrape.",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 1 },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] },
+          "color": { "mode": "thresholds" },
+          "noValue": "NO DATA"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        { "refId": "A", "datasource": "Prometheus", "expr": "up{job=\"livekit\"}", "legendFormat": "livekit" }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "coturn Up",
+      "description": "up{job=\"coturn\"} from prometheus.yml's coturn job (host.docker.internal:9641). 1 = coturn's /metrics endpoint answered the last scrape.",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 1 },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] },
+          "color": { "mode": "thresholds" },
+          "noValue": "NO DATA"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        { "refId": "A", "datasource": "Prometheus", "expr": "up{job=\"coturn\"}", "legendFormat": "coturn" }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "LiveKit Container CPU",
+      "description": "ASSUMPTION (double check on this host): filters cadvisor's container_cpu_usage_seconds_total by the label cadvisor exposes for the Docker Compose service name, container_label_com_docker_compose_service=\"livekit\". This label is set automatically by Compose regardless of network_mode (livekit runs network_mode: host, so it has no compose network identity, but it still carries Compose's standard container labels). Not verified against a live cadvisor scrape on this host — if cadvisor here is configured with -store_container_labels=false or a different label allowlist, this panel will read \"No data\" and the label filter will need adjusting.",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 5 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "pointSize": 5,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": [] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Prometheus",
+          "expr": "rate(container_cpu_usage_seconds_total{container_label_com_docker_compose_service=\"livekit\"}[5m])",
+          "legendFormat": "cpu cores"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "LiveKit Container Memory",
+      "description": "Same container_label_com_docker_compose_service=\"livekit\" assumption as the CPU panel — see its description.",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 5 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "pointSize": 5,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": [] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Prometheus",
+          "expr": "container_memory_usage_bytes{container_label_com_docker_compose_service=\"livekit\"}",
+          "legendFormat": "memory"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "row",
+      "title": "SFU (LiveKit)",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 13 }
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Active Rooms",
+      "description": "livekit_room_total{node_type=\"SERVER\"}",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 14 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        { "refId": "A", "datasource": "Prometheus", "expr": "livekit_room_total{node_type=\"SERVER\"}", "legendFormat": "rooms" }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "Active Participants",
+      "description": "livekit_participant_total{node_type=\"SERVER\"}",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 14 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        { "refId": "A", "datasource": "Prometheus", "expr": "livekit_participant_total{node_type=\"SERVER\"}", "legendFormat": "participants" }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Forward Jitter",
+      "description": "livekit_forward_jitter{node_type=\"SERVER\"} — gauge, sampled directly (no rate/histogram_quantile needed).",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 18 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "pointSize": 5, "showPoints": "never", "spanNulls": true }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": [] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        { "refId": "A", "datasource": "Prometheus", "expr": "livekit_forward_jitter{node_type=\"SERVER\"}", "legendFormat": "jitter" }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Packet Drop Rate",
+      "description": "rate(livekit_node_packet_total{type=\"dropped\"}[5m]) plotted against rate(...{type=\"out\"}[5m]) for context — a drop rate only means something relative to how much is being forwarded.",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 18 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "pps",
+          "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "pointSize": 5, "showPoints": "never", "spanNulls": true }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": [] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        { "refId": "A", "datasource": "Prometheus", "expr": "rate(livekit_node_packet_total{node_type=\"SERVER\",type=\"dropped\"}[5m])", "legendFormat": "dropped" },
+        { "refId": "B", "datasource": "Prometheus", "expr": "rate(livekit_node_packet_total{node_type=\"SERVER\",type=\"out\"}[5m])", "legendFormat": "out" }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Forward Latency (p50 / p95)",
+      "description": "histogram_quantile over livekit_forward_latency_ns_bucket{node_type=\"SERVER\"}, divided by 1e6 to render in milliseconds — the raw metric is nanoseconds.",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 26 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "pointSize": 5, "showPoints": "never", "spanNulls": true }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": [] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.50, sum(rate(livekit_forward_latency_ns_bucket{node_type=\"SERVER\"}[5m])) by (le)) / 1e6",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "B",
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.95, sum(rate(livekit_forward_latency_ns_bucket{node_type=\"SERVER\"}[5m])) by (le)) / 1e6",
+          "legendFormat": "p95"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Connection Quality Score (median)",
+      "description": "histogram_quantile(0.50, ...) over livekit_quality_score_bucket{node_type=\"SERVER\"}. LiveKit's scale is 0-5; lower is worse. Axis is clamped to that range.",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 26 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "max": 5,
+          "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "pointSize": 5, "showPoints": "never", "spanNulls": true }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": [] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.50, sum(rate(livekit_quality_score_bucket{node_type=\"SERVER\"}[5m])) by (le))",
+          "legendFormat": "p50 quality score"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Room Duration (p50 / p95)",
+      "description": "histogram_quantile over livekit_room_duration_seconds_bucket{node_type=\"SERVER\"}.",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 34 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "pointSize": 5, "showPoints": "never", "spanNulls": true }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": [] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.50, sum(rate(livekit_room_duration_seconds_bucket{node_type=\"SERVER\"}[5m])) by (le))",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "B",
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.95, sum(rate(livekit_room_duration_seconds_bucket{node_type=\"SERVER\"}[5m])) by (le))",
+          "legendFormat": "p95"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Webhook Queue Length (p95)",
+      "description": "histogram_quantile(0.95, ...) over livekit_webhook_queue_length_bucket{node_type=\"SERVER\"}. A growing queue means messaging-svc's webhook endpoint isn't draining LiveKit's callbacks fast enough — watch this alongside messaging-svc's own health.",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 34 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "pointSize": 5, "showPoints": "never", "spanNulls": true }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": [] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.95, sum(rate(livekit_webhook_queue_length_bucket{node_type=\"SERVER\"}[5m])) by (le))",
+          "legendFormat": "p95 queue length"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "row",
+      "title": "TURN (coturn)",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 42 }
+    },
+    {
+      "id": 16,
+      "type": "stat",
+      "title": "Active TURN Allocations",
+      "description": "turn_total_allocations — current active TURN allocations on this coturn instance.",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 43 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        { "refId": "A", "datasource": "Prometheus", "expr": "turn_total_allocations", "legendFormat": "allocations" }
+      ]
+    },
+    {
+      "id": 17,
+      "type": "text",
+      "title": "Limitation",
+      "gridPos": { "h": 4, "w": 18, "x": 6, "y": 43 },
+      "options": {
+        "mode": "markdown",
+        "content": "**turn_total_allocations is a proxy, not an exact count.** coturn does not expose a split between allocations a call actually *needed* (both peers behind symmetric NAT, TURN relay in use) versus ones that were merely opened and went unused because a direct or STUN-reflexive path succeeded instead. This is the closest signal this deployment has for \"how many calls are using TURN right now\"; treat it as directional, not authoritative."
+      }
+    },
+    {
+      "id": 18,
+      "type": "timeseries",
+      "title": "STUN Activity / Errors",
+      "description": "rate(stun_binding_request[5m]) vs rate(stun_binding_error[5m]).",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 47 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "pointSize": 5, "showPoints": "never", "spanNulls": true }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "errors" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }]
+          }
+        ]
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": [] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        { "refId": "A", "datasource": "Prometheus", "expr": "rate(stun_binding_request[5m])", "legendFormat": "requests" },
+        { "refId": "B", "datasource": "Prometheus", "expr": "rate(stun_binding_error[5m])", "legendFormat": "errors" }
+      ]
+    },
+    {
+      "id": 19,
+      "type": "timeseries",
+      "title": "TURN Relay Bandwidth",
+      "description": "rate(turn_traffic_sentb[5m]) and rate(turn_traffic_rcvb[5m]) plotted as separate sent/received series rather than summed into one line — direction matters for diagnosing an asymmetric relay problem, and summing them would hide that.",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 47 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "pointSize": 5, "showPoints": "never", "spanNulls": true }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": [] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        { "refId": "A", "datasource": "Prometheus", "expr": "rate(turn_traffic_sentb[5m])", "legendFormat": "sent" },
+        { "refId": "B", "datasource": "Prometheus", "expr": "rate(turn_traffic_rcvb[5m])", "legendFormat": "received" }
+      ]
+    },
+    {
+      "id": 20,
+      "type": "row",
+      "title": "Calls",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 55 }
+    },
+    {
+      "id": 21,
+      "type": "stat",
+      "title": "Call Success Rate (15m)",
+      "description": "sum(rate(messaging_call_connected_total[15m])) / sum(rate(messaging_call_attempt_total[15m])). A 0/0 window (no attempts) renders as \"No data\", which is the correct behavior — no artificial fallback is applied.",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 56 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 0.9 },
+              { "color": "green", "value": 0.97 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Prometheus",
+          "expr": "sum(rate(messaging_call_connected_total[15m])) / sum(rate(messaging_call_attempt_total[15m]))",
+          "legendFormat": "success rate"
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "Call Attempts by Type",
+      "description": "sum(rate(messaging_call_attempt_total[5m])) by (call_type). From messaging-svc's callToken — counts a join that reached signaling initiation (token minted or definitively refused), excludes waiting-room polling.",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 60 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "pointSize": 5, "showPoints": "never", "spanNulls": true, "stacking": { "mode": "none" } }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": [] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        { "refId": "A", "datasource": "Prometheus", "expr": "sum(rate(messaging_call_attempt_total[5m])) by (call_type)", "legendFormat": "{{call_type}}" }
+      ]
+    },
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "Call Connects by Type",
+      "description": "sum(rate(messaging_call_connected_total[5m])) by (call_type). Recorded from LiveKit's participant_joined webhook, not a token-mint 200 — see calls.go's metrics package doc for why.",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 60 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "pointSize": 5, "showPoints": "never", "spanNulls": true }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": [] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        { "refId": "A", "datasource": "Prometheus", "expr": "sum(rate(messaging_call_connected_total[5m])) by (call_type)", "legendFormat": "{{call_type}}" }
+      ]
+    },
+    {
+      "id": 24,
+      "type": "timeseries",
+      "title": "Call Failures by Reason",
+      "description": "sum(rate(messaging_call_failed_total[5m])) by (reason). Reasons: permission_denied, call_unavailable, livekit_connection_failure, server_error.",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 68 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "pointSize": 5, "showPoints": "never", "spanNulls": true, "stacking": { "mode": "normal" } }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": [] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        { "refId": "A", "datasource": "Prometheus", "expr": "sum(rate(messaging_call_failed_total[5m])) by (reason)", "legendFormat": "{{reason}}" }
+      ]
+    },
+    {
+      "id": 25,
+      "type": "timeseries",
+      "title": "Call Drops by Type",
+      "description": "sum(rate(messaging_call_dropped_total[5m])) by (call_type). Only unexpected disconnects (SFU reported the departure first) — an explicit Leave/End is never counted here.",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 68 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "pointSize": 5, "showPoints": "never", "spanNulls": true }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": [] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        { "refId": "A", "datasource": "Prometheus", "expr": "sum(rate(messaging_call_dropped_total[5m])) by (call_type)", "legendFormat": "{{call_type}}" }
+      ]
+    },
+    {
+      "id": 26,
+      "type": "timeseries",
+      "title": "Call Reconnects by Type",
+      "description": "sum(rate(messaging_call_reconnect_total[5m])) by (call_type). Client-reported ICE/media reconnects after a transient WebRTC disruption (self-reported, via POST /calls/{id}/telemetry).",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 76 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "pointSize": 5, "showPoints": "never", "spanNulls": true }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": [] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        { "refId": "A", "datasource": "Prometheus", "expr": "sum(rate(messaging_call_reconnect_total[5m])) by (call_type)", "legendFormat": "{{call_type}}" }
+      ]
+    },
+    {
+      "id": 27,
+      "type": "timeseries",
+      "title": "Call Setup Duration (p50 / p95 / p99)",
+      "description": "histogram_quantile over messaging_call_setup_duration_seconds_bucket. Client-measured time from requesting a LiveKit token to the Room reporting Connected (self-reported — see calls.go's metrics package doc for why this can't be reconstructed server-side).",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 76 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "pointSize": 5, "showPoints": "never", "spanNulls": true }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": [] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.50, sum(rate(messaging_call_setup_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "B",
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.95, sum(rate(messaging_call_setup_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p95"
+        },
+        {
+          "refId": "C",
+          "datasource": "Prometheus",
+          "expr": "histogram_quantile(0.99, sum(rate(messaging_call_setup_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p99"
+        }
+      ]
+    },
+    {
+      "id": 28,
+      "type": "row",
+      "title": "Synthetic Call",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 84 }
+    },
+    {
+      "id": 29,
+      "type": "stat",
+      "title": "Last Synthetic Call Result",
+      "description": "synthetic_call_success (1/0 gauge). DEPENDS ON A COMPANION PIECE OF WORK: a synthetic call check pushing this to Prometheus via a Pushgateway. Renders \"No data\" until that ships — that is expected, not a bug in this panel.",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 85 },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "FAIL", "color": "red" }, "1": { "text": "OK", "color": "green" } } }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] },
+          "color": { "mode": "thresholds" },
+          "noValue": "NO DATA"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        { "refId": "A", "datasource": "Prometheus", "expr": "synthetic_call_success", "legendFormat": "synthetic call" }
+      ]
+    },
+    {
+      "id": 30,
+      "type": "stat",
+      "title": "Time Since Last Synthetic Run",
+      "description": "time() - synthetic_call_last_run_timestamp_seconds. Same companion-work dependency as \"Last Synthetic Call Result\" — No data until that check exists.",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 85 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 300 },
+              { "color": "red", "value": 900 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        { "refId": "A", "datasource": "Prometheus", "expr": "time() - synthetic_call_last_run_timestamp_seconds", "legendFormat": "age" }
+      ]
+    },
+    {
+      "id": 31,
+      "type": "timeseries",
+      "title": "Synthetic Call Duration Trend",
+      "description": "synthetic_call_duration_seconds (gauge). Same companion-work dependency — No data until the synthetic call check ships.",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 89 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "pointSize": 5, "showPoints": "never", "spanNulls": true }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": [] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        { "refId": "A", "datasource": "Prometheus", "expr": "synthetic_call_duration_seconds", "legendFormat": "duration" }
+      ]
+    }
+  ]
+}

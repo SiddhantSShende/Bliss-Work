@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -51,6 +52,17 @@ const (
 type ForwardSourceCtx struct {
 	Scope forwardScope
 	Body  string
+
+	// SourceMessageID is this source's own id — carried alongside the
+	// resolved context (rather than tracked in a parallel slice by callers)
+	// so a batch forward (forward_batch.go) can sort a []*ForwardSourceCtx
+	// and still know which source each element is.
+	SourceMessageID string
+	// Seq is the source's own per-conversation/per-channel ordering column —
+	// NOT created_at, which two messages can share to the millisecond. This
+	// is what a batch forward sorts by to preserve chronological order,
+	// since the client's selection order is never trusted.
+	Seq int64
 
 	// DM sources. OtherUserID is the conversation's other participant — the
 	// recipient of the system entry. ThreadID is the source message's thread,
@@ -103,10 +115,68 @@ func (s *Store) ForwardSourceResolve(ctx context.Context, orgID, forwarderID, so
 	return out, nil
 }
 
+// ErrMixedForwardScope is returned by ForwardSourcesResolve when the caller's
+// selection spans more than one conversation or channel. `seq` is only
+// comparable within a single scope, so "chronological order" is undefined
+// across two — and the selection UI this feeds (one open conversation or
+// channel at a time) can never legitimately produce one. Not ErrForbidden:
+// the caller is entitled to read every source, this is a shape the request
+// cannot have, so the API layer maps it to 400 rather than 403.
+var ErrMixedForwardScope = errors.New("all forwarded messages must come from the same chat or channel")
+
+// ForwardSourcesResolve is the batch form of ForwardSourceResolve: authorizes
+// the caller against EVERY id in sourceMessageIDs, in one read transaction,
+// and returns them sorted ascending by `seq` — the order forward_batch.go
+// must deliver them in, regardless of the order the caller selected them.
+//
+// Any single source failing to resolve or authorize fails the WHOLE request:
+// this is a precondition for the batch, not a per-item outcome the response
+// can report partial success for (unlike a destination refusing the batch,
+// which forward_batch.go handles per-destination instead).
+func (s *Store) ForwardSourcesResolve(ctx context.Context, orgID, forwarderID string, sourceMessageIDs []string) ([]*ForwardSourceCtx, error) {
+	if len(sourceMessageIDs) == 0 {
+		return nil, ErrForbidden
+	}
+	out := make([]*ForwardSourceCtx, 0, len(sourceMessageIDs))
+	err := s.withOrg(ctx, orgID, func(tx pgx.Tx) error {
+		for _, id := range sourceMessageIDs {
+			fc := &ForwardSourceCtx{}
+			srcSender, err := s.resolveForwardSource(ctx, tx, orgID, forwarderID, id, fc)
+			if err != nil {
+				return err
+			}
+			if err := resolveForwardProvenance(ctx, tx, id, srcSender, fc); err != nil {
+				return err
+			}
+			if fc.Depth > maxForwardDepth {
+				return ErrForbidden
+			}
+			out = append(out, fc)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	first := out[0]
+	for _, fc := range out[1:] {
+		if fc.Scope != first.Scope ||
+			(fc.Scope == scopeDM && fc.ConversationID != first.ConversationID) ||
+			(fc.Scope == scopeChannel && fc.ChannelID != first.ChannelID) {
+			return nil, ErrMixedForwardScope
+		}
+	}
+
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Seq < out[j].Seq })
+	return out, nil
+}
+
 // resolveForwardSource loads and authorizes the source message from whichever
 // table holds it, filling Scope/Body and the scope-specific ids. Returns the
 // sender, which is the root author when the message is an original.
 func (s *Store) resolveForwardSource(ctx context.Context, tx pgx.Tx, orgID, forwarderID, sourceMessageID string, out *ForwardSourceCtx) (string, error) {
+	out.SourceMessageID = sourceMessageID
 	var (
 		sender  string
 		body    *string
@@ -117,11 +187,11 @@ func (s *Store) resolveForwardSource(ctx context.Context, tx pgx.Tx, orgID, forw
 	var threadID *string
 	err := tx.QueryRow(ctx,
 		`SELECT m.sender_id::text, m.body, m.body_enc, m.conversation_id::text,
-		        m.thread_id::text, c.user_low::text, c.user_high::text
+		        m.thread_id::text, c.user_low::text, c.user_high::text, m.seq
 		   FROM messages m
 		   JOIN conversations c ON c.id = m.conversation_id
 		  WHERE m.id = $1`, sourceMessageID).
-		Scan(&sender, &body, &bodyEnc, &out.ConversationID, &threadID, &low, &high)
+		Scan(&sender, &body, &bodyEnc, &out.ConversationID, &threadID, &low, &high, &out.Seq)
 	switch {
 	case err == nil:
 		if forwarderID != low && forwarderID != high {
@@ -140,9 +210,9 @@ func (s *Store) resolveForwardSource(ctx context.Context, tx pgx.Tx, orgID, forw
 		}
 	case errors.Is(err, pgx.ErrNoRows):
 		e := tx.QueryRow(ctx,
-			`SELECT sender_id::text, body, body_enc, channel_id::text
+			`SELECT sender_id::text, body, body_enc, channel_id::text, seq
 			   FROM channel_messages WHERE id = $1`, sourceMessageID).
-			Scan(&sender, &body, &bodyEnc, &out.ChannelID)
+			Scan(&sender, &body, &bodyEnc, &out.ChannelID, &out.Seq)
 		if errors.Is(e, pgx.ErrNoRows) {
 			return "", ErrForbidden
 		}

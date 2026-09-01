@@ -14,6 +14,7 @@ import (
 
 	"github.com/task-board/shared-kafkaauth"
 	"github.com/task-board/ws-gateway/internal/auth"
+	"github.com/task-board/ws-gateway/internal/blocklist"
 	"github.com/task-board/ws-gateway/internal/config"
 	"github.com/task-board/ws-gateway/internal/delivery"
 	"github.com/task-board/ws-gateway/internal/fanout"
@@ -200,11 +201,16 @@ func main() {
 	dispatcher := delivery.New(cfg.MessagingBaseInternal, cfg.MessagingInternalToken, log)
 	go dispatcher.Run(rootCtx)
 
+	// Blocked-pair check for call.invite (P0-A). Same messaging-svc internal
+	// endpoint config the delivery-ack dispatcher above already uses — no new
+	// configuration surface, just a second small client against it.
+	blockChecker := blocklist.NewClient(cfg.MessagingBaseInternal, cfg.MessagingInternalToken)
+
 	// WebRTC signaling dispatcher (rtc.offer/answer/ice/cancel). Local
 	// Hub.Fanout when the peer is here; a direct push to the node that holds
 	// them when they are not. No subscriber: a signalling frame is addressed to
 	// one user, so there is nothing to listen for on a shared channel.
-	signalDispatcher := rtcsignal.New(h, st, nodeFanout, log)
+	signalDispatcher := rtcsignal.New(h, st, blockChecker, nodeFanout, log)
 
 	// Live presence: online/offline transitions to org-mates. Recipients are
 	// resolved once here and pushed to the nodes holding them, rather than

@@ -129,8 +129,14 @@ func (s *Server) Handler() http.Handler {
 }
 
 func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte("ok"))
+	// IMAGE_TAG is set by docker-compose.prod.yml from the deployed commit's
+	// short SHA; defaults to "dev" when unset (e.g. a local run outside compose).
+	version := os.Getenv("IMAGE_TAG")
+	if version == "" {
+		version = "dev"
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "version": version})
 }
 
 // handleReadyz is a readiness probe: it verifies the gateway's critical

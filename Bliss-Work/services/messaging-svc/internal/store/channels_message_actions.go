@@ -171,6 +171,146 @@ func (s *Store) DeleteChannelMessageForAll(
 	})
 }
 
+// deletedChannelMessageRow is one row DeleteChannelMessagesForAll's set-based
+// UPDATE touched (or left alone because it was already deleted).
+type deletedChannelMessageRow struct {
+	id         string
+	wasDeleted bool
+}
+
+// channelMessageDeletedEvents builds one ChannelMessageDeleted payload per
+// row that was NEWLY tombstoned by this call — mirrors messageDeletedEvents
+// in message_actions.go for the same reason: a retry must not re-emit an
+// event for a message it did not actually just change.
+func channelMessageDeletedEvents(orgID, channelID, deletedBy string, members []string, rows []deletedChannelMessageRow) []any {
+	out := make([]any, 0, len(rows))
+	for _, r := range rows {
+		if r.wasDeleted {
+			continue
+		}
+		out = append(out, events.ChannelMessageDeleted{
+			Type:       events.TypeChannelMessageDeleted,
+			EventID:    uuid.Must(uuid.NewV7()).String(),
+			OrgID:      orgID,
+			OccurredAt: nowISO(),
+			ChannelID:  channelID,
+			MessageID:  r.id,
+			DeletedBy:  deletedBy,
+			Members:    members,
+		})
+	}
+	return out
+}
+
+// DeleteChannelMessagesForAll is the batch form of DeleteChannelMessageForAll:
+// tombstones every id in messageIDs this caller may delete, in ONE set-based
+// statement. The moderator check runs ONCE, up front — a moderator's batch
+// may authorize every selected message, an ordinary member's only their own —
+// rather than asking "am I allowed to touch THIS one" per row.
+//
+// Ids the caller may not delete — someone else's message when the caller is
+// not a moderator, an id from another channel, or one that does not exist —
+// come back in Skipped rather than failing the whole request, for the same
+// reason DeleteMessagesForAll does: the rest of the selection may still be
+// authorized. channelManagerCheck itself still returns ErrForbidden outright
+// for a channel that does not exist or belongs to another org — that is not a
+// partial result.
+func (s *Store) DeleteChannelMessagesForAll(
+	ctx context.Context, orgID, callerID, channelID string, messageIDs []string, claimRoles []string,
+) (*BulkDeleteResult, error) {
+	var out *BulkDeleteResult
+	err := RetryOnSerializationFailure(ctx, 3, func(ctx context.Context) error {
+		tx, err := s.pool.Begin(ctx)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback(ctx)
+		if err := setOrgGUC(ctx, tx, orgID); err != nil {
+			return err
+		}
+
+		isManager, err := channelManagerCheck(ctx, tx, orgID, channelID, callerID, claimRoles)
+		if err != nil {
+			return err
+		}
+
+		// A moderator's ($4=true) predicate authorizes every id in this
+		// channel; a plain member's authorizes only their own. Folded into one
+		// parameterized statement rather than two separate SQL strings so the
+		// two paths cannot drift apart. Same COALESCE/was_deleted idempotency
+		// shape as the DM path, plus unpinning: a pinned message that gets
+		// deleted must not hold a tombstone at the top of the channel forever.
+		rows, err := tx.Query(ctx, `
+			WITH target AS (
+				SELECT id, (deleted_for_all_at IS NOT NULL) AS was_deleted
+				FROM channel_messages
+				WHERE id = ANY($1::uuid[])
+				  AND channel_id = $2
+				  AND org_id = $3
+				  AND ($4::boolean OR sender_id = $5)
+				FOR UPDATE
+			), upd AS (
+				UPDATE channel_messages m
+				SET deleted_for_all_at = COALESCE(m.deleted_for_all_at, now()),
+				    deleted_by         = COALESCE(m.deleted_by, $5),
+				    pinned_at          = NULL,
+				    pinned_by          = NULL
+				FROM target t
+				WHERE m.id = t.id
+			)
+			SELECT t.id::text, t.was_deleted FROM target t`,
+			messageIDs, channelID, orgID, isManager, callerID)
+		if err != nil {
+			return err
+		}
+		var deleted []deletedChannelMessageRow
+		got := make(map[string]struct{}, len(messageIDs))
+		for rows.Next() {
+			var r deletedChannelMessageRow
+			if err := rows.Scan(&r.id, &r.wasDeleted); err != nil {
+				rows.Close()
+				return err
+			}
+			deleted = append(deleted, r)
+			got[r.id] = struct{}{}
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+
+		skipped := make([]string, 0, len(messageIDs))
+		deletedIDs := make([]string, 0, len(deleted))
+		for _, id := range messageIDs {
+			if _, ok := got[id]; ok {
+				deletedIDs = append(deletedIDs, id)
+			} else {
+				skipped = append(skipped, id)
+			}
+		}
+
+		members, err := channelMemberIDs(ctx, tx, channelID)
+		if err != nil {
+			return err
+		}
+
+		if err := insertOutboxBatch(ctx, tx, channelID,
+			channelMessageDeletedEvents(orgID, channelID, callerID, members, deleted)); err != nil {
+			return err
+		}
+
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
+		out = &BulkDeleteResult{Deleted: deletedIDs, Skipped: skipped}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // SetChannelMessagePin pins (on=true) or unpins a channel message for everyone.
 //
 // MODERATOR ONLY — owner, channel admin, or org_admin. A pin changes what the

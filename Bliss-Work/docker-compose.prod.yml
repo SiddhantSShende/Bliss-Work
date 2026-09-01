@@ -368,6 +368,26 @@ services:
       --denied-peer-ip=10.0.0.0-10.255.255.255
       --denied-peer-ip=172.16.0.0-172.31.255.255
       --denied-peer-ip=192.168.0.0-192.168.255.255
+      --prometheus --prometheus-port=9641
+    # --prometheus is coturn 4.6's own flag (verified against this exact pinned
+    # image's `turnserver --help`, which documents plain GET / on this port as
+    # a health check too) — no separate binary needed beyond the wget already
+    # present in this alpine image. That / claim did NOT hold empirically
+    # against this build (4.6.3): GET / returns 404, only /metrics returns
+    # 200 (confirmed live against the running container, not just --help
+    # text) — the healthcheck below targets /metrics for that reason. Same
+    # network_mode:host posture as the SFU below: 9641 listens on every host
+    # interface (there is no bridge to publish it to), so reaching it from the
+    # bridge-networked prometheus container (see prometheus.yml) depends on the
+    # SAME host firewall behavior that already lets Caddy reach LiveKit's 7880
+    # today — verify 9641 is actually reachable from prometheus at deploy time;
+    # this repo does not attempt to change the host firewall for it.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9641/metrics"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     deploy:
       resources:
         limits: { cpus: "0.50", memory: 128M }
@@ -448,6 +468,20 @@ services:
       LIVEKIT_WEBHOOK_API_KEY: "${LIVEKIT_API_KEY}"
     volumes:
       - ./infra/livekit/livekit.yaml:/etc/livekit/livekit.yaml:ro
+    # GET / on the main port answers 200 "OK" without needing a valid token —
+    # verified directly against this pinned image (v1.13.5), not assumed: it is
+    # NOT a documented /healthz, just livekit-server's own root handler, and it
+    # is the same check LiveKit Cloud/Helm deployments commonly use. It proves
+    # the HTTP listener is alive, not that RTC media is flowing — this stack
+    # has no cheap way to prove that beyond an actual room test (see
+    # infra/observability/prometheus.yml's livekit job + livekit_* metrics for
+    # the closer signal: room/participant counts and dropped-packet rate).
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:7880/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     deploy:
       resources:
         # An SFU is CPU-bound on packet forwarding, not on transcoding — it does
@@ -778,6 +812,8 @@ services:
       context: .
       dockerfile: services/auth-svc/Dockerfile
     image: ${REGISTRY_PREFIX:-task-board}/auth-svc:${IMAGE_TAG:-latest}
+    environment:
+      IMAGE_TAG: ${IMAGE_TAG:-dev}
     # Re-listed (not inherited) — see the x-svc-defaults note: `<<:` replaces
     # the `env_file:` list rather than merging it. This service's OWN internal
     # secret (validates callers of /internal/*) is a separate file from the
@@ -848,6 +884,8 @@ services:
       context: .
       dockerfile: services/task-svc/Dockerfile
     image: ${REGISTRY_PREFIX:-task-board}/task-svc:${IMAGE_TAG:-latest}
+    environment:
+      IMAGE_TAG: ${IMAGE_TAG:-dev}
     # This service's OWN internal secret (validates /internal/tasks/by-title)
     # plus messaging-svc's (it CALLS /internal/channels/{id}/members) — see
     # docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 2.
@@ -882,6 +920,8 @@ services:
       context: .
       dockerfile: services/notification-svc/Dockerfile
     image: ${REGISTRY_PREFIX:-task-board}/notification-svc:${IMAGE_TAG:-latest}
+    environment:
+      IMAGE_TAG: ${IMAGE_TAG:-dev}
     depends_on:
       postgres: { condition: service_healthy }
       kafka-init: { condition: service_completed_successfully }
@@ -907,6 +947,8 @@ services:
       context: .
       dockerfile: services/messaging-svc/Dockerfile
     image: ${REGISTRY_PREFIX:-task-board}/messaging-svc:${IMAGE_TAG:-latest}
+    environment:
+      IMAGE_TAG: ${IMAGE_TAG:-dev}
     # This service's OWN internal secret — validates callers of its 5
     # /internal/* routes (task-svc, ws-gateway, integrations-svc,
     # email-worker). See docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 2.
@@ -954,6 +996,8 @@ services:
       context: .
       dockerfile: services/integrations-svc/Dockerfile
     image: ${REGISTRY_PREFIX:-task-board}/integrations-svc:${IMAGE_TAG:-latest}
+    environment:
+      IMAGE_TAG: ${IMAGE_TAG:-dev}
     # This service's OWN internal secret (validates /internal/messages/send,
     # /internal/mail/send) plus messaging-svc's (it CALLS /internal/mail/
     # inbound) — see docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 2.
@@ -988,6 +1032,8 @@ services:
       context: .
       dockerfile: services/telemetry-svc/Dockerfile
     image: ${REGISTRY_PREFIX:-task-board}/telemetry-svc:${IMAGE_TAG:-latest}
+    environment:
+      IMAGE_TAG: ${IMAGE_TAG:-dev}
     depends_on:
       postgres: { condition: service_healthy }
       kafka-init: { condition: service_completed_successfully }
@@ -1012,6 +1058,8 @@ services:
       context: .
       dockerfile: services/ws-gateway/Dockerfile
     image: ${REGISTRY_PREFIX:-task-board}/ws-gateway:${IMAGE_TAG:-latest}
+    environment:
+      IMAGE_TAG: ${IMAGE_TAG:-dev}
     # This service's OWN internal secret (validates /internal/push, and is
     # also what delivery-svc below uses to call it) plus messaging-svc's (the
     # delivery-ack dispatcher CALLS /internal/messages/delivered) — see
@@ -1092,6 +1140,8 @@ services:
       context: .
       dockerfile: services/ws-gateway/Dockerfile
     image: ${REGISTRY_PREFIX:-task-board}/ws-gateway:${IMAGE_TAG:-latest}
+    environment:
+      IMAGE_TAG: ${IMAGE_TAG:-dev}
     entrypoint: ["/usr/local/bin/delivery-svc"]
     # delivery-svc only CALLS ws-gateway nodes' /internal/push — it needs the
     # gateway's secret and nothing else (not messaging-svc's — it never talks
@@ -1202,9 +1252,39 @@ services:
       - promdata:/prometheus
     ports: ["127.0.0.1:9091:9090"]
     networks: [taskboard]
+    # LiveKit and coturn run network_mode:host (see their own comments above)
+    # and so have no compose service name to resolve — same reason Caddy
+    # reaches LiveKit's 7880 via host.docker.internal rather than `livekit`.
+    # The livekit/coturn scrape targets below need this to resolve.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     deploy:
       resources:
         limits: { cpus: "0.50", memory: 512M }
+
+  # Pushgateway — see docker-compose.yml's identical service (the dev stack)
+  # for why this exists: Prometheus only ever PULLS, and the synthetic call
+  # check (scripts/synthetic-call-check.mjs, docs/OBSERVABILITY-ALERTS.md) is
+  # a batch job that runs, reports one result, and exits, so there is no live
+  # process for prometheus above to scrape at the moment it actually ran.
+  # Unlike the dev stack this is NOT profile-gated — every other service in
+  # this file runs unconditionally, and prod's Prometheus (the one that would
+  # actually page someone) needs somewhere to scrape a synthetic-call result
+  # from at all times, not only when the observability profile is opted into.
+  pushgateway:
+    image: prom/pushgateway:v1.9.0
+    restart: unless-stopped
+    # Container keeps its native port 9091 — that's what prometheus.yml's
+    # pushgateway scrape target uses in-network. Published on host 9099, NOT
+    # 9091: the prometheus service above already owns host port 9091
+    # (remapped from its container port 9090). See
+    # scripts/synthetic-call-check.mjs's PUSHGATEWAY_URL default, which
+    # matches this.
+    ports: ["127.0.0.1:9099:9091"]
+    networks: [taskboard]
+    deploy:
+      resources:
+        limits: { cpus: "0.10", memory: 64M }
 
   # ── Infrastructure exporters ────────────────────────────────────────────────
   #
@@ -1333,6 +1413,11 @@ services:
       GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
       - ./infra/observability/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
+      # Same two-mount dashboard-provisioning pattern as the dev stack
+      # (docker-compose.yml) — see grafana-dashboards.yaml's own comment for
+      # why the provider config and the JSON directory are separate mounts.
+      - ./infra/observability/grafana-dashboards.yaml:/etc/grafana/provisioning/dashboards/dashboards.yaml:ro
+      - ./infra/observability/dashboards:/etc/grafana/dashboards:ro
       - grafanadata:/var/lib/grafana
     ports: ["127.0.0.1:3000:3000"]
     networks: [taskboard]

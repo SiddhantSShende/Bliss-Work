@@ -40,9 +40,12 @@ package store
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/task-board/messaging-svc/internal/metrics"
 )
 
 // MarkLeftFromSFU records that the SFU saw a participant disconnect.
@@ -87,12 +90,34 @@ import (
 // participant this service does not recognise is reported as nothing having
 // happened rather than an error: the SFU also runs rooms this deployment did
 // not create, and a webhook about one of those is noise, not a failure.
+//
+// ── Why a fresh departure recorded here also counts as a metrics "drop" ──────
+// LeaveCall and EndCall both close call_participants.left_at synchronously,
+// as part of handling the client's own request, strictly before that client
+// goes on to disconnect from LiveKit — so an intentional hangup's webhook
+// always finds left_at already set and RowsAffected()==0 here. The only way
+// this UPDATE actually closes a row is a departure nobody announced: exactly
+// what metrics.CallDroppedTotal exists to count. See metrics/calls.go's
+// package doc comment.
 func (s *Store) MarkLeftFromSFU(ctx context.Context, callID, userID, sid string) (bool, bool, error) {
 	var (
 		recorded   bool
 		wasSharing bool
+		kind       string
 	)
 	err := s.withBypass(ctx, func(tx pgx.Tx) error {
+		// Read once, before the UPDATE: a call this deployment does not
+		// recognise (see the doc comment above) has no row to read either, and
+		// erroring out here — rather than falling through with an empty kind —
+		// keeps that case identical to today's "nothing happened", not a
+		// mislabeled metric.
+		kerr := tx.QueryRow(ctx, `SELECT kind FROM calls WHERE id = $1`, callID).Scan(&kind)
+		if errors.Is(kerr, pgx.ErrNoRows) {
+			return nil
+		}
+		if kerr != nil {
+			return kerr
+		}
 		// $3 = '' matches unconditionally too, alongside a NULL row: every real
 		// LiveKit participant event carries a sid, so an empty one here means
 		// the caller genuinely has none to give (a malformed payload, or a
@@ -119,6 +144,9 @@ func (s *Store) MarkLeftFromSFU(ctx context.Context, callID, userID, sid string)
 	if err != nil {
 		return false, false, err
 	}
+	if recorded {
+		metrics.CallDroppedTotal.WithLabelValues(metrics.CallTypeFor(kind)).Inc()
+	}
 	return recorded, wasSharing, nil
 }
 
@@ -137,10 +165,45 @@ func (s *Store) MarkLeftFromSFU(ctx context.Context, callID, userID, sid string)
 // create.
 func (s *Store) MarkJoinedFromSFU(ctx context.Context, callID, userID, sid string) error {
 	return s.withBypass(ctx, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `
+		var (
+			oldSID *string
+			kind   string
+		)
+		selErr := tx.QueryRow(ctx, `
+			SELECT cp.session_id, c.kind
+			FROM call_participants cp
+			JOIN calls c ON c.id = cp.call_id
+			WHERE cp.call_id = $1 AND cp.user_id = $2`, callID, userID).
+			Scan(&oldSID, &kind)
+		if errors.Is(selErr, pgx.ErrNoRows) {
+			return nil
+		}
+		if selErr != nil {
+			return selErr
+		}
+		if _, err := tx.Exec(ctx, `
 			UPDATE call_participants SET session_id = $3
-			WHERE call_id = $1 AND user_id = $2`, callID, userID, sid)
-		return err
+			WHERE call_id = $1 AND user_id = $2`, callID, userID, sid); err != nil {
+			return err
+		}
+		// Newly connected iff the SFU session id actually CHANGED. left_at is
+		// NOT usable for this — MarkJoined (calls.go) clears it the instant the
+		// client REQUESTS a token, before this webhook confirms the SFU
+		// connection actually succeeded, so left_at is already NULL again by
+		// the time a genuine rejoin's webhook lands here; an earlier version
+		// of this function keyed off left_at and undercounted rejoins for
+		// exactly that reason. The session id has no such race: it is written
+		// ONLY here, so identical consecutive values mean a duplicate delivery
+		// of the same webhook (LiveKit's delivery is at-least-once) or the
+		// same session's own re-announcement, and a changed value — including
+		// from NULL — always means a new SFU connection actually formed. See
+		// metrics/calls.go's package doc comment for why this, not callToken
+		// returning 200, is what "connected" means.
+		isNewConnection := oldSID == nil || *oldSID != sid
+		if isNewConnection {
+			metrics.CallConnectedTotal.WithLabelValues(metrics.CallTypeFor(kind)).Inc()
+		}
+		return nil
 	})
 }
 

@@ -124,6 +124,65 @@ the deployed commit SHA (`VITE_BUILD_SHA`, injected by `web-builder`). A page th
 still says the old SHA means the browser is on a cached bundle, not that the
 deploy failed.
 
+### Confirming what's actually deployed
+
+Two housekeeping fixes plus one new signal make it possible to trace a
+running container back to the commit that produced it.
+
+**Only one `.github/workflows/` directory is ever live.** GitHub Actions
+discovers workflows exclusively at the monorepo root (see "The pipeline"
+above). A second, stale copy of six workflows (`build-images.yml`,
+`codeql.yml`, `loadtest-gate.yml`, `security-extra.yml`, `store-build.yml`,
+`store-release.yml`) used to sit one directory too deep, in
+`Bliss-Work/.github/workflows/` — GitHub had never once discovered or run
+them from there. That copy has been deleted; a workflow that needs to exist
+belongs at the repo root, next to the four that are actually live.
+
+**The Jenkins pipeline's branch guard now matches the real branch.**
+`Jenkinsfile`'s `RELEASE_BRANCH` was hard-coded to `main`, a branch that has
+never existed on this remote (`git ls-remote --heads origin` lists only
+`Prod-Sid` and `VPS-Shristi`) — the "Validate Branch" stage would have
+refused every build. It now checks `Prod-Sid`, the branch production
+actually deploys from. Note that Jenkins and the GitHub Actions pipeline
+above are two independent pipelines, either of which can build and push
+images — reconciling that overlap is a separate, unresolved question.
+
+**`/healthz` reports the deployed `IMAGE_TAG`.** Every backend service
+returns its running image tag alongside the liveness check, e.g.:
+
+```json
+{"status": "ok", "version": "43da7d0"}
+```
+
+`docker-compose.prod.yml` sets `IMAGE_TAG: ${IMAGE_TAG:-dev}` explicitly in
+each app service's `environment:` block. That override matters: without it, a
+container would instead inherit the *static* `IMAGE_TAG=latest` that
+`.env.prod` supplies via `env_file`, which does not track what is actually
+running. `scripts/deploy-prod.sh` exports the real commit SHA before calling
+`compose up`, so on a healthy deploy `version` matches `git rev-parse
+--short HEAD` for that commit.
+
+To confirm a deploy, curl each service through its public `/api/<svc>/*`
+prefix (see `infra/caddy/Caddyfile`'s routing table) and compare `version`
+against the commit you expect:
+
+```bash
+curl https://communication.rnrtechs.com/api/auth/healthz
+curl https://communication.rnrtechs.com/api/tasks/healthz
+curl https://communication.rnrtechs.com/api/notifications/healthz
+curl https://communication.rnrtechs.com/api/messaging/healthz
+curl https://communication.rnrtechs.com/api/integrations/healthz
+curl https://communication.rnrtechs.com/api/telemetry/healthz
+```
+
+`ws-gateway`, `delivery-svc` and `graph-gw` are not proxied under `/api/*` —
+their `/healthz` (like everyone's `/metrics` and `/internal/*`) is reachable
+only from inside the compose network, e.g.:
+
+```bash
+sudo docker compose -f docker-compose.prod.yml exec ws-gateway wget -qO- http://localhost:8080/healthz
+```
+
 ## Desktop app
 
 `.github/workflows/release.yml` builds on all three native runners, signs, and

@@ -65,27 +65,36 @@ var cappedRoutes = map[string]string{
 	"POST /internal/keys/rotate/{orgId}": "small",
 
 	// /api/v1 — everything small except the one upload route.
-	"POST /api/v1/conversations":              "small",
-	"POST /api/v1/conversations/messages":     "small",
-	"POST /api/v1/conversations/{id}/reply":   "small",
-	"POST /api/v1/conversations/{id}/ignore":  "small",
-	"POST /api/v1/conversations/{id}/clear":   "small",
-	"POST /api/v1/conversations/{id}/read":    "small",
-	"POST /api/v1/users/{id}/block":           "small",
-	"DELETE /api/v1/users/{id}/block":         "small",
-	"POST /api/v1/attachments/{id}/commit":    "small",
-	"POST /api/v1/attachments/links":          "small",
-	"POST /api/v1/messages/{id}/forward-link": "small",
-	"POST /api/v1/messages/{id}/forward":      "small",
-	"POST /api/v1/channels":                   "small",
-	"PATCH /api/v1/channels/{id}":             "small",
-	"DELETE /api/v1/channels/{id}":            "small",
-	"POST /api/v1/channels/{id}/messages":     "small",
-	"POST /api/v1/channels/{id}/members":      "small",
-	"POST /api/v1/channels/{id}/join":         "small",
-	"POST /api/v1/channels/{id}/leave":        "small",
-	"POST /api/v1/channels/{id}/clear":        "small",
-	"POST /api/v1/channels/{id}/read":         "small",
+	"POST /api/v1/conversations":             "small",
+	"POST /api/v1/conversations/messages":    "small",
+	"POST /api/v1/conversations/{id}/reply":  "small",
+	"POST /api/v1/conversations/{id}/ignore": "small",
+	"POST /api/v1/conversations/{id}/clear":  "small",
+	"POST /api/v1/conversations/{id}/read":   "small",
+	// Bulk "delete for everyone" — a batch of message ids, scoped to the
+	// conversation. Same /api/v1 small-body group, so the cap is inherited.
+	"POST /api/v1/conversations/{id}/messages/delete": "small",
+	"POST /api/v1/users/{id}/block":                   "small",
+	"DELETE /api/v1/users/{id}/block":                 "small",
+	"POST /api/v1/attachments/{id}/commit":            "small",
+	"POST /api/v1/attachments/links":                  "small",
+	"POST /api/v1/messages/{id}/forward-link":         "small",
+	"POST /api/v1/messages/{id}/forward":              "small",
+	// Batch forward — the multi-select twin of the single-pair route above.
+	// Same /api/v1 small-body group, so the cap is inherited.
+	"POST /api/v1/forwards":               "small",
+	"POST /api/v1/channels":               "small",
+	"PATCH /api/v1/channels/{id}":         "small",
+	"DELETE /api/v1/channels/{id}":        "small",
+	"POST /api/v1/channels/{id}/messages": "small",
+	"POST /api/v1/channels/{id}/members":  "small",
+	"POST /api/v1/channels/{id}/join":     "small",
+	"POST /api/v1/channels/{id}/leave":    "small",
+	"POST /api/v1/channels/{id}/clear":    "small",
+	"POST /api/v1/channels/{id}/read":     "small",
+	// Bulk "delete for everyone" — the channel twin of the conversation route
+	// above. Same reasoning, same group.
+	"POST /api/v1/channels/{id}/messages/delete": "small",
 	// Channel moderation. The two DELETEs take no body at all and the PATCH/POST
 	// take a tiny JSON object; all four sit inside the same /api/v1 group that
 	// applies mw.MaxBytes, so the cap is inherited rather than per-handler.
@@ -150,6 +159,7 @@ var cappedRoutes = map[string]string{
 	"DELETE /api/v1/calls/{id}/invites/{inviteId}": "small",
 	"POST /api/v1/calls/{id}/participants":         "small",
 	"POST /api/v1/calls/{id}/token":                "small",
+	"POST /api/v1/calls/{id}/telemetry":            "small",
 	"POST /api/v1/calls/{id}/start":                "small",
 	"POST /api/v1/calls/{id}/share":                "small",
 	"POST /api/v1/calls/{id}/share/stop":           "small",

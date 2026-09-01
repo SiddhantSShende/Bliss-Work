@@ -107,6 +107,17 @@ services:
     # every recording ends as EGRESS_FAILED with no file.
     cap_add:
       - SYS_ADMIN
+    # health_port above answers GET / with {"CpuLoad": N} — verified directly
+    # against this pinned image (v1.14.1). /metrics on the same port returns
+    # the identical JSON body, NOT Prometheus exposition format, so there is
+    # nothing here for infra/observability/prometheus.yml to scrape; this
+    # healthcheck is the only monitoring this service gets today.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9091/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     volumes:
       # Only needed with MEDIA_BACKEND=fs: egress writes the finished file
       # straight into the blob volume messaging-svc serves it from, at the SAME

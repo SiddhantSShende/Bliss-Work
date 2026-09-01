@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/task-board/ws-gateway/internal/blocklist"
 	"github.com/task-board/ws-gateway/internal/hub"
 	"github.com/task-board/ws-gateway/internal/metrics"
 	"github.com/task-board/ws-gateway/internal/push"
@@ -36,6 +37,7 @@ import (
 type Dispatcher struct {
 	hub    *hub.Hub
 	store  PresenceChecker
+	blocks BlockChecker
 	fanout *push.Fanout
 	peers  *ttlcache.Cache[bool]
 	log    *slog.Logger
@@ -55,6 +57,18 @@ type PresenceChecker interface {
 
 // Compile-time proof that the real store still satisfies it.
 var _ PresenceChecker = (*store.Store)(nil)
+
+// BlockChecker is the one question CallInviteAllowed asks of messaging-svc:
+// has either of these two org-mates blocked the other. An interface for the
+// same reason PresenceChecker is one — this call is a real authorization
+// boundary (see CallInviteAllowed's doc comment) and needs a seam a test can
+// drive with a controlled answer rather than a live HTTP dependency.
+type BlockChecker interface {
+	IsBlocked(ctx context.Context, orgID, userA, userB string) (bool, error)
+}
+
+// Compile-time proof that the real client still satisfies it.
+var _ BlockChecker = (*blocklist.Client)(nil)
 
 // ── The peer cache ───────────────────────────────────────────────────────────
 //
@@ -91,10 +105,11 @@ const (
 
 // New constructs a Dispatcher. `fanout` may be nil in tests that only exercise
 // same-node delivery.
-func New(h *hub.Hub, st PresenceChecker, f *push.Fanout, log *slog.Logger) *Dispatcher {
+func New(h *hub.Hub, st PresenceChecker, bc BlockChecker, f *push.Fanout, log *slog.Logger) *Dispatcher {
 	return &Dispatcher{
 		hub:    h,
 		store:  st,
+		blocks: bc,
 		fanout: f,
 		peers:  ttlcache.New[bool](peerCacheTTL, peerCacheMax),
 		log:    log,
@@ -123,6 +138,29 @@ func (d *Dispatcher) peerAllowed(ctx context.Context, senderOrg, toUserID string
 		d.peers.Put(key, true)
 	}
 	return ok, nil
+}
+
+// CallInviteAllowed reports whether fromUserID may ring toUserID — false if
+// either has blocked the other. The caller (handleCallFrame) MUST invoke this
+// only for call.invite, and only once per call attempt: unlike peerAllowed,
+// this check has no cache in front of it, because messaging-svc's answer can
+// change from one moment to the next (a block/unblock) and a call attempt is
+// rare enough that asking fresh every time costs nothing worth caching for.
+// Running it per rtc.offer/answer/ice — a trickle of twenty to forty frames
+// per call — would turn one HTTP round trip into dozens; see the peer-cache
+// commentary above for the same cost concern applied to the presence check.
+//
+// Fails closed: an error talking to messaging-svc is treated as "not
+// allowed," the same convention Forward's peerAllowed check already uses when
+// it cannot prove a peer is online. A blocked-vs-unreachable failure looks
+// identical to the caller (see UnreachableFrame) so neither party learns
+// anything about the other's block state from a failed ring.
+func (d *Dispatcher) CallInviteAllowed(ctx context.Context, orgID, fromUserID, toUserID string) (bool, error) {
+	blocked, err := d.blocks.IsBlocked(ctx, orgID, fromUserID, toUserID)
+	if err != nil {
+		return false, err
+	}
+	return !blocked, nil
 }
 
 // Forward routes a signaling frame from `from` to `to`. The caller is

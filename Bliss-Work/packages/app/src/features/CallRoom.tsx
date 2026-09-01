@@ -281,6 +281,8 @@ export function CallRoom({
           return;
         }
         setPreviewStream(stream);
+        setPreviewCamOn(true);
+        setPreviewMicOn(true);
         if (previewVideoRef.current) previewVideoRef.current.srcObject = stream;
       })
       .catch((e) => {
@@ -303,7 +305,7 @@ export function CallRoom({
         return null;
       });
     };
-  }, [preJoin, previewAttempt]);
+  }, [preJoin, previewAttempt, call.id]);
 
   useEffect(() => {
     if (previewVideoRef.current && previewStream) {
@@ -792,8 +794,28 @@ export function CallRoom({
           </Button>
         </header>
         <main className="flex min-h-0 flex-1 items-center justify-center p-6">
-          <div className="glass w-full max-w-3xl rounded-2xl p-6">
-            <div className="relative flex aspect-video items-center justify-center overflow-hidden rounded-xl bg-bg ring-1 ring-border/60">
+          {/* max-h-full + overflow-y-auto: `main` above is a properly
+              height-bounded flex-1/min-h-0 box (its own height resolves
+              against the fixed inset-0 shell minus the header), so capping
+              the card at 100% of THAT — rather than leaving it sized purely
+              by its own content — is what stops it (and the aspect-video
+              preview inside it) from ever pushing past the fixed lobby's
+              edges on a short window. overflow-y-auto is the fallback for
+              whatever still doesn't fit even after the preview's own cap
+              below, so the Join button stays reachable by scrolling instead
+              of landing off-screen. */}
+          <div className="glass max-h-full w-full max-w-3xl overflow-y-auto rounded-2xl p-6">
+            {/* aspect-video sizes purely from WIDTH, which stays large even in
+                a vertically cramped window (this room, or the desktop app's
+                own pop-out meeting window — main/meeting-window-manager.ts,
+                min 480px tall) — nothing here previously stopped that from
+                exceeding the space actually available. min(50dvh,27rem) caps
+                it at the ORIGINAL max-w-3xl-driven height (27rem) once
+                there's room for it, so nothing changes on a normal-size
+                window, and shrinks proportionally to the viewport once
+                there isn't. object-cover on the <video> below already
+                handles a container that ends up shorter than 16:9. */}
+            <div className="relative flex aspect-video max-h-[min(50dvh,27rem)] items-center justify-center overflow-hidden rounded-xl bg-bg ring-1 ring-border/60">
               <video
                 ref={previewVideoRef}
                 autoPlay

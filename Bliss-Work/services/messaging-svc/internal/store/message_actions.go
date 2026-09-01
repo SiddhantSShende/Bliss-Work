@@ -168,6 +168,189 @@ func (s *Store) DeleteMessageForAll(ctx context.Context, orgID, callerID, messag
 	})
 }
 
+// BulkDeleteResult reports what a bulk delete actually did. `Skipped` is
+// deliberately reasonless: distinguishing "not yours" from "no such message"
+// would turn this into an existence oracle for ids the caller cannot already
+// see, the same restraint channelForMessage's own comment documents. One
+// bucket is also all the UI needs to render "Deleted 8 of 10".
+type BulkDeleteResult struct {
+	Deleted []string
+	Skipped []string
+}
+
+// deletedMessageRow is one row DeleteMessagesForAll's set-based UPDATE
+// touched (or left alone because it was already deleted).
+type deletedMessageRow struct {
+	id         string
+	threadID   *string
+	wasDeleted bool
+}
+
+// messageDeletedEvents builds one MessageDeleted payload per row that was
+// NEWLY tombstoned by this call — not the ones that were already deleted,
+// which stay reported as Deleted (idempotent) but must not re-emit an event a
+// retry would otherwise duplicate.
+func messageDeletedEvents(orgID, convID, deletedBy string, members []string, rows []deletedMessageRow) []any {
+	out := make([]any, 0, len(rows))
+	for _, r := range rows {
+		if r.wasDeleted {
+			continue
+		}
+		evt := events.MessageDeleted{
+			Type:           events.TypeMessageDeleted,
+			EventID:        uuid.Must(uuid.NewV7()).String(),
+			OrgID:          orgID,
+			OccurredAt:     nowISO(),
+			ConversationID: convID,
+			MessageID:      r.id,
+			DeletedBy:      deletedBy,
+			Members:        members,
+		}
+		if r.threadID != nil {
+			evt.ThreadID = r.threadID
+		}
+		out = append(out, evt)
+	}
+	return out
+}
+
+// DeleteMessagesForAll is the batch form of DeleteMessageForAll: tombstones
+// every id in messageIDs the caller authored, in ONE set-based statement
+// rather than one round trip per message — the same technique
+// AddChannelMembers (channels.go) uses for bulk membership writes.
+//
+// Ids the caller did not send — someone else's message, an id from another
+// conversation, or one that does not exist — come back in Skipped rather than
+// failing the whole request: the rest of the selection may still be
+// authorized, and refusing all of it over one id would be worse than
+// reporting which ones did not go through. A caller who is not a member of
+// convID AT ALL gets ErrForbidden instead — that is not a partial result, it
+// is not being allowed to ask the question.
+func (s *Store) DeleteMessagesForAll(
+	ctx context.Context, orgID, callerID, convID string, messageIDs []string,
+) (*BulkDeleteResult, error) {
+	var out *BulkDeleteResult
+	err := RetryOnSerializationFailure(ctx, 3, func(ctx context.Context) error {
+		tx, err := s.pool.Begin(ctx)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback(ctx)
+		if err := setOrgGUC(ctx, tx, orgID); err != nil {
+			return err
+		}
+
+		var member bool
+		if err := tx.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM conversation_members
+				WHERE conversation_id = $1 AND user_id = $2
+			)`, convID, callerID).Scan(&member); err != nil {
+			return err
+		}
+		if !member {
+			return ErrForbidden
+		}
+
+		// One statement authorizes, deletes, and reports in the same round trip:
+		// ids in $1 absent from the result are exactly the ones this caller did
+		// not send in THIS conversation — the set difference IS the
+		// authorization report, with no separate pre-check query.
+		//
+		// COALESCE keeps re-deleting idempotent (first delete wins, same as
+		// DeleteMessageForAll); was_deleted distinguishes a row this call just
+		// tombstoned from one that already was, so a retry does not re-emit an
+		// event for a message it did not actually just change.
+		rows, err := tx.Query(ctx, `
+			WITH target AS (
+				SELECT id, thread_id, (deleted_for_all_at IS NOT NULL) AS was_deleted
+				FROM messages
+				WHERE id = ANY($1::uuid[])
+				  AND conversation_id = $2
+				  AND org_id = $4
+				  AND sender_id = $3
+				FOR UPDATE
+			), upd AS (
+				UPDATE messages m
+				SET deleted_for_all_at = COALESCE(m.deleted_for_all_at, now()),
+				    deleted_by         = COALESCE(m.deleted_by, $3)
+				FROM target t
+				WHERE m.id = t.id
+			)
+			SELECT t.id::text, t.thread_id::text, t.was_deleted FROM target t`,
+			messageIDs, convID, callerID, orgID)
+		if err != nil {
+			return err
+		}
+		var deleted []deletedMessageRow
+		got := make(map[string]struct{}, len(messageIDs))
+		for rows.Next() {
+			var r deletedMessageRow
+			if err := rows.Scan(&r.id, &r.threadID, &r.wasDeleted); err != nil {
+				rows.Close()
+				return err
+			}
+			deleted = append(deleted, r)
+			got[r.id] = struct{}{}
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+
+		skipped := make([]string, 0, len(messageIDs))
+		deletedIDs := make([]string, 0, len(deleted))
+		for _, id := range messageIDs {
+			if _, ok := got[id]; ok {
+				deletedIDs = append(deletedIDs, id)
+			} else {
+				skipped = append(skipped, id)
+			}
+		}
+
+		members, err := conversationMemberIDs(ctx, tx, convID)
+		if err != nil {
+			return err
+		}
+
+		// Batch-blank the Inbox preview for every distinct thread a NEWLY
+		// deleted message belongs to — the batch form of DeleteMessageForAll's
+		// per-message UPDATE, same reasoning (a mail thread whose latest
+		// message was just deleted must not keep showing the deleted text).
+		threadIDs := make([]string, 0, len(deleted))
+		for _, r := range deleted {
+			if !r.wasDeleted && r.threadID != nil {
+				threadIDs = append(threadIDs, *r.threadID)
+			}
+		}
+		if len(threadIDs) > 0 {
+			if _, err := tx.Exec(ctx, `
+				UPDATE inbox_items
+				SET preview = '', preview_enc = NULL, updated_at = now()
+				WHERE owner_user_id = ANY($2::uuid[])
+				  AND item_kind = 'THREAD' AND ref_id = ANY($1::uuid[])`,
+				threadIDs, members); err != nil {
+				return err
+			}
+		}
+
+		if err := insertOutboxBatch(ctx, tx, convID,
+			messageDeletedEvents(orgID, convID, callerID, members, deleted)); err != nil {
+			return err
+		}
+
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
+		out = &BulkDeleteResult{Deleted: deletedIDs, Skipped: skipped}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // conversationMemberIDs lists both sides of a 1:1, so the gateway can route an
 // event to each without a second lookup.
 func conversationMemberIDs(ctx context.Context, tx pgx.Tx, convID string) ([]string, error) {

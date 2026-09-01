@@ -82,6 +82,42 @@ scrape_configs:
   # code change to the service, tracked separately; until then its health is
   # visible only through its consumer lag (kafka-exporter, below) and its logs.
 
+  # LiveKit and coturn run network_mode:host (docker-compose.prod.yml), so
+  # neither has a compose service name — host.docker.internal resolves via the
+  # extra_hosts entry on this service, the same way Caddy already reaches
+  # LiveKit's 7880. Reachability of these two host ports from this bridge
+  # container depends on the deployment's actual firewall rules and was not
+  # verified beyond that Caddy's equivalent 7880 path already works in
+  # production; confirm at deploy time rather than assuming.
+  - job_name: livekit
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["host.docker.internal:7882"]
+
+  # room_total / participant_total / forward_jitter / forward_latency /
+  # node_packet_total{type="dropped"} / webhook_queue_length — see
+  # infra/livekit/livekit.yaml's prometheus: block for what's actually exposed
+  # (verified against the pinned image, not the full published LiveKit
+  # metrics list, some of which does not apply to a single-node deployment).
+
+  - job_name: coturn
+    metrics_path: /metrics
+    # coturn's /metrics response carries no Content-Type header at all
+    # (confirmed live: `wget -S` shows none) — Prometheus 3.x refuses to guess
+    # a format for that and reports the target down with "non-compliant
+    # scrape target sending blank Content-Type" unless told what to assume.
+    # LiveKit's own /metrics (job above) sets a proper Content-Type and needs
+    # no such hint.
+    fallback_scrape_protocol: PrometheusText0.0.4
+    static_configs:
+      - targets: ["host.docker.internal:9641"]
+
+  # NOT SCRAPED: livekit-egress. Its health_port (docker-compose.recording.yml)
+  # answers both / and /metrics with the same {"CpuLoad": N} JSON — verified
+  # directly against the pinned image (v1.14.1) — not Prometheus exposition
+  # format, so there is nothing here to scrape. It gets a Docker healthcheck
+  # only; see docker-compose.recording.yml.
+
   # ── Infrastructure exporters ────────────────────────────────────────────────
   #
   # The four things that actually saturate first are the four that had no
@@ -105,3 +141,16 @@ scrape_configs:
   - job_name: cadvisor
     static_configs:
       - targets: ["cadvisor:8080"]
+
+  # Pushgateway — the target for batch/cron-shaped jobs Prometheus cannot pull
+  # from directly, specifically scripts/synthetic-call-check.mjs (see
+  # docker-compose.yml's pushgateway service for the full "why a gateway at
+  # all" reasoning). honor_labels: true is required for scraping a
+  # Pushgateway: without it Prometheus would overwrite whatever job/instance
+  # labels arrived with the push (e.g. job="synthetic_call") with this scrape
+  # target's own (job="pushgateway"), which would break every alert and query
+  # written against the pushed metric names.
+  - job_name: pushgateway
+    honor_labels: true
+    static_configs:
+      - targets: ["pushgateway:9091"]

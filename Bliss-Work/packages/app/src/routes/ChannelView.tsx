@@ -25,6 +25,9 @@ import { ScheduleCallDialog } from "../features/ScheduleCallDialog";
 import { CallMenu } from "../features/CallMenu";
 import { ConversationMenu } from "../features/ConversationMenu";
 import { ConfirmDialog } from "../features/ConfirmDialog";
+import { SelectionToolbar } from "../features/SelectionToolbar";
+import { useMessageSelection } from "../lib/useMessageSelection";
+import { canDeleteForAll } from "../lib/messagePermissions";
 import { ChatSearchBar } from "../features/ChatSearchBar";
 import { ChatAssetsSheet } from "../features/ChatAssetsSheet";
 import { searchMessages } from "../lib/chatSearch";
@@ -47,11 +50,15 @@ export function ChannelView() {
   const [clearChatOpen, setClearChatOpen] = useState(false);
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const recordForward = useWhatsAppForward();
-  // The message being forwarded to another chat or channel (null = closed).
-  const [forwardTo, setForwardTo] = useState<{ id: string; body: string } | null>(null);
+  // The message(s) being forwarded to another chat or channel (null = closed).
+  // A single-message forward is a one-element `ids` array — same dialog, same
+  // mutation, same code path as a bulk-selection forward.
+  const [forwardTo, setForwardTo] = useState<{ ids: string[]; preview: string } | null>(null);
   const me = useSession((s) => s.user)!;
   const nav = useNavigate();
+  const selection = useMessageSelection(channelId);
 
   // Switching channels must land on the CHAT, never on the previous channel's
   // members sheet. This component is mounted once for the whole
@@ -71,6 +78,9 @@ export function ChannelView() {
     setClearChatOpen(false);
     setLeaveOpen(false);
     setDeleteOpen(false);
+    setBulkDeleteOpen(false);
+    // Selection state itself resets inside useMessageSelection, which owns
+    // this same channelId — see that hook's own doc comment.
     // The call is NOT reset here any more. It used to have to be, because the
     // room was rendered by this route and switching channels would have left
     // the user silently in the previous channel's call; now the meeting is held
@@ -240,6 +250,39 @@ export function ChannelView() {
     mutationFn: (id: string) => api.deleteChannelMessageForAll(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.channelMessages(channelId) }),
     onError: () => toast.error("Couldn't delete that message"),
+  });
+
+  // The selected rows, and how many of them this caller may delete for
+  // everyone (author, or any moderator) — drives the confirm dialog's
+  // wording only. The mutation always sends every selected id; the server
+  // decides which it will actually delete.
+  const selectedMessages = useMemo(
+    () => messages.filter((m: ChannelMessageDTO) => selection.selected.has(m.id)),
+    [messages, selection.selected],
+  );
+  const deletableCount = useMemo(
+    () => selectedMessages.filter((m) => canDeleteForAll(m, me.id, canModerate)).length,
+    [selectedMessages, me.id, canModerate],
+  );
+
+  const bulkDelete = useMutation({
+    mutationFn: (ids: string[]) => api.deleteChannelMessagesForAll(channelId, ids),
+    onSuccess: (res) => {
+      void qc.invalidateQueries({ queryKey: qk.channelMessages(channelId) });
+      void qc.invalidateQueries({ queryKey: qk.channels });
+      setBulkDeleteOpen(false);
+      selection.exit();
+      const total = res.deleted.length + res.skipped.length;
+      if (res.skipped.length === 0) {
+        toast.success(`Deleted ${res.deleted.length} message${res.deleted.length === 1 ? "" : "s"}`);
+      } else {
+        toast.warning(`Deleted ${res.deleted.length} of ${total}`, {
+          description: `${res.skipped.length} couldn't be deleted — only their author or a channel manager can.`,
+        });
+      }
+    },
+    // Selection is deliberately KEPT on failure, so a retry is one click.
+    onError: () => toast.error("Couldn't delete those messages"),
   });
 
   const togglePin = useMutation({
@@ -487,6 +530,7 @@ export function ChannelView() {
             shortcut={prefs.hasShortcut("channel", channelId)}
             onToggleShortcut={() => toggleConversationPref("shortcut", "channel", channelId)}
             onExport={exportChat}
+            onSelectMessages={() => { closeSearch(); selection.enter(); }}
             onClearChat={() => setClearChatOpen(true)}
             onLeave={confirmLeave}
             leaving={leave.isPending}
@@ -550,6 +594,20 @@ export function ChannelView() {
         busy={deleteChannel.isPending}
         onConfirm={() => deleteChannel.mutate(undefined, { onSuccess: () => setDeleteOpen(false) })}
       />
+      <ConfirmDialog
+        open={bulkDeleteOpen}
+        onClose={() => setBulkDeleteOpen(false)}
+        title={`Delete ${deletableCount} message${deletableCount === 1 ? "" : "s"}?`}
+        message={
+          deletableCount === selection.count
+            ? "This deletes them for everyone in this channel. It can't be undone."
+            : `${selection.count - deletableCount} of the ${selection.count} selected can't be deleted for everyone — only their author or a channel manager can. The other ${deletableCount} will be deleted for everyone, and that can't be undone.`
+        }
+        confirmLabel="Delete"
+        danger
+        busy={bulkDelete.isPending}
+        onConfirm={() => bulkDelete.mutate(selectedMessages.map((m) => m.id))}
+      />
       {/* Mounted only while open, as MeetingCard does with its roster sheet:
           the panel mints one signed link per attachment in the thread, and a
           closed panel doing that on a refresh interval is a request nobody
@@ -579,7 +637,7 @@ export function ChannelView() {
         placeholder={`Message #${channel.name}…`}
         onForwardTo={(id) => {
           const msg = messages.find((m: ChannelMessageDTO) => m.id === id);
-          setForwardTo({ id, body: msg?.body ?? "" });
+          setForwardTo({ ids: [id], preview: msg?.body ?? "" });
         }}
         onForward={recordForward}
         onHide={(id) => hide.mutate(id)}
@@ -594,6 +652,35 @@ export function ChannelView() {
         // present and refused.
         onTogglePin={canModerate ? (id, on) => togglePin.mutate({ id, on }) : undefined}
         onReact={(id, emoji, on) => react.mutate({ id, emoji, on })}
+        selectionMode={selection.active}
+        selectedIds={selection.selected}
+        onToggleSelect={selection.toggle}
+        selectionToolbar={
+          selection.active ? (
+            <SelectionToolbar
+              count={selection.count}
+              deletableCount={deletableCount}
+              busy={bulkDelete.isPending}
+              onCancel={selection.exit}
+              onDelete={() => {
+                if (deletableCount === 0) {
+                  toast.error("None of the selected messages can be deleted for everyone");
+                  return;
+                }
+                setBulkDeleteOpen(true);
+              }}
+              onForward={() => {
+                setForwardTo({
+                  // `messages` is already seq-ordered, so filtering it
+                  // preserves that order — this is only for the dialog's own
+                  // preview strip; the server sorts authoritatively.
+                  ids: selectedMessages.map((m) => m.id),
+                  preview: selectedMessages[0]?.body ?? "",
+                });
+              }}
+            />
+          ) : undefined
+        }
         renderBody={media.renderBody}
         onAttach={media.onAttach}
         onShareLocation={media.onShareLocation}
@@ -609,8 +696,9 @@ export function ChannelView() {
       <ForwardToDialog
         open={!!forwardTo}
         onClose={() => setForwardTo(null)}
-        sourceMessageId={forwardTo?.id ?? null}
-        preview={forwardTo?.body}
+        sourceMessageIds={forwardTo?.ids ?? []}
+        preview={forwardTo?.preview}
+        onDone={selection.exit}
       />
       {scheduleOpen && (
         <ScheduleCallDialog

@@ -91,6 +91,16 @@ ufw allow 7881/tcp comment 'SFU media TCP fallback (livekit)'
 # makes it listen on every interface, but the public door to it is the
 # TLS-terminated /livekit route through Caddy. Opening 7880 here would publish
 # an unencrypted second entrance to the same service.
+#
+# LiveKit's and coturn's Prometheus metrics ports (also host-networked, same
+# reasoning as 7880 above) — but these have no public entrance at all, not even
+# through Caddy, so unlike 7880 they are scoped to the compose bridge subnet
+# rather than left closed. Only the `prometheus` container, on that bridge,
+# needs to reach them. Subnet must match the `taskboard` network's actual
+# range (`docker network inspect task-board-prod_taskboard`) — 172.18.0.0/16
+# on this host; re-check it if the bridge is ever recreated with a different one.
+ufw allow from 172.18.0.0/16 to any port 7882 proto tcp comment 'LiveKit Prometheus metrics from compose bridge'
+ufw allow from 172.18.0.0/16 to any port 9641 proto tcp comment 'coturn Prometheus metrics from compose bridge'
 # `ufw --force enable` is idempotent: re-running just reloads the ruleset.
 ufw --force enable
 ufw reload

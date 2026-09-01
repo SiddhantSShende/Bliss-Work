@@ -182,10 +182,17 @@ export function App({ config }: { config: PlatformConfig }) {
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
-        <ThemeProvider>
-          <RuntimeProvider config={config}>
-            <FileTransferProvider>
+        <RuntimeProvider config={config}>
+          <FileTransferProvider>
             <Router>
+              {/* ThemeProvider lives HERE, inside <Router>, rather than
+                  wrapping it — see ThemedTree below for why: it needs
+                  useLocation() to decide whether the current screen is
+                  forced to the default theme (Login/Signup), and that hook
+                  only works inside a Router. Nothing outside this point
+                  (Toaster, ScreenshotNotice, the other bridges below) reads
+                  useTheme(), so moving it here costs them nothing. */}
+              <ThemedTree>
               {/* Inside <Router> because minimising a meeting opened in its own
                   tab navigates into the app — there is nothing behind the
                   floating window at /call/:id otherwise. */}
@@ -335,6 +342,7 @@ export function App({ config }: { config: PlatformConfig }) {
                   them render the room themselves any more. */}
               <MeetingHost />
               </MeetingSessionProvider>
+              </ThemedTree>
             </Router>
             </FileTransferProvider>
             <Toaster position="bottom-right" richColors closeButton />
@@ -360,9 +368,32 @@ export function App({ config }: { config: PlatformConfig }) {
                 chromeExtensionId configured — see its own docstring. */}
             <ExtensionProvisioningBridge />
           </RuntimeProvider>
-        </ThemeProvider>
       </QueryClientProvider>
     </ErrorBoundary>
+  );
+}
+
+/** Routes that must always render in the default BlissWork theme —
+ *  Login and Signup — regardless of what the signed-in user (or a previous
+ *  session on this device) has selected in Settings. Kept in lock-step with
+ *  the identical list in public/theme-init.js (both the web and desktop
+ *  copies), which enforces the same rule for the very first paint, before
+ *  React has even mounted; this is what keeps enforcing it afterward, and
+ *  what makes leaving one of these routes hand the real theme straight
+ *  back with no separate restoration step. */
+const FORCED_DEFAULT_THEME_PATHS = new Set(["/login", "/onboarding"]);
+
+/**
+ * Where ThemeProvider actually lives — inside <Router>, not wrapping it —
+ * specifically so it can use useLocation() to decide whether the current
+ * screen is one of the routes above. See ThemeProvider's own `forceDefault`
+ * prop doc comment (packages/ui) for why the provider itself stays entirely
+ * route-agnostic and this is the one place that isn't.
+ */
+function ThemedTree({ children }: { children: React.ReactNode }) {
+  const { pathname } = useLocation();
+  return (
+    <ThemeProvider forceDefault={FORCED_DEFAULT_THEME_PATHS.has(pathname)}>{children}</ThemeProvider>
   );
 }
 

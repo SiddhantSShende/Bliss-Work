@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
@@ -107,7 +108,9 @@ Instrumentator(should_group_status_codes=False).instrument(app).expose(app, incl
 
 @app.get("/healthz")
 async def healthz() -> JSONResponse:
-    return JSONResponse({"status": "ok"})
+    # IMAGE_TAG is set by docker-compose.prod.yml from the deployed commit's
+    # short SHA; defaults to "dev" when unset (e.g. a local run outside compose).
+    return JSONResponse({"status": "ok", "version": os.environ.get("IMAGE_TAG", "dev")})
 
 
 _READINESS_TIMEOUT_S = 3.0
