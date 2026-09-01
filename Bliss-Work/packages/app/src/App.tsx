@@ -10,7 +10,7 @@ import { FileTransferProvider } from "./lib/fileTransfer";
 import { useSession } from "./store/session";
 import { refreshSession } from "./lib/refresh";
 import { installGlobalErrorHandlers } from "./lib/globalErrorHandlers";
-import { installAuthChannel } from "./lib/authChannel";
+import { installAuthChannel, requestSession } from "./lib/authChannel";
 import { withLoadTimeout } from "./lib/withLoadTimeout";
 import { reloadForStaleChunk } from "./lib/chunkReloadRecovery";
 import { legacyInboxTarget } from "./lib/mailView";
@@ -22,6 +22,7 @@ import { BrowserStickies } from "./features/BrowserStickies";
 import { MeetingHost } from "./features/MeetingHost";
 import { MeetingSessionProvider } from "./lib/MeetingSession";
 import { ScreenshotNotice } from "./features/ScreenshotNotice";
+import { MeetingWindowStatusBar } from "./features/MeetingWindowStatusBar";
 import { AgentProvisioningBridge, ExtensionProvisioningBridge } from "./lib/agentProvisioning";
 import { RequireAuth } from "./lib/RequireAuth";
 // ── Route loading: eager for signed-out, lazy for everything behind the login ─
@@ -341,6 +342,12 @@ export function App({ config }: { config: PlatformConfig }) {
                 a toast. Inert on web. Must sit inside RuntimeProvider (it reads
                 the platform config) and alongside the Toaster it drives. */}
             <ScreenshotNotice />
+            {/* Renders a pill only while a meeting is running in its own
+                window (main/meeting-window-manager.ts) — title, elapsed
+                time, mic state, hang-up. Renders nothing on web or when no
+                meeting is open. Outside <Router> like ScreenshotNotice, for
+                the same reason: it needs no route, just RuntimeProvider. */}
+            <MeetingWindowStatusBar />
             {/* Renders nothing; auto-pairs the desktop activity agent's
                 credential once signed in (never its consent — see the file's
                 own docstring). Inert on web. Outside <Router> like
@@ -372,12 +379,22 @@ function SessionBootstrap({
 
   useEffect(() => {
     let alive = true;
-    // Single-flight: dedupes the StrictMode double-invoke so the rotating
-    // refresh token isn't consumed twice (which would revoke the session).
-    refreshSession(config.authBase, config.persistToken, config.getRefreshToken).then((s) => {
+    (async () => {
+      // The Electron meeting window's own credential IPC is deliberately
+      // gated to the main window only (see fromMainWindow in
+      // apps/desktop/src/main/index.ts) — so before asking the server for
+      // anything, wait for the main window to mirror its already-live
+      // session over the BroadcastChannel. This settles BEFORE
+      // refreshSession runs, which is what lets its own getRecentSession()
+      // check (lib/refresh.ts) find it instead of racing it and rotating
+      // the shared refresh token a second time.
+      if (config.bootstrapFromPeerSession) await requestSession();
+      // Single-flight: dedupes the StrictMode double-invoke so the rotating
+      // refresh token isn't consumed twice (which would revoke the session).
+      const s = await refreshSession(config.authBase, config.persistToken, config.getRefreshToken);
       if (!s) useSession.getState().clear();
       if (alive) setReady(true);
-    });
+    })();
     return () => {
       alive = false;
     };

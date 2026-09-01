@@ -11,7 +11,12 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const api = { call: vi.fn() };
-vi.mock("../lib/runtime", () => ({ useRuntime: () => ({ api }) }));
+const ws = { connect: vi.fn(async () => {}) };
+// config: {} is the web shape (no eventSource) — matches lib/useCallRoom.test.ts's
+// own mock, and exercises the same ws.connect() branch this route now takes on
+// mount (see CallWindow.tsx's own comment on why: WsEventBridge, the only other
+// caller of connect(), never mounts on this route).
+vi.mock("../lib/runtime", () => ({ useRuntime: () => ({ api, ws, config: {} }) }));
 
 vi.mock("../lib/callWindow", () => ({
   OPENED_BY_APP_PARAM: "opened",
@@ -110,5 +115,19 @@ describe("CallWindow", () => {
 
     expect(screen.getByTestId("call-room")).toBeTruthy();
     vi.useRealTimers();
+  });
+
+  // Regression: this route sits OUTSIDE /app (see the file's own doc), so
+  // WsEventBridge — the only other caller of ws.connect() — never mounts
+  // here. Without an explicit connect() of its own, a meeting popped into
+  // its own tab/window never received a live socket at all: CallStarted (the
+  // lobby's auto-join) and CallEnded (the auto-close in useCallRoom) only
+  // ever arrived via the 30s lobby-poll fallback, never live.
+  it("connects the socket on mount, since nothing else on this route does", async () => {
+    api.call.mockResolvedValue({ id: "c1", title: "Standup", status: "ACTIVE" });
+    renderAt("c1");
+
+    await screen.findByTestId("call-room");
+    expect(ws.connect).toHaveBeenCalledTimes(1);
   });
 });

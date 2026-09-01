@@ -10,7 +10,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionDTO, UserDTO } from "@taskboard/shared";
-import { installAuthChannel, getRecentSession, broadcastLogout } from "./authChannel";
+import { installAuthChannel, getRecentSession, broadcastLogout, requestSession } from "./authChannel";
 import { refreshSession } from "./refresh";
 import { useSession } from "../store/session";
 
@@ -35,10 +35,17 @@ const session: SessionDTO = { accessToken: "sib-token", user, expiresIn: 900 };
 let lastChannel: FakeChannel | null = null;
 class FakeChannel {
   onmessage: ((ev: MessageEvent) => void) | null = null;
+  /** What this "tab" has posted — real cross-window delivery isn't
+   *  simulated (see `deliver` below), so tests that need to observe an
+   *  outgoing message (e.g. answering a sibling's request-session) read it
+   *  from here instead. */
+  posted: unknown[] = [];
   constructor(public name: string) {
     lastChannel = this;
   }
-  postMessage() {}
+  postMessage(data: unknown) {
+    this.posted.push(data);
+  }
   close() {}
 }
 
@@ -46,6 +53,7 @@ beforeEach(() => {
   useSession.setState({ user: null, accessToken: null, status: "anon" });
   vi.stubGlobal("BroadcastChannel", FakeChannel as unknown as typeof BroadcastChannel);
   installAuthChannel(); // idempotent; wires onmessage on the FakeChannel
+  if (lastChannel) lastChannel.posted = [];
 });
 
 afterEach(() => {
@@ -104,6 +112,46 @@ describe("refreshSession cross-tab", () => {
     await refreshSession(AUTH);
 
     expect(request).toHaveBeenCalledWith("tb-auth-refresh", expect.any(Function));
+  });
+});
+
+/**
+ * requestSession — built for the Electron meeting window (see
+ * PlatformConfig.bootstrapFromPeerSession): it has no credential IPC of its
+ * own, so it asks a sibling window for the session it already holds instead.
+ */
+describe("requestSession", () => {
+  it("resolves with the session a sibling answers with", async () => {
+    const pending = requestSession();
+    deliver({ type: "session", session });
+    await expect(pending).resolves.toEqual(session);
+  });
+
+  it("resolves null if nobody answers within the timeout", async () => {
+    vi.useFakeTimers();
+    const pending = requestSession(50);
+    await vi.advanceTimersByTimeAsync(60);
+    await expect(pending).resolves.toBeNull();
+    vi.useRealTimers();
+  });
+});
+
+/** The other half of the same round trip: this tab answering a sibling's
+ *  request. */
+describe("answering a sibling's request-session", () => {
+  it("broadcasts its own session when signed in", () => {
+    deliver({ type: "session", session }); // this tab adopts one first
+    lastChannel!.posted = []; // adopting itself never posts; clear for clarity
+    deliver({ type: "request-session" });
+
+    expect(lastChannel?.posted).toEqual([
+      expect.objectContaining({ type: "session", session: expect.objectContaining({ accessToken: "sib-token" }) }),
+    ]);
+  });
+
+  it("stays silent when signed out — nothing to offer a peer", () => {
+    deliver({ type: "request-session" });
+    expect(lastChannel?.posted).toEqual([]);
   });
 });
 

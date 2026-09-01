@@ -28,7 +28,8 @@ const CHANNEL_NAME = "tb-auth";
 
 type AuthMessage =
   | { type: "session"; session: SessionDTO }
-  | { type: "logout" };
+  | { type: "logout" }
+  | { type: "request-session" };
 
 let channel: BroadcastChannel | null = null;
 
@@ -68,6 +69,38 @@ export function broadcastLogout(): void {
   getChannel()?.postMessage({ type: "logout" } satisfies AuthMessage);
 }
 
+/** Resolved (by the "session" branch below) whenever a "request-session"
+ *  round trip is pending — see requestSession(). Keyed by nothing; every
+ *  pending requester wants the same answer, whichever tab it comes from. */
+const pendingSessionRequests = new Set<(s: SessionDTO | null) => void>();
+
+/**
+ * Ask sibling tabs/windows for the current session and wait for one to
+ * answer, rather than assuming a broadcast that already happened to arrive
+ * in time. Built for the Electron meeting window (see PlatformConfig's
+ * `bootstrapFromPeerSession`): its own credential IPC is deliberately gated
+ * to the main window only, so this BroadcastChannel round trip — not a
+ * widened IPC boundary — is how it learns the session the main window
+ * already holds. Resolves null (never rejects) if nothing answers within
+ * `timeoutMs`, or if BroadcastChannel itself is unavailable.
+ */
+export function requestSession(timeoutMs = 1500): Promise<SessionDTO | null> {
+  const ch = getChannel();
+  if (!ch) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    let settled = false;
+    const settle = (s: SessionDTO | null) => {
+      if (settled) return;
+      settled = true;
+      pendingSessionRequests.delete(settle);
+      resolve(s);
+    };
+    pendingSessionRequests.add(settle);
+    setTimeout(() => settle(null), timeoutMs);
+    ch.postMessage({ type: "request-session" } satisfies AuthMessage);
+  });
+}
+
 let installed = false;
 
 /** Install the listener once at app start. Idempotent. */
@@ -89,9 +122,24 @@ export function installAuthChannel(): void {
         accessToken: msg.session.accessToken,
         expiresIn: msg.session.expiresIn,
       });
+      for (const settle of pendingSessionRequests) settle(msg.session);
+      pendingSessionRequests.clear();
     } else if (msg.type === "logout") {
       siblingSession = null;
       useSession.getState().clear();
+    } else if (msg.type === "request-session") {
+      // Answer only if THIS tab actually holds a session — an anonymous or
+      // still-loading tab has nothing to offer, and broadcasting a null/empty
+      // session here would incorrectly settle a peer's request with "no one
+      // is signed in" while this same tab is still resolving its own.
+      const s = useSession.getState();
+      if (s.status === "authed" && s.user && s.accessToken) {
+        broadcastSession({
+          user: s.user,
+          accessToken: s.accessToken,
+          expiresIn: Math.max(0, Math.round(((s.expiresAt ?? Date.now()) - Date.now()) / 1000)),
+        });
+      }
     }
   };
 }

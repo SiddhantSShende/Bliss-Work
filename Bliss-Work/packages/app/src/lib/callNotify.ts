@@ -9,6 +9,7 @@
  *  Chrome refuses a permission prompt without user activation, and an
  *  unprompted one is a bad first impression anyway.
  */
+import { loadDesktopNotifs } from "./notificationPrefs";
 
 type Supported = typeof Notification;
 
@@ -43,7 +44,7 @@ export interface CallNotification {
  *  Returns a handle whose close() is safe to call more than once. */
 export function notifyIncomingCall(caller: string, media: "audio" | "video"): CallNotification {
   const N = api();
-  if (!N || N.permission !== "granted") return { close: () => {} };
+  if (!N || N.permission !== "granted" || !loadDesktopNotifs()) return { close: () => {} };
   try {
     const n = new N(`Incoming ${media === "video" ? "video" : "voice"} call`, {
       body: `${caller} is calling you`,
@@ -65,7 +66,7 @@ export function notifyIncomingCall(caller: string, media: "audio" | "video"): Ca
 /** Raise a notification for a call the user never picked up. */
 export function notifyMissedCall(caller: string): void {
   const N = api();
-  if (!N || N.permission !== "granted") return;
+  if (!N || N.permission !== "granted" || !loadDesktopNotifs()) return;
   try {
     const n = new N("Missed call", { body: `You missed a call from ${caller}`, tag: "blisswork-missed-call" });
     n.onclick = () => {

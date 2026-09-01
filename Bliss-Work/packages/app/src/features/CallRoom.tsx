@@ -70,6 +70,7 @@ import { useMeetingSessionOptional } from "../lib/MeetingSession";
 import { useMeetingPiP } from "../lib/useMeetingPiP";
 import { useMeetingDisplayController } from "../lib/useMeetingDisplayController";
 import { useCallDuration } from "../lib/callTimer";
+import { meetingJoinUrl } from "../lib/meetingDeepLink";
 import { downloadBlob } from "../lib/download";
 import { useLocalRecording } from "../lib/useLocalRecording";
 import { MiniMeeting } from "./MiniMeeting";
@@ -250,7 +251,13 @@ export function CallRoom({
   const minimized = display.mode === "MINIMIZED";
 
   const title = call.title || (call.kind === "CHANNEL" ? "Channel call" : "Meeting");
-  const meetingDuration = useCallDuration(connectedAt);
+  // The MEETING's own start time, not this client's own connectedAt — every
+  // participant's timer must read the same number regardless of when THEY
+  // joined. call.startedAt is server-authoritative and already kept fresh via
+  // the CallStarted WS event (see queryBridge.tsx), same source the Meetings
+  // list/detail duration already reads (lib/meetingView.ts's durationMsOf).
+  const meetingStartedAt = call.startedAt ? new Date(call.startedAt).getTime() : undefined;
+  const meetingDuration = useCallDuration(meetingStartedAt);
 
   /** Recording writes a file on THIS machine — see lib/localRecording.ts. The
    *  meeting is composited and encoded here rather than server-side, so the
@@ -277,6 +284,14 @@ export function CallRoom({
         if (previewVideoRef.current) previewVideoRef.current.srcObject = stream;
       })
       .catch((e) => {
+        // A stale attempt's rejection must not stomp a LATER attempt's
+        // already-live preview — the same guard `.then()` above applies.
+        // Without it, React StrictMode's mount→cleanup→mount (or any other
+        // re-fire while a getUserMedia call is still pending) could have the
+        // first, abandoned call's rejection land after the second call
+        // already succeeded, flashing a false "blocked" error over a working
+        // camera/mic that the user had genuinely granted.
+        if (cancelled) return;
         setPreviewCamOn(false);
         setPreviewMicOn(false);
         setPreviewError(isGetUserMediaDenied(e) ? "denied" : "other");
@@ -351,6 +366,40 @@ export function CallRoom({
     });
   }, [config]);
 
+  // The desktop meeting window itself is being closed (OS close button, or
+  // the main window's status pill's hang-up button) — the APP keeps running,
+  // only this window is going away. Same reasoning and cleanup as the
+  // before-quit effect above, and safe to fire from either without special
+  // handling: `session` is already null here (this room only ever runs
+  // inside a meeting window via MeetingSessionContext.Provider value={null}
+  // — see routes/CallWindow.tsx), so sessionRef.current?.exit() is already a
+  // no-op regardless of which of the two effects answers.
+  useEffect(() => {
+    if (!config.onBeforeWindowClose) return;
+    return config.onBeforeWindowClose(() => {
+      void leaveRef.current({ awaitServer: true }).finally(() => {
+        sessionRef.current?.exit();
+        config.notifyWindowCloseReady?.();
+      });
+    });
+  }, [config]);
+
+  // Keep the main window's status pill (features/MeetingWindowStatusBar)
+  // in step — no-op everywhere but the meeting window, where this is present.
+  // Pushed on change rather than polled: the pill computes its own elapsed
+  // time locally off `startedAt` (same useCallDuration this room uses), so
+  // it only needs a fresh push when something ELSE actually changed.
+  useEffect(() => {
+    config.pushMeetingWindowStatus?.({
+      callId: call.id,
+      title,
+      micOn,
+      camOn,
+      startedAt: meetingStartedAt,
+      participantCount: participants.length,
+    });
+  }, [config, call.id, title, micOn, camOn, meetingStartedAt, participants.length]);
+
   // Join once, after the pre-join lobby. The hook guards re-entry.
   useEffect(() => {
     if (preJoin) return;
@@ -374,6 +423,26 @@ export function CallRoom({
     if (autoJoin === "video") void toggleCam();
     else void toggleMic();
   }, [autoJoin, status, toggleCam, toggleMic]);
+
+  // The lobby's own mic/camera choice (previewMicOn/previewCamOn), applied
+  // once the room connects. Those two only ever drove the standalone preview
+  // stream above — join() always connects muted and camera-off (see
+  // useCallRoom's join) — so without this the lobby's toggles were pure
+  // decoration and everyone arrived off regardless of what they picked. Same
+  // "press the control once, post-connect" shape as the autoJoin effect
+  // above, and mutually exclusive with it: autoJoin skips the lobby entirely
+  // (preJoin starts false), so previewMicOn/previewCamOn never left their
+  // defaults in that case and must not be applied on top.
+  const lobbyPrefsAppliedRef = useRef(false);
+  useEffect(() => {
+    lobbyPrefsAppliedRef.current = false;
+  }, [call.id]);
+  useEffect(() => {
+    if (autoJoin || preJoin || lobbyPrefsAppliedRef.current || status !== "connected") return;
+    lobbyPrefsAppliedRef.current = true;
+    if (previewMicOn) void toggleMic();
+    if (previewCamOn) void toggleCam();
+  }, [autoJoin, preJoin, status, previewMicOn, previewCamOn, toggleMic, toggleCam]);
 
   // The host ended it. The hook has already disconnected and told the server we
   // are out, so this only has to close the screen — going through hangUp would
@@ -682,7 +751,7 @@ export function CallRoom({
   const mintInviteLink = useMutation({
     mutationFn: async () => {
       const invite = await api.createCallInvite(call.id);
-      return `${window.location.origin}/join?t=${encodeURIComponent(invite.token)}`;
+      return meetingJoinUrl(config.webBaseUrl, invite.token);
     },
     onError: () => toast.error("Couldn't create an invite link"),
   });
@@ -935,7 +1004,7 @@ export function CallRoom({
           micOn={micOn}
           camOn={camOn}
           unread={unread}
-          connectedAt={connectedAt}
+          startedAt={meetingStartedAt}
           onToggleMic={() => void toggleMic()}
           onToggleCam={() => void toggleCam()}
           onRestore={session.restore}

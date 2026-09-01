@@ -8,7 +8,7 @@ import type { ChannelDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { ListHeader, rowClass, relTime } from "../features/ListPane";
-import { CreateChannelDialog } from "../features/CreateChannelDialog";
+import { AddChannelDialog } from "../features/AddChannelDialog";
 import { toggleConversationPref, useConversationPrefs } from "../lib/conversationPrefs";
 import { usePopupDismiss } from "../lib/usePopupDismiss";
 import { listPreview } from "../lib/chatEnvelope";
@@ -130,7 +130,7 @@ export function ChannelsList() {
         action={
           <button
             onClick={() => setNewOpen(true)}
-            title="New channel"
+            title="Add channel"
             className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-brand-from to-brand-to text-accent-fg shadow-soft transition hover:brightness-105"
           >
             <Plus size={16} />
@@ -250,7 +250,7 @@ export function ChannelsList() {
           </>
         )}
       </div>
-      <CreateChannelDialog open={newOpen} onClose={() => setNewOpen(false)} />
+      <AddChannelDialog open={newOpen} onClose={() => setNewOpen(false)} />
       <ConfirmDialog
         open={!!leaveTarget}
         onClose={() => setLeaveTarget(null)}

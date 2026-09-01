@@ -163,9 +163,7 @@ export function AuthLayout({
 
       {/* ── Form side ─────────────────────────────────────────────────────────── */}
       <main className="relative flex flex-1 flex-col items-center justify-center p-4 sm:p-6">
-        <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-accent-soft via-bg to-bg" />
-        <div className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-accent/15 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-24 left-0 h-72 w-72 rounded-full bg-success/10 blur-3xl" />
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-surface-2 via-bg to-bg" />
 
         <Card className="glass animate-fade-up relative z-10 my-auto w-full max-w-md p-6 shadow-card sm:p-8">
           <div className="mb-7">

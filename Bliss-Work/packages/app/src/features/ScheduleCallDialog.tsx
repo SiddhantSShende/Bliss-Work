@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Copy, Check, Video, Phone } from "lucide-react";
+import { Copy, Check, Video, Phone, Calendar, Clock } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@taskboard/ui";
 import type { CallDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
+import { meetingJoinUrl } from "../lib/meetingDeepLink";
 
 /** Where the dialog is being opened from, which decides what it can offer.
  *
@@ -123,7 +124,7 @@ export function ScheduleCallDialog({
   /** Fired when the call exists and should be opened immediately. */
   onStarted?: (call: CallDTO) => void;
 }) {
-  const { api } = useRuntime();
+  const { api, config } = useRuntime();
   const qc = useQueryClient();
   const [title, setTitle] = useState("");
   const [media, setMedia] = useState<"audio" | "video">("video");
@@ -192,7 +193,7 @@ export function ScheduleCallDialog({
       const inv = await api.createCallInvite(created.id);
       // The join route reads ?t=. The token is returned exactly once, so this
       // is the only moment it can be turned into a URL.
-      return `${window.location.origin}/join?t=${encodeURIComponent(inv.token)}`;
+      return meetingJoinUrl(config.webBaseUrl, inv.token);
     },
     onSuccess: setLink,
     onError: () => toast.error("Couldn't create an invite link"),
@@ -274,12 +275,18 @@ export function ScheduleCallDialog({
                   {scope.kind === "direct" ? "— required" : "— leave empty to start now"}
                 </span>
               </span>
-              <input
-                type="datetime-local"
-                value={when}
-                onChange={(e) => setWhen(e.target.value)}
-                className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-fg outline-none focus:border-accent"
-              />
+              <div className="relative">
+                <span className="pointer-events-none absolute left-2.5 top-1/2 flex -translate-y-1/2 items-center gap-1 text-fg">
+                  <Calendar size={14} />
+                  <Clock size={14} />
+                </span>
+                <input
+                  type="datetime-local"
+                  value={when}
+                  onChange={(e) => setWhen(e.target.value)}
+                  className="w-full rounded-lg border border-border bg-surface-2 py-2 pl-12 pr-3 text-sm text-fg outline-none focus:border-accent"
+                />
+              </div>
               {scope.kind === "meeting" && attempted && meetingErrors.when && (
                 <span className="text-xs text-danger">{meetingErrors.when}</span>
               )}
@@ -293,13 +300,19 @@ export function ScheduleCallDialog({
                     {when ? "— required" : "— set a start time first"}
                   </span>
                 </span>
-                <input
-                  type="datetime-local"
-                  value={endWhen}
-                  onChange={(e) => setEndWhen(e.target.value)}
-                  disabled={!when}
-                  className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-fg outline-none focus:border-accent disabled:cursor-not-allowed"
-                />
+                <div className="relative">
+                  <span className="pointer-events-none absolute left-2.5 top-1/2 flex -translate-y-1/2 items-center gap-1 text-fg">
+                    <Calendar size={14} />
+                    <Clock size={14} />
+                  </span>
+                  <input
+                    type="datetime-local"
+                    value={endWhen}
+                    onChange={(e) => setEndWhen(e.target.value)}
+                    disabled={!when}
+                    className="w-full rounded-lg border border-border bg-surface-2 py-2 pl-12 pr-3 text-sm text-fg outline-none focus:border-accent disabled:cursor-not-allowed"
+                  />
+                </div>
                 {attempted && meetingErrors.endWhen && (
                   <span className="text-xs text-danger">{meetingErrors.endWhen}</span>
                 )}

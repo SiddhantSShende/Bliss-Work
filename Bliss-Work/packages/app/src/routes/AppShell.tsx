@@ -44,7 +44,34 @@ export function AppShell() {
   // be counting them twice.
   const { data: inboxPeers = [] } = useInboxPeers();
   const inboxUnread = inboxPeers.reduce((sum, p) => sum + (p.unreadCount || 0), 0);
-  const railBadges: Record<string, number> = { mail: inboxUnread, tasks: unread };
+
+  // Chats/Channels: same server-computed per-row `unread` ChatsList/ChannelsList
+  // already render (each row's own count comes from the reading user's own
+  // last_read_seq cursor, so it is inherently scoped to that user alone), just
+  // summed for the rail icon. Same queryKey/queryFn as those two list panes on
+  // purpose — React Query dedupes by key, so mounting both there and here costs
+  // one fetch, not two, and both read off the SAME live cache entry, which is
+  // what queryBridge already invalidates on every message.created/
+  // channel.message.created event. That invalidation is what makes this badge
+  // update in real time with no polling and no new WS wiring: it was already
+  // firing for the per-row badges, this just reads the same data one level up.
+  const { data: conversations = [] } = useQuery({
+    queryKey: qk.conversations,
+    queryFn: () => api.conversations(),
+  });
+  const chatsUnread = conversations.reduce((sum, c) => sum + (c.unread || 0), 0);
+  const { data: channels = [] } = useQuery({
+    queryKey: qk.channels,
+    queryFn: () => api.channels(),
+  });
+  const channelsUnread = channels.reduce((sum, c) => sum + (c.unread || 0), 0);
+
+  const railBadges: Record<string, number> = {
+    mail: inboxUnread,
+    tasks: unread,
+    chats: chatsUnread,
+    channels: channelsUnread,
+  };
 
   // mail/chats/tasks/channels drive the contextual list pane; utility pages
   // (search/invite/profile) render full-width with no list pane. Org is

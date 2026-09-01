@@ -34,9 +34,12 @@ describe("MeetingHandoffLanding", () => {
     );
 
     expect(screen.getAllByText("Get the desktop app")).toHaveLength(1);
-    expect(screen.getByRole("link", { name: /Download BlissWork for Windows/ })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Download BlissWork for macOS/ })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Download BlissWork for Linux/ })).toBeInTheDocument();
+    // The link's accessible name comes from its visible text content (OS name
+    // + extension), not its `title` attribute, since content takes priority
+    // in accessible-name computation whenever both are present.
+    expect(screen.getByRole("link", { name: /Windows/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /macOS/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Linux/ })).toBeInTheDocument();
   });
 
   it("keeps the Continue in Browser button", () => {

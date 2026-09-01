@@ -5,6 +5,7 @@
  * carry a link, who ends up on the roster, and what happens when one recipient
  * cannot be messaged. The view keeps the toasts and the cache invalidation.
  */
+import { meetingJoinUrl } from "./meetingDeepLink";
 
 /** Only what this needs from the API client, so a test can pass three stubs. */
 export type CallLinkApi = {
@@ -63,7 +64,7 @@ export async function deliverCallLink(
     inviteeIds: [peerId, ...alsoTo],
   });
   const invite = await api.createCallInvite(call.id);
-  const link = `${origin}/join?t=${encodeURIComponent(invite.token)}`;
+  const link = meetingJoinUrl(origin, invite.token);
   // allSettled, not all: one recipient who cannot be messaged — they blocked the
   // sender, say — must not cost everyone else the link. By this point the
   // meeting exists and the token has already been spent, so there is nothing to

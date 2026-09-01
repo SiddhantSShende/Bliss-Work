@@ -10,7 +10,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { requestMeetingJoin } from "../lib/MeetingSession";
 
 const api = { call: vi.fn() };
-vi.mock("../lib/runtime", () => ({ useRuntime: () => ({ api }) }));
+// MeetingHost renders IncomingMeetingNotice, which also reads `config` (for
+// the Electron popup hand-off) — a real useRuntime() always has one, so the
+// mock needs one too, even though nothing in this file exercises it.
+vi.mock("../lib/runtime", () => ({ useRuntime: () => ({ api, config: {} }) }));
 
 const enter = vi.fn();
 const exit = vi.fn();

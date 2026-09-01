@@ -181,4 +181,44 @@ describe("MeetingList", () => {
     renderList("?view=live");
     expect(await screen.findByText("Live")).toBeTruthy();
   });
+
+  it("asks the server for 5 at a time", async () => {
+    api.myCallHistory.mockResolvedValue({
+      items: [call({ id: "c-old", title: "Retro", status: "ENDED", startedAt: "2026-01-02T09:00:00.000Z", endedAt: "2026-01-02T10:00:00.000Z" })],
+      nextCursor: "cursor-1",
+    });
+    renderList("?view=past");
+    await screen.findByText("Retro");
+    expect(api.myCallHistory).toHaveBeenCalledWith(undefined, 5);
+  });
+
+  it("offers Load more while there is another page, and fetches the next 5 on click", async () => {
+    api.myCallHistory.mockResolvedValueOnce({
+      items: [call({ id: "c-1", title: "Retro", status: "ENDED", startedAt: "2026-01-02T09:00:00.000Z", endedAt: "2026-01-02T10:00:00.000Z" })],
+      nextCursor: "cursor-1",
+    });
+    renderList("?view=past");
+    await screen.findByText("Retro");
+
+    api.myCallHistory.mockResolvedValueOnce({
+      items: [call({ id: "c-2", title: "Kickoff", status: "ENDED", startedAt: "2026-01-01T09:00:00.000Z", endedAt: "2026-01-01T10:00:00.000Z" })],
+      nextCursor: null,
+    });
+    screen.getByRole("button", { name: "Load more" }).click();
+
+    await waitFor(() => expect(api.myCallHistory).toHaveBeenCalledWith("cursor-1", 5));
+    expect(await screen.findByText("Kickoff")).toBeTruthy();
+    // Both pages stay on screen — Load more accumulates, it doesn't replace.
+    expect(screen.getByText("Retro")).toBeTruthy();
+  });
+
+  it("says so once every page has been loaded, instead of offering Load more forever", async () => {
+    api.myCallHistory.mockResolvedValue({
+      items: [call({ id: "c-old", title: "Retro", status: "ENDED", startedAt: "2026-01-02T09:00:00.000Z", endedAt: "2026-01-02T10:00:00.000Z" })],
+      nextCursor: null,
+    });
+    renderList("?view=past");
+    expect(await screen.findByText("That's everything.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+  });
 });

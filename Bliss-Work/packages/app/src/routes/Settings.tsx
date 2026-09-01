@@ -21,34 +21,30 @@ import { BUILD_SHA } from "../lib/buildInfo";
 import { useRuntime } from "../lib/runtime";
 import { useGoBack } from "../lib/useGoBack";
 import { usePopupDismiss } from "../lib/usePopupDismiss";
-
-const NOTIF_KEY = "tb.notifications.desktop";
-
-function loadDesktopNotifs(): boolean {
-  try {
-    return localStorage.getItem(NOTIF_KEY) !== "off";
-  } catch {
-    return true;
-  }
-}
-
-function saveDesktopNotifs(on: boolean) {
-  try {
-    localStorage.setItem(NOTIF_KEY, on ? "on" : "off");
-  } catch {
-    /* localStorage may be unavailable in some Electron contexts */
-  }
-}
+import { loadDesktopNotifs, saveDesktopNotifs } from "../lib/notificationPrefs";
 
 export function Settings() {
   const { theme } = useTheme();
+  const { config } = useRuntime();
   const goBack = useGoBack();
   const [desktopNotifs, setDesktopNotifs] = useState(loadDesktopNotifs);
+
+  // The Electron main process raises OS popups for messages/tasks/calls on its
+  // own (apps/desktop/src/main/notifier.ts) and has no access to this
+  // renderer's localStorage, so the preference is mirrored to it explicitly:
+  // once on mount, to cover a value set before this bridge existed, and again
+  // on every toggle below.
+  useEffect(() => {
+    void config.notificationPrefs?.setDesktopEnabled(desktopNotifs);
+    // Mount-time sync only — toggleNotifs below handles every later change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const toggleNotifs = () => {
     const next = !desktopNotifs;
     setDesktopNotifs(next);
     saveDesktopNotifs(next);
+    void config.notificationPrefs?.setDesktopEnabled(next);
   };
 
   return (

@@ -69,6 +69,12 @@ export const EventType = {
   CallScheduled: "call.scheduled",
   CallRing: "call.ring",
   CallParticipantAdded: "call.participant_added",
+  /** An ordinary participant left a call that keeps going for everyone else
+   *  (contrast CallEnded, the whole call closing). Sent to the live roster AND
+   *  the leaver's own other sessions/devices — see messaging-svc's
+   *  notifyParticipantLeft, since by the time this fires the leaver's own
+   *  roster row is already closed and a plain roster read would miss them. */
+  CallParticipantLeft: "call.participant_left",
   CallEnded: "call.ended",
   /** The waiting room is over. Sent to the WHOLE roster, because it means two
    *  things at once: everyone parked in the lobby is now admitted and should
@@ -769,6 +775,10 @@ export const CallParticipantAdded = z.object({
   type: z.literal(EventType.CallParticipantAdded),
   ...callFields,
 });
+export const CallParticipantLeft = z.object({
+  type: z.literal(EventType.CallParticipantLeft),
+  ...callFields,
+});
 export const CallEnded = z.object({ type: z.literal(EventType.CallEnded), ...callFields });
 export const CallStarted = z.object({ type: z.literal(EventType.CallStarted), ...callFields });
 export const CallWaiting = z.object({ type: z.literal(EventType.CallWaiting), ...callFields });
@@ -784,6 +794,7 @@ export const CallShareStopped = z.object({
 export type CallScheduled = z.infer<typeof CallScheduled>;
 export type CallRing = z.infer<typeof CallRing>;
 export type CallParticipantAdded = z.infer<typeof CallParticipantAdded>;
+export type CallParticipantLeft = z.infer<typeof CallParticipantLeft>;
 export type CallEnded = z.infer<typeof CallEnded>;
 export type CallStarted = z.infer<typeof CallStarted>;
 export type CallWaiting = z.infer<typeof CallWaiting>;
@@ -794,6 +805,7 @@ export type CallLifecycle =
   | CallScheduled
   | CallRing
   | CallParticipantAdded
+  | CallParticipantLeft
   | CallEnded
   | CallStarted
   | CallWaiting
@@ -804,6 +816,7 @@ export const ServerEvent = z.discriminatedUnion("type", [
   CallScheduled,
   CallRing,
   CallParticipantAdded,
+  CallParticipantLeft,
   CallEnded,
   CallStarted,
   CallWaiting,

@@ -56,9 +56,25 @@ import { CallRoom } from "../features/CallRoomLazy";
 export function CallWindow() {
   const { callId = "" } = useParams();
   const [params] = useSearchParams();
-  const { api } = useRuntime();
+  const { api, ws, config } = useRuntime();
   const nav = useNavigate();
   const [retrying, setRetrying] = useState(false);
+
+  // This route sits outside /app, so WsEventBridge (mounted only in
+  // AppShell) never runs here and never calls connect() — on web that left
+  // `ws` constructed but permanently idle, so a meeting popped into its own
+  // tab never heard CallStarted (the lobby's auto-join) or CallEnded (the
+  // auto-close below) over a live socket, only ever the 30s lobby poll
+  // fallback. Same fix Electron's meeting window needs, for the same reason.
+  const eventSource = config.eventSource;
+  useEffect(() => {
+    if (eventSource) eventSource.connect();
+    else void ws.connect();
+    // Depends on the extracted eventSource, not `config` itself — matching
+    // useCallRoom's own subscribeToEvents — so this cannot be fooled into
+    // re-running by a config object that happens not to be referentially
+    // stable across renders.
+  }, [eventSource, ws]);
 
   const {
     data: call,

@@ -11,6 +11,8 @@ import {
   trackMainWindow,
 } from "./app-active";
 import { ChatStickyManager, type ChatStickyBootstrap } from "./chat-sticky-manager";
+import { MeetingInviteManager } from "./meeting-invite-manager";
+import { MeetingWindowManager } from "./meeting-window-manager";
 import { initCache, getTasks, setTasks } from "./cache";
 import {
   initSessionToken,
@@ -20,6 +22,7 @@ import {
 } from "./session-token";
 import * as activityAgent from "./activity-agent";
 import * as activityState from "./activity-state";
+import * as notificationPrefs from "./notification-prefs";
 import { screenRecordingSettingsUrl } from "./macos-permissions";
 import { flushSync as flushStickyState, initStickyState } from "./sticky-state";
 import { trayIcon } from "./assets";
@@ -81,6 +84,12 @@ let wsRestartTimer: NodeJS.Timeout | null = null;
 let sessionUserId: string | null = null;
 const sticky = new StickyManager();
 const chatSticky = new ChatStickyManager();
+const meetingInvite = new MeetingInviteManager();
+const meetingWindows = new MeetingWindowManager();
+// So the main window's status pill (see the meeting-window:status/closed
+// channels below) clears itself even on a non-graceful close — a crash, or
+// destroyAll() at quit, both of which skip the window's own close handshake.
+meetingWindows.onClosed = (callId) => mainWindow?.webContents.send("meeting-window:closed", callId);
 
 // Last-resort guards: the app runs in the tray with always-on-top notes that
 // must outlive a stray error in an IPC handler or async callback. Log and keep
@@ -434,6 +443,7 @@ function startWsProcess() {
  * nowhere visible to go. Clicking the popup brings the window back.
  */
 function maybeNotify(event: unknown) {
+  if (!notificationPrefs.getDesktopEnabled()) return;
   if (!shouldNotify(windowStateOf(mainWindow))) return;
   const popup = popupFor(event, sessionUserId);
   if (popup) raise(popup, focusMain);
@@ -447,6 +457,8 @@ function quitApp() {
   }
   sticky.destroyAll();
   chatSticky.destroyAll();
+  meetingInvite.destroy();
+  meetingWindows.destroyAll();
   app.quit();
 }
 
@@ -652,6 +664,23 @@ ipcMain.handle("activity:open-screen-recording-settings", async (e) => {
   return true;
 });
 
+// ── Desktop notification preference ──────────────────────────────────────────
+// The renderer's own copy lives in localStorage (see
+// packages/app/src/lib/notificationPrefs.ts); this mirror is what
+// maybeNotify() reads before raising an OS popup for a message/task/call
+// while the window is minimised or in the tray, since main has no access to
+// the renderer's localStorage. Guarded by fromMainWindow for the same reason
+// every other renderer-facing preference here is.
+ipcMain.handle("notifications:get-desktop-enabled", (e) => {
+  if (!fromMainWindow(e)) return true;
+  return notificationPrefs.getDesktopEnabled();
+});
+
+ipcMain.handle("notifications:set-desktop-enabled", (e, enabled: unknown) => {
+  if (!fromMainWindow(e)) return;
+  notificationPrefs.setDesktopEnabled(enabled === true);
+});
+
 // ── Browser extension provisioning helper ────────────────────────────────────
 // The desktop app has no way to talk to a browser extension directly — there
 // is no `chrome.runtime` in an Electron renderer (see extensionProvisioning.ts
@@ -802,6 +831,70 @@ ipcMain.on("sticky-chat:unpin", (_e, threadId: string) => {
   wsProc?.postMessage({ type: "sticky-chat-unsubscribe", threadId });
 });
 
+// ── Meeting-invite popup (desktop-level, always-on-top) ──────────────────────
+// The renderer-driven counterpart of features/IncomingMeetingNotice — see
+// main/meeting-invite-manager.ts's own doc comment for the full design. Only
+// the MAIN window ever announces an invite (it is the one running the query
+// bridge that hears call.started/call.waiting/call.ring), so this is guarded
+// by fromMainWindow the same way the auth channels are.
+ipcMain.on("meeting-invite:show", (e, payload: unknown) => {
+  if (!fromMainWindow(e)) return;
+  if (!payload || typeof payload !== "object") return;
+  const { callId, title, organizer } = payload as Record<string, unknown>;
+  if (typeof callId !== "string" || !callId || typeof title !== "string") return;
+  meetingInvite.show({ callId, title, organizer: typeof organizer === "string" ? organizer : "" });
+});
+
+// From the invite popup's OWN window/preload, not the main window — same
+// trust level as sticky:dismiss (a callId + a choice of three fixed actions,
+// nothing session-bearing). Video/Voice bring the main window forward and
+// hand the join off to it (requestMeetingJoin lives in the shared app code,
+// which only the main window renders); Leave just clears the popup.
+ipcMain.on("meeting-invite:act", (_e, payload: unknown) => {
+  if (!payload || typeof payload !== "object") return;
+  const { callId, action } = payload as Record<string, unknown>;
+  if (typeof callId !== "string" || !callId) return;
+  if (action === "video" || action === "voice") {
+    focusMain();
+    mainWindow?.webContents.send("meeting-invite:join", { callId, media: action });
+  } else if (action !== "leave") {
+    return;
+  }
+  meetingInvite.dismiss(callId);
+});
+
+// ── Meeting window (desktop-only) ────────────────────────────────────────────
+// Open (or focus) a meeting in its own window — see main/meeting-window-manager.ts
+// and lib/MeetingSession.tsx's `enter()`, which calls this instead of rendering
+// the room as an overlay when the bridge is present. Ungated: no credentials
+// cross this channel, same trust level as sticky:pin-chat/task:pin.
+ipcMain.on("meeting-window:open", (_e, payload: unknown) => {
+  if (!payload || typeof payload !== "object") return;
+  const { callId } = payload as Record<string, unknown>;
+  if (typeof callId !== "string" || !callId) return;
+  meetingWindows.open(callId);
+});
+
+// Forward a meeting window's own live status to the main window's status
+// pill (features/MeetingWindowStatusBar.tsx). Sender must be a window this
+// manager actually opened — informational only (no credentials), same light
+// shape-check as rtc:send's frame, but worth confirming the sender is who it
+// claims to be rather than trusting an arbitrary payload's own callId.
+ipcMain.on("meeting-window:status", (e, status: unknown) => {
+  if (!status || typeof status !== "object") return;
+  if (typeof (status as Record<string, unknown>).callId !== "string") return;
+  if (!meetingWindows.all().some((w) => w.webContents === e.sender)) return;
+  mainWindow?.webContents.send("meeting-window:status", status);
+});
+
+// The status pill's hang-up button. Round-trips to the window that actually
+// owns the live LiveKit room — see MeetingWindowManager.requestClose, which
+// reaches the exact same graceful-close handshake the OS close button uses.
+ipcMain.on("meeting-window:hangup", (_e, callId: unknown) => {
+  if (typeof callId !== "string" || !callId) return;
+  meetingWindows.requestClose(callId);
+});
+
 app.on("window-all-closed", () => {
   // Keep running in tray (widgets + WS alive) except on explicit quit.
   if (process.platform !== "darwin" && quitting) app.quit();
@@ -831,20 +924,31 @@ function onSystemShutdown(): void {
   // can force-terminate a slow WM_ENDSESSION responder), so this never
   // preventDefaults the close or waits on a reply; it just gives an active
   // meeting a CHANCE to hear about it if the renderer is still around to.
-  mainWindow?.webContents.send("app:before-quit");
+  // Targets meeting windows, not mainWindow — see the before-quit handler's
+  // own comment on why nothing in mainWindow's renderer answers this anymore.
+  for (const w of meetingWindows.all()) w.webContents.send("app:before-quit");
 }
 
 powerMonitor.on("shutdown", onSystemShutdown);
 
 /**
- * Give an active meeting a chance to leave cleanly before the process dies.
+ * Give every active meeting a chance to leave cleanly before the process dies.
  *
  * Neither a hang-up click nor a React unmount is coming on a real quit — the
  * renderer can be torn down before either runs — so without this, the server
  * is never told the user left and the "resume this meeting" marker never
  * clears (see MeetingSession.tsx). This pauses the quit just long enough for
- * the renderer to disconnect the room and call leaveCall(), then lets it
- * proceed either way.
+ * every open meeting window's renderer to disconnect its room and call
+ * leaveCall(), then lets the quit proceed either way.
+ *
+ * Targets meeting windows, NOT mainWindow: `enter()` (MeetingSession.tsx)
+ * opens a meeting in its own window instead of rendering CallRoom as an
+ * overlay in this one now, so nothing in mainWindow's renderer subscribes to
+ * app:before-quit any more — waiting on it here would either hang out the
+ * full safety timeout on every ordinary quit or (with no listener ever
+ * answering) do so unconditionally. The common case — no meeting open — must
+ * stay exactly as fast as it always was, which is why this skips the wait
+ * entirely when meetingWindows.all() is empty.
  */
 app.on("before-quit", (e) => {
   quitting = true;
@@ -861,13 +965,17 @@ app.on("before-quit", (e) => {
   if (quitTeardownStarted) return;
   quitTeardownStarted = true;
 
-  const win = mainWindow;
-  if (!win || win.isDestroyed() || win.webContents.isDestroyed()) {
+  const targets = meetingWindows
+    .all()
+    .map((w) => w.webContents)
+    .filter((wc) => !wc.isDestroyed());
+  if (targets.length === 0) {
     finishQuit();
     return;
   }
 
   e.preventDefault();
+  let remaining = targets.length;
   let done = false;
   const finish = () => {
     if (done) return;
@@ -876,11 +984,16 @@ app.on("before-quit", (e) => {
     ipcMain.removeListener("app:quit-ready", onReady);
     finishQuit();
   };
-  const onReady = () => finish();
-  ipcMain.once("app:quit-ready", onReady);
-  win.webContents.send("app:before-quit");
-  // No meeting active is the common case, and nothing on the renderer side
-  // subscribes to app:before-quit then — this keeps that quit from hanging.
+  const onReady = (ev: Electron.IpcMainEvent) => {
+    if (!targets.includes(ev.sender)) return;
+    remaining--;
+    if (remaining <= 0) finish();
+  };
+  ipcMain.on("app:quit-ready", onReady);
+  for (const wc of targets) wc.send("app:before-quit");
+  // Bounds the WORST case (every meeting window hangs) to the same 1200ms a
+  // single one always waited — acks arrive independently, so this is not
+  // "1200ms per window".
   const safety = setTimeout(finish, 1200);
 });
 
@@ -890,6 +1003,8 @@ function finishQuit(): void {
   wsProc?.postMessage({ type: "token", token: null });
   sticky.destroyAll();
   chatSticky.destroyAll();
+  meetingInvite.destroy();
+  meetingWindows.destroyAll();
   // app.exit(), not app.quit() — Electron does not re-emit before-quit/
   // will-quit for app.exit(), so this cannot loop back into the handler above.
   app.exit(0);

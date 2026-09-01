@@ -38,7 +38,7 @@ export function DMView() {
   // the shell rather than by the router.
   const { selectedId, closeChat } = useSelectedChat();
   const conversationId = selectedId ?? "";
-  const { api } = useRuntime();
+  const { api, config } = useRuntime();
   const qc = useQueryClient();
   const me = useSession((s) => s.user)!;
   const nav = useNavigate();
@@ -294,7 +294,7 @@ export function DMView() {
         peerId: conv.peerId,
         peerName: displayNameOf(conv),
         alsoTo,
-        origin: window.location.origin,
+        origin: config.webBaseUrl,
       });
     },
     onSuccess: ({ link, failed }, alsoTo) => {

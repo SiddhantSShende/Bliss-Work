@@ -24,14 +24,16 @@ function renderBubble(state: TransferState, mine = false) {
   );
 }
 
+const STATES: TransferState[] = [
+  { kind: "OFFERED" },
+  { kind: "CONNECTING" },
+  { kind: "TRANSFERRING", progress: { bytesDone: 100, bytesTotal: 1000, chunkIndex: 1, chunkTotal: 10 } },
+  { kind: "DONE" },
+  { kind: "FAILED", reason: "Peer unreachable" },
+];
+
 describe("FileAttachmentBubble", () => {
-  it.each<TransferState>([
-    { kind: "OFFERED" },
-    { kind: "CONNECTING" },
-    { kind: "TRANSFERRING", progress: { bytesDone: 100, bytesTotal: 1000 } },
-    { kind: "DONE" },
-    { kind: "FAILED", reason: "Peer unreachable" },
-  ])("never renders an Accept control in state %o, for the receiver or the sender", (state) => {
+  it.each(STATES)("never renders an Accept control in state %o, for the receiver or the sender", (state) => {
     renderBubble(state, false);
     expect(screen.queryByRole("button", { name: /accept/i })).not.toBeInTheDocument();
     renderBubble(state, true);
@@ -63,14 +65,7 @@ describe("FileAttachmentBubble", () => {
   });
 
   it("never offers a Download control in any state — OFFERED itself says downloads are off", () => {
-    const states: TransferState[] = [
-      { kind: "OFFERED" },
-      { kind: "CONNECTING" },
-      { kind: "TRANSFERRING", progress: { bytesDone: 1, bytesTotal: 2 } },
-      { kind: "DONE" },
-      { kind: "FAILED", reason: "sha256 mismatch" },
-    ];
-    for (const state of states) {
+    for (const state of STATES) {
       const { unmount } = renderBubble(state);
       // Not a blanket "no text contains 'download'" check — OFFERED's own
       // "File downloads are turned off." line legitimately contains the

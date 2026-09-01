@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import type { CallDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
+import { meetingJoinUrl } from "../lib/meetingDeepLink";
 
 /**
  * The meeting's join link, for the people entitled to hand one out.
@@ -21,7 +22,7 @@ import { useSession } from "../store/session";
  * over can be joined, and only a HOST in the HOSTING org may widen it.
  */
 export function MeetingInviteLink({ call }: { call: CallDTO }) {
-  const { api } = useRuntime();
+  const { api, config } = useRuntime();
   const me = useSession((s) => s.user);
   const [link, setLink] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -39,7 +40,7 @@ export function MeetingInviteLink({ call }: { call: CallDTO }) {
       // The join route reads ?t=. The token comes back exactly once, so this is
       // the only moment it can become a URL — hence the local cache below:
       // copying twice must not mint (and spend) two links.
-      return `${window.location.origin}/join?t=${encodeURIComponent(invite.token)}`;
+      return meetingJoinUrl(config.webBaseUrl, invite.token);
     },
     onError: () => toast.error("Couldn't create an invite link"),
   });

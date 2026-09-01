@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useMemo } from "react";
 import { NavLink, useParams, useSearchParams } from "react-router-dom";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { AlertCircle, Calendar, Clock, Users } from "lucide-react";
@@ -32,17 +32,19 @@ import {
  * PAST is different in kind. It has no end, and `myCalls()` deliberately caps
  * its history at a month — which used to make "Past" quietly stop a month back
  * with nothing saying so. It therefore reads `myCallHistory()`, a keyset cursor
- * with no day cap, one page at a time as the list is scrolled. That is the
- * whole of "Past must handle a large number of meetings": the client holds one
- * page more than it is showing, and the server never sorts more than a page.
+ * with no day cap, five at a time behind an explicit "Load more" — a click, not
+ * a scroll trigger, so a long history never fetches more than the user asked
+ * to see. That is the whole of "Past must handle a large number of meetings":
+ * the client holds exactly one page, and the server never sorts more than one.
  */
+const PAST_PAGE_SIZE = 5;
+
 export function MeetingList() {
   const [params] = useSearchParams();
   const bucket = bucketOf(params);
   const { callId } = useParams();
   const { api } = useRuntime();
   const viewerId = useSession((s) => s.user?.id ?? null);
-  const sentinel = useRef<HTMLDivElement>(null);
 
   // Upcoming + Live. One request for the section, shared with the folder column.
   const live = useQuery({ queryKey: qk.calls, queryFn: () => api.myCalls() });
@@ -51,7 +53,7 @@ export function MeetingList() {
   // downloaded because they glanced at their calendar.
   const history = useInfiniteQuery({
     queryKey: qk.callHistory,
-    queryFn: ({ pageParam }) => api.myCallHistory(pageParam as string | undefined),
+    queryFn: ({ pageParam }) => api.myCallHistory(pageParam as string | undefined, PAST_PAGE_SIZE),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.nextCursor ?? undefined,
     enabled: bucket === "past",
@@ -76,18 +78,7 @@ export function MeetingList() {
   );
   const { nameOf } = useUserLabels(labelIds);
 
-  // Infinite scroll for Past. The sentinel sits under the last row; seeing it
-  // means the user has reached the end of what is loaded.
   const { fetchNextPage, hasNextPage, isFetchingNextPage } = history;
-  useEffect(() => {
-    const el = sentinel.current;
-    if (bucket !== "past" || !el || !hasNextPage || isFetchingNextPage) return;
-    const io = new IntersectionObserver((entries) => {
-      if (entries.some((e) => e.isIntersecting)) void fetchNextPage();
-    });
-    io.observe(el);
-    return () => io.disconnect();
-  }, [bucket, hasNextPage, isFetchingNextPage, fetchNextPage, rows.length]);
 
   const q = bucket === "past" ? history : live;
   const groups = groupByDay(rows);
@@ -160,11 +151,21 @@ export function MeetingList() {
                 </div>
               </section>
             ))}
-            {bucket === "past" && (
-              <div ref={sentinel} className="py-3 text-center text-xs text-muted">
-                {isFetchingNextPage ? "Loading more…" : hasNextPage ? " " : "That's everything."}
-              </div>
-            )}
+            {bucket === "past" &&
+              (hasNextPage ? (
+                <div className="py-3 text-center">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    loading={isFetchingNextPage}
+                    onClick={() => void fetchNextPage()}
+                  >
+                    Load more
+                  </Button>
+                </div>
+              ) : (
+                <div className="py-3 text-center text-xs text-muted">That's everything.</div>
+              ))}
           </div>
         )}
       </div>

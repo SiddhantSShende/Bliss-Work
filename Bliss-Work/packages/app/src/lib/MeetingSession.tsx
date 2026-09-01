@@ -46,6 +46,7 @@ import {
 } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { CallDTO } from "@taskboard/shared";
+import { useRuntime } from "./runtime";
 
 /** Where the meeting tab goes when the room is minimised out of /call/:id. */
 const APP_HOME = "/app/meetings";
@@ -143,6 +144,7 @@ const Ctx = createContext<MeetingSessionApi | null>(null);
 export { Ctx as MeetingSessionContext };
 
 export function MeetingSessionProvider({ children }: { children: ReactNode }) {
+  const { config } = useRuntime();
   const [call, setCall] = useState<CallDTO | null>(null);
   const [minimized, setMinimized] = useState(false);
   const [autoJoinMedia, setAutoJoinMedia] = useState<AutoJoinMedia | null>(null);
@@ -157,13 +159,24 @@ export function MeetingSessionProvider({ children }: { children: ReactNode }) {
   /** The route the full-screen room covers; null when it is not covering one. */
   const anchorRef = useRef<string | null>(null);
 
-  const enter = useCallback((next: CallDTO, onExit?: () => void, media?: AutoJoinMedia) => {
-    onExitRef.current = onExit ?? null;
-    setCall(next);
-    setMinimized(false);
-    setAutoJoinMedia(media ?? null);
-    rememberResumableMeeting(next.id);
-  }, []);
+  const enter = useCallback(
+    (next: CallDTO, onExit?: () => void, media?: AutoJoinMedia) => {
+      // Electron: the meeting gets its own OS window instead of taking over
+      // this one — see main/meeting-window-manager.ts. Nothing below runs on
+      // that platform; there is no overlay to show, minimise or resume here
+      // because this window never renders the room at all.
+      if (config.openMeetingWindow) {
+        config.openMeetingWindow(next.id);
+        return;
+      }
+      onExitRef.current = onExit ?? null;
+      setCall(next);
+      setMinimized(false);
+      setAutoJoinMedia(media ?? null);
+      rememberResumableMeeting(next.id);
+    },
+    [config],
+  );
 
   const exit = useCallback(() => {
     const onExit = onExitRef.current;

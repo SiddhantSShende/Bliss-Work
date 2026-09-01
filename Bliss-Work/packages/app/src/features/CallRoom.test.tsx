@@ -14,6 +14,7 @@
  * lib/useCallRoom.test.ts. What's under test here is CallRoom's own wiring:
  * the speaker-filter tick, and the stage/grid/pin logic built on top of it.
  */
+import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -23,6 +24,8 @@ import { PROMOTE_AFTER_MS, DEMOTE_AFTER_MS } from "../lib/activeSpeaker";
 
 const h = vi.hoisted(() => ({
   sendData: vi.fn(),
+  toggleMic: vi.fn(),
+  toggleCam: vi.fn(),
   participants: [] as RoomParticipant[],
   pip: {
     supported: true,
@@ -77,21 +80,27 @@ vi.mock("../lib/MeetingSession", () => ({
   useMeetingSessionOptional: () => h.session,
 }));
 
-vi.mock("../lib/useCallRoom", () => ({
+vi.mock("../lib/useCallRoom", async (importOriginal) => ({
+  // isGetUserMediaDenied is real — it's a pure classifier the pre-join
+  // preview effect calls directly, unrelated to the room connection itself.
+  ...(await importOriginal<typeof import("../lib/useCallRoom")>()),
   useCallRoom: () => ({
     status: "connected",
     participants: h.participants,
     micOn: false,
     camOn: false,
     sharing: false,
+    // This client's own connect time — deliberately NOT what the meeting
+    // timer should be built from (see the "meeting timer" describe block
+    // below); a value distinguishable from call.startedAt is the point.
     connectedAt: Date.now(),
     canStart: false,
     ended: false,
     join: vi.fn(),
     start: vi.fn(async () => {}),
     leave: vi.fn(async () => {}),
-    toggleMic: vi.fn(),
-    toggleCam: vi.fn(),
+    toggleMic: h.toggleMic,
+    toggleCam: h.toggleCam,
     toggleShare: vi.fn(),
     addPeople: vi.fn(async () => {}),
     sendData: h.sendData,
@@ -191,8 +200,12 @@ async function tick(totalMs: number, stepMs = 50) {
  * first (see its own `preJoin` state), and nothing under test here is about
  * that screen — jsdom has no `navigator.mediaDevices`, so the camera preview
  * effect no-ops and the only way out is the "Join meeting" button.
+ *
+ * `muteBeforeJoin`/`cameraOffBeforeJoin` click the lobby's own toggles before
+ * joining — both default to on (see CallRoom's previewMicOn/previewCamOn), so
+ * leaving these false exercises the common "left both on" path.
  */
-function renderRoom() {
+function renderRoom(opts: { muteBeforeJoin?: boolean; cameraOffBeforeJoin?: boolean } = {}) {
   const qc = new QueryClient();
   const build = () => (
     <QueryClientProvider client={qc}>
@@ -201,6 +214,8 @@ function renderRoom() {
   );
   const result = render(build());
   act(() => {
+    if (opts.muteBeforeJoin) screen.getByRole("button", { name: "Mute microphone" }).click();
+    if (opts.cameraOffBeforeJoin) screen.getByRole("button", { name: "Turn camera off" }).click();
     screen.getByRole("button", { name: "Join meeting" }).click();
   });
   return { ...result, resync: () => result.rerender(build()) };
@@ -209,6 +224,8 @@ function renderRoom() {
 beforeEach(() => {
   vi.useFakeTimers();
   h.sendData.mockClear();
+  h.toggleMic.mockClear();
+  h.toggleCam.mockClear();
   h.pip.supported = true;
   h.pip.active = false;
   h.pip.toggle.mockClear();
@@ -227,6 +244,84 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+});
+
+describe("the meeting timer", () => {
+  it("counts from the MEETING's own start time, not from this client's own connect — every participant must read the same number", () => {
+    // The mocked useCallRoom reports connectedAt as "right now" (this test's
+    // fake-timer clock), simulating a participant who joined late; the
+    // meeting itself started 65s earlier, per the server-authoritative
+    // call.startedAt. The timer must reflect the LATTER.
+    const now = Date.now();
+    const lateJoinerCall = { ...call, startedAt: new Date(now - 65_000).toISOString() };
+    const qc = new QueryClient();
+    render(
+      <QueryClientProvider client={qc}>
+        <CallRoom call={lateJoinerCall} onClose={() => {}} />
+      </QueryClientProvider>,
+    );
+    act(() => {
+      screen.getByRole("button", { name: "Join meeting" }).click();
+    });
+
+    // Synchronous: useCallDuration sets its first `now` inside a mount-time
+    // effect, which `act` above already flushed — no ticking needed to see
+    // it, and `findByText`'s polling wouldn't fire anyway under fake timers.
+    expect(screen.getByText("1:05")).toBeInTheDocument();
+  });
+
+  it("shows nothing before the meeting has actually started (no server startedAt yet)", () => {
+    renderRoom(); // the shared `call` fixture has startedAt: null
+    expect(screen.queryByText(/^\d+:\d\d$/)).toBeNull();
+  });
+});
+
+/**
+ * Regression coverage for a false "Camera and microphone are blocked" in the
+ * pre-join lobby: React StrictMode's synchronous mount→cleanup→mount fires
+ * the preview effect twice, so every dev/staging visit to the lobby issues
+ * two overlapping getUserMedia calls. The `.then()` branch already ignored a
+ * stale (cancelled) attempt's result; `.catch()` did not, so a late
+ * rejection from the FIRST, abandoned attempt could stomp a working preview
+ * that the SECOND, current attempt had already produced.
+ */
+describe("the pre-join camera/mic preview", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("ignores a stale attempt's late rejection once a later attempt has already produced a working preview", async () => {
+    const pending: Array<{ resolve: (s: MediaStream) => void; reject: (e: unknown) => void }> = [];
+    const getUserMedia = vi.fn(
+      () =>
+        new Promise<MediaStream>((resolve, reject) => {
+          pending.push({ resolve, reject });
+        }),
+    );
+    vi.stubGlobal("navigator", { mediaDevices: { getUserMedia } });
+
+    const qc = new QueryClient();
+    render(
+      <StrictMode>
+        <QueryClientProvider client={qc}>
+          <CallRoom call={call} onClose={() => {}} />
+        </QueryClientProvider>
+      </StrictMode>,
+    );
+
+    // StrictMode's double-invoke is synchronous — both the abandoned first
+    // mount and the real second mount have already started their own call.
+    expect(getUserMedia).toHaveBeenCalledTimes(2);
+
+    const fakeStream = { getTracks: () => [{ stop: vi.fn() }] } as unknown as MediaStream;
+    // The SECOND (current) attempt succeeds first...
+    await act(async () => pending.at(1)!.resolve(fakeStream));
+    // ...and only THEN does the FIRST (abandoned) attempt's rejection land.
+    await act(async () => pending.at(0)!.reject(new DOMException("device busy", "NotReadableError")));
+
+    expect(screen.queryByText("Camera and microphone are blocked")).toBeNull();
+    expect(screen.queryByText("Couldn't access your camera or microphone")).toBeNull();
+  });
 });
 
 describe("the automatic speaker's silence timeout", () => {
@@ -259,6 +354,42 @@ describe("the automatic speaker's silence timeout", () => {
     // advances, via CallRoom's own tick.
     await tick(DEMOTE_AFTER_MS + 300);
     expect(screen.queryByText("Speaking")).toBeNull();
+  });
+});
+
+describe("the pre-join lobby's mic/camera choice", () => {
+  it("publishes both once connected when the lobby left them on — the default", async () => {
+    renderRoom();
+    await act(async () => {});
+    expect(h.toggleMic).toHaveBeenCalledTimes(1);
+    expect(h.toggleCam).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves the mic off when it was muted in the lobby before joining", async () => {
+    renderRoom({ muteBeforeJoin: true });
+    await act(async () => {});
+    expect(h.toggleMic).not.toHaveBeenCalled();
+    expect(h.toggleCam).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves the camera off when it was turned off in the lobby before joining", async () => {
+    renderRoom({ cameraOffBeforeJoin: true });
+    await act(async () => {});
+    expect(h.toggleMic).toHaveBeenCalledTimes(1);
+    expect(h.toggleCam).not.toHaveBeenCalled();
+  });
+
+  it("does not also apply the lobby's (untouched, default-on) choice when autoJoin already picked one", async () => {
+    const qc = new QueryClient();
+    render(
+      <QueryClientProvider client={qc}>
+        <CallRoom call={call} onClose={() => {}} autoJoin="voice" />
+      </QueryClientProvider>,
+    );
+    await act(async () => {});
+    // autoJoin="voice" is the mic-only path (see CallRoom's autoJoin effect).
+    expect(h.toggleMic).toHaveBeenCalledTimes(1);
+    expect(h.toggleCam).not.toHaveBeenCalled();
   });
 });
 

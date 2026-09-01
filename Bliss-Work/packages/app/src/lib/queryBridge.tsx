@@ -206,24 +206,26 @@ export function WsEventBridge() {
       const live = !meta?.replayed;
       switch (e.type) {
         // ── Calls ────────────────────────────────────────────────────────
-        // Notifications only — media rides the SFU, not this socket. All four
+        // Notifications only — media rides the SFU, not this socket. All five
         // land here for anyone on the roster, INCLUDING a participant in
         // another org who joined a meeting by link.
         case EventType.CallScheduled:
         case EventType.CallParticipantAdded:
+        case EventType.CallParticipantLeft:
         case EventType.CallEnded: {
-          // Someone joined or the call finished, so who is Busy just changed.
+          // Someone joined, left, or the call finished, so who is Busy just
+          // changed.
           //
           // Invalidated rather than patched: the event names one call, and the
           // question is "is this person in ANY live call" — which only the
           // server can answer without the client tracking every call it has
           // ever heard about.
           //
-          // Not complete on its own, deliberately. One participant leaving a
-          // call that CONTINUES emits nothing (see store.LeaveCall — only the
-          // leave that ends the call produces call.ended), so the 20s poll in
-          // useOnCall remains the correctness path. This is what makes the
-          // common transitions flip promptly rather than eventually.
+          // CallParticipantLeft is what makes an ordinary leave (one that does
+          // NOT end the call) flip promptly here too, instead of waiting on
+          // the 20s poll in useOnCall — that poll still runs as a
+          // reconciliation fallback (same belt-and-suspenders pattern as
+          // presence), it just stops being the only mechanism for this case.
           invalidate(qk.onCall);
           invalidate(qk.calls);
           invalidate(qk.call(e.callId));

@@ -5,6 +5,7 @@ import { Modal } from "./Modal";
 import { MemberPicker } from "./MemberPicker";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
+import { meetingJoinUrl } from "../lib/meetingDeepLink";
 
 /**
  * "Add People" from inside a call.
@@ -33,7 +34,7 @@ export function AddPeopleDialog({
   onAdd: (userIds: string[]) => Promise<void>;
   callId?: string;
 }) {
-  const { api } = useRuntime();
+  const { api, config } = useRuntime();
   const me = useSession((s) => s.user);
   const [busy, setBusy] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -46,7 +47,7 @@ export function AddPeopleDialog({
     setBusy(true);
     const deliver = callId
       ? api.createCallInvite(callId).then(async ({ token }) => {
-          const link = `${window.location.origin}/join?t=${encodeURIComponent(token)}`;
+          const link = meetingJoinUrl(config.webBaseUrl, token);
           await onAdd(ids);
           const results = await Promise.allSettled(
             ids.map((id) => api.sendMessage(id, `Join the meeting: ${link}`)),

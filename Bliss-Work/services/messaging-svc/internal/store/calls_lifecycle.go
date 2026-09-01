@@ -80,13 +80,18 @@ import (
 // yet for this row) matches unconditionally, so this only ever narrows
 // behaviour once a session has actually been observed.
 //
-// Returns whether the departure closed a screen share, so the caller knows
-// whether to say so. A call or participant this service does not recognise is
-// reported as nothing having happened rather than an error: the SFU also runs
-// rooms this deployment did not create, and a webhook about one of those is
-// noise, not a failure.
-func (s *Store) MarkLeftFromSFU(ctx context.Context, callID, userID, sid string) (bool, error) {
-	var wasSharing bool
+// Returns whether this call actually recorded a fresh departure (false when
+// the row was already closed — by an explicit leave that beat the webhook
+// here, or a stale echo, see below — so the caller does not notify on a
+// departure that isn't new), and whether it closed a screen share. A call or
+// participant this service does not recognise is reported as nothing having
+// happened rather than an error: the SFU also runs rooms this deployment did
+// not create, and a webhook about one of those is noise, not a failure.
+func (s *Store) MarkLeftFromSFU(ctx context.Context, callID, userID, sid string) (bool, bool, error) {
+	var (
+		recorded   bool
+		wasSharing bool
+	)
 	err := s.withBypass(ctx, func(tx pgx.Tx) error {
 		// $3 = '' matches unconditionally too, alongside a NULL row: every real
 		// LiveKit participant event carries a sid, so an empty one here means
@@ -107,13 +112,14 @@ func (s *Store) MarkLeftFromSFU(ctx context.Context, callID, userID, sid string)
 			// since replaced. Either way there is nothing to record.
 			return nil
 		}
+		recorded = true
 		wasSharing, err = stopSharesTx(ctx, tx, callID, &userID)
 		return err
 	})
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
-	return wasSharing, nil
+	return recorded, wasSharing, nil
 }
 
 // MarkJoinedFromSFU records which SFU connection is now current for a

@@ -279,12 +279,32 @@ describe("WsEventBridge — calls", () => {
   it.each([
     EventType.CallScheduled,
     EventType.CallParticipantAdded,
+    EventType.CallParticipantLeft,
     EventType.CallEnded,
     EventType.CallRing,
   ])("keeps refreshing the call list on %s", (type) => {
     const h = harness();
     h.fire(callEvent(type));
     expect(has(h.invalidated, qk.calls)).toBe(true);
+  });
+
+  // The actual bug this event was added to fix: an ordinary participant
+  // leaving a call that keeps going used to update nobody's "Busy" state in
+  // real time — qk.onCall only refreshed on the 20s poll. CallParticipantLeft
+  // closes that gap the same way CallStarted/CallEnded already do for their
+  // own transitions.
+  it("refreshes who is Busy (qk.onCall) when a participant leaves", () => {
+    const h = harness();
+    h.fire(callEvent(EventType.CallParticipantLeft));
+    expect(has(h.invalidated, qk.onCall)).toBe(true);
+  });
+
+  it("does not move an ordinary participant-left into call history", () => {
+    // Only a call actually ENDING moves it into the Past list — someone
+    // merely leaving a call that continues must not.
+    const h = harness();
+    h.fire(callEvent(EventType.CallParticipantLeft));
+    expect(has(h.invalidated, qk.callHistory)).toBe(false);
   });
 
   it.each([EventType.CallShareStarted, EventType.CallShareStopped])(

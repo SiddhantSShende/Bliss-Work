@@ -45,8 +45,15 @@ vi.mock("../features/CallRoomLazy", async () => {
 
 // MeetingHost's rejoin offer reads the API. Nothing here is about that offer —
 // it is never made, because no tab was in a meeting before these tests.
+//
+// `config` is mutable per-test (default web-shaped: no openMeetingWindow) so
+// the Electron-branch describe block below can swap in an
+// openMeetingWindow spy without a second mock factory.
+const rt = vi.hoisted(() => ({
+  config: {} as { openMeetingWindow?: (callId: string) => void },
+}));
 vi.mock("./runtime", () => ({
-  useRuntime: () => ({ api: { call: vi.fn() }, config: {} }),
+  useRuntime: () => ({ api: { call: vi.fn() }, config: rt.config }),
 }));
 
 const CALL: CallDTO = {
@@ -107,6 +114,7 @@ const where = () => screen.getByTestId("where").textContent;
 beforeEach(() => {
   room.mounts = 0;
   room.unmounts = 0;
+  rt.config = {};
   window.sessionStorage.clear();
 });
 
@@ -199,5 +207,22 @@ describe("MeetingSession — a meeting in its own tab", () => {
     expect(state()).toBe("minimized");
     // Where they asked to go, NOT the /app/meetings the button would have used.
     expect(where()).toBe("/app/tasks");
+  });
+});
+
+describe("MeetingSession — Electron's separate meeting window", () => {
+  it("opens the meeting in its own window instead of rendering CallRoom here, when openMeetingWindow is present", async () => {
+    const openMeetingWindow = vi.fn();
+    rt.config = { openMeetingWindow };
+    const user = mount("/app/meetings");
+
+    await user.click(screen.getByText("enter"));
+
+    expect(openMeetingWindow).toHaveBeenCalledWith(CALL.id);
+    // No overlay in THIS window: no local `call` state, so nothing to
+    // minimise/restore/exit, and the room stand-in never mounts here.
+    expect(state()).toBe("no-meeting");
+    expect(screen.queryByTestId("room")).not.toBeInTheDocument();
+    expect(room.mounts).toBe(0);
   });
 });

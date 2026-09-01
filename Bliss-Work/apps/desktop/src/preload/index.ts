@@ -7,7 +7,57 @@ import type { ServerEvent, ClientFrame, ControlFrame, PinResult, WsEventMeta } f
  * Main-window preload. Exposes a fixed, typed surface on window.taskboard.
  * The renderer's event source is fed from the utilityProcess via "ws:event".
  */
+/** Mirrors PlatformConfig's MeetingWindowStatus (packages/app/src/platform.ts)
+ *  — duplicated rather than imported, same as every other inline shape in
+ *  this file (see `activity.state()`'s return type below), so this preload
+ *  carries no build dependency on @taskboard/app. */
+interface MeetingWindowStatus {
+  callId: string;
+  title: string;
+  micOn: boolean;
+  camOn: boolean;
+  startedAt?: number;
+  participantCount: number;
+}
+
 const api = {
+  /** Whether THIS window is a meeting window (main/meeting-window-manager.ts),
+   *  as opposed to the main window — read from the real (non-hash) query
+   *  string the manager loads it with, the same way sticky.ts reads its own
+   *  taskId/collapsed. Drives renderer/main.tsx's PlatformConfig branch:
+   *  no `eventSource` (opens its own direct socket, like web) and
+   *  `bootstrapFromPeerSession` (its credential IPC is gated out below, so it
+   *  bootstraps from the main window's session instead — see
+   *  lib/authChannel.ts's requestSession). */
+  isMeetingWindow: new URLSearchParams(location.search).get("w") === "meeting",
+
+  /** Open (or focus) a meeting in its own window. See
+   *  PlatformConfig.openMeetingWindow / lib/MeetingSession.tsx's `enter()`. */
+  openMeetingWindow: (callId: string) => ipcRenderer.send("meeting-window:open", { callId }),
+
+  /** Called from the MEETING window: push this call's live status to the
+   *  main window's status pill. See PlatformConfig.pushMeetingWindowStatus. */
+  pushMeetingWindowStatus: (status: MeetingWindowStatus) =>
+    ipcRenderer.send("meeting-window:status", status),
+
+  /** Called from the MAIN window: subscribe to a meeting window's status. */
+  onMeetingWindowStatus: (cb: (status: MeetingWindowStatus) => void) => {
+    const handler = (_: unknown, status: MeetingWindowStatus) => cb(status);
+    ipcRenderer.on("meeting-window:status", handler);
+    return () => ipcRenderer.removeListener("meeting-window:status", handler);
+  },
+
+  /** Called from the MAIN window: a meeting window closed (gracefully or
+   *  not) — the status pill's cue to clear itself. */
+  onMeetingWindowClosed: (cb: (callId: string) => void) => {
+    const handler = (_: unknown, callId: string) => cb(callId);
+    ipcRenderer.on("meeting-window:closed", handler);
+    return () => ipcRenderer.removeListener("meeting-window:closed", handler);
+  },
+
+  /** Called from the MAIN window: the status pill's hang-up button. */
+  hangUpMeetingWindow: (callId: string) => ipcRenderer.send("meeting-window:hangup", callId),
+
   /** Forward the current access token to the utilityProcess (for WS + task REST). */
   setToken: (token: string | null) => ipcRenderer.send("auth:token", token),
 
@@ -120,6 +170,18 @@ const api = {
   },
   notifyQuitReady: () => ipcRenderer.send("app:quit-ready"),
 
+  /** THIS window (a meeting window — see main/meeting-window-manager.ts) is
+   *  about to close, app still running. Same pause-and-wait shape as
+   *  onBeforeQuit/notifyQuitReady above, distinct channels because the two
+   *  are genuinely different events even though CallRoom answers both the
+   *  same way today. */
+  onBeforeWindowClose: (cb: () => void) => {
+    const handler = () => cb();
+    ipcRenderer.on("meeting-window:before-close", handler);
+    return () => ipcRenderer.removeListener("meeting-window:before-close", handler);
+  },
+  notifyWindowCloseReady: () => ipcRenderer.send("meeting-window:close-ready"),
+
   /** Emitted when the app detects and refuses a screenshot attempt.
    *
    *  The message is fixed; the payload says WHAT was pressed and whether main
@@ -130,6 +192,22 @@ const api = {
     const handler = (_: unknown, info: { chord: string; recorded: boolean }) => cb(info);
     ipcRenderer.on("security:screenshot-blocked", handler);
     return () => ipcRenderer.removeListener("security:screenshot-blocked", handler);
+  },
+
+  /** Hand an incoming meeting invite off to the always-on-top popup window
+   *  (main/meeting-invite-manager.ts) instead of an in-page card — see
+   *  PlatformConfig.showMeetingInvitePopup and features/IncomingMeetingNotice,
+   *  which calls this and renders nothing itself when it is present. */
+  showMeetingInvitePopup: (callId: string, title: string, organizer: string) =>
+    ipcRenderer.send("meeting-invite:show", { callId, title, organizer }),
+
+  /** The invite popup's Video/Voice button was clicked — main already brought
+   *  this window forward before sending this. */
+  onMeetingInviteAction: (cb: (callId: string, media: "video" | "voice") => void) => {
+    const handler = (_: unknown, p: { callId: string; media: "video" | "voice" }) =>
+      cb(p.callId, p.media);
+    ipcRenderer.on("meeting-invite:join", handler);
+    return () => ipcRenderer.removeListener("meeting-invite:join", handler);
   },
 
   /** Phase 10 WebRTC signaling, bridged to the ws-process socket: outbound
@@ -221,6 +299,20 @@ const api = {
      *  local account-binding immediately, without discarding the pairing (the
      *  SAME person signing back in does not have to re-pair/re-consent). */
     signedOut: (): Promise<null> => ipcRenderer.invoke("activity:signed-out"),
+  },
+
+  /**
+   * "Desktop notifications" preference, mirrored from the renderer's own
+   * localStorage copy (packages/app/src/lib/notificationPrefs.ts). Main reads
+   * this before raising an OS popup for a message/task/call — see
+   * main/notifier.ts and main/notification-prefs.ts — since a popup can fire
+   * while the window is minimised or in the tray, long after any renderer
+   * code has run.
+   */
+  notifications: {
+    getDesktopEnabled: (): Promise<boolean> => ipcRenderer.invoke("notifications:get-desktop-enabled"),
+    setDesktopEnabled: (enabled: boolean): Promise<void> =>
+      ipcRenderer.invoke("notifications:set-desktop-enabled", enabled),
   },
 
   /**

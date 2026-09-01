@@ -2246,8 +2246,14 @@ export class ApiClient {
   }
 
   leaveCall(callId: string) {
+    // keepalive: this fires from a "Leave" click that can be followed almost
+    // immediately by a tab close (the standalone /call/:id tab closes itself
+    // right after leave() resolves) — without it, a fast enough close can
+    // abort this request before the server ever records the departure. The
+    // body is empty, nowhere near the 64KB keepalive cap.
     return this.req<void>(this.cfg.messagingBase, `/api/v1/calls/${callId}/leave`, {
       method: "POST",
+      keepalive: true,
     });
   }
 

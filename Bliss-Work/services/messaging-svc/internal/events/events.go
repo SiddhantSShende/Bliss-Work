@@ -46,6 +46,14 @@ const (
 	TypeCallRing             = "call.ring"
 	TypeCallParticipantAdded = "call.participant_added"
 	TypeCallEnded            = "call.ended"
+	// TypeCallParticipantLeft is an ordinary participant leaving a call that
+	// keeps going for everyone else (contrast TypeCallEnded, which is the whole
+	// call closing). Addressed to the live roster AND the leaver themselves —
+	// see notifyParticipantLeft — because by the time this fires the leaver's
+	// own call_participants row already has left_at set, so the default
+	// roster read would otherwise miss the one recipient this event exists
+	// for: the leaver's OTHER open sessions/devices.
+	TypeCallParticipantLeft = "call.participant_left"
 	// TypeCallStarted is the end of the waiting room. Addressed to the whole
 	// roster, because it means two different things at once depending on where
 	// the recipient is: everyone parked in the lobby is now admitted and should

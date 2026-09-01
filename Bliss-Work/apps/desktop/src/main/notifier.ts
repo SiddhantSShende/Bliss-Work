@@ -131,22 +131,13 @@ export function popupFor(event: unknown, meId: string | null): Popup | null {
         body: channel ? `You were added to #${channel}` : "You were added to a channel",
       };
     }
-    // Mirrors the recipient/actor gate lib/queryBridge applies before it pops
-    // the in-app incoming-meeting popup (features/IncomingMeetingNotice), so
-    // the two never disagree about whose action this was.
-    case "call.started":
-    case "call.waiting":
-    case "call.ring": {
-      if (!meId || str("actorId") === meId) return null;
-      const title = str("title") || (str("kind") === "CHANNEL" ? "Channel call" : "Meeting");
-      if (e.type === "call.waiting") {
-        return { title: "Someone is waiting", body: `Waiting for you to start ${title}` };
-      }
-      if (e.type === "call.ring") {
-        return { title: "Incoming call", body: title };
-      }
-      return { title: "Meeting started", body: `${title} is starting now` };
-    }
+    // call.started / call.waiting / call.ring deliberately have NO case here.
+    // They already get their own dedicated, always-on-top popup window (see
+    // main/meeting-invite-manager.ts, driven by IncomingMeetingNotice on the
+    // renderer side) regardless of whether this window is focused — routing
+    // them through this generic OS-Notification path too was the exact
+    // duplicate-popup bug: both would fire for the same event whenever the
+    // main window was visible-but-unfocused.
     default:
       return null;
   }

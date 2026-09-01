@@ -38,7 +38,7 @@ func TestMarkLeftFromSFU_StaleSessionDoesNotClearAReconnectedParticipant(t *test
 
 	// The OLD connection's own participant_left webhook arrives late — after
 	// the reconnect already landed. This must be recognised as stale.
-	if _, err := s.MarkLeftFromSFU(ctx, c.id, c.guest, "PA_old"); err != nil {
+	if _, _, err := s.MarkLeftFromSFU(ctx, c.id, c.guest, "PA_old"); err != nil {
 		t.Fatalf("MarkLeftFromSFU (stale): %v", err)
 	}
 
@@ -57,7 +57,7 @@ func TestMarkLeftFromSFU_CurrentSessionLeavingStillClosesTheRow(t *testing.T) {
 	if err := s.MarkJoinedFromSFU(ctx, c.id, c.guest, "PA_current"); err != nil {
 		t.Fatalf("MarkJoinedFromSFU: %v", err)
 	}
-	if _, err := s.MarkLeftFromSFU(ctx, c.id, c.guest, "PA_current"); err != nil {
+	if _, _, err := s.MarkLeftFromSFU(ctx, c.id, c.guest, "PA_current"); err != nil {
 		t.Fatalf("MarkLeftFromSFU: %v", err)
 	}
 
@@ -75,7 +75,7 @@ func TestMarkLeftFromSFU_NoSessionRecordedYetStillCloses(t *testing.T) {
 	ctx := context.Background()
 	c := seedLiveCall(t, s, nil)
 
-	if _, err := s.MarkLeftFromSFU(ctx, c.id, c.guest, "PA_whatever"); err != nil {
+	if _, _, err := s.MarkLeftFromSFU(ctx, c.id, c.guest, "PA_whatever"); err != nil {
 		t.Fatalf("MarkLeftFromSFU: %v", err)
 	}
 	if leftAt := participantLeftAt(t, s, c.id, c.guest); leftAt == nil {

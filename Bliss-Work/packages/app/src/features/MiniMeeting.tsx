@@ -95,7 +95,7 @@ export function MiniMeeting({
   micOn,
   camOn,
   unread,
-  connectedAt,
+  startedAt,
   onToggleMic,
   onToggleCam,
   onRestore,
@@ -109,14 +109,17 @@ export function MiniMeeting({
   micOn: boolean;
   camOn: boolean;
   unread: number;
-  connectedAt?: number;
+  /** The MEETING's own start time (server `call.startedAt`), not when this
+   *  participant's own client connected — every viewer's pill must count up
+   *  from the same number. */
+  startedAt?: number;
   onToggleMic: () => void;
   onToggleCam: () => void;
   onRestore: () => void;
   onLeave: () => void;
 }) {
   const [pos, setPos] = useState<Point>(() => clampToViewport(readPosition() ?? defaultPosition()));
-  const duration = useCallDuration(connectedAt);
+  const duration = useCallDuration(startedAt);
 
   // A window dragged to the right edge and then a narrowed viewport is a window
   // that is no longer reachable.

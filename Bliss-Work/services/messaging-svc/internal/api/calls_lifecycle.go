@@ -56,15 +56,30 @@ func (s *Server) handleRoomEvent(ctx context.Context, ev *livekit.RoomEvent) {
 		// call here would take a meeting away from everyone in it because its
 		// organiser reloaded the page. A host who really has gone is closed by
 		// the sweeper a grace period later.
-		wasSharing, err := s.store.MarkLeftFromSFU(ctx, ev.Room, ev.Identity, ev.SID)
+		//
+		// The one thing this DOES tell people in real time is that this
+		// participant left (see notifyParticipantLeft) — guarded on `recorded`
+		// so a reload's eventual reconnect-or-not doesn't matter here: this
+		// only fires for a genuinely new departure, never for an explicit
+		// /leave request that already closed the same row moments earlier.
+		// LiveKit cannot distinguish a reload from a real departure either
+		// way, so on a reload this is one harmless, self-correcting refetch on
+		// the person's other sessions, not a lasting wrong state.
+		recorded, wasSharing, err := s.store.MarkLeftFromSFU(ctx, ev.Room, ev.Identity, ev.SID)
 		if err != nil {
 			s.log.Warn("could not record an SFU departure",
 				"call_id", ev.Room, "user_id", ev.Identity, "err", err)
 			return
 		}
+		if !recorded {
+			// Not on this roster, a stale echo, or the explicit /leave request
+			// already landed on this same row. Either way, nothing new to tell.
+			return
+		}
 		if wasSharing {
 			s.notifyShare(ctx, ev.Room, events.TypeCallShareStopped, ev.Identity, "")
 		}
+		s.notifyParticipantLeft(ctx, ev.Room, ev.Identity)
 
 	case livekit.EventRoomFinished:
 		ended, err := s.store.EndCallFromSFU(ctx, ev.Room)

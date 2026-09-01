@@ -1,49 +1,110 @@
 /**
- * The incoming-meeting popup: BlissWork logo, meeting title, Video/Voice/Leave.
+ * The incoming-meeting popup: BlissWork logo, meeting title, organizer,
+ * Video/Voice/Leave.
  *
- * Replaces the sonner toast that used to fire for call.started/call.waiting/
- * call.ring (see lib/queryBridge's announceIncomingMeeting call sites) with a
- * small, theme-matched card. Compact and non-blocking by design — modeled on
- * MeetingHost's own RejoinPrompt, not on CallUI's full-screen Backdrop for a
- * direct-call ring, since a meeting invite must never take over the app.
+ * ── One popup, never two ─────────────────────────────────────────────────────
+ * On Electron this hands off to a real, always-on-top OS window (see
+ * PlatformConfig.showMeetingInvitePopup / main/meeting-invite-manager.ts) and
+ * renders NOTHING itself — that window works whether or not BlissWork's own
+ * window is focused or even visible, which an in-page card cannot. Web has no
+ * such capability, so it keeps the in-page card as its only option. Each
+ * platform therefore has exactly ONE active popup mechanism; there is no
+ * scenario where both could show for the same invite.
  *
- * Themed for free: every colour below (`bg-surface`, `text-fg`, `ring-border`,
- * `bg-accent-soft`, `text-danger`, …) resolves through the CSS custom
- * properties `packages/ui/src/theme.css` defines per family/mode, the exact
- * same tokens the rest of the app uses — so this automatically matches
- * whichever theme (Default/Rose/Blue/Purple/Teal, light or dark) is active on
- * <html>, on both web and the Electron desktop shell, with nothing
- * theme-specific written here.
+ * Deduping the SAME meeting announced more than once (call.started AND
+ * call.waiting AND call.ring can all fire for one call in quick succession)
+ * happens in state: `setIncoming` below only ever replaces the current card
+ * for a genuinely DIFFERENT callId, so a repeat announcement for the one
+ * already showing is a no-op — see the dedup note on `onIncomingMeetingAnnounced`
+ * call sites in lib/queryBridge.
  *
- * Mounted once, in MeetingHost, above the router — same reasoning as
- * RejoinPrompt: an invite can arrive on any screen, including mid-meeting.
+ * Auto-dismisses after AUTO_DISMISS_MS with no interaction, same as a phone's
+ * own incoming-call screen — an invite nobody answers should not sit on
+ * screen forever.
  */
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Phone, Video, X } from "lucide-react";
 import { Logo } from "@taskboard/ui";
 import { onIncomingMeetingAnnounced, requestMeetingJoin } from "../lib/MeetingSession";
+import { useRuntime } from "../lib/runtime";
+import { qk } from "../lib/queryBridge";
 
 interface Incoming {
   callId: string;
   title: string;
 }
 
+/** 12s — inside the requested 10-15s window. Matches an incoming phone call:
+ *  long enough to notice and react, short enough not to linger once missed. */
+const AUTO_DISMISS_MS = 12_000;
+
 export function IncomingMeetingNotice() {
+  const { api, config } = useRuntime();
   const [incoming, setIncoming] = useState<Incoming | null>(null);
+  // EVERY callId this component has ever shown a card for, not just the one
+  // currently on screen. Without this, dismissing (or auto-dismissing) an
+  // invite and then a LATER, different event type for that SAME call arriving
+  // (call.started, then call.waiting, then call.ring can each fire for one
+  // meeting) would read as "nothing showing for this id" and bring the card
+  // straight back — the popup reappearing right after being dismissed is
+  // worse than the original duplicate-toast bug this replaced.
+  const seenRef = useRef<Set<string>>(new Set());
 
   useEffect(
     () =>
       onIncomingMeetingAnnounced((callId, title) => {
-        // Same meeting already showing: leave it alone rather than replace or
-        // stack a second card for an event that just repeats what is already
-        // on screen (call.started and call.waiting can both fire for one
-        // call in quick succession).
-        setIncoming((current) => (current?.callId === callId ? current : { callId, title }));
+        if (seenRef.current.has(callId)) return;
+        seenRef.current.add(callId);
+        setIncoming({ callId, title });
       }),
     [],
   );
 
-  if (!incoming) return null;
+  // The Electron popup window's own Video/Voice click (main/meeting-invite-
+  // manager.ts's window has no React Query / MeetingSession context of its
+  // own — it's a separate BrowserWindow) comes back here rather than being
+  // handled in desktop's main.tsx directly, so there is exactly one place
+  // that knows "joining a meeting means requestMeetingJoin", on both
+  // platforms. Mounted unconditionally (not inside the `!incoming` guard
+  // below) since the popup window can outlive this component's own
+  // `incoming` state — it has its own 12s auto-dismiss timer, not this one's.
+  useEffect(() => config.onMeetingInviteAction?.(requestMeetingJoin), [config]);
+
+  // Auto-dismiss with no interaction. Re-armed only when `incoming` actually
+  // changes identity — which, per the dedup above, means a genuinely new
+  // invite, not a repeat announcement of the one already on screen.
+  useEffect(() => {
+    if (!incoming) return;
+    const timer = setTimeout(() => setIncoming(null), AUTO_DISMISS_MS);
+    return () => clearTimeout(timer);
+  }, [incoming]);
+
+  // Organizer — resolved from the call's own roster (the HOST participant),
+  // the same field CallRoom's own header reads. Reuses api.call()/qk.call, so
+  // this also warms the cache MeetingHost's join flow fetches from moments
+  // later rather than costing a second request. Falls back to "" (rendered
+  // as no organizer line) rather than blocking the popup on this — the title
+  // is what a person decides from; the organizer is a nice-to-have.
+  const { data: call } = useQuery({
+    queryKey: qk.call(incoming?.callId ?? ""),
+    queryFn: () => api.call(incoming!.callId),
+    enabled: !!incoming,
+    staleTime: 60_000,
+  });
+  const organizer = call?.participants.find((p) => p.role === "HOST")?.username ?? "";
+
+  // Electron: hand off to the always-on-top popup window instead of
+  // rendering here. Called again once `organizer` resolves — the manager
+  // updates the SAME window's content rather than opening a second one, so
+  // the popup can appear instantly (title only) and fill in the organizer a
+  // moment later, instead of waiting on the extra round trip.
+  useEffect(() => {
+    if (!incoming || !config.showMeetingInvitePopup) return;
+    config.showMeetingInvitePopup(incoming.callId, incoming.title || "Meeting", organizer);
+  }, [incoming, organizer, config]);
+
+  if (!incoming || config.showMeetingInvitePopup) return null;
 
   const dismiss = () => setIncoming(null);
   const join = (media: "video" | "voice") => {
@@ -63,6 +124,7 @@ export function IncomingMeetingNotice() {
             meetingTitle) already supplies a non-empty title — this is the
             last line stopping a blank/undefined popup, not the first. */}
         <div className="line-clamp-2 text-sm font-semibold text-fg">{incoming.title || "Meeting"}</div>
+        {organizer && <div className="text-xs text-muted">Hosted by {organizer}</div>}
       </div>
       <div className="mt-4 flex items-center justify-center gap-5">
         <NoticeAction

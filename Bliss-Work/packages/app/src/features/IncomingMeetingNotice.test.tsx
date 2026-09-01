@@ -1,19 +1,30 @@
 /**
- * The compact incoming-meeting popup (logo, title, Video/Voice/Leave) that
- * replaced the call.started/call.waiting/call.ring sonner toast — see
- * lib/queryBridge's announceIncomingMeeting call sites.
+ * The compact incoming-meeting popup (logo, title, organizer, Video/Voice/
+ * Leave) that replaced the call.started/call.waiting/call.ring sonner toast
+ * — see lib/queryBridge's announceIncomingMeeting call sites.
+ *
+ * Also covers the Electron hand-off: on that platform this component renders
+ * nothing and instead drives config.showMeetingInvitePopup (the always-on-top
+ * window in main/meeting-invite-manager.ts) and listens for that window's own
+ * Video/Voice click via config.onMeetingInviteAction.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, cleanup, act } from "@testing-library/react";
+import { render, screen, cleanup, act, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { announceIncomingMeeting } from "../lib/MeetingSession";
 import { IncomingMeetingNotice } from "./IncomingMeetingNotice";
+import type { PlatformConfig } from "../platform";
 
 const { requestMeetingJoin } = vi.hoisted(() => ({ requestMeetingJoin: vi.fn() }));
 vi.mock("../lib/MeetingSession", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/MeetingSession")>();
   return { ...actual, requestMeetingJoin };
 });
+
+const api = { call: vi.fn() };
+let config: Partial<PlatformConfig>;
+vi.mock("../lib/runtime", () => ({ useRuntime: () => ({ api, config }) }));
 
 /** announceIncomingMeeting fires a real `window` event, outside of any
  *  testing-library helper that would otherwise wrap it in `act` for us — do
@@ -22,50 +33,102 @@ function announce(callId: string, title: string) {
   act(() => announceIncomingMeeting(callId, title));
 }
 
+// useQuery needs a real QueryClient in the tree, same as MeetingHost.test.tsx.
+function renderNotice() {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={qc}>
+      <IncomingMeetingNotice />
+    </QueryClientProvider>,
+  );
+}
+
 describe("IncomingMeetingNotice", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    config = {};
+    api.call.mockResolvedValue({ participants: [] });
   });
 
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
   });
 
   it("shows nothing until a meeting is announced", () => {
-    render(<IncomingMeetingNotice />);
+    renderNotice();
     expect(screen.queryByRole("alertdialog")).toBeNull();
   });
 
   it("shows the meeting title once announced", () => {
-    render(<IncomingMeetingNotice />);
+    renderNotice();
     announce("call-1", "Weekly review");
     expect(screen.getByText("Weekly review")).toBeInTheDocument();
   });
 
   it("never shows a blank title, even for an event with none", () => {
-    render(<IncomingMeetingNotice />);
+    renderNotice();
     announce("call-1", "");
     expect(screen.getByRole("alertdialog").textContent).toContain("Meeting");
   });
 
   it("does not stack a second card for the same meeting announced twice", () => {
-    render(<IncomingMeetingNotice />);
+    renderNotice();
     announce("call-1", "Weekly review");
     announce("call-1", "Weekly review");
     expect(screen.getAllByRole("alertdialog")).toHaveLength(1);
   });
 
   it("replaces the card when a DIFFERENT meeting is announced", () => {
-    render(<IncomingMeetingNotice />);
+    renderNotice();
     announce("call-1", "Weekly review");
     announce("call-2", "Design sync");
     expect(screen.getAllByRole("alertdialog")).toHaveLength(1);
     expect(screen.getByText("Design sync")).toBeInTheDocument();
   });
 
+  it("shows the HOST participant as the organizer once the call resolves", async () => {
+    api.call.mockResolvedValue({
+      participants: [
+        { userId: "u1", role: "PARTICIPANT", username: "a.jones" },
+        { userId: "u2", role: "HOST", username: "j.okafor" },
+      ],
+    });
+    renderNotice();
+    announce("call-1", "Weekly review");
+    expect(await screen.findByText("Hosted by j.okafor")).toBeInTheDocument();
+  });
+
+  it("a dismissed invite never reappears for a later event of the SAME call", async () => {
+    const user = userEvent.setup();
+    renderNotice();
+    announce("call-1", "Weekly review");
+    await user.click(screen.getByRole("button", { name: /dismiss/i }));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+
+    // A later, different event type for the same callId (call.started, then
+    // call.waiting, then call.ring can each fire once for one meeting) must
+    // not bring the dismissed popup back.
+    announce("call-1", "Weekly review");
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+  });
+
+  it("auto-dismisses after 10-15 seconds with no interaction", () => {
+    vi.useFakeTimers();
+    renderNotice();
+    act(() => announceIncomingMeeting("call-1", "Weekly review"));
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+
+    act(() => vi.advanceTimersByTime(9_000));
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+
+    act(() => vi.advanceTimersByTime(6_000));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+  });
+
   it("Video joins with camera on and dismisses the popup", async () => {
     const user = userEvent.setup();
-    render(<IncomingMeetingNotice />);
+    renderNotice();
     announce("call-1", "Weekly review");
 
     await user.click(screen.getByRole("button", { name: /join with camera on/i }));
@@ -76,7 +139,7 @@ describe("IncomingMeetingNotice", () => {
 
   it("Voice joins with camera off, mic on and dismisses the popup", async () => {
     const user = userEvent.setup();
-    render(<IncomingMeetingNotice />);
+    renderNotice();
     announce("call-1", "Weekly review");
 
     await user.click(screen.getByRole("button", { name: /join with voice only/i }));
@@ -87,12 +150,45 @@ describe("IncomingMeetingNotice", () => {
 
   it("Leave dismisses without joining the meeting", async () => {
     const user = userEvent.setup();
-    render(<IncomingMeetingNotice />);
+    renderNotice();
     announce("call-1", "Weekly review");
 
     await user.click(screen.getByRole("button", { name: /dismiss/i }));
 
     expect(requestMeetingJoin).not.toHaveBeenCalled();
     expect(screen.queryByRole("alertdialog")).toBeNull();
+  });
+
+  describe("Electron: hands off to the always-on-top popup window", () => {
+    it("renders nothing itself and calls showMeetingInvitePopup instead", () => {
+      config.showMeetingInvitePopup = vi.fn();
+      renderNotice();
+      announce("call-1", "Weekly review");
+      expect(screen.queryByRole("alertdialog")).toBeNull();
+      expect(config.showMeetingInvitePopup).toHaveBeenCalledWith("call-1", "Weekly review", "");
+    });
+
+    it("re-calls showMeetingInvitePopup once the organizer resolves, same window", async () => {
+      const show = vi.fn();
+      config.showMeetingInvitePopup = show;
+      api.call.mockResolvedValue({
+        participants: [{ userId: "u1", role: "HOST", username: "j.okafor" }],
+      });
+      renderNotice();
+      announce("call-1", "Weekly review");
+      expect(show).toHaveBeenCalledWith("call-1", "Weekly review", "");
+      await waitFor(() => expect(show).toHaveBeenCalledWith("call-1", "Weekly review", "j.okafor"));
+    });
+
+    it("forwards the popup window's own Video/Voice click to requestMeetingJoin", () => {
+      let action: ((callId: string, media: "video" | "voice") => void) | undefined;
+      config.onMeetingInviteAction = (cb) => {
+        action = cb;
+        return () => {};
+      };
+      renderNotice();
+      action?.("call-9", "voice");
+      expect(requestMeetingJoin).toHaveBeenCalledWith("call-9", "voice");
+    });
   });
 });

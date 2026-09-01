@@ -10,6 +10,9 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
+import { EventType, type ServerEvent, type WsEventMeta } from "@taskboard/shared";
+
+type EventHandler = (e: ServerEvent, meta?: WsEventMeta) => void;
 
 const h = vi.hoisted(() => ({
   rooms: [] as unknown[],
@@ -17,7 +20,11 @@ const h = vi.hoisted(() => ({
     callToken: vi.fn(),
     leaveCall: vi.fn(async () => {}),
   },
-  wsOn: vi.fn(() => () => {}),
+  wsOn: vi.fn((_handler: EventHandler) => () => {}),
+  // Undefined by default (the web shape: config.eventSource absent, so the
+  // hook subscribes through `ws` — see the mocked runtime below). Desktop
+  // tests set this to a fake EventSource to exercise the other branch.
+  eventSource: undefined as undefined | { subscribe: (handler: EventHandler) => () => void },
 }));
 
 function makeFakeRoom() {
@@ -68,7 +75,11 @@ vi.mock("livekit-client", async (importOriginal) => {
 });
 
 vi.mock("./runtime", () => ({
-  useRuntime: () => ({ api: h.api, ws: { on: h.wsOn } }),
+  useRuntime: () => ({
+    api: h.api,
+    ws: { on: h.wsOn },
+    config: { eventSource: h.eventSource },
+  }),
 }));
 
 vi.mock("sonner", () => ({
@@ -95,6 +106,7 @@ beforeEach(() => {
   h.api.callToken.mockReset().mockResolvedValue(grant());
   h.api.leaveCall.mockClear();
   h.wsOn.mockClear();
+  h.eventSource = undefined;
 });
 
 afterEach(() => {
@@ -146,6 +158,57 @@ describe("reconnecting", () => {
     expect(result.current.camOn).toBe(false);
     expect(room.localParticipant.setMicrophoneEnabled).not.toHaveBeenCalled();
     expect(room.localParticipant.setCameraEnabled).not.toHaveBeenCalled();
+  });
+});
+
+function callEndedEvent(): ServerEvent {
+  return {
+    type: EventType.CallEnded,
+    eventId: "55555555-5555-5555-5555-555555555555",
+    occurredAt: new Date().toISOString(),
+    orgId: "66666666-6666-6666-6666-666666666666",
+    callId: CALL_ID,
+    kind: "MEETING",
+    actorId: "host",
+    title: "Weekly review",
+  } as ServerEvent;
+}
+
+/**
+ * Regression coverage for the desktop "meeting window never closes when the
+ * organiser ends it" bug: `useCallRoom` used to subscribe via `ws.on(...)`
+ * unconditionally, but on Electron nothing ever calls `ws.connect()` — real
+ * events arrive over `config.eventSource` (the IPC bridge to the
+ * utilityProcess) instead, the same split `queryBridge.tsx`'s WsEventBridge
+ * already branches on. A `ws.on` subscription was therefore permanently dead
+ * on desktop: CallEnded never reached this hook, the room was never told to
+ * disconnect, and the call screen never closed on its own.
+ */
+describe("the call ending under us", () => {
+  it("disconnects the room when CallEnded arrives over ws — the web path (no config.eventSource)", async () => {
+    const { result, room } = await joined();
+    expect(h.wsOn).toHaveBeenCalled();
+    const handler = h.wsOn.mock.calls.at(-1)![0];
+
+    act(() => handler(callEndedEvent(), undefined));
+
+    await waitFor(() => expect(result.current.ended).toBe(true));
+    expect(room.disconnect).toHaveBeenCalled();
+  });
+
+  it("disconnects the room when CallEnded arrives over config.eventSource — the desktop path — and never touches ws, which is never connected there", async () => {
+    const subscribe = vi.fn((_handler: EventHandler) => () => {});
+    h.eventSource = { subscribe };
+    const { result, room } = await joined();
+
+    expect(subscribe).toHaveBeenCalled();
+    expect(h.wsOn).not.toHaveBeenCalled();
+    const handler = subscribe.mock.calls.at(-1)![0];
+
+    act(() => handler(callEndedEvent(), undefined));
+
+    await waitFor(() => expect(result.current.ended).toBe(true));
+    expect(room.disconnect).toHaveBeenCalled();
   });
 });
 

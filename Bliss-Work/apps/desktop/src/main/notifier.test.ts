@@ -142,53 +142,21 @@ describe("popupFor — added to a channel", () => {
 });
 
 describe("popupFor — incoming meetings", () => {
-  const call = (over: Record<string, unknown> = {}) => ({
-    type: "call.started",
-    callId: "77777777-7777-7777-7777-777777777777",
-    kind: "MEETING",
-    actorId: THEM,
-    title: "Weekly review",
-    ...over,
-  });
-
-  it("announces a meeting someone else started", () => {
-    expect(popupFor(call(), ME)).toEqual({
-      title: "Meeting started",
-      body: "Weekly review is starting now",
-    });
-  });
-
-  it("never announces my own start", () => {
-    expect(popupFor(call({ actorId: ME }), ME)).toBeNull();
-  });
-
-  it("stays silent when no one is signed in", () => {
-    expect(popupFor(call(), null)).toBeNull();
-  });
-
-  it("falls back to a generic title rather than a blank one", () => {
-    expect(popupFor(call({ title: "" }), ME)?.body).toBe("Meeting is starting now");
-  });
-
-  it("falls back to 'Channel call' for a channel call with no title", () => {
-    expect(popupFor(call({ title: "", kind: "CHANNEL" }), ME)?.body).toBe(
-      "Channel call is starting now",
-    );
-  });
-
-  it("announces someone waiting in the lobby", () => {
-    expect(popupFor(call({ type: "call.waiting" }), ME)).toEqual({
-      title: "Someone is waiting",
-      body: "Waiting for you to start Weekly review",
-    });
-  });
-
-  it("announces being added to a live call", () => {
-    expect(popupFor(call({ type: "call.ring" }), ME)).toEqual({
-      title: "Incoming call",
-      body: "Weekly review",
-    });
-  });
+  // call.started / call.waiting / call.ring must NOT produce a generic OS
+  // popup here — they get their own dedicated always-on-top window instead
+  // (main/meeting-invite-manager.ts). Routing them through both was the
+  // duplicate-notification bug: this is the regression test for that fix.
+  it.each(["call.started", "call.waiting", "call.ring"])(
+    "%s never produces a generic OS popup — that's the invite window's job",
+    (type) => {
+      expect(
+        popupFor(
+          { type, callId: "77777777-7777-7777-7777-777777777777", actorId: THEM, title: "Weekly review" },
+          ME,
+        ),
+      ).toBeNull();
+    },
+  );
 });
 
 describe("popupFor — everything else", () => {

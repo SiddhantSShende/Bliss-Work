@@ -20,10 +20,16 @@
    rotated to each family's own accent hue so Analytics visibly matches the
    selected theme. ── */
 @theme {
-  --color-bg: #f7fbff;
+  /* --color-bg/--color-surface-2/--color-border are neutral gray/white and
+     shared by EVERY light family below — the selected theme is an accent
+     colour (buttons, logo, active states), not a background tint. Only
+     --color-accent/-strong/-fg/-soft and --color-brand-from/-to vary by
+     family; see the .default/.rose/.purple/.teal blocks, which no longer
+     redeclare these three. */
+  --color-bg: #fafafa;
   --color-surface: #ffffff;
-  --color-surface-2: #e8f1fc;
-  --color-border: #dbeafe;
+  --color-surface-2: #f4f4f5;
+  --color-border: #e4e4e7;
   --color-muted: #6b7280;
   --color-fg: #111827;
   --color-accent: #2563eb;
@@ -68,9 +74,12 @@
 }
 
 :root {
-  --glass-bg: rgba(219, 234, 254, 0.4);
-  --glass-border: rgba(255, 255, 255, 0.66);
-  --glass-shadow: 0 8px 32px rgba(37, 99, 235, 0.12);
+  /* Also shared across every light family, same reasoning as --color-bg
+     above: a frosted panel should look like neutral frosted glass, not a
+     tinted pane, regardless of which accent colour is selected. */
+  --glass-bg: rgba(255, 255, 255, 0.65);
+  --glass-border: rgba(255, 255, 255, 0.7);
+  --glass-shadow: 0 8px 32px rgba(24, 24, 27, 0.08);
 }
 
 .dark {
@@ -138,10 +147,10 @@
    as the app's fallback even if Purple's own values are tweaked later. Values
    below are reused verbatim from `.purple`/`.dark.purple`, not invented. */
 .default {
-  --color-bg: #fbf9ff;
+  /* --color-bg/--color-surface-2/--color-border/--glass-bg/--glass-shadow are
+     shared neutrals now — see @theme/:root above — so they are not
+     redeclared per family here. Only the accent/brand tokens below vary. */
   --color-surface: #ffffff;
-  --color-surface-2: #f1e9fd;
-  --color-border: #e9d5ff;
   --color-muted: #71717a;
   --color-fg: #18181b;
   --color-accent: #7c3aed;
@@ -160,10 +169,6 @@
   --color-heat-3: oklch(0.72 0.155 293);
   --color-heat-4: oklch(0.63 0.19 293);
   --color-heat-5: oklch(0.52 0.22 293);
-
-  --glass-bg: rgba(233, 213, 255, 0.5);
-  --glass-border: rgba(255, 255, 255, 0.7);
-  --glass-shadow: 0 8px 32px rgba(124, 58, 237, 0.1);
 }
 
 .dark.default {
@@ -196,10 +201,10 @@
 }
 
 .rose {
-  --color-bg: #fff8f9;
+  /* --color-bg/--color-surface-2/--color-border/--glass-* are shared
+     neutrals now — see @theme/:root above — so they are not redeclared
+     per family here. Only the accent/brand tokens below vary. */
   --color-surface: #ffffff;
-  --color-surface-2: #fce8ea; /* Sidebar — also the hover/subtle-bg tone */
-  --color-border: #fce7f3;
   --color-muted: #71717a;
   --color-fg: #18181b;
   --color-accent: #e11d48;
@@ -218,10 +223,6 @@
   --color-heat-3: oklch(0.72 0.16 17);
   --color-heat-4: oklch(0.63 0.19 17);
   --color-heat-5: oklch(0.52 0.2 17);
-
-  --glass-bg: rgba(252, 232, 234, 0.55);
-  --glass-border: rgba(255, 255, 255, 0.7);
-  --glass-shadow: 0 8px 32px rgba(190, 18, 60, 0.12);
 }
 
 .dark.rose {
@@ -254,10 +255,10 @@
 }
 
 .purple {
-  --color-bg: #fbf9ff;
+  /* --color-bg/--color-surface-2/--color-border/--glass-* are shared
+     neutrals now — see @theme/:root above — so they are not redeclared
+     per family here. Only the accent/brand tokens below vary. */
   --color-surface: #ffffff;
-  --color-surface-2: #f1e9fd;
-  --color-border: #e9d5ff;
   --color-muted: #71717a;
   --color-fg: #18181b;
   --color-accent: #7c3aed;
@@ -276,10 +277,6 @@
   --color-heat-3: oklch(0.72 0.155 293);
   --color-heat-4: oklch(0.63 0.19 293);
   --color-heat-5: oklch(0.52 0.22 293);
-
-  --glass-bg: rgba(233, 213, 255, 0.5);
-  --glass-border: rgba(255, 255, 255, 0.7);
-  --glass-shadow: 0 8px 32px rgba(124, 58, 237, 0.1);
 }
 
 .dark.purple {
@@ -314,12 +311,15 @@
 }
 
 .teal {
-  --color-bg: #f5feff;
+  /* --color-bg/--color-surface-2/--color-border/--glass-* are shared
+     neutrals now — see @theme/:root above — so they are not redeclared
+     per family here. Only the accent/brand tokens below vary. */
   --color-surface: #ffffff;
-  --color-surface-2: #e0fafc;
-  --color-border: #cffafe;
   --color-muted: #64748b;
-  --color-fg: #164e63;
+  /* Neutral near-black, matching every other family — this used to be a
+     dark teal (#164e63), which tinted ordinary body text with the accent
+     hue instead of keeping it a plain, readable dark colour. */
+  --color-fg: #18181b;
   --color-accent: #06b6d4;
   --color-accent-strong: #0891b2;
   --color-accent-fg: #ffffff;
@@ -345,10 +345,6 @@
   --color-heat-3: oklch(0.72 0.122 215);
   --color-heat-4: oklch(0.63 0.107 215);
   --color-heat-5: oklch(0.52 0.088 215);
-
-  --glass-bg: rgba(207, 250, 254, 0.5);
-  --glass-border: rgba(255, 255, 255, 0.7);
-  --glass-shadow: 0 8px 32px rgba(6, 182, 212, 0.1);
 }
 
 .dark.teal {
@@ -494,19 +490,15 @@
   background: var(--color-bg);
 }
 
-/* Every LIGHT theme gets its own tinted wave here — driven by the theme's own
-   --color-brand-from/--color-brand-to/--color-accent (color-mix against
-   white), so a new family needs no gradient work of its own, only the token
-   block above. Dark mode keeps the flat `background: var(--color-bg)` from
-   the base rule instead — a colourful nebula treatment exists for the
-   meeting screen (.meeting-mesh) on its own deliberately-different dark
-   ground; extending that same idea to every dark app theme is future work,
-   not something this token-driven generalisation should improvise.
-
-   The three colour-mix stops are what used to be a fixed violet/cyan/blue
-   trio specific to the original palette; the five white highlight blobs
-   above them (and the ::before/::after floating orbs below) stay literal
-   white on purpose — they're a neutral cloud texture, not a brand colour. */
+/* LIGHT mode layers five literal-white cloud-highlight blobs over the flat
+   neutral --color-bg — a texture, not a brand colour, so it stays identical
+   regardless of which family's accent is selected (the theme colour belongs
+   on buttons/logo/active-states, never on a full-screen backdrop). This used
+   to also blend in three large radial blobs of --color-brand-from/
+   --color-accent/--color-brand-to (mixed 65-88% against white) plus a
+   tinted linear-gradient base — removed so every family reads as the same
+   clean, neutral background. Dark mode already has no such override; it
+   falls straight through to the flat `background: var(--color-bg)` above. */
 :root:not(.dark) .brand-mesh {
   background:
     radial-gradient(ellipse 34% 22% at 15% 34%, rgba(255, 255, 255, 0.68), transparent 70%),
@@ -514,15 +506,7 @@
     radial-gradient(ellipse 38% 24% at 76% 28%, rgba(255, 255, 255, 0.5), transparent 72%),
     radial-gradient(ellipse 28% 16% at 86% 34%, rgba(255, 255, 255, 0.42), transparent 72%),
     radial-gradient(ellipse 40% 20% at 48% 78%, rgba(255, 255, 255, 0.38), transparent 74%),
-    radial-gradient(ellipse 78% 105% at 4% 2%, color-mix(in oklab, var(--color-brand-from) 88%, white), transparent 67%),
-    radial-gradient(ellipse 76% 96% at 97% 12%, color-mix(in oklab, var(--color-accent) 65%, white), transparent 67%),
-    radial-gradient(ellipse 90% 76% at 52% 108%, color-mix(in oklab, var(--color-brand-to) 85%, white), transparent 65%),
-    linear-gradient(
-      135deg,
-      color-mix(in oklab, var(--color-brand-from) 12%, white) 0%,
-      color-mix(in oklab, var(--color-bg) 60%, white) 48%,
-      color-mix(in oklab, var(--color-brand-to) 14%, white) 100%
-    );
+    var(--color-bg);
 }
 
 :root:not(.dark) .brand-mesh::before,

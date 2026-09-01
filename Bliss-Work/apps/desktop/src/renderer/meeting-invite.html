@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en" class="light meeting-invite-window">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- Same lockdown as sticky.html: this window makes no network calls of
+         its own, everything arrives over IPC from main, so connect-src is
+         'none' rather than an allowlist. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'"
+    />
+    <title>Meeting invite</title>
+    <style>
+      /* Opaque window (see meeting-invite-manager.ts's own note on why —
+         same reasoning as sticky.html's transparent one, just the other
+         answer: this one has a real card that fills the whole window, so
+         there is no surrounding cutout that needs to show the desktop
+         through). Scoped to the class for the same specificity reason
+         sticky.html documents — the bundled theme stylesheet's own
+         `body { background }` rule loads AFTER this block. */
+      html.meeting-invite-window,
+      html.meeting-invite-window body,
+      html.meeting-invite-window #root {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script src="./theme-init.js"></script>
+    <script type="module" src="./meeting-invite.tsx"></script>
+  </body>
+</html>

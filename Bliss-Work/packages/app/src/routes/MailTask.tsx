@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { StickyTaskDTO, TaskAction } from "@taskboard/shared";
+import type { NotificationDTO, StickyTaskDTO, TaskAction } from "@taskboard/shared";
 import { EmptyState } from "@taskboard/ui";
 import { ListTodo } from "lucide-react";
 import { useRuntime } from "../lib/runtime";
@@ -88,6 +88,22 @@ export function MailTask() {
       .catch(() => {
         markedRef.current = null; // allow a retry on the next open
       });
+
+    // readInboxItem (above) only clears the unified-inbox badge. The bell's
+    // OWN unread state (notification-svc, surfaced in NotificationsPanel) is a
+    // separate system that nothing but the bell itself ever wrote to — so a
+    // "Task completed by …" notification stayed lit even after its task was
+    // opened and reviewed here. Same "opening IS reading it" reasoning as
+    // dismissSticky above, extended to notification-svc's copy.
+    const unreadForTask = (qc.getQueryData<NotificationDTO[]>(qk.notifications) ?? []).filter(
+      (n) => n.taskId === taskId && !n.read,
+    );
+    if (unreadForTask.length > 0) {
+      qc.setQueryData<NotificationDTO[]>(qk.notifications, (prev) =>
+        (prev ?? []).map((n) => (n.taskId === taskId ? { ...n, read: true } : n)),
+      );
+      void Promise.all(unreadForTask.map((n) => api.markNotificationRead(n.id).catch(() => {})));
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taskId]);
 

@@ -8,3 +8,15 @@
 export function meetingDeepLink(token: string): string {
   return `taskboard://join?t=${encodeURIComponent(token)}`;
 }
+
+/**
+ * Build a meeting's shareable `https://.../join?t=` link — the one this
+ * deep link above hands off to. `webBaseUrl` must be `config.webBaseUrl`
+ * (PlatformConfig), never `window.location.origin`: on the packaged
+ * Electron renderer, which loads from `file://`, that would produce an
+ * unopenable `file:///join?t=` link instead of a real, publicly reachable
+ * URL.
+ */
+export function meetingJoinUrl(webBaseUrl: string, token: string): string {
+  return `${webBaseUrl}/join?t=${encodeURIComponent(token)}`;
+}

@@ -459,12 +459,16 @@ func (s *Store) MarkJoined(ctx context.Context, orgID, userID, callID string) er
 // closes the tab in the lobby leaves it, and if they come back they are a fresh
 // arrival — which is what re-notifies the host that they are there.
 //
-// Returns whether the departure also ended a screen share, and the ended call
-// when this leave ended one, so the handler knows which events to emit.
+// Returns whether this call actually recorded a fresh departure (false on a
+// double-submitted/retried leave, so the caller does not emit a duplicate
+// notification), whether the departure also ended a screen share, and the
+// ended call when this leave ended one, so the handler knows which events to
+// emit.
 func (s *Store) LeaveCall(
 	ctx context.Context, orgID, userID, callID string,
-) (bool, *CallDTO, error) {
+) (bool, bool, *CallDTO, error) {
 	var (
+		recorded   bool
 		wasSharing bool
 		ended      *CallDTO
 	)
@@ -477,11 +481,13 @@ func (s *Store) LeaveCall(
 		if err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `
+		ct, err := tx.Exec(ctx, `
 			UPDATE call_participants SET left_at = now(), waiting_since = NULL
-			WHERE call_id = $1 AND user_id = $2 AND left_at IS NULL`, callID, userID); err != nil {
+			WHERE call_id = $1 AND user_id = $2 AND left_at IS NULL`, callID, userID)
+		if err != nil {
 			return err
 		}
+		recorded = ct.RowsAffected() > 0
 		// Leaving stops whatever you were sharing. Without this a share stays
 		// recorded as live against a participant who is no longer in the room,
 		// and every client that joins later is told about a share that ended.
@@ -496,9 +502,9 @@ func (s *Store) LeaveCall(
 		return err
 	})
 	if err != nil {
-		return false, nil, err
+		return false, false, nil, err
 	}
-	return wasSharing, ended, nil
+	return recorded, wasSharing, ended, nil
 }
 
 // EndCall closes a call. HOSTS ONLY.

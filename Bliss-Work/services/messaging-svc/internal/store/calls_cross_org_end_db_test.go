@@ -115,7 +115,7 @@ func TestLeaveCall_HostLeaving_ClosesOutCrossOrgGuestsRosterRow(t *testing.T) {
 	c := seedCrossOrgCall(t, s)
 	ctx := context.Background()
 
-	_, ended, err := s.LeaveCall(ctx, c.hostOrg, c.host, c.id)
+	_, _, ended, err := s.LeaveCall(ctx, c.hostOrg, c.host, c.id)
 	if err != nil {
 		t.Fatalf("LeaveCall: %v", err)
 	}

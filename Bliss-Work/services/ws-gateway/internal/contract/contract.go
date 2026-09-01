@@ -98,7 +98,7 @@ func (e *Event) RecipientsOf() []string {
 	case "notification.created":
 		return dedupe([]string{e.RecipientID})
 	case "call.scheduled", "call.ring", "call.participant_added", "call.ended",
-		"call.started", "call.waiting",
+		"call.started", "call.waiting", "call.participant_left",
 		"call.screenshare_started", "call.screenshare_stopped":
 		// Whoever messaging-svc addressed it to, computed server-side.
 		//

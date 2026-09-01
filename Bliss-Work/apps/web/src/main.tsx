@@ -48,6 +48,7 @@ if (env.PROD) {
 
 const config: PlatformConfig = {
   kind: "web",
+  webBaseUrl: window.location.origin,
   authBase: env.VITE_AUTH_BASE ?? "http://localhost:8001",
   taskBase: env.VITE_TASK_BASE ?? "http://localhost:8002",
   notificationBase: env.VITE_NOTIFICATION_BASE ?? "http://localhost:8003",

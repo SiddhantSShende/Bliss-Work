@@ -53,8 +53,10 @@ function renderDialog(onStarted = vi.fn()) {
   );
   return {
     onStarted,
+    container,
     setStart: (v: string) => fireEvent.change(startInput!, { target: { value: v } }),
     setEnd: (v: string) => fireEvent.change(endInput!, { target: { value: v } }),
+    startInput: startInput!,
     endInput: endInput!,
   };
 }
@@ -210,5 +212,38 @@ describe("New Meeting popup — submitting", () => {
     await user.click(screen.getByRole("button", { name: "Schedule" }));
 
     expect(await screen.findByText("Standup")).toBeInTheDocument();
+  });
+});
+
+describe("New Meeting popup — field styling", () => {
+  it("gives Title, Start time and End time the same background, radius and padding", () => {
+    const { startInput, endInput } = renderDialog();
+    const title = screen.getByPlaceholderText(TITLE_PLACEHOLDER);
+
+    for (const el of [title, startInput, endInput]) {
+      expect(el.className).toContain("bg-surface-2");
+      expect(el.className).toContain("rounded-lg");
+      expect(el.className).toContain("py-2");
+    }
+  });
+
+  it("never dims End time's background via opacity when disabled", () => {
+    const { endInput } = renderDialog();
+    expect(endInput).toBeDisabled();
+    expect(endInput.className).toContain("bg-surface-2");
+    expect(endInput.className).not.toMatch(/opacity/);
+  });
+
+  it("shows the same Calendar and Clock icons, same size, on both Start time and End time", () => {
+    const { container } = renderDialog();
+    const calendarIcons = container.querySelectorAll("svg.lucide-calendar");
+    const clockIcons = container.querySelectorAll("svg.lucide-clock");
+    expect(calendarIcons).toHaveLength(2);
+    expect(clockIcons).toHaveLength(2);
+    for (const icon of [...calendarIcons, ...clockIcons]) {
+      expect(icon.getAttribute("width")).toBe("14");
+      expect(icon.getAttribute("height")).toBe("14");
+      expect(icon.parentElement?.className).toContain("text-fg");
+    }
   });
 });

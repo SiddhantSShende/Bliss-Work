@@ -75,8 +75,35 @@ export interface ChatStickyHost {
   list: () => Promise<string[]>;
 }
 
+/** A meeting window's live state, as the main window's status pill needs it
+ *  — see PlatformConfig.pushMeetingWindowStatus/onMeetingWindowStatus. */
+export interface MeetingWindowStatus {
+  callId: string;
+  title: string;
+  micOn: boolean;
+  camOn: boolean;
+  /** Epoch ms — the MEETING's own start time (server call.startedAt), the
+   *  same value CallRoom's own header timer is built from. Absent until the
+   *  meeting has actually started. */
+  startedAt?: number;
+  participantCount: number;
+}
+
 export interface PlatformConfig {
   kind: "web" | "electron";
+  /**
+   * The public web app origin — what a meeting-join link (or anything else
+   * meant to leave the app and be opened by anybody, with or without
+   * BlissWork installed) must be built from.
+   *
+   * NOT the same thing as `window.location.origin`: on web the two coincide,
+   * but the packaged Electron renderer loads from `file://`, so reading
+   * `window.location.origin` there produces the opaque `file://` origin —
+   * not a link anyone else's browser (or even a plain email client) can open.
+   * See lib/meetingDeepLink.ts's `meetingJoinUrl`, the one thing this exists
+   * for today.
+   */
+  webBaseUrl: string;
   authBase: string;
   taskBase: string;
   notificationBase: string;
@@ -124,6 +151,25 @@ export interface PlatformConfig {
    *  computed Node-side so the sender renderer never loads the whole file.
    *  Web falls back to an in-memory hash (its files are small). */
   hashFile?: (file: File) => Promise<string>;
+  /**
+   * Present only in Electron: raise the incoming-meeting invite as a real,
+   * always-on-top OS window (see main/meeting-invite-manager.ts), so it is
+   * visible over whatever other application the user is in — not just when
+   * BlissWork's own window happens to be focused. `organizer` is a plain
+   * label (already resolved to a name, never a raw id) or "" when unknown.
+   * Absent on web, where IncomingMeetingNotice renders its own in-page
+   * popup instead — a browser tab has no equivalent of an always-on-top
+   * window, so there is nothing for this to do there.
+   */
+  showMeetingInvitePopup?: (callId: string, title: string, organizer: string) => void;
+  /**
+   * Present only in Electron: the invite popup's Video Call / Voice Call
+   * button was clicked (in the SEPARATE popup window, not this one) — join
+   * with that media choice, the same way IncomingMeetingNotice's own buttons
+   * already do via requestMeetingJoin. Absent on web, where the popup lives
+   * in-page and calls requestMeetingJoin directly, no IPC round trip needed.
+   */
+  onMeetingInviteAction?: (cb: (callId: string, media: "video" | "voice") => void) => () => void;
   /** Present only in Electron: pin an acknowledged task to the desktop as a
    *  locked, always-on-top sticky note. Resolves with the authoritative pinned
    *  set (+ refusal reason). Absent on web (no persistent desktop window
@@ -227,6 +273,51 @@ export interface PlatformConfig {
      *  re-validates it against its own detection before launching anything. */
     launch: (path: string) => Promise<boolean>;
   };
+  /** Present only in Electron: mirrors the "Desktop notifications" preference
+   *  (packages/app/src/lib/notificationPrefs.ts's localStorage copy) to the
+   *  main process, which raises OS popups for messages/tasks/calls on its own
+   *  — see apps/desktop/src/main/notifier.ts — and has no access to the
+   *  renderer's localStorage to check the preference itself. Absent on web,
+   *  where the localStorage copy IS the notification path (lib/callNotify.ts
+   *  reads it directly, no IPC involved). */
+  notificationPrefs?: {
+    getDesktopEnabled: () => Promise<boolean>;
+    setDesktopEnabled: (enabled: boolean) => Promise<void>;
+  };
+  /** Present only in Electron: open (or focus, if already open) a meeting in
+   *  its own OS window instead of rendering it as an overlay in this one —
+   *  see lib/MeetingSession.tsx's `enter()`, which calls this when present
+   *  and never touches its own local overlay state on Electron. Absent on
+   *  web, where `enter()` keeps rendering the room in-page as it always has. */
+  openMeetingWindow?: (callId: string) => void;
+  /** Present only on the SECONDARY Electron meeting window `openMeetingWindow`
+   *  creates: its credential-bearing IPC channels (auth:refresh-token, etc.)
+   *  are gated to the main window only (see fromMainWindow in
+   *  apps/desktop/src/main/index.ts) — a deliberate boundary this does not
+   *  widen. So SessionBootstrap must instead wait for the main window to
+   *  mirror its session over lib/authChannel.ts's BroadcastChannel (same
+   *  mechanism that already syncs sessions between web tabs) before
+   *  attempting its own refresh. Absent everywhere else. */
+  bootstrapFromPeerSession?: boolean;
+  /** Present only in Electron: push this meeting's live status to the main
+   *  window's status pill (features/MeetingWindowStatusBar.tsx) — called
+   *  from the meeting window's own CallRoom whenever title/mic/cam/
+   *  participant count changes. No video: LiveKit Track objects live in the
+   *  meeting window's own renderer process and cannot cross to this one. */
+  pushMeetingWindowStatus?: (status: MeetingWindowStatus) => void;
+  /** Present only in Electron, on the main window: subscribe to the status
+   *  above. Returns an unsubscribe fn. */
+  onMeetingWindowStatus?: (cb: (status: MeetingWindowStatus) => void) => () => void;
+  /** Present only in Electron, on the main window: a meeting window closed —
+   *  gracefully or not — so the status pill can clear itself even without a
+   *  final status push (a crash, or the window closing while unfocused). */
+  onMeetingWindowClosed?: (cb: (callId: string) => void) => () => void;
+  /** Present only in Electron, on the main window: the status pill's hang-up
+   *  button. Round-trips to the window that actually owns the live LiveKit
+   *  room (same close handshake the OS close button uses) rather than
+   *  leaving the call from here directly, which would update the server
+   *  roster without ever disconnecting LiveKit or releasing the camera/mic. */
+  hangUpMeetingWindow?: (callId: string) => void;
   /** Present only in Electron: open a URL in the user's DEFAULT browser.
    *  Google refuses OAuth inside an embedded webview (`disallowed_useragent`),
    *  so the authorize URL must leave the app entirely. Absent on web, where a
@@ -281,6 +372,16 @@ export interface PlatformConfig {
    *  quit out from under the page. */
   onBeforeQuit?: (cb: () => void) => () => void;
   notifyQuitReady?: () => void;
+  /** Present only in Electron, and only meaningful in a meeting window (see
+   *  main/meeting-window-manager.ts): THIS window is about to close — the OS
+   *  close button, or the main window's status-pill hang-up button — while
+   *  the app itself keeps running. Distinct from onBeforeQuit: the app is
+   *  not exiting, only this window is, but the reason to pause it is the
+   *  same — give CallRoom one chance to disconnect the room and tell the
+   *  server the user left before the window is actually destroyed. Call
+   *  notifyWindowCloseReady() once done. Returns an unsubscribe fn. */
+  onBeforeWindowClose?: (cb: () => void) => () => void;
+  notifyWindowCloseReady?: () => void;
   /** Present only in Electron: the app detected and refused a screenshot
    *  attempt.
    *

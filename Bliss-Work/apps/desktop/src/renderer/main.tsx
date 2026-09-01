@@ -1,6 +1,6 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { App, useSession, refreshSession, type PlatformConfig, type ServerEvent, type RtcTransport, type FileSink, type ChatStickyHost, installChunkReloadRecovery } from "@taskboard/app";
+import { App, useSession, refreshSession, type PlatformConfig, type ServerEvent, type RtcTransport, type FileSink, type ChatStickyHost, type MeetingWindowStatus, installChunkReloadRecovery } from "@taskboard/app";
 import type { PinResult, WsEventMeta } from "@taskboard/shared";
 import { resolveEndpointsFromEnv } from "../shared/endpoints";
 import "@taskboard/ui/styles.css";
@@ -9,6 +9,12 @@ import "./index.css";
 declare global {
   interface Window {
     taskboard: {
+      isMeetingWindow: boolean;
+      openMeetingWindow: (callId: string) => void;
+      pushMeetingWindowStatus: (status: MeetingWindowStatus) => void;
+      onMeetingWindowStatus: (cb: (status: MeetingWindowStatus) => void) => () => void;
+      onMeetingWindowClosed: (cb: (callId: string) => void) => () => void;
+      hangUpMeetingWindow: (callId: string) => void;
       setToken: (t: string | null) => void;
       getRefreshToken: () => Promise<string | null>;
       setRefreshToken: (t: string | null) => void;
@@ -19,6 +25,8 @@ declare global {
       onTokenRequest: (cb: () => void) => () => void;
       onInviteDeepLink: (cb: (token: string) => void) => () => void;
       onMeetingDeepLink: (cb: (token: string) => void) => () => void;
+      showMeetingInvitePopup: (callId: string, title: string, organizer: string) => void;
+      onMeetingInviteAction: (cb: (callId: string, media: "video" | "voice") => void) => () => void;
       openExternal: (url: string) => void;
       openAttachment: (url: string, fileName: string) => Promise<{ ok: boolean; error?: string }>;
       hasPreciseLocation: () => Promise<boolean>;
@@ -31,6 +39,8 @@ declare global {
        *  once cleanup is done. See PlatformConfig.onBeforeQuit. */
       onBeforeQuit: (cb: () => void) => () => void;
       notifyQuitReady: () => void;
+      onBeforeWindowClose: (cb: () => void) => () => void;
+      notifyWindowCloseReady: () => void;
       onScreenshotBlocked: (
         cb: (info: { chord: string; recorded: boolean }) => void,
       ) => () => void;
@@ -62,6 +72,10 @@ declare global {
         >;
         launch: (path: string) => Promise<boolean>;
       };
+      notifications: {
+        getDesktopEnabled: () => Promise<boolean>;
+        setDesktopEnabled: (enabled: boolean) => Promise<void>;
+      };
       rtc: RtcTransport;
       fileSink: FileSink;
       hash: {
@@ -80,6 +94,19 @@ declare global {
 installChunkReloadRecovery();
 
 const bridge = window.taskboard;
+
+// The meeting window is loaded with ?w=meeting&callId=… (a real query string,
+// not a hash) rather than a pre-built hash: composing loadFile's `search` and
+// `hash` options together is unproven in this codebase (every existing window
+// uses one or the other, never both — see main/meeting-window-manager.ts), so
+// the route is seeded here instead, imperatively, before the app ever
+// renders — the same technique bridge.onMeetingDeepLink already uses below
+// for an inbound deep link, just run synchronously up front instead of on an
+// event.
+if (bridge.isMeetingWindow) {
+  const callId = new URLSearchParams(location.search).get("callId");
+  if (callId) location.hash = `#/call/${encodeURIComponent(callId)}?opened=1`;
+}
 
 // Service endpoints come from src/shared/endpoints.ts, which the MAIN process
 // imports too — so the renderer and the ws-process socket can never disagree
@@ -100,8 +127,31 @@ const ENDPOINTS = resolveEndpointsFromEnv(!env.DEV, {
 
 const config: PlatformConfig = {
   kind: "electron",
+  // NOT window.location.origin — the packaged renderer loads from file://,
+  // which would make every meeting-join link unopenable (see PlatformConfig's
+  // own doc comment on webBaseUrl). authBase always shares an origin with the
+  // public web app (see apps/desktop/src/shared/endpoints.ts's PROD_ORIGIN),
+  // the same derivation apps/desktop/src/main/index.ts and session-token.ts
+  // already use for the identical problem.
+  webBaseUrl: new URL(ENDPOINTS.authBase).origin,
   ...ENDPOINTS,
   router: "hash",
+  // Absent (not merely false) on the meeting window's OWN config would be
+  // pointless caution — nothing in that window's UI can call enter() a
+  // second time (CallWindow.tsx shadows MeetingSessionContext with null) —
+  // so this is wired the same way for both windows.
+  openMeetingWindow: (callId) => bridge.openMeetingWindow(callId),
+  // Only true for the meeting window itself — see PlatformConfig's own doc
+  // comment on why its SessionBootstrap needs this.
+  bootstrapFromPeerSession: bridge.isMeetingWindow,
+  // Wired identically on both windows, same reasoning as openMeetingWindow
+  // above: the meeting window is the only one that ever calls push, the
+  // main window is the only one that ever calls hangUp/subscribes to
+  // status/closed, and each side's own unused half is simply never invoked.
+  pushMeetingWindowStatus: (status) => bridge.pushMeetingWindowStatus(status),
+  onMeetingWindowStatus: (cb) => bridge.onMeetingWindowStatus(cb),
+  onMeetingWindowClosed: (cb) => bridge.onMeetingWindowClosed(cb),
+  hangUpMeetingWindow: (callId) => bridge.hangUpMeetingWindow(callId),
   pinTask: (taskId) => bridge.pinTask(taskId),
   listPinned: () => bridge.listPinned(),
   dismissSticky: (taskId) => bridge.dismissSticky(taskId),
@@ -129,23 +179,38 @@ const config: PlatformConfig = {
   openMicrophoneSettings: bridge.openMicrophoneSettings
     ? () => bridge.openMicrophoneSettings!()
     : undefined,
+  showMeetingInvitePopup: (callId, title, organizer) =>
+    bridge.showMeetingInvitePopup(callId, title, organizer),
+  onMeetingInviteAction: (cb) => bridge.onMeetingInviteAction(cb),
   onBeforeQuit: (cb) => bridge.onBeforeQuit(cb),
   notifyQuitReady: () => bridge.notifyQuitReady(),
+  onBeforeWindowClose: (cb) => bridge.onBeforeWindowClose(cb),
+  notifyWindowCloseReady: () => bridge.notifyWindowCloseReady(),
   onScreenshotBlocked: (cb) => bridge.onScreenshotBlocked(cb),
   appVersion: () => bridge.appVersion(),
   checkForUpdates: () => bridge.checkForUpdates(),
   onUpdateCheckFailed: (cb) => bridge.onUpdateCheckFailed(cb),
   activityAgent: bridge.activity,
   browserAgent: bridge.browsers,
-  eventSource: {
-    connect: () => bridge.setToken(useSession.getState().accessToken),
-    // Sign-out. Clearing the token in the ws-process is what closes its socket,
-    // and the socket is what the gateway counts as presence — the renderer
-    // unmounting does not reach it, because that process outlives the window on
-    // purpose.
-    disconnect: () => bridge.setToken(null),
-    subscribe: (cb) => bridge.onWsEvent(cb),
-  },
+  notificationPrefs: bridge.notifications,
+  // Omitted entirely for the meeting window: its events do not need to ride
+  // the shared utilityProcess socket (there is nothing there for it — no
+  // sticky notes, no tray) and useCallRoom's own subscribeToEvents already
+  // falls back to opening a direct WsClient socket whenever eventSource is
+  // absent, exactly like web. Present only on the main window, unchanged.
+  ...(bridge.isMeetingWindow
+    ? {}
+    : {
+        eventSource: {
+          connect: () => bridge.setToken(useSession.getState().accessToken),
+          // Sign-out. Clearing the token in the ws-process is what closes its
+          // socket, and the socket is what the gateway counts as presence —
+          // the renderer unmounting does not reach it, because that process
+          // outlives the window on purpose.
+          disconnect: () => bridge.setToken(null),
+          subscribe: (cb) => bridge.onWsEvent(cb),
+        },
+      }),
   rtc: bridge.rtc,
   fileSink: bridge.fileSink,
   // Stream the file to main in 8 MB slices (constant renderer memory) and hash

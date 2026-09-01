@@ -770,7 +770,7 @@ func (s *Server) leaveCall(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid call id")
 		return
 	}
-	wasSharing, ended, err := s.store.LeaveCall(r.Context(), claims.OrgID, claims.UserID, callID)
+	recorded, wasSharing, ended, err := s.store.LeaveCall(r.Context(), claims.OrgID, claims.UserID, callID)
 	if err != nil {
 		s.mapErrR(w, r, err)
 		return
@@ -796,6 +796,13 @@ func (s *Server) leaveCall(w http.ResponseWriter, r *http.Request) {
 	// that skipped this would leave every client showing a share that stopped.
 	if wasSharing {
 		s.notifyShare(r.Context(), callID, events.TypeCallShareStopped, claims.UserID, "")
+	}
+	// `recorded` is false on a double-submitted/retried leave (the row was
+	// already closed), which would otherwise announce the same departure
+	// twice — once from this request, once from the one that actually closed
+	// it (or from the SFU webhook racing it, see MarkLeftFromSFU).
+	if recorded {
+		s.notifyParticipantLeft(r.Context(), callID, claims.UserID)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -949,6 +956,32 @@ func (s *Server) notifyShare(ctx context.Context, callID, evtType, actorID, sour
 		ShareSource: source,
 	}); err != nil {
 		s.log.Warn("share notify failed", "call", callID, "type", evtType, "err", err)
+	}
+}
+
+// notifyParticipantLeft tells the room someone left it, without ending it.
+//
+// Addressed to the remaining roster (so a participant count updates promptly)
+// AND the leaver themselves (so their OTHER open sessions/devices learn they
+// are not on this call anymore) — LiveParticipantIDs alone would miss the
+// leaver, since their own row's left_at is already set by the time this runs.
+func (s *Server) notifyParticipantLeft(ctx context.Context, callID, leaverID string) {
+	c, err := s.store.CallForNotify(ctx, callID)
+	if err != nil {
+		s.log.Warn("participant-left notify failed", "call", callID, "err", err)
+		return
+	}
+	live, err := s.store.LiveParticipantIDs(ctx, callID)
+	if err != nil {
+		s.log.Warn("participant-left notify failed", "call", callID, "err", err)
+		return
+	}
+	if err := s.store.EmitCallLifecycle(ctx, c, store.CallNotice{
+		Type:       events.TypeCallParticipantLeft,
+		ActorID:    leaverID,
+		Recipients: append(live, leaverID),
+	}); err != nil {
+		s.log.Warn("participant-left notify failed", "call", callID, "err", err)
 	}
 }
 

@@ -11,7 +11,7 @@ import {
   type RemoteParticipant,
 } from "livekit-client";
 import { toast } from "sonner";
-import { EventType } from "@taskboard/shared";
+import { EventType, type ServerEvent, type WsEventMeta } from "@taskboard/shared";
 import { useRuntime } from "./runtime";
 import { decodeRoomMessage, encodeRoomMessage, type RoomMessage } from "./roomMessages";
 
@@ -90,7 +90,20 @@ export function isGetUserMediaDenied(e: unknown): boolean {
  * quietly staying in a room you are no longer entitled to would be the bug.
  */
 export function useCallRoom(callId: string | null) {
-  const { api, ws } = useRuntime();
+  const { api, ws, config } = useRuntime();
+  // Subscribe to live ServerEvents the same way WsEventBridge does (see
+  // queryBridge.tsx): through config.eventSource on Electron, where the
+  // socket lives in the utilityProcess and this `ws` is never connected —
+  // nothing else ever calls ws.connect() there — and through `ws` directly
+  // on web. Calling `ws.on(...)` unconditionally, as both subscriptions below
+  // used to, left them permanently dead on desktop: the CallStarted lobby
+  // listener and the CallEnded listener never fired, so a call ending under a
+  // desktop participant never disconnected their room or closed the window.
+  const subscribeToEvents = useCallback(
+    (cb: (e: ServerEvent, meta?: WsEventMeta) => void) =>
+      config.eventSource ? config.eventSource.subscribe(cb) : ws.on(cb),
+    [config.eventSource, ws],
+  );
   const [status, setStatus] = useState<RoomStatus>("idle");
   const [participants, setParticipants] = useState<RoomParticipant[]>([]);
   // Neither is published on join — see the connect step in `join` below.
@@ -252,7 +265,7 @@ export function useCallRoom(callId: string | null) {
         // is only meaningful while we are actually in a lobby, and unsubscribing
         // the moment we leave one is what keeps a stale handler from re-joining
         // a call the user has walked away from.
-        lobbyOff.current = ws.on((e) => {
+        lobbyOff.current = subscribeToEvents((e) => {
           if (e.type !== EventType.CallStarted || e.callId !== callId) return;
           // Re-mint rather than trusting the event: it says the call is open,
           // not that this person may enter it, and the token endpoint is still
@@ -387,7 +400,7 @@ export function useCallRoom(callId: string | null) {
       // re-enter.
       joining.current = false;
     }
-  }, [api, callId, scheduleRefresh, stopWaiting, sync, ws]);
+  }, [api, callId, scheduleRefresh, stopWaiting, subscribeToEvents, sync]);
 
   // Keep the lobby poll pointed at the current join without making join depend
   // on itself.
@@ -410,7 +423,7 @@ export function useCallRoom(callId: string | null) {
    */
   useEffect(() => {
     if (!callId) return;
-    return ws.on((e, meta) => {
+    return subscribeToEvents((e, meta) => {
       if (e.type !== EventType.CallEnded || e.callId !== callId) return;
       // NOT from the reconnect replay. The gateway replays up to 200 events on
       // every connect, so without this a "this meeting ended" from hours ago
@@ -429,7 +442,7 @@ export function useCallRoom(callId: string | null) {
       setEnded(true);
       toast("This meeting has ended");
     });
-  }, [api, callId, stopWaiting, ws]);
+  }, [api, callId, stopWaiting, subscribeToEvents]);
 
   /** Start the call we are waiting for, admitting everyone else waiting on it
    *  at the same moment. Only does anything for the people the server named in
