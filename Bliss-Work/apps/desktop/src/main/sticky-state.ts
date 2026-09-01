@@ -20,8 +20,24 @@ import { dirname, join } from "node:path";
  *
  * `pinned` is the load-bearing source of truth for the "pin a task to the
  * desktop" feature: StickyManager floats a note iff its id is in `pinned` AND
- * the task is still ACKNOWLEDGED. Persisting it is what makes a note survive
- * relaunch — an unfinished commitment comes back until it's completed.
+ * the task is still actionable (SENT or ACKNOWLEDGED). Persisting it is what
+ * makes a note survive relaunch — an unfinished commitment comes back until it
+ * is completed or ignored.
+ *
+ * ── What is deliberately NOT persisted ───────────────────────────────────────
+ * A `dismissed` list used to live here, and taking it out is the point of this
+ * file's current shape. It recorded notes the user had cleared, and
+ * autopinActionable skipped anything in it — forever, since nothing removed an
+ * id while the task was still actionable. Because opening a task in the inbox
+ * ALSO wrote to it, merely reading an allocation retired its note permanently,
+ * with the task still outstanding. Hiding a note is now a THIS-RUN decision
+ * held in memory by StickyManager (hideForSession), so the only thing that
+ * takes a note away for good is a terminal status on the server. An older file
+ * may still carry the field; it is ignored on load and dropped on the next
+ * write.
+ *
+ * `minimized` is persisted for the main window but ignored for NOTES on
+ * restore, for a related reason — see positionWidget in ./sticky-manager.
  *
  * Why a separate file from taskboard-cache.json: cache.json is the last-known
  * SNAPSHOT; sticky-state is per-widget USER PREFERENCE. Different lifecycles —
@@ -83,19 +99,10 @@ interface OnDisk {
    *  ACKNOWLEDGED). Persisted so a pinned note re-floats after relaunch — the
    *  "only Complete removes it" promise must survive a restart. */
   pinned: string[];
-  /**
-   * Task ids the user has cleared from the desktop — by dismissing the note, or
-   * by opening the task and reading it. Without this, autopinActionable
-   * re-floated every actionable task on every launch, so notes the user had
-   * already dealt with kept coming back. Entries are dropped by prunePinned
-   * once the task leaves the actionable set, so the set stays bounded and a
-   * re-activated task can float again.
-   */
-  dismissed: string[];
 }
 
 let filePath = "";
-let mem: OnDisk = { version: SCHEMA_VERSION, geometry: {}, pinned: [], dismissed: [] };
+let mem: OnDisk = { version: SCHEMA_VERSION, geometry: {}, pinned: [] };
 let dirty = false;
 let flushTimer: NodeJS.Timeout | null = null;
 
@@ -119,12 +126,18 @@ export function initStickyState(): void {
           ? parsed.geometry
           : {},
       pinned: stringList(parsed.pinned),
-      dismissed: stringList(parsed.dismissed),
       main: isMainBounds(parsed.main) ? parsed.main : undefined,
     };
+    // A note recorded as minimized cannot be brought back: the window is built
+    // minimizable:false + skipTaskbar:true, so there is no taskbar button and
+    // no show path. Clearing it on load is what rescues an install that already
+    // has one — otherwise that task's note is invisible for good.
+    for (const g of Object.values(mem.geometry)) {
+      if (g && g.minimized) g.minimized = false;
+    }
   } catch {
     // Don't crash on a corrupted file; merge defaults instead.
-    mem = { version: SCHEMA_VERSION, geometry: {}, pinned: [], dismissed: [] };
+    mem = { version: SCHEMA_VERSION, geometry: {}, pinned: [] };
   }
 }
 
@@ -177,36 +190,6 @@ export function addPinned(id: string): void {
   if (typeof id !== "string" || !id) return;
   if (!mem.pinned.includes(id)) {
     mem.pinned.push(id);
-    scheduleFlush();
-  }
-}
-
-// ── Dismissed set ─────────────────────────────────────────────────────────────
-
-export function isDismissed(id: string): boolean {
-  return mem.dismissed.includes(id);
-}
-
-/** Current dismissed ids (a copy — callers must not mutate the array). */
-export function getDismissed(): string[] {
-  return [...mem.dismissed];
-}
-
-/** Remember that the user has cleared this note. Idempotent. */
-export function addDismissed(id: string): void {
-  if (typeof id !== "string" || !id) return;
-  if (!mem.dismissed.includes(id)) {
-    mem.dismissed.push(id);
-    scheduleFlush();
-  }
-}
-
-/** Forget a dismissal — called when the task leaves the actionable set, so a
- *  task that comes back (reassigned, un-completed) can float again. */
-export function removeDismissed(id: string): void {
-  const i = mem.dismissed.indexOf(id);
-  if (i !== -1) {
-    mem.dismissed.splice(i, 1);
     scheduleFlush();
   }
 }

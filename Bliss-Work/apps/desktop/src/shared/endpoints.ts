@@ -21,6 +21,10 @@ export interface Endpoints {
   notificationBase: string;
   messagingBase: string;
   telemetryBase: string;
+  /** sticky-svc: the durable record of which task notes belong on this
+   *  desktop. Additive — when this points at nothing reachable, the notes fall
+   *  back to task-svc's /tasks/sticky exactly as before. */
+  stickyBase: string;
   wsUrl: string;
 }
 
@@ -34,6 +38,7 @@ export const PROD_ENDPOINTS: Endpoints = {
   notificationBase: `${PROD_ORIGIN}/api/notifications`,
   messagingBase: `${PROD_ORIGIN}/api/messaging`,
   telemetryBase: `${PROD_ORIGIN}/api/telemetry`,
+  stickyBase: `${PROD_ORIGIN}/api/sticky`,
   wsUrl: "wss://communication.rnrtechs.com/ws",
 };
 
@@ -44,6 +49,7 @@ export const DEV_ENDPOINTS: Endpoints = {
   notificationBase: "http://localhost:8003",
   messagingBase: "http://localhost:8004",
   telemetryBase: "http://localhost:8006",
+  stickyBase: "http://localhost:8008",
   wsUrl: "ws://localhost:8090/ws",
 };
 
@@ -66,6 +72,7 @@ export function resolveEndpoints(
     notificationBase: pick("notificationBase"),
     messagingBase: pick("messagingBase"),
     telemetryBase: pick("telemetryBase"),
+    stickyBase: pick("stickyBase"),
     wsUrl: pick("wsUrl"),
   };
 }

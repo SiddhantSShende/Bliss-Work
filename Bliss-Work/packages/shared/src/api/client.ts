@@ -84,6 +84,19 @@ export interface ApiConfig {
   notificationBase: string; // notifications are served by task/notification svc
   presenceBase: string; // ws-gateway HTTP, e.g. http://localhost:8090
   /**
+   * sticky-svc, e.g. http://localhost:8008 — the durable record of which task
+   * notes belong on this user's desktop.
+   *
+   * OPTIONAL, and deliberately so. Everything about the desktop notes works
+   * without it, exactly as it did before this service existed: task-svc's
+   * /api/v1/tasks/sticky is still the content source and still decides which
+   * tasks are actionable. This adds durability (a pin survives a reinstall and
+   * follows the user to a second machine) and delivery tracking. A build with
+   * this unset — including every desktop installer already in the field — takes
+   * the old path and is unaffected.
+   */
+  stickyBase?: string;
+  /**
    * Read-composition GraphQL gateway, e.g. http://localhost:8007.
    *
    * OPTIONAL, and deliberately so. The gateway fronts a handful of read paths;
@@ -1689,6 +1702,41 @@ export class ApiClient {
   }
   tasksSticky() {
     return this.req(this.cfg.taskBase, "/api/v1/tasks/sticky", {}, z.array(StickyTaskDTO));
+  }
+  /**
+   * Task ids sticky-svc says still have an open commitment for this user.
+   *
+   * The AUTHORITATIVE pinned set, and durable in a way the client-local one
+   * never was: it survives a reinstall and is the same on every device. Returns
+   * null when no stickyBase is configured, so callers can fall through to the
+   * task-svc-only behaviour rather than treating "not deployed" as "no pins".
+   */
+  async stickyPins(): Promise<string[] | null> {
+    if (!this.cfg.stickyBase) return null;
+    const rows = await this.req(
+      this.cfg.stickyBase,
+      "/api/v1/sticky/pins",
+      {},
+      z.array(z.object({ taskId: z.string() })),
+    );
+    return rows.map((r) => r.taskId);
+  }
+  /**
+   * Confirm a note actually reached this user's screen.
+   *
+   * This is what stops services/sticky-relay nudging forever: an open pin with
+   * no delivery confirmation is the only thing it acts on. Fire-and-forget —
+   * a failure here costs at most one redundant nudge, which is far cheaper
+   * than letting it break the note that was just shown.
+   */
+  async stickyAckDelivery(taskId: string): Promise<void> {
+    if (!this.cfg.stickyBase) return;
+    await this.req(
+      this.cfg.stickyBase,
+      `/api/v1/sticky/pins/${encodeURIComponent(taskId)}/ack-delivery`,
+      { method: "POST" },
+      z.unknown(),
+    );
   }
   /** Single task assigned to me at ANY status — used by the inbox detail view so
    *  a terminal (completed/ignored/left) task opened from the unified inbox

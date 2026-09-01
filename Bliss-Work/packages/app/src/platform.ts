@@ -110,6 +110,17 @@ export interface PlatformConfig {
   messagingBase: string;
   telemetryBase: string;
   /**
+   * sticky-svc — the durable record of which task notes belong on this user's
+   * desktop.
+   *
+   * OPTIONAL and additive. Absent, the desktop notes behave exactly as they did
+   * before the service existed: task-svc's /tasks/sticky is still the content
+   * source and still decides what is actionable. Present, a pin also survives a
+   * reinstall and follows the user to a second machine. It can never REMOVE a
+   * note — see refreshSticky in apps/desktop/src/main/ws-process.ts.
+   */
+  stickyBase?: string;
+  /**
    * Read-composition GraphQL gateway. OPTIONAL — absent means every screen
    * takes its REST path, which is how the gateway rollout stays reversible by
    * configuration instead of by deploy.
@@ -178,13 +189,12 @@ export interface PlatformConfig {
   /** Present only in Electron: the task ids currently pinned to the desktop
    *  (source of truth = main process). Drives the Pin button's pinned state. */
   listPinned?: () => Promise<string[]>;
-  /**
-   * Present only in Electron: clear a task's desktop note and remember it, so
-   * the auto-pin does not re-float it on the next launch. Called when the task
-   * is opened — reading a task is what dealing with its notification means.
-   * Absent on web, where BrowserStickies keeps the equivalent state locally.
-   */
-  dismissSticky?: (taskId: string) => void;
+  // NOTE: there is deliberately no `dismissSticky` here. One existed, and the
+  // app called it whenever a task was OPENED, which permanently retired that
+  // task's desktop note while the task was still outstanding. Hiding a note is
+  // now the note's own business — its X sends "sticky:dismiss" straight from
+  // the note window (see apps/desktop/src/preload/sticky.ts) and is forgotten
+  // on restart. Nothing in the app should be able to clear someone's note.
   /** Forward the current access token to the host (Electron → utilityProcess). */
   persistToken?: (token: string | null) => void;
   /** Present only in Electron: pin a DM thread to the desktop as a standalone

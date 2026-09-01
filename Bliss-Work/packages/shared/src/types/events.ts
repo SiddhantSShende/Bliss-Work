@@ -46,6 +46,9 @@ export const EventType = {
   TaskLeft: "task.left",
   TaskReviewed: "task.reviewed",
   NotificationCreated: "notification.created",
+  /** Emitted by services/sticky-relay: "you have desktop notes you may never
+   *  have received — re-fetch". A repair signal, not news; see StickyRefresh. */
+  StickyRefresh: "sticky.refresh",
   /** A mail landed in someone's Inbox. Signal-only — see MailDelivered. */
   MailDelivered: "mail.delivered",
   PresenceOnline: "presence.online",
@@ -500,6 +503,28 @@ export const TaskReviewed = z.object({
 });
 
 // ── Notification + Auth events ───────────────────────────────────────────────
+/**
+ * A nudge from the desktop-note delivery watchdog (services/sticky-relay).
+ *
+ * A note appears because `task.assigned` arrives over the websocket. When that
+ * frame is lost — a reconnect at the wrong moment, or the user offline past the
+ * gateway's replay window — the note simply never appears and nothing notices.
+ * This says "re-fetch your pins" to one person's clients.
+ *
+ * Deliberately carries no task content: it is a repair signal, so it should
+ * cause a refetch and NOT a toast. Task titles are encrypted at rest and have no
+ * business on a channel whose only job is to say "look again".
+ */
+export const StickyRefresh = z.object({
+  type: z.literal(EventType.StickyRefresh),
+  eventId: z.string(),
+  orgId: z.string(),
+  occurredAt: z.string(),
+  assigneeId: z.string(),
+  /** How many undelivered pins the server believes this user has. */
+  pinCount: z.number().int().nonnegative(),
+});
+
 export const NotificationCreated = z.object({
   type: z.literal(EventType.NotificationCreated),
   ...envelope,
@@ -848,6 +873,7 @@ export const ServerEvent = z.discriminatedUnion("type", [
   TaskLeft,
   TaskReviewed,
   NotificationCreated,
+  StickyRefresh,
   MailDelivered,
   PresenceOnline,
   PresenceOffline,
@@ -881,6 +907,7 @@ export type TaskIgnored = z.infer<typeof TaskIgnored>;
 export type TaskLeft = z.infer<typeof TaskLeft>;
 export type TaskReviewed = z.infer<typeof TaskReviewed>;
 export type NotificationCreated = z.infer<typeof NotificationCreated>;
+export type StickyRefresh = z.infer<typeof StickyRefresh>;
 export type MailDelivered = z.infer<typeof MailDelivered>;
 export type PresenceOnline = z.infer<typeof PresenceOnline>;
 export type PresenceOffline = z.infer<typeof PresenceOffline>;

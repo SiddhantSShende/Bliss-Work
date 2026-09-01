@@ -93,9 +93,14 @@ func (e *Event) RecipientsOf() []string {
 		return dedupe(e.Members)
 	case "task.assigned":
 		return dedupe([]string{e.AssigneeID})
+	case "sticky.refresh":
+		// The desktop-note delivery watchdog (services/sticky-relay) telling one
+		// person's clients to re-fetch their pins. Carries no task content, so
+		// there is nobody else to deliver it to.
+		return dedupe([]string{e.AssigneeID})
 	case "task.acknowledged", "task.completed", "task.ignored", "task.left", "task.reviewed":
 		return dedupe([]string{e.SenderID, e.AssigneeID})
-	case "notification.created":
+	case "notification.created", "notification.read":
 		return dedupe([]string{e.RecipientID})
 	case "call.scheduled", "call.ring", "call.participant_added", "call.ended",
 		"call.started", "call.waiting", "call.participant_left",

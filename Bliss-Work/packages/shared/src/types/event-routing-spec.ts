@@ -45,6 +45,7 @@ import {
   TaskLeft,
   TaskReviewed,
   NotificationCreated,
+  StickyRefresh,
   MailDelivered,
   UserCreated,
   UserRoleChanged,
@@ -94,6 +95,7 @@ export const DomainEvent = z.discriminatedUnion("type", [
   TaskLeft,
   TaskReviewed,
   NotificationCreated,
+  StickyRefresh,
   MailDelivered,
   UserCreated,
   UserRoleChanged,
@@ -199,6 +201,11 @@ export function recipientsOf(e: DomainEvent): string[] {
       // a channel they can no longer post to.
       return [...(e.members ?? []), e.userId];
     case EventType.TaskAssigned:
+      return [e.assigneeId];
+    case EventType.StickyRefresh:
+      // The desktop-note delivery watchdog nudging one person's clients to
+      // re-fetch. Must stay in lockstep with
+      // ws-gateway/internal/contract/contract.go.
       return [e.assigneeId];
     case EventType.TaskAcknowledged:
     case EventType.TaskCompleted:

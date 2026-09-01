@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { appIcon } from "./assets";
 import { hardenWindow } from "./harden";
-import { isAppActiveNow } from "./app-active";
+import { shouldFloatNotesNow } from "./app-active";
 import { isSystemAway } from "./window-state-guard";
 import { getMainWindowBounds, saveMainWindowBounds } from "./sticky-state";
 
@@ -120,44 +120,47 @@ export function createStickyWindow(
   taskId: string,
   index: number,
   collapsed = false,
-  parent: BrowserWindow | null = null,
 ): BrowserWindow {
-  // DESKTOP-PINNED TASK NOTE — an allocated task floats as a small companion
-  // window of the BlissWork application. It stays ABOVE BlissWork's own windows
-  // while the user is in BlissWork, and is hidden the instant they are not.
-  // Nothing here ever floats above another application.
+  // DESKTOP-PINNED TASK NOTE — an allocated task rests on the user's DESKTOP,
+  // the way a paper note rests on a monitor bezel. It is there whenever the
+  // desktop is what they are looking at, whether or not BlissWork is open, and
+  // it stays until the task is Completed or Ignored. It is never over another
+  // application.
   //
-  // How that is achieved:
+  // How that is achieved, per platform:
   //
-  //   • `parent` — the note is an Electron CHILD of the main window, i.e. an
-  //     OWNED window at the OS level (an owner relationship on Windows, an
-  //     NSWindow child on macOS, WM_TRANSIENT_FOR on Linux). The OS keeps an
-  //     owned window above its owner and ONLY above its owner: it cannot rise
-  //     above another application even in principle, and it follows the owner
-  //     into and out of a minimize. This is what replaced the previous
-  //     `alwaysOnTop` toggling — see ./app-active for why that mechanism could
-  //     not keep the promise it made.
+  //   • WINDOWS and macOS — real `alwaysOnTop`, toggled by StickyManager in
+  //     step with ./app-active: ON while BlissWork is frontmost OR the bare
+  //     desktop is showing, OFF the instant another application is. Electron's
+  //     `alwaysOnTop` is a single global flag with no "above my own windows
+  //     only" setting, so toggling it in step with that reading is the only way
+  //     to get a note that rests on the desktop without ever covering someone
+  //     else's work.
   //
-  //   • alwaysOnTop is NEVER turned on, on any platform. `false` is set at
-  //     construction and re-asserted below; ownership is the entire z-order
-  //     story. Visibility is the whole of the rest of it: ./app-active drives
-  //     StickyManager.setAppActive(), which shows and hides the note as the
-  //     user enters and leaves BlissWork.
+  //   • LINUX — `type: "desktop"` maps to _NET_WM_WINDOW_TYPE_DESKTOP, which
+  //     parks the window at the BOTTOM of the real stack, on the wallpaper
+  //     layer. That is a note ON the desktop in the most literal sense: it can
+  //     never be in anybody's way, so alwaysOnTop is simply never turned on
+  //     there and nothing ever has to be hidden.
+  //
+  // Why NOT an Electron child window (`parent`), which this briefly was: an
+  // owned window is bound to its owner's lifecycle, so it follows the main
+  // window into a minimize and cannot be shown while the owner is hidden. That
+  // makes the note a companion to the APP rather than a widget on the DESKTOP,
+  // and it is what made pinned tasks vanish on Win+D, on minimise, and on
+  // close-to-tray. Ownership and "rests on the desktop" are mutually exclusive.
   //
   //   • focusable: false → the note can never take focus or be raised to the
   //     front by a click. That is what makes clicking a note NOT count as
   //     leaving BlissWork (the main window keeps focus, so the app-wide focus
   //     read in ./app-active stays true) and keeps the note from ever fighting
-  //     the user for the keyboard. Task actions are pure click targets — no
-  //     text input — so this costs nothing.
+  //     the user for the keyboard, and it means its own alwaysOnTop toggling
+  //     never fights the window manager. Task actions are pure click targets —
+  //     no text input — so this costs nothing.
   //   • skipTaskbar: true → kept out of the taskbar/alt-tab, since it is a
-  //     companion widget, not a window someone switches to directly.
+  //     desktop widget, not a window someone switches to directly.
   //   • showInactive() (below) surfaces it WITHOUT stealing focus.
   //
-  // NOT set: `type: "desktop"` on Linux, which this window used to carry. That
-  // maps to _NET_WM_WINDOW_TYPE_DESKTOP and pins the window to the BOTTOM of
-  // the stack — under the ownership model that would bury every note behind
-  // the very window it is a companion to, which is the opposite of the point.
   // The StickyManager confines its position to the primary display.
   const win = new BrowserWindow({
     // Wide enough for "Acknowledge" and "Ignore" to sit side by side with their
@@ -168,10 +171,6 @@ export function createStickyWindow(
     height: 200,
     minWidth: 300,
     minHeight: 140,
-    // Omitted rather than passed as null when there is no main window yet: the
-    // bootstrap restore runs before the main window exists, and StickyManager
-    // adopts those notes via setParentWindow() the moment it does.
-    ...(parent && !parent.isDestroyed() ? { parent } : {}),
     frame: false,
     // false, not true: a transparent frameless window needs GPU compositing
     // to actually render as see-through, and on a Linux session without a
@@ -191,7 +190,11 @@ export function createStickyWindow(
     resizable: true,
     movable: true,
     skipTaskbar: true,
+    // Starts false on every platform. On win32/darwin StickyManager turns it on
+    // as soon as the desktop reading says it is safe; on Linux it stays off for
+    // good, because `type: "desktop"` below is the mechanism there instead.
     alwaysOnTop: false,
+    ...(process.platform === "linux" ? { type: "desktop" as const } : {}),
     focusable: false, // never raises to the front, never steals focus
     hasShadow: true,
     maximizable: false,
@@ -211,24 +214,34 @@ export function createStickyWindow(
     },
   });
 
-  // Re-asserts the constructor option. Deliberately the ONLY setAlwaysOnTop
-  // call on this window, and deliberately `false`: a note must never be
-  // promoted above anything, and the one way that regresses is somebody
-  // reaching for `true` here again.
-  win.setAlwaysOnTop(false);
-
   hardenWindow(win, "sticky");
 
   const query = `?taskId=${encodeURIComponent(taskId)}&i=${index}${collapsed ? "&collapsed=1" : ""}`;
   if (DEV_URL) void win.loadURL(`${DEV_URL}/sticky.html${query}`);
   else void win.loadFile(join(rendererDir, "sticky.html"), { search: query });
 
-  // Show it without grabbing keyboard focus — but only if BlissWork is the
-  // application the user is actually in. A task allocated while someone is in
-  // another application must not appear over their work; it waits, and
-  // StickyManager.setAppActive() brings it up the moment they come back.
+  // Show it without grabbing keyboard focus — but only while it is safe to be
+  // on screen. A task allocated while someone is in another application must
+  // not appear over their work; it waits, and StickyManager.setSafeToFloat()
+  // brings it up the moment they return to BlissWork or to the desktop.
   win.on("ready-to-show", () => {
-    if (isAppActiveNow()) win.showInactive();
+    if (!shouldFloatNotesNow()) return;
+    win.showInactive();
+    setNoteOnTop(win, true);
   });
   return win;
+}
+
+/**
+ * Raise or drop a note's always-on-top flag.
+ *
+ * A no-op on Linux, where `type: "desktop"` already parks the note at the
+ * bottom of the stack: promoting it there would lift it off the wallpaper layer
+ * and defeat the whole mechanism. Shared with StickyManager so both places
+ * apply the same platform rule rather than each remembering it.
+ */
+export function setNoteOnTop(win: BrowserWindow, onTop: boolean): void {
+  if (process.platform === "linux") return;
+  if (win.isDestroyed()) return;
+  win.setAlwaysOnTop(onTop);
 }

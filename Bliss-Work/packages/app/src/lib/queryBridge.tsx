@@ -622,6 +622,23 @@ export function WsEventBridge() {
           if (e.recipientId === me) invalidate(qk.notifications);
           break;
         }
+        case EventType.StickyRefresh: {
+          // A repair signal from the desktop-note watchdog, not news: the
+          // server believes this user has notes they may never have received,
+          // usually because a task.assigned frame was lost to a reconnect or
+          // to the gateway's replay window expiring.
+          //
+          // Deliberately NO toast. The user is not being told anything new —
+          // the point is that they should already have seen these — so this
+          // refetches quietly and lets the notes appear the way they would
+          // have in the first place.
+          if (e.assigneeId === me) {
+            invalidate(qk.sticky);
+            invalidate(qk.inbox);
+            invalidate(qk.unifiedInbox);
+          }
+          break;
+        }
         case EventType.MailDelivered: {
           // Signal-only by design: the event carries no subject or body (see
           // MailDelivered in the shared contract), so there is nothing to patch

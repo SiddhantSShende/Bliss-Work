@@ -1,35 +1,51 @@
 import { app, BrowserWindow } from "electron";
+import {
+  isDesktopShowingNow,
+  onDesktopShowingChange,
+  pokeDesktopWatch,
+  startDesktopWatch,
+  stopDesktopWatch,
+} from "./foreground";
 
 /**
- * Whether BlissWork is the application the user is currently in — the single
- * signal that decides whether the floating task notes are on screen.
+ * Whether the floating task notes belong on screen right now.
  *
- * ── Why this exists ──────────────────────────────────────────────────────────
- * A task note is a companion window of the BlissWork app: visible while the
- * user is in BlissWork, gone the moment they switch to Chrome, VS Code, a file
- * browser or anything else. It must never cover another application's work.
+ * ── What a task note is ──────────────────────────────────────────────────────
+ * A DESKTOP widget. An allocated task rests on the user's desktop the way a
+ * paper note rests on a monitor bezel: it is there when they can see the
+ * desktop, whether or not BlissWork itself is open, and it stays there until
+ * the task is Completed or Ignored.
  *
- * That is a statement about the APP, not about one window, and it cannot be
- * answered from the renderer (`document.hasFocus()` knows nothing about other
- * applications, and a note whose own document is never focused would answer
- * "no" forever). So it is answered here, in main, from Electron's own window
- * lifecycle.
+ * That gives two independent reasons for a note to be visible, and it is
+ * visible if EITHER holds:
  *
- * ── Why not poll the OS foreground window ────────────────────────────────────
- * This replaces a 1 s poll of the native `get-windows` foreground reader that
- * drove `setAlwaysOnTop(true/false)`. Two things were wrong with it and both
- * were unfixable without changing the mechanism:
+ *   1. One of BlissWork's own windows has focus — the user is in the app, and a
+ *      note over the app is a note over its own work.
+ *   2. The bare desktop is what the user is looking at (./foreground) — nobody
+ *      else's window is there to cover.
  *
- *   * It defaulted to "safe to float" and stayed there when the native module
- *     failed to load (a packaged build, a mismatched Electron ABI, a Wayland
- *     session), which left every note GLOBALLY always-on-top over other
- *     applications — the exact thing the feature promises never to do.
- *   * Even when it worked, a poll answers late: for up to a second after the
- *     user alt-tabbed, a note was still sitting on top of someone else's work.
+ * And exactly one reason to be hidden: some OTHER application is in front. A
+ * note must never cover work that is not ours.
  *
- * Notes no longer use `alwaysOnTop` at all. They are Electron CHILD windows of
- * the main window (see createStickyWindow), so the OS itself keeps them above
- * BlissWork and only above BlissWork; this module then decides show vs hide.
+ * ── Why both halves are needed ───────────────────────────────────────────────
+ * Answering from Electron's window lifecycle alone is what broke this feature.
+ * Electron knows about BlissWork's own windows and nothing else, so "BlissWork
+ * is not focused" was read as "hide the notes" — which also fires when the user
+ * minimises everything, closes BlissWork to the tray, or presses Win+D. Every
+ * one of those is a user LOOKING AT THEIR DESKTOP, the exact moment a desktop
+ * note is supposed to be there, and all of them made the pinned tasks vanish.
+ *
+ * So `minimized` and `hidden` no longer take the notes away by themselves. They
+ * still disqualify the FOCUS half (a minimized window reporting focus is a
+ * platform quirk, not a user in the app), but the desktop half answers for
+ * itself, which is why closing to the tray now leaves the notes where they are.
+ *
+ * ── Why the OS half is a poll, and why it fails closed ───────────────────────
+ * Electron has no event for "some other application came to the front", so the
+ * desktop half has to be sampled — see ./foreground, which also explains why
+ * "unknown" there means NOT the desktop. Failing closed is what makes it safe
+ * to consult at all: a machine that cannot answer falls back to reason 1 alone,
+ * which is the conservative behaviour, never the global always-on-top one.
  *
  * ── Why the answer is coalesced ──────────────────────────────────────────────
  * Moving focus between two of BlissWork's own windows fires `blur` on the first
@@ -50,13 +66,16 @@ export interface AppPresence {
 }
 
 /**
- * The whole policy, kept pure so it can be tested without an OS.
+ * Is the user IN BlissWork right now — reason 1 above, kept pure.
  *
  * Minimized and hidden are checked EXPLICITLY rather than left to `focused`.
  * A minimized window cannot hold focus on any platform we ship to, so this is
- * belt-and-braces — but "BlissWork is minimized, therefore the note is off
- * screen" is a promise made to the user, and a promise that depends on a
- * platform detail happening to hold is one worth stating outright.
+ * belt-and-braces against a platform reporting focus for a window the user
+ * cannot see.
+ *
+ * Note what this does NOT decide any more: whether a note is on screen. A
+ * minimized or tray-bound BlissWork is not "in use", but its notes still rest
+ * on the desktop. That is `shouldFloatNotes`.
  */
 export function isAppActive(presence: AppPresence): boolean {
   if (presence.hidden || presence.minimized) return false;
@@ -64,25 +83,40 @@ export function isAppActive(presence: AppPresence): boolean {
 }
 
 /**
- * The window the notes are companions to. Its minimize/hide state gates them,
- * and it is the window they are OWNED by. Held as a variable rather than
- * captured once because the main window can be recreated (macOS `activate`,
- * and the tray path when it has been destroyed).
+ * The note-visibility policy — reason 1 OR reason 2 — kept pure so it can be
+ * tested without an OS.
+ *
+ * `desktopShowing` comes from ./foreground and is false whenever that reading
+ * is unavailable, so on a machine that cannot answer this collapses to
+ * `isAppActive` rather than to "always show".
+ */
+export function shouldFloatNotes(
+  presence: AppPresence,
+  desktopShowing: boolean,
+): boolean {
+  return isAppActive(presence) || desktopShowing;
+}
+
+/**
+ * The main window, whose minimize/hide state feeds the focus half. Held as a
+ * variable rather than captured once because it can be recreated (macOS
+ * `activate`, and the tray path when it has been destroyed).
  */
 let mainWindow: BrowserWindow | null = null;
-let active = false;
+let floating = false;
 let started = false;
 let pending: NodeJS.Immediate | null = null;
-const listeners = new Set<(active: boolean) => void>();
+let unsubscribeDesktop: (() => void) | null = null;
+const listeners = new Set<(floating: boolean) => void>();
 
 /** Best current answer. Starts FALSE: a note must never be shown on the
- *  assumption that BlissWork is in front — the first read settles it. */
-export function isAppActiveNow(): boolean {
-  return active;
+ *  assumption that the desktop is in front — the first read settles it. */
+export function shouldFloatNotesNow(): boolean {
+  return floating;
 }
 
 /** Subscribe to changes. Returns an unsubscribe. */
-export function onAppActiveChange(cb: (active: boolean) => void): () => void {
+export function onShouldFloatChange(cb: (floating: boolean) => void): () => void {
   listeners.add(cb);
   return () => listeners.delete(cb);
 }
@@ -90,24 +124,38 @@ export function onAppActiveChange(cb: (active: boolean) => void): () => void {
 function evaluate(): void {
   pending = null;
   const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
-  const next = isAppActive({
-    // ANY of our windows counts, which is what makes the main window and its
-    // task notes one application context: clicking a note (or a chat note, or
-    // a future second window) is not leaving BlissWork. Task notes are
-    // `focusable: false` so they never report focus themselves — they are
-    // carried by whichever window does.
-    focused: BrowserWindow.getAllWindows().some((w) => !w.isDestroyed() && w.isFocused()),
-    minimized: !!win?.isMinimized(),
-    hidden: !win || !win.isVisible(),
-  });
-  if (next === active) return;
-  active = next;
+  const next = shouldFloatNotes(
+    {
+      // ANY of our windows counts, which is what makes the main window and its
+      // task notes one application context: clicking a note (or a chat note, or
+      // a future second window) is not leaving BlissWork. Task notes are
+      // `focusable: false` so they never report focus themselves — they are
+      // carried by whichever window does.
+      focused: BrowserWindow.getAllWindows().some((w) => !w.isDestroyed() && w.isFocused()),
+      minimized: !!win?.isMinimized(),
+      hidden: !win || !win.isVisible(),
+    },
+    isDesktopShowingNow(),
+  );
+  if (next === floating) return;
+  floating = next;
   for (const cb of listeners) cb(next);
 }
 
 function schedule(): void {
   if (pending) return;
   pending = setImmediate(evaluate);
+}
+
+/**
+ * Focus changed on one of our own windows. Re-read, and also poke the OS
+ * sampler: leaving BlissWork for another application and coming back to the
+ * bare desktop are the two transitions where the poll's lag is most visible,
+ * and Electron tells us about both the instant they happen.
+ */
+function scheduleAndPoke(): void {
+  schedule();
+  pokeDesktopWatch();
 }
 
 /**
@@ -122,11 +170,11 @@ function schedule(): void {
 export function trackMainWindow(win: BrowserWindow | null): void {
   mainWindow = win;
   if (win) {
-    win.on("minimize", schedule);
-    win.on("restore", schedule);
-    win.on("show", schedule);
-    win.on("hide", schedule);
-    win.on("closed", schedule);
+    win.on("minimize", scheduleAndPoke);
+    win.on("restore", scheduleAndPoke);
+    win.on("show", scheduleAndPoke);
+    win.on("hide", scheduleAndPoke);
+    win.on("closed", scheduleAndPoke);
   }
   schedule();
 }
@@ -135,22 +183,30 @@ export function trackMainWindow(win: BrowserWindow | null): void {
 export function startAppActiveWatch(): void {
   if (started) return;
   started = true;
-  app.on("browser-window-focus", schedule);
-  app.on("browser-window-blur", schedule);
+  app.on("browser-window-focus", scheduleAndPoke);
+  app.on("browser-window-blur", scheduleAndPoke);
   // macOS activates and deactivates the APPLICATION, which can happen without
   // any individual window emitting anything (⌘-tab away with the main window
   // already unfocused, for one). Never fires on Windows/Linux.
-  app.on("did-become-active", schedule);
-  app.on("did-resign-active", schedule);
+  app.on("did-become-active", scheduleAndPoke);
+  app.on("did-resign-active", scheduleAndPoke);
+  // The desktop half. Its answers arrive on their own schedule (a poll), so it
+  // gets its own subscription rather than being read only when Electron
+  // happens to fire something.
+  unsubscribeDesktop = onDesktopShowingChange(schedule);
+  void startDesktopWatch();
   evaluate();
 }
 
 export function stopAppActiveWatch(): void {
   if (pending) clearImmediate(pending);
   pending = null;
-  app.removeListener("browser-window-focus", schedule);
-  app.removeListener("browser-window-blur", schedule);
-  app.removeListener("did-become-active", schedule);
-  app.removeListener("did-resign-active", schedule);
+  app.removeListener("browser-window-focus", scheduleAndPoke);
+  app.removeListener("browser-window-blur", scheduleAndPoke);
+  app.removeListener("did-become-active", scheduleAndPoke);
+  app.removeListener("did-resign-active", scheduleAndPoke);
+  unsubscribeDesktop?.();
+  unsubscribeDesktop = null;
+  stopDesktopWatch();
   started = false;
 }

@@ -243,6 +243,52 @@ services:
       timeout: 5s
       retries: 20
 
+  # Durable record of which task notes belong on which desktop. Reads
+  # task.events.v1 and keeps one row per (org, assignee, task): OPEN from the
+  # moment a task is assigned, CLOSED only when it reaches a terminal status.
+  # Stores no task title or description — those stay encrypted in task-svc.
+  sticky-svc:
+    <<: *svc-defaults
+    build:
+      # Repository root, not services/sticky-svc: the Dockerfile needs the
+      # sibling services/shared/* packages as local path dependencies.
+      context: .
+      dockerfile: services/sticky-svc/Dockerfile
+    ports: ["127.0.0.1:${STICKY_PORT:-8008}:8008"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
+      auth-svc: { condition: service_healthy } # warm JWKS cache after the signer is up
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8008/readyz').status==200 else 1)\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # Delivery watchdog for the desktop notes. Asks sticky-svc for open pins
+  # nobody has confirmed receiving and nudges those users' clients to re-fetch,
+  # so a task.assigned frame lost to a reconnect (or to the gateway's 24h replay
+  # window expiring) still ends up on the desktop it was meant for.
+  #
+  # Deliberately a SINGLE replica: there is no throughput reason for a second
+  # sweeper. Concurrent sweeps are safe anyway — sticky-svc claims the rows it
+  # hands out — but one is the right number.
+  sticky-relay:
+    <<: *svc-defaults
+    build:
+      # Repository root: go.mod replaces shared-kafkaauth with the sibling
+      # module services/shared/kafkaauth.
+      context: .
+      dockerfile: services/sticky-relay/Dockerfile
+    depends_on:
+      kafka-init: { condition: service_completed_successfully }
+      sticky-svc: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8010/healthz >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   # Read-composition GraphQL gateway. Fronts a handful of READ paths only —
   # writes, uploads, exports, auth and realtime all keep talking to the services
   # directly, so this is an optional accelerator and not a dependency. A stack

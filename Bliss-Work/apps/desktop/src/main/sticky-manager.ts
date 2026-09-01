@@ -8,19 +8,15 @@ import {
   type PinResult,
   type StickyTaskDTO,
 } from "@taskboard/shared";
-import { createStickyWindow } from "./windows";
+import { createStickyWindow, setNoteOnTop } from "./windows";
 import {
-  addDismissed,
   addPinned,
   clampToPrimary,
   forget,
   gc,
-  getDismissed,
   getGeometry,
   getPinned,
-  isDismissed,
   isPinned,
-  removeDismissed,
   removePinned,
   saveGeometry,
   touch,
@@ -62,12 +58,25 @@ const FULL_H = 200;
  * no manual pin or prior acknowledge needed. (The manual "Pin to desktop"
  * button remains as a fallback.)
  *
- * A note is a COMPANION WINDOW of the BlissWork app, not a global always-on-top
- * one: it is an Electron child of the main window (setParentWindow), so the OS
- * keeps it above BlissWork and only above BlissWork, and it is shown/hidden
- * with the app itself (setAppActive). Switching to another application takes
- * every note off screen; coming back brings the same notes, in the same state,
- * back. Nothing here ever sits over another application's work.
+ * A note is a DESKTOP WIDGET. It rests on the user's desktop and is on screen
+ * whenever the desktop is what they are looking at — including while BlissWork
+ * is minimised or closed to the tray — and it is taken away only while some
+ * OTHER application is in front (setSafeToFloat, driven by ./app-active).
+ * Nothing here ever sits over another application's work.
+ *
+ * ── What removes a note ──────────────────────────────────────────────────────
+ * Completing, ignoring or leaving the task. That is the whole list, and it is
+ * the promise the feature makes: an allocation you have not dealt with does not
+ * go away because you read it, closed the app, or restarted the machine. The
+ * server is what decides — a terminal status drops the task from /tasks/sticky
+ * and prunePinned then tears the window down.
+ *
+ * `hideForSession` is the one exception, and it is deliberately NOT persisted:
+ * the note's own X takes it off screen until the app restarts or the pin is
+ * reconciled, and then it comes back. An earlier version persisted that set and
+ * also triggered it from merely OPENING the task, which meant reading a task in
+ * the inbox silently retired its note for good — the exact opposite of the
+ * promise above.
  *
  * Lifecycle on the note: a SENT note offers Acknowledge / Ignore. Ignoring drops
  * it from the server's actionable list → prunePinned tears the window down.
@@ -85,25 +94,14 @@ const FULL_H = 200;
 export class StickyManager {
   private widgets = new Map<string, BrowserWindow>();
   private tasks: StickyTaskDTO[] = [];
-  /** The main window every note is an OS-level child of. Held here rather than
-   *  captured at construction because the main window can be recreated. */
-  private parent: BrowserWindow | null = null;
-
   /**
-   * Adopt (or re-adopt) the main window as the owner of every note.
+   * Notes the user took off screen with the note's own X, THIS RUN ONLY.
    *
-   * Ownership is what keeps a note above BlissWork's windows and never above
-   * another application — see createStickyWindow. Call on every creation of the
-   * main window: notes restored at bootstrap are built BEFORE it exists, and
-   * the window can be recreated later (macOS `activate`, the tray path), which
-   * would otherwise leave live notes owned by a destroyed window.
+   * In memory on purpose — see the class doc. Nothing writes it to disk, so a
+   * restart brings every still-actionable note back, and the only permanent
+   * removal remains a terminal status on the server.
    */
-  setParentWindow(win: BrowserWindow | null): void {
-    this.parent = win && !win.isDestroyed() ? win : null;
-    for (const [, w] of this.widgets) {
-      if (!w.isDestroyed()) w.setParentWindow(this.parent);
-    }
-  }
+  private hiddenThisSession = new Set<string>();
 
   /** Latest known actionable task list (server returns only SENT/ACKNOWLEDGED).
    *  Stored whole so taskCount()/tray reflect ALL active tasks, while only the
@@ -125,15 +123,20 @@ export class StickyManager {
    * re-fetches /tasks/sticky on every `task.*` event, so a newly assigned SENT
    * task lands in `this.tasks` and gets pinned + reconciled into a window with
    * no manual pin. Capped so the persisted pinned set can't grow unbounded.
+   *
+   * Only a THIS-RUN hide holds a task back, and only until the app restarts.
+   * There is deliberately no persisted veto here: an actionable task the user
+   * has not completed or ignored is one this is supposed to keep putting back.
    */
   private autopinActionable(): void {
-    let floating = selectFloatingTasks(this.tasks, getPinned(), -1).length;
+    // Counted off the SAME set reconcile() renders from. Counting the raw
+    // pinned set instead would let notes hidden this run keep occupying slots
+    // under the cap, so hiding one would shrink the desktop to four notes
+    // rather than letting the next task take its place.
+    let floating = selectFloatingTasks(this.tasks, this.visiblePinned(), -1).length;
     for (const t of this.tasks) {
       if (floating >= MAX_WIDGETS) break;
-      // A dismissed task stays dismissed. Auto-pin used to re-float every
-      // actionable task on every launch and every live push, so a note the user
-      // had read and cleared reappeared each time the app started.
-      if (isDismissed(t.taskId)) continue;
+      if (this.hiddenThisSession.has(t.taskId)) continue;
       if (!isPinned(t.taskId) && canFloatTask(t.myStatus)) {
         addPinned(t.taskId);
         floating++;
@@ -142,18 +145,53 @@ export class StickyManager {
   }
 
   /**
-   * Clear a note from the desktop and remember that the user did.
+   * Adopt the durable pin set from sticky-svc.
    *
-   * Called both from the note's own dismiss control and from the app when the
-   * task is opened — reading a task IS dealing with its notification, and
-   * requiring a second dismissal after that is the complaint this answers.
-   * The task itself is untouched: this is about the note, not the commitment.
+   * Purely ADDITIVE, and that is the whole safety property: this can restore a
+   * pin this machine has never seen — a fresh install, a second device, a
+   * cleared profile — but it can never remove one. Only prunePinned, driven by
+   * task-svc's live actionable list, takes a note away.
+   *
+   * So a sticky-svc outage, a lagging consumer, or a build with no stickyBase
+   * configured degrades to exactly the behaviour that shipped before the
+   * service existed, rather than wiping someone's desktop.
+   *
+   * Notes hidden this run are respected: adopting a pin does not un-hide it,
+   * because the user's decision about this session is more recent than the
+   * server's record of the commitment.
    */
-  dismiss(taskId: string): void {
+  adoptServerPins(taskIds: readonly string[]): void {
+    for (const id of taskIds) {
+      if (typeof id !== "string" || !id) continue;
+      if (!isPinned(id)) addPinned(id);
+    }
+    this.reconcile();
+  }
+
+  /**
+   * The pinned set minus anything hidden this run — what actually goes on
+   * screen, and the single definition both autopinActionable and reconcile
+   * count against so they cannot disagree about how full the desktop is.
+   *
+   * Ids stay in the persisted pinned set throughout: that is what brings a
+   * hidden note back on the next launch.
+   */
+  private visiblePinned(): string[] {
+    return getPinned().filter((id) => !this.hiddenThisSession.has(id));
+  }
+
+  /**
+   * Take a note off screen for the rest of this run.
+   *
+   * Called from the note's own X, and from nowhere else — in particular NOT
+   * from opening the task, which is reading it, not dealing with it. The task
+   * is untouched: this is about the note, not the commitment, so the pin stays
+   * on disk and the note is back on the next launch (or the next reconcile) if
+   * the task is still actionable.
+   */
+  hideForSession(taskId: string): void {
     if (typeof taskId !== "string" || !taskId) return;
-    addDismissed(taskId);
-    removePinned(taskId);
-    forget(taskId);
+    this.hiddenThisSession.add(taskId);
     const w = this.widgets.get(taskId);
     if (w && !w.isDestroyed()) w.close();
     this.widgets.delete(taskId);
@@ -183,6 +221,9 @@ export class StickyManager {
     if (typeof taskId !== "string" || !taskId) {
       return { ok: false, reason: "invalid", pinned: getPinned() };
     }
+    // Asking for a note back is the undo for having hidden it — otherwise a
+    // hidden task reports "already pinned" and nothing appears.
+    this.hiddenThisSession.delete(taskId);
     const existing = this.widgets.get(taskId);
     if (isPinned(taskId)) {
       if (existing && !existing.isDestroyed()) {
@@ -258,10 +299,12 @@ export class StickyManager {
    */
   prunePinned(liveIds: Iterable<string>): void {
     const live = [...liveIds];
-    // A task that has left the actionable set can also forget it was dismissed:
-    // that keeps the dismissed set bounded, and means a task which becomes
-    // actionable AGAIN (reassigned, re-opened) is free to float once more.
-    for (const id of idsToPrune(getDismissed(), live)) removeDismissed(id);
+    // A task that has left the actionable set can also forget it was hidden:
+    // the session set stays bounded, and a task which becomes actionable AGAIN
+    // (reassigned, re-opened) is free to float once more without a restart.
+    for (const id of idsToPrune(this.hiddenThisSession, live)) {
+      this.hiddenThisSession.delete(id);
+    }
     for (const id of idsToPrune(getPinned(), live)) {
       removePinned(id);
       forget(id);
@@ -338,31 +381,38 @@ export class StickyManager {
   }
 
   /**
-   * Follow BlissWork in and out of view.
+   * Show or hide every note as the desktop reading changes.
    *
-   * This is the whole of "the note is only there while I'm in BlissWork".
-   * Ownership (the `parent` window) already guarantees a note can never be
-   * ABOVE another application; hiding is what makes it not merely un-topmost
-   * but gone, so it never occupies screen space over someone else's work
-   * either. The same windows come back on return — nothing is recreated, so a
-   * note keeps its position, its size, its collapsed state and its task.
+   * This is the whole of "the note rests on my desktop, and gets out of the way
+   * of other applications". `safe` is true while BlissWork is frontmost OR the
+   * bare desktop is showing; false only while another application is in front.
+   *
+   * Two things happen together, and both matter: the always-on-top flag is
+   * dropped as well as the window hidden. Hiding alone would leave a note that
+   * is merely off screen but still topmost, so anything that reveals it — a
+   * window animation, a workspace switch — flashes it over someone else's work.
+   * Dropping the flag alone would leave it visibly stacked underneath. On Linux
+   * setNoteOnTop is a no-op: `type: "desktop"` already parks the note at the
+   * bottom of the stack, so there is nothing to raise or drop.
+   *
+   * The same windows come back on return — nothing is recreated, so a note
+   * keeps its position, its size, its collapsed state and its task.
    *
    * showInactive, never show: a note must not take focus even as it reappears.
    * The window is non-focusable anyway, which is also why CLICKING a note does
    * not count as leaving BlissWork — the buttons keep working while it's up.
    *
-   * See ./app-active for how "is BlissWork the active application" is decided.
+   * See ./app-active for how the reading is decided.
    */
-  setAppActive(active: boolean): void {
+  setSafeToFloat(safe: boolean): void {
     for (const [, w] of this.widgets) {
       if (w.isDestroyed()) continue;
-      // A note the user minimised stays minimised; this decides visibility
-      // relative to other apps, not what the user did with an individual note.
-      if (w.isMinimized()) continue;
-      if (active) {
+      if (safe) {
+        setNoteOnTop(w, true);
         if (!w.isVisible()) w.showInactive();
-      } else if (w.isVisible()) {
-        w.hide();
+      } else {
+        setNoteOnTop(w, false);
+        if (w.isVisible()) w.hide();
       }
     }
   }
@@ -376,7 +426,12 @@ export class StickyManager {
 
   private reconcile(): void {
     // Float only pinned tasks that are still actionable (SENT/ACK), capped.
-    const visible = selectFloatingTasks(this.tasks, getPinned(), MAX_WIDGETS);
+    //
+    // Notes hidden this run are filtered out of the PINNED set rather than out
+    // of the result, so a hidden note does not hold a slot under the cap — and,
+    // critically, so the next live push does not put it straight back. It stays
+    // pinned on disk throughout: that is what brings it back after a restart.
+    const visible = selectFloatingTasks(this.tasks, this.visiblePinned(), MAX_WIDGETS);
     const keep = new Set(visible.map((t) => t.taskId));
 
     // Tear a window down only when its task was UNPINNED (e.g. prunePinned
@@ -396,7 +451,7 @@ export class StickyManager {
       const w = this.widgets.get(task.taskId);
       if (!w || w.isDestroyed()) {
         const collapsed = getGeometry(task.taskId)?.collapsed ?? false;
-        const win = createStickyWindow(task.taskId, i, collapsed, this.parent);
+        const win = createStickyWindow(task.taskId, i, collapsed);
         this.widgets.set(task.taskId, win);
         this.positionWidget(win, task.taskId, i);
         this.wireGeometryPersistence(win, task.taskId);
@@ -434,7 +489,13 @@ export class StickyManager {
       } else {
         w.setBounds({ x: g.x, y: g.y, width: g.width, height: g.height });
       }
-      if (g.minimized) w.minimize();
+      // Deliberately NOT restoring a stored `minimized` flag. These windows are
+      // built minimizable:false + skipTaskbar:true, so a note that somehow got
+      // minimised has no taskbar button to bring it back and setSafeToFloat
+      // cannot show it either — it is invisible for good, across every restart,
+      // with the task still open. Older state files (and Linux WMs that
+      // minimise regardless of the flag) can both carry one, so it is ignored
+      // here and cleared on the next save.
       return;
     }
     const { workArea } = screen.getPrimaryDisplay();

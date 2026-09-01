@@ -5,6 +5,7 @@ import type { StickyTaskDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { useAvailability } from "../lib/useAvailability";
+import { useMarkTaskNotificationsRead } from "../lib/useMarkTaskNotificationsRead";
 import { ListHeader, rowClass } from "../features/ListPane";
 
 const CATS = [
@@ -23,6 +24,16 @@ export function TasksList() {
   // Same hook the pane uses, so the badge and the grid can never disagree —
   // TanStack dedupes the underlying queries, so this costs no extra network.
   const { roster } = useAvailability();
+
+  // This panel mounts the instant the Tasks section opens — unlike Tasks.tsx's
+  // sub-views, which only ever hold ONE of these two lists at a time (whichever
+  // bucket happens to be active), and default to "Allocated to me", not "My
+  // tasks". TASK_ACKNOWLEDGED/COMPLETED/IGNORED/LEFT notifications go to the
+  // allocator (see notification-svc's consumer), so `sent` is what actually
+  // clears the bell here; `assigned` is a no-op today but future-proofs an
+  // assignee-directed kind.
+  useMarkTaskNotificationsRead(api, sent);
+  useMarkTaskNotificationsRead(api, assigned);
 
   const active = (t: StickyTaskDTO) => t.myStatus === "SENT" || t.myStatus === "ACKNOWLEDGED";
   const counts: Record<string, number> = {

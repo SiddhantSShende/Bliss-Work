@@ -97,6 +97,7 @@ describe("web/desktop endpoint parity", () => {
     "notificationBase",
     "messagingBase",
     "telemetryBase",
+    "stickyBase",
     "wsUrl",
   ];
 

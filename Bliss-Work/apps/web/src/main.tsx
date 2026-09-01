@@ -54,6 +54,10 @@ const config: PlatformConfig = {
   notificationBase: env.VITE_NOTIFICATION_BASE ?? "http://localhost:8003",
   messagingBase: env.VITE_MESSAGING_BASE ?? "http://localhost:8004",
   telemetryBase: env.VITE_TELEMETRY_BASE ?? "http://localhost:8006",
+  // Deliberately absent from REQUIRED_ENV, same reasoning as graphBase below:
+  // the desktop notes work without it, so making it mandatory would turn an
+  // additive durability layer into a deploy blocker.
+  stickyBase: env.VITE_STICKY_BASE,
   // Deliberately absent from REQUIRED_ENV: the GraphQL gateway fronts a few
   // read paths, and a build without it simply takes the REST path on those
   // screens. Making it mandatory would turn an optional optimisation into a

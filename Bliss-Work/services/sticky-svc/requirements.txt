@@ -1,0 +1,47 @@
+fastapi==0.140.0
+uvicorn[standard]==0.34.0
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.30.0
+aiokafka==0.12.0
+httpx==0.28.1
+pyjwt[crypto]==2.13.0
+structlog==24.4.0
+uuid6==2024.7.10
+pydantic==2.10.4
+pydantic-settings==2.7.1
+# Direct dependency, not just pyjwt's: app/auth.py imports Ed25519PublicKey to
+# verify the JWKS keys. Pinned explicitly so the version is reproducible rather
+# than whatever pyjwt[crypto] happens to resolve.
+cryptography==50.0.0
+slowapi==0.1.9
+# slowapi's storage backend, NOT an optional extra here: rate_limit.py points the
+# limiter at settings.redis_url, and `limits` raises ConfigurationError at import
+# when the driver is missing — so the service crash-loops wherever REDIS_URL is
+# set, which is production and nowhere else. auth-svc pins the same version.
+redis==5.2.1
+prometheus-fastapi-instrumentator==8.0.2
+opentelemetry-sdk==1.44.0
+opentelemetry-exporter-otlp-proto-grpc==1.44.0
+opentelemetry-instrumentation-fastapi==0.65b0
+opentelemetry-instrumentation-sqlalchemy==0.65b0
+opentelemetry-instrumentation-httpx==0.65b0
+opentelemetry-instrumentation-asyncpg==0.65b0
+
+# Kafka SASL/TLS config, shared with every other Python service. See
+# services/shared/kafka_security/kafka_security.py for why this is a local
+# package instead of a copy.
+../shared/kafka_security
+
+# OTel Kafka context-propagation + shutdown helpers, shared with every other
+# Python service. See services/shared/tracing/tracing.py for why this is a
+# local package instead of a copy.
+../shared/tracing
+
+# Constant-time internal-service-secret comparison, shared with auth-svc and
+# integrations-svc (every Python service that validates its own /internal/*
+# routes). See services/shared/internal_auth/internal_auth.py.
+../shared/internal_auth
+
+# structlog -> stdout JSON bootstrap, shared with every other Python service.
+# See services/shared/logging_setup/shared_logging_setup.py.
+../shared/logging_setup

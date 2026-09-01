@@ -52,7 +52,6 @@ import { qk } from "../lib/queryBridge";
 import { useSession } from "../store/session";
 
 const POSITION_KEY = "tb.browser-stickies.v1";
-const UNPINNED_KEY = "tb.browser-stickies.unpinned.v1";
 const NOTE_W = 280;
 const NOTE_H = 220;
 const PILL_W = 220;
@@ -76,27 +75,15 @@ type PositionMap = Record<string, NoteState>;
 type UnpinnedSet = Record<string, true>;
 
 /**
- * Broadcast so a mounted BrowserStickies picks up a dismissal made from
- * somewhere else in the app. `storage` events only fire in OTHER tabs, so the
- * tab that did the writing needs its own signal.
- */
-const DISMISS_EVENT = "tb:sticky-dismissed";
-
-/**
- * Clear a task's floating note on the web, from anywhere.
+ * There is deliberately no exported "dismiss this note from anywhere" helper.
  *
- * The web counterpart of PlatformConfig.dismissSticky: opening a task is what
- * reading its notification means, so the note should go — and stay gone across
- * a refresh, which is what the persisted unpinned set gives us. Safe to call
- * when no note is showing, and on desktop (where the write is simply inert).
+ * One existed, MailTask called it whenever a task was opened, and because it
+ * wrote to localStorage the note stayed gone across every refresh — so reading
+ * an allocation retired its note permanently while the task was still
+ * outstanding. Taking a note off screen is now the note's own X, held in
+ * component state for this session only (see `unpinned` below), and the only
+ * permanent removal is a terminal status on the server.
  */
-export function dismissBrowserSticky(taskId: string): void {
-  if (typeof window === "undefined" || !taskId) return;
-  const current = readJSON<UnpinnedSet>(UNPINNED_KEY, {});
-  if (current[taskId]) return;
-  writeJSON(UNPINNED_KEY, { ...current, [taskId]: true as const });
-  window.dispatchEvent(new CustomEvent(DISMISS_EVENT, { detail: taskId }));
-}
 
 function readJSON<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
@@ -150,7 +137,7 @@ export function BrowserStickies() {
   const inApp = location.pathname.startsWith("/app");
   const enabled = authed && !isElectron && inApp;
 
-  const { data: tasks = [] } = useQuery({
+  const { data: tasks = [], isSuccess } = useQuery({
     queryKey: qk.sticky,
     queryFn: () => api.tasksSticky(),
     enabled,
@@ -161,23 +148,15 @@ export function BrowserStickies() {
   const [positionMap, setPositionMap] = useState<PositionMap>(() =>
     readJSON(POSITION_KEY, {}),
   );
-  const [unpinned, setUnpinned] = useState<UnpinnedSet>(() =>
-    readJSON(UNPINNED_KEY, {}),
-  );
+  // Notes the user took off screen THIS SESSION. Deliberately seeded empty and
+  // never persisted: a reload is a new session, so an outstanding task's note
+  // comes back, and the only permanent removal is completing or ignoring the
+  // task. This used to be a localStorage set, which combined with the (now
+  // removed) dismiss-on-open call meant reading a task retired its note for
+  // good — see the note in packages/app/src/platform.ts.
+  const [unpinned, setUnpinned] = useState<UnpinnedSet>({});
 
   useEffect(() => writeJSON(POSITION_KEY, positionMap), [positionMap]);
-  useEffect(() => writeJSON(UNPINNED_KEY, unpinned), [unpinned]);
-
-  // Someone dismissed a note from elsewhere (opening the task, most often).
-  // Adopt it so the note disappears immediately rather than at the next mount.
-  useEffect(() => {
-    const onDismiss = (e: Event) => {
-      const taskId = (e as CustomEvent<string>).detail;
-      if (taskId) setUnpinned((prev) => (prev[taskId] ? prev : { ...prev, [taskId]: true }));
-    };
-    window.addEventListener(DISMISS_EVENT, onDismiss);
-    return () => window.removeEventListener(DISMISS_EVENT, onDismiss);
-  }, []);
 
   // Tasks the user just acted on locally. Held back from the visible set so
   // an in-flight refetch can't briefly revive the note after a dismiss.
@@ -204,7 +183,15 @@ export function BrowserStickies() {
   );
 
   // GC stale persisted entries when their task disappears from the server.
+  //
+  // Gated on a SUCCESSFUL fetch, which is the whole correctness condition here.
+  // `tasks` defaults to [], and this effect also runs when the query is
+  // disabled (Electron, or before sign-in), so without the gate every stored
+  // key looked stale on a cold mount and the saved positions were wiped on
+  // every page load. Same rule the desktop already follows for prunePinned:
+  // only a live list may retire anything.
   useEffect(() => {
+    if (!enabled || !isSuccess) return;
     const liveIds = new Set(tasks.map((t) => t.taskId));
     setPositionMap((prev) => {
       const stale = Object.keys(prev).filter((k) => !liveIds.has(k));
@@ -220,7 +207,7 @@ export function BrowserStickies() {
       for (const k of stale) delete next[k];
       return next;
     });
-  }, [tasks]);
+  }, [tasks, enabled, isSuccess]);
 
   const patchState = useCallback((id: string, patch: Partial<NoteState>) => {
     setPositionMap((prev) => ({

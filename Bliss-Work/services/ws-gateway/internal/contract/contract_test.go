@@ -55,3 +55,49 @@ func TestRecipientsOfCallParticipantLeft(t *testing.T) {
 		t.Fatalf("RecipientsOf() = %v, want both %s and %s delivered", got, remaining, leaver)
 	}
 }
+
+// sticky.refresh is the desktop-note delivery watchdog (services/sticky-relay)
+// telling one person's clients to re-fetch their pins, for the case where a
+// task.assigned frame was lost — a reconnect at the wrong moment, or the user
+// offline past the replay window.
+//
+// The name deliberately sits OUTSIDE the "task." prefix, because it is emitted
+// by a different service and is about delivery rather than about a task. That
+// makes it exactly the kind of type that falls through to `default` here and is
+// silently never delivered, which is what this test exists to stop.
+func TestRecipientsOfStickyRefresh(t *testing.T) {
+	const assignee = "11111111-1111-1111-1111-111111111111"
+	const sender = "22222222-2222-2222-2222-222222222222"
+
+	got := (&Event{
+		Type:       "sticky.refresh",
+		AssigneeID: assignee,
+		// Populated to prove they are ignored: the event carries no task
+		// content, so there is no second party who could want it. Routing it to
+		// a sender would tell them nothing and leak that someone has not read
+		// their allocation.
+		SenderID: sender,
+		Members:  []string{sender},
+	}).RecipientsOf()
+
+	if len(got) != 1 || got[0] != assignee {
+		t.Fatalf("RecipientsOf() = %v, want exactly [%s]", got, assignee)
+	}
+}
+
+// A type this binary has never heard of must route NOWHERE rather than
+// defaulting to the roster. Pinned because sticky.refresh above added the first
+// non-"task." event to that area of the switch, and a well-meaning prefix match
+// added later would quietly start delivering anything named sticky.*.
+func TestRecipientsOfUnknownStickyEventIsEmpty(t *testing.T) {
+	for _, typ := range []string{"sticky.dismissed", "sticky.", "sticky.something.new"} {
+		got := (&Event{
+			Type:       typ,
+			AssigneeID: "11111111-1111-1111-1111-111111111111",
+			Members:    []string{"22222222-2222-2222-2222-222222222222"},
+		}).RecipientsOf()
+		if len(got) != 0 {
+			t.Errorf("RecipientsOf(%q) = %v, want no recipients", typ, got)
+		}
+	}
+}

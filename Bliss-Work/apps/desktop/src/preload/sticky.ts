@@ -40,10 +40,11 @@ const api = {
   setBackgroundColor: (color: string) =>
     ipcRenderer.send("sticky:bg", { taskId: api.taskId, color }),
 
-  /** Clear this note from the desktop for good. Distinct from `act(…, "ignore")`
-   *  — that is a decision about the TASK; this is only about the note, and the
-   *  task keeps its status. Main remembers so the auto-pin doesn't bring it
-   *  back on the next launch. */
+  /** Take this note off screen for the rest of this run. Distinct from
+   *  `act(…, "ignore")` — that is a decision about the TASK; this is only about
+   *  the note, and the task keeps its status. NOT remembered across restarts:
+   *  an outstanding task gets its note back on the next launch, and only
+   *  completing or ignoring the task removes it for good. */
   dismiss: () => ipcRenderer.send("sticky:dismiss", api.taskId),
 };
 

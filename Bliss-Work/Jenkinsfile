@@ -79,6 +79,19 @@ def IMAGES = [
         dockerfile: 'services/notification-svc/Dockerfile',
         paths     : ['services/notification-svc/', 'services/shared/kafkaauth/']
     ],
+    // Durable record of which task notes belong on which desktop.
+    'sticky-svc': [
+        context   : '.',
+        dockerfile: 'services/sticky-svc/Dockerfile',
+        paths     : ['services/sticky-svc/', 'services/shared/kafka_security/', 'services/shared/tracing/', 'services/shared/internal_auth/', 'services/shared/logging_setup/']
+    ],
+    // Delivery watchdog for those notes. Go, so it shares kafkaauth rather than
+    // the Python kafka_security package.
+    'sticky-relay': [
+        context   : '.',
+        dockerfile: 'services/sticky-relay/Dockerfile',
+        paths     : ['services/sticky-relay/', 'services/shared/kafkaauth/']
+    ],
     // delivery-svc in compose uses this same image, just a different command.
     // So there is nothing extra to build for it.
     'ws-gateway': [

@@ -5,7 +5,7 @@ import type { StickyTaskDTO } from "@taskboard/shared";
 import { createMainWindow } from "./windows";
 import { StickyManager } from "./sticky-manager";
 import {
-  onAppActiveChange,
+  onShouldFloatChange,
   startAppActiveWatch,
   stopAppActiveWatch,
   trackMainWindow,
@@ -60,6 +60,7 @@ const ENDPOINTS = resolveEndpointsFromEnv(app.isPackaged, {
   // See the note in src/renderer/main.tsx: this key was missing from both
   // override maps, making TB_TELEMETRY_BASE silently inert on desktop.
   telemetryBase: process.env.TB_TELEMETRY_BASE,
+  stickyBase: process.env.TB_STICKY_BASE,
   wsUrl: process.env.TB_WS_URL,
 });
 
@@ -272,12 +273,12 @@ function bootstrap() {
   screen.on("display-removed", reclampStickies);
   screen.on("display-metrics-changed", reclampStickies);
 
-  // Show the task notes exactly while BlissWork is the application the user is
-  // in, and take them off screen the moment it is not. Ownership (each note is
-  // an Electron child of the main window) is what keeps them from ever being
-  // ABOVE another application; this is what keeps them from being on screen at
-  // all while someone is working elsewhere. See ./app-active.
-  onAppActiveChange((active) => sticky.setAppActive(active));
+  // Keep the task notes on screen exactly while the user can see their desktop
+  // — whether that is BlissWork itself in front or the bare desktop with
+  // BlissWork minimised or in the tray — and take them off the moment another
+  // application is. See ./app-active for how that reading is made, and why it
+  // is safe to consult the OS for it.
+  onShouldFloatChange((safe) => sticky.setSafeToFloat(safe));
   startAppActiveWatch();
 
   app.on("activate", () => {
@@ -289,12 +290,11 @@ function bootstrap() {
 }
 
 function wireMainWindow(win: BrowserWindow) {
-  // The task notes are COMPANION windows of this one: owned by it at the OS
-  // level (so they sit above BlissWork and can never rise above another
-  // application) and shown/hidden with it. Both are re-pointed here rather
-  // than captured once, because this window can be recreated — notes restored
-  // at bootstrap are built before it exists at all.
-  sticky.setParentWindow(win);
+  // The task notes are DESKTOP widgets, not children of this window — they
+  // outlive it being minimised or closed to the tray. This window is still
+  // tracked, because its focus is one of the two reasons a note may be on
+  // screen. Re-pointed here rather than captured once, because it can be
+  // recreated (macOS `activate`, the tray path).
   trackMainWindow(win);
 
   // Intercept close to keep running in the tray, so the widgets + WS survive
@@ -389,6 +389,10 @@ function startWsProcess() {
       /** True for the connect-time catch-up burst — see WsEventMeta. */
       replayed?: boolean;
       tasks?: StickyTaskDTO[];
+      /** Task ids sticky-svc still considers open commitments for this user.
+       *  Absent when that service is not configured or was unreachable, which
+       *  is the signal to keep today's task-svc-only behaviour. */
+      openPins?: string[];
       // Phase 8: ws-process drives sticky-chat fan-out for pinned threads.
       threadId?: string;
       payload?: unknown;
@@ -410,6 +414,11 @@ function startWsProcess() {
         case "sticky": {
           const live = m.tasks ?? [];
           setTasks(live);
+          // Durable pin set from sticky-svc, when it is deployed and reachable.
+          // Purely ADDITIVE: it can restore a pin this machine has never seen
+          // (a reinstall, or a second device), and it can never remove one —
+          // prunePinned below still answers only to the task-svc list.
+          if (m.openPins) sticky.adoptServerPins(m.openPins);
           // Live server push: auto-pin newly actionable tasks so an allocation
           // pops up on the desktop on its own.
           sticky.setTasks(live, { live: true });
@@ -737,13 +746,14 @@ ipcMain.handle("task:list-pinned", () => {
     return [];
   }
 });
-// Clear a note from the desktop and remember it. Sent both by the note's own
-// dismiss control and by the app when the task is opened — reading a task IS
-// dealing with its notification.
+// Take a note off screen for the rest of this run. Sent ONLY by the note's own
+// X — not by opening the task, which is reading it, not dealing with it. The
+// pin survives, so the note is back on the next launch if the task is still
+// actionable; only completing or ignoring it removes it for good.
 ipcMain.on("sticky:dismiss", (_e, taskId: unknown) => {
   if (typeof taskId !== "string" || !taskId) return;
   try {
-    sticky.dismiss(taskId);
+    sticky.hideForSession(taskId);
     updateTray();
   } catch (err) {
     console.error("[sticky] sticky:dismiss failed", err);

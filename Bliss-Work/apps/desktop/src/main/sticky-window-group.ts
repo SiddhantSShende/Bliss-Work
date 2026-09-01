@@ -5,8 +5,8 @@ import { clampToPrimary, isOnPrimary } from "./sticky-state";
  * Shared BrowserWindow-group glue for StickyManager and ChatStickyManager.
  *
  * Both managers own a `Map<string, BrowserWindow>` of live widgets and need the
- * same three operations on it — normalize z-order, re-confine to the primary
- * display, and snap a single dragged widget back onto it. The underlying clamp
+ * same operations on it — re-confine to the primary display, snap a single
+ * dragged widget back onto it, and (chat only) drop always-on-top. The underlying clamp
  * math already lives in ./sticky-state (shared); this is the thin per-window
  * iteration on top of it, factored out because it was byte-for-byte identical
  * in both managers and every caller already invokes it on both managers back
@@ -19,10 +19,19 @@ import { clampToPrimary, isOnPrimary } from "./sticky-state";
  * product reasons and stay in each manager.
  */
 
-/** Force every live window in the group to normal (non-floating) z-order.
- *  Sticky notes never actually go always-on-top on any platform — see
- *  ./foreground — so this is a hard re-assertion, not a toggle. */
-export function normalizeZOrder(widgets: Iterable<BrowserWindow>): void {
+/**
+ * Force every live window in the group OUT of always-on-top.
+ *
+ * Named for what it does rather than for a policy, because it is only correct
+ * for CHAT notes — the only caller. A chat note is a normal floating window and
+ * is meant to sit in the ordinary stack.
+ *
+ * Do NOT apply this to task notes. Their always-on-top flag is the mechanism
+ * that rests them on the desktop (see createStickyWindow and
+ * StickyManager.setSafeToFloat); calling this on them would silently undo the
+ * feature, which is exactly how it was lost once already.
+ */
+export function dropAlwaysOnTop(widgets: Iterable<BrowserWindow>): void {
   for (const w of widgets) if (!w.isDestroyed()) w.setAlwaysOnTop(false);
 }
 

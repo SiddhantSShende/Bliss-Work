@@ -1050,6 +1050,88 @@ services:
       resources:
         limits: { cpus: "1.00", memory: 384M }
 
+  # Durable record of which task notes belong on which desktop. Consumes
+  # task.events.v1 and keeps one row per (org, assignee, task): OPEN from
+  # assignment, CLOSED only on a terminal status. Stores no task title or
+  # description — those stay encrypted in taskdb.
+  #
+  # NOTE: stickydb is NOT created by the postgres init SQL on an existing
+  # volume. Run scripts/create-sticky-db.sh once before the first deploy or this
+  # container crash-loops on a missing database.
+  sticky-svc:
+    <<: *svc-defaults
+    build:
+      # Repository root, not services/sticky-svc: the Dockerfile needs the
+      # sibling services/shared/* packages as local path dependencies.
+      context: .
+      dockerfile: services/sticky-svc/Dockerfile
+    image: ${REGISTRY_PREFIX:-task-board}/sticky-svc:${IMAGE_TAG:-latest}
+    environment:
+      IMAGE_TAG: ${IMAGE_TAG:-dev}
+    # Re-listed (not inherited) — see the x-svc-defaults note: `<<:` replaces
+    # the `env_file:` list rather than merging it. This service's OWN internal
+    # secret (validates callers of /internal/pins/undelivered) lives in a
+    # separate file from the shared .env.prod, so every service that never calls
+    # it never receives it. Only sticky-relay gets the same file, below.
+    env_file:
+      - path: .env.prod
+        required: false
+      - path: .env.prod.sticky-internal-token
+        required: false
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
+      auth-svc: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8008/readyz').status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    deploy:
+      # Two replicas behind the Caddy load balancer. Stateless — same reasoning
+      # as auth-svc. The Kafka consumer group makes the pair share partitions
+      # rather than double-consume.
+      replicas: 2
+      resources:
+        limits: { cpus: "1.00", memory: 384M }
+
+  # Delivery watchdog for the desktop notes: nudges users whose open pins were
+  # never confirmed as received, so an assignment lost to a reconnect still
+  # reaches the desktop it was meant for.
+  sticky-relay:
+    <<: *svc-defaults
+    build:
+      # Repository root: go.mod replaces shared-kafkaauth with the sibling
+      # module services/shared/kafkaauth.
+      context: .
+      dockerfile: services/sticky-relay/Dockerfile
+    image: ${REGISTRY_PREFIX:-task-board}/sticky-relay:${IMAGE_TAG:-latest}
+    environment:
+      IMAGE_TAG: ${IMAGE_TAG:-dev}
+    # The other half of the pair: sticky-relay SENDS the secret that sticky-svc
+    # validates, so it is the only other service that gets this file.
+    env_file:
+      - path: .env.prod
+        required: false
+      - path: .env.prod.sticky-internal-token
+        required: false
+    depends_on:
+      kafka-init: { condition: service_completed_successfully }
+      sticky-svc: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8010/healthz >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    deploy:
+      # ONE replica, deliberately, unlike everything else here. There is no
+      # throughput reason for a second sweeper. Concurrent sweeps are safe —
+      # sticky-svc claims the rows it hands out — but two would only halve the
+      # effective backoff for no benefit.
+      replicas: 1
+      resources:
+        limits: { cpus: "0.25", memory: 128M }
+
   ws-gateway:
     <<: *svc-defaults
     build:

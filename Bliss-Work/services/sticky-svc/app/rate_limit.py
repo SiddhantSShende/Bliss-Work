@@ -1,0 +1,57 @@
+"""Rate limit configuration for task-svc — mirrors auth-svc/app/rate_limit.py.
+
+Task creation and state mutation are limited per-user since these turn into
+fan-out events; an org_admin who scripts a million `createTask` calls is the
+worst case to plan for.
+"""
+from __future__ import annotations
+
+from fastapi import Request
+from fastapi.responses import JSONResponse
+from slowapi import Limiter
+from slowapi.errors import RateLimitExceeded
+
+from .net import rate_limit_key
+
+from .config import settings
+
+
+# NOTE: slowapi.util.get_remote_address is deliberately NOT used here. It
+# returns request.client.host, which behind our edge is Caddy's address on
+# every request — see app/net.py. Reintroducing it silently turns the
+# per-caller budget below into a single global one.
+
+
+limiter = Limiter(
+    key_func=rate_limit_key,
+    default_limits=["600/minute"],  # global per-key safety net
+    headers_enabled=True,
+    # Redis storage makes the ceiling honest across replicas. Without it slowapi
+    # keeps its buckets in process memory, so every limit here silently
+    # multiplies by the replica count — and worse, becomes non-deterministic,
+    # since what a caller actually gets depends on how the load balancer
+    # happened to spread their requests. docker-compose.prod.yml runs this
+    # service with two replicas behind Caddy, so that is not hypothetical.
+    # Falls back to in-process when no Redis is configured, which is the correct
+    # behaviour for a single instance.
+    #
+    # swallow_errors fails OPEN on a Redis blip: serving unlimited beats
+    # 500-ing every request because the limiter's store is unreachable.
+    storage_uri=settings.slowapi_storage_uri or settings.redis_url or "memory://",
+    swallow_errors=True,
+)
+
+
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    rid = request.headers.get("x-request-id") or ""
+    body = {
+        "error": {
+            "code": "rate_limited",
+            "message": "too many requests",
+            "requestId": rid,
+        }
+    }
+    response = JSONResponse(status_code=429, content=body)
+    response.headers["Retry-After"] = "60"
+    response.headers["X-Request-Id"] = rid
+    return response

@@ -2,7 +2,7 @@ import { BrowserWindow, screen } from "electron";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { clampToPrimary, forget, gc, getGeometry, saveGeometry, touch } from "./sticky-state";
-import { normalizeZOrder, reclampGroupToPrimary, snapBackIfOffPrimary } from "./sticky-window-group";
+import { dropAlwaysOnTop, reclampGroupToPrimary, snapBackIfOffPrimary } from "./sticky-window-group";
 import { appIcon } from "./assets";
 import { hardenWindow } from "./harden";
 
@@ -122,13 +122,13 @@ export class ChatStickyManager {
    *  the app. Paired with raiseZOrder on blur. (Matches StickyManager so the
    *  whole sticky surface moves together.) */
   lowerZOrder(): void {
-    normalizeZOrder(this.widgets.values());
+    dropAlwaysOnTop(this.widgets.values());
   }
 
   /** Main window blurred: float chat notes back over the desktop at the lightest
    *  always-on-top level so they stay visible on the main screen. */
   raiseZOrder(): void {
-    normalizeZOrder(this.widgets.values());
+    dropAlwaysOnTop(this.widgets.values());
   }
 
   /** Re-confine every live chat note to the primary display (display change). */

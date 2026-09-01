@@ -15,6 +15,7 @@ import { qk } from "../lib/queryBridge";
 const TASK_ID = "018f0000-0000-7000-8000-0000000000a1";
 const NOTIF_ID = "018f0000-0000-7000-8000-0000000000b1";
 
+const dismissSticky = vi.fn();
 const api = {
   taskInbox: vi.fn(async () => [] as StickyTaskDTO[]),
   taskDetail: vi.fn(),
@@ -22,8 +23,12 @@ const api = {
   readInboxItem: vi.fn(async () => {}),
   markNotificationRead: vi.fn(async () => {}),
 };
-vi.mock("../lib/runtime", () => ({ useRuntime: () => ({ api, config: {} }) }));
-vi.mock("../features/BrowserStickies", () => ({ dismissBrowserSticky: vi.fn() }));
+// `dismissSticky` is deliberately no longer part of PlatformConfig — it is
+// passed here anyway so that if anyone reintroduces the field AND a call to it,
+// the assertions below see it rather than silently passing.
+vi.mock("../lib/runtime", () => ({
+  useRuntime: () => ({ api, config: { dismissSticky } }),
+}));
 
 import { MailTask } from "./MailTask";
 
@@ -76,6 +81,8 @@ function renderTask(notifications: NotificationDTO[]) {
 beforeEach(() => {
   api.markNotificationRead.mockClear();
   api.readInboxItem.mockClear();
+  dismissSticky.mockClear();
+  window.localStorage.clear();
 });
 
 afterEach(() => {
@@ -107,5 +114,43 @@ describe("opening a task clears its bell notification", () => {
 
     await waitFor(() => expect(api.readInboxItem).toHaveBeenCalled());
     expect(api.markNotificationRead).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * THE "READING IS NOT DEALING WITH IT" REGRESSION.
+ *
+ * This effect used to clear the task's floating desktop note as well as its
+ * badge, and because that clearing was PERSISTED, clicking a task's row in the
+ * inbox retired its note for good while the task was still outstanding. A note
+ * is a commitment marker; only Completing, Ignoring or Leaving removes it.
+ */
+describe("opening a task does NOT unpin its sticky note", () => {
+  it("never asks the desktop to clear the note", async () => {
+    renderTask([]);
+    await screen.findByText("Ship the thing");
+
+    // Wait for the effect to have run to completion before asserting a negative.
+    await waitFor(() => expect(api.readInboxItem).toHaveBeenCalledWith("TASK", TASK_ID));
+    expect(dismissSticky).not.toHaveBeenCalled();
+  });
+
+  it("writes nothing to the web sticky's persisted state", async () => {
+    renderTask([]);
+    await screen.findByText("Ship the thing");
+
+    await waitFor(() => expect(api.readInboxItem).toHaveBeenCalledWith("TASK", TASK_ID));
+    // The old code persisted the dismissal here, which is what made it survive
+    // every refresh. Nothing about reading a task belongs in local storage.
+    expect(window.localStorage.getItem("tb.browser-stickies.unpinned.v1")).toBeNull();
+    expect(window.localStorage.length).toBe(0);
+  });
+
+  it("still clears the unread badge — that part was always right", async () => {
+    renderTask([notification()]);
+    await screen.findByText("Ship the thing");
+
+    await waitFor(() => expect(api.readInboxItem).toHaveBeenCalledWith("TASK", TASK_ID));
+    await waitFor(() => expect(api.markNotificationRead).toHaveBeenCalledWith(NOTIF_ID));
   });
 });

@@ -70,10 +70,6 @@ const api = {
    *  sticky-state.json). The renderer hydrates the Pin button from this. */
   listPinned: (): Promise<string[]> => ipcRenderer.invoke("task:list-pinned"),
 
-  /** Clear a task's desktop note and remember that it was cleared, so the
-   *  auto-pin does not re-float it on the next launch. Called when the task is
-   *  opened — opening it is what "reading the notification" means. */
-  dismissSticky: (taskId: string) => ipcRenderer.send("sticky:dismiss", taskId),
 
   /** Subscribe to realtime ServerEvents relayed from the utilityProcess. */
   onWsEvent: (cb: (e: ServerEvent, meta?: WsEventMeta) => void) => {

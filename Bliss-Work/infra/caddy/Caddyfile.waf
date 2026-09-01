@@ -251,6 +251,16 @@
 				import upstream telemetry-svc 8006
 			}
 		}
+		# Desktop sticky notes. Kept in lock-step with infra/caddy/Caddyfile —
+		# a route that exists in only one of the two is a route that works until
+		# the WAF is switched on. sticky-svc's /internal/pins/undelivered is
+		# shared-secret auth for sticky-relay; the global @internal matcher
+		# already 404s it here, prefix and all.
+		handle_path /api/sticky/* {
+			reverse_proxy {
+				import upstream sticky-svc 8008
+			}
+		}
 		# Read-composition GraphQL gateway. NOT under /api/<svc>/* because it is not
 		# one service's API — it composes several. Kept on the SAME ORIGIN as
 		# /api/* so the browser reuses the one HTTP/2 connection it already has, and

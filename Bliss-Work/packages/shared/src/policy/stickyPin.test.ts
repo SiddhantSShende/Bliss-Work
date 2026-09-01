@@ -21,14 +21,23 @@ function task(over: Partial<StickyTaskDTO> & { taskId: string; myStatus: Assigne
 const ALL_STATUSES: AssigneeStatus[] = ["SENT", "IGNORED", "ACKNOWLEDGED", "COMPLETED", "LEFT"];
 
 describe("canPinTask", () => {
-  it("allows manual-pinning only ACKNOWLEDGED tasks", () => {
+  it("allows manual-pinning any ACTIONABLE task, not just acknowledged ones", () => {
     expect(canPinTask("ACKNOWLEDGED")).toBe(true);
+    // The manual button is the recovery path for a note taken off screen with
+    // its X, and a SENT note can be hidden too. Requiring ACKNOWLEDGED meant a
+    // freshly-assigned note, once hidden, could not be brought back until the
+    // user acknowledged a task they could no longer see.
+    expect(canPinTask("SENT")).toBe(true);
   });
 
-  it("rejects every non-acknowledged status", () => {
-    for (const s of ALL_STATUSES.filter((x) => x !== "ACKNOWLEDGED")) {
+  it("rejects every terminal status", () => {
+    for (const s of ALL_STATUSES.filter((x) => x !== "ACKNOWLEDGED" && x !== "SENT")) {
       expect(canPinTask(s)).toBe(false);
     }
+  });
+
+  it("stays in step with canFloatTask — the button must be offered for anything that floats", () => {
+    for (const s of ALL_STATUSES) expect(canPinTask(s)).toBe(canFloatTask(s));
   });
 });
 
@@ -137,7 +146,13 @@ describe("shouldOfferPin", () => {
     expect(shouldOfferPin({ ...base, locked: true })).toBe(false);
   });
 
-  it("hides the button before the task is acknowledged", () => {
-    expect(shouldOfferPin({ ...base, status: "SENT" })).toBe(false);
+  it("offers the button on a SENT task, so a hidden allocation can be brought back", () => {
+    expect(shouldOfferPin({ ...base, status: "SENT" })).toBe(true);
+  });
+
+  it("hides the button once the task is terminal", () => {
+    for (const s of ["COMPLETED", "IGNORED", "LEFT"] as AssigneeStatus[]) {
+      expect(shouldOfferPin({ ...base, status: s })).toBe(false);
+    }
   });
 });

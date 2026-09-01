@@ -21,14 +21,20 @@ export interface PinResult {
 }
 
 /**
- * A task may be MANUALLY pinned (the in-app "Pin to desktop" button) only once
- * the user has ACKNOWLEDGED it — the deliberate commitment step. Terminal tasks
- * (completed/left/ignored) are no longer actionable. Note this gates only the
- * manual button; whether a task FLOATS is `canFloatTask` (which also includes
- * freshly-assigned SENT tasks so an allocation pops up on its own).
+ * A task may be MANUALLY pinned (the in-app "Pin to desktop" button) for as long
+ * as it is actionable. Terminal tasks (completed/left/ignored) are not.
+ *
+ * This deliberately matches `canFloatTask` rather than requiring ACKNOWLEDGED.
+ * The manual button is the recovery path for a note the user took off screen
+ * with its X, and that hide is available on a SENT note too — gating the button
+ * on ACKNOWLEDGED meant a freshly-assigned note, once hidden, could not be
+ * brought back at all until the user acknowledged a task they could no longer
+ * see. The two predicates are kept as separate names because they answer
+ * different questions (may I offer the button, vs should this be on screen),
+ * and only one of them is expected to stay in step with the other.
  */
 export function canPinTask(status: AssigneeStatus): boolean {
-  return status === "ACKNOWLEDGED";
+  return canFloatTask(status);
 }
 
 /**

@@ -12,10 +12,13 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/task-board/notification-svc/internal/auth"
+	"github.com/task-board/notification-svc/internal/events"
+	"github.com/task-board/notification-svc/internal/outbox"
 )
 
 // HeaderRequestID is the case-insensitive request-id header all services emit.
@@ -205,36 +208,68 @@ func (s *Server) handleRead(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tag, err := s.pool.Exec(r.Context(),
-		`UPDATE notifications
-		    SET read_at = now()
-		  WHERE id = $1 AND recipient_id = $2 AND org_id = $3 AND read_at IS NULL`,
-		id, claims.UserID, claims.OrgID)
+	tx, err := s.pool.Begin(r.Context())
+	if err != nil {
+		s.log.Error("begin tx failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }()
+
+	exists, err := s.markRead(r.Context(), tx, id, claims.UserID, claims.OrgID)
 	if err != nil {
 		s.log.Error("mark read failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
+	if !exists {
+		writeError(w, http.StatusNotFound, "notification not found")
+		return
+	}
 
-	if tag.RowsAffected() == 0 {
-		// Either not found / not owned, or already read. Verify existence to
-		// distinguish a genuine 404 from an idempotent re-read.
-		var exists bool
-		err := s.pool.QueryRow(r.Context(),
-			`SELECT EXISTS(SELECT 1 FROM notifications WHERE id=$1 AND recipient_id=$2 AND org_id=$3)`,
-			id, claims.UserID, claims.OrgID).Scan(&exists)
-		if err != nil {
-			s.log.Error("existence check failed", "error", err)
-			writeError(w, http.StatusInternalServerError, "internal error")
-			return
-		}
-		if !exists {
-			writeError(w, http.StatusNotFound, "notification not found")
-			return
-		}
+	if err := tx.Commit(r.Context()); err != nil {
+		s.log.Error("commit failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// markRead updates one notification's read_at and, only when the row actually
+// flips from unread to read, enqueues a NotificationRead event on the same
+// transaction. Returns whether the notification exists at all (owned by this
+// caller) — RowsAffected alone can't distinguish "already read" from "not
+// found", and the caller needs that distinction for 404 vs 204.
+//
+// Split out from handleRead so this DB-level behavior (in particular: exactly
+// one event per real change, none for an idempotent re-read) is testable
+// without going through HTTP/auth — see httpapi_test.go.
+func (s *Server) markRead(ctx context.Context, tx pgx.Tx, id uuid.UUID, userID, orgID string) (exists bool, err error) {
+	tag, err := tx.Exec(ctx,
+		`UPDATE notifications
+		    SET read_at = now()
+		  WHERE id = $1 AND recipient_id = $2 AND org_id = $3 AND read_at IS NULL`,
+		id, userID, orgID)
+	if err != nil {
+		return false, err
+	}
+
+	if tag.RowsAffected() > 0 {
+		idStr := id.String()
+		return true, s.publishNotificationRead(ctx, tx, orgID, userID, &idStr)
+	}
+
+	// Either not found / not owned, or already read. Verify existence to
+	// distinguish a genuine 404 from an idempotent re-read — already read
+	// changed nothing, so no event: a second click on "Mark read" must not
+	// re-broadcast to every active session.
+	if err := tx.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM notifications WHERE id=$1 AND recipient_id=$2 AND org_id=$3)`,
+		id, userID, orgID).Scan(&exists); err != nil {
+		return false, err
+	}
+	return exists, nil
 }
 
 // handleReadAll serves POST /api/v1/notifications/read-all. Marks every unread
@@ -248,17 +283,74 @@ func (s *Server) handleReadAll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := s.pool.Exec(r.Context(),
-		`UPDATE notifications
-		    SET read_at = now()
-		  WHERE recipient_id = $1 AND org_id = $2 AND read_at IS NULL`,
-		claims.UserID, claims.OrgID); err != nil {
+	tx, err := s.pool.Begin(r.Context())
+	if err != nil {
+		s.log.Error("begin tx failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }()
+
+	if err := s.markAllRead(r.Context(), tx, claims.UserID, claims.OrgID); err != nil {
 		s.log.Error("mark all read failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
+	if err := tx.Commit(r.Context()); err != nil {
+		s.log.Error("commit failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// markAllRead marks every unread notification the caller owns as read in a
+// single set-based statement, and — only when at least one row actually
+// changed — enqueues one NotificationRead event (not one per row: a bulk
+// mark-read is one user action, and the frontend response to the event is a
+// blind refetch regardless of which rows changed). Split out for the same
+// testability reason as markRead above.
+func (s *Server) markAllRead(ctx context.Context, tx pgx.Tx, userID, orgID string) error {
+	tag, err := tx.Exec(ctx,
+		`UPDATE notifications
+		    SET read_at = now()
+		  WHERE recipient_id = $1 AND org_id = $2 AND read_at IS NULL`,
+		userID, orgID)
+	if err != nil {
+		return err
+	}
+
+	// Nothing changed — nothing to tell other sessions.
+	if tag.RowsAffected() == 0 {
+		return nil
+	}
+	return s.publishNotificationRead(ctx, tx, orgID, userID, nil)
+}
+
+// publishNotificationRead enqueues a NotificationRead outbox row on the
+// caller's transaction, the same Enqueue-in-tx pattern consumer.go uses for
+// NotificationCreated — the existing outbox.Publisher picks it up from here
+// with no other wiring needed.
+func (s *Server) publishNotificationRead(ctx context.Context, tx pgx.Tx, orgID, recipientID string, notificationID *string) error {
+	outID, err := uuid.NewV7()
+	if err != nil {
+		return err
+	}
+	evt := events.NotificationRead{
+		Type:           events.TypeNotificationRead,
+		EventID:        outID.String(),
+		OrgID:          orgID,
+		OccurredAt:     time.Now().UTC().Format("2006-01-02T15:04:05.000Z07:00"),
+		RecipientID:    recipientID,
+		NotificationID: notificationID,
+	}
+	payload, err := json.Marshal(evt)
+	if err != nil {
+		return err
+	}
+	return outbox.Enqueue(ctx, tx, outID, events.TopicNotification, recipientID, payload)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {

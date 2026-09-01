@@ -9,6 +9,7 @@
  */
 import { WebSocket as NodeWebSocket } from "ws";
 import { ApiClient, WsClient, type ServerEvent, type StickyTaskDTO, type ClientFrame, type WsEventMeta } from "@taskboard/shared";
+import { shouldRefreshSticky } from "./sticky-refresh";
 
 const parent = (process as unknown as { parentPort: NodeJS.EventEmitter & { postMessage: (m: unknown) => void } }).parentPort;
 
@@ -81,12 +82,56 @@ function build(cfg: {
  *  assignment into a multi-minute wait. */
 const STICKY_REFRESH_RETRY_DELAYS_MS = [500, 1500];
 
+/**
+ * Re-read which task notes belong on this desktop, and tell main.
+ *
+ * ── Two sources, and only one of them may ever REMOVE a note ─────────────────
+ * task-svc's /tasks/sticky is the content source and the authority on what is
+ * actionable. sticky-svc's /sticky/pins is a durable record of open
+ * commitments, which is what makes a pin survive a reinstall and show up on a
+ * second machine.
+ *
+ * They are merged as a UNION, never subtractively: every actionable task from
+ * task-svc floats, plus anything sticky-svc still considers open. So a
+ * sticky-svc outage, an unconsumed Kafka event or a build with no stickyBase
+ * configured at all degrades to exactly the behaviour that shipped before it
+ * existed — it can never take a note away. `prunePinned` in the main process
+ * likewise stays driven by the task-svc list alone.
+ */
 async function refreshSticky() {
   if (!api || !token) return;
   for (let attempt = 0; ; attempt++) {
     try {
-      stickyTasks = await api.tasksSticky();
-      send({ type: "sticky", tasks: stickyTasks });
+      const [tasksResult, pinsResult] = await Promise.allSettled([
+        api.tasksSticky(),
+        api.stickyPins(),
+      ]);
+      // The task list is load-bearing; a failure here is a real failure and
+      // takes the retry path below.
+      if (tasksResult.status === "rejected") throw tasksResult.reason;
+      stickyTasks = tasksResult.value;
+
+      // The pin set is advisory. A rejection is logged once and otherwise
+      // ignored — it must not stop the notes appearing.
+      if (pinsResult.status === "rejected") {
+        console.warn(
+          "[sticky] pin authority unavailable, using task list alone:",
+          pinsResult.reason instanceof Error ? pinsResult.reason.message : pinsResult.reason,
+        );
+      }
+      const openPins = pinsResult.status === "fulfilled" ? pinsResult.value : null;
+
+      send({ type: "sticky", tasks: stickyTasks, openPins: openPins ?? undefined });
+
+      // Tell sticky-svc these reached a screen, so the delivery watchdog stops
+      // nudging about them. Fire-and-forget: a failure costs one redundant
+      // nudge, which is far cheaper than letting it break the notes.
+      if (openPins) {
+        const actionable = new Set(stickyTasks.map((t) => t.taskId));
+        for (const taskId of openPins) {
+          if (actionable.has(taskId)) void api.stickyAckDelivery(taskId).catch(() => {});
+        }
+      }
       return;
     } catch (e) {
       const delay = STICKY_REFRESH_RETRY_DELAYS_MS[attempt];
@@ -107,7 +152,7 @@ function onEvent(e: ServerEvent, meta: WsEventMeta) {
   // sticky auto-pin live. Without it every launch re-announces the connect-time
   // catch-up burst — up to 200 events — as if it had all just happened.
   send({ type: "event", event: e, replayed: meta.replayed });
-  if (e.type.startsWith("task.")) void refreshSticky();
+  if (shouldRefreshSticky(e.type)) void refreshSticky();
 
   // Phase 8: forward MessageCreated events for pinned threads to the main
   // process so each one lands inside the corresponding chat-sticky window.

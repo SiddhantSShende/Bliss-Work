@@ -20,7 +20,6 @@ declare global {
       setRefreshToken: (t: string | null) => void;
       pinTask: (taskId: string) => Promise<PinResult>;
       listPinned: () => Promise<string[]>;
-      dismissSticky: (taskId: string) => void;
       onWsEvent: (cb: (e: ServerEvent, meta?: WsEventMeta) => void) => () => void;
       onTokenRequest: (cb: () => void) => () => void;
       onInviteDeepLink: (cb: (token: string) => void) => () => void;
@@ -122,6 +121,7 @@ const ENDPOINTS = resolveEndpointsFromEnv(!env.DEV, {
   // web-only override: the desktop silently used the baked default, so a
   // deployment that moved telemetry broke member activity on desktop alone.
   telemetryBase: env.VITE_TELEMETRY_BASE,
+  stickyBase: env.VITE_STICKY_BASE,
   wsUrl: env.VITE_WS_URL,
 });
 
@@ -154,7 +154,6 @@ const config: PlatformConfig = {
   hangUpMeetingWindow: (callId) => bridge.hangUpMeetingWindow(callId),
   pinTask: (taskId) => bridge.pinTask(taskId),
   listPinned: () => bridge.listPinned(),
-  dismissSticky: (taskId) => bridge.dismissSticky(taskId),
   persistToken: (t) => bridge.setToken(t),
   // file:// makes every API request cross-site, so the SameSite=lax refresh
   // cookie never travels — the token comes from the host and goes in the body.

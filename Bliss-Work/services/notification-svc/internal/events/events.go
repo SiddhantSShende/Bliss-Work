@@ -28,6 +28,7 @@ const (
 	TypeTaskIgnored         = "task.ignored"
 	TypeTaskLeft            = "task.left"
 	TypeNotificationCreated = "notification.created"
+	TypeNotificationRead    = "notification.read"
 	TypeOrgDeleted          = "org.deleted"
 	TypeChannelMemberJoined = "channel.member.joined"
 )
@@ -87,4 +88,21 @@ type NotificationCreated struct {
 	Kind           string  `json:"kind"`
 	Text           string  `json:"text"`
 	TaskID         *string `json:"taskId,omitempty"`
+}
+
+// NotificationRead is emitted by the HTTP API after a notification (or the
+// caller's whole unread set) is marked read, so every other active session
+// for the same recipient — another browser tab, another device, the desktop
+// app — drops the bell badge without a manual refresh. NotificationID is set
+// for a single mark-read and omitted for mark-all, matching how TaskID is
+// optional on NotificationCreated above. Only emitted when a row actually
+// flipped from unread to read — a re-click on an already-read row, or an
+// empty mark-all, produces no event.
+type NotificationRead struct {
+	Type           string  `json:"type"`
+	EventID        string  `json:"eventId"`
+	OrgID          string  `json:"orgId"`
+	OccurredAt     string  `json:"occurredAt"`
+	RecipientID    string  `json:"recipientId"`
+	NotificationID *string `json:"notificationId,omitempty"`
 }

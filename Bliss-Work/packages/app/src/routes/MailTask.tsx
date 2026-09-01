@@ -8,7 +8,6 @@ import { ListTodo } from "lucide-react";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { StickyWidget } from "../features/StickyWidget";
-import { dismissBrowserSticky } from "../features/BrowserStickies";
 
 /**
  * Main pane content for /app/mail/task/:taskId.
@@ -72,13 +71,13 @@ export function MailTask() {
   useEffect(() => {
     if (!taskId || markedRef.current === taskId) return;
     markedRef.current = taskId;
-    // Opening the task IS reading its notification, so clear its floating note
-    // as well — on the desktop (persisted in the main process, so the auto-pin
-    // does not resurrect it next launch) and on the web. Previously the note
-    // survived being read, so the only way to be rid of it was to finish or
-    // ignore the task.
-    config.dismissSticky?.(taskId);
-    dismissBrowserSticky(taskId);
+    // Deliberately does NOT touch the task's floating note. Reading a task is
+    // not the same as dealing with it: the note is a commitment marker, and it
+    // stays until the task is Completed, Ignored or Left. This effect once
+    // cleared the note too — and because that clearing was PERSISTED, merely
+    // clicking the task's row in the inbox retired its note for good while the
+    // task was still outstanding. That is the bug this comment guards against;
+    // clearing the unread BADGE below is the part that was always right.
     void api
       .readInboxItem("TASK", taskId)
       .then(() => {
@@ -93,8 +92,9 @@ export function MailTask() {
     // OWN unread state (notification-svc, surfaced in NotificationsPanel) is a
     // separate system that nothing but the bell itself ever wrote to — so a
     // "Task completed by …" notification stayed lit even after its task was
-    // opened and reviewed here. Same "opening IS reading it" reasoning as
-    // dismissSticky above, extended to notification-svc's copy.
+    // opened and reviewed here. Opening IS reading it, for the bell — but only
+    // for the bell. The floating note is a commitment, not a notification, and
+    // is deliberately left alone (see above).
     const unreadForTask = (qc.getQueryData<NotificationDTO[]>(qk.notifications) ?? []).filter(
       (n) => n.taskId === taskId && !n.read,
     );
