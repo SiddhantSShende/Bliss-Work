@@ -495,7 +495,6 @@ export function useChatMedia(opts: ChatMediaOptions) {
           fileName={offer.name}
           fileSize={offer.size}
           state={state}
-          onAccept={!mine ? () => ft.accept(offer) : undefined}
           onDecline={!mine ? () => ft.decline(offer, m.senderId) : undefined}
           onCancel={() => ft.cancel(offer.offerId)}
         />

@@ -125,4 +125,21 @@ describe("MailAttachmentCards", () => {
 
     expect(openAttachment).toHaveBeenCalledWith("https://example.test/media/a6?t=sig", doc.filename);
   });
+
+  // This app does not download files of any kind — the non-previewable
+  // fallback used to say "Download" (with a Download icon) despite already
+  // only opening a new tab. Pins the wording/iconography, not just the
+  // behavior the other tests already cover.
+  it("never shows the word 'Download' anywhere, on web or desktop", () => {
+    const doc = attachment({ id: "a7", filename: "report.docx", mime: "application/vnd.ms-word" });
+    const { unmount } = render(<MailAttachmentCards attachments={[doc]} />);
+    expect(screen.queryByText(/download/i)).not.toBeInTheDocument();
+    unmount();
+
+    vi.mocked(useRuntimeMock).mockReturnValueOnce({
+      config: { kind: "desktop", openAttachment: vi.fn() },
+    } as never);
+    render(<MailAttachmentCards attachments={[doc]} />);
+    expect(screen.queryByText(/download/i)).not.toBeInTheDocument();
+  });
 });

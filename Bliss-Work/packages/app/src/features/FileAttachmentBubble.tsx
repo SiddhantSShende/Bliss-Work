@@ -6,9 +6,10 @@ import type { TransferState } from "../lib/rtcTransfer";
  * Visual for a single file attachment offer inside a thread bubble.
  *
  * Four discrete states cover the user-facing lifecycle:
- *   OFFERED       — receiver sees Accept / Decline; sender sees "Sent — waiting"
+ *   OFFERED       — receiver sees "downloads are off" + Decline; sender sees
+ *                   "Sent — waiting" (no Accept — see the note below)
  *   TRANSFERRING  — progress bar driven by the rtc transfer state machine
- *   DONE          — Open / Reveal-in-folder buttons (Open is wired by the host)
+ *   DONE          — just the completion line; no handle back to the bytes
  *   FAILED        — inline error with optional Retry (sender) / Try again later
  *
  * Reused by the thread renderer + the legacy ChatThread once Phase 10 is on.
@@ -18,10 +19,8 @@ interface FileAttachmentBubbleProps {
   fileName: string;
   fileSize: number;
   state: TransferState;
-  onAccept?: () => void;
   onDecline?: () => void;
   onCancel?: () => void;
-  onOpen?: () => void;
   onRetry?: () => void;
 }
 

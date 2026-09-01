@@ -9,8 +9,12 @@
  * WsClient; Electron over the ws-process through the config.rtc IPC bridge. The
  * attach UI is gated on rtcAvailable, true on both platforms.
  *
- * Receiver sink is an in-memory Blob → browser download. Fine for normal files;
- * a desktop disk-backed sink (for the 10 GB extreme) is a further optimization.
+ * `accept` (and everything downstream of it — the receiver sink, `finish`) is
+ * unreachable from the current UI: FileAttachmentBubble no longer offers an
+ * Accept control (this app does not download files of any kind), only
+ * Decline/Cancel/Retry. `send` is still live — MailThread's large-attachment
+ * fallback uses it — so this file stays; the receive half is kept only so a
+ * later in-app preview of a received P2P file has state machinery to build on.
  */
 import {
   createContext,
@@ -239,7 +243,20 @@ export function useFileTransfers(): FileTransferApi {
   return v;
 }
 
-/** Default web sink: buffer chunks in memory, then trigger a browser download. */
+/**
+ * Default web sink: buffer chunks in memory, verify the hash, then discard
+ * them.
+ *
+ * This app does not download files of any kind — see MediaBubble/Lightbox's
+ * own "view, don't save" policy for server-hosted attachments, which this P2P
+ * transfer is the peer-to-peer counterpart of. There is currently no UI that
+ * can reach `finish` at all (no control anywhere calls `accept` — see
+ * FileAttachmentBubble's own "downloads are turned off" state), so this never
+ * runs today; it exists so that IF a future in-app preview is wired up to
+ * `accept`, there is no forced-download primitive sitting here for it to
+ * accidentally pick up. The completed blob is simply allowed to be
+ * garbage-collected — nothing here ever writes it to disk.
+ */
 function createMemorySink(): FileSink {
   const bufs = new Map<string, { name: string; chunks: ArrayBuffer[] }>();
   return {
@@ -255,24 +272,10 @@ function createMemorySink(): FileSink {
       if (!b) return false;
       const blob = new Blob(b.chunks);
       const digest = await sha256Hex(await blob.arrayBuffer());
-      if (digest !== expected) return false; // corrupt — don't hand the file over
-      await downloadBlob(blob, b.name);
-      return true;
+      return digest === expected;
     },
     abort(id) {
       bufs.delete(id);
     },
   };
-}
-
-function downloadBlob(blob: Blob, name: string): Promise<void> {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 10_000);
-  return Promise.resolve();
 }

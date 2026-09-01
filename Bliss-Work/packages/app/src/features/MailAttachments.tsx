@@ -4,7 +4,7 @@ import {
   X,
   Loader2,
   AlertCircle,
-  Download,
+  ExternalLink,
   Eye,
   File as FileIcon,
   FileSpreadsheet,
@@ -284,7 +284,7 @@ export function MailAttachmentCards({ attachments }: { attachments: MailAttachme
                   aria-label={`Open ${a.filename}`}
                   className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 font-medium text-accent hover:bg-accent-soft"
                 >
-                  <Download size={14} /> Open
+                  <ExternalLink size={14} /> Open
                 </button>
               ) : url ? (
                 <a
@@ -295,7 +295,7 @@ export function MailAttachmentCards({ attachments }: { attachments: MailAttachme
                   aria-label={`Open ${a.filename}`}
                   className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 font-medium text-accent hover:bg-accent-soft"
                 >
-                  <Download size={14} /> Download
+                  <ExternalLink size={14} /> Open
                 </a>
               ) : (
                 // Links are minted in one batched, short-lived request; a

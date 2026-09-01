@@ -92,30 +92,23 @@ describe("CallWindow", () => {
     expect(await screen.findByTestId("call-room")).toBeTruthy();
   });
 
-  it("offers a reload if the meeting overlay never takes over within the handoff window", async () => {
+  // Regression test: an earlier attempt at this fix added a blanket 15s
+  // "handoff timeout" that unmounted CallRoom (and, per useCallRoom's cleanup,
+  // disconnected and posted a leave) if it fired, with no regard for whether
+  // the room had already connected. It fired unconditionally 15s after the
+  // call loaded, which ended live, successfully-connected meetings out from
+  // under people mid-call. There is no substitute assertion for "no such
+  // timeout exists" — this pins that a call which stays mounted well past 15s
+  // keeps rendering the room rather than being torn down from underneath.
+  it("does not tear the room down after 15s while the call is still live", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     api.call.mockResolvedValue({ id: "c1", title: "Standup", status: "ACTIVE" });
     renderAt("c1");
 
-    await vi.advanceTimersByTimeAsync(15_000);
+    expect(await screen.findByTestId("call-room")).toBeTruthy();
+    await vi.advanceTimersByTimeAsync(20_000);
 
-    expect(await screen.findByText("This is taking longer than expected")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Reload" })).toBeTruthy();
-    vi.useRealTimers();
-  });
-
-  it("the handoff-timeout reload button reloads the page", async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    api.call.mockResolvedValue({ id: "c1", title: "Standup", status: "ACTIVE" });
-    const reload = vi.fn();
-    vi.stubGlobal("location", { ...window.location, reload });
-    renderAt("c1");
-
-    await vi.advanceTimersByTimeAsync(15_000);
-    (await screen.findByRole("button", { name: "Reload" })).click();
-
-    expect(reload).toHaveBeenCalledTimes(1);
-    vi.unstubAllGlobals();
+    expect(screen.getByTestId("call-room")).toBeTruthy();
     vi.useRealTimers();
   });
 });
