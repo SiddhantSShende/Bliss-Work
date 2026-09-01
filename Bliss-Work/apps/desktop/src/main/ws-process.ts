@@ -61,6 +61,11 @@ function build(cfg: {
     WebSocketImpl: NodeWebSocket as unknown as typeof WebSocket,
   });
   ws.on(onEvent);
+  // Sole observability into this process's independent WS connection — without
+  // it, a connection stuck in "connecting" (see WsClient's CONNECT_TIMEOUT_MS)
+  // or repeatedly bouncing looks identical to "nothing has happened yet," both
+  // on screen and in this log. No payload/token here — status only.
+  ws.onStatus((s) => console.log("[ws] status:", s));
   // Phase 10: relay inbound rtc.* signaling to main → renderer's WebRTC layer.
   ws.onControl((f) => send({ type: "rtc-frame", frame: f }));
 }

@@ -138,10 +138,15 @@ describe("WsClient reconnect gating", () => {
     expect(FakeWS.instances).toHaveLength(0);
 
     token = liveToken();
-    await vi.advanceTimersByTimeAsync(60_000);
+    // Enough for the pending reconnect timer (armed by the earlier
+    // empty-token attempt) to fire and dial with the now-live token — well
+    // under CONNECT_TIMEOUT_MS, so the new socket isn't force-closed before
+    // its handshake below completes.
+    await vi.advanceTimersByTimeAsync(5_000);
 
     expect(FakeWS.instances).toHaveLength(1);
     expect(FakeWS.latest().url).toContain(`token=${encodeURIComponent(token)}`);
+    FakeWS.latest().accept();
   });
 
   it("connects normally when there is no isDead signal at all", async () => {
@@ -156,5 +161,30 @@ describe("WsClient reconnect gating", () => {
 
     expect(FakeWS.instances).toHaveLength(1);
     expect(FakeWS.latest().url).toBe(`ws://x/ws?token=${encodeURIComponent(token)}`);
+  });
+
+  it("gives up on a handshake that hangs instead of getting stuck CONNECTING forever", async () => {
+    // Neither onopen, onclose nor onerror ever fires here — simulating a proxy
+    // or dead network path that silently swallows the WS upgrade rather than
+    // refusing it. Without a connect-attempt timeout, connect()'s own
+    // idempotency guard (readyState 0 or 1 -> no-op) makes every later
+    // token-forward do nothing forever, and the client never recovers.
+    const token = liveToken();
+    const ws = new WsClient({
+      url: "ws://x/ws",
+      getToken: () => token,
+      WebSocketImpl: FakeWS as unknown as typeof WebSocket,
+    });
+
+    await ws.connect();
+    expect(FakeWS.instances).toHaveLength(1);
+    expect(FakeWS.latest().readyState).toBe(0); // still CONNECTING
+
+    // A later token-forward while stuck would otherwise be a silent no-op.
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    // The timeout force-closed the hung socket, which drove the ordinary
+    // onclose -> scheduleReconnect() path — a fresh socket was dialed.
+    expect(FakeWS.instances).toHaveLength(2);
   });
 });

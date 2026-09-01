@@ -222,7 +222,15 @@ export class WsClient {
     const ws = new Impl(url);
     this.ws = ws;
 
+    // See CONNECT_TIMEOUT_MS: force a still-CONNECTING socket closed so the
+    // ordinary onclose -> scheduleReconnect() path takes over, exactly as it
+    // already does for an actively-refused connection.
+    const connectTimer = setTimeout(() => {
+      if (ws.readyState === 0) ws.close();
+    }, CONNECT_TIMEOUT_MS);
+
     ws.onopen = () => {
+      clearTimeout(connectTimer);
       this.attempt = 0;
       this.setStatus("open");
       // Prefer our own high-water mark over the host's initial hint: within a
@@ -236,6 +244,7 @@ export class WsClient {
     ws.onmessage = (ev: MessageEvent) => this.handleMessage(ev.data);
 
     ws.onclose = () => {
+      clearTimeout(connectTimer);
       this.setStatus("closed");
       if (this.pingTimer) clearInterval(this.pingTimer);
       this.scheduleReconnect();
