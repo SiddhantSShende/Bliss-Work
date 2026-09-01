@@ -298,7 +298,7 @@ export function ScheduleCallDialog({
                   value={endWhen}
                   onChange={(e) => setEndWhen(e.target.value)}
                   disabled={!when}
-                  className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-fg outline-none focus:border-accent disabled:opacity-50"
+                  className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-fg outline-none focus:border-accent disabled:cursor-not-allowed"
                 />
                 {attempted && meetingErrors.endWhen && (
                   <span className="text-xs text-danger">{meetingErrors.endWhen}</span>
