@@ -166,7 +166,7 @@ export function isMailDetailPath(pathname: string): boolean {
  * exist in the wild and are not all ours to update — a bookmark, a tab left
  * open across a deploy, and in particular the "open BlissWork" link the email
  * worker puts in every notification mail it sends (relay_consumer.py builds
- * `{web_base_url}/app/inbox`). Every one of those still has to land on the
+ * `{web_origin}/app/inbox`). Every one of those still has to land on the
  * mailbox.
  *
  * Two segments moved rather than merely being re-rooted, so they are translated

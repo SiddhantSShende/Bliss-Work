@@ -699,7 +699,7 @@ class RelayConsumer:
             if sender:
                 sender_username = sender.get("username") or ""
 
-        link = f"{self._settings.web_base_url}/app/inbox"
+        link = f"{self._settings.web_origin.rstrip('/')}/app/inbox"
         if etype == MESSAGE_CREATED:
             body = (event.get("body") or "")[:PREVIEW_LEN]
             subject = f"{sender_username or 'A teammate'} sent you a message"

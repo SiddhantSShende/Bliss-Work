@@ -113,10 +113,12 @@ class Settings(BaseSettings):
         default=60,
         validation_alias=AliasChoices("OFFLINE_THRESHOLD_SECONDS", "offline_threshold_seconds"),
     )
-    # Deep-link prefix used in email CTAs.
-    web_base_url: str = Field(
+    # Deep-link prefix used in email CTAs. Same var every other service reads
+    # for its own web origin (CORS allowlist, WebAuthn expected_origin, OAuth
+    # redirects) — see auth-svc/app/config.py — so it is already set in prod.
+    web_origin: str = Field(
         default="http://localhost:5173",
-        validation_alias=AliasChoices("WEB_BASE_URL", "web_base_url"),
+        validation_alias=AliasChoices("WEB_ORIGIN", "web_origin"),
     )
 
     # SMTP. Defaults target Mailpit (local dev catcher, no auth/TLS). Set
@@ -180,8 +182,8 @@ class Settings(BaseSettings):
             problems.append("EMAIL_DATABASE_URL still uses dev credentials")
         if self.smtp_host and self.smtp_host != "mailpit" and self.smtp_password in ("", "CHANGE_ME_smtp"):
             problems.append("SMTP_PASSWORD must be set when using a real SMTP host")
-        if self.web_base_url.strip().rstrip("/") in ("", "http://localhost:5173"):
-            problems.append("WEB_BASE_URL must be set to the real deployment URL in production")
+        if self.web_origin.strip().rstrip("/") in ("", "http://localhost:5173"):
+            problems.append("WEB_ORIGIN must be set to the real deployment URL in production")
         if problems:
             raise ValueError(
                 "refusing to start in production with insecure configuration:\n  - "
