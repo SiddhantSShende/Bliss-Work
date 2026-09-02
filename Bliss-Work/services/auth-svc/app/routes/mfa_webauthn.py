@@ -1,13 +1,15 @@
 """WebAuthn (passkeys/security keys) enrollment + the login-time assertion
 check. See docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 7.
 
-Exposes three ROUTES — register/start, register/finish, auth/start — plus one
-plain function, `verify_webauthn_assertion`, that mfa_challenge.py's single
-login-time verify endpoint calls when the caller presents a WebAuthn
-assertion rather than a TOTP code or backup code. There is no separate
-"auth/finish" ROUTE: that verification is exactly what mfa_challenge.py's
-endpoint already does for all three second-factor kinds, and duplicating it
-here would just be a second place sessions get minted from.
+Exposes four ROUTES — register/start, register/finish, auth/start,
+step-up/start — plus one plain function, `verify_webauthn_assertion`, that
+mfa_challenge.py's single login-time verify endpoint (and mfa_service's
+step-up re-auth) call when the caller presents a WebAuthn assertion rather
+than a TOTP code or backup code. There is no separate "auth/finish" or
+"step-up/finish" ROUTE: that verification is exactly what mfa_challenge.py's
+verify endpoint, and mfa_service.verify_step_up, already do for all
+second-factor kinds, and duplicating it here would just be a second place
+sessions/step-ups get minted from.
 
 ── Acceptance criteria for every assertion this module verifies ─────────────
 (the checklist from the plan, and where each one is actually enforced)
@@ -39,7 +41,7 @@ here would just be a second place sessions get minted from.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Header, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from sqlalchemy import text
 from webauthn import (
     generate_authentication_options,
@@ -67,6 +69,7 @@ from ..schemas import (
     WebauthnRegisterFinishResponse,
     WebauthnRegisterStartRequest,
 )
+from ..security.auth_dep import Principal, get_principal
 from . import mfa_service, session_events
 from .cookies import set_refresh_cookie
 
@@ -234,6 +237,36 @@ async def auth_start(body: WebauthnAuthStartRequest) -> dict:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "no passkey registered")
         uv_required = await _org_requires_uv(conn, org_id)
         challenge = await mfa_service.mint_webauthn_challenge(conn, org_id, user_id)
+
+    options = generate_authentication_options(
+        rp_id=settings.webauthn_rp_id,
+        challenge=challenge,
+        allow_credentials=[PublicKeyCredentialDescriptor(id=cid) for cid in allow_ids],
+        user_verification=(
+            UserVerificationRequirement.REQUIRED
+            if uv_required
+            else UserVerificationRequirement.PREFERRED
+        ),
+    )
+    return options_to_json_dict(options)
+
+
+@router.post("/step-up/start")
+async def step_up_start(principal: Principal = Depends(get_principal)) -> dict:
+    """WebAuthn request options for step-up re-auth (MFA-disable,
+    backup-codes/regenerate) — scoped to the CALLER's own already-registered
+    credentials via the Bearer principal. Deliberately a separate route from
+    auth/start above rather than a shared one: that endpoint resolves
+    identity from the restricted login-time pending token (no session yet),
+    while this one requires an actual signed-in caller, exactly like
+    mfa_service.verify_step_up itself does for the assertion it produces."""
+    async with engine.connect() as conn:
+        await service.set_org_guc(conn, principal.org_id)
+        allow_ids = await _credential_ids_for_user(conn, principal.user_id)
+        if not allow_ids:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "no passkey registered")
+        uv_required = await _org_requires_uv(conn, principal.org_id)
+        challenge = await mfa_service.mint_webauthn_challenge(conn, principal.org_id, principal.user_id)
 
     options = generate_authentication_options(
         rp_id=settings.webauthn_rp_id,

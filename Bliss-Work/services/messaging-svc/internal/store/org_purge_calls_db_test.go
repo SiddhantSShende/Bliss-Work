@@ -174,3 +174,43 @@ func TestPurgeOrg_DeletesRecordingsInvitesAndScreenshares(t *testing.T) {
 		}
 	}
 }
+
+// ── call_chat_messages/call_notes were added by 0029_call_transcript.sql and
+// never added to orgPurgeTables — both carry the HOSTING org (same as
+// call_recordings/call_invites/call_screenshares), so a plain org_id filter is
+// correct, and both must be purged explicitly rather than left to their real
+// ON DELETE CASCADE off calls ──────────────────────────────────────────────
+func TestPurgeOrg_DeletesCallChatMessagesAndNotes(t *testing.T) {
+	s := lifecycleStore(t)
+	orgID := uuid.Must(uuid.NewV7()).String()
+	callID := seedCall(t, s, orgID)
+	ctx := context.Background()
+
+	if err := s.withBypass(ctx, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO call_chat_messages (id, call_id, org_id, sender_id, client_entry_id, body_enc, sent_at)
+			VALUES ($1, $2, $3, $4, $5, $6, now())`,
+			uuid.Must(uuid.NewV7()).String(), callID, orgID, uuid.Must(uuid.NewV7()).String(),
+			"entry-1", []byte("ciphertext")); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `
+			INSERT INTO call_notes (id, call_id, org_id, author_id, client_entry_id, body_enc, written_at)
+			VALUES ($1, $2, $3, $4, $5, $6, now())`,
+			uuid.Must(uuid.NewV7()).String(), callID, orgID, uuid.Must(uuid.NewV7()).String(),
+			"entry-1", []byte("ciphertext"))
+		return err
+	}); err != nil {
+		t.Fatalf("seed call_chat_messages/call_notes: %v", err)
+	}
+
+	deleted, err := s.PurgeOrg(ctx, orgID)
+	if err != nil {
+		t.Fatalf("PurgeOrg: %v", err)
+	}
+	for _, table := range []string{"call_chat_messages", "call_notes"} {
+		if deleted[table] != 1 {
+			t.Errorf("PurgeOrg deleted[%q] = %d, want 1", table, deleted[table])
+		}
+	}
+}

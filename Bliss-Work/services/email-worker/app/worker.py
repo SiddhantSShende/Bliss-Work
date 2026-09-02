@@ -432,30 +432,52 @@ class EmailWorker:
 
     async def _already_sent(self, event_id: str) -> bool:
         assert self._db is not None
-        async with self._db.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT 1 FROM email_consumed WHERE event_id = $1 AND state = 'sent'",
-                event_id,
-            )
-            return row is not None
+        try:
+            async with self._db.acquire() as conn:
+                row = await conn.fetchrow(
+                    "SELECT 1 FROM email_consumed WHERE event_id = $1 AND state = 'sent'",
+                    event_id,
+                )
+                return row is not None
+        except Exception as exc:  # noqa: BLE001 - a DB hiccup must cost this
+            # event (treated as not-yet-sent, so the normal retry path picks
+            # it up), not the whole process — this call used to be unguarded
+            # and ran before _handle_message's own try/except, so it could
+            # crash both consumers via asyncio.gather in __main__.py.
+            self._log.error("already_sent_check_failed", event_id=event_id, error=str(exc))
+            return False
 
-    async def _mark_sent(self, event_id: str, recipient_key=None) -> None:
+    async def _mark_sent(self, event_id: str, recipient_key=None) -> bool:
+        """Write the durable dedup row. Returns False (logged) on a DB error
+        rather than raising, and retries a few times first — see
+        RelayConsumer._mark_sent for why a short retry is worth it even though
+        the crash-window this can't close is architecturally unavoidable.
+        """
         assert self._db is not None
         # email_consumed.recipient_id is uuid NOT NULL. These events carry no
         # dedicated recipient uuid, so key the row on a per-event uuid — inviteId
         # for invites, userId for reset/verify — falling back to eventId (also a
         # uuid). _already_sent queries by event_id alone, so any choice dedups.
         recipient_id = recipient_key or event_id
-        async with self._db.acquire() as conn:
-            await conn.execute(
-                """
-                INSERT INTO email_consumed (event_id, recipient_id, state, sent_at)
-                VALUES ($1, $2, 'sent', now())
-                ON CONFLICT (event_id, recipient_id)
-                DO UPDATE SET state = 'sent', sent_at = now()
-                """,
-                event_id, recipient_id,
-            )
+        for attempt in range(3):
+            try:
+                async with self._db.acquire() as conn:
+                    await conn.execute(
+                        """
+                        INSERT INTO email_consumed (event_id, recipient_id, state, sent_at)
+                        VALUES ($1, $2, 'sent', now())
+                        ON CONFLICT (event_id, recipient_id)
+                        DO UPDATE SET state = 'sent', sent_at = now()
+                        """,
+                        event_id, recipient_id,
+                    )
+                return True
+            except Exception as exc:  # noqa: BLE001
+                if attempt == 2:
+                    self._log.error("mark_sent_failed", event_id=event_id, error=str(exc))
+                    return False
+                await asyncio.sleep(0.5 * (2**attempt))
+        return False  # unreachable, satisfies type checkers
 
     async def _connect_db(self) -> None:
         # Retry briefly while Postgres warms up alongside the rest of the

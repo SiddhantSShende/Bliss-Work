@@ -39,6 +39,21 @@ describe("isChatEntry — every field, because this comes off the wire", () => {
     expect(isChatEntry({ ...msg(), to: 42 })).toBe(false);
     expect(isChatEntry(msg({ text: "x".repeat(CHAT_TEXT_MAX + 1) }))).toBe(false);
   });
+
+  // Regression: CHAT_TEXT_MAX bounds UTF-8 BYTES, matching the server's
+  // CallTranscriptTextMax — not JS's UTF-16 .length. 300 Japanese characters
+  // is comfortably under 500 by .length (a check that used to pass here) but
+  // 900 bytes on the wire, well over the server's actual cap.
+  it("rejects text that is under the char count but over the byte cap", () => {
+    const overByBytes = "あ".repeat(300); // 300 chars, 900 UTF-8 bytes
+    expect(overByBytes.length).toBeLessThan(CHAT_TEXT_MAX);
+    expect(isChatEntry(msg({ text: overByBytes }))).toBe(false);
+  });
+
+  it("accepts multi-byte text that fits within the byte cap", () => {
+    const underByBytes = "あ".repeat(150); // 150 chars, 450 UTF-8 bytes
+    expect(isChatEntry(msg({ text: underByBytes }))).toBe(true);
+  });
 });
 
 describe("mergeChat", () => {
@@ -132,6 +147,23 @@ describe("newChatEntry", () => {
     });
     expect(e.text).toHaveLength(CHAT_TEXT_MAX);
     // And the result is still something the wire will accept.
+    expect(isChatEntry(e)).toBe(true);
+  });
+
+  // Regression: truncating on JS .length (a code-unit count) can land mid
+  // multi-byte character and still be over the server's BYTE cap — the exact
+  // way a "successfully sent" message used to come back as a server error.
+  it("truncates multi-byte text to the byte cap, not the character cap", () => {
+    const e = newChatEntry({
+      from: "alice",
+      fromName: "Alice",
+      to: null,
+      text: "あ".repeat(300), // 900 bytes — well over CHAT_TEXT_MAX either way
+    });
+    expect(e.text.length).toBeLessThan(300);
+    // Whatever survived truncation must be within the server's actual limit,
+    // and the wire-format check (also byte-based, see above) must agree.
+    expect(new TextEncoder().encode(e.text).length).toBeLessThanOrEqual(CHAT_TEXT_MAX);
     expect(isChatEntry(e)).toBe(true);
   });
 });

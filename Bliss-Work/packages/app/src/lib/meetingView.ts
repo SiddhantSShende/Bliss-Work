@@ -52,6 +52,53 @@ export function isMeetingDetailPath(pathname: string): boolean {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Filtering
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * What the calendar's Filter control narrows by.
+ *
+ * Both dimensions are fields the server already sends on every row, so nothing
+ * here needs a request of its own: `kind` is what SORT of call it is, and
+ * `createdBy` is who put it in the diary. An EMPTY `kinds` means "every kind" —
+ * not "no kinds" — because a filter nobody has opened must not hide everything.
+ */
+export interface MeetingFilter {
+  kinds: readonly CallDTO["kind"][];
+  /** Only meetings this viewer organised. */
+  mineOnly: boolean;
+}
+
+export const NO_MEETING_FILTER: MeetingFilter = { kinds: [], mineOnly: false };
+
+/** Is anything actually being narrowed? Drives the dot on the Filter button —
+ *  a filter that is on and invisible is a list that looks wrong. An explicit
+ *  tick on every kind narrows nothing, same as ticking none — both mean
+ *  "every kind" per `matchesFilter`, so neither should light the dot. */
+export function isFiltering(f: MeetingFilter): boolean {
+  const allKindsChosen = f.kinds.length === Object.keys(MEETING_KIND_LABEL).length;
+  return (f.kinds.length > 0 && !allKindsChosen) || f.mineOnly;
+}
+
+export function matchesFilter(
+  call: CallDTO,
+  f: MeetingFilter,
+  viewerId?: string | null,
+): boolean {
+  if (f.kinds.length > 0 && !f.kinds.includes(call.kind)) return false;
+  if (f.mineOnly && call.createdBy !== viewerId) return false;
+  return true;
+}
+
+/** What each kind is called wherever one is named — the filter menu, a block's
+ *  subtitle, a row's scope line. One mapping so they cannot disagree. */
+export const MEETING_KIND_LABEL: Record<CallDTO["kind"], string> = {
+  MEETING: "Meetings",
+  CHANNEL: "Channel calls",
+  DIRECT: "Direct calls",
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Naming a meeting that was never named
 // ─────────────────────────────────────────────────────────────────────────────
 

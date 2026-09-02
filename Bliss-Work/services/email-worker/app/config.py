@@ -180,6 +180,8 @@ class Settings(BaseSettings):
             problems.append("EMAIL_DATABASE_URL still uses dev credentials")
         if self.smtp_host and self.smtp_host != "mailpit" and self.smtp_password in ("", "CHANGE_ME_smtp"):
             problems.append("SMTP_PASSWORD must be set when using a real SMTP host")
+        if self.web_base_url.strip().rstrip("/") in ("", "http://localhost:5173"):
+            problems.append("WEB_BASE_URL must be set to the real deployment URL in production")
         if problems:
             raise ValueError(
                 "refusing to start in production with insecure configuration:\n  - "

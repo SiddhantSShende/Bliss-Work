@@ -45,7 +45,14 @@ class Attachment:
     id: str
     filename: str
     mime: str
-    size_bytes: int
+    # None means the event's declared size could not be trusted (missing,
+    # non-numeric, or negative) — distinct from an actual declared 0. Collapsing
+    # that case to 0 used to make within_budget treat the file as costing
+    # nothing, while fetch()'s ceiling was built from that same phantom 0 — so a
+    # real, comfortably-within-budget file got dropped after ~4KB. See
+    # within_budget and fetch for how the two sides now agree on what "unknown"
+    # means.
+    size_bytes: int | None
 
     @classmethod
     def from_event(cls, raw: object) -> "Attachment | None":
@@ -53,7 +60,8 @@ class Attachment:
 
         Everything here crossed a topic, so nothing is assumed about its shape.
         An entry without an id names no file that could be fetched; a negative
-        or absurd size is not trusted into the arithmetic below.
+        or absurd size is not trusted into the arithmetic below — it becomes
+        size_bytes=None rather than a silently-wrong 0.
         """
         if not isinstance(raw, dict):
             return None
@@ -61,14 +69,16 @@ class Attachment:
         if not att_id:
             return None
         try:
-            size = int(raw.get("sizeBytes") or 0)
+            size = int(raw.get("sizeBytes"))
         except (TypeError, ValueError):
-            size = 0
+            size = None
+        if size is not None and size < 0:
+            size = None
         return cls(
             id=att_id,
             filename=str(raw.get("filename") or "attachment"),
             mime=str(raw.get("mime") or "application/octet-stream"),
-            size_bytes=max(0, size),
+            size_bytes=size,
         )
 
 
@@ -91,6 +101,14 @@ def within_budget(
     skipped: list[Attachment] = []
     remaining = budget_bytes
     for att in attachments:
+        if att.size_bytes is None:
+            # Unknown, not free: this file cannot be checked against the
+            # budget ahead of time, so it is let through provisionally instead
+            # of dropped over metadata alone — but it must not reserve any of
+            # the remaining allowance, since its real cost is still unknown.
+            # fetch() enforces the actual ceiling once bytes start arriving.
+            fits.append(att)
+            continue
         if att.size_bytes <= remaining:
             fits.append(att)
             remaining -= att.size_bytes
@@ -107,6 +125,7 @@ async def fetch(
     org_id: str,
     mail_id: str,
     attachment: Attachment,
+    budget_bytes: int,
 ) -> bytes | None:
     """Download one attachment's bytes, or None if it cannot be had.
 
@@ -121,7 +140,13 @@ async def fetch(
     # against the size the EVENT declared, and this is where that claim is
     # actually tested: a response longer than declared is abandoned mid-transfer
     # instead of being buffered into a container with 384 MB to its name.
-    ceiling = max(attachment.size_bytes, 0) + _SIZE_SLACK
+    if attachment.size_bytes is not None:
+        ceiling = attachment.size_bytes + _SIZE_SLACK
+    else:
+        # within_budget let this one through without knowing its real size —
+        # the only ceiling that still means anything is the per-mail budget
+        # itself, not a few KB of slack around a declared size we don't have.
+        ceiling = max(budget_bytes, 0)
     try:
         async with client.stream(
             "GET",

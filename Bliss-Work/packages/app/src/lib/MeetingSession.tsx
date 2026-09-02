@@ -55,6 +55,7 @@ const APP_HOME = "/app/meetings";
 const RESUME_KEY = "tb.meeting-resume.v1";
 const JOIN_REQUEST_EVENT = "taskboard:join-meeting";
 const INCOMING_MEETING_EVENT = "taskboard:incoming-meeting";
+const DISMISS_INCOMING_MEETING_EVENT = "taskboard:dismiss-incoming-meeting";
 
 /** Which way to open the local mic/camera the moment a meeting connects — set
  *  by the incoming-meeting popup's Video Call / Voice Call buttons (see
@@ -98,6 +99,29 @@ export function onIncomingMeetingAnnounced(listener: (callId: string, title: str
   };
   window.addEventListener(INCOMING_MEETING_EVENT, handle);
   return () => window.removeEventListener(INCOMING_MEETING_EVENT, handle);
+}
+
+/**
+ * Tell the incoming-meeting popup (features/IncomingMeetingNotice) that a
+ * call it may be showing an invite for is no longer incoming — it ended, or
+ * was answered on another device/tab/window while the popup was still on
+ * screen. A plain window event, same shape as announceIncomingMeeting above,
+ * raised by the socket bridge (lib/queryBridge) on CallEnded/
+ * CallParticipantAdded. Harmless to raise for a callId nobody is currently
+ * showing — the listener only acts when it matches what is on screen.
+ */
+export function dismissIncomingMeeting(callId: string) {
+  window.dispatchEvent(new CustomEvent(DISMISS_INCOMING_MEETING_EVENT, { detail: { callId } }));
+}
+
+export function onIncomingMeetingDismissed(listener: (callId: string) => void) {
+  const handle = (event: Event) => {
+    const detail = (event as CustomEvent<{ callId?: unknown }>).detail;
+    if (typeof detail?.callId !== "string" || !detail.callId) return;
+    listener(detail.callId);
+  };
+  window.addEventListener(DISMISS_INCOMING_MEETING_EVENT, handle);
+  return () => window.removeEventListener(DISMISS_INCOMING_MEETING_EVENT, handle);
 }
 
 export interface MeetingSessionApi {

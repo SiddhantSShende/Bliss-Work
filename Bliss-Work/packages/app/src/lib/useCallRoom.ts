@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AudioPresets,
   ConnectionState,
+  DisconnectReason,
   RemoteTrack,
   RemoteTrackPublication,
   Room,
@@ -119,13 +120,27 @@ export function useCallRoom(callId: string | null) {
   /** The call is over — the host ended it or walked out. Latches, and the screen
    *  showing this room is expected to close itself on it. */
   const [ended, setEnded] = useState(false);
-  /** Which half of `join()` a "failed" status came from — the token request
-   *  or the room connect that follows it — so the UI can tell a credentials
-   *  problem from a connectivity one instead of one generic message for both.
-   *  Meaningful only while status is "failed"; reset at the start of every
-   *  attempt. */
-  const [failStage, setFailStage] = useState<"token" | "connect" | null>(null);
+  /** Which stage a "failed" status came from — the token request, the room
+   *  connect that follows it, or a mid-call disconnect that LiveKit's own
+   *  reconnection gave up recovering — so the UI can tell a credentials
+   *  problem from a connectivity one from a connection that was lost
+   *  outright, instead of one generic message for all three. Meaningful only
+   *  while status is "failed". Reset at the start of every join attempt; a
+   *  disconnect sets it directly instead, since that path never goes through
+   *  join(). */
+  const [failStage, setFailStage] = useState<"token" | "connect" | "disconnected" | null>(null);
   const roomRef = useRef<Room | null>(null);
+  /** Which call `roomRef.current` is connected — or connecting — to. Set
+   *  alongside `roomRef.current`, cleared alongside it too.
+   *
+   *  CallRoom is deliberately never unmounted between calls (see
+   *  MeetingSession's `enter`), so `callId` can change while a room from a
+   *  PREVIOUS call is still sitting in `roomRef` — accepting a second
+   *  meeting invite while minimised, or hitting Join on a different call's
+   *  card, both do this without ever tearing this hook down. This is what
+   *  lets join()'s reentry guard below tell that apart from a genuine
+   *  re-entry into the SAME call. */
+  const roomCallId = useRef<string | null>(null);
   /**
    * A join is in flight.
    *
@@ -239,8 +254,35 @@ export function useCallRoom(callId: string | null) {
   );
 
   const join = useCallback(async () => {
-    if (!callId || roomRef.current || joining.current) return;
+    if (!callId || joining.current) return;
+    const currentRoom = roomRef.current;
+    // `currentRoom` can belong to a call we have since switched away from —
+    // see `roomCallId`'s own comment for why. A plain `roomRef.current`
+    // check here cannot tell that apart from a genuine re-entry into the
+    // SAME call, and used to silently no-op the switch: the UI moved on to
+    // the new call while the actual connection stayed on the old one, and a
+    // later Leave posted the departure under the NEW call's id instead of
+    // the old one's.
+    const stale =
+      currentRoom && roomCallId.current !== null && roomCallId.current !== callId
+        ? { room: currentRoom, id: roomCallId.current }
+        : null;
+    if (currentRoom && !stale) return; // same call, already connected/connecting
     joining.current = true;
+    if (stale) {
+      // Leave it properly, under ITS OWN id, before joining the new one —
+      // the same disconnect+report `leave()` itself does below, just for a
+      // call this hook is no longer being asked to represent rather than
+      // the one a person clicked Leave on.
+      await stale.room.disconnect();
+      if (!leftRef.current) {
+        leftRef.current = true;
+        api.leaveCall(stale.id).catch(() => {});
+      }
+      // Fresh for the call about to be joined: this flag is per CONNECTION,
+      // and the one it just recorded a departure for is over.
+      leftRef.current = false;
+    }
     setStatus("connecting");
     setFailStage(null);
     let stage: "token" | "connect" = "token";
@@ -330,6 +372,7 @@ export function useCallRoom(callId: string | null) {
         },
       });
       roomRef.current = room;
+      roomCallId.current = callId;
 
       const resync = () => sync(room);
       room
@@ -376,14 +419,36 @@ export function useCallRoom(callId: string | null) {
             }
           }
         })
-        .on(RoomEvent.Disconnected, () => {
-          setStatus("idle");
+        .on(RoomEvent.Disconnected, (reason?: DisconnectReason) => {
           setParticipants([]);
           setSharing(false);
           setConnectedAt(undefined);
           roomRef.current = null;
+          roomCallId.current = null;
           if (refreshTimer.current) clearTimeout(refreshTimer.current);
           if (lobbyTimer.current) clearTimeout(lobbyTimer.current);
+          // CLIENT_INITIATED is what LiveKit reports for every disconnect WE
+          // asked for — leave(), the CallEnded handler, a revoked-token
+          // refresh, and the stale-room cleanup in join() above all call
+          // room.disconnect() themselves and already handle telling the
+          // server we left. Anything else is LiveKit giving up on its own:
+          // its reconnect policy (see Reconnecting/Reconnected above)
+          // exhausted every retry, or the server/SFU ended the session
+          // outright. Nothing else in this hook reacts to that on its own,
+          // so this is the one place that can — without it the participant
+          // was left on a bare "Connecting…" placeholder with every control
+          // silently no-op'ing on a null room, and the server never heard
+          // they had gone.
+          if (reason === DisconnectReason.CLIENT_INITIATED) {
+            setStatus("idle");
+            return;
+          }
+          setStatus("failed");
+          setFailStage("disconnected");
+          if (callId && !leftRef.current) {
+            leftRef.current = true;
+            api.leaveCall(callId).catch(() => {});
+          }
         });
 
       // We are in, so stop asking whether we may come in.
@@ -410,6 +475,7 @@ export function useCallRoom(callId: string | null) {
       }
     } catch (e) {
       roomRef.current = null;
+      roomCallId.current = null;
       setStatus("failed");
       setFailStage(stage);
       console.error(`[CALL ROOM] Join failed at "${stage}" stage`, e);

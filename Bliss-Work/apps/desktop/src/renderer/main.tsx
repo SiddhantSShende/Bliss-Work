@@ -25,6 +25,7 @@ declare global {
       onInviteDeepLink: (cb: (token: string) => void) => () => void;
       onMeetingDeepLink: (cb: (token: string) => void) => () => void;
       showMeetingInvitePopup: (callId: string, title: string, organizer: string) => void;
+      dismissMeetingInvitePopup: (callId: string) => void;
       onMeetingInviteAction: (cb: (callId: string, media: "video" | "voice") => void) => () => void;
       openExternal: (url: string) => void;
       openAttachment: (url: string, fileName: string) => Promise<{ ok: boolean; error?: string }>;
@@ -180,6 +181,7 @@ const config: PlatformConfig = {
     : undefined,
   showMeetingInvitePopup: (callId, title, organizer) =>
     bridge.showMeetingInvitePopup(callId, title, organizer),
+  dismissMeetingInvitePopup: (callId) => bridge.dismissMeetingInvitePopup(callId),
   onMeetingInviteAction: (cb) => bridge.onMeetingInviteAction(cb),
   onBeforeQuit: (cb) => bridge.onBeforeQuit(cb),
   notifyQuitReady: () => bridge.notifyQuitReady(),

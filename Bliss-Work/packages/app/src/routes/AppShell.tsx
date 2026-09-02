@@ -14,6 +14,7 @@ import { TelemetryBridge } from "../lib/telemetry";
 import { CallProvider } from "../lib/useCall";
 import { CallUI } from "../features/CallUI";
 import { NotificationsPanel } from "../features/NotificationsPanel";
+import { MobileNavDrawer } from "../features/MobileNavDrawer";
 import { TopNavbar } from "../features/TopNavbar";
 import { Rail } from "./Rail";
 import { ChatsList } from "./ChatsList";
@@ -21,12 +22,12 @@ import { TasksList } from "./TasksList";
 import { ChannelsList } from "./ChannelsList";
 import { MembersList } from "./MembersList";
 import { MailFolders } from "./MailFolders";
-import { MeetingFolders } from "./MeetingFolders";
 
 export function AppShell() {
   const { api } = useRuntime();
   const loc = useLocation();
   const [notifOpen, setNotifOpen] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   const { data: notifications = [] } = useQuery({
     queryKey: qk.notifications,
@@ -109,23 +110,21 @@ export function AppShell() {
       <CallUI />
       <VerifyEmailBanner />
       <MfaRequiredBanner />
-      <TopNavbar unread={unread} onOpenNotifs={() => setNotifOpen(true)} />
+      <TopNavbar unread={unread} onOpenNotifs={() => setNotifOpen(true)} onOpenDrawer={() => setDrawerOpen(true)} />
 
       <div className="flex min-h-0 flex-1 gap-2 overflow-hidden p-2">
         <Rail section={railSection} variant="side" className="hidden md:flex" badges={railBadges} />
         {section && (
           <aside
             className={`glass min-h-0 w-full shrink-0 flex-col overflow-hidden rounded-2xl md:my-0 ${
-              // Mail and Meetings are the sections whose main pane is
-              // itself two columns (list + reading pane, see MailLayout and
-              // MeetingsLayout), so their first column is narrower — three
-              // panes at 24rem each leaves the thing being read nothing to be
-              // read in. Every other section fills the pane.
-              section === "mail" || section === "meetings" ? "md:w-72 lg:w-80" : "md:w-80 lg:w-96"
+              // Mail's main pane is itself two columns (list + reading pane,
+              // see MailLayout), so its first column is narrower — three panes
+              // at 24rem each leaves the thing being read nothing to be read
+              // in. Every other section fills the pane.
+              section === "mail" ? "md:w-72 lg:w-80" : "md:w-80 lg:w-96"
             } ${showListOnMobile ? "flex" : "hidden"} md:flex`}
           >
             {section === "mail" && <MailFolders />}
-            {section === "meetings" && <MeetingFolders />}
             {section === "chats" && <ChatsList />}
             {section === "tasks" && <TasksList />}
             {section === "channels" && <ChannelsList />}
@@ -142,12 +141,23 @@ export function AppShell() {
       </div>
 
       {/* Phone-only bottom tab bar; the side rail above handles md+. */}
-      <Rail section={railSection} variant="bottom" className="mx-2 mb-2 md:hidden" badges={railBadges} />
+      <Rail
+        section={railSection}
+        variant="bottom"
+        className="mx-2 mb-[max(0.5rem,env(safe-area-inset-bottom))] md:hidden"
+        badges={railBadges}
+      />
 
       <NotificationsPanel
         open={notifOpen}
         onClose={() => setNotifOpen(false)}
         notifications={notifications}
+      />
+      <MobileNavDrawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        section={railSection}
+        badges={railBadges}
       />
     </div>
     </CallProvider>

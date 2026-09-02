@@ -30,7 +30,7 @@ export function MemberPicker({
   onOrganization?: (userIds: string[]) => void;
   confirmLabel?: string;
 }) {
-  const { q, setQ, candidates } = usePeopleSearch(exclude);
+  const { q, setQ, candidates, all } = usePeopleSearch(exclude);
   const { selected, toggle, setAll, clear } = useToggleSet();
   const allSelected = candidates.length > 0 && candidates.every((u) => selected.has(u.id));
 
@@ -93,12 +93,16 @@ export function MemberPicker({
         >
           {confirmLabel} {selected.size || ""}
         </Button>
-        {onOrganization && candidates.length > 0 && (
+        {/* Org-wide action: targets `all` (self/exclude-filtered only), never
+            the search-narrowed `candidates` — a search term must not silently
+            shrink who "Send organization" reaches, and the button itself must
+            not disappear just because the current search matches nobody. */}
+        {onOrganization && all.length > 0 && (
           <Button
             variant="subtle"
             size="sm"
             disabled={busy}
-            onClick={() => onOrganization(candidates.map((u) => u.id))}
+            onClick={() => onOrganization(all.map((u) => u.id))}
           >
             Send organization
           </Button>

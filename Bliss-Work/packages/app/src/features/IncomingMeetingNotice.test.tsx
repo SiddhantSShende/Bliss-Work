@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, cleanup, act, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { announceIncomingMeeting } from "../lib/MeetingSession";
+import { announceIncomingMeeting, dismissIncomingMeeting } from "../lib/MeetingSession";
 import { IncomingMeetingNotice } from "./IncomingMeetingNotice";
 import type { PlatformConfig } from "../platform";
 
@@ -26,11 +26,14 @@ const api = { call: vi.fn() };
 let config: Partial<PlatformConfig>;
 vi.mock("../lib/runtime", () => ({ useRuntime: () => ({ api, config }) }));
 
-/** announceIncomingMeeting fires a real `window` event, outside of any
- *  testing-library helper that would otherwise wrap it in `act` for us — do
- *  that here instead of at every call site. */
+/** announceIncomingMeeting/dismissIncomingMeeting fire a real `window`
+ *  event, outside of any testing-library helper that would otherwise wrap it
+ *  in `act` for us — do that here instead of at every call site. */
 function announce(callId: string, title: string) {
   act(() => announceIncomingMeeting(callId, title));
+}
+function dismissViaCallEvent(callId: string) {
+  act(() => dismissIncomingMeeting(callId));
 }
 
 // useQuery needs a real QueryClient in the tree, same as MeetingHost.test.tsx.
@@ -113,6 +116,36 @@ describe("IncomingMeetingNotice", () => {
     expect(screen.queryByRole("alertdialog")).toBeNull();
   });
 
+  it("dismisses when the call ends elsewhere (organizer cancelled, or CallEnded/CallParticipantAdded)", () => {
+    renderNotice();
+    announce("call-1", "Weekly review");
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+
+    dismissViaCallEvent("call-1");
+
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+  });
+
+  it("does NOT dismiss for an event about a different call", () => {
+    renderNotice();
+    announce("call-1", "Weekly review");
+
+    dismissViaCallEvent("call-2");
+
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+  });
+
+  it("a call-ended dismissal is a one-time thing too — it does not resurrect a later event for that same call", () => {
+    renderNotice();
+    announce("call-1", "Weekly review");
+    dismissViaCallEvent("call-1");
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+
+    // Same "one popup, ever" rule the explicit Leave button already gets.
+    announce("call-1", "Weekly review");
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+  });
+
   it("auto-dismisses after 10-15 seconds with no interaction", () => {
     vi.useFakeTimers();
     renderNotice();
@@ -189,6 +222,30 @@ describe("IncomingMeetingNotice", () => {
       renderNotice();
       action?.("call-9", "voice");
       expect(requestMeetingJoin).toHaveBeenCalledWith("call-9", "voice");
+    });
+
+    it("closes the popup window too when the call ends elsewhere", () => {
+      config.showMeetingInvitePopup = vi.fn();
+      const dismissPopup = vi.fn();
+      config.dismissMeetingInvitePopup = dismissPopup;
+      renderNotice();
+      announce("call-1", "Weekly review");
+
+      dismissViaCallEvent("call-1");
+
+      expect(dismissPopup).toHaveBeenCalledWith("call-1");
+    });
+
+    it("does not touch the popup window for an event about a different call", () => {
+      config.showMeetingInvitePopup = vi.fn();
+      const dismissPopup = vi.fn();
+      config.dismissMeetingInvitePopup = dismissPopup;
+      renderNotice();
+      announce("call-1", "Weekly review");
+
+      dismissViaCallEvent("call-2");
+
+      expect(dismissPopup).not.toHaveBeenCalled();
     });
   });
 });

@@ -24,6 +24,7 @@
  * client. `isChatEntry` checks every field, and the rendered body is always a
  * text node — never markup. See lib/roomMessages.
  */
+import { truncateToUtf8Bytes, utf8ByteLength } from "./textBytes";
 
 /** One message, from one participant. Immutable once sent. */
 export interface ChatEntry {
@@ -45,9 +46,15 @@ export interface ChatEntry {
   at: number;
 }
 
-/** Longest single message. Matches a note: long enough to say something, short
- *  enough that a pasted document does not become one unreadable line — or a
- *  datagram too big for the wire. */
+/** Longest single message, in UTF-8 BYTES — matching the server's
+ *  CallTranscriptTextMax, which is what actually stores it. Matches a note:
+ *  long enough to say something, short enough that a pasted document does not
+ *  become one unreadable line — or a datagram too big for the wire.
+ *
+ *  Bytes, not characters: a JS `.length` cap here would let through ~300
+ *  characters of Japanese or Chinese text (3 bytes each in UTF-8) that reads
+ *  as "under 500" on this side and comes back as a server error on the
+ *  other. See utf8ByteLength / truncateToUtf8Bytes. */
 export const CHAT_TEXT_MAX = 500;
 
 /** How many messages a room keeps in memory and in this browser's copy. */
@@ -68,7 +75,7 @@ export function isChatEntry(v: unknown): v is ChatEntry {
     (c.to === null || (typeof c.to === "string" && c.to.length > 0 && c.to.length <= 64)) &&
     typeof c.text === "string" &&
     c.text.length > 0 &&
-    c.text.length <= CHAT_TEXT_MAX &&
+    utf8ByteLength(c.text) <= CHAT_TEXT_MAX &&
     typeof c.at === "number" &&
     Number.isFinite(c.at)
   );
@@ -145,7 +152,7 @@ export function newChatEntry(args: {
     from: args.from,
     fromName: args.fromName,
     to: args.to,
-    text: args.text.slice(0, CHAT_TEXT_MAX),
+    text: truncateToUtf8Bytes(args.text, CHAT_TEXT_MAX),
     at,
   };
 }

@@ -17,7 +17,7 @@ import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
 import { Tabs, type TabSpec } from "../features/Tabs";
 import { ExportActivityDialog } from "../features/ExportActivityDialog";
-import { computeRange, type RangeKey } from "../lib/dateRange";
+import { computeRange, parseLocalDay, type RangeKey } from "../lib/dateRange";
 
 const RANGES: TabSpec<RangeKey>[] = [
   { key: "7d", label: "Last 7 days" },
@@ -113,7 +113,7 @@ export function OrgActivity() {
               <h4 className="text-sm font-semibold text-fg">Team active time per day</h4>
               <BarChart
                 data={(data?.days ?? []).map((d) => ({
-                  label: new Date(d.day).toLocaleDateString(undefined, { day: "numeric", month: "short" }),
+                  label: parseLocalDay(d.day).toLocaleDateString(undefined, { day: "numeric", month: "short" }),
                   value: d.activeMs,
                   context: d.idleMs,
                 }))}

@@ -1,7 +1,7 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { ScrollText } from "lucide-react";
+import { AlertTriangle, ScrollText } from "lucide-react";
 import { Avatar, Button, EmptyState, Spinner } from "@taskboard/ui";
-import type { UserDTO } from "@taskboard/shared";
+import type { MemberDTO } from "@taskboard/shared";
 import { useRuntime } from "../../lib/runtime";
 import { qk } from "../../lib/queryBridge";
 
@@ -28,13 +28,17 @@ const LABELS: Record<string, string> = {
   "member.removed": "removed a member",
 };
 
-export function MemberAuditLog({ targetId, directory }: { targetId?: string; directory: UserDTO[] }) {
+/** `members` must be the FULL roster (including suspended/removed people),
+ *  not the active-only directory — an actor or target who has since been
+ *  suspended or removed must still resolve to their real name here rather
+ *  than falling back to "System". */
+export function MemberAuditLog({ targetId, members }: { targetId?: string; members: MemberDTO[] }) {
   const { api } = useRuntime();
-  const byId = new Map(directory.map((u) => [u.id, u]));
+  const byId = new Map(members.map((m) => [m.id, m]));
 
-  const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery({
+  const { data, isLoading, isError, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery({
     queryKey: qk.audit(targetId),
-    initialPageParam: undefined as number | undefined,
+    initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam }) => api.auditLog({ before: pageParam, targetId, limit: 30 }),
     getNextPageParam: (last) => last.nextCursor ?? undefined,
   });
@@ -42,6 +46,17 @@ export function MemberAuditLog({ targetId, directory }: { targetId?: string; dir
   const entries = data?.pages.flatMap((p) => p.entries) ?? [];
 
   if (isLoading) return <div className="flex justify-center p-8"><Spinner /></div>;
+  // Distinct from the "nothing recorded yet" empty state below — a failed
+  // fetch must not look like a genuinely empty audit trail (see the domain.ts
+  // AuditPage id/nextCursor type fix this pairs with).
+  if (isError)
+    return (
+      <EmptyState
+        icon={<AlertTriangle size={22} />}
+        title="Audit log could not be loaded"
+        hint="Check your connection and try again."
+      />
+    );
   if (entries.length === 0)
     return (
       <EmptyState

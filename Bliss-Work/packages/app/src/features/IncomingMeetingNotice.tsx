@@ -26,7 +26,11 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Phone, Video, X } from "lucide-react";
 import { Logo } from "@taskboard/ui";
-import { onIncomingMeetingAnnounced, requestMeetingJoin } from "../lib/MeetingSession";
+import {
+  onIncomingMeetingAnnounced,
+  onIncomingMeetingDismissed,
+  requestMeetingJoin,
+} from "../lib/MeetingSession";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 
@@ -59,6 +63,28 @@ export function IncomingMeetingNotice() {
         setIncoming({ callId, title });
       }),
     [],
+  );
+
+  // Read inside the dismissal listener below without making it a dependency
+  // — the effect subscribes once, the same way onMeetingInviteAction does.
+  const incomingRef = useRef(incoming);
+  incomingRef.current = incoming;
+
+  // The call this card is showing ended, or was answered elsewhere, while it
+  // was still on screen (see queryBridge's CallEnded/CallParticipantAdded
+  // handling). Without this, nothing cleared the card until its own 12s
+  // timer ran out — and on desktop, the Electron popup is alwaysOnTop at
+  // "screen-saver" level, so it could sit over a full-screen app for several
+  // seconds after the call was already over. A no-op for an event about a
+  // DIFFERENT call than the one currently shown.
+  useEffect(
+    () =>
+      onIncomingMeetingDismissed((callId) => {
+        if (incomingRef.current?.callId !== callId) return;
+        setIncoming(null);
+        config.dismissMeetingInvitePopup?.(callId);
+      }),
+    [config],
   );
 
   // The Electron popup window's own Video/Voice click (main/meeting-invite-

@@ -21,6 +21,14 @@ const api = {
     return () => ipcRenderer.removeListener("meeting-invite:update", handler);
   },
 
+  /** Tell main this popup's renderer has registered its "meeting-invite:
+   *  update" listener and is ready to receive one. Main responds by
+   *  re-pushing the latest invite (MeetingInviteManager.onRendererReady), so
+   *  an update sent before this listener existed — the organizer resolving
+   *  between IncomingMeetingNotice's two show() calls — is not lost. Same
+   *  handshake as sticky.ts's own `ready()`. */
+  ready: () => ipcRenderer.send("meeting-invite:ready", api.callId),
+
   /** Video / Voice joins the call and closes the popup; Leave only closes it. */
   act: (action: "video" | "voice" | "leave") =>
     ipcRenderer.send("meeting-invite:act", { callId: api.callId, action }),

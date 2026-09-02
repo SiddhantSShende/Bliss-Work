@@ -134,6 +134,7 @@ async def regenerate_backup_codes(
             body.password,
             body.totpCode,
             body.backupCode,
+            body.webauthnCredential,
         )
         if not ok:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "re-authentication failed")

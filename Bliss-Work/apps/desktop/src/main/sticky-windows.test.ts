@@ -38,7 +38,7 @@ async function makeNote() {
   vi.resetModules();
   vi.stubGlobal("process", { ...process, platform });
   const { createStickyWindow } = await import("./windows");
-  return createStickyWindow("task-1", 0) as unknown as FakeWindow;
+  return createStickyWindow() as unknown as FakeWindow;
 }
 
 beforeEach(() => {

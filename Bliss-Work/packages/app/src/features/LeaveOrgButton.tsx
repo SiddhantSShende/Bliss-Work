@@ -26,9 +26,15 @@ import { broadcastLogout } from "../lib/authChannel";
 export function LeaveOrgButton({
   org,
   disabled,
+  onBusyChange,
 }: {
   org: OrgMembershipDTO;
   disabled?: boolean;
+  /** Reports this button's own in-flight leave (and, when leaving the active
+   *  org, the fallback switch that follows it) up to the parent — Org.tsx
+   *  disables its Switch buttons while this is true, so a switch cannot land
+   *  mid-leave and clear the query cache out from under it. */
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const { api, config } = useRuntime();
   const qc = useQueryClient();
@@ -37,7 +43,11 @@ export function LeaveOrgButton({
   const clearSession = useSession((s) => s.clear);
   const switchOrg = useSwitchOrg();
   const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusyState] = useState(false);
+  const setBusy = (value: boolean) => {
+    setBusyState(value);
+    onBusyChange?.(value);
+  };
 
   // Already in cache — the page above renders from this very query.
   const { data: orgs = [] } = useQuery({ queryKey: qk.myOrgs, queryFn: () => api.myOrgs() });

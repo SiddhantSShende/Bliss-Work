@@ -15,7 +15,7 @@ import {
   actionsFor,
 } from "@taskboard/shared";
 import { useRuntime } from "./runtime";
-import { announceIncomingMeeting } from "./MeetingSession";
+import { announceIncomingMeeting, dismissIncomingMeeting } from "./MeetingSession";
 import {
   createCoalescedInvalidator,
   type CoalescedInvalidator,
@@ -50,6 +50,12 @@ export const qk = {
   /** Calls the caller is expected at, including cross-org meetings. */
   calls: ["calls"] as const,
   call: (id: string) => ["calls", id] as const,
+  /** Every call overlapping a calendar window. UNDER the ["calls"] prefix on
+   *  purpose — unlike callHistory below, this is one bounded page per window
+   *  rather than an infinite query, so being swept up by the same invalidation
+   *  every other call surface gets is exactly what keeps the calendar live when
+   *  somebody schedules, starts or ends a meeting. */
+  callsRange: (fromISO: string, toISO: string) => ["calls", "range", fromISO, toISO] as const,
   /** The signed playback link for one call's recording. Its own key, not part
    *  of the call, because the link EXPIRES and is refetched on a timer while
    *  the call row itself does not change. */
@@ -241,6 +247,16 @@ export function WsEventBridge() {
           // reconnect replay — otherwise every launch re-toasts old meetings.
           if (live && e.type === EventType.CallScheduled && e.actorId !== me) {
             toast(e.title ? `Call scheduled: ${e.title}` : "A call was scheduled");
+          }
+          // The call this event is about just ended, or gained a new
+          // participant — either way, if IncomingMeetingNotice is still
+          // showing an invite for it, that invite is stale: the organizer
+          // cancelled, or it was answered on another device/tab/window. A
+          // no-op if nothing is currently showing this callId — see
+          // onIncomingMeetingDismissed. Not gated on `live`: a popup somehow
+          // still open across a reconnect is exactly the case worth clearing.
+          if (e.type === EventType.CallEnded || e.type === EventType.CallParticipantAdded) {
+            dismissIncomingMeeting(e.callId);
           }
           break;
         }
@@ -481,6 +497,7 @@ export function WsEventBridge() {
                   body: e.body,
                   kind: e.kind,
                   isForward: e.isForward,
+                  replyToId: e.replyToId,
                   createdAt: e.occurredAt,
                 });
               return next.sort((a, b) => a.seq - b.seq);

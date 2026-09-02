@@ -950,7 +950,13 @@ export function CallRoom({
 
   /**
    * The join attempt failed — a token refusal, or `room.connect` timing out
-   * against LiveKit's own signalling/media timeouts (see useCallRoom's join).
+   * against LiveKit's own signalling/media timeouts (see useCallRoom's join)
+   * — OR a call already under way was dropped outright: LiveKit's own
+   * reconnection (see the "Reconnecting…" state below) gave up recovering
+   * it. That last case is not an ordinary leave, so it must not look like
+   * one either: without landing here, the participant was left staring at a
+   * bare "Connecting…" placeholder with every control silently no-op'ing on
+   * a null room.
    *
    * Rendered as its own screen rather than falling through to the room chrome:
    * that chrome's sidebar (mic/camera/share) has nothing to control without a
@@ -965,11 +971,17 @@ export function CallRoom({
       void join().finally(() => setRetrying(false));
     };
     const failTitle =
-      failStage === "token" ? "Unable to obtain meeting credentials" : "Unable to connect to the meeting";
+      failStage === "token"
+        ? "Unable to obtain meeting credentials"
+        : failStage === "disconnected"
+          ? "Disconnected from the meeting"
+          : "Unable to connect to the meeting";
     const failHint =
       failStage === "token"
         ? "The token request didn't go through. Check your connection and try again."
-        : "The connection to the meeting server didn't go through. Check your connection and try again.";
+        : failStage === "disconnected"
+          ? "The connection to the meeting was lost and couldn't be recovered. Check your connection, then rejoin."
+          : "The connection to the meeting server didn't go through. Check your connection and try again.";
     return (
       <div className="meeting-theme meeting-mesh fixed inset-0 z-[100] flex flex-col items-center justify-center gap-5 p-6 text-center">
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-danger/10 text-danger">

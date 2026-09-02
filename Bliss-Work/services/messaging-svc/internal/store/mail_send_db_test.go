@@ -127,8 +127,12 @@ func countRows(t *testing.T, s *Store, query string, args ...any) int {
 //
 // A single send to two colleagues: both must get an unread INBOX row, the
 // author must get exactly one SENT row (not one per recipient), and — this is
-// the part a unit test around splitMailDelivery cannot see — no mail.outbound
-// event may exist for either of them, because they never left the org.
+// the part a unit test around splitMailDelivery cannot see — each colleague
+// also gets a mail.outbound wire copy (relayRecipients deliberately includes
+// local org members too, see mail_send.go), but neither copy may carry a
+// providerTo/providerCc/providerBcc address: that would hand a local
+// member's mail to the external provider send too, on top of the in-app
+// delivery they already got above.
 func TestSendMail_InternalRecipients_DeliverToInboxAndSent(t *testing.T) {
 	s := lifecycleStore(t)
 	orgID := uuid.Must(uuid.NewV7()).String()
@@ -169,12 +173,21 @@ func TestSendMail_InternalRecipients_DeliverToInboxAndSent(t *testing.T) {
 		t.Errorf("author SENT rows = %d, want exactly 1", sentRows)
 	}
 
-	// No mail.outbound event: nobody on this mail left the org.
+	// One mail.outbound wire copy per colleague, even though both are local —
+	// that is relayRecipients' job. But none of them may carry a provider
+	// recipient: a local member must never reach the external provider send.
 	outbound := countRows(t, s,
 		`SELECT count(*) FROM outbox WHERE kafka_key = $1 AND payload->>'type' = 'mail.outbound'`,
 		res.MailID)
-	if outbound != 0 {
-		t.Errorf("mail.outbound events = %d, want 0 — every recipient is local", outbound)
+	if outbound != 2 {
+		t.Errorf("mail.outbound events = %d, want 2 — one wire copy per local colleague", outbound)
+	}
+	providerAddressed := countRows(t, s,
+		`SELECT count(*) FROM outbox WHERE kafka_key = $1 AND payload->>'type' = 'mail.outbound'
+		   AND (payload ? 'providerTo' OR payload ? 'providerCc' OR payload ? 'providerBcc')`,
+		res.MailID)
+	if providerAddressed != 0 {
+		t.Errorf("mail.outbound events addressed to the provider = %d, want 0 — bee and cee are local, they must not reach the external provider send", providerAddressed)
 	}
 	delivered := countRows(t, s,
 		`SELECT count(*) FROM outbox WHERE kafka_key = $1 AND payload->>'type' = 'mail.delivered'`,

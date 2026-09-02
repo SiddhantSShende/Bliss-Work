@@ -5,7 +5,9 @@ crypto (it resolves identity via auth-svc), so its prod sentinels are: dev
 internal tokens (now three distinct per-callee secrets — auth-svc,
 messaging-svc, integrations-svc — see
 docs/AUTH_AUTHZ_REMEDIATION_PLAN.md Phase 2), non-TLS / dev-credentialed
-EMAIL_DATABASE_URL, and an unset SMTP password on a real host. Pure-logic;
+EMAIL_DATABASE_URL, an unset SMTP password on a real host, and a leftover
+localhost WEB_BASE_URL (every notification email's CTA link is built from it,
+so a missed override silently ships dead links to real users). Pure-logic;
 skips if pydantic isn't installed locally.
 """
 from __future__ import annotations
@@ -30,6 +32,7 @@ GOOD = dict(
     ),
     smtp_host="smtp.gmail.com",
     smtp_password="app-password",
+    web_base_url="https://app.blisswork.example",
 )
 
 
@@ -54,6 +57,9 @@ def test_prod_good_config_passes():
         {"email_db_url": "postgres://postgres:postgres@postgres:5432/emaildb?sslmode=verify-full"},
         {"smtp_host": "smtp.gmail.com", "smtp_password": "CHANGE_ME_smtp"},
         {"smtp_host": "smtp.gmail.com", "smtp_password": ""},
+        {"web_base_url": "http://localhost:5173"},  # the dev default, left unset
+        {"web_base_url": "http://localhost:5173/"},  # trailing slash doesn't hide it
+        {"web_base_url": ""},
     ],
 )
 def test_prod_rejects_each_sentinel(override):

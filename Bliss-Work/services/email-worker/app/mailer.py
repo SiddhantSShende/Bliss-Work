@@ -53,6 +53,23 @@ def safe_filename(name: str) -> str:
     return cleaned or "attachment"
 
 
+# Same problem as a filename (see safe_filename above), for every OTHER header
+# value built from event/user-supplied text: Subject, the display To/Cc, and a
+# sender's display name or reply address. Python's email policy raises on an
+# embedded CR or LF rather than silently stripping it — correct, since it is
+# header injection — but for these fields the payload is byte-identical on
+# every redelivery, so an unhandled raise here is not a transient failure: it
+# is a guaranteed, permanent DLQ for a message whose only problem is a stray
+# newline (e.g. pasted multi-line text into a subject that went unstripped
+# upstream).
+_UNSAFE_IN_HEADER = re.compile(r"[\r\n]")
+
+
+def safe_header(value: str) -> str:
+    """A header value that cannot inject or break the message it rides on."""
+    return _UNSAFE_IN_HEADER.sub(" ", value or "").strip()
+
+
 class Mailer:
     def __init__(
         self,
@@ -134,18 +151,24 @@ class Mailer:
         # rejected or land as a forgery, and the fallback still delivers.
         author = from_address.strip() if is_valid_email(from_address) else ""
         message = EmailMessage()
+        # Every value below crossed a topic or was typed by a user, same as a
+        # filename (see safe_filename) — cleaned for the same reason: raising
+        # here over a stray CR/LF would deterministically DLQ the message on
+        # every redelivery instead of merely losing the newline.
+        display_to = [safe_header(a) for a in display_to] if display_to else None
+        display_cc = [safe_header(a) for a in display_cc] if display_cc else None
         # formataddr, not an f-string: it quotes and RFC 2047-encodes the display
         # part, so a name holding a comma ("Okafor, Jane") stays ONE mailbox
         # instead of parsing as two, and a non-ASCII one survives the header.
-        message["From"] = formataddr((from_name, author or self._sender))
+        message["From"] = formataddr((safe_header(from_name), author or self._sender))
         message["To"] = ", ".join(display_to) if display_to else to
         if display_cc:
             message["Cc"] = ", ".join(display_cc)
         # Redundant once From is the author themselves, and some clients render
         # a Reply-To that merely repeats From as though it were a redirection.
         if reply_to and reply_to != author:
-            message["Reply-To"] = reply_to
-        message["Subject"] = subject
+            message["Reply-To"] = safe_header(reply_to)
+        message["Subject"] = safe_header(subject)
         message.set_content(text_body)
         message.add_alternative(html_body, subtype="html")
         for filename, mime, data in attachments or []:

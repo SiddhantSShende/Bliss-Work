@@ -23,7 +23,7 @@ from .. import service
 from ..db import engine
 from ..logging_config import log
 from ..net import request_context
-from ..schemas import MfaChallengeRequest, MfaStepUpRequest, SessionDTO
+from ..schemas import MfaChallengeRequest, MfaMethodsDTO, MfaStepUpRequest, SessionDTO
 from ..security.auth_dep import Principal, get_principal
 from ..security.origin import enforce_origin
 from crypto import cryptor
@@ -127,6 +127,16 @@ async def verify_challenge(body: MfaChallengeRequest, request: Request, response
     return session
 
 
+@router.get("/methods", response_model=MfaMethodsDTO)
+async def mfa_methods(principal: Principal = Depends(get_principal)) -> MfaMethodsDTO:
+    """Which second factors the CALLER has registered — lets Settings decide
+    whether to offer a passkey as a step-up shortcut (see MfaMethodsDTO)."""
+    async with engine.connect() as conn:
+        await service.set_org_guc(conn, principal.org_id)
+        methods = await mfa_service.enrolled_methods(conn, principal.user_id)
+    return MfaMethodsDTO(methods=methods)
+
+
 @router.post("/disable", status_code=status.HTTP_204_NO_CONTENT)
 async def disable_mfa(
     body: MfaStepUpRequest,
@@ -136,7 +146,13 @@ async def disable_mfa(
     async with engine.begin() as conn:
         await service.set_org_guc(conn, principal.org_id)
         ok = await mfa_service.verify_step_up(
-            conn, principal.org_id, principal.user_id, body.password, body.totpCode, body.backupCode
+            conn,
+            principal.org_id,
+            principal.user_id,
+            body.password,
+            body.totpCode,
+            body.backupCode,
+            body.webauthnCredential,
         )
         if not ok:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "re-authentication failed")

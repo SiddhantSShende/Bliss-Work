@@ -235,7 +235,98 @@ func TestCallChatIsIdempotentOnTheClientsOwnEntryID(t *testing.T) {
 	}
 }
 
+// A retry that reuses the same client_entry_id but carries DIFFERENT text —
+// a flaky-connection resend racing itself, or a client bug — must not come
+// back claiming that different text was stored. The ON CONFLICT DO UPDATE is
+// a no-op on body_enc, so the second call's response has to echo what the
+// FIRST call actually persisted, not the second call's own argument: id reuse
+// means "this is a retry, tell me what is really there", the same rule the
+// row's id already follows, extended to its body.
+func TestCallChatRetryWithDifferentTextReturnsTheStoredText(t *testing.T) {
+	s := lifecycleStore(t)
+	ctx := context.Background()
+	m := seedEndedMeeting(t, s)
+	const entry = "alice-retry-diff-text"
+
+	first, err := s.AppendCallChat(ctx, m.hostOrg, m.host, m.id, entry, "the real message", 0)
+	if err != nil {
+		t.Fatalf("first append: %v", err)
+	}
+	if first.Text != "the real message" {
+		t.Fatalf("first append returned %q, want %q", first.Text, "the real message")
+	}
+
+	retry, err := s.AppendCallChat(ctx, m.hostOrg, m.host, m.id, entry, "text that was never stored", 0)
+	if err != nil {
+		t.Fatalf("retry append: %v", err)
+	}
+	if retry.ID != first.ID {
+		t.Errorf("retry id = %s, want %s (same row)", retry.ID, first.ID)
+	}
+	if retry.Text != "the real message" {
+		t.Errorf("retry returned %q — the request's own text, not the stored one — want %q",
+			retry.Text, "the real message")
+	}
+
+	page, err := s.ListCallChat(ctx, m.hostOrg, m.host, m.id, "", 50)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if len(page.Items) != 1 {
+		t.Fatalf("stored %d rows for one entry id, want 1", len(page.Items))
+	}
+	if page.Items[0].Text != "the real message" {
+		t.Errorf("the durable record reads %q, want %q — the retry's text must never have landed",
+			page.Items[0].Text, "the real message")
+	}
+}
+
+// Same bug, same fix, the notes side.
+func TestCallNoteRetryWithDifferentTextReturnsTheStoredText(t *testing.T) {
+	s := lifecycleStore(t)
+	ctx := context.Background()
+	m := seedEndedMeeting(t, s)
+	const entry = "alice-retry-diff-note"
+
+	first, err := s.AppendCallNote(ctx, m.hostOrg, m.host, m.id, entry, "the real point", 0)
+	if err != nil {
+		t.Fatalf("first append: %v", err)
+	}
+	if first.Text != "the real point" {
+		t.Fatalf("first append returned %q, want %q", first.Text, "the real point")
+	}
+
+	retry, err := s.AppendCallNote(ctx, m.hostOrg, m.host, m.id, entry, "point that was never stored", 0)
+	if err != nil {
+		t.Fatalf("retry append: %v", err)
+	}
+	if retry.ID != first.ID {
+		t.Errorf("retry id = %s, want %s (same row)", retry.ID, first.ID)
+	}
+	if retry.Text != "the real point" {
+		t.Errorf("retry returned %q — the request's own text, not the stored one — want %q",
+			retry.Text, "the real point")
+	}
+
+	page, err := s.ListCallNotes(ctx, m.hostOrg, m.host, m.id, "", 50)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if len(page.Items) != 1 {
+		t.Fatalf("stored %d rows for one entry id, want 1", len(page.Items))
+	}
+	if page.Items[0].Text != "the real point" {
+		t.Errorf("the durable record reads %q, want %q — the retry's text must never have landed",
+			page.Items[0].Text, "the real point")
+	}
+}
+
 // Nothing worth no row gets one.
+//
+// ErrTranscriptTextInvalid, not ErrForbidden: rejecting a request's SHAPE and
+// refusing its SENDER are different failures, and mapStoreError needs to be
+// able to tell them apart (see errors.go) — a client that typed too much
+// cannot act on the same "forbidden" a non-participant gets.
 func TestCallTranscriptRefusesEmptyAndOversizedText(t *testing.T) {
 	s := lifecycleStore(t)
 	ctx := context.Background()
@@ -246,12 +337,37 @@ func TestCallTranscriptRefusesEmptyAndOversizedText(t *testing.T) {
 		{"whitespace only", "   \n\t "},
 		{"over the cap", strings.Repeat("x", CallTranscriptTextMax+1)},
 	} {
-		if _, err := s.AppendCallChat(ctx, m.hostOrg, m.host, m.id, "", tc.text, 0); !errors.Is(err, ErrForbidden) {
-			t.Errorf("chat %s: err = %v, want ErrForbidden", tc.name, err)
+		if _, err := s.AppendCallChat(ctx, m.hostOrg, m.host, m.id, "", tc.text, 0); !errors.Is(err, ErrTranscriptTextInvalid) {
+			t.Errorf("chat %s: err = %v, want ErrTranscriptTextInvalid", tc.name, err)
 		}
-		if _, err := s.AppendCallNote(ctx, m.hostOrg, m.host, m.id, "", tc.text, 0); !errors.Is(err, ErrForbidden) {
-			t.Errorf("note %s: err = %v, want ErrForbidden", tc.name, err)
+		if _, err := s.AppendCallNote(ctx, m.hostOrg, m.host, m.id, "", tc.text, 0); !errors.Is(err, ErrTranscriptTextInvalid) {
+			t.Errorf("note %s: err = %v, want ErrTranscriptTextInvalid", tc.name, err)
 		}
+	}
+}
+
+// An over-length client entry id and a cursor that will not decode are the
+// other two shapes of "malformed request", and must map to their own
+// sentinels too — not ErrTranscriptTextInvalid (the text was fine) and not
+// ErrForbidden (nothing here is a question of who may write or read).
+func TestCallTranscriptRefusesOversizedEntryIDAndBadCursor(t *testing.T) {
+	s := lifecycleStore(t)
+	ctx := context.Background()
+	m := seedEndedMeeting(t, s)
+
+	longID := strings.Repeat("e", 65)
+	if _, err := s.AppendCallChat(ctx, m.hostOrg, m.host, m.id, longID, "hi", 0); !errors.Is(err, ErrTranscriptEntryIDInvalid) {
+		t.Errorf("chat entry id: err = %v, want ErrTranscriptEntryIDInvalid", err)
+	}
+	if _, err := s.AppendCallNote(ctx, m.hostOrg, m.host, m.id, longID, "hi", 0); !errors.Is(err, ErrTranscriptEntryIDInvalid) {
+		t.Errorf("note entry id: err = %v, want ErrTranscriptEntryIDInvalid", err)
+	}
+
+	if _, err := s.ListCallChat(ctx, m.hostOrg, m.host, m.id, "not-base64-json!!", 50); !errors.Is(err, ErrTranscriptCursorInvalid) {
+		t.Errorf("chat cursor: err = %v, want ErrTranscriptCursorInvalid", err)
+	}
+	if _, err := s.ListCallNotes(ctx, m.hostOrg, m.host, m.id, "not-base64-json!!", 50); !errors.Is(err, ErrTranscriptCursorInvalid) {
+		t.Errorf("note cursor: err = %v, want ErrTranscriptCursorInvalid", err)
 	}
 }
 

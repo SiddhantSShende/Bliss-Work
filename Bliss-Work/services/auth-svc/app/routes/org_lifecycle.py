@@ -122,13 +122,23 @@ async def request_delete(
         purge_after = datetime.now(timezone.utc) + timedelta(
             days=settings.org_delete_grace_days
         )
-        await conn.execute(
+        # `AND deleted_at IS NULL`: the purge job (app/jobs/purge_orgs.py) can
+        # commit between the _load() check above and this UPDATE. Without the
+        # guard the UPDATE would apply unconditionally to an org that is
+        # already gone — resurrecting delete-scheduling fields on it — and the
+        # rowcount check below is what notices that happened.
+        result = await conn.execute(
             text(
                 "UPDATE orgs SET delete_requested_at = now(), delete_requested_by = :by, "
-                "purge_after = :after WHERE id = :org"
+                "purge_after = :after WHERE id = :org AND deleted_at IS NULL"
             ),
             {"by": principal.user_id, "after": purge_after, "org": principal.org_id},
         )
+        if result.rowcount == 0:
+            # The purge job won the race: do not write a misleading
+            # org.delete_requested audit entry/event for an org that is
+            # already purged.
+            raise HTTPException(status.HTTP_409_CONFLICT, "organization is already deleted")
 
         # Sign everyone out now. Leaving sessions alive would let members keep
         # writing into a workspace that is scheduled to be destroyed, and every
@@ -197,13 +207,19 @@ async def cancel_delete(
         if not org.purgeAfter:
             return org  # idempotent: nothing scheduled
 
-        await conn.execute(
+        result = await conn.execute(
             text(
                 "UPDATE orgs SET delete_requested_at = NULL, delete_requested_by = NULL, "
                 "purge_after = NULL WHERE id = :org AND deleted_at IS NULL"
             ),
             {"org": principal.org_id},
         )
+        if result.rowcount == 0:
+            # The guard above matched 0 rows: the purge job won the race and
+            # this org is already gone. Without this check the function would
+            # fall through and write a misleading org.delete_cancelled audit
+            # entry/event for an org that was actually just purged.
+            raise HTTPException(status.HTTP_409_CONFLICT, "organization is already deleted")
         await enqueue_event(
             conn,
             topic=TOPIC_AUTH,

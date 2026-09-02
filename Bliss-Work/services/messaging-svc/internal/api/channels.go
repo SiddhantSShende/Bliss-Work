@@ -208,6 +208,8 @@ type sendChannelMsgReq struct {
 	// Optional system kind (e.g. "screenshot_attempt"); absent means an
 	// ordinary message. Whitelisted below, same as sendMessage's Kind.
 	Kind string `json:"kind"`
+	// Message being quoted, if any. Mirrors sendReq/replyReq's ReplyToID.
+	ReplyToID string `json:"replyToId"`
 }
 
 func (s *Server) sendChannelMessage(w http.ResponseWriter, r *http.Request) {
@@ -234,7 +236,7 @@ func (s *Server) sendChannelMessage(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "unknown message kind")
 		return
 	}
-	res, err := s.store.SendChannelMessage(r.Context(), claims.OrgID, channelID, claims.UserID, req.Body, req.ClientMsgID, req.Kind)
+	res, err := s.store.SendChannelMessage(r.Context(), claims.OrgID, channelID, claims.UserID, req.Body, req.ClientMsgID, req.Kind, req.ReplyToID)
 	if err != nil {
 		s.mapErr(w, err)
 		return

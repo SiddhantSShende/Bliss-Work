@@ -181,6 +181,16 @@ export interface PlatformConfig {
    * in-page and calls requestMeetingJoin directly, no IPC round trip needed.
    */
   onMeetingInviteAction?: (cb: (callId: string, media: "video" | "voice") => void) => () => void;
+  /**
+   * Present only in Electron: close the always-on-top popup window raised by
+   * showMeetingInvitePopup for `callId`, without any user action — the call
+   * ended, or was answered elsewhere, while the popup was on screen (see
+   * IncomingMeetingNotice's onIncomingMeetingDismissed). Absent on web,
+   * where clearing the in-page card is just local state, no IPC needed. A
+   * no-op on the Electron side too if `callId` is not the invite currently
+   * open (main/meeting-invite-manager.ts's dismiss()).
+   */
+  dismissMeetingInvitePopup?: (callId: string) => void;
   /** Present only in Electron: pin an acknowledged task to the desktop as a
    *  locked, always-on-top sticky note. Resolves with the authoritative pinned
    *  set (+ refusal reason). Absent on web (no persistent desktop window

@@ -29,7 +29,7 @@ import {
 import { useRuntime } from "../../lib/runtime";
 import { qk } from "../../lib/queryBridge";
 import { Tabs, type TabSpec } from "../Tabs";
-import { computeRange, type RangeKey } from "../../lib/dateRange";
+import { computeRange, parseLocalDay, type RangeKey } from "../../lib/dateRange";
 import { surfaceLabel } from "./activityLabels";
 
 const RANGES: TabSpec<RangeKey>[] = [
@@ -80,8 +80,8 @@ export function MemberAnalytics({ userId }: { userId: string }) {
     .reduce((n, a) => n + a.valueMs, 0);
   const outsideMs = siteMs + otherAppMs;
   const bars = days.map((d) => ({
-    label: new Date(d.day).toLocaleDateString(undefined, { day: "numeric", month: "short" }),
-    title: new Date(d.day).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" }),
+    label: parseLocalDay(d.day).toLocaleDateString(undefined, { day: "numeric", month: "short" }),
+    title: parseLocalDay(d.day).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" }),
     value: d.activeMs,
     context: d.idleMs,
   }));
@@ -95,7 +95,7 @@ export function MemberAnalytics({ userId }: { userId: string }) {
     undefined as (typeof days)[number] | undefined,
   );
   const peakDayLabel = peakDay
-    ? new Date(peakDay.day).toLocaleDateString(undefined, { day: "numeric", month: "short" })
+    ? parseLocalDay(peakDay.day).toLocaleDateString(undefined, { day: "numeric", month: "short" })
     : null;
 
   // The busiest hour-of-day, summed across every day in the range — the same

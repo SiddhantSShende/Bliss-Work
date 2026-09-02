@@ -46,6 +46,27 @@ func TestNotConfiguredErrorsAreServiceUnavailableNotInternal(t *testing.T) {
 	}
 }
 
+// Losing the race to record a call is a 409, not the same generic 503 as an
+// actual SFU failure — a client cannot retry its way out of "somebody else
+// already started this", and telling them to would be the wrong advice.
+func TestAlreadyRecordingIsConflictNotServiceUnavailable(t *testing.T) {
+	status, code, msg := mapStoreError(store.ErrAlreadyRecording)
+
+	if status != http.StatusConflict {
+		t.Errorf("status = %d, want %d", status, http.StatusConflict)
+	}
+	if code != CodeConflict {
+		t.Errorf("code = %q, want %q", code, CodeConflict)
+	}
+	if msg != "recording already in progress" {
+		t.Errorf("message = %q, want %q", msg, "recording already in progress")
+	}
+	// Must stay distinguishable from an actual SFU outage.
+	if status == http.StatusServiceUnavailable {
+		t.Error("ErrAlreadyRecording must not map to the same status as livekit.ErrEgressNotConfigured")
+	}
+}
+
 // The mapping must survive wrapping: handlers add context as the error travels
 // up, and a table matching on equality rather than errors.Is would quietly
 // start returning 500s again the first time someone wrapped one.

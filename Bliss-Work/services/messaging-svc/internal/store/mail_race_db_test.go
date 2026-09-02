@@ -197,12 +197,12 @@ func TestSendMail_ConcurrentDoubleSend_DeliversExactlyOnce(t *testing.T) {
 			if err := s.writeMailRecipients(ctx, tx, orgID, mailID, recipients); err != nil {
 				return err
 			}
-			locals, _ := splitMailDelivery(recipients, a)
+			locals, externals := splitMailDelivery(recipients, a)
 			if err := s.deliverMailInApp(ctx, tx, in, locals, mailPreview(in.Subject, in.BodyText), time.Now().UTC()); err != nil {
 				return err
 			}
 			relayTo := relayRecipients(recipients, author.address)
-			return s.queueMailOutbound(ctx, tx, in, author, recipients, relayTo, time.Now().UTC())
+			return s.queueMailOutbound(ctx, tx, in, author, recipients, relayTo, externals, time.Now().UTC())
 		})
 	}()
 	<-lockHeld

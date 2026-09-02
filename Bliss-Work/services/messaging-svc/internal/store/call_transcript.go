@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -78,8 +79,22 @@ type CallNotePageDTO struct {
 
 // Longest single entry, matching the client's CHAT_TEXT_MAX / NOTE_TEXT_MAX.
 // Enforced here as well because a limit only the sender's browser applies is
-// not a limit.
+// not a limit. Bytes, like every other length check in this package (see
+// normalizeTranscriptText) — Go's len() on a string already counts bytes,
+// which is what makes this the actual storage cost rather than a character
+// count that disagrees with it on non-Latin text.
 const CallTranscriptTextMax = 500
+
+// Errors specific to one chat/note request being malformed on its own terms —
+// as opposed to ErrForbidden, which means the caller was not entitled to make
+// it at all. Kept distinct so mapStoreError can tell a client that typed too
+// much apart from a client that may not write here — the same reasoning as
+// mail.go's ErrMailSubjectTooLong / ErrMailBodyTooLong.
+var (
+	ErrTranscriptTextInvalid    = fmt.Errorf("text must be 1 to %d bytes", CallTranscriptTextMax)
+	ErrTranscriptEntryIDInvalid = errors.New("entry id is too long")
+	ErrTranscriptCursorInvalid  = errors.New("invalid pagination cursor")
+)
 
 // DefaultTranscriptPage / MaxTranscriptPage bound a transcript read the same way
 // clampMessagePage bounds a message history read, and for the same reason.
@@ -178,11 +193,11 @@ func (s *Store) AppendCallChat(
 ) (*CallChatDTO, error) {
 	body, ok := normalizeTranscriptText(text)
 	if !ok {
-		return nil, ErrForbidden
+		return nil, ErrTranscriptTextInvalid
 	}
 	key, ok := clientEntryKey(entryID)
 	if !ok {
-		return nil, ErrForbidden
+		return nil, ErrTranscriptEntryIDInvalid
 	}
 	hostOrg, err := s.callHostOrgForWrite(ctx, orgID, senderID, callID)
 	if err != nil {
@@ -195,26 +210,44 @@ func (s *Store) AppendCallChat(
 	// minted, or the one an earlier identical request already did. RETURNING on
 	// the upsert is what makes a retry answer with the SAME entry rather than a
 	// second one the client would then hold two copies of.
+	//
+	// body_enc is RETURNED and decrypted below rather than trusting `body`, the
+	// plaintext of THIS call's argument: on the conflict path the DO UPDATE is a
+	// no-op that leaves an EXISTING row's body_enc untouched, so a retry whose
+	// text differs from the original (a flaky-connection resend, or a client
+	// bug) must echo back what is actually stored — the same "id reuse means
+	// this is a retry, answer with what is really there" rule the id itself
+	// already follows, applied to the body as well.
 	id := uuid.Must(uuid.NewV7()).String()
+	var storedText string
 	err = s.withBypass(ctx, func(tx pgx.Tx) error {
 		enc, eerr := s.crypto.Encrypt(ctx, tx, hostOrg, body)
 		if eerr != nil {
 			return eerr
 		}
-		return tx.QueryRow(ctx, `
+		var cipher []byte
+		if qerr := tx.QueryRow(ctx, `
 			INSERT INTO call_chat_messages
 			  (id, call_id, org_id, sender_id, client_entry_id, body_enc, sent_at)
 			VALUES ($1, $2, $3, $4, $5, $6, $7)
 			ON CONFLICT (call_id, sender_id, client_entry_id)
 			  DO UPDATE SET id = call_chat_messages.id
-			RETURNING id, sent_at`,
-			id, callID, hostOrg, senderID, key, enc, at).Scan(&id, &at)
+			RETURNING id, sent_at, body_enc`,
+			id, callID, hostOrg, senderID, key, enc, at).Scan(&id, &at, &cipher); qerr != nil {
+			return qerr
+		}
+		dec, derr := s.crypto.Decrypt(ctx, tx, hostOrg, cipher)
+		if derr != nil {
+			return derr
+		}
+		storedText = dec
+		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
 	return &CallChatDTO{
-		ID: id, CallID: callID, SenderID: senderID, Text: body, SentAt: isoTime(at),
+		ID: id, CallID: callID, SenderID: senderID, Text: storedText, SentAt: isoTime(at),
 	}, nil
 }
 
@@ -224,11 +257,11 @@ func (s *Store) AppendCallNote(
 ) (*CallNoteDTO, error) {
 	body, ok := normalizeTranscriptText(text)
 	if !ok {
-		return nil, ErrForbidden
+		return nil, ErrTranscriptTextInvalid
 	}
 	key, ok := clientEntryKey(entryID)
 	if !ok {
-		return nil, ErrForbidden
+		return nil, ErrTranscriptEntryIDInvalid
 	}
 	hostOrg, err := s.callHostOrgForWrite(ctx, orgID, authorID, callID)
 	if err != nil {
@@ -236,26 +269,39 @@ func (s *Store) AppendCallNote(
 	}
 	at := entryTime(atMs)
 
+	// See AppendCallChat's doc comment: body_enc is RETURNED and decrypted
+	// below, not trusted from `body`, because the conflict path's DO UPDATE
+	// never touches an existing row's body_enc.
 	id := uuid.Must(uuid.NewV7()).String()
+	var storedText string
 	err = s.withBypass(ctx, func(tx pgx.Tx) error {
 		enc, eerr := s.crypto.Encrypt(ctx, tx, hostOrg, body)
 		if eerr != nil {
 			return eerr
 		}
-		return tx.QueryRow(ctx, `
+		var cipher []byte
+		if qerr := tx.QueryRow(ctx, `
 			INSERT INTO call_notes
 			  (id, call_id, org_id, author_id, client_entry_id, body_enc, written_at)
 			VALUES ($1, $2, $3, $4, $5, $6, $7)
 			ON CONFLICT (call_id, author_id, client_entry_id)
 			  DO UPDATE SET id = call_notes.id
-			RETURNING id, written_at`,
-			id, callID, hostOrg, authorID, key, enc, at).Scan(&id, &at)
+			RETURNING id, written_at, body_enc`,
+			id, callID, hostOrg, authorID, key, enc, at).Scan(&id, &at, &cipher); qerr != nil {
+			return qerr
+		}
+		dec, derr := s.crypto.Decrypt(ctx, tx, hostOrg, cipher)
+		if derr != nil {
+			return derr
+		}
+		storedText = dec
+		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
 	return &CallNoteDTO{
-		ID: id, CallID: callID, AuthorID: authorID, Text: body, WrittenAt: isoTime(at),
+		ID: id, CallID: callID, AuthorID: authorID, Text: storedText, WrittenAt: isoTime(at),
 	}, nil
 }
 
@@ -286,7 +332,7 @@ func (s *Store) readTranscript(
 	}
 	curAt, curID, err := decodeTranscriptCursor(cursor)
 	if err != nil {
-		return nil, nil, nil, ErrForbidden
+		return nil, nil, nil, ErrTranscriptCursorInvalid
 	}
 
 	var raws []rawTranscriptRow

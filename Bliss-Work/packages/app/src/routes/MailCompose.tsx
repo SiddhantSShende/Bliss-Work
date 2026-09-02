@@ -134,7 +134,10 @@ export function MailCompose() {
     allAddresses.length > 0 &&
     !invalidAddress &&
     !subjectTooLong &&
-    !attachments.isUploading;
+    !attachments.isUploading &&
+    // A removed attachment's detach may still be in flight — sending before
+    // it lands would race the detach and can ship the file anyway.
+    !attachments.isRemoving;
 
   /**
    * Throw the draft away and leave.
@@ -216,9 +219,16 @@ export function MailCompose() {
           // Closing KEEPS the mail now — it is saved to Drafts on the way out
           // (useMailDraft), and only a composer with nothing in it is thrown
           // away. Discarding on purpose is the button in the footer.
+          //
+          // Disabled while a send is in flight: closing mid-send fires
+          // useMailDraft's unmount cleanup (a save/discard call) concurrently
+          // with sendMail against the same draft, and the send's own
+          // onSuccess (which navigates too) can still land after the user
+          // has already left, contradicting whatever it does.
+          disabled={send.isPending}
           title="Close — keeps this in Drafts"
           aria-label="Close — keeps this in Drafts"
-          className="rounded-lg p-1.5 text-muted hover:bg-surface-2 hover:text-fg"
+          className="rounded-lg p-1.5 text-muted hover:bg-surface-2 hover:text-fg disabled:opacity-40"
         >
           <X size={16} />
         </button>
@@ -356,11 +366,15 @@ export function MailCompose() {
               type="button"
               variant="ghost"
               onClick={() => void discardDraft()}
+              // Disabled while a send is in flight — see the header Close
+              // button's comment for why discarding mid-send is unsafe, not
+              // just redundant.
+              disabled={send.isPending}
               title="Discard — deletes this draft; it has not been sent to anyone"
             >
               Discard
             </Button>
-            <Button type="button" variant="ghost" onClick={() => nav(-1)}>
+            <Button type="button" variant="ghost" onClick={() => nav(-1)} disabled={send.isPending}>
               Close
             </Button>
             <Button type="submit" loading={send.isPending} disabled={!canSend || send.isPending}>

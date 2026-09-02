@@ -1,13 +1,29 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Search, UserPlus, Bell, X } from "lucide-react";
+import { Menu, Search, UserPlus, Bell, X } from "lucide-react";
 import { Button, IconButton, Wordmark } from "@taskboard/ui";
 import { ProfileMenu } from "./ProfileMenu";
 import { GetAppButton } from "./GetAppButton";
 import { OrgSwitcher } from "./OrgSwitcher";
 
-/** Global top navbar: brand · search · invite · notifications · account. */
-export function TopNavbar({ unread, onOpenNotifs }: { unread: number; onOpenNotifs: () => void }) {
+/**
+ * Global top navbar: brand · search · invite · notifications · account.
+ *
+ * Below `md` this becomes the compact mobile header instead: a hamburger
+ * (opens MobileNavDrawer, via `onOpenDrawer`) replaces the inline search bar
+ * — search itself doesn't disappear, it moves to a small icon button in the
+ * right-hand cluster — and the org switcher centers itself. `md:` and up is
+ * pixel-identical to before.
+ */
+export function TopNavbar({
+  unread,
+  onOpenNotifs,
+  onOpenDrawer,
+}: {
+  unread: number;
+  onOpenNotifs: () => void;
+  onOpenDrawer: () => void;
+}) {
   const nav = useNavigate();
   const [q, setQ] = useState("");
 
@@ -18,7 +34,11 @@ export function TopNavbar({ unread, onOpenNotifs }: { unread: number; onOpenNoti
   };
 
   return (
-    <header className="glass relative z-50 m-2 mb-0 flex h-14 shrink-0 items-center gap-3 rounded-2xl px-3">
+    <header className="glass relative z-50 mx-2 mb-0 mt-[max(0.5rem,env(safe-area-inset-top))] flex h-14 shrink-0 items-center gap-3 rounded-2xl px-3">
+      <IconButton onClick={onOpenDrawer} title="Menu" aria-label="Open navigation menu" className="md:hidden">
+        <Menu size={20} />
+      </IconButton>
+
       <button
         onClick={() => nav("/app/mail")}
         title="BlissWork"
@@ -27,9 +47,16 @@ export function TopNavbar({ unread, onOpenNotifs }: { unread: number; onOpenNoti
         <Wordmark size={26} />
       </button>
 
-      <OrgSwitcher />
+      {/* md:contents unwraps this on desktop/tablet, so OrgSwitcher sits
+          exactly where it always has, right after the logo. Below md the
+          wrapper takes over the middle of the header (search hides there
+          instead — see the form below) and centers it, matching the mobile
+          header's left/CENTER/right layout. */}
+      <div className="flex flex-1 justify-center md:contents">
+        <OrgSwitcher />
+      </div>
 
-      <form onSubmit={submit} className="flex flex-1 justify-center px-2">
+      <form onSubmit={submit} className="hidden flex-1 justify-center px-2 md:flex">
         <div className="relative w-full max-w-md">
           <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
           <input
@@ -57,15 +84,20 @@ export function TopNavbar({ unread, onOpenNotifs }: { unread: number; onOpenNoti
 
       <div className="flex shrink-0 items-center gap-1.5">
         {/* Desktop-app download (web only; renders nothing in the Electron build). */}
-        <GetAppButton mode="compact" />
+        <GetAppButton mode="compact" className="hidden md:block" />
         <Button
           variant="subtle"
           size="sm"
           onClick={() => nav("/app/invite")}
-          className="hidden sm:inline-flex"
+          className="hidden md:inline-flex"
         >
           <UserPlus size={15} /> Invite
         </Button>
+        {/* Search moves here below md, in place of the hidden inline form
+            above — the mobile header has no room for a full search bar. */}
+        <IconButton onClick={() => nav("/app/search")} title="Search" className="md:hidden">
+          <Search size={18} />
+        </IconButton>
         <div className="relative">
           <IconButton onClick={onOpenNotifs} title="Notifications">
             <Bell size={18} />

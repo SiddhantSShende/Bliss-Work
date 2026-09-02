@@ -17,23 +17,62 @@ export class FakeWindow {
   opts: Record<string, unknown>;
   calls: Array<[string, ...unknown[]]> = [];
   listeners = new Map<string, Array<(...a: unknown[]) => void>>();
+  /** webContents-level listeners (did-finish-load, render-process-gone, …) —
+   *  kept separate from window-level `listeners`/`emit` above since real
+   *  Electron splits them the same way (win.on vs win.webContents.on). */
+  private webContentsListeners = new Map<string, Array<(...a: unknown[]) => void>>();
 
   private destroyed = false;
   private visible = false;
   private minimized = false;
   private bounds = { x: 0, y: 0, width: 360, height: 200 };
+  /** True as soon as a real window would be, since createMainWindow (and
+   *  every other creator in ./windows.ts) calls loadURL/loadFile
+   *  synchronously as part of construction — read by webContents.isLoading()
+   *  (see deep-link-forwarder.ts). Flipped by finishLoading() below. */
+  private loading = true;
 
   webContents = {
     send: (...a: unknown[]) => this.calls.push(["webContents.send", ...a]),
-    on: () => {},
-    once: (event: string, cb: () => void) => {
-      if (event === "did-finish-load") this.finishLoad = cb;
+    on: (event: string, cb: (...a: unknown[]) => void) => {
+      const list = this.webContentsListeners.get(event) ?? [];
+      list.push(cb);
+      this.webContentsListeners.set(event, list);
+    },
+    once: (event: string, cb: (...a: unknown[]) => void) => {
+      // Real one-shot semantics (unlike the window-level `once` below, which
+      // this codebase's existing tests already treat as a plain alias for
+      // `on`): deep-link-forwarder.ts relies on a deferred send firing
+      // exactly once per registration, not once per later "did-finish-load".
+      const wrapped = (...a: unknown[]) => {
+        const list = this.webContentsListeners.get(event) ?? [];
+        this.webContentsListeners.set(
+          event,
+          list.filter((f) => f !== wrapped),
+        );
+        cb(...a);
+      };
+      const list = this.webContentsListeners.get(event) ?? [];
+      list.push(wrapped);
+      this.webContentsListeners.set(event, list);
     },
     setWindowOpenHandler: () => {},
+    isLoading: () => this.loading,
+    isDestroyed: () => this.destroyed,
   };
 
-  /** Held so a test can drive the load handshake deterministically. */
-  finishLoad: (() => void) | null = null;
+  /** Fire a webContents-level event ("did-finish-load",
+   *  "render-process-gone", …) the way Electron would. */
+  emitWebContents(event: string, ...args: unknown[]): void {
+    for (const cb of [...(this.webContentsListeners.get(event) ?? [])]) cb(...args);
+  }
+
+  /** Simulate the current page load finishing: flips isLoading() false and
+   *  fires any pending webContents.once("did-finish-load", …). */
+  finishLoading(): void {
+    this.loading = false;
+    this.emitWebContents("did-finish-load");
+  }
 
   constructor(opts: Record<string, unknown> = {}) {
     this.opts = opts;
@@ -75,13 +114,25 @@ export class FakeWindow {
     this.visible = false;
     this.calls.push(["hide"]);
   }
+  focus(): void {
+    this.calls.push(["focus"]);
+  }
   close(): void {
     this.destroyed = true;
     this.calls.push(["close"]);
   }
   destroy(): void {
+    // Matches real Electron: destroy() "guarantees the closed event will be
+    // emitted" (unlike close(), which this fake leaves as a simpler
+    // synchronous no-handshake teardown — nothing here currently needs
+    // close()'s own event to fire). Guarded so a second destroy() on an
+    // already-destroyed window — e.g. meeting-window-manager's crash
+    // recovery calling win.destroy() after something else already did —
+    // can't re-fire "closed" and double-run its cleanup.
+    if (this.destroyed) return;
     this.destroyed = true;
     this.calls.push(["destroy"]);
+    this.emit("closed");
   }
   minimize(): void {
     this.minimized = true;

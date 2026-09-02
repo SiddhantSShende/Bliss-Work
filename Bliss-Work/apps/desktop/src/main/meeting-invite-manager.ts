@@ -86,6 +86,9 @@ export class MeetingInviteManager {
   private current: string | null = null;
   private announced = new Set<string>();
   private dismissTimer: NodeJS.Timeout | null = null;
+  /** The invite last shown for `current`, kept so onRendererReady() can
+   *  re-push it — see that method's own doc comment. */
+  private latestInvite: MeetingInvite | null = null;
 
   /**
    * A meeting invite arrived (or its details were refreshed — see
@@ -103,6 +106,7 @@ export class MeetingInviteManager {
     );
     if (action === "ignore") return;
     if (action === "update") {
+      this.latestInvite = invite;
       this.win!.webContents.send("meeting-invite:update", invite);
       return;
     }
@@ -119,9 +123,39 @@ export class MeetingInviteManager {
     this.closeCurrent();
   }
 
+  /**
+   * The popup's own renderer (renderer/meeting-invite.tsx) has registered its
+   * "meeting-invite:update" listener and is ready. Re-push the latest invite
+   * so an update sent BEFORE that listener existed — the organizer resolving
+   * between IncomingMeetingNotice's two show() calls is the common case — is
+   * not lost for good. Same handshake as StickyManager.onRendererReady /
+   * "sticky:ready"; unlike a task note, this window's FIRST paint already
+   * comes from the URL query string it was opened with (see open() below), so
+   * this only ever needs to cover the update path, not the initial one.
+   *
+   * A no-op if `callId` is not the invite currently open (a stale ready from
+   * a popup already replaced or dismissed).
+   */
+  onRendererReady(callId: string): void {
+    if (this.current !== callId) return;
+    if (!this.win || this.win.isDestroyed()) return;
+    if (!this.latestInvite || this.latestInvite.callId !== callId) return;
+    this.win.webContents.send("meeting-invite:update", this.latestInvite);
+  }
+
+  /** The invite popup's own BrowserWindow right now, or undefined when none
+   *  is open — lets main/index.ts verify an inbound meeting-invite:act/
+   *  meeting-invite:ready IPC actually came from the popup this manager owns,
+   *  the same way MeetingWindowManager.all() lets meeting-window:status
+   *  verify ITS sender. */
+  currentWindow(): BrowserWindow | undefined {
+    return this.win && !this.win.isDestroyed() ? this.win : undefined;
+  }
+
   private open(invite: MeetingInvite): void {
     this.closeCurrent();
     this.current = invite.callId;
+    this.latestInvite = invite;
 
     // Same construction pattern as createStickyWindow (./windows.ts) — opaque
     // rather than transparent (see that file's own comment on why a
@@ -181,6 +215,7 @@ export class MeetingInviteManager {
       if (this.win === win) {
         this.win = null;
         this.current = null;
+        this.latestInvite = null;
       }
     });
 
@@ -207,6 +242,7 @@ export class MeetingInviteManager {
     if (this.win && !this.win.isDestroyed()) this.win.close();
     this.win = null;
     this.current = null;
+    this.latestInvite = null;
   }
 
   /** Quit teardown — same shape as StickyManager.destroyAll(). */
@@ -218,5 +254,6 @@ export class MeetingInviteManager {
     if (this.win && !this.win.isDestroyed()) this.win.destroy();
     this.win = null;
     this.current = null;
+    this.latestInvite = null;
   }
 }

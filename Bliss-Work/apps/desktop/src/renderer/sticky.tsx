@@ -2,21 +2,27 @@ import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { StickyWidget, type StickyTaskDTO, type TaskAction } from "@taskboard/app";
 import { isThemeId, themeClasses, defaultThemeFor, ALL_THEME_CLASSES } from "@taskboard/ui";
-import { Pin, Maximize2 } from "lucide-react";
+import { Pin, Maximize2, ChevronLeft, ChevronRight } from "lucide-react";
 import "@taskboard/ui/styles.css";
 import "./index.css";
+
+interface StickyTasksPayload {
+  tasks: StickyTaskDTO[];
+  index: number;
+}
 
 declare global {
   interface Window {
     sticky: {
-      taskId: string;
       collapsed: boolean;
-      onTask: (cb: (t: StickyTaskDTO) => void) => () => void;
+      onTasks: (cb: (payload: StickyTasksPayload) => void) => () => void;
       act: (taskId: string, action: string) => void;
+      next: () => void;
+      prev: () => void;
       setCollapsed: (collapsed: boolean) => void;
       setBackgroundColor: (color: string) => void;
       ready: () => void;
-      dismiss: () => void;
+      dismiss: (taskId: string) => void;
     };
   }
 }
@@ -80,16 +86,18 @@ function useSyncedTheme(): void {
 
 function StickyApp() {
   useSyncedTheme();
-  const [task, setTask] = useState<StickyTaskDTO | null>(null);
+  // The whole floating set + which page is shown — one shared window carries
+  // every pinned task now, instead of one window per task.
+  const [payload, setPayload] = useState<StickyTasksPayload>({ tasks: [], index: 0 });
   // Initial collapsed state comes from main (restored from persisted geometry).
   const [collapsed, setCollapsed] = useState(window.sticky.collapsed);
 
   useEffect(() => {
-    const off = window.sticky.onTask(setTask);
+    const off = window.sticky.onTasks(setPayload);
     // Signal readiness ONLY after the listener above is registered, so main
-    // re-pushes the task even if its did-finish-load push already fired (and
-    // was dropped) before this effect ran. Without this the note can hang on
-    // "Loading…" forever after acknowledge.
+    // re-pushes the carousel even if its did-finish-load push already fired
+    // (and was dropped) before this effect ran. Without this the note can
+    // hang on "Loading…" forever after acknowledge.
     window.sticky.ready();
     return off;
   }, []);
@@ -102,6 +110,9 @@ function StickyApp() {
     setCollapsed(false);
     window.sticky.setCollapsed(false);
   };
+
+  const task = payload.tasks[payload.index] ?? null;
+  const hasMultiple = payload.tasks.length > 1;
 
   // Collapsed pill: a small always-on-top bubble. It can be expanded again but
   // never dismissed — only completing the task removes the note entirely.
@@ -134,16 +145,46 @@ function StickyApp() {
 
   // SENT → unlocked note with ✓ Acknowledge / ✗ Ignore. Once acknowledged it
   // locks to Complete-only (the commitment marker) — same workflow as before.
+  //
+  // The nav arrows are only rendered — not merely disabled — with one or
+  // zero floating tasks, so a single pinned task looks exactly like the old
+  // one-note widget, with no dead controls.
   return (
-    <div className="h-full p-1.5">
-      <StickyWidget
-        task={task}
-        compact
-        locked={task.myStatus === "ACKNOWLEDGED"}
-        onCollapse={collapse}
-        onDismiss={() => window.sticky.dismiss()}
-        onAction={(action: TaskAction) => window.sticky.act(task.taskId, VERB[action])}
-      />
+    <div className="flex h-full items-stretch p-1">
+      {/* w-4, no gap: every pixel here comes straight out of the card's own
+          width budget (see windows.ts's FULL_W/minWidth, sized to compensate),
+          and the Acknowledge/Ignore row was already once broken by too little
+          of it — see StickyWidget's doc comment. */}
+      {hasMultiple && (
+        <button
+          className="app-no-drag flex w-4 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-fg"
+          title="Previous pinned task"
+          aria-label="Previous pinned task"
+          onClick={() => window.sticky.prev()}
+        >
+          <ChevronLeft size={14} />
+        </button>
+      )}
+      <div className="min-w-0 flex-1">
+        <StickyWidget
+          task={task}
+          compact
+          locked={task.myStatus === "ACKNOWLEDGED"}
+          onCollapse={collapse}
+          onDismiss={() => window.sticky.dismiss(task.taskId)}
+          onAction={(action: TaskAction) => window.sticky.act(task.taskId, VERB[action])}
+        />
+      </div>
+      {hasMultiple && (
+        <button
+          className="app-no-drag flex w-4 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-fg"
+          title="Next pinned task"
+          aria-label="Next pinned task"
+          onClick={() => window.sticky.next()}
+        >
+          <ChevronRight size={14} />
+        </button>
+      )}
     </div>
   );
 }

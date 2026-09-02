@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
+import { create } from "zustand";
 import { Building2, Check, ChevronsUpDown } from "lucide-react";
 import { toast } from "sonner";
 import { isMfaPending } from "@taskboard/shared";
@@ -8,6 +9,37 @@ import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
 import { broadcastSession } from "../lib/authChannel";
+
+/** What a switch attempt actually did. A non-throwing resolution is NOT
+ *  enough on its own to mean "switched" — it is also what a redirect to
+ *  /mfa-challenge and a request another caller superseded look like.
+ *  Callers must branch on this rather than assume completion. */
+export type SwitchOrgOutcome = "switched" | "mfaPending" | "superseded";
+
+interface OrgSwitchStore {
+  /** orgId of the switch currently in flight, shared across every caller of
+   *  useSwitchOrg — the top-bar switcher, the Organizations page, and the
+   *  leave-org fallback switch all share this one lock instead of each
+   *  tracking its own, independent `busy` flag. */
+  busyOrgId: string | null;
+}
+const useOrgSwitchStore = create<OrgSwitchStore>(() => ({ busyOrgId: null }));
+
+/** The org a switch is currently in flight for, or null — read by any
+ *  component offering a "Switch" action so a switch started elsewhere (top
+ *  bar vs. the Organizations page) disables this one too. */
+export function useOrgSwitchBusyId(): string | null {
+  return useOrgSwitchStore((s) => s.busyOrgId);
+}
+
+// Bumped on every call; a response is only applied if it is still the most
+// recently requested one. Without this, a slow switch resolving after a
+// faster, later one would clobber the session/navigation the later one
+// already applied — the same "stale response after a newer request" hazard
+// MeetingHost.tsx guards against for join requests, with the same fix: tag
+// each attempt and drop any whose tag has been superseded by the time it
+// resolves.
+let switchSeq = 0;
 
 /**
  * Switch the active organization. Reuses the exact login→setSession path, then
@@ -20,22 +52,38 @@ import { broadcastSession } from "../lib/authChannel";
  * docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 7) — in which case the CURRENT
  * session is left untouched (the switch never happened) and the caller is
  * routed through the same /mfa-challenge page a fresh login uses.
+ *
+ * Only one switch is ever in flight at a time, no matter which component
+ * started it (see `useOrgSwitchBusyId`), and callers must inspect the
+ * returned `SwitchOrgOutcome` rather than assume a non-throwing call means
+ * the switch completed.
  */
 export function useSwitchOrg() {
   const { api } = useRuntime();
   const qc = useQueryClient();
   const nav = useNavigate();
   const setSession = useSession((s) => s.setSession);
-  return async (orgId: string) => {
-    const result = await api.switchOrg(orgId);
-    if (isMfaPending(result)) {
-      nav("/mfa-challenge", { state: result });
-      return;
+  return async (orgId: string): Promise<SwitchOrgOutcome> => {
+    const seq = ++switchSeq;
+    useOrgSwitchStore.setState({ busyOrgId: orgId });
+    try {
+      const result = await api.switchOrg(orgId);
+      // A newer switch — from this caller or a different one entirely — was
+      // requested before this response came back. That one is authoritative
+      // now; applying this stale one on top of it would clobber it.
+      if (seq !== switchSeq) return "superseded";
+      if (isMfaPending(result)) {
+        nav("/mfa-challenge", { state: result });
+        return "mfaPending";
+      }
+      setSession({ user: result.user, accessToken: result.accessToken, expiresIn: result.expiresIn });
+      broadcastSession(result);
+      qc.clear(); // every cached query is scoped to the previous org
+      nav("/app");
+      return "switched";
+    } finally {
+      if (seq === switchSeq) useOrgSwitchStore.setState({ busyOrgId: null });
     }
-    setSession({ user: result.user, accessToken: result.accessToken, expiresIn: result.expiresIn });
-    broadcastSession(result);
-    qc.clear(); // every cached query is scoped to the previous org
-    nav("/app");
   };
 }
 
@@ -47,7 +95,7 @@ export function OrgSwitcher() {
   const user = useSession((s) => s.user);
   const switchOrg = useSwitchOrg();
   const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState<string | null>(null);
+  const busyOrgId = useOrgSwitchBusyId();
   const ref = useRef<HTMLDivElement>(null);
 
   const { data: orgs = [] } = useQuery({ queryKey: qk.myOrgs, queryFn: () => api.myOrgs() });
@@ -69,14 +117,13 @@ export function OrgSwitcher() {
       setOpen(false);
       return;
     }
-    setBusy(orgId);
     try {
-      await switchOrg(orgId);
-      setOpen(false);
+      const outcome = await switchOrg(orgId);
+      // A superseded attempt leaves whatever the newer switch is doing
+      // alone — closing the dropdown here could yank focus from under it.
+      if (outcome !== "superseded") setOpen(false);
     } catch {
       toast.error("Couldn't switch organization", { description: "Please try again." });
-    } finally {
-      setBusy(null);
     }
   };
 
@@ -104,7 +151,7 @@ export function OrgSwitcher() {
               return (
                 <button
                   key={o.orgId}
-                  disabled={busy !== null}
+                  disabled={busyOrgId !== null}
                   onClick={() => onSelect(o.orgId)}
                   className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-surface-2 disabled:opacity-50"
                 >
@@ -117,7 +164,7 @@ export function OrgSwitcher() {
                       {o.roles.includes("org_admin") ? "Admin" : "Member"}
                     </div>
                   </div>
-                  {busy === o.orgId ? (
+                  {busyOrgId === o.orgId ? (
                     <span className="text-[11px] text-muted">Switching…</span>
                   ) : (
                     active && <Check size={15} className="shrink-0 text-accent" />

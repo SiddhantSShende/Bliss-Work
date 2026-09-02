@@ -161,11 +161,11 @@ func TestDeleteChannelMessagesForAll_ModeratorVsMember(t *testing.T) {
 	member := uuid.Must(uuid.NewV7()).String()
 	channelID := seedChannelWithRoles(t, s, orgID, owner, map[string]string{member: RoleMember})
 
-	ownerMsg, err := s.SendChannelMessage(ctx, orgID, channelID, owner, "owner's", uuid.Must(uuid.NewV7()).String(), "")
+	ownerMsg, err := s.SendChannelMessage(ctx, orgID, channelID, owner, "owner's", uuid.Must(uuid.NewV7()).String(), "", "")
 	if err != nil {
 		t.Fatalf("send: %v", err)
 	}
-	memberMsg, err := s.SendChannelMessage(ctx, orgID, channelID, member, "member's", uuid.Must(uuid.NewV7()).String(), "")
+	memberMsg, err := s.SendChannelMessage(ctx, orgID, channelID, member, "member's", uuid.Must(uuid.NewV7()).String(), "", "")
 	if err != nil {
 		t.Fatalf("send: %v", err)
 	}

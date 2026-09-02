@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Fingerprint, KeyRound, ShieldCheck, ShieldOff } from "lucide-react";
 import { toast } from "sonner";
 import { Button, Input, PageHeader } from "@taskboard/ui";
@@ -9,13 +9,18 @@ import { useGoBack } from "../lib/useGoBack";
 import { Modal } from "../features/Modal";
 import { TotpEnrollPanel } from "../features/TotpEnrollPanel";
 import { BackupCodesView } from "../features/BackupCodesView";
-import { createPasskey, webauthnSupported } from "../lib/webauthn";
+import { createPasskey, getPasskeyAssertion, webauthnSupported } from "../lib/webauthn";
 
 /**
  * Settings > Two-factor authentication. Enrollment status is a plain
  * enrolled/not-enrolled read off the session (`user.mfaEnrolled`) — there is
- * no per-credential listing (which passkeys, TOTP-vs-not) in this pass; that
- * is a reasonable follow-up, not something this page pretends to have.
+ * still no full per-credential listing (nicknames, added-on dates, per-key
+ * removal) in this pass; that remains a reasonable follow-up. The one piece
+ * of per-method state this page DOES fetch is whether a passkey is
+ * registered at all (`hasPasskey`, via `api.mfaMethods()`) — needed so the
+ * step-up modal (disable / regenerate backup codes) can offer a passkey to a
+ * passkey-only enrollee, who has no TOTP code or backup code to type there
+ * instead.
  */
 export function MfaSettings() {
   const { api } = useRuntime();
@@ -27,12 +32,66 @@ export function MfaSettings() {
   const [newBackupCodes, setNewBackupCodes] = useState<string[] | null>(null);
   const [stepUpAction, setStepUpAction] = useState<"disable" | "regenerate" | null>(null);
   const [passkeyBusy, setPasskeyBusy] = useState(false);
+  // Whether the user has a registered passkey — gates the step-up modal's
+  // "use a passkey instead" option (see StepUpModal). Not derivable from
+  // `user.mfaEnrolled` alone: a passkey-only enrollee has no TOTP secret and
+  // no minted backup codes, so without this the step-up modal would offer
+  // them only fields they can never fill in.
+  const [hasPasskey, setHasPasskey] = useState(false);
+
+  useEffect(() => {
+    if (!user?.mfaEnrolled) return;
+    let alive = true;
+    api
+      .mfaMethods()
+      .then((r) => alive && setHasPasskey(r.methods.includes("webauthn")))
+      // Best-effort: this only gates an optional step-up shortcut — password
+      // + code/backup-code stays available in the modal either way.
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [api, user?.mfaEnrolled]);
+
+  // Backup codes are shown exactly once and never again — losing this modal
+  // (tab close, refresh) before the "I've saved these" acknowledgement is an
+  // account-recovery dead end. The modal already blocks Escape/backdrop
+  // click; this covers the paths those can't: browser refresh and tab close.
+  // `newBackupCodes` becomes null only via BackupCodesView's onDone, which is
+  // gated on that same acknowledgement, so this effect's own lifetime is
+  // already exactly "codes showing and not yet acknowledged" — no separate
+  // ack flag needs to be threaded up from BackupCodesView.
+  //
+  // This does NOT cover the in-app back button: this app renders inside a
+  // plain <BrowserRouter> (see App.tsx), not a data router, and
+  // react-router's history-blocking APIs (useBlocker) only work under one.
+  useEffect(() => {
+    if (!newBackupCodes) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [newBackupCodes]);
 
   const refreshUser = async () => {
     try {
       setUser(await api.me());
+      return;
     } catch {
-      /* cosmetic — the mutating call itself already succeeded */
+      /* transient network blip — worth one retry before bothering the user */
+    }
+    try {
+      setUser(await api.me());
+    } catch {
+      // The mutating call itself already succeeded, but this page's branch
+      // (which of the three MFA sections renders) is keyed off
+      // `user.mfaEnrolled` — a stale value here can keep showing "MFA is on"
+      // with working controls right after MFA was actually turned off.
+      toast.error("Couldn't refresh your account", {
+        description: "Your two-factor authentication status on this page may be out of date — refresh to see the latest.",
+      });
     }
   };
 
@@ -43,6 +102,7 @@ export function MfaSettings() {
       const credential = await createPasskey(options);
       await api.mfaWebauthnRegisterFinish({ credential });
       toast.success("Passkey added");
+      setHasPasskey(true);
       await refreshUser();
     } catch {
       toast.error("Couldn't add passkey", { description: "Please try again." });
@@ -183,6 +243,7 @@ export function MfaSettings() {
 
       <StepUpModal
         action={stepUpAction}
+        hasPasskey={hasPasskey}
         onClose={() => setStepUpAction(null)}
         onDisabled={() => void refreshUser()}
         onRegenerated={(codes) => setNewBackupCodes(codes)}
@@ -193,11 +254,15 @@ export function MfaSettings() {
 
 function StepUpModal({
   action,
+  hasPasskey,
   onClose,
   onDisabled,
   onRegenerated,
 }: {
   action: "disable" | "regenerate" | null;
+  /** Whether the caller has a registered passkey — see MfaSettings' own
+   *  `hasPasskey` state for why this can't be derived locally. */
+  hasPasskey: boolean;
   onClose: () => void;
   onDisabled: () => void;
   onRegenerated: (codes: string[]) => void;
@@ -207,6 +272,7 @@ function StepUpModal({
   const [code, setCode] = useState("");
   const [useBackupCode, setUseBackupCode] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [passkeyBusy, setPasskeyBusy] = useState(false);
 
   const reset = () => {
     setPassword("");
@@ -214,24 +280,34 @@ function StepUpModal({
     setUseBackupCode(false);
   };
 
+  /** Shared by both step-up paths (code/backup-code form submit, and the
+   *  passkey button below): dispatch to whichever action this modal is open
+   *  for, then close it. Left to throw — each caller wraps this in its own
+   *  try/catch so the error toast can say something specific to what it just
+   *  attempted (password+code vs. password+passkey). */
+  const finishStepUp = async (body: {
+    password: string;
+    totpCode?: string;
+    backupCode?: string;
+    webauthnCredential?: unknown;
+  }) => {
+    if (action === "disable") {
+      await api.mfaDisable(body);
+      toast.success("Two-factor authentication turned off");
+      onDisabled();
+    } else if (action === "regenerate") {
+      const result = await api.mfaRegenerateBackupCodes(body);
+      onRegenerated(result.backupCodes);
+    }
+    reset();
+    onClose();
+  };
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
-    const body = {
-      password,
-      ...(useBackupCode ? { backupCode: code } : { totpCode: code }),
-    };
     try {
-      if (action === "disable") {
-        await api.mfaDisable(body);
-        toast.success("Two-factor authentication turned off");
-        onDisabled();
-      } else if (action === "regenerate") {
-        const result = await api.mfaRegenerateBackupCodes(body);
-        onRegenerated(result.backupCodes);
-      }
-      reset();
-      onClose();
+      await finishStepUp({ password, ...(useBackupCode ? { backupCode: code } : { totpCode: code }) });
     } catch (err) {
       toast.error(
         err instanceof ApiError && err.status === 429 ? "Too many attempts" : "Verification failed",
@@ -239,6 +315,24 @@ function StepUpModal({
       );
     } finally {
       setBusy(false);
+    }
+  };
+
+  // Covers the passkey-only enrollee: no TOTP secret, no minted backup
+  // codes, so the form above has nothing they can actually fill in. Mirrors
+  // MfaChallenge.tsx's login-time `usePasskey` — same ceremony, scoped here
+  // to a step-up challenge for the already-authenticated caller instead of a
+  // pending login.
+  const usePasskey = async () => {
+    setPasskeyBusy(true);
+    try {
+      const options = await api.mfaWebauthnStepUpStart();
+      const credential = await getPasskeyAssertion(options);
+      await finishStepUp({ password, webauthnCredential: credential });
+    } catch {
+      toast.error("Couldn't verify passkey", { description: "Please try again." });
+    } finally {
+      setPasskeyBusy(false);
     }
   };
 
@@ -275,6 +369,16 @@ function StepUpModal({
         >
           {useBackupCode ? "Use an authentication code instead" : "Use a backup code instead"}
         </button>
+        {hasPasskey && webauthnSupported() && (
+          <button
+            type="button"
+            onClick={usePasskey}
+            disabled={!password || passkeyBusy}
+            className="self-start text-xs font-medium text-accent hover:underline disabled:opacity-60"
+          >
+            {passkeyBusy ? "Waiting for passkey…" : "Use a passkey instead"}
+          </button>
+        )}
         <Button
           type="submit"
           variant={action === "disable" ? "danger" : "primary"}

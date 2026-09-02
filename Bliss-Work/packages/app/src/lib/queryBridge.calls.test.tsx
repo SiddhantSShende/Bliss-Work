@@ -31,6 +31,10 @@ const toasts = vi.hoisted(() => ({ shown: [] as string[] }));
  *  (not vi.hoisted): nothing here needs to be visible inside a vi.mock
  *  factory, only inside the tests below. */
 const announced: { callId: string; title: string }[] = [];
+/** dismissIncomingMeeting fires "taskboard:dismiss-incoming-meeting" — same
+ *  capture-the-real-window-event approach as `announced` above, rather than
+ *  mocking MeetingSession, so this proves the real wiring. */
+const dismissed: string[] = [];
 
 vi.mock("sonner", () => {
   const toast = Object.assign(
@@ -140,15 +144,23 @@ function onAnnounced(event: Event) {
   }
 }
 
+function onDismissed(event: Event) {
+  const detail = (event as CustomEvent<{ callId?: unknown }>).detail;
+  if (typeof detail?.callId === "string") dismissed.push(detail.callId);
+}
+
 beforeEach(() => {
   toasts.shown = [];
   announced.length = 0;
+  dismissed.length = 0;
   window.addEventListener("taskboard:incoming-meeting", onAnnounced);
+  window.addEventListener("taskboard:dismiss-incoming-meeting", onDismissed);
   vi.useFakeTimers();
 });
 
 afterEach(() => {
   window.removeEventListener("taskboard:incoming-meeting", onAnnounced);
+  window.removeEventListener("taskboard:dismiss-incoming-meeting", onDismissed);
   vi.useRealTimers();
 });
 
@@ -336,6 +348,30 @@ describe("WsEventBridge — calls", () => {
       const h = harness();
       h.fire(callEvent(type, { kind: "CHANNEL", channelId: CHANNEL, shareSource: "SCREEN" }));
       expect(has(h.invalidated, qk.channelCalls(CHANNEL))).toBe(true);
+    },
+  );
+
+  // A stale incoming-meeting popup must not outlive the call it was
+  // announcing: CallEnded is the organizer cancelling (or the call finishing
+  // before anyone answered), CallParticipantAdded is it being answered on
+  // another device/tab/window. Both dismiss whatever IncomingMeetingNotice is
+  // currently showing for THIS callId — see MeetingSession's
+  // onIncomingMeetingDismissed.
+  it.each([EventType.CallEnded, EventType.CallParticipantAdded])(
+    "dismisses a stale incoming-meeting popup on %s",
+    (type) => {
+      const h = harness();
+      h.fire(callEvent(type));
+      expect(dismissed).toEqual([CALL]);
+    },
+  );
+
+  it.each([EventType.CallScheduled, EventType.CallParticipantLeft, EventType.CallRing, EventType.CallStarted])(
+    "does NOT dismiss the popup on %s — the call is still live",
+    (type) => {
+      const h = harness();
+      h.fire(callEvent(type));
+      expect(dismissed).toHaveLength(0);
     },
   );
 });

@@ -61,13 +61,13 @@ function call(over: Partial<CallDTO> = {}): CallDTO {
   } as CallDTO;
 }
 
-function renderList(search = "") {
+function renderList(search = "", onOpenRoom?: (call: CallDTO) => void) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
       <MemoryRouter initialEntries={[`/app/meetings/all${search}`]}>
         <Routes>
-          <Route path="/app/meetings/all" element={<MeetingList />} />
+          <Route path="/app/meetings/all" element={<MeetingList onOpenRoom={onOpenRoom} />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -157,7 +157,13 @@ describe("MeetingList", () => {
     expect(await screen.findByText("Mayank & Siddhant")).toBeTruthy();
   });
 
-  it("says how long a finished meeting ran", async () => {
+  // ── What a row actually says ───────────────────────────────────────────────
+  // The row is the section's answer to "which meeting is this, when, whose, and
+  // what can I do about it". Each of those is a separate promise and each one
+  // has broken independently before, so they are asserted separately rather
+  // than as one snapshot.
+
+  it("prints the clock times a meeting actually ran between", async () => {
     api.myCallHistory.mockResolvedValue({
       items: [
         call({
@@ -171,7 +177,84 @@ describe("MeetingList", () => {
       nextCursor: null,
     });
     renderList("?view=past");
-    expect(await screen.findByText("1h 30m")).toBeTruthy();
+    await screen.findByText("Retro");
+    // Local time, so the assertion is built the same way the row is rather than
+    // being pinned to a timezone the test machine may not be in.
+    const from = new Date("2026-01-02T09:00:00.000Z").toLocaleTimeString(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+    const to = new Date("2026-01-02T10:30:00.000Z").toLocaleTimeString(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+    expect(screen.getByText(new RegExp(`${from}\\s*–\\s*${to}`))).toBeTruthy();
+  });
+
+  it("names the organiser and counts the people on the roster", async () => {
+    api.myCalls.mockResolvedValue([
+      call({
+        id: "c-org",
+        title: "Planning",
+        status: "SCHEDULED",
+        scheduledAt: "2026-09-01T09:00:00.000Z",
+        createdBy: "u-m",
+        participants: [person("u-m"), person("u-s"), person("u-a", false)],
+      }),
+    ]);
+    renderList();
+    await screen.findByText("Planning");
+    expect(screen.getByText("Mayank")).toBeTruthy();
+    // The ROSTER, not the turnout — "who is expected" is what an upcoming row
+    // is about, and the title carries the split for anyone who wants it.
+    expect(screen.getByTitle("3 invited · 2 joined")).toBeTruthy();
+  });
+
+  it("offers Join on a live meeting and hands the caller the call to open", async () => {
+    const onOpenRoom = vi.fn();
+    api.myCalls.mockResolvedValue([
+      call({ id: "c-live", title: "Standup", status: "LIVE", startedAt: new Date().toISOString() }),
+    ]);
+    renderList("?view=live", onOpenRoom);
+    const join = await screen.findByRole("button", { name: "Join" });
+    join.click();
+    expect(onOpenRoom).toHaveBeenCalledTimes(1);
+    expect(onOpenRoom.mock.calls[0]?.[0]?.id).toBe("c-live");
+  });
+
+  // The one rule Past must never break: there is nothing left to join, so
+  // offering a button that says otherwise would be the row lying about the
+  // meeting's state.
+  it("never offers Join on a meeting that has already ended", async () => {
+    api.myCallHistory.mockResolvedValue({
+      items: [
+        call({
+          id: "c-old",
+          title: "Retro",
+          status: "ENDED",
+          startedAt: "2026-01-02T09:00:00.000Z",
+          endedAt: "2026-01-02T10:00:00.000Z",
+        }),
+      ],
+      nextCursor: null,
+    });
+    renderList("?view=past", vi.fn());
+    await screen.findByText("Retro");
+    expect(screen.queryByRole("button", { name: "Join" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Open" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Details" })).toBeTruthy();
+  });
+
+  it("switches bucket through the URL, so the tab survives opening a meeting", async () => {
+    api.myCalls.mockResolvedValue([
+      call({ id: "c-up", title: "Planning", status: "SCHEDULED", scheduledAt: "2026-09-01T09:00:00.000Z" }),
+      call({ id: "c-live", title: "Standup", status: "LIVE", startedAt: new Date().toISOString() }),
+    ]);
+    renderList();
+    await screen.findByText("Planning");
+    screen.getByRole("tab", { name: /^Live/ }).click();
+    expect(await screen.findByText("Standup")).toBeTruthy();
+    expect(screen.queryByText("Planning")).toBeNull();
   });
 
   it("marks a live meeting as live", async () => {

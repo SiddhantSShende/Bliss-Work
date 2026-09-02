@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AlertTriangle, MonitorCog } from "lucide-react";
 import { Button } from "@taskboard/ui";
@@ -34,10 +34,26 @@ export function DeviceActivitySettings() {
     titleTrackingReason: string | null;
   } | null>(null);
   const [busy, setBusy] = useState(false);
+  // Guards against an older in-flight state() call resolving AFTER a newer
+  // one (a poll tick racing a connect/disconnect/toggle click, or two poll
+  // ticks overlapping on a slow response) and clobbering fresher state with
+  // stale data — the same "ignore this once something newer has started"
+  // idea as the alive-flag guard elsewhere (AboutRow in Settings.tsx,
+  // TotpEnrollPanel), generalized to a call fired repeatedly from more than
+  // one place rather than once per effect mount.
+  const loadCallId = useRef(0);
 
   const load = useCallback(async () => {
     if (!agent) return;
-    setState(await agent.state());
+    const callId = ++loadCallId.current;
+    try {
+      const next = await agent.state();
+      if (callId === loadCallId.current) setState(next);
+    } catch (e) {
+      if (callId === loadCallId.current) {
+        toast.error(e instanceof Error ? e.message : "Could not load activity status for this device");
+      }
+    }
   }, [agent]);
 
   useEffect(() => {
@@ -101,6 +117,8 @@ export function DeviceActivitySettings() {
       await agent.pair(null);
       await load();
       toast.success("Stopped recording on this device");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not stop recording on this device");
     } finally {
       setBusy(false);
     }
@@ -111,6 +129,8 @@ export function DeviceActivitySettings() {
     try {
       await agent.setEnabled(!state?.enabled);
       await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not change activity recording on this device");
     } finally {
       setBusy(false);
     }

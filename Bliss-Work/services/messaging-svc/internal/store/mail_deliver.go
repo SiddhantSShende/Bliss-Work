@@ -128,7 +128,7 @@ func (s *Store) upsertMailInboxItem(ctx context.Context, tx pgx.Tx, it mailInbox
 // one sent to the Bcc'd person themselves.
 func (s *Store) queueMailOutbound(
 	ctx context.Context, tx pgx.Tx, in SendMailInput, author mailAuthor,
-	recipients []resolvedAddress, relayTo []string, sentAt time.Time,
+	recipients []resolvedAddress, relayTo []string, externals []string, sentAt time.Time,
 ) error {
 	if len(relayTo) == 0 {
 		return nil
@@ -154,10 +154,11 @@ func (s *Store) queueMailOutbound(
 			cc = append(cc, r.address)
 		}
 	}
-	// The name says "externals" because that is its usual caller elsewhere;
-	// handed relayTo here it regroups by kind exactly the same way — it only
-	// ever looks at whether an address is IN the set it's given.
-	providerTo, providerCc, providerBcc := splitExternalsByKind(recipients, relayTo)
+	// Provider send must only ever reach addresses that left the org: a local
+	// member's copy is already sitting in their BlissWork inbox from
+	// deliverMailInApp, and relayTo (used above for the wire-copy fan-out)
+	// includes them too — externals is the "left the org" list on its own.
+	providerTo, providerCc, providerBcc := splitExternalsByKind(recipients, externals)
 	occurred := sentAt.Format("2006-01-02T15:04:05.000Z")
 	payloads := make([]any, 0, len(relayTo))
 	for i, addr := range relayTo {

@@ -138,6 +138,56 @@ describe("Modal", () => {
     await waitFor(() => expect(trigger).toHaveFocus());
   });
 
+  it("does not steal focus back to the first field when the caller passes a fresh onClose closure every render", async () => {
+    // Mirrors real callers like SendCallLinkDialog/AddPeopleDialog, which pass
+    // `onClose={busy ? () => {} : onClose}` — a NEW function every render.
+    // onClose used to be a dependency of the focus-trap effect, so typing
+    // into the second field — which, as a CONTROLLED input, re-renders the
+    // parent on every keystroke the same way a real form does — re-ran the
+    // whole "focus the first focusable element" setup each time, making it
+    // impossible to type past the first character of any field but the first.
+    function Harness() {
+      const [busy] = useState(false);
+      const [second, setSecond] = useState("");
+      const onClose = () => {};
+      return (
+        <Modal open onClose={busy ? () => {} : onClose} title="X">
+          <input aria-label="First" />
+          <input aria-label="Second" value={second} onChange={(e) => setSecond(e.target.value)} />
+        </Modal>
+      );
+    }
+    render(<Harness />);
+    const second = screen.getByLabelText("Second");
+    await waitFor(() => expect(screen.getByLabelText("First")).toHaveFocus());
+
+    second.focus();
+    await userEvent.type(second, "hello");
+
+    expect(second).toHaveFocus();
+    expect(second).toHaveValue("hello");
+  });
+
+  it("still closes on Escape after the caller's onClose reference has changed", async () => {
+    const first = vi.fn();
+    const second = vi.fn();
+    const { rerender } = render(
+      <Modal open onClose={first} title="X">
+        <p>body</p>
+      </Modal>,
+    );
+    rerender(
+      <Modal open onClose={second} title="X">
+        <p>body</p>
+      </Modal>,
+    );
+
+    await userEvent.keyboard("{Escape}");
+
+    expect(second).toHaveBeenCalledTimes(1);
+    expect(first).not.toHaveBeenCalled();
+  });
+
   it("renders without a title", () => {
     render(
       <Modal open onClose={() => {}}>
@@ -174,5 +224,27 @@ describe("Sheet", () => {
     );
     await userEvent.keyboard("{Escape}");
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("slides in from the right by default", () => {
+    render(
+      <Sheet open onClose={() => {}} title="X">
+        <p>body</p>
+      </Sheet>,
+    );
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.className).toContain("border-l");
+    expect(dialog.parentElement!.className).toContain("justify-end");
+  });
+
+  it("slides in from the left when side=\"left\" — the mobile nav drawer's convention", () => {
+    render(
+      <Sheet open onClose={() => {}} title="X" side="left">
+        <p>body</p>
+      </Sheet>,
+    );
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.className).toContain("border-r");
+    expect(dialog.parentElement!.className).toContain("justify-start");
   });
 });

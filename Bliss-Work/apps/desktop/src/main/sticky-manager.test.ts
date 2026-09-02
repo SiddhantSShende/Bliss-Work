@@ -31,7 +31,7 @@ vi.mock("electron", () => ({
 // when — so the window itself is a double. What createStickyWindow asks the OS
 // for is covered by ./sticky-windows.test.ts.
 vi.mock("./windows", () => ({
-  createStickyWindow: (taskId: string) => new FakeWindow({ taskId }),
+  createStickyWindow: (collapsed?: boolean) => new FakeWindow({ collapsed }),
   setNoteOnTop: (w: { setAlwaysOnTop: (f: boolean) => void }, onTop: boolean) =>
     w.setAlwaysOnTop(onTop),
 }));
@@ -61,8 +61,24 @@ async function boot() {
   return { mgr: new StickyManager(), state };
 }
 
-/** Notes actually on screen right now. */
+/** Notes actually on screen right now. Exactly 0 or 1 now that every pinned
+ *  task shares a single carousel window. */
 const live = () => FakeWindow.all.filter((w) => !w.isDestroyed());
+
+/** The latest carousel payload ("sticky:tasks") pushed to the shared window —
+ *  the observable behavior the renderer would actually see, so tests assert
+ *  on what main SENT rather than reaching into the manager's private state. */
+function lastPush(win: FakeWindow): { tasks: StickyTaskDTO[]; index: number } | undefined {
+  const sends = win.calls.filter(([n, ev]) => n === "webContents.send" && ev === "sticky:tasks");
+  const last = sends[sends.length - 1];
+  return last?.[2] as { tasks: StickyTaskDTO[]; index: number } | undefined;
+}
+
+/** The taskId currently shown, per the latest push. */
+function shownTaskId(win: FakeWindow): string | undefined {
+  const p = lastPush(win);
+  return p?.tasks[p.index]?.taskId;
+}
 
 beforeEach(() => {
   userDataDir = mkdtempSync(join(tmpdir(), "sticky-mgr-"));
@@ -210,15 +226,101 @@ describe("visibility follows the desktop, not the app's focus", () => {
 });
 
 describe("the on-screen cap", () => {
-  it("floats at most five notes, and does not let a hidden one hold a slot", async () => {
+  it("floats at most five in the carousel, and does not let a hidden one hold a slot", async () => {
     const { mgr } = await boot();
     const many = ["t1", "t2", "t3", "t4", "t5", "t6"].map((id) => task(id));
     mgr.setTasks(many, { live: true });
-    expect(live()).toHaveLength(5);
+    // One shared window regardless of how many tasks are pinned — the cap now
+    // limits the CAROUSEL's page count, not a window count. The first push is
+    // deferred to did-finish-load, same as the old per-task note.
+    live()[0]!.finishLoading();
+    expect(live()).toHaveLength(1);
+    expect(lastPush(live()[0]!)?.tasks.map((t) => t.taskId)).toEqual(["t1", "t2", "t3", "t4", "t5"]);
 
     mgr.hideForSession("t1");
     mgr.setTasks(many, { live: true });
-    expect(live()).toHaveLength(5);
+    // t1 no longer holds a slot once hidden — t6 gets to float in its place.
+    expect(lastPush(live()[0]!)?.tasks.map((t) => t.taskId)).toEqual(["t2", "t3", "t4", "t5", "t6"]);
+  });
+});
+
+describe("the shared carousel", () => {
+  it("floats multiple pinned tasks inside ONE window, not one each", async () => {
+    const { mgr } = await boot();
+    mgr.setTasks([task("t1"), task("t2"), task("t3")], { live: true });
+    live()[0]!.finishLoading();
+    expect(live()).toHaveLength(1);
+    expect(lastPush(live()[0]!)?.tasks.map((t) => t.taskId)).toEqual(["t1", "t2", "t3"]);
+  });
+
+  it("shows a newly pinned task as the current page", async () => {
+    const { mgr } = await boot();
+    // Seeded without { live: true } so neither auto-pins — each is pinned
+    // manually, in order, the way the in-app "Pin to desktop" button does.
+    mgr.setTasks([task("t1"), task("t2")]);
+    mgr.pin("t1");
+    expect(shownTaskId(live()[0]!)).toBe("t1");
+    mgr.pin("t2");
+    expect(shownTaskId(live()[0]!)).toBe("t2");
+  });
+
+  it("next()/prev() page through the carousel and wrap around", async () => {
+    const { mgr } = await boot();
+    mgr.setTasks([task("t1"), task("t2"), task("t3")], { live: true });
+    const win = live()[0]!;
+    win.finishLoading();
+    expect(shownTaskId(win)).toBe("t1");
+    mgr.next();
+    expect(shownTaskId(win)).toBe("t2");
+    mgr.next();
+    mgr.next();
+    expect(shownTaskId(win)).toBe("t1"); // wrapped past the last page
+    mgr.prev();
+    expect(shownTaskId(win)).toBe("t3"); // wraps backward too
+  });
+
+  it("is a no-op with a single (or no) floating task", async () => {
+    const { mgr } = await boot();
+    mgr.setTasks([task("t1")], { live: true });
+    const win = live()[0]!;
+    win.finishLoading();
+    mgr.next();
+    mgr.prev();
+    expect(shownTaskId(win)).toBe("t1");
+  });
+
+  it("keeps showing the same task across a reconcile that changes the set around it", async () => {
+    const { mgr } = await boot();
+    mgr.setTasks([task("t1"), task("t2"), task("t3")], { live: true });
+    mgr.next();
+    expect(shownTaskId(live()[0]!)).toBe("t2");
+    // A fresh push (e.g. t1 got acknowledged elsewhere) must not reset the
+    // page the user is looking at.
+    mgr.setTasks([task("t1", "ACKNOWLEDGED"), task("t2"), task("t3")], { live: true });
+    expect(shownTaskId(live()[0]!)).toBe("t2");
+  });
+
+  it("re-clamps the shown page when the current task drops out of the set", async () => {
+    const { mgr } = await boot();
+    mgr.setTasks([task("t1"), task("t2"), task("t3")], { live: true });
+    mgr.next();
+    mgr.next();
+    expect(shownTaskId(live()[0]!)).toBe("t3"); // the last page
+    // t3 completes and drops off the actionable list.
+    mgr.setTasks([task("t1"), task("t2")], { live: true });
+    mgr.prunePinned(["t1", "t2"]);
+    const push = lastPush(live()[0]!)!;
+    expect(push.tasks.map((t) => t.taskId)).toEqual(["t1", "t2"]);
+    expect(push.index).toBeLessThan(push.tasks.length);
+  });
+
+  it("closes the shared window once every pinned task is gone", async () => {
+    const { mgr } = await boot();
+    mgr.setTasks([task("t1"), task("t2")], { live: true });
+    expect(live()).toHaveLength(1);
+    mgr.setTasks([], { live: true });
+    mgr.prunePinned([]);
+    expect(live()).toHaveLength(0);
   });
 });
 

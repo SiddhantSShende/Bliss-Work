@@ -23,6 +23,7 @@ import { Lock, Paperclip, Send } from "lucide-react";
 import { Avatar, Button, cn } from "@taskboard/ui";
 import { EmojiPickerButton } from "./EmojiPicker";
 import { CHAT_TEXT_MAX, type ChatEntry } from "../lib/callChat";
+import { truncateToUtf8Bytes } from "../lib/textBytes";
 import type { RoomParticipant } from "../lib/useCallRoom";
 
 /** The "to" value meaning everyone. `null` is the wire value; the <select>
@@ -74,7 +75,7 @@ export function CallChat({
   const submit = () => {
     const text = draft.trim();
     if (!text) return;
-    onSend(text.slice(0, CHAT_TEXT_MAX), to === EVERYONE ? null : to);
+    onSend(truncateToUtf8Bytes(text, CHAT_TEXT_MAX), to === EVERYONE ? null : to);
     setDraft("");
   };
 

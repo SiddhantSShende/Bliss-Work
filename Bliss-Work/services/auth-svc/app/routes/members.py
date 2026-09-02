@@ -8,6 +8,8 @@ stays with the account owner (routes/account_service.py) or a support runbook.
 """
 from __future__ import annotations
 
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import text
 
@@ -23,7 +25,7 @@ from ..schemas import (
 from ..security.auth_dep import Principal, require_org_admin
 from ..security.origin import enforce_origin
 from .invites_service import iso_z
-from .members_service import change_role_tx, load_member, set_status_tx
+from .members_service import change_role_tx, load_members_for_org, set_status_tx
 
 router = APIRouter(prefix="/auth", tags=["members"])
 
@@ -42,25 +44,29 @@ def _reject_self(principal: Principal, user_id: str) -> None:
 
 @router.get("/members", response_model=list[MemberDTO])
 async def list_members(
+    limit: int | None = Query(default=None, ge=1, le=2000),
     principal: Principal = Depends(require_org_admin),
 ) -> list[MemberDTO]:
     """Every membership in the org INCLUDING suspended and removed ones — this
     is the screen from which they are reactivated, so hiding them would strand
-    them."""
+    them.
+
+    Used to be a `SELECT id` plus one `load_member()` round trip per row — 3+
+    queries per member, unbounded. `load_members_for_org` answers this in two
+    queries total regardless of member count (see its docstring).
+
+    `limit` is optional and not sent by the current SPA (`packages/app/src/
+    routes/MembersList.tsx`), which still expects a bare array of every
+    member; omitting it preserves that exact response. A caller that does not
+    need the whole roster can pass it to cap the result. Real keyset
+    pagination like `list_audit`'s below is left for whoever next wires the
+    frontend to consume it — this endpoint's order (active first, then
+    alphabetical) is not a single monotonic key the way `audit_log.id` is, so
+    a cursor would need to encode both.
+    """
     async with engine.connect() as conn:
         await service.set_org_guc(conn, principal.org_id)
-        rows = (
-            await conn.execute(
-                text(
-                    "SELECT id FROM users WHERE org_id = :org "
-                    "ORDER BY (status = 'active') DESC, username"
-                ),
-                {"org": principal.org_id},
-            )
-        ).all()
-        return [
-            await load_member(conn, principal.org_id, str(r.id)) for r in rows
-        ]
+        return await load_members_for_org(conn, principal.org_id, limit=limit)
 
 
 @router.patch(
@@ -157,6 +163,17 @@ async def list_audit(
     (org_id, id) chain index still serves this exactly as it did for the old
     bigserial id.
     """
+    if before is not None:
+        try:
+            before = str(UUID(before))
+        except ValueError:
+            # Same idiom as directory_service.parse_user_ids: reject a
+            # malformed cursor here rather than let it reach the CAST below,
+            # which raises a raw asyncpg error the generic handler turns into
+            # an unhelpful 500 for what is plainly bad client input.
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, "before must be a valid uuid"
+            ) from None
     async with engine.connect() as conn:
         await service.set_org_guc(conn, principal.org_id)
         rows = (
@@ -166,13 +183,17 @@ async def list_audit(
                     SELECT id, actor_id, action, target, meta, at
                     FROM audit_log
                     WHERE org_id = :org
-                      -- CAST: on the first page `before` is NULL, and asyncpg
-                      -- cannot infer a type for a parameter that only ever
-                      -- appears against NULL (see telemetry-svc's timeline
-                      -- endpoint for the same idiom).
+                      -- CAST: on the first page (and on every call without a
+                      -- filter) these are NULL, and asyncpg cannot infer a
+                      -- type for a parameter that only ever appears against
+                      -- NULL (see telemetry-svc's timeline endpoint for the
+                      -- same idiom). Without the CAST on action/target this
+                      -- raised AmbiguousParameterError on every call that
+                      -- didn't pass them — which is every call today, since
+                      -- no caller sends either filter yet.
                       AND (CAST(:before AS uuid) IS NULL OR id < CAST(:before AS uuid))
-                      AND (:action IS NULL OR action = :action)
-                      AND (:target IS NULL OR target = :target)
+                      AND (CAST(:action AS text) IS NULL OR action = CAST(:action AS text))
+                      AND (CAST(:target AS text) IS NULL OR target = CAST(:target AS text))
                     ORDER BY id DESC
                     LIMIT :lim
                     """

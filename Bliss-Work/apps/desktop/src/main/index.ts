@@ -40,6 +40,7 @@ import { resolveEndpointsFromEnv } from "../shared/endpoints";
 import { findDeepLink, parseDeepLink } from "../shared/deeplink";
 import { openExternalSafely } from "./harden";
 import { detectBrowsers, launchBrowser } from "./browser-detect";
+import { forwardDeepLinkWhenReady } from "./deep-link-forwarder";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 
@@ -119,7 +120,11 @@ if (!app.requestSingleInstanceLock()) {
 } else {
   app.on("second-instance", (_e, argv) => {
     focusMain();
-    forwardDeepLink(findDeepLink(argv));
+    // focusMain() only constructs/shows/focuses the window — it does not
+    // wait for the renderer to be ready the way the argv cold-start path
+    // below does — so forwarding cannot just call forwardDeepLink directly
+    // here. See deep-link-forwarder.ts.
+    if (mainWindow) forwardDeepLinkWhenReady(mainWindow, findDeepLink(argv), forwardDeepLink);
   });
   app.whenReady().then(() => {
     // WebRTC calls need camera/mic. Electron DENIES media by default; the app
@@ -210,7 +215,9 @@ else app.setAsDefaultProtocolClient("taskboard");
 
 app.on("open-url", (_e, url) => {
   focusMain();
-  forwardDeepLink(url);
+  // Same race as second-instance above (this is macOS's own entry point for
+  // the identical cold-start problem) — see deep-link-forwarder.ts.
+  if (mainWindow) forwardDeepLinkWhenReady(mainWindow, url, forwardDeepLink);
 });
 
 function bootstrap() {
@@ -759,24 +766,40 @@ ipcMain.on("sticky:dismiss", (_e, taskId: unknown) => {
     console.error("[sticky] sticky:dismiss failed", err);
   }
 });
-// A note's renderer has subscribed to "sticky:task" and is ready for its task.
-// Re-push it so a did-finish-load push that raced ahead of the renderer's IPC
-// listener registration can't strand the note on "Loading…".
-ipcMain.on("sticky:ready", (_e, taskId: unknown) => {
-  if (typeof taskId !== "string" || !taskId) return;
+// The carousel window's renderer has subscribed to "sticky:tasks" and is
+// ready for the current page. Re-push it so a did-finish-load push that
+// raced ahead of the renderer's IPC listener registration can't strand the
+// note on "Loading…".
+ipcMain.on("sticky:ready", () => {
   try {
-    sticky.onRendererReady(taskId);
+    sticky.onRendererReady();
   } catch (err) {
     console.error("[sticky] sticky:ready failed", err);
   }
 });
-// Collapse a note to a pill / expand it back (from the note's own renderer).
+// Page the carousel to the next/previous pinned task (from the note's own
+// nav arrows).
+ipcMain.on("sticky:next", () => {
+  try {
+    sticky.next();
+  } catch (err) {
+    console.error("[sticky] sticky:next failed", err);
+  }
+});
+ipcMain.on("sticky:prev", () => {
+  try {
+    sticky.prev();
+  } catch (err) {
+    console.error("[sticky] sticky:prev failed", err);
+  }
+});
+// Collapse the container to a pill / expand it back (from the note's own renderer).
 ipcMain.on("sticky:collapse", (_e, p: unknown) => {
   if (!p || typeof p !== "object") return;
-  const { taskId, collapsed } = p as { taskId?: unknown; collapsed?: unknown };
-  if (typeof taskId !== "string" || !taskId || typeof collapsed !== "boolean") return;
+  const { collapsed } = p as { collapsed?: unknown };
+  if (typeof collapsed !== "boolean") return;
   try {
-    sticky.setCollapsed(taskId, collapsed);
+    sticky.setCollapsed(collapsed);
   } catch (err) {
     console.error("[sticky] sticky:collapse failed", err);
   }
@@ -785,10 +808,10 @@ ipcMain.on("sticky:collapse", (_e, p: unknown) => {
 // StickyManager.setBackgroundColor for why the window needs telling at all).
 ipcMain.on("sticky:bg", (_e, p: unknown) => {
   if (!p || typeof p !== "object") return;
-  const { taskId, color } = p as { taskId?: unknown; color?: unknown };
-  if (typeof taskId !== "string" || !taskId || typeof color !== "string" || !color) return;
+  const { color } = p as { color?: unknown };
+  if (typeof color !== "string" || !color) return;
   try {
-    sticky.setBackgroundColor(taskId, color);
+    sticky.setBackgroundColor(color);
   } catch (err) {
     console.error("[sticky] sticky:bg failed", err);
   }
@@ -855,15 +878,32 @@ ipcMain.on("meeting-invite:show", (e, payload: unknown) => {
   meetingInvite.show({ callId, title, organizer: typeof organizer === "string" ? organizer : "" });
 });
 
+// The call this popup was announcing ended, or was answered elsewhere, while
+// it was still on screen (see queryBridge's CallEnded/CallParticipantAdded
+// handling and IncomingMeetingNotice's onIncomingMeetingDismissed). Same
+// sender as meeting-invite:show — only the main window's query bridge hears
+// those events.
+ipcMain.on("meeting-invite:dismiss", (e, callId: unknown) => {
+  if (!fromMainWindow(e)) return;
+  if (typeof callId !== "string" || !callId) return;
+  meetingInvite.dismiss(callId);
+});
+
 // From the invite popup's OWN window/preload, not the main window — same
 // trust level as sticky:dismiss (a callId + a choice of three fixed actions,
 // nothing session-bearing). Video/Voice bring the main window forward and
 // hand the join off to it (requestMeetingJoin lives in the shared app code,
-// which only the main window renders); Leave just clears the popup.
-ipcMain.on("meeting-invite:act", (_e, payload: unknown) => {
+// which only the main window renders); Leave just clears the popup. Sender
+// is verified against the popup MeetingInviteManager actually has open
+// rather than trusted implicitly — same pattern meeting-window:status below
+// uses against MeetingWindowManager.all(). Not exploitable today (only the
+// popup's own hardened preload exposes this channel), but nothing stops a
+// future window/preload from picking up the same channel name by accident.
+ipcMain.on("meeting-invite:act", (e, payload: unknown) => {
   if (!payload || typeof payload !== "object") return;
   const { callId, action } = payload as Record<string, unknown>;
   if (typeof callId !== "string" || !callId) return;
+  if (meetingInvite.currentWindow()?.webContents !== e.sender) return;
   if (action === "video" || action === "voice") {
     focusMain();
     mainWindow?.webContents.send("meeting-invite:join", { callId, media: action });
@@ -871,6 +911,21 @@ ipcMain.on("meeting-invite:act", (_e, payload: unknown) => {
     return;
   }
   meetingInvite.dismiss(callId);
+});
+
+// The invite popup's own renderer has registered its "meeting-invite:update"
+// listener and is ready — re-push the latest invite so an update that raced
+// ahead of it (IncomingMeetingNotice's second call, once the organizer
+// resolves) can't be silently lost. Same handshake as sticky:ready, same
+// sender check as meeting-invite:act above.
+ipcMain.on("meeting-invite:ready", (e, callId: unknown) => {
+  if (typeof callId !== "string" || !callId) return;
+  if (meetingInvite.currentWindow()?.webContents !== e.sender) return;
+  try {
+    meetingInvite.onRendererReady(callId);
+  } catch (err) {
+    console.error("[meeting-invite] meeting-invite:ready failed", err);
+  }
 });
 
 // ── Meeting window (desktop-only) ────────────────────────────────────────────

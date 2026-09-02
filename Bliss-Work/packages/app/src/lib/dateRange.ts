@@ -19,6 +19,21 @@ export function localDay(d: Date): string {
 }
 
 /**
+ * The inverse of `localDay()`: turn a server-reported `YYYY-MM-DD` day bucket
+ * back into a Date, anchored to LOCAL midnight rather than UTC midnight.
+ *
+ * `new Date("YYYY-MM-DD")` parses as UTC midnight, so formatting it with
+ * `toLocaleDateString()` in a timezone behind UTC — anywhere in the Americas,
+ * in the evening — renders the day BEFORE the one the server actually meant.
+ * Activity charts bucket by local day (see `computeRange`/`localDay` above),
+ * so the label has to be parsed the same way or it disagrees with its own data.
+ */
+export function parseLocalDay(day: string): Date {
+  const [y, m, d] = day.split("-").map(Number);
+  return new Date(y ?? 1970, (m ?? 1) - 1, d ?? 1);
+}
+
+/**
  * Inclusive local-date bounds for a named range.
  *
  * `custom` returns whatever the caller passed; every other key ends today so a

@@ -18,6 +18,7 @@ declare global {
       title: string;
       organizer: string;
       onUpdate: (cb: (invite: Invite) => void) => () => void;
+      ready: () => void;
       act: (action: "video" | "voice" | "leave") => void;
     };
   }
@@ -52,7 +53,15 @@ function MeetingInviteApp() {
     organizer: bridge.organizer,
   });
 
-  useEffect(() => bridge.onUpdate(setInvite), [bridge]);
+  useEffect(() => {
+    const off = bridge.onUpdate(setInvite);
+    // Signal readiness ONLY after the listener above is registered, so main
+    // re-pushes the latest invite even if an update (e.g. the organizer
+    // resolving) already arrived and was dropped before this effect ran —
+    // same race, same fix, as sticky.tsx's window.sticky.ready().
+    bridge.ready();
+    return off;
+  }, [bridge]);
 
   return (
     <div className="app-drag flex h-full flex-col items-center justify-center gap-3 bg-surface p-4 text-center">

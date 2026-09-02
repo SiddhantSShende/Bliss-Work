@@ -197,6 +197,12 @@ const api = {
   showMeetingInvitePopup: (callId: string, title: string, organizer: string) =>
     ipcRenderer.send("meeting-invite:show", { callId, title, organizer }),
 
+  /** Close the popup window for `callId` with no user action — the call
+   *  ended, or was answered elsewhere, while it was still showing. See
+   *  PlatformConfig.dismissMeetingInvitePopup and
+   *  IncomingMeetingNotice's onIncomingMeetingDismissed. */
+  dismissMeetingInvitePopup: (callId: string) => ipcRenderer.send("meeting-invite:dismiss", callId),
+
   /** The invite popup's Video/Voice button was clicked — main already brought
    *  this window forward before sending this. */
   onMeetingInviteAction: (cb: (callId: string, media: "video" | "voice") => void) => {

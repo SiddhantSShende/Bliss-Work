@@ -20,10 +20,11 @@ import json
 import types
 
 import aiosmtplib
+import httpx
 import pytest
 
 from app import relay_consumer
-from app.attachments import Attachment, within_budget
+from app.attachments import Attachment, fetch, within_budget
 from app.mailer import Mailer, safe_filename
 from app.relay_consumer import RelayConsumer
 
@@ -74,6 +75,47 @@ def test_a_zero_budget_relays_no_files_at_all():
     assert [f.filename for f in skipped] == ["a.pdf"]
 
 
+def test_an_unknown_declared_size_is_let_through_without_spending_the_budget():
+    # size_bytes=None (from_event could not trust what the event declared) must
+    # not be treated as free, but it also must not be dropped over metadata
+    # alone — and it must not eat into what is left for files declared after
+    # it, since its real cost is still unknown at this point.
+    known = _att("known.pdf", 6 * MB)
+    unknown = Attachment(id="id-x", filename="x.pdf", mime="application/pdf", size_bytes=None)
+
+    fits, skipped = within_budget([unknown, known], 10 * MB)
+
+    assert [f.filename for f in fits] == ["x.pdf", "known.pdf"]
+    assert skipped == []
+
+
+async def test_fetch_uses_the_mail_budget_as_the_ceiling_when_size_is_unknown():
+    # Before this fix, an unknown declared size fell back to a ceiling of
+    # ~4KB (0 + _SIZE_SLACK), so a real, well-within-budget file was aborted
+    # mid-transfer and reported to the recipient as missing. The ceiling for an
+    # unknown size must be the actual per-mail budget, not a slack margin
+    # around a phantom zero.
+    body = b"x" * (500 * 1024)  # 500KB — nowhere near the 10MB budget
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=body)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    att = Attachment(id="a1", filename="deck.pdf", mime="application/pdf", size_bytes=None)
+
+    data = await fetch(
+        client,
+        base_url="http://messaging-svc:8004",
+        token="test-token",
+        org_id="org-1",
+        mail_id="mail-1",
+        attachment=att,
+        budget_bytes=10 * MB,
+    )
+
+    assert data == body
+
+
 # ── event parsing, which reads whatever crossed the topic ────────────────────
 
 
@@ -82,9 +124,14 @@ def test_an_entry_with_no_id_names_no_file():
     assert Attachment.from_event("not-a-dict") is None
 
 
-def test_a_missing_or_absurd_size_does_not_poison_the_arithmetic():
-    assert Attachment.from_event({"id": "x", "sizeBytes": "huge"}).size_bytes == 0
-    assert Attachment.from_event({"id": "x", "sizeBytes": -5}).size_bytes == 0
+def test_a_missing_or_absurd_size_is_unknown_not_a_free_zero():
+    # Collapsing this to size_bytes=0 used to make within_budget treat the file
+    # as costing nothing, while fetch()'s ceiling was built from that same
+    # phantom 0 — dropping a real, well-within-budget file after ~4KB. None is
+    # what lets the two sides agree on "unknown" instead of disagreeing on 0.
+    assert Attachment.from_event({"id": "x", "sizeBytes": "huge"}).size_bytes is None
+    assert Attachment.from_event({"id": "x", "sizeBytes": -5}).size_bytes is None
+    assert Attachment.from_event({"id": "x"}).size_bytes is None
 
 
 def test_an_unnamed_file_still_gets_a_name():

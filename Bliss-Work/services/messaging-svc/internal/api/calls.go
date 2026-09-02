@@ -221,9 +221,11 @@ func (s *Server) scheduleChannelCall(w http.ResponseWriter, r *http.Request) {
 	s.notifyCall(r.Context(), c, events.TypeCallScheduled, claims.UserID)
 	// A channel call with no time on it is live already — there is no later
 	// "start" to hang the recording off.
-	if c.Status == "LIVE" && s.startRecording(r.Context(), c.ID, c.OrgID, c.Kind) {
-		st := store.RecordingInProgress
-		c.RecordingStatus = &st
+	if c.Status == "LIVE" {
+		if started, _ := s.startRecording(r.Context(), c.ID, c.OrgID, c.Kind); started {
+			st := store.RecordingInProgress
+			c.RecordingStatus = &st
+		}
 	}
 	writeJSON(w, http.StatusCreated, c)
 }
@@ -280,9 +282,11 @@ func (s *Server) scheduleMeeting(w http.ResponseWriter, r *http.Request) {
 	}
 	s.notifyCall(r.Context(), c, events.TypeCallScheduled, claims.UserID)
 	// Same as a channel call: "meet now" has no start request to follow.
-	if c.Status == "LIVE" && s.startRecording(r.Context(), c.ID, c.OrgID, c.Kind) {
-		st := store.RecordingInProgress
-		c.RecordingStatus = &st
+	if c.Status == "LIVE" {
+		if started, _ := s.startRecording(r.Context(), c.ID, c.OrgID, c.Kind); started {
+			st := store.RecordingInProgress
+			c.RecordingStatus = &st
+		}
 	}
 	writeJSON(w, http.StatusCreated, c)
 }
@@ -762,7 +766,7 @@ func (s *Server) startCall(w http.ResponseWriter, r *http.Request) {
 	// Recording begins with the call, on a deployment that records at all. The
 	// response is written after it so `recordingStatus` on the call the starter
 	// gets back is already true rather than arriving a refetch later.
-	if s.startRecording(r.Context(), c.ID, c.OrgID, c.Kind) {
+	if started, _ := s.startRecording(r.Context(), c.ID, c.OrgID, c.Kind); started {
 		st := store.RecordingInProgress
 		c.RecordingStatus = &st
 	}
@@ -1070,4 +1074,52 @@ func withoutID(ids []string, drop string) []string {
 		}
 	}
 	return out
+}
+
+// callRangeMaxSpan mirrors store.MaxCallRangeDays so a nonsense window is
+// refused as a bad request here rather than being silently clamped into a
+// smaller answer than the caller asked for — the store still clamps, because it
+// is reachable from more than one caller.
+const callRangeMaxSpan = store.MaxCallRangeDays * 24 * time.Hour
+
+// listMyCallsInRange serves GET /api/v1/calls/range?from=&to= — the calendar
+// read.
+//
+// Separate from GET /api/v1/calls rather than a mode of it, for the reason
+// store/calls_range.go gives at length: /calls answers "what am I expected at"
+// and caps finished calls at a month, which is right for Upcoming and Live and
+// leaves a calendar navigated into last quarter looking empty. Both bounds are
+// the window's own, so there is no cursor — a week is a week.
+//
+// `from` and `to` are RFC3339 instants, and the client sends the local
+// boundaries of the grid it is about to draw. Half-open [from, to): a meeting
+// starting exactly at `to` belongs to the next window, not to two.
+func (s *Server) listMyCallsInRange(w http.ResponseWriter, r *http.Request) {
+	claims, _ := auth.FromContext(r.Context())
+
+	from, err := time.Parse(time.RFC3339, r.URL.Query().Get("from"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "from must be an RFC3339 timestamp")
+		return
+	}
+	to, err := time.Parse(time.RFC3339, r.URL.Query().Get("to"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "to must be an RFC3339 timestamp")
+		return
+	}
+	if !to.After(from) {
+		writeErr(w, http.StatusBadRequest, "to must be after from")
+		return
+	}
+	if to.Sub(from) > callRangeMaxSpan {
+		writeErr(w, http.StatusBadRequest, "range is too wide")
+		return
+	}
+
+	out, err := s.store.ListMyCallsInRange(r.Context(), claims.OrgID, claims.UserID, from, to)
+	if err != nil {
+		s.mapErrR(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
 }

@@ -42,8 +42,10 @@ export function createMainWindow(startHidden = false): BrowserWindow {
     ...(usable ? { x: usable.x, y: usable.y } : {}),
     width: usable?.width ?? 1440,
     height: usable?.height ?? 900,
-    minWidth: 1280,
-    minHeight: 700,
+    // Lowered from 1280x700 so the window can be shrunk into the app's
+    // tablet/mobile responsive layouts too, not just the desktop one.
+    minWidth: 320,
+    minHeight: 480,
     show: false,
     autoHideMenuBar: true,
     backgroundColor: "#16181f",
@@ -116,11 +118,7 @@ function wireBoundsPersistence(win: BrowserWindow): void {
   win.on("close", persist);
 }
 
-export function createStickyWindow(
-  taskId: string,
-  index: number,
-  collapsed = false,
-): BrowserWindow {
+export function createStickyWindow(collapsed = false): BrowserWindow {
   // DESKTOP-PINNED TASK NOTE — an allocated task rests on the user's DESKTOP,
   // the way a paper note rests on a monitor bezel. It is there whenever the
   // desktop is what they are looking at, whether or not BlissWork is open, and
@@ -166,11 +164,20 @@ export function createStickyWindow(
     // Wide enough for "Acknowledge" and "Ignore" to sit side by side with their
     // text labels. The note used to render those two as bare icons to fit 320px,
     // which is unusable on a window that cannot take keyboard focus and only
-    // shows tooltips on hover.
-    width: 360,
+    // shows tooltips on hover. +20px over the old single-task width to make room
+    // for the carousel's ‹ › gutters (renderer/sticky.tsx) without re-cramping
+    // that row — the whole point of the width this replaced.
+    width: 380,
     height: 200,
-    minWidth: 300,
+    minWidth: 320,
     minHeight: 140,
+    // Capped close to content size: this window is opaque (see the transparent
+    // note below), so an unbounded resize left a big flat-coloured rectangle
+    // around the card — exactly the "background/container behind the task"
+    // look. The cap keeps the note a compact widget no matter how far the user
+    // drags its corner.
+    maxWidth: 440,
+    maxHeight: 260,
     frame: false,
     // false, not true: a transparent frameless window needs GPU compositing
     // to actually render as see-through, and on a Linux session without a
@@ -210,13 +217,14 @@ export function createStickyWindow(
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
-      additionalArguments: [`--task-id=${taskId}`],
     },
   });
 
   hardenWindow(win, "sticky");
 
-  const query = `?taskId=${encodeURIComponent(taskId)}&i=${index}${collapsed ? "&collapsed=1" : ""}`;
+  // No taskId in the query any more — this one window carries the whole
+  // carousel, pushed over IPC (sticky:task*) once the renderer is ready.
+  const query = collapsed ? "?collapsed=1" : "";
   if (DEV_URL) void win.loadURL(`${DEV_URL}/sticky.html${query}`);
   else void win.loadFile(join(rendererDir, "sticky.html"), { search: query });
 

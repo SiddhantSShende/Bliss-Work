@@ -515,12 +515,26 @@ func (s *Store) AddParticipant(
 // its own authority — see StartCall in calls_lobby.go — and this only ever
 // records that somebody turned up. Nothing calls it before that is allowed:
 // AuthorizeCallAccess refuses a token for a call that has not started.
+//
+// The WHERE clause's status check guards a race AuthorizeCallAccess cannot
+// close by itself: callToken calls it, then mints a LiveKit token — a network
+// round trip — and only then calls this. A host ending the call, or the
+// sweeper expiring it, in that window leaves the caller holding a token for a
+// call the database now says is over. Without the guard this UPDATE runs
+// anyway and stamps joined_at with left_at NULL — an OPEN roster row on an
+// ENDED call — and nothing ever closes it afterwards: endCallTx's own
+// close-out already ran, and it only touches rows where joined_at IS NOT NULL,
+// which was not yet true when it did. The caller already holds a valid token
+// by this point, so refusing the write here is purely about not leaving that
+// stale row behind, not about access control.
 func (s *Store) MarkJoined(ctx context.Context, orgID, userID, callID string) error {
 	return s.withCaller(ctx, orgID, userID, func(tx pgx.Tx) error {
 		ct, err := tx.Exec(ctx, `
-			UPDATE call_participants
-			SET joined_at = COALESCE(joined_at, now()), left_at = NULL, waiting_since = NULL
-			WHERE call_id = $1 AND user_id = $2`, callID, userID)
+			UPDATE call_participants cp
+			SET joined_at = COALESCE(cp.joined_at, now()), left_at = NULL, waiting_since = NULL
+			FROM calls c
+			WHERE cp.call_id = $1 AND cp.user_id = $2
+			  AND c.id = cp.call_id AND c.status = 'LIVE'`, callID, userID)
 		if err != nil {
 			return err
 		}
@@ -901,6 +915,23 @@ func (s *Store) RedeemInvite(
 		}
 		if c.status == CallEnded || c.status == CallCancelled {
 			return ErrCallEnded
+		}
+
+		// Same roster-wide block check AddParticipant and ScheduleMeeting's
+		// invitee loop both run (see participantBlockConflict's doc comment):
+		// this is P0-A's other half, and the join-by-link path is the ONLY
+		// cross-org way to widen a call's roster, which makes it exactly as
+		// able to seat two blocked users in the same room as those two — more
+		// so, since nobody vouching for a link redemption has to be one of the
+		// people at risk. Scoped to c.orgID, the call's HOSTING org, the same
+		// org AddParticipant's check runs under (its caller and the call are
+		// already confirmed same-org there) and the one CreateInvite stamped
+		// onto this very invite row above — not the joiner's own org, which
+		// may differ and is not where this call's block relationships live.
+		if conflict, berr := participantBlockConflict(ctx, tx, c.orgID, callID, joinerID); berr != nil {
+			return berr
+		} else if conflict {
+			return ErrForbidden
 		}
 
 		// org_id is the JOINER's own org, not the meeting's. That is the whole

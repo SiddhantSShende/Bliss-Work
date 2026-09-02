@@ -723,6 +723,8 @@ type ChannelMessageDTO struct {
 	DeletedForAll bool `json:"deletedForAll,omitempty"`
 	// Pinned marks a message a moderator has pinned for the whole channel.
 	Pinned bool `json:"pinned,omitempty"`
+	// ReplyToID is the message this one quotes, if any. Mirrors MessageDTO.ReplyToID.
+	ReplyToID string `json:"replyToId,omitempty"`
 }
 
 // ChannelSendResult is returned to the API after a channel message send.

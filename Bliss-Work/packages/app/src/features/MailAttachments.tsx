@@ -16,7 +16,8 @@ import { useAttachmentLinks } from "../lib/useAttachmentLinks";
 import { toast } from "sonner";
 import { useRuntime } from "../lib/runtime";
 import { errorText } from "../lib/errorText";
-import { canPreviewDocInApp, type MediaItem } from "../lib/chatEnvelope";
+import { canPreviewDocInApp, MEDIA_MAX_BYTES, type MediaItem } from "../lib/chatEnvelope";
+import { prettySize } from "../lib/fileOffer";
 import { Lightbox } from "./Lightbox";
 
 /** One file in the composer's tray, at whatever stage it has reached. */
@@ -58,6 +59,15 @@ export function useMailAttachments(mailId: string | undefined, initial?: MailAtt
   const [files, setFiles] = useState<MailAttachment[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const seq = useRef(0);
+  // One AbortController per upload still in flight, so remove() can actually
+  // cancel it instead of letting it finish and stay attached server-side
+  // after the row it belonged to has already vanished from the tray.
+  const controllers = useRef(new Map<string, AbortController>());
+  // Keys whose server-side detach (removeDraftAttachment) has not resolved
+  // yet. Send has to wait on this the same way it waits on isUploading —
+  // otherwise a detach racing a Send can lose, and the file the user just
+  // removed from the tray ships anyway.
+  const [pendingRemovals, setPendingRemovals] = useState<Set<string>>(new Set());
   // Seeded once, when the resumed draft arrives. Keyed by the server id so a
   // re-render (or a refetch of the same draft) cannot duplicate a row.
   useEffect(() => {
@@ -85,23 +95,41 @@ export function useMailAttachments(mailId: string | undefined, initial?: MailAtt
     async (file: File) => {
       if (!mailId) return;
       const key = `f${++seq.current}`;
+      const controller = new AbortController();
+      controllers.current.set(key, controller);
       setFiles((prev) => [
         ...prev,
         { key, filename: file.name, sizeBytes: file.size, progress: 0 },
       ]);
+      let dto: AttachmentDTO;
       try {
-        const dto: AttachmentDTO = await api.uploadAttachment("mail", mailId, file, {
+        dto = await api.uploadAttachment("mail", mailId, file, {
           filename: file.name,
           onProgress: (loaded, total) =>
             patch(key, { progress: total > 0 ? Math.round((loaded / total) * 100) : 0 }),
+          signal: controller.signal,
         });
-        patch(key, { id: dto.id, progress: 100 });
       } catch (e) {
+        controllers.current.delete(key);
+        // remove() aborted this upload — the row is already gone from the
+        // tray, so there is nothing left to show an error on.
+        if (controller.signal.aborted) return;
         // Kept in the tray as a failed row rather than removed: a file that
         // vanishes silently is one the user believes they attached.
         patch(key, { error: errorText(e) });
         toast.error(`Could not attach ${file.name}`, { description: errorText(e) });
+        return;
       }
+      controllers.current.delete(key);
+      if (controller.signal.aborted) {
+        // remove() fired after the upload had already reached the server —
+        // xhr.abort() lost that race, so the file is sitting on the draft
+        // with nobody in the tray to name it. Detach it now, the same way
+        // remove() would have, instead of letting it ship silently.
+        void api.removeDraftAttachment(mailId, dto.id).catch(() => {});
+        return;
+      }
+      patch(key, { id: dto.id, progress: 100 });
     },
     [api, mailId, patch],
   );
@@ -111,7 +139,17 @@ export function useMailAttachments(mailId: string | undefined, initial?: MailAtt
       const picked = Array.from(e.target.files ?? []);
       // Reset so picking the SAME file twice still fires a change event.
       e.target.value = "";
-      picked.forEach((f) => void upload(f));
+      for (const file of picked) {
+        // Same server-enforced cap chat attachments pre-check against
+        // (MEDIA_MAX_BYTES) — mail has no peer-to-peer fallback, so an
+        // oversized file simply cannot be attached rather than starting an
+        // upload the server will refuse.
+        if (file.size > MEDIA_MAX_BYTES) {
+          toast.error(`${file.name} is larger than ${prettySize(MEDIA_MAX_BYTES)}.`);
+          continue;
+        }
+        void upload(file);
+      }
     },
     [upload],
   );
@@ -121,14 +159,29 @@ export function useMailAttachments(mailId: string | undefined, initial?: MailAtt
       // Read OUTSIDE the updater: a state updater must be pure, and one that
       // fires a request as a side effect sends it twice under StrictMode.
       const removedId = files.find((f) => f.key === key)?.id;
+      // Still uploading: cancel it rather than let it finish and stay
+      // attached server-side after its row is gone from the tray.
+      controllers.current.get(key)?.abort();
+      controllers.current.delete(key);
       setFiles((prev) => prev.filter((f) => f.key !== key));
       // A file that reached the server has to be taken off the DRAFT, not just
       // out of the tray: Send commits everything still scoped to the mail, so a
       // row left behind is a file the sender removed and sent anyway.
       if (mailId && removedId) {
-        void api.removeDraftAttachment(mailId, removedId).catch((e) => {
-          toast.error("Could not remove that file", { description: errorText(e) });
-        });
+        setPendingRemovals((prev) => new Set(prev).add(key));
+        void api
+          .removeDraftAttachment(mailId, removedId)
+          .catch((e) => {
+            toast.error("Could not remove that file", { description: errorText(e) });
+          })
+          .finally(() => {
+            setPendingRemovals((prev) => {
+              if (!prev.has(key)) return prev;
+              const next = new Set(prev);
+              next.delete(key);
+              return next;
+            });
+          });
       }
     },
     [api, files, mailId],
@@ -138,6 +191,10 @@ export function useMailAttachments(mailId: string | undefined, initial?: MailAtt
     files,
     /** True while any upload is in flight — Send waits for it. */
     isUploading: files.some((f) => !f.id && !f.error),
+    /** True while a removed file's server-side detach hasn't resolved yet —
+     *  Send waits for this too, so a removed attachment can't win a race
+     *  against Send and go out anyway. */
+    isRemoving: pendingRemovals.size > 0,
     pick: () => inputRef.current?.click(),
     remove,
     /** Remove all — the same server-side detach as `remove`, once per file. */

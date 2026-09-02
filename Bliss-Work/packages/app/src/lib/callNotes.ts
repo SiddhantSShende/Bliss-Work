@@ -15,6 +15,7 @@
  * call can read them, and nothing survives past the people who were there —
  * which is why exporting is a first-class action rather than a nicety.
  */
+import { truncateToUtf8Bytes, utf8ByteLength } from "./textBytes";
 
 /** One point, written by one participant. Immutable once made. */
 export interface NoteEntry {
@@ -27,9 +28,14 @@ export interface NoteEntry {
   at: number;
 }
 
-/** Longest single point. Long enough for a real sentence, short enough that a
- *  paste of a whole document does not become one unreadable entry — or a data
- *  message that will not fit on the wire. */
+/** Longest single point, in UTF-8 BYTES — matching the server's
+ *  CallTranscriptTextMax, which is what actually stores it. Long enough for a
+ *  real sentence, short enough that a paste of a whole document does not
+ *  become one unreadable entry — or a data message that will not fit on the
+ *  wire.
+ *
+ *  Bytes, not characters: see CHAT_TEXT_MAX in lib/callChat for why a
+ *  `.length` cap here would silently pass text the server then rejects. */
 export const NOTE_TEXT_MAX = 500;
 
 /** How many entries a room keeps. A cap rather than unbounded growth: this
@@ -48,7 +54,7 @@ export function isNoteEntry(v: unknown): v is NoteEntry {
     n.author.length <= 120 &&
     typeof n.text === "string" &&
     n.text.length > 0 &&
-    n.text.length <= NOTE_TEXT_MAX &&
+    utf8ByteLength(n.text) <= NOTE_TEXT_MAX &&
     typeof n.at === "number" &&
     Number.isFinite(n.at)
   );

@@ -84,7 +84,7 @@ const MailTask = lazyRoute(() => import("./routes/MailTask"), "MailTask");
 const MailDetail = lazyRoute(() => import("./routes/MailDetail"), "MailDetail");
 const MailCompose = lazyRoute(() => import("./routes/MailCompose"), "MailCompose");
 const MeetingsLayout = lazyRoute(() => import("./routes/MeetingsLayout"), "MeetingsLayout");
-const MeetingsWelcome = lazyRoute(() => import("./routes/MeetingsLayout"), "MeetingsWelcome");
+const MeetingsCalendar = lazyRoute(() => import("./routes/MeetingsCalendar"), "MeetingsCalendar");
 const MeetingDetail = lazyRoute(() => import("./routes/MeetingDetail"), "MeetingDetail");
 const JoinCallView = lazyRoute(() => import("./routes/JoinCallView"), "JoinCallView");
 const CallWindow = lazyRoute(() => import("./routes/CallWindow"), "CallWindow");
@@ -286,17 +286,22 @@ export function App({ config }: { config: PlatformConfig }) {
                     </Route>
                     {/* Everything this section was called before Mail. */}
                     <Route path="inbox/*" element={<LegacyInboxRedirect />} />
-                    {/* Meetings is a LAYOUT, not a page — the same three
-                        containers Mail has. MeetingsLayout renders the meeting
-                        list and the pane a meeting opens in; the bucket column
-                        (Upcoming / Live / Past) is a level up, in AppShell, and
-                        the chosen bucket rides in ?view= so both the list and
-                        the way back out read the same one. See lib/meetingView. */}
+                    {/* Meetings is a LAYOUT holding two views that take turns in
+                        one full-width pane: the calendar, and one meeting in
+                        full. It no longer asks the shell for a list pane — the
+                        Upcoming / Live / Past column that used to live there is
+                        the tab strip under the calendar (see lib/section).
+
+                        Which week, which scale and which tab all ride in the
+                        search string (?d= ?scale= ?view=), so opening a meeting
+                        and coming back returns to exactly the view it was picked
+                        out of. See lib/meetingCalendar and lib/meetingView. */}
                     <Route path="meetings" element={<MeetingsLayout />}>
-                      {/* Nothing opened yet — from xl up the pane holds an empty
-                          state beside the list; below xl the list has it all. */}
-                      <Route index element={<MeetingsWelcome />} />
-                      <Route path="all" element={<MeetingsWelcome />} />
+                      <Route index element={<MeetingsCalendar />} />
+                      {/* The path every "back to the list" link has always
+                          pointed at. Kept, so bookmarks and the detail's own way
+                          out still resolve. */}
+                      <Route path="all" element={<MeetingsCalendar />} />
                       <Route path=":callId" element={<MeetingDetail />} />
                     </Route>
                     {/* ONE route for the whole section. Which conversation is

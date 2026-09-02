@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { CallDTO } from "@taskboard/shared";
 import {
+  MEETING_KIND_LABEL,
+  NO_MEETING_FILTER,
   bucketFor,
   bucketOf,
   durationLabel,
   durationMsOf,
+  isFiltering,
   isMeetingDetailPath,
   joinNames,
   meetingDisplayName,
@@ -145,6 +148,31 @@ describe("durationLabel", () => {
 
   it("says nothing at all when there is nothing to say", () => {
     expect(durationLabel(null)).toBe("—");
+  });
+});
+
+describe("isFiltering", () => {
+  // Every kind there is, read from the same mapping the menu itself renders
+  // from — so this can't drift from what "every kind" actually means.
+  const ALL_KINDS = Object.keys(MEETING_KIND_LABEL) as (keyof typeof MEETING_KIND_LABEL)[];
+
+  it("is off for the untouched filter — an empty kinds list means every kind", () => {
+    expect(isFiltering(NO_MEETING_FILTER)).toBe(false);
+  });
+
+  // Regression: ticking every kind by hand produces the exact same result set
+  // as ticking none, per matchesFilter — so it must not light the Filter
+  // button's active dot either.
+  it("is off when every kind is explicitly ticked on", () => {
+    expect(isFiltering({ kinds: ALL_KINDS, mineOnly: false })).toBe(false);
+  });
+
+  it("is on when only some kinds are selected", () => {
+    expect(isFiltering({ kinds: ["MEETING"], mineOnly: false })).toBe(true);
+  });
+
+  it("is on when mineOnly is set, even with every kind ticked", () => {
+    expect(isFiltering({ kinds: ALL_KINDS, mineOnly: true })).toBe(true);
   });
 });
 

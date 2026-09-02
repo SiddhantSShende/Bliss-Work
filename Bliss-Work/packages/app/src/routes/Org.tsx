@@ -12,7 +12,7 @@ import { Button, PageHeader } from "@taskboard/ui";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
-import { useSwitchOrg } from "../features/OrgSwitcher";
+import { useOrgSwitchBusyId, useSwitchOrg } from "../features/OrgSwitcher";
 import { useGoBack } from "../lib/useGoBack";
 import { DeleteOrgSection } from "../features/DeleteOrgSection";
 import { LeaveOrgButton } from "../features/LeaveOrgButton";
@@ -24,7 +24,15 @@ export function Org() {
   const goBack = useGoBack();
   const user = useSession((s) => s.user);
   const switchOrg = useSwitchOrg();
-  const [busy, setBusy] = useState<string | null>(null);
+  // Shared across every caller of useSwitchOrg (this page and the top-bar
+  // switcher both use it), so a switch started from either place disables
+  // Switch here too — see OrgSwitcher.tsx.
+  const switchBusyId = useOrgSwitchBusyId();
+  // Set by LeaveOrgButton while its own leave (and any fallback switch it
+  // triggers) is in flight. A switch that resolved first would clear the
+  // query cache and navigate away out from under a leave still mid-request.
+  const [leaveBusy, setLeaveBusy] = useState(false);
+  const switchButtonsDisabled = switchBusyId !== null || leaveBusy;
 
   const { data: orgs = [], isLoading } = useQuery({ queryKey: qk.myOrgs, queryFn: () => api.myOrgs() });
 
@@ -34,14 +42,14 @@ export function Org() {
 
   const doSwitch = async (orgId: string) => {
     if (orgId === user?.orgId) return;
-    setBusy(orgId);
     try {
-      await switchOrg(orgId);
-      toast.success("Switched organization");
+      const outcome = await switchOrg(orgId);
+      // mfaPending redirected to /mfa-challenge — the switch hasn't happened
+      // yet. superseded means a newer switch (from here or the top bar) has
+      // already taken over — its own outcome is what matters now.
+      if (outcome === "switched") toast.success("Switched organization");
     } catch {
       toast.error("Couldn't switch organization", { description: "Please try again." });
-    } finally {
-      setBusy(null);
     }
   };
 
@@ -93,13 +101,19 @@ export function Org() {
                           <Button
                             variant="subtle"
                             size="sm"
-                            disabled={busy !== null}
+                            disabled={switchButtonsDisabled}
                             onClick={() => doSwitch(o.orgId)}
                           >
-                            {busy === o.orgId ? "Switching…" : "Switch"}
+                            {switchBusyId === o.orgId ? "Switching…" : "Switch"}
                           </Button>
                         )}
-                        {canLeave && <LeaveOrgButton org={o} disabled={busy !== null} />}
+                        {canLeave && (
+                          <LeaveOrgButton
+                            org={o}
+                            disabled={switchBusyId !== null}
+                            onBusyChange={setLeaveBusy}
+                          />
+                        )}
                       </div>
                     </div>
                   );

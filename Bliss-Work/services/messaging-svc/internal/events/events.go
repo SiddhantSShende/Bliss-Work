@@ -305,6 +305,9 @@ type ChannelMessageCreated struct {
 	// IsForward marks a delivered copy of someone else's message, so the
 	// receiving client labels it instead of attributing it to the forwarder.
 	IsForward bool `json:"isForward,omitempty"`
+	// ReplyToID is the message this one quotes, if any. Mirrors
+	// MessageCreated.ReplyToID.
+	ReplyToID string `json:"replyToId,omitempty"`
 }
 
 // ChannelMessageDeleted is the channel twin of MessageDeleted: one message was

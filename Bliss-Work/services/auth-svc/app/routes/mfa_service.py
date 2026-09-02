@@ -344,11 +344,24 @@ async def verify_step_up(
     password: str,
     totp_code: str | None,
     backup_code: str | None,
+    webauthn_credential: dict | None = None,
 ) -> bool:
     """Password + a still-valid current second factor. Used by two
     consequential actions an already-signed-in caller may take (MFA-disable,
     backup-codes/regenerate) so a stolen access token alone can never perform
-    either."""
+    either.
+
+    `webauthn_credential` covers the passkey-only enrollee, who has no TOTP
+    code or backup code to present here at all — without it, that enrollment
+    path could never satisfy step-up and would be permanently unable to
+    disable MFA or regenerate backup codes. Verified via
+    mfa_webauthn.verify_webauthn_assertion — the SAME assertion-checking
+    logic the login-time challenge uses (challenge freshness, RP/origin,
+    sign-count anti-clone), just scoped by a challenge minted for THIS
+    already-authenticated user rather than resolved from a login-pending
+    token. Imported locally: mfa_webauthn imports this module at top level,
+    so a module-level import here would be circular.
+    """
     row = (
         await conn.execute(
             text("SELECT password_hash, mfa_totp_secret_enc FROM users WHERE id = :id"),
@@ -364,4 +377,14 @@ async def verify_step_up(
         return await verify_totp_replay_safe(conn, user_id, secret, totp_code)
     if backup_code:
         return await verify_and_consume_backup_code(conn, user_id, backup_code)
+    if webauthn_credential:
+        from .mfa_webauthn import verify_webauthn_assertion
+
+        try:
+            asserted_user_id, _asserted_org_id = await verify_webauthn_assertion(conn, webauthn_credential)
+        except HTTPException:
+            # Wrong/replayed/malformed assertion — same "step-up failed"
+            # outcome as a wrong password or code, not a distinct error shape.
+            return False
+        return asserted_user_id == user_id
     return False

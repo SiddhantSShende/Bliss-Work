@@ -34,12 +34,12 @@ import { LeaveOrgButton } from "./LeaveOrgButton";
 const ACME: OrgMembershipDTO = { orgId: "org-a", orgName: "Acme", roles: ["member"], active: true };
 const GLOBEX: OrgMembershipDTO = { orgId: "org-b", orgName: "Globex", roles: ["member"], active: false };
 
-function renderFor(org: OrgMembershipDTO) {
+function renderFor(org: OrgMembershipDTO, onBusyChange?: (busy: boolean) => void) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <MemoryRouter>
       <QueryClientProvider client={qc}>
-        <LeaveOrgButton org={org} />
+        <LeaveOrgButton org={org} onBusyChange={onBusyChange} />
       </QueryClientProvider>
     </MemoryRouter>,
   );
@@ -137,5 +137,28 @@ describe("LeaveOrgButton", () => {
 
     await waitFor(() => expect(clearSession).toHaveBeenCalled());
     expect(switchOrg).not.toHaveBeenCalled();
+  });
+
+  it("reports its own in-flight leave up to the parent, so Org.tsx can disable Switch", async () => {
+    // Org.tsx has nothing else to observe here — leaveOrg + the fallback
+    // switchOrg call are both internal to this component — so onBusyChange
+    // is the only way it can learn a leave is still resolving.
+    let resolveLeave: (() => void) | undefined;
+    api.leaveOrg.mockImplementation(
+      () => new Promise<void>((resolve) => { resolveLeave = resolve; }),
+    );
+    const onBusyChange = vi.fn();
+    const user = userEvent.setup();
+    renderFor(GLOBEX, onBusyChange);
+
+    await user.click(screen.getByRole("button", { name: "Leave" }));
+    await screen.findByRole("dialog");
+    await user.click(screen.getByRole("button", { name: /Leave organization/ }));
+
+    await waitFor(() => expect(onBusyChange).toHaveBeenCalledWith(true));
+    expect(onBusyChange).not.toHaveBeenCalledWith(false);
+
+    resolveLeave?.();
+    await waitFor(() => expect(onBusyChange).toHaveBeenLastCalledWith(false));
   });
 });

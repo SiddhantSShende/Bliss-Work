@@ -25,6 +25,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -255,5 +256,153 @@ func TestScheduleMeeting_SucceedsWithNoBlock(t *testing.T) {
 	}
 	if call == nil || call.ID == "" {
 		t.Fatalf("ScheduleMeeting returned no call: %+v", call)
+	}
+}
+
+// ── RedeemInvite ─────────────────────────────────────────────────────────────
+//
+// The join-by-link path is the ONLY cross-org way to widen a call's roster
+// (see RedeemInvite's doc comment in calls.go), which made it exactly as able
+// to seat two blocked users in the same room as AddParticipant and
+// ScheduleMeeting — until it ran no check at all. These pin down the fix.
+
+// The redeemer is blocked by the HOST, who is already active in the meeting.
+// The most direct case: nobody but the two blocked parties is involved.
+func TestRedeemInvite_RefusedWhenRedeemerBlockedByHost(t *testing.T) {
+	s := lifecycleStore(t)
+	ctx := context.Background()
+	orgID := uuid.Must(uuid.NewV7()).String()
+	host, guest, _ := seedThree(t, s, orgID)
+
+	call, err := s.ScheduleMeeting(ctx, orgID, host, "", "video", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ScheduleMeeting: %v", err)
+	}
+	if err := s.Block(ctx, orgID, host, guest); err != nil {
+		t.Fatalf("host blocks guest: %v", err)
+	}
+	invite, err := s.CreateInvite(ctx, orgID, host, call.ID, time.Hour, nil)
+	if err != nil {
+		t.Fatalf("CreateInvite: %v", err)
+	}
+
+	if _, err := s.RedeemInvite(ctx, orgID, guest, invite.Token); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("guest redeeming a link into a call whose host has blocked them = %v, want ErrForbidden", err)
+	}
+}
+
+// The reverse direction: the redeemer blocked the host, not the other way
+// round. bool_or(blocked) must catch it the same way AddParticipant's does.
+func TestRedeemInvite_RefusedWhenRedeemerBlockedTheHost(t *testing.T) {
+	s := lifecycleStore(t)
+	ctx := context.Background()
+	orgID := uuid.Must(uuid.NewV7()).String()
+	host, guest, _ := seedThree(t, s, orgID)
+
+	call, err := s.ScheduleMeeting(ctx, orgID, host, "", "video", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ScheduleMeeting: %v", err)
+	}
+	if err := s.Block(ctx, orgID, guest, host); err != nil {
+		t.Fatalf("guest blocks host: %v", err)
+	}
+	invite, err := s.CreateInvite(ctx, orgID, host, call.ID, time.Hour, nil)
+	if err != nil {
+		t.Fatalf("CreateInvite: %v", err)
+	}
+
+	if _, err := s.RedeemInvite(ctx, orgID, guest, invite.Token); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("guest redeeming a link into a call whose host they have blocked = %v, want ErrForbidden", err)
+	}
+}
+
+// The blocked pair need not include the host: a THIRD party (the redeemer,
+// via the host's own link) walks into a room that already holds someone who
+// blocked them, even though the host — who minted the link — has no block
+// relationship with either side. Same scenario TestAddParticipant's suite
+// pins down for AddParticipant, replayed against the link path.
+func TestRedeemInvite_RefusedWhenRedeemerBlockedByAnotherActiveParticipant(t *testing.T) {
+	s := lifecycleStore(t)
+	ctx := context.Background()
+	orgID := uuid.Must(uuid.NewV7()).String()
+	host, participant, guest := seedThree(t, s, orgID)
+
+	call, err := s.ScheduleMeeting(ctx, orgID, host, "", "video", nil, nil, []string{participant})
+	if err != nil {
+		t.Fatalf("ScheduleMeeting: %v", err)
+	}
+	if err := s.Block(ctx, orgID, participant, guest); err != nil {
+		t.Fatalf("participant blocks guest: %v", err)
+	}
+	invite, err := s.CreateInvite(ctx, orgID, host, call.ID, time.Hour, nil)
+	if err != nil {
+		t.Fatalf("CreateInvite: %v", err)
+	}
+
+	if _, err := s.RedeemInvite(ctx, orgID, guest, invite.Token); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("guest redeeming a link into a call holding someone who blocked them = %v, want ErrForbidden", err)
+	}
+}
+
+// Control: no block anywhere in the roster, the redemption must succeed and
+// actually seat the redeemer.
+func TestRedeemInvite_SucceedsWithNoBlock(t *testing.T) {
+	s := lifecycleStore(t)
+	ctx := context.Background()
+	orgID := uuid.Must(uuid.NewV7()).String()
+	host, guest, _ := seedThree(t, s, orgID)
+
+	call, err := s.ScheduleMeeting(ctx, orgID, host, "", "video", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ScheduleMeeting: %v", err)
+	}
+	invite, err := s.CreateInvite(ctx, orgID, host, call.ID, time.Hour, nil)
+	if err != nil {
+		t.Fatalf("CreateInvite: %v", err)
+	}
+
+	got, err := s.RedeemInvite(ctx, orgID, guest, invite.Token)
+	if err != nil {
+		t.Fatalf("RedeemInvite with no block relationship: %v, want success", err)
+	}
+	found := false
+	for _, p := range got.Participants {
+		if p.UserID == guest {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("redeemer is not on the returned roster: %+v", got.Participants)
+	}
+}
+
+// An unblock must actually restore the ability to redeem the link, not just
+// the ability to ring directly.
+func TestRedeemInvite_SucceedsAfterUnblock(t *testing.T) {
+	s := lifecycleStore(t)
+	ctx := context.Background()
+	orgID := uuid.Must(uuid.NewV7()).String()
+	host, guest, _ := seedThree(t, s, orgID)
+
+	call, err := s.ScheduleMeeting(ctx, orgID, host, "", "video", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ScheduleMeeting: %v", err)
+	}
+	if err := s.Block(ctx, orgID, host, guest); err != nil {
+		t.Fatalf("host blocks guest: %v", err)
+	}
+	invite, err := s.CreateInvite(ctx, orgID, host, call.ID, time.Hour, nil)
+	if err != nil {
+		t.Fatalf("CreateInvite: %v", err)
+	}
+	if _, err := s.RedeemInvite(ctx, orgID, guest, invite.Token); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("redeem while blocked = %v, want ErrForbidden", err)
+	}
+
+	if err := s.Unblock(ctx, orgID, host, guest); err != nil {
+		t.Fatalf("unblock: %v", err)
+	}
+	if _, err := s.RedeemInvite(ctx, orgID, guest, invite.Token); err != nil {
+		t.Fatalf("redeem after unblock: %v, want success", err)
 	}
 }

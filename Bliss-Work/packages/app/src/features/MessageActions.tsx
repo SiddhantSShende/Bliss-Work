@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import type { ReactionDTO } from "@taskboard/shared";
 import { usePopupDismiss } from "../lib/usePopupDismiss";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { EmojiGrid, EmojiPopup, QUICK_REACTIONS } from "./EmojiPicker";
 import { WhatsAppIcon } from "./WhatsAppIcon";
 
@@ -98,6 +99,10 @@ export function MessageActions({
 }) {
   const [menu, setMenu] = useState(false);
   const [emoji, setEmoji] = useState(false);
+  // Which destructive confirm to show, if any. Neither delete fires on click
+  // any more — a stray tap that removes a message with no way back is exactly
+  // the mistake a confirm step exists to catch.
+  const [confirm, setConfirm] = useState<"hide" | "deleteAll" | null>(null);
   const popupRef = useRef<HTMLDivElement>(null);
   // ONE registration for both panels, because they share a wrapper and only one
   // of them is ever open: each trigger closes the other, so "is anything open
@@ -198,7 +203,7 @@ export function MessageActions({
             </button>
           )}
           {onHide && (
-            <button role="menuitem" className={item} onClick={() => { onHide(); setMenu(false); }}>
+            <button role="menuitem" className={item} onClick={() => { setMenu(false); setConfirm("hide"); }}>
               <EyeOff size={13} className="text-muted" /> Delete for me
             </button>
           )}
@@ -228,13 +233,31 @@ export function MessageActions({
             <button
               role="menuitem"
               className={`${item} text-danger hover:bg-danger/10`}
-              onClick={() => { onDeleteForAll(); setMenu(false); }}
+              onClick={() => { setMenu(false); setConfirm("deleteAll"); }}
             >
               <Trash2 size={13} /> Delete for everyone
             </button>
           )}
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirm !== null}
+        onClose={() => setConfirm(null)}
+        title="Delete message?"
+        message={
+          confirm === "deleteAll"
+            ? "Are you sure you want to delete this message? It will be removed for everyone in this conversation."
+            : "Are you sure you want to delete this message? This only removes it from your own view."
+        }
+        confirmLabel="Delete"
+        danger
+        onConfirm={() => {
+          if (confirm === "hide") onHide?.();
+          else if (confirm === "deleteAll") onDeleteForAll?.();
+          setConfirm(null);
+        }}
+      />
     </div>
   );
 }

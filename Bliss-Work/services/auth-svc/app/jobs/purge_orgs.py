@@ -85,11 +85,15 @@ PURGE_STATEMENTS: tuple[str, ...] = (
 
 
 async def _due(conn) -> list[tuple[str, str | None, str | None]]:
-    """Orgs past their grace period and not already purged.
+    """Orgs past their grace period and not already purged, oldest-due first.
 
-    `FOR UPDATE SKIP LOCKED` so two overlapping runs cannot both purge the same
-    org — this job is scheduled, but a slow run and a manual invocation can
-    coincide, and double-purging is only harmless by luck.
+    `FOR UPDATE SKIP LOCKED` here is scoped to this SELECT's own short
+    transaction (see `run()`, which commits it immediately after) — it is a
+    cheap way to leave an org a concurrent run is already mid-purge on off
+    this candidate list, not the actual claim. The real claim happens in
+    `purge_one()`, which re-takes `FOR UPDATE SKIP LOCKED` on just that one
+    org's row inside its own per-org transaction; that lock, not this one, is
+    what stops two overlapping runs from purging the same org twice.
     """
     rows = (
         await conn.execute(
@@ -114,11 +118,18 @@ async def purge_one(conn, org_id: str, slug: str | None, requested_by: str | Non
     # Re-read under the row lock. A cancel that committed between _due() and
     # here must win: this job and POST /auth/org/delete/cancel genuinely race in
     # the final moments before purge_after, and the row is the arbiter.
+    #
+    # FOR UPDATE SKIP LOCKED: each org now purges in its own transaction (see
+    # run()), so this lock — not _due()'s, long released by the time we get
+    # here — is what stops two overlapping runs from purging the same org
+    # twice. SKIP LOCKED means an org another run already claimed is silently
+    # left to that run rather than waited on.
     still_due = (
         await conn.execute(
             text(
                 "SELECT 1 FROM orgs WHERE id = :org AND deleted_at IS NULL "
-                "AND purge_after IS NOT NULL AND purge_after <= now()"
+                "AND purge_after IS NOT NULL AND purge_after <= now() "
+                "FOR UPDATE SKIP LOCKED"
             ),
             {"org": org_id},
         )
@@ -172,20 +183,42 @@ async def purge_one(conn, org_id: str, slug: str | None, requested_by: str | Non
 
 
 async def run(dry_run: bool = False) -> int:
-    """Returns the number of orgs purged (or that would be, when dry)."""
+    """Returns the number of orgs purged (or that would be, when dry).
+
+    Each due org is purged in its OWN transaction, not one shared transaction
+    for the whole batch. Otherwise a single org failing partway (this has
+    happened: an FK from a table not yet added to PURGE_STATEMENTS) rolls back
+    every org already purged earlier in the same run — and since the next run
+    reselects the identical list in the identical order, everything behind the
+    failing org in purge_after order never gets purged, silently, forever. A
+    shared transaction also holds _due()'s row locks for the whole batch, so a
+    concurrent /org/delete, /org/delete/cancel or /org/mfa request for ANY due
+    org blocks until the whole run finishes rather than just its own org.
+    """
     async with engine.begin() as conn:
         await service.set_bypass_rls(conn)
         due = await _due(conn)
-        if not due:
-            log.info("org_purge_nothing_due")
-            return 0
-        if dry_run:
-            for org_id, slug, _ in due:
-                log.info("org_purge_would_purge", org_id=org_id, slug=slug)
-            return len(due)
-        for org_id, slug, requested_by in due:
-            await purge_one(conn, org_id, slug, requested_by)
+    if not due:
+        log.info("org_purge_nothing_due")
+        return 0
+    if dry_run:
+        for org_id, slug, _ in due:
+            log.info("org_purge_would_purge", org_id=org_id, slug=slug)
         return len(due)
+
+    purged = 0
+    for org_id, slug, requested_by in due:
+        try:
+            async with engine.begin() as conn:
+                await service.set_bypass_rls(conn)
+                await purge_one(conn, org_id, slug, requested_by)
+            purged += 1
+        except Exception:
+            # Log and move on to the next due org rather than aborting the
+            # whole run: one org's failure must not undo the orgs already
+            # purged before it, nor block the orgs still due after it.
+            log.exception("org_purge_failed", org_id=org_id, slug=slug)
+    return purged
 
 
 def main() -> None:

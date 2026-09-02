@@ -132,7 +132,7 @@ func (s *Store) SendMail(ctx context.Context, in SendMailInput) (*SendMailResult
 		// their copy the instant deliverMailInApp above returns and is not "N
 		// more" pending anything.
 		relayTo := relayRecipients(recipients, author.address)
-		return s.queueMailOutbound(ctx, tx, in, author, recipients, relayTo, sentAt)
+		return s.queueMailOutbound(ctx, tx, in, author, recipients, relayTo, externals, sentAt)
 	})
 	if err != nil {
 		return nil, err

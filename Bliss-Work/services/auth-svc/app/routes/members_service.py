@@ -21,6 +21,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from .. import service
+from crypto import cryptor
 from ..events.outbox import TOPIC_AUTH, build_event, enqueue_event
 from ..schemas import MemberDTO
 from .invites_service import iso_z
@@ -137,6 +138,77 @@ async def load_member(conn: AsyncConnection, org_id: str, user_id: str) -> Membe
         removedAt=_iso_or_none(row.removed_at),
         avatarUrl=dto.avatarUrl,
     )
+
+
+async def load_members_for_org(
+    conn: AsyncConnection, org_id: str, *, limit: int | None = None
+) -> list[MemberDTO]:
+    """Every membership in `org_id`, active first then alphabetical — in TWO
+    queries regardless of how many members the org has.
+
+    Replaces a loop of `load_member()` calls (one `GET /auth/members` used to
+    make per member: a users row, `service.user_dto`'s own join, and a roles
+    lookup — 3+ round trips each). Same anti-pattern, and the same fix, as
+    `service.user_dtos_for_org`: that loop was 2N+1 round trips for an
+    N-member org; at twenty thousand it is forty thousand queries. It cannot
+    reuse `user_dtos_for_org` directly because `MemberDTO` carries lifecycle
+    fields (`status`, `createdAt`, `removedAt`) that `UserDTO` deliberately
+    does not, and this listing — unlike the directory — must include
+    suspended and removed members so they can be reactivated.
+
+    `limit` is optional; omitted, every member is returned (today's
+    behaviour, just without the N+1). Passing it caps the response for a
+    caller that does not need the whole roster.
+    """
+    query = (
+        "SELECT id, username, status, email_verified, created_at, removed_at, "
+        "       display_name_enc, email_enc, avatar_enc "
+        "FROM users WHERE org_id = :org "
+        "ORDER BY (status = 'active') DESC, username"
+    )
+    params: dict[str, object] = {"org": org_id}
+    if limit is not None:
+        query += " LIMIT :lim"
+        params["lim"] = limit
+    rows = (await conn.execute(text(query), params)).all()
+    if not rows:
+        return []
+
+    user_ids = [str(r.id) for r in rows]
+    role_rows = (
+        await conn.execute(
+            text(
+                """
+                SELECT ur.user_id, r.name
+                FROM user_roles ur
+                JOIN roles r ON r.id = ur.role_id
+                WHERE ur.user_id = ANY(CAST(:uids AS uuid[]))
+                ORDER BY ur.user_id, r.name
+                """
+            ),
+            {"uids": user_ids},
+        )
+    ).all()
+    roles_by_user: dict[str, list[str]] = {}
+    for rr in role_rows:
+        roles_by_user.setdefault(str(rr.user_id), []).append(rr.name)
+
+    c = cryptor()
+    return [
+        MemberDTO(
+            id=str(r.id),
+            username=r.username,
+            displayName=(await c.decrypt(conn, org_id, r.display_name_enc)) or "",
+            email=(await c.decrypt(conn, org_id, r.email_enc)) or "",
+            roles=roles_by_user.get(str(r.id), []),  # type: ignore[arg-type]
+            status=r.status,
+            emailVerified=bool(r.email_verified),
+            createdAt=iso_z(r.created_at),
+            removedAt=_iso_or_none(r.removed_at),
+            avatarUrl=(await c.decrypt(conn, org_id, r.avatar_enc)) or None,
+        )
+        for r in rows
+    ]
 
 
 async def change_role_tx(conn: AsyncConnection, principal, user_id: str, role: str) -> MemberDTO:

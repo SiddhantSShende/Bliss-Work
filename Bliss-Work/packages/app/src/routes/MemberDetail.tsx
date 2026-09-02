@@ -40,6 +40,11 @@ export function MemberDetail() {
   useEffect(() => {
     setTab("overview");
     setExportOpen(false);
+    // `patched` is only guarded by `patched?.id === userId`, so without this
+    // reset, navigating A -> B -> back to A re-satisfies that guard and shows
+    // A's stale locally-cached mutation result instead of the freshly
+    // refetched roster data.
+    setPatched(null);
   }, [userId]);
 
   // Admins read the roster (which includes suspended/removed people); everyone
@@ -255,7 +260,7 @@ export function MemberDetail() {
         )}
 
         {tab === "security" && isAdmin && (
-          <MemberAuditLog targetId={member.id} directory={directory} />
+          <MemberAuditLog targetId={member.id} members={members ?? []} />
         )}
       </div>
 

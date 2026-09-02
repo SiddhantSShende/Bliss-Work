@@ -10,6 +10,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
+import { DisconnectReason } from "livekit-client";
 import { EventType, type ServerEvent, type WsEventMeta } from "@taskboard/shared";
 
 type EventHandler = (e: ServerEvent, meta?: WsEventMeta) => void;
@@ -51,8 +52,14 @@ function makeFakeRoom() {
       return room;
     },
     connect: vi.fn(async () => {}),
+    // Mirrors the real SDK: `room.disconnect()` always reports itself via
+    // DisconnectReason.CLIENT_INITIATED (see livekit-client's Room.disconnect,
+    // which sends a LeaveRequest with exactly that reason before emitting).
+    // A disconnect LiveKit initiates on its own — the case under test below —
+    // is simulated instead by emitting "disconnected" directly, with no
+    // reason or a different one.
     disconnect: vi.fn(async () => {
-      room.emit("disconnected");
+      room.emit("disconnected", DisconnectReason.CLIENT_INITIATED);
     }),
     prepareConnection: vi.fn(),
     emit(event: string, ...args: unknown[]) {
@@ -280,5 +287,137 @@ describe("existing controls", () => {
 
     expect(room.localParticipant.setCameraEnabled).toHaveBeenCalledWith(true);
     expect(result.current.camOn).toBe(true);
+  });
+});
+
+const CALL_ID_B = "call-2";
+
+/**
+ * Regression coverage for a second call silently taking over the UI while
+ * the actual LiveKit connection stayed on the first: CallRoom is
+ * deliberately never unmounted between calls (see lib/MeetingSession's
+ * `enter`), so switching — accepting a second incoming invite while
+ * minimised, starting a call in a different channel, joining a different
+ * call from the Meetings list — only changes this hook's `callId` prop.
+ * join()'s reentry guard used to be `roomRef.current || joining.current`,
+ * which cannot tell "the SAME call, already connected" apart from "a
+ * DIFFERENT call took over" and silently no-opped the latter: the video
+ * stayed on the old call while everything UI-driven (title, roster) moved to
+ * the new one, and a later Leave posted the departure under the NEW call's
+ * id instead of the old one's.
+ */
+describe("switching to a different call while still connected", () => {
+  it("leaves the old room under its own id, connects the new one, and reports the new call's own eventual leave separately", async () => {
+    const rendered = renderHook(({ id }: { id: string }) => useCallRoom(id), {
+      initialProps: { id: CALL_ID },
+    });
+    unmount = rendered.unmount;
+
+    await act(async () => {
+      await rendered.result.current.join();
+    });
+    await waitFor(() => expect(rendered.result.current.status).toBe("connected"));
+    const roomA = h.rooms[0] as ReturnType<typeof makeFakeRoom>;
+
+    // CallRoom's own join effect re-fires `join()` off the new `call.id` —
+    // simulated the same way here rather than through CallRoom itself, same
+    // as every other test in this file.
+    rendered.rerender({ id: CALL_ID_B });
+    await act(async () => {
+      await rendered.result.current.join();
+    });
+    await waitFor(() => expect(rendered.result.current.status).toBe("connected"));
+    const roomB = h.rooms[1] as ReturnType<typeof makeFakeRoom>;
+
+    expect(roomB).not.toBe(roomA);
+    expect(roomA.disconnect).toHaveBeenCalledTimes(1);
+    expect(roomB.connect).toHaveBeenCalledTimes(1);
+
+    // The leave record belongs to A — the call this identity actually
+    // vacated — not B, which it was never really connected to.
+    expect(h.api.leaveCall).toHaveBeenCalledExactlyOnceWith(CALL_ID);
+
+    // And B's OWN eventual leave still gets reported: the "already told the
+    // server" flag has to reset when a fresh call is joined, or nothing
+    // would ever tell the server about B once A had already consumed it.
+    await act(async () => {
+      await rendered.result.current.leave();
+    });
+    expect(roomB.disconnect).toHaveBeenCalledTimes(1);
+    expect(h.api.leaveCall).toHaveBeenCalledTimes(2);
+    expect(h.api.leaveCall).toHaveBeenNthCalledWith(2, CALL_ID_B);
+  });
+
+  it("does not no-op a switch even while the old room is still only in the waiting lobby", async () => {
+    h.api.callToken.mockResolvedValueOnce({ state: "WAITING", canStart: false });
+    const rendered = renderHook(({ id }: { id: string }) => useCallRoom(id), {
+      initialProps: { id: CALL_ID },
+    });
+    unmount = rendered.unmount;
+
+    await act(async () => {
+      await rendered.result.current.join();
+    });
+    await waitFor(() => expect(rendered.result.current.status).toBe("waiting"));
+
+    rendered.rerender({ id: CALL_ID_B });
+    await act(async () => {
+      await rendered.result.current.join();
+    });
+    await waitFor(() => expect(rendered.result.current.status).toBe("connected"));
+
+    expect(h.rooms).toHaveLength(1);
+    expect((h.rooms[0] as ReturnType<typeof makeFakeRoom>).connect).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * Regression coverage for a mid-call network failure that outlasts
+ * LiveKit's own reconnection (see the "reconnecting" describe block above
+ * for the RECOVERED case) leaving the participant stuck: the Disconnected
+ * handler used to treat every disconnect identically — status reset to
+ * "idle", no error, and (since leave()'s own no-room branch only reports for
+ * status "waiting") the server was never told they had gone. Every control
+ * (mic/camera/share) silently no-ops on a null room from that point on.
+ */
+describe("a disconnect LiveKit's own reconnection gave up on", () => {
+  it("surfaces a failed state instead of silently going idle, and tells the server we left", async () => {
+    const { result, room } = await joined();
+
+    // The real SDK reports this with some non-CLIENT_INITIATED reason (a
+    // server-side SERVER_SHUTDOWN/ROOM_DELETED/etc.) or with none at all —
+    // see livekit-client's RTCEngine, which emits plain `Disconnected` with
+    // no reason once it gives up retrying. Neither was ever preceded by
+    // this hook calling `leave()` or `room.disconnect()` itself.
+    act(() => room.emit("disconnected", DisconnectReason.SERVER_SHUTDOWN));
+
+    await waitFor(() => expect(result.current.status).toBe("failed"));
+    expect(result.current.failStage).toBe("disconnected");
+    expect(result.current.participants).toEqual([]);
+    expect(h.api.leaveCall).toHaveBeenCalledExactlyOnceWith(CALL_ID);
+  });
+
+  it("also surfaces failed when the SDK reports no reason at all — the actual shape of giving up on reconnection", async () => {
+    const { result, room } = await joined();
+
+    act(() => room.emit("disconnected"));
+
+    await waitFor(() => expect(result.current.status).toBe("failed"));
+    expect(h.api.leaveCall).toHaveBeenCalledExactlyOnceWith(CALL_ID);
+  });
+});
+
+describe("an app-initiated leave", () => {
+  it("still behaves exactly as before: lands on idle with no error, and reports the leave exactly once", async () => {
+    const { result, room } = await joined();
+
+    await act(async () => {
+      await result.current.leave();
+    });
+
+    expect(result.current.status).toBe("idle");
+    expect(result.current.failStage).toBeNull();
+    expect(room.disconnect).toHaveBeenCalledTimes(1);
+    expect(h.api.leaveCall).toHaveBeenCalledExactlyOnceWith(CALL_ID);
   });
 });

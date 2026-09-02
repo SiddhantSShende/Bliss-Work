@@ -243,6 +243,17 @@ class MfaPendingDTO(BaseModel):
     enrollmentRequired: bool = False
 
 
+class MfaMethodsDTO(BaseModel):
+    """Which second factors the CALLER (an already-signed-in, enrolled user)
+    has registered — same shape/values as MfaPendingDTO.methods, but for an
+    ordinary Bearer-authed caller rather than a pending login. Lets Settings
+    decide whether to offer a passkey as a step-up shortcut without guessing
+    from mfaEnrolled alone: a passkey-only enrollee has no TOTP secret or
+    backup code to fall back on for MFA-disable / backup-codes regenerate."""
+
+    methods: list[Literal["totp", "webauthn"]]
+
+
 class MfaChallengeRequest(BaseModel):
     pendingToken: str = Field(min_length=1, max_length=512)
     # Exactly one of these three is set, matching whichever method the client
@@ -255,11 +266,16 @@ class MfaChallengeRequest(BaseModel):
 class MfaStepUpRequest(BaseModel):
     """Step-up re-auth shared by two consequential MFA actions — disabling MFA
     and regenerating backup codes: password + a still-valid second factor, so
-    a stolen access token alone can never perform either."""
+    a stolen access token alone can never perform either. Exactly one of
+    totpCode/backupCode/webauthnCredential should be set — mirrors
+    MfaChallengeRequest's three-way choice, except a password is ALSO always
+    required here (an already-signed-in caller has no earlier password check
+    in this flow the way a fresh login does)."""
 
     password: str = Field(min_length=1, max_length=256)
     totpCode: str | None = Field(default=None, min_length=6, max_length=10)
     backupCode: str | None = Field(default=None, min_length=1, max_length=32)
+    webauthnCredential: dict | None = None
 
 
 class TotpEnrollStartRequest(BaseModel):

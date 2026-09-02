@@ -51,6 +51,7 @@ import {
   MessageDTO,
   type MessageKind,
   MfaBackupCodesResult,
+  MfaMethodsResult,
   MfaTotpEnrollConfirmResult,
   MfaTotpEnrollStartResult,
   MfaWebauthnRegisterFinishResult,
@@ -583,7 +584,7 @@ export class ApiClient {
     );
   }
 
-  auditLog(opts: { before?: number; limit?: number; action?: string; targetId?: string } = {}) {
+  auditLog(opts: { before?: string; limit?: number; action?: string; targetId?: string } = {}) {
     const q = new URLSearchParams();
     if (opts.before) q.set("before", String(opts.before));
     if (opts.limit) q.set("limit", String(opts.limit));
@@ -728,12 +729,18 @@ export class ApiClient {
       SessionDTO,
     );
   }
-  /** Step-up re-auth (password + a still-valid second factor) to turn MFA off. */
-  mfaDisable(body: { password: string; totpCode?: string; backupCode?: string }) {
+  /** Step-up re-auth (password + a still-valid second factor) to turn MFA off.
+   *  Exactly one of totpCode/backupCode/webauthnCredential should be set. */
+  mfaDisable(body: { password: string; totpCode?: string; backupCode?: string; webauthnCredential?: unknown }) {
     return this.req<void>(this.cfg.authBase, "/auth/mfa/disable", {
       method: "POST",
       body: JSON.stringify(body),
     });
+  }
+  /** Which second factors the CALLER has registered — lets Settings decide
+   *  whether to offer a passkey as a step-up shortcut (see MfaMethodsResult). */
+  mfaMethods() {
+    return this.req(this.cfg.authBase, "/auth/mfa/methods", {}, MfaMethodsResult);
   }
   /** Generate a TOTP secret + otpauth:// URI. `pendingToken` only when
    *  authenticating via the restricted enrollment credential (no session yet). */
@@ -757,8 +764,14 @@ export class ApiClient {
     );
   }
   /** Step-up re-auth; invalidates every unused prior code before minting the
-   *  new batch — the old codes stop working immediately. */
-  mfaRegenerateBackupCodes(body: { password: string; totpCode?: string; backupCode?: string }) {
+   *  new batch — the old codes stop working immediately. Exactly one of
+   *  totpCode/backupCode/webauthnCredential should be set. */
+  mfaRegenerateBackupCodes(body: {
+    password: string;
+    totpCode?: string;
+    backupCode?: string;
+    webauthnCredential?: unknown;
+  }) {
     return this.req(
       this.cfg.authBase,
       "/auth/mfa/totp/backup-codes/regenerate",
@@ -792,6 +805,18 @@ export class ApiClient {
       this.cfg.authBase,
       "/auth/mfa/webauthn/auth/start",
       { method: "POST", body: JSON.stringify({ pendingToken }) },
+    );
+  }
+  /** WebAuthn authentication ceremony options for STEP-UP re-auth (an
+   *  already signed-in caller) — feed to `navigator.credentials.get()`, then
+   *  pass the result as `mfaDisable`/`mfaRegenerateBackupCodes`'s
+   *  `webauthnCredential`. Identity comes from the Bearer token, unlike
+   *  `mfaWebauthnAuthStart` above (a pending login, no session yet). */
+  mfaWebauthnStepUpStart() {
+    return this.req<Record<string, unknown>>(
+      this.cfg.authBase,
+      "/auth/mfa/webauthn/step-up/start",
+      { method: "POST" },
     );
   }
   /** The org's mandatory-MFA-for-admins policy + grace-period deadline. */
@@ -1903,11 +1928,17 @@ export class ApiClient {
       z.array(ChannelReadReceiptDTO),
     );
   }
-  sendChannelMessage(channelId: string, body: string, clientMsgId?: string, kind?: MessageKind) {
+  sendChannelMessage(
+    channelId: string,
+    body: string,
+    clientMsgId?: string,
+    kind?: MessageKind,
+    replyToId?: string,
+  ) {
     return this.req(
       this.cfg.messagingBase,
       `/api/v1/channels/${channelId}/messages`,
-      { method: "POST", body: JSON.stringify({ body, clientMsgId: clientMsgId ?? uuid(), kind }) },
+      { method: "POST", body: JSON.stringify({ body, clientMsgId: clientMsgId ?? uuid(), kind, replyToId }) },
       z.object({ messageId: z.string(), seq: z.number() }),
     );
   }
@@ -2091,6 +2122,31 @@ export class ApiClient {
 
   call(callId: string) {
     return this.req(this.cfg.messagingBase, `/api/v1/calls/${callId}`, {}, CallDTO);
+  }
+
+  /** Every call the caller is on the roster of that OVERLAPS [from, to) —
+   *  the calendar read, oldest first.
+   *
+   *  Deliberately neither of the two above. `myCalls()` caps finished calls at
+   *  a month, so a calendar navigated back past one renders an empty week that
+   *  is not empty; `myCallHistory()` has no day cap but runs newest-first
+   *  behind a cursor and excludes SCHEDULED and LIVE entirely, so reaching an
+   *  arbitrary week means paging everything in between. A window is bounded by
+   *  itself, so this has no cursor.
+   *
+   *  Overlap rather than containment: a meeting that runs past midnight belongs
+   *  to both days. Half-open, so one starting exactly at `to` belongs to the
+   *  next window and is not drawn twice. Both bounds are ISO instants — send
+   *  the LOCAL boundaries of the grid being drawn, since only the client knows
+   *  where the viewer is. The server refuses a window wider than a quarter. */
+  myCallsInRange(fromISO: string, toISO: string) {
+    const q = new URLSearchParams({ from: fromISO, to: toISO });
+    return this.req(
+      this.cfg.messagingBase,
+      `/api/v1/calls/range?${q.toString()}`,
+      {},
+      z.array(CallDTO),
+    );
   }
 
   /** Finished meetings the caller was in, newest first, paged.

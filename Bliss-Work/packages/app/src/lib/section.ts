@@ -9,7 +9,7 @@
  */
 
 /** Sections that own a contextual list pane in the shell. */
-export type ListSection = "mail" | "chats" | "channels" | "members" | "tasks" | "meetings";
+export type ListSection = "mail" | "chats" | "channels" | "members" | "tasks";
 
 /** Every part of the product a user can be "in", for time attribution. */
 export type Surface =
@@ -21,7 +21,11 @@ export type Surface =
   | "meetings"
   | "org";
 
-const LIST_SECTIONS: ListSection[] = ["mail", "tasks", "channels", "members", "chats", "meetings"];
+/** Meetings is deliberately NOT here. It is a rail entry that renders
+ *  full-width: its calendar needs the whole main pane, and the Upcoming / Live
+ *  / Past column it used to put in the shell is now the tab strip under that
+ *  calendar. railSectionOf below still highlights it. */
+const LIST_SECTIONS: ListSection[] = ["mail", "tasks", "channels", "members", "chats"];
 const UTILITY: Surface[] = [
   "search",
   "invite",

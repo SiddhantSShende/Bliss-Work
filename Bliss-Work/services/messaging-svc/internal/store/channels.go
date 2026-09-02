@@ -258,7 +258,7 @@ func memberJoinedEvents(orgID, channelID, channelName, actorID string, userIDs [
 //
 // kind is a MessageKind* constant ("" → text), whitelisted by the caller via
 // ValidMessageKind exactly as sendMessage does for DMs — see store.go.
-func (s *Store) SendChannelMessage(ctx context.Context, orgID, channelID, senderID, body, clientMsgID, kind string) (*ChannelSendResult, error) {
+func (s *Store) SendChannelMessage(ctx context.Context, orgID, channelID, senderID, body, clientMsgID, kind, replyToID string) (*ChannelSendResult, error) {
 	var out *ChannelSendResult
 	err := RetryOnSerializationFailure(ctx, 3, func(ctx context.Context) error {
 		tx, err := s.pool.Begin(ctx)
@@ -332,10 +332,18 @@ func (s *Store) SendChannelMessage(ctx context.Context, orgID, channelID, sender
 			return err
 		}
 		msgID := uuid.Must(uuid.NewV7()).String()
+		// reply_to_id is DISTINCT from any Gmail-style threading concept (channels
+		// have none) — it is "this bubble quotes that bubble", same as the DM
+		// column it mirrors (messages.go). No FK, so a dangling id is left for the
+		// client to render as "Original message".
+		var replyToArg *string
+		if replyToID != "" {
+			replyToArg = &replyToID
+		}
 		_, err = tx.Exec(ctx,
-			`INSERT INTO channel_messages (id, org_id, channel_id, seq, sender_id, body, body_enc, client_msg_id, kind)
-			 VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8)`,
-			msgID, orgID, channelID, seq, senderID, bodyEnc, clientMsgID, channelAppendOpts{kind: kind}.kindArg())
+			`INSERT INTO channel_messages (id, org_id, channel_id, seq, sender_id, body, body_enc, client_msg_id, kind, reply_to_id)
+			 VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8, $9)`,
+			msgID, orgID, channelID, seq, senderID, bodyEnc, clientMsgID, channelAppendOpts{kind: kind}.kindArg(), replyToArg)
 		if err != nil {
 			return err
 		}
@@ -359,6 +367,7 @@ func (s *Store) SendChannelMessage(ctx context.Context, orgID, channelID, sender
 			Body:              body,
 			Members:           members,
 			Kind:              kind,
+			ReplyToID:         replyToID,
 		}
 		if err := insertOutbox(ctx, tx, channelID, evt); err != nil {
 			return err

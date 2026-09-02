@@ -102,6 +102,14 @@ func mapStoreError(err error) (int, ErrorCode, string) {
 		// client shows "transfer ownership first", which a 500 could not.
 		return http.StatusConflict, CodeConflict,
 			"a channel must keep an owner — transfer ownership first"
+	case errors.Is(err, store.ErrAlreadyRecording):
+		// 409, not the generic 503 startCallRecording otherwise answers with:
+		// the request was well-formed and the caller was entitled to make it —
+		// somebody else's request just won the race to record this call first
+		// (see idx_call_recordings_one_active_per_call, 0029). Indistinguishable
+		// from an SFU outage would tell the caller to retry a request that is
+		// not going to succeed differently.
+		return http.StatusConflict, CodeConflict, "recording already in progress"
 	case errors.Is(err, store.ErrForbidden):
 		return http.StatusForbidden, CodeForbidden, "forbidden"
 	case errors.Is(err, store.ErrMixedForwardScope):
@@ -132,6 +140,14 @@ func mapStoreError(err error) (int, ErrorCode, string) {
 		// A channel call has no link by design — the channel IS the guest list.
 		return http.StatusBadRequest, CodeBadRequest,
 			"only meetings can be joined by link; a channel call is open to its channel members"
+	// ── Call transcript (chat / notes) ────────────────────────
+	// Same reasoning as the mail cases below: a malformed request and one
+	// ErrForbidden refuses are different failures, and a client cannot act
+	// on "forbidden" for a message it merely typed too much of.
+	case errors.Is(err, store.ErrTranscriptTextInvalid),
+		errors.Is(err, store.ErrTranscriptEntryIDInvalid),
+		errors.Is(err, store.ErrTranscriptCursorInvalid):
+		return http.StatusUnprocessableEntity, CodeValidationError, err.Error()
 	case errors.Is(err, livekit.ErrNotConfigured):
 		// 503 with an internal_error code was self-contradictory: the envelope
 		// said "we broke" about a state that is simply how this deployment is

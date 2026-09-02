@@ -294,9 +294,18 @@ func startRoomWithRetry(ctx context.Context, recorder *livekit.Recorder, room, k
 // itself, through CallDTO.RecordingStatus.
 // Returns whether a recording is now running, so the caller can say so on the
 // call it is about to write back without re-reading it.
-func (s *Server) startRecording(ctx context.Context, callID, orgID, kind string) bool {
+//
+// The error return is nil for every best-effort failure this function already
+// logs and swallows on the auto-record paths (see this function's own doc
+// above) — those callers only ever look at the bool. It carries a value ONLY
+// for store.ErrAlreadyRecording, so startCallRecording — the one caller that
+// is answering a live HTTP request rather than firing best-effort off a call
+// starting — can hand it to mapErrR and get back a 409 that says "somebody
+// else's request won the race to record this call", rather than the same
+// generic 503 as every other reason recording could not start.
+func (s *Server) startRecording(ctx context.Context, callID, orgID, kind string) (bool, error) {
 	if !s.recorder.Configured() || kind == "DIRECT" {
-		return false
+		return false, nil
 	}
 	// WithoutCancel: a client that navigates away mid-request must not leave an
 	// egress running that nothing has a row for. The timeout still applies.
@@ -311,7 +320,7 @@ func (s *Server) startRecording(ctx context.Context, callID, orgID, kind string)
 	key, err := blob.RecordingKey(orgID, callID, id, livekit.Extension)
 	if err != nil {
 		s.log.Error("recording key", "call_id", callID, "err", err)
-		return false
+		return false, nil
 	}
 	// The room name IS the call id (see livekit.Grant.Room), so there is no
 	// mapping to get wrong here either. Retried while the room does not exist
@@ -320,20 +329,29 @@ func (s *Server) startRecording(ctx context.Context, callID, orgID, kind string)
 	egressID, err := startRoomWithRetry(ctx, s.recorder, callID, key)
 	if err != nil {
 		s.log.Error("could not start recording", "call_id", callID, "err", err)
-		return false
+		return false, nil
 	}
 	if err := s.store.StartRecording(ctx, id, callID, egressID, key); err != nil {
 		// The egress is running and nothing knows about it. Stop it rather than
-		// leave a recording nobody can reach writing to storage for an hour.
+		// leave a recording nobody can reach writing to storage for an hour —
+		// true whether we lost a genuine race (ErrAlreadyRecording) or hit any
+		// other failure recording the start.
+		if errors.Is(err, store.ErrAlreadyRecording) {
+			if serr := s.recorder.Stop(ctx, egressID); serr != nil {
+				s.log.Error("could not stop an unrecorded egress",
+					"egress_id", egressID, "err", serr)
+			}
+			return false, store.ErrAlreadyRecording
+		}
 		s.log.Error("could not record that a recording started",
 			"call_id", callID, "egress_id", egressID, "err", err)
 		if serr := s.recorder.Stop(ctx, egressID); serr != nil {
 			s.log.Error("could not stop an unrecorded egress",
 				"egress_id", egressID, "err", serr)
 		}
-		return false
+		return false, nil
 	}
-	return true
+	return true, nil
 }
 
 // stopRecording ends the egress for a call that has ended.
@@ -396,7 +414,16 @@ func (s *Server) startCallRecording(w http.ResponseWriter, r *http.Request) {
 		writeErrR(w, r, http.StatusBadRequest, "one-to-one calls are not recorded")
 		return
 	}
-	if !s.startRecording(r.Context(), target.CallID, target.OrgID, target.Kind) {
+	started, err := s.startRecording(r.Context(), target.CallID, target.OrgID, target.Kind)
+	if err != nil {
+		// The only error startRecording ever returns is ErrAlreadyRecording —
+		// somebody else's request won the race to record this call first. Not
+		// an SFU problem, and not the generic 503 below that reads like one;
+		// mapStoreError gives it its own 409, same as ErrLastOwner.
+		s.mapErrR(w, r, err)
+		return
+	}
+	if !started {
 		// startRecording has already logged why. To the caller this is one
 		// thing: the SFU would not start it.
 		writeAPIError(w, r, http.StatusServiceUnavailable, CodeServiceUnavailable,

@@ -46,15 +46,19 @@ var orgPurgeTables = []string{
 	// because its org_id is the PARTICIPANT's own org rather than the call's
 	// hosting org (see 0015_calls.sql) — a plain `WHERE org_id = $1` here
 	// would miss a cross-org guest's row in one of THIS org's calls. The other
-	// three all carry the hosting org (call_recordings/call_invites/
-	// call_screenshares' own doc comments say so explicitly), so a plain
-	// org-scoped delete is correct for them. call_recordings has an actual
-	// `ON DELETE CASCADE` off calls, but is still listed explicitly per this
-	// file's own rule: a purge that relies on a cascade is a purge that
-	// silently stops working the day someone drops the foreign key.
+	// four all carry the hosting org (call_recordings/call_invites/
+	// call_screenshares/call_chat_messages/call_notes' own doc comments say so
+	// explicitly), so a plain org-scoped delete is correct for them.
+	// call_recordings, call_chat_messages and call_notes all have an actual
+	// `ON DELETE CASCADE` off calls (0029_call_transcript.sql for the latter
+	// two), but are still listed explicitly per this file's own rule: a purge
+	// that relies on a cascade is a purge that silently stops working the day
+	// someone drops the foreign key.
 	"call_recordings",
 	"call_invites",
 	"call_screenshares",
+	"call_chat_messages",
+	"call_notes",
 	"calls",
 	// Attachment ROWS. The bytes on disk are removed separately by
 	// blob.Store.RemoveOrg — they are not in the database and, unlike every

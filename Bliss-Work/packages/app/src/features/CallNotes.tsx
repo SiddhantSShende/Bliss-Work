@@ -12,6 +12,7 @@ import { useEffect, useRef, useState } from "react";
 import { Send } from "lucide-react";
 import { Button } from "@taskboard/ui";
 import { NOTE_TEXT_MAX, type NoteEntry } from "../lib/callNotes";
+import { truncateToUtf8Bytes } from "../lib/textBytes";
 
 export function CallNotes({
   notes,
@@ -33,7 +34,7 @@ export function CallNotes({
   const submit = () => {
     const text = draft.trim();
     if (!text) return;
-    onAdd(text.slice(0, NOTE_TEXT_MAX));
+    onAdd(truncateToUtf8Bytes(text, NOTE_TEXT_MAX));
     setDraft("");
   };
 

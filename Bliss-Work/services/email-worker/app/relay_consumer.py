@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 import asyncpg
@@ -121,6 +122,14 @@ class RelayConsumer:
         # Consecutive failure count per event_id; poison messages (>= N) are
         # routed to the DLQ so they can't loop forever.
         self._failures: dict[str, int] = {}
+        # (event_id, recipient_key) pairs this process is actively working on
+        # right now — claimed and not yet marked sent. Mailer.send() retries
+        # internally (up to ~100s across 5 attempts), so a row can legitimately
+        # stay 'pending' far longer than the reaper's 30s abandonment window;
+        # this set is how _reaper_loop tells "still being retried in this
+        # process" apart from "actually abandoned" instead of guessing from
+        # elapsed time alone. See _mark_inflight and _reaper_loop.
+        self._inflight: set[tuple[str, str]] = set()
         # Circuit breaker for the auth-svc internal user-lookup. Once auth-svc
         # has been failing, the breaker opens and lookups fail fast for a
         # cooldown — the relay then SKIPS the email (marks sent) instead of
@@ -279,36 +288,38 @@ class RelayConsumer:
             if await self._is_sent(event_id, recipient_id):
                 return True
 
-        # Offline gate. event.occurredAt is the canonical "when did this
-        # happen on the bus" timestamp — comparing to it instead of now()
-        # avoids spamming users who legitimately viewed the event live but
-        # we only got around to processing now after a rebalance.
-        if not await self._should_relay(recipient_id, event.get("occurredAt", "")):
-            # Mark sent (=skipped, no rewind) so a later replay doesn't try
-            # again. The result is the same to the user.
+        async with self._mark_inflight(str(event_id), str(recipient_id)):
+            # Offline gate. event.occurredAt is the canonical "when did this
+            # happen on the bus" timestamp — comparing to it instead of now()
+            # avoids spamming users who legitimately viewed the event live but
+            # we only got around to processing now after a rebalance.
+            if not await self._should_relay(recipient_id, event.get("occurredAt", "")):
+                # Mark sent (=skipped, no rewind) so a later replay doesn't try
+                # again. The result is the same to the user.
+                await self._mark_sent(event_id, recipient_id)
+                self._failures.pop(str(event_id), None)
+                return True
+
+            try:
+                await self._send_for_event(event, recipient_id, etype)
+            except CircuitOpenError as exc:
+                # auth-svc is known-bad (breaker open): SKIP this email rather
+                # than blocking the consumer on the lookup. Mark sent so a
+                # later replay doesn't retry — the in-app inbox remains
+                # authoritative, so a dropped notification during an auth-svc
+                # outage is acceptable.
+                _log.warning("relay_skipped_auth_breaker_open", event_id=event_id,
+                             recipient=recipient_id, error=str(exc))
+                await self._mark_sent(event_id, recipient_id)
+                self._failures.pop(str(event_id), None)
+                return True
+            except Exception as exc:  # noqa: BLE001 - poison-message handling below
+                return await self._on_failure(str(event_id), event, str(exc))
+
+            # Offset advances only AFTER _mark_sent completes.
             await self._mark_sent(event_id, recipient_id)
             self._failures.pop(str(event_id), None)
             return True
-
-        try:
-            await self._send_for_event(event, recipient_id, etype)
-        except CircuitOpenError as exc:
-            # auth-svc is known-bad (breaker open): SKIP this email rather than
-            # blocking the consumer on the lookup. Mark sent so a later replay
-            # doesn't retry — the in-app inbox remains authoritative, so a
-            # dropped notification during an auth-svc outage is acceptable.
-            _log.warning("relay_skipped_auth_breaker_open", event_id=event_id,
-                         recipient=recipient_id, error=str(exc))
-            await self._mark_sent(event_id, recipient_id)
-            self._failures.pop(str(event_id), None)
-            return True
-        except Exception as exc:  # noqa: BLE001 - poison-message handling below
-            return await self._on_failure(str(event_id), event, str(exc))
-
-        # Offset advances only AFTER _mark_sent completes.
-        await self._mark_sent(event_id, recipient_id)
-        self._failures.pop(str(event_id), None)
-        return True
 
     async def _handle_outbound_mail(self, event: dict, event_id: str) -> bool:
         """Put ONE copy of a user's own email on the wire.
@@ -344,75 +355,80 @@ class RelayConsumer:
         if not claimed and await self._is_sent(event_id, mail_id):
             return True
 
-        sender_name = str(event.get("fromName") or "")
-        sender_address = str(event.get("fromAddress") or "")
-        # An empty Subject is both unhelpful to the recipient and a filtering
-        # signal in its own right on the corporate mail systems this most often
-        # lands on. Applied once, so both transports send the same header.
-        subject = str(event.get("subject") or "").strip() or "(no subject)"
-        parts, skipped = await self._collect_attachments(event, event_id, mail_id)
-        text, html = render_user_mail(
-            body=str(event.get("bodyText") or ""),
-            sender_name=sender_name,
-            sender_address=sender_address,
-            skipped_files=skipped,
-        )
-
-        # Through the author's own mailbox when they have one — see
-        # provider_mail for why that is worth preferring.
-        try:
-            transport = await self._decide_transport(
-                event, mail_id, parts, subject, text, html
+        async with self._mark_inflight(str(event_id), str(mail_id)):
+            sender_name = str(event.get("fromName") or "")
+            sender_address = str(event.get("fromAddress") or "")
+            # An empty Subject is both unhelpful to the recipient and a
+            # filtering signal in its own right on the corporate mail systems
+            # this most often lands on. Applied once, so both transports send
+            # the same header.
+            subject = str(event.get("subject") or "").strip() or "(no subject)"
+            parts, skipped = await self._collect_attachments(event, event_id, mail_id)
+            text, html = render_user_mail(
+                body=str(event.get("bodyText") or ""),
+                sender_name=sender_name,
+                sender_address=sender_address,
+                skipped_files=skipped,
             )
-        except ProviderMailUnavailable as exc:
-            # Transient: do NOT commit, so Kafka redelivers and we try again.
-            # Deliberately not counted as a failure of this MESSAGE — nothing
-            # about the mail is wrong, the mailbox was momentarily unreachable.
-            _log.warning("relay_mail_provider_unavailable", mail_id=mail_id, error=str(exc))
-            return False
-        if transport == TRANSPORT_PROVIDER:
-            # One send through the mailbox already covered every external
-            # recipient of this mail, this copy's own envelope among them.
+
+            # Through the author's own mailbox when they have one — see
+            # provider_mail for why that is worth preferring.
+            try:
+                transport = await self._decide_transport(
+                    event, mail_id, parts, subject, text, html
+                )
+            except ProviderMailUnavailable as exc:
+                # Transient: do NOT commit, so Kafka redelivers and we try
+                # again. Deliberately not counted as a failure of this
+                # MESSAGE — nothing about the mail is wrong, the mailbox was
+                # momentarily unreachable.
+                _log.warning("relay_mail_provider_unavailable", mail_id=mail_id, error=str(exc))
+                return False
+            if transport == TRANSPORT_PROVIDER:
+                # One send through the mailbox already covered every external
+                # recipient of this mail, this copy's own envelope among them.
+                await self._mark_sent(event_id, mail_id)
+                self._failures.pop(str(event_id), None)
+                _log.info("relay_mail_sent_via_provider", event_id=event_id, mail_id=mail_id)
+                return True
+            if transport == TRANSPORT_UNDECIDED:
+                # The copy that owns the decision has not finished. It is
+                # FIRST on this partition, so this normally cannot happen;
+                # bounded retries then the DLQ is the right answer to a state
+                # that should not exist, rather than a copy that spins forever.
+                return await self._on_failure(
+                    str(event_id), event, "provider transport not decided for this mail"
+                )
+
+            try:
+                await self._mailer.send(
+                    to=envelope,
+                    subject=subject,
+                    text_body=text,
+                    html_body=html,
+                    from_name=sender_name,
+                    # The author's own identity in From, so the mail arrives
+                    # from the person who wrote it. Mailer keeps the SMTP
+                    # envelope on the deployment's authenticated address
+                    # regardless.
+                    from_address=sender_address,
+                    # The reply target is the author too. Mailer emits the
+                    # header only when it says something From does not
+                    # already say, so this is a no-op while the two agree —
+                    # it is declared rather than assumed so the reply target
+                    # survives a change to either.
+                    reply_to=sender_address if is_valid_email(sender_address) else "",
+                    display_to=[str(a) for a in (event.get("to") or [])],
+                    display_cc=[str(a) for a in (event.get("cc") or [])],
+                    attachments=parts,
+                )
+            except Exception as exc:  # noqa: BLE001 - poison-message handling below
+                return await self._on_failure(str(event_id), event, str(exc))
+
             await self._mark_sent(event_id, mail_id)
             self._failures.pop(str(event_id), None)
-            _log.info("relay_mail_sent_via_provider", event_id=event_id, mail_id=mail_id)
+            _log.info("relay_mail_sent", event_id=event_id, mail_id=mail_id)
             return True
-        if transport == TRANSPORT_UNDECIDED:
-            # The copy that owns the decision has not finished. It is FIRST on
-            # this partition, so this normally cannot happen; bounded retries
-            # then the DLQ is the right answer to a state that should not exist,
-            # rather than a copy that spins forever.
-            return await self._on_failure(
-                str(event_id), event, "provider transport not decided for this mail"
-            )
-
-        try:
-            await self._mailer.send(
-                to=envelope,
-                subject=subject,
-                text_body=text,
-                html_body=html,
-                from_name=sender_name,
-                # The author's own identity in From, so the mail arrives from
-                # the person who wrote it. Mailer keeps the SMTP envelope on the
-                # deployment's authenticated address regardless.
-                from_address=sender_address,
-                # The reply target is the author too. Mailer emits the header
-                # only when it says something From does not already say, so this
-                # is a no-op while the two agree — it is declared rather than
-                # assumed so the reply target survives a change to either.
-                reply_to=sender_address if is_valid_email(sender_address) else "",
-                display_to=[str(a) for a in (event.get("to") or [])],
-                display_cc=[str(a) for a in (event.get("cc") or [])],
-                attachments=parts,
-            )
-        except Exception as exc:  # noqa: BLE001 - poison-message handling below
-            return await self._on_failure(str(event_id), event, str(exc))
-
-        await self._mark_sent(event_id, mail_id)
-        self._failures.pop(str(event_id), None)
-        _log.info("relay_mail_sent", event_id=event_id, mail_id=mail_id)
-        return True
 
     async def _decide_transport(
         self,
@@ -541,6 +557,7 @@ class RelayConsumer:
                     org_id=org_id,
                     mail_id=mail_id,
                     attachment=att,
+                    budget_bytes=self._settings.mail_attachment_budget_bytes,
                 )
             if data is None:
                 skipped.append(att.filename)
@@ -713,6 +730,19 @@ class RelayConsumer:
 
     # ── two-phase dedup ──────────────────────────────────────────────────
 
+    @asynccontextmanager
+    async def _mark_inflight(self, event_id: str, recipient_key: str):
+        """Mark (event_id, recipient_key) as actively being worked on by this
+        process for the duration of the block, so _reaper_loop knows not to
+        reclaim it out from under a send that is still retrying.
+        """
+        marker = (event_id, recipient_key)
+        self._inflight.add(marker)
+        try:
+            yield
+        finally:
+            self._inflight.discard(marker)
+
     async def _claim(self, event_id: str, recipient_id: str) -> bool:
         assert self._db is not None
         async with self._db.acquire() as conn:
@@ -734,35 +764,75 @@ class RelayConsumer:
     async def _is_sent(self, event_id: str, recipient_id: str) -> bool:
         """True if a 'sent' row exists (a real duplicate, not our pending retry)."""
         assert self._db is not None
-        async with self._db.acquire() as conn:
-            row = await conn.fetchrow(
-                """
-                SELECT 1 FROM email_consumed
-                WHERE event_id = $1 AND recipient_id = $2 AND state = 'sent'
-                """,
-                event_id, recipient_id,
-            )
-            return row is not None
+        try:
+            async with self._db.acquire() as conn:
+                row = await conn.fetchrow(
+                    """
+                    SELECT 1 FROM email_consumed
+                    WHERE event_id = $1 AND recipient_id = $2 AND state = 'sent'
+                    """,
+                    event_id, recipient_id,
+                )
+                return row is not None
+        except Exception as exc:  # noqa: BLE001 - a DB hiccup must cost this
+            # event (retry treats it as not-yet-sent, same as a fresh 'pending'
+            # row), not the whole process. See _claim above for the same
+            # pattern; this call used to be unguarded and could crash both
+            # consumers via asyncio.gather in __main__.py.
+            _log.error("relay_is_sent_failed", event_id=event_id, error=str(exc))
+            return False
 
-    async def _mark_sent(self, event_id: str, recipient_id: str) -> None:
+    async def _mark_sent(self, event_id: str, recipient_id: str) -> bool:
+        """Flip the dedup row to 'sent'. Returns False (logged) on a DB error
+        rather than raising — the email already went out at this point, so a
+        crash here would take down the whole worker over bookkeeping, not
+        over anything that could still be prevented.
+
+        Retries a few times first: the crash window this can't close (the
+        process dying between the send and this write) is unavoidable without
+        a distributed transaction across SMTP and Postgres, but the far more
+        likely real-world cause — a transient DB hiccup at that exact instant
+        — is exactly what a short retry absorbs, which meaningfully narrows
+        how often a redelivery can end up resending a message that already
+        went out.
+        """
         assert self._db is not None
-        async with self._db.acquire() as conn:
-            await conn.execute(
-                """
-                UPDATE email_consumed SET state = 'sent', sent_at = now()
-                WHERE event_id = $1 AND recipient_id = $2
-                """,
-                event_id, recipient_id,
-            )
+        for attempt in range(3):
+            try:
+                async with self._db.acquire() as conn:
+                    await conn.execute(
+                        """
+                        UPDATE email_consumed SET state = 'sent', sent_at = now()
+                        WHERE event_id = $1 AND recipient_id = $2
+                        """,
+                        event_id, recipient_id,
+                    )
+                return True
+            except Exception as exc:  # noqa: BLE001
+                if attempt == 2:
+                    _log.error("relay_mark_sent_failed", event_id=event_id, error=str(exc))
+                    return False
+                await asyncio.sleep(0.5 * (2**attempt))
+        return False  # unreachable, satisfies type checkers
 
     async def _reaper_loop(self) -> None:
-        """Re-process rows still 'pending' older than 30s (worker crashed).
+        """Re-process rows still 'pending' older than 30s AND not still being
+        actively retried by this process (worker crashed, or a redelivery
+        landed on a different consumer instance).
 
-        Reaper-driven retries don't try to re-send the email yet — that
-        would require persisting the full event payload. Instead the reaper
-        flips them to 'sent' so we move on; in practice a crash mid-pipeline
-        is rare and a missed notification per crash is acceptable (the
-        in-app inbox is always authoritative).
+        Excluding _inflight matters: Mailer.send() retries internally for up
+        to ~100s across 5 attempts, so an ordinary in-progress retry can leave
+        a row 'pending' well past 30s. Without the _inflight check, this loop
+        used to flip such a row to 'sent' out from under the still-running
+        send; if that send then failed for real, the redelivery it should
+        have triggered was instead skipped as an already-sent duplicate —
+        silently and permanently losing the message. See _mark_inflight.
+
+        Reaper-driven retries don't try to re-send the email themselves —
+        that would require persisting the full event payload. Instead the
+        reaper flips genuinely abandoned rows to 'sent' so we move on; in
+        practice a crash mid-pipeline is rare and a missed notification per
+        crash is acceptable (the in-app inbox is always authoritative).
         """
         while not self._stop.is_set():
             try:
@@ -772,20 +842,38 @@ class RelayConsumer:
                 pass
             if self._db is None:
                 continue
-            try:
-                async with self._db.acquire() as conn:
-                    ct = await conn.execute(
+            await self._reap_once()
+
+    async def _reap_once(self) -> None:
+        """One sweep: reclaim rows past the abandonment window, skipping any
+        this process is still actively retrying. Split out from _reaper_loop
+        so the exclusion logic can be exercised directly in tests without
+        waiting on the loop's real 30s timer.
+        """
+        assert self._db is not None
+        try:
+            async with self._db.acquire() as conn:
+                candidates = await conn.fetch(
+                    """
+                    SELECT event_id, recipient_id FROM email_consumed
+                    WHERE state = 'pending' AND consumed_at < now() - interval '30 seconds'
+                    """,
+                )
+                stale = [
+                    (r["event_id"], r["recipient_id"]) for r in candidates
+                    if (str(r["event_id"]), str(r["recipient_id"])) not in self._inflight
+                ]
+                if stale:
+                    await conn.executemany(
                         """
                         UPDATE email_consumed SET state = 'sent', sent_at = now()
-                        WHERE state = 'pending' AND consumed_at < now() - interval '30 seconds'
+                        WHERE event_id = $1 AND recipient_id = $2 AND state = 'pending'
                         """,
+                        stale,
                     )
-                # asyncpg returns "UPDATE N"
-                n = ct.split()[-1] if ct else "0"
-                if n != "0":
-                    _log.info("relay_reaped_pending", count=n)
-            except Exception as exc:  # noqa: BLE001
-                _log.warning("relay_reaper_failed", error=str(exc))
+                    _log.info("relay_reaped_pending", count=len(stale))
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("relay_reaper_failed", error=str(exc))
 
     async def _stop_quietly(self, client) -> None:
         # A hung broker must not block shutdown forever.

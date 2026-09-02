@@ -1,6 +1,18 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Mail, Calendar, MessageSquare, ListTodo, Hash, Users, Building2, Settings } from "lucide-react";
+import {
+  Mail,
+  Calendar,
+  MessageSquare,
+  ListTodo,
+  Hash,
+  Users,
+  Building2,
+  Settings,
+  MoreHorizontal,
+} from "lucide-react";
 import { ProfileMenu } from "../features/ProfileMenu";
+import { usePopupDismiss } from "../lib/usePopupDismiss";
 
 const ITEMS = [
   { key: "mail", label: "Mail", icon: Mail, to: "/app/mail" },
@@ -13,59 +25,138 @@ const ITEMS = [
   { key: "settings", label: "Settings", icon: Settings, to: "/app/settings" },
 ] as const;
 
+/** The bottom tab bar only has room for a handful of icons+labels before it
+ *  reads as cramped rather than compact — these five are the ones a phone
+ *  user reaches for constantly; the rest live behind "More". */
+const BOTTOM_PRIMARY_KEYS = ["mail", "meetings", "chats", "tasks", "channels"] as const;
+const BOTTOM_PRIMARY = ITEMS.filter((it) => (BOTTOM_PRIMARY_KEYS as readonly string[]).includes(it.key));
+const BOTTOM_MORE = ITEMS.filter((it) => !(BOTTOM_PRIMARY_KEYS as readonly string[]).includes(it.key));
+
 /**
- * Section navigation. `side` is the vertical rail used on tablet/desktop;
- * `bottom` is the horizontal tab bar used on phones (rendered at the bottom of
- * the shell so it sits under the thumb).
+ * Section navigation, in three shapes:
+ * - `side` — the vertical rail on tablet/desktop.
+ * - `bottom` — the horizontal tab bar on phones (Mail/Meetings/Chats/Tasks/
+ *   Channels + a "More" overflow for Members/Org/Settings), rendered at the
+ *   bottom of the shell so it sits under the thumb.
+ * - `drawer` — the full labelled list inside the mobile nav drawer
+ *   (MobileNavDrawer.tsx). Same items, same active/badge logic, same `nav()`
+ *   calls as the other two — nothing about routing/nav state is duplicated.
  */
 export function Rail({
   section,
   variant = "side",
   className = "",
   badges = {},
+  onSelect,
 }: {
   section: string | null;
-  variant?: "side" | "bottom";
+  variant?: "side" | "bottom" | "drawer";
   className?: string;
   /** Per-section unread/alert counts keyed by item.key (e.g. mail, tasks). A
    *  value > 0 renders a red badge on top of that icon. */
   badges?: Record<string, number>;
+  /** Fired after navigating to an item — the mobile drawer uses this to close
+   *  itself on selection. Absent for `side`/`bottom`, which have nothing to
+   *  close. */
+  onSelect?: () => void;
 }) {
   const nav = useNavigate();
   const bottom = variant === "bottom";
-  const items = ITEMS;
-  const buttons = items.map((it) => (
-    <RailBtn
-      key={it.key}
-      icon={<it.icon size={20} />}
-      label={it.label}
-      active={section === it.key}
-      bottom={bottom}
-      badge={badges[it.key] ?? 0}
-      onClick={() => nav(it.to)}
-    />
-  ));
+  const drawer = variant === "drawer";
+  const go = (to: string) => {
+    nav(to);
+    onSelect?.();
+  };
+  const buttons = (items: readonly (typeof ITEMS)[number][]) =>
+    items.map((it) => (
+      <RailBtn
+        key={it.key}
+        icon={<it.icon size={20} />}
+        label={it.label}
+        active={section === it.key}
+        bottom={bottom}
+        badge={badges[it.key] ?? 0}
+        onClick={() => go(it.to)}
+      />
+    ));
+
+  if (bottom) {
+    const moreActive = BOTTOM_MORE.some((it) => it.key === section);
+    const moreBadge = BOTTOM_MORE.reduce((sum, it) => sum + (badges[it.key] ?? 0), 0);
+    return (
+      <nav className={`glass flex items-center justify-around rounded-2xl px-1 py-1 ${className}`}>
+        {buttons(BOTTOM_PRIMARY)}
+        <MoreTab active={moreActive} badge={moreBadge} onSelect={go} />
+      </nav>
+    );
+  }
+
   return (
     <nav
-      className={`glass rounded-2xl ${
-        bottom
-          ? "flex items-center justify-around px-1 py-1"
-          : "relative z-30 flex min-h-0 w-[160px] shrink-0 flex-col items-center overflow-hidden px-2 py-4"
+      className={`glass relative z-30 flex min-h-0 shrink-0 flex-col items-center overflow-hidden px-2 py-4 ${
+        drawer ? "w-full rounded-none" : "w-[160px] rounded-2xl"
       } ${className}`}
     >
-      {bottom ? (
-        buttons
-      ) : (
-        <>
-          <div className="min-h-0 w-full flex-1 space-y-1 overflow-y-auto overscroll-contain [scrollbar-color:var(--color-border)_transparent] [scrollbar-width:thin]">
-            {buttons}
-          </div>
-          <div className="w-full shrink-0 pt-5">
-            <ProfileMenu variant="rail" />
-          </div>
-        </>
+      <div className="min-h-0 w-full flex-1 space-y-1 overflow-y-auto overscroll-contain [scrollbar-color:var(--color-border)_transparent] [scrollbar-width:thin]">
+        {buttons(ITEMS)}
+      </div>
+      {!drawer && (
+        <div className="w-full shrink-0 pt-5">
+          <ProfileMenu variant="rail" />
+        </div>
       )}
     </nav>
+  );
+}
+
+/** The bottom bar's overflow tab: opens a small anchored popup listing
+ *  Members/Org/Settings. Renders in the active/purple state when the current
+ *  section is one of those three, so "I'm in a More section" stays visible
+ *  even though none of its items are pinned to the bar itself. */
+function MoreTab({
+  active,
+  badge,
+  onSelect,
+}: {
+  active: boolean;
+  badge: number;
+  onSelect: (to: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const popupRef = usePopupDismiss<HTMLDivElement>(open, () => setOpen(false));
+
+  return (
+    <div ref={popupRef} className="relative flex-1">
+      <RailBtn
+        icon={<MoreHorizontal size={20} />}
+        label="More"
+        active={active}
+        bottom
+        badge={badge}
+        onClick={() => setOpen((v) => !v)}
+      />
+      {open && (
+        <div
+          role="menu"
+          className="glass absolute bottom-full right-0 z-20 mb-2 w-44 rounded-2xl border border-border p-1 shadow-soft"
+        >
+          {BOTTOM_MORE.map((it) => (
+            <button
+              key={it.key}
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                onSelect(it.to);
+              }}
+              className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-medium text-fg transition-colors hover:bg-surface-2"
+            >
+              <it.icon size={17} className="text-muted" />
+              {it.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

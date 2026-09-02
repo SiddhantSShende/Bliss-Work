@@ -100,3 +100,55 @@ async def test_a_reply_to_that_differs_is_kept(outbox):
     )
 
     assert outbox[0]["message"]["Reply-To"] == "support@blisswork.test"
+
+
+# ── header injection ─────────────────────────────────────────────────────────
+#
+# Python's email policy REFUSES a header value containing CR or LF by raising,
+# same as it does for an attachment filename (see test_mail_attachments.py's
+# "cannot inject a header" case). But unlike a filename, the payload here is
+# byte-identical on every redelivery — so an unhandled raise is not a transient
+# failure, it is a guaranteed, permanent DLQ for a message whose only problem
+# is a stray newline in a subject, display name, or address.
+
+
+async def test_a_newline_in_the_subject_does_not_raise_or_forge_a_header(outbox):
+    await _mailer().send(
+        to="partner@outside.test", subject="Q3 numbers\r\nBcc: attacker@evil.test",
+        text_body="Deck attached.", html_body="<p>Deck attached.</p>",
+    )
+
+    assert outbox[0]["message"]["Bcc"] is None
+    assert not any(
+        line.startswith("Bcc:") for line in outbox[0]["message"].as_string().splitlines()
+    )
+
+
+async def test_a_newline_in_the_display_name_does_not_raise(outbox):
+    await _send(
+        _mailer(), from_name="Jane\r\nBcc: attacker@evil.test",
+        from_address="jane@acme.test",
+    )
+
+    assert outbox[0]["message"]["Bcc"] is None
+
+
+async def test_a_newline_in_display_to_does_not_raise(outbox):
+    await _send(_mailer(), display_to=["partner@outside.test\r\nBcc: attacker@evil.test"])
+
+    assert outbox[0]["message"]["Bcc"] is None
+
+
+async def test_a_newline_in_display_cc_does_not_raise(outbox):
+    await _send(_mailer(), display_cc=["cc@outside.test\r\nBcc: attacker@evil.test"])
+
+    assert outbox[0]["message"]["Bcc"] is None
+
+
+async def test_a_newline_in_reply_to_does_not_raise(outbox):
+    await _send(
+        _mailer(), from_name="BlissWork",
+        reply_to="support@blisswork.test\r\nBcc: attacker@evil.test",
+    )
+
+    assert outbox[0]["message"]["Bcc"] is None

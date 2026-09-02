@@ -170,4 +170,62 @@ describe("DeviceActivitySettings", () => {
     await vi.advanceTimersByTimeAsync(60_000);
     expect(agent.state.mock.calls.length).toBe(callsAtUnmount);
   });
+
+  // ── Bug 4: Pause/Disconnect gave zero feedback on failure ──────────────────
+  it("shows an error toast when disconnecting fails, same as a failed connect", async () => {
+    agent.state.mockResolvedValue(macState());
+    agent.pair.mockRejectedValueOnce(new Error("could not reach the pairing service"));
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<DeviceActivitySettings />);
+    const button = await screen.findByRole("button", { name: /turn off/i });
+    await user.click(button);
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith("could not reach the pairing service"),
+    );
+  });
+
+  it("shows an error toast when pausing/resuming fails", async () => {
+    agent.state.mockResolvedValue(macState());
+    agent.setEnabled.mockRejectedValueOnce(new Error("could not update the sampler"));
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<DeviceActivitySettings />);
+    const button = await screen.findByRole("button", { name: /pause/i });
+    await user.click(button);
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith("could not update the sampler"),
+    );
+  });
+
+  it("shows an error toast when the initial state() load fails", async () => {
+    agent.state.mockRejectedValueOnce(new Error("agent not reachable"));
+    render(<DeviceActivitySettings />);
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith("agent not reachable"),
+    );
+  });
+
+  // ── Bug 5: load() had no guard against an out-of-order response ────────────
+  it("discards a stale state() response that resolves after a newer one has already applied", async () => {
+    let resolveFirst!: (v: ReturnType<typeof macState>) => void;
+    agent.state
+      .mockImplementationOnce(() => new Promise((r) => (resolveFirst = r)))
+      .mockResolvedValueOnce(macState({ titleTracking: false, titleTrackingReason: "fresher" }));
+
+    render(<DeviceActivitySettings />);
+    await waitFor(() => expect(agent.state).toHaveBeenCalledTimes(1));
+
+    // A second load() — e.g. the 30s poll tick — fires and resolves before
+    // the still in-flight FIRST call does.
+    await vi.advanceTimersByTimeAsync(30_000);
+    await waitFor(() =>
+      expect(screen.getByText(/application names are recorded, but window titles are not yet/i)).toBeTruthy(),
+    );
+    expect(screen.getByText(/fresher/i)).toBeTruthy();
+
+    // The stale FIRST call resolving afterwards must be discarded rather than
+    // clobbering the fresher state already applied above.
+    resolveFirst(macState());
+    await vi.advanceTimersByTimeAsync(0);
+    expect(screen.getByText(/application names are recorded, but window titles are not yet/i)).toBeTruthy();
+  });
 });

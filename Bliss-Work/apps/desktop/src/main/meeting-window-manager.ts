@@ -75,6 +75,7 @@ export class MeetingWindowManager {
     const win = this.createWindow(callId);
     this.windows.set(callId, win);
     this.wireGracefulClose(win);
+    this.wireCrashRecovery(win, callId);
     win.on("closed", () => {
       this.windows.delete(callId);
       this.onClosed?.(callId);
@@ -126,6 +127,30 @@ export class MeetingWindowManager {
       ipcMain.on("meeting-window:close-ready", onReady);
       win.webContents.send("meeting-window:before-close");
       const safety = setTimeout(finish, GRACEFUL_CLOSE_TIMEOUT_MS);
+    });
+  }
+
+  /**
+   * A renderer crash (`render-process-gone`) does NOT destroy the
+   * BrowserWindow — Electron leaves it sitting there blank and unresponsive,
+   * still reporting `!isDestroyed()`. Without this, has()/get()/open() went
+   * on treating that window as alive, so a retried open(callId) — e.g. the
+   * user clicking Join again after the meeting window froze — just
+   * re-focused the dead window instead of ever recovering the meeting.
+   *
+   * Only forces the window closed here. Cleanup (dropping it from
+   * `windows`, firing onClosed) stays the SINGLE job of the "closed"
+   * listener wired in open() above, exactly like every other way one of
+   * these windows can go away (the OS close button, the hang-up button,
+   * destroyAll() at quit) — so the status pill clears the same way
+   * regardless of which of those this was. A crashed renderer cannot answer
+   * wireGracefulClose's own handshake, so this destroys the window directly
+   * rather than routing through requestClose()/win.close().
+   */
+  private wireCrashRecovery(win: BrowserWindow, callId: string): void {
+    win.webContents.on("render-process-gone", (_event, details) => {
+      console.error("[meeting-window] renderer gone", callId, details.reason);
+      if (!win.isDestroyed()) win.destroy();
     });
   }
 

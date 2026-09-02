@@ -57,9 +57,12 @@ export const MemberDTO = z.object({
 });
 export type MemberDTO = z.infer<typeof MemberDTO>;
 
-/** One entry of the tamper-evident audit chain (auth-svc `audit_log`). */
+/** One entry of the tamper-evident audit chain (auth-svc `audit_log`).
+ *  `id` is the audit_log UUIDv7 (time-ordered) as of
+ *  migrations/0018_audit_log_uuid_id.sql — previously a bigserial id
+ *  stringified as an int. */
 export const AuditEntryDTO = z.object({
-  id: z.number().int(),
+  id: z.string(),
   actorId: z.string().nullable().default(null),
   action: z.string(),
   target: z.string().nullable().default(null),
@@ -70,7 +73,9 @@ export type AuditEntryDTO = z.infer<typeof AuditEntryDTO>;
 
 export const AuditPage = z.object({
   entries: z.array(AuditEntryDTO),
-  nextCursor: z.number().int().nullable().default(null),
+  /** The id to pass back as `before` for the next page — a UUIDv7, same as
+   *  AuditEntryDTO.id. */
+  nextCursor: z.string().nullable().default(null),
 });
 export type AuditPage = z.infer<typeof AuditPage>;
 
@@ -349,6 +354,16 @@ export type LoginResult = z.infer<typeof LoginResult>;
 export function isMfaPending(result: LoginResult): result is MfaPendingDTO {
   return "mfaRequired" in result && result.mfaRequired === true;
 }
+
+/** GET /auth/mfa/methods — which second factors the CALLER has registered.
+ *  Lets Settings decide whether to offer a passkey as a step-up shortcut
+ *  (MFA-disable / backup-codes regenerate) without guessing from
+ *  `user.mfaEnrolled` alone — a passkey-only enrollee has no TOTP code or
+ *  backup code to fall back on for either action. */
+export const MfaMethodsResult = z.object({
+  methods: z.array(z.enum(["totp", "webauthn"])),
+});
+export type MfaMethodsResult = z.infer<typeof MfaMethodsResult>;
 
 export const OrgMfaSettingsDTO = z.object({
   requireMfaForAdmins: z.boolean(),
@@ -956,6 +971,8 @@ export const ChannelMessageDTO = z.object({
   deletedForAll: z.boolean().optional(),
   /** Pinned for the whole channel by a moderator. */
   pinned: z.boolean().optional(),
+  /** The message this one quotes. Mirrors MessageDTO.replyToId. */
+  replyToId: z.string().uuid().optional(),
 });
 export type ChannelMessageDTO = z.infer<typeof ChannelMessageDTO>;
 

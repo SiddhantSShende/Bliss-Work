@@ -27,12 +27,17 @@ from sqlalchemy import text
 from app import service
 from app.routes import mfa_service
 from app.routes.mfa_webauthn import verify_webauthn_assertion
+from app.security.passwords import hash_password_async
 from webauthn_vectors import WebauthnAuthenticator
 
 pytestmark = pytest.mark.integration
 
 RP_ID = "localhost"
 ORIGIN = "http://localhost:5173"
+# Used by the step-up tests below — verify_step_up checks a real password
+# hash (unlike most of this file's users, seeded with password_hash='x'),
+# since step-up is password + a second factor, not the second factor alone.
+STEP_UP_PASSWORD = "correct horse battery staple"
 
 
 async def _seed_org_and_user(conn, *, role: str = "member") -> tuple[str, str]:
@@ -55,6 +60,60 @@ async def _seed_org_and_user(conn, *, role: str = "member") -> tuple[str, str]:
         {"u": user_id, "r": role_id, "o": org_id},
     )
     return org_id, user_id
+
+
+async def _seed_second_user(conn, org_id: str, *, role: str = "member") -> str:
+    """A second user in the SAME org as an existing _seed_org_and_user() call.
+    Needed for the cross-user step-up test below: unlike
+    verify_webauthn_assertion (which never touches `users`), verify_step_up
+    ALSO does a plain `SELECT ... FROM users WHERE id = :id` for the password
+    check, and that table is RLS ENABLE+FORCE — so the two users under test
+    must share one org GUC for both to be visible in the same test."""
+    user_id = str(uuid.uuid4())
+    await service.set_bypass_rls(conn)
+    await conn.execute(
+        text("INSERT INTO users (id, org_id, username, password_hash) VALUES (:id, :org, :un, 'x')"),
+        {"id": user_id, "org": org_id, "un": f"user-{user_id[:8]}"},
+    )
+    role_id = (await conn.execute(text("SELECT id FROM roles WHERE name = :n"), {"n": role})).scalar()
+    await conn.execute(
+        text("INSERT INTO user_roles (user_id, role_id, org_id) VALUES (:u, :r, :o)"),
+        {"u": user_id, "r": role_id, "o": org_id},
+    )
+    return user_id
+
+
+async def _register_passkey(conn, org_id: str, user_id: str, authenticator: WebauthnAuthenticator) -> None:
+    """Shared by the step-up tests below: mint a challenge, run a real
+    registration ceremony, and persist the resulting credential — the same
+    sequence test_webauthn_registration_and_authentication_round_trip below
+    performs inline, factored out here since four more tests need it."""
+    from webauthn import verify_registration_response
+
+    challenge = await mfa_service.mint_webauthn_challenge(conn, org_id, user_id)
+    credential = authenticator.registration_response(
+        rp_id=RP_ID, origin=ORIGIN, challenge=challenge, sign_count=0
+    )
+    verified = verify_registration_response(
+        credential=credential,
+        expected_challenge=challenge,
+        expected_rp_id=RP_ID,
+        expected_origin=ORIGIN,
+    )
+    await conn.execute(
+        text(
+            "INSERT INTO mfa_webauthn_credentials (id, user_id, org_id, credential_id, public_key, sign_count) "
+            "VALUES (:id, :uid, :org, :cid, :pk, :sc)"
+        ),
+        {
+            "id": str(uuid.uuid4()),
+            "uid": user_id,
+            "org": org_id,
+            "cid": verified.credential_id,
+            "pk": verified.credential_public_key,
+            "sc": verified.sign_count,
+        },
+    )
 
 
 # ── TOTP replay-safety ────────────────────────────────────────────────────────
@@ -374,3 +433,111 @@ async def test_webauthn_credential_id_is_scoped_to_the_right_user(sa_conn):
     with pytest.raises(HTTPException) as exc_info:
         await verify_webauthn_assertion(sa_conn, forged)
     assert exc_info.value.status_code == 401
+
+
+# ── Step-up re-auth via WebAuthn assertion ────────────────────────────────────
+# The bug this section guards against: a user enrolled via passkey ONLY (no
+# TOTP secret, no minted backup codes) had no way to satisfy step-up
+# re-auth at all, so they could never disable MFA or regenerate backup codes
+# through the normal password+code/backup-code step-up flow. verify_step_up's
+# webauthn_credential parameter is the fix; these exercise it against real
+# WebAuthn crypto, the same way the round-trip test above does for login.
+async def test_step_up_succeeds_via_webauthn_assertion_for_a_passkey_only_user(sa_conn):
+    org_id, user_id = await _seed_org_and_user(sa_conn)
+    await service.set_org_guc(sa_conn, org_id)
+    await sa_conn.execute(
+        text("UPDATE users SET password_hash = :h WHERE id = :id"),
+        {"h": await hash_password_async(STEP_UP_PASSWORD), "id": user_id},
+    )
+    authenticator = WebauthnAuthenticator()
+    await _register_passkey(sa_conn, org_id, user_id, authenticator)
+
+    challenge = await mfa_service.mint_webauthn_challenge(sa_conn, org_id, user_id)
+    assertion = authenticator.authentication_response(
+        rp_id=RP_ID, origin=ORIGIN, challenge=challenge, sign_count=1
+    )
+
+    ok = await mfa_service.verify_step_up(
+        sa_conn, org_id, user_id, STEP_UP_PASSWORD, None, None, assertion
+    )
+    assert ok is True
+
+
+async def test_step_up_rejects_a_replayed_webauthn_assertion(sa_conn):
+    """The challenge behind the assertion is single-use — presenting the SAME
+    assertion a second time (e.g. a captured/replayed request) must fail, not
+    silently succeed again."""
+    org_id, user_id = await _seed_org_and_user(sa_conn)
+    await service.set_org_guc(sa_conn, org_id)
+    await sa_conn.execute(
+        text("UPDATE users SET password_hash = :h WHERE id = :id"),
+        {"h": await hash_password_async(STEP_UP_PASSWORD), "id": user_id},
+    )
+    authenticator = WebauthnAuthenticator()
+    await _register_passkey(sa_conn, org_id, user_id, authenticator)
+
+    challenge = await mfa_service.mint_webauthn_challenge(sa_conn, org_id, user_id)
+    assertion = authenticator.authentication_response(
+        rp_id=RP_ID, origin=ORIGIN, challenge=challenge, sign_count=1
+    )
+
+    assert (
+        await mfa_service.verify_step_up(sa_conn, org_id, user_id, STEP_UP_PASSWORD, None, None, assertion)
+        is True
+    )
+    # The SAME assertion again: its challenge was already consumed above.
+    assert (
+        await mfa_service.verify_step_up(sa_conn, org_id, user_id, STEP_UP_PASSWORD, None, None, assertion)
+        is False
+    )
+
+
+async def test_step_up_rejects_a_valid_assertion_paired_with_the_wrong_password(sa_conn):
+    """Step-up is password AND a second factor — a correct passkey alone must
+    not be enough, same as a correct TOTP code alone isn't."""
+    org_id, user_id = await _seed_org_and_user(sa_conn)
+    await service.set_org_guc(sa_conn, org_id)
+    await sa_conn.execute(
+        text("UPDATE users SET password_hash = :h WHERE id = :id"),
+        {"h": await hash_password_async(STEP_UP_PASSWORD), "id": user_id},
+    )
+    authenticator = WebauthnAuthenticator()
+    await _register_passkey(sa_conn, org_id, user_id, authenticator)
+
+    challenge = await mfa_service.mint_webauthn_challenge(sa_conn, org_id, user_id)
+    assertion = authenticator.authentication_response(
+        rp_id=RP_ID, origin=ORIGIN, challenge=challenge, sign_count=1
+    )
+
+    ok = await mfa_service.verify_step_up(
+        sa_conn, org_id, user_id, "definitely the wrong password", None, None, assertion
+    )
+    assert ok is False
+
+
+async def test_step_up_rejects_a_webauthn_credential_scoped_to_a_different_user(sa_conn):
+    """A step-up challenge minted for the CALLER, answered with someone
+    ELSE's passkey, must fail exactly like an unrecognized one — mirrors
+    verify_webauthn_assertion's own cross-user scoping test above, exercised
+    here through verify_step_up end-to-end."""
+    org_id, victim_id = await _seed_org_and_user(sa_conn)
+    attacker_id = await _seed_second_user(sa_conn, org_id)
+    await service.set_org_guc(sa_conn, org_id)
+    await sa_conn.execute(
+        text("UPDATE users SET password_hash = :h WHERE id = :id"),
+        {"h": await hash_password_async(STEP_UP_PASSWORD), "id": attacker_id},
+    )
+    victim_authenticator = WebauthnAuthenticator()
+    await _register_passkey(sa_conn, org_id, victim_id, victim_authenticator)
+
+    # A challenge minted for the ATTACKER's own step-up attempt, answered with
+    # the VICTIM's passkey.
+    attacker_challenge = await mfa_service.mint_webauthn_challenge(sa_conn, org_id, attacker_id)
+    forged = victim_authenticator.authentication_response(
+        rp_id=RP_ID, origin=ORIGIN, challenge=attacker_challenge, sign_count=1
+    )
+
+    ok = await mfa_service.verify_step_up(
+        sa_conn, org_id, attacker_id, STEP_UP_PASSWORD, None, None, forged
+    )
+    assert ok is False

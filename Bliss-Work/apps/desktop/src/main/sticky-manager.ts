@@ -12,16 +12,23 @@ import { createStickyWindow, setNoteOnTop } from "./windows";
 import {
   addPinned,
   clampToPrimary,
-  forget,
   gc,
   getGeometry,
   getPinned,
   isPinned,
   removePinned,
   saveGeometry,
-  touch,
 } from "./sticky-state";
 import { reclampGroupToPrimary, snapBackIfOffPrimary } from "./sticky-window-group";
+
+/**
+ * Fixed synthetic geometry key for the single carousel container, in the same
+ * `sticky-state.ts` geometry map that used to hold one entry per taskId. One
+ * widget now, one entry — no schema change needed (StickyGeometry already has
+ * every field a container needs), and old per-taskId entries simply stop being
+ * written and age out via the existing 30-day GC.
+ */
+const CONTAINER_ID = "sticky:tasks";
 
 /**
  * Hard cap on simultaneous task widgets. Settings-gated raise to 12 lives in
@@ -43,10 +50,11 @@ const PILL_W = 220;
 const PILL_H = 52;
 /** The note's normal minimum size (mirrors createStickyWindow). Restored when
  *  the user expands a collapsed pill back to a full note. */
-const FULL_MIN_W = 300;
+const FULL_MIN_W = 320;
 const FULL_MIN_H = 140;
-/** Fallback full size if we somehow lack a stored expanded size. */
-const FULL_W = 360;
+/** Fallback full size if we somehow lack a stored expanded size (mirrors
+ *  createStickyWindow's default). */
+const FULL_W = 380;
 const FULL_H = 200;
 
 /**
@@ -92,7 +100,14 @@ const FULL_H = 200;
  *     widgets off-screen on relaunch.
  */
 export class StickyManager {
-  private widgets = new Map<string, BrowserWindow>();
+  /** The single carousel window, or null while nothing is pinned/floating. */
+  private win: BrowserWindow | null = null;
+  /** The floating set as of the last reconcile() — what the carousel pages
+   *  through. next()/prev() only move currentIndex within this; reconcile()
+   *  is what recomputes it. */
+  private visible: StickyTaskDTO[] = [];
+  /** Which entry of `visible` the carousel currently shows. */
+  private currentIndex = 0;
   private tasks: StickyTaskDTO[] = [];
   /**
    * Notes the user took off screen with the note's own X, THIS RUN ONLY.
@@ -192,9 +207,10 @@ export class StickyManager {
   hideForSession(taskId: string): void {
     if (typeof taskId !== "string" || !taskId) return;
     this.hiddenThisSession.add(taskId);
-    const w = this.widgets.get(taskId);
-    if (w && !w.isDestroyed()) w.close();
-    this.widgets.delete(taskId);
+    // No per-task window to close any more — reconcile() drops it from the
+    // carousel's visible set (and closes the shared window if that was the
+    // last one), advancing the index the same way any other removal does.
+    this.reconcile();
   }
 
   taskFor(id: string): StickyTaskDTO | undefined {
@@ -224,17 +240,16 @@ export class StickyManager {
     // Asking for a note back is the undo for having hidden it — otherwise a
     // hidden task reports "already pinned" and nothing appears.
     this.hiddenThisSession.delete(taskId);
-    const existing = this.widgets.get(taskId);
     if (isPinned(taskId)) {
-      if (existing && !existing.isDestroyed()) {
-        if (existing.isMinimized()) existing.restore();
-        if (getGeometry(taskId)?.collapsed) this.setCollapsed(taskId, false);
-        // Deliberately do NOT focus()/raise the note: it is a non-focusable
-        // companion window whose z-order is the OS's business, not ours.
-        // Making it visible again just means restoring/expanding it in place.
-      } else {
-        this.reconcile();
-      }
+      // Already pinned — bring the CONTAINER into view and page it to this
+      // task, rather than creating or duplicating anything.
+      if (this.win && !this.win.isDestroyed() && this.win.isMinimized()) this.win.restore();
+      if (getGeometry(CONTAINER_ID)?.collapsed) this.setCollapsed(false);
+      this.reconcile();
+      this.showTask(taskId);
+      // Deliberately do NOT focus()/raise the note: it is a non-focusable
+      // companion window whose z-order is the OS's business, not ours.
+      // Making it visible again just means restoring/expanding it in place.
       return { ok: true, pinned: getPinned() };
     }
     // If the task isn't in this.tasks yet (a very fresh assign + immediate manual
@@ -262,7 +277,21 @@ export class StickyManager {
     }
     addPinned(taskId);
     this.reconcile();
+    // A newly pinned task is what the carousel shows now — satisfies "newly
+    // pinned tasks automatically become available in the same carousel"
+    // without making the user page to find it.
+    this.showTask(taskId);
     return { ok: true, pinned: getPinned() };
+  }
+
+  /** Point the carousel at a specific task, if it's currently floating.
+   *  No-op (silently) if the task isn't in the visible set — callers only
+   *  invoke this right after a reconcile that should have put it there. */
+  private showTask(taskId: string): void {
+    const i = this.visible.findIndex((t) => t.taskId === taskId);
+    if (i === -1) return;
+    this.currentIndex = i;
+    this.pushCurrent();
   }
 
   /** Task ids currently pinned to the desktop (the renderer reflects this on
@@ -281,10 +310,8 @@ export class StickyManager {
    * next task list change, which may never come after a lone acknowledge. This
    * handshake guarantees the note paints its task as soon as it's ready.
    */
-  onRendererReady(taskId: string): void {
-    const w = this.widgets.get(taskId);
-    const task = this.taskFor(taskId);
-    if (w && !w.isDestroyed() && task) this.pushTask(w, task);
+  onRendererReady(): void {
+    this.pushCurrent();
   }
 
   /**
@@ -307,11 +334,11 @@ export class StickyManager {
     }
     for (const id of idsToPrune(getPinned(), live)) {
       removePinned(id);
-      forget(id);
-      const w = this.widgets.get(id);
-      if (w && !w.isDestroyed()) w.close();
-      this.widgets.delete(id);
     }
+    // No per-task window/geometry to tear down individually any more —
+    // reconcile() drops the pruned ids from the carousel's visible set and
+    // closes the shared window if nothing is left floating.
+    this.reconcile();
   }
 
   /** Collapse a note to a small pill, or expand it back. The note window is
@@ -319,15 +346,15 @@ export class StickyManager {
    *  in the group.
    *  Order matters: when shrinking below the normal minimum we must lower the
    *  minimum size BEFORE setBounds, and restore it AFTER expanding. */
-  setCollapsed(taskId: string, collapsed: boolean): void {
-    const w = this.widgets.get(taskId);
+  setCollapsed(collapsed: boolean): void {
+    const w = this.win;
     if (!w || w.isDestroyed()) {
       // No live window (e.g. transiently absent). Still persist the intent so
-      // the flag is correct when the note re-creates, rather than silently
-      // dropping the user's collapse/expand.
-      const g = getGeometry(taskId);
+      // the flag is correct when the container re-creates, rather than
+      // silently dropping the user's collapse/expand.
+      const g = getGeometry(CONTAINER_ID);
       if (g) {
-        saveGeometry(taskId, {
+        saveGeometry(CONTAINER_ID, {
           x: g.x,
           y: g.y,
           width: g.width,
@@ -345,7 +372,7 @@ export class StickyManager {
       // Save the flag + the full size to restore to BEFORE resizing, so the
       // 'resize' persist listener (which copies prev.collapsed) stays correct
       // regardless of event timing. Lower the minimum before shrinking below it.
-      saveGeometry(taskId, {
+      saveGeometry(CONTAINER_ID, {
         x: b.x,
         y: b.y,
         width: PILL_W,
@@ -359,12 +386,12 @@ export class StickyManager {
       w.setResizable(false);
       w.setBounds({ x: b.x, y: b.y, width: PILL_W, height: PILL_H });
     } else {
-      const stored = getGeometry(taskId);
+      const stored = getGeometry(CONTAINER_ID);
       const fw = stored?.expandedWidth ?? FULL_W;
       const fh = stored?.expandedHeight ?? FULL_H;
       // Save collapsed:false BEFORE setBounds so a same-tick 'resize' persist
       // can't record full bounds while the flag still reads true.
-      saveGeometry(taskId, {
+      saveGeometry(CONTAINER_ID, {
         x: b.x,
         y: b.y,
         width: fw,
@@ -405,23 +432,37 @@ export class StickyManager {
    * See ./app-active for how the reading is decided.
    */
   setSafeToFloat(safe: boolean): void {
-    for (const [, w] of this.widgets) {
-      if (w.isDestroyed()) continue;
-      if (safe) {
-        setNoteOnTop(w, true);
-        if (!w.isVisible()) w.showInactive();
-      } else {
-        setNoteOnTop(w, false);
-        if (w.isVisible()) w.hide();
-      }
+    const w = this.win;
+    if (!w || w.isDestroyed()) return;
+    if (safe) {
+      setNoteOnTop(w, true);
+      if (!w.isVisible()) w.showInactive();
+    } else {
+      setNoteOnTop(w, false);
+      if (w.isVisible()) w.hide();
     }
   }
 
-  /** Re-confine every live note to the primary display. Called on display
-   *  add/remove/metrics-change so unplugging the monitor a note drifted toward
+  /** Re-confine the note to the primary display. Called on display
+   *  add/remove/metrics-change so unplugging the monitor it drifted toward
    *  can't strand it off the main desktop screen. */
   reclampAll(): void {
-    reclampGroupToPrimary(this.widgets.values());
+    reclampGroupToPrimary(this.win ? [this.win] : []);
+  }
+
+  /** Advance the carousel to the next pinned task, wrapping around. A no-op
+   *  with 0 or 1 floating tasks (arrows are hidden in that case anyway). */
+  next(): void {
+    if (this.visible.length <= 1) return;
+    this.currentIndex = (this.currentIndex + 1) % this.visible.length;
+    this.pushCurrent();
+  }
+
+  /** Retreat the carousel to the previous pinned task, wrapping around. */
+  prev(): void {
+    if (this.visible.length <= 1) return;
+    this.currentIndex = (this.currentIndex - 1 + this.visible.length) % this.visible.length;
+    this.pushCurrent();
   }
 
   private reconcile(): void {
@@ -432,51 +473,51 @@ export class StickyManager {
     // critically, so the next live push does not put it straight back. It stays
     // pinned on disk throughout: that is what brings it back after a restart.
     const visible = selectFloatingTasks(this.tasks, this.visiblePinned(), MAX_WIDGETS);
-    const keep = new Set(visible.map((t) => t.taskId));
 
-    // Tear a window down only when its task was UNPINNED (e.g. prunePinned
-    // removed it on completion) or it's present-but-demoted below the cap. A
-    // pinned task transiently absent from THIS push keeps its window — only
-    // prunePinned (live-push authority) closes a completed pinned note, so an
-    // incomplete push never makes a live commitment flicker.
-    for (const [id, w] of [...this.widgets]) {
-      const present = this.tasks.some((t) => t.taskId === id);
-      if (!isPinned(id) || (present && !keep.has(id))) {
-        if (!w.isDestroyed()) w.close();
-        this.widgets.delete(id);
-      }
+    if (visible.length === 0) {
+      if (this.win && !this.win.isDestroyed()) this.win.close();
+      this.win = null;
+      this.visible = [];
+      this.currentIndex = 0;
+      gc([CONTAINER_ID]);
+      return;
     }
 
-    visible.forEach((task, i) => {
-      const w = this.widgets.get(task.taskId);
-      if (!w || w.isDestroyed()) {
-        const collapsed = getGeometry(task.taskId)?.collapsed ?? false;
-        const win = createStickyWindow(task.taskId, i, collapsed);
-        this.widgets.set(task.taskId, win);
-        this.positionWidget(win, task.taskId, i);
-        this.wireGeometryPersistence(win, task.taskId);
-        // Look up the freshest task by id when the page finishes loading (not
-        // the captured one), and fire once so an HMR reload can't re-push stale
-        // data over a newer render.
-        win.webContents.once("did-finish-load", () => {
-          const fresh = this.taskFor(task.taskId);
-          if (fresh) this.pushTask(win, fresh);
-        });
-      } else {
-        touch(task.taskId);
-        this.pushTask(w, task);
-      }
-    });
+    // Keep pointing at the same task across a reconcile (one elsewhere got
+    // acknowledged, a new one auto-pinned) rather than snapping the carousel
+    // back to the first page under the user. Falls back to clamping in range
+    // if the previously shown task itself dropped out of the set (hidden,
+    // pruned, or the cap demoted it).
+    const shownId = this.visible[this.currentIndex]?.taskId;
+    const keptIndex = shownId ? visible.findIndex((t) => t.taskId === shownId) : -1;
+    this.visible = visible;
+    this.currentIndex = keptIndex !== -1 ? keptIndex : Math.min(this.currentIndex, visible.length - 1);
 
-    // GC against the live + pinned set so sticky-state.json doesn't grow forever
-    // but never drops an unfinished pinned commitment's geometry.
-    gc([...keep, ...getPinned()]);
+    if (!this.win || this.win.isDestroyed()) {
+      const collapsed = getGeometry(CONTAINER_ID)?.collapsed ?? false;
+      const win = createStickyWindow(collapsed);
+      this.win = win;
+      this.positionWidget(win);
+      this.wireGeometryPersistence(win);
+      // Look up the freshest carousel state when the page finishes loading
+      // (not a captured snapshot), and fire once so an HMR reload can't
+      // re-push stale data over a newer render.
+      win.webContents.once("did-finish-load", () => this.pushCurrent());
+    } else {
+      this.pushCurrent();
+    }
+
+    // GC against the container's own key so sticky-state.json doesn't grow
+    // forever. There's exactly one entry for it (unlike the old per-task
+    // scheme), so this just keeps it exempt from the age-out sweep for as
+    // long as something is pinned.
+    gc([CONTAINER_ID]);
   }
 
-  /** Restore from sticky-state.json if present; otherwise lay out via the
-   *  default top-right cascade so first-run feels familiar. */
-  private positionWidget(w: BrowserWindow, widgetId: string, index: number): void {
-    const stored = getGeometry(widgetId);
+  /** Restore from sticky-state.json if present; otherwise place the container
+   *  at its default top-right position so first-run feels familiar. */
+  private positionWidget(w: BrowserWindow): void {
+    const stored = getGeometry(CONTAINER_ID);
     if (stored) {
       const g = clampToPrimary(stored);
       if (g.collapsed) {
@@ -489,11 +530,11 @@ export class StickyManager {
       } else {
         w.setBounds({ x: g.x, y: g.y, width: g.width, height: g.height });
       }
-      // Deliberately NOT restoring a stored `minimized` flag. These windows are
+      // Deliberately NOT restoring a stored `minimized` flag. This window is
       // built minimizable:false + skipTaskbar:true, so a note that somehow got
       // minimised has no taskbar button to bring it back and setSafeToFloat
       // cannot show it either — it is invisible for good, across every restart,
-      // with the task still open. Older state files (and Linux WMs that
+      // with tasks still pinned. Older state files (and Linux WMs that
       // minimise regardless of the flag) can both carry one, so it is ignored
       // here and cleared on the next save.
       return;
@@ -502,19 +543,19 @@ export class StickyManager {
     // Inset by the note's own width so the default position tucks it against
     // the right edge rather than half off-screen.
     const x = workArea.x + workArea.width - FULL_W - SCREEN_PAD;
-    const y = workArea.y + 20 + index * 220;
+    const y = workArea.y + 20;
     w.setPosition(Math.max(workArea.x + SCREEN_PAD, x), Math.max(workArea.y + SCREEN_PAD, y));
   }
 
   /** Wire move/resize/minimize listeners to keep sticky-state in sync. Preserves
    *  the collapsed flag + last-expanded size across plain move/resize events
    *  (which fire on programmatic collapse too). */
-  private wireGeometryPersistence(w: BrowserWindow, widgetId: string): void {
+  private wireGeometryPersistence(w: BrowserWindow): void {
     const persist = () => {
       if (w.isDestroyed()) return;
       const b = w.getBounds();
-      const prev = getGeometry(widgetId);
-      saveGeometry(widgetId, {
+      const prev = getGeometry(CONTAINER_ID);
+      saveGeometry(CONTAINER_ID, {
         x: b.x,
         y: b.y,
         width: b.width,
@@ -539,8 +580,7 @@ export class StickyManager {
     });
     // No user-facing close on a locked note; window teardown is driven by the
     // manager (unpin/complete via reconcile/prunePinned), which owns the
-    // pinned-set + geometry cleanup. So no forget() here — a transient close
-    // must not drop an unfinished commitment.
+    // pinned-set + geometry cleanup.
   }
 
   /**
@@ -550,19 +590,26 @@ export class StickyManager {
    * token trusted verbatim) and reports it here; a malformed value is simply
    * dropped rather than handed to the native window.
    */
-  setBackgroundColor(taskId: string, color: string): void {
-    const w = this.widgets.get(taskId);
+  setBackgroundColor(color: string): void {
+    const w = this.win;
     if (!w || w.isDestroyed()) return;
     if (!/^#[0-9a-fA-F]{6}$/.test(color)) return;
     w.setBackgroundColor(color);
   }
 
-  private pushTask(w: BrowserWindow, task: StickyTaskDTO): void {
-    if (!w.isDestroyed()) w.webContents.send("sticky:task", task);
+  /** Push the current carousel page (the full visible set + which index is
+   *  shown) to the renderer. Sending the whole set rather than just the
+   *  index keeps main and renderer trivially in sync — no separate "here's
+   *  the array" vs "here's where you are" messages to keep ordered. */
+  private pushCurrent(): void {
+    const w = this.win;
+    if (w && !w.isDestroyed()) {
+      w.webContents.send("sticky:tasks", { tasks: this.visible, index: this.currentIndex });
+    }
   }
 
   destroyAll(): void {
-    for (const [, w] of this.widgets) if (!w.isDestroyed()) w.destroy();
-    this.widgets.clear();
+    if (this.win && !this.win.isDestroyed()) this.win.destroy();
+    this.win = null;
   }
 }

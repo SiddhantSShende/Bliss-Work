@@ -23,6 +23,15 @@ import { X } from "lucide-react";
 export function useDialogBehavior(open: boolean, onClose: () => void) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const restoreTo = useRef<HTMLElement | null>(null);
+  // Read via a ref inside the effect rather than closing over `onClose`
+  // directly. Several callers pass a fresh inline closure on every render
+  // (e.g. `onClose={busy ? () => {} : onClose}`), and `onClose` used to be a
+  // dependency of the effect below — so typing into a second field re-ran the
+  // whole "move focus into the dialog" setup on every keystroke, yanking
+  // focus back to the first focusable element and making the field
+  // untypeable past its first character.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!open) return;
@@ -51,7 +60,7 @@ export function useDialogBehavior(open: boolean, onClose: () => void) {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.stopPropagation();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (e.key !== "Tab") return;
@@ -75,7 +84,8 @@ export function useDialogBehavior(open: boolean, onClose: () => void) {
       document.removeEventListener("keydown", onKeyDown, true);
       restoreTo.current?.focus?.();
     };
-  }, [open, onClose]);
+    // Deliberately NOT depending on `onClose` — see onCloseRef above.
+  }, [open]);
 
   return panelRef;
 }
@@ -134,13 +144,14 @@ export function Modal({
   );
 }
 
-/** Right-side slide-over sheet. */
+/** Slide-over sheet, from the right by default. */
 export function Sheet({
   open,
   onClose,
   children,
   title,
   showClose = false,
+  side = "right",
 }: {
   open: boolean;
   onClose: () => void;
@@ -155,14 +166,19 @@ export function Sheet({
    * primitive. Needs `title` — the X lives in the title row.
    */
   showClose?: boolean;
+  /** Which edge the panel slides in from. Defaults to "right" (every existing
+   *  caller) — "left" is for the mobile nav drawer, which needs the
+   *  hamburger-opens-a-left-drawer convention every other sheet doesn't. */
+  side?: "left" | "right";
 }) {
   const panelRef = useDialogBehavior(open, onClose);
+  const fromLeft = side === "left";
 
   return (
     <AnimatePresence>
       {open && (
         <motion.div
-          className="fixed inset-0 z-50 flex justify-end bg-black/30 backdrop-blur-sm"
+          className={`fixed inset-0 z-50 flex ${fromLeft ? "justify-start" : "justify-end"} bg-black/30 backdrop-blur-sm`}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -174,10 +190,12 @@ export function Sheet({
             aria-modal="true"
             aria-label={title}
             tabIndex={-1}
-            className="flex h-full w-full max-w-sm flex-col border-l border-border bg-surface shadow-card"
-            initial={{ x: 48 }}
+            className={`flex h-full w-full max-w-sm flex-col bg-surface shadow-card ${
+              fromLeft ? "border-r border-border" : "border-l border-border"
+            }`}
+            initial={{ x: fromLeft ? -48 : 48 }}
             animate={{ x: 0 }}
-            exit={{ x: 48 }}
+            exit={{ x: fromLeft ? -48 : 48 }}
             transition={{ type: "spring", stiffness: 340, damping: 34 }}
             onClick={(e) => e.stopPropagation()}
           >

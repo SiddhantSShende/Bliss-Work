@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Hash, Users, ChevronLeft, Lock } from "lucide-react";
@@ -354,9 +354,30 @@ export function ChannelView() {
 
   const confirmDelete = () => setDeleteOpen(true);
 
+  // The message being quoted, if any. Cleared on send and on channel switch.
+  //
+  // Mirrored into a ref because useChatMedia closes over `send` and would
+  // otherwise capture a stale value: the quote must be read at the moment the
+  // user presses Send, not at the moment the hook was built. Same pattern as
+  // DMView's replyTo/replyToRef.
+  const [replyTo, setReplyTo] = useState<string | null>(null);
+  const replyToRef = useRef<string | null>(null);
+  replyToRef.current = replyTo;
+  useEffect(() => setReplyTo(null), [channelId]);
+
+  /** Consume the pending quote: it applies to the FIRST message this send
+   *  emits, and to nothing after it. */
+  const takeReply = () => {
+    const id = replyToRef.current ?? undefined;
+    replyToRef.current = null;
+    if (id) setReplyTo(null);
+    return id;
+  };
+
   const send = useMutation({
-    mutationFn: (body: string) => api.sendChannelMessage(channelId, body),
-    onMutate: async (body) => {
+    mutationFn: ({ body, replyToId }: { body: string; replyToId?: string }) =>
+      api.sendChannelMessage(channelId, body, undefined, undefined, replyToId),
+    onMutate: async ({ body, replyToId }) => {
       await qc.cancelQueries({ queryKey: qk.channelMessages(channelId) });
       const prev = qc.getQueryData<ChannelMessageDTO[]>(qk.channelMessages(channelId)) ?? [];
       const tempId = `temp:${crypto.randomUUID()}`;
@@ -364,7 +385,7 @@ export function ChannelView() {
       const optimistic: ChannelMessageDTO = {
         id: tempId, channelId, seq, senderId: me.id,
         senderUsername: me.username, senderDisplayName: me.displayName,
-        body, createdAt: new Date().toISOString(),
+        body, replyToId, createdAt: new Date().toISOString(),
       };
       qc.setQueryData<ChannelMessageDTO[]>(qk.channelMessages(channelId), [...prev, optimistic]);
       return { tempId };
@@ -397,6 +418,7 @@ export function ChannelView() {
         id: m.id, senderId: m.senderId, senderName: m.senderDisplayName || m.senderUsername,
         body: m.body, at: m.createdAt, kind: m.kind, isForward: m.isForward,
         pending: m.id.startsWith("temp:"),
+        replyToId: m.replyToId,
         deletedForAll: m.deletedForAll,
         pinned: m.pinned,
         reactions: reactionsByMessage.get(m.id),
@@ -430,7 +452,7 @@ export function ChannelView() {
     scope: "channel",
     scopeId: channelId,
     meId: me.id,
-    send: (body) => send.mutate(body),
+    send: (body) => send.mutate({ body, replyToId: takeReply() }),
   });
 
   if (!channel)
@@ -633,6 +655,13 @@ export function ChannelView() {
         // message the user just sent unless it happened to match the query,
         // which reads as a send that failed.
         onSend={(t) => { media.flushStaged(t); closeSearch(); }}
+        // Resolved from `thread`, not the raw `messages` DTOs: thread already
+        // carries the computed senderName (displayName || username), which the
+        // composer's "Replying to X" bar needs and a raw ChannelMessageDTO does
+        // not have.
+        replyTo={replyTo ? thread.find((m) => m.id === replyTo) ?? null : null}
+        onCancelReply={() => setReplyTo(null)}
+        onReply={(id) => setReplyTo(id)}
         showSenderNames
         placeholder={`Message #${channel.name}…`}
         onForwardTo={(id) => {

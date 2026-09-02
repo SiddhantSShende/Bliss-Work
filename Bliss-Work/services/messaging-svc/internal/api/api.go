@@ -326,6 +326,10 @@ func (s *Server) Router(webOrigin string) http.Handler {
 			// Registered BEFORE /calls/{id} for the same reason as on-call:
 			// otherwise chi reads the literal "history" as a call id.
 			r.Get("/calls/history", s.listMyCallHistory)
+			// The calendar read: everything overlapping a window, whatever
+			// its status. Registered BEFORE /calls/{id} for the same reason
+			// as on-call and history.
+			r.Get("/calls/range", s.listMyCallsInRange)
 			r.Get("/calls", s.listMyCalls)
 			r.Get("/calls/{id}", s.getCall)
 			r.Post("/calls/{id}/participants", s.addCallParticipant)

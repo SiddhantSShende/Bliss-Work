@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 
@@ -96,6 +96,50 @@ describe("MessageActions — delete for everyone", () => {
     await openMenu();
     expect(screen.getByRole("menuitem", { name: /delete for me/i })).toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: /delete for everyone/i })).toBeNull();
+  });
+});
+
+/**
+ * Neither delete fires on click any more — a confirm step sits in between,
+ * shared by "Delete for me" and "Delete for everyone" so a stray tap can
+ * never remove a message outright.
+ */
+describe("MessageActions — delete confirmation", () => {
+  it("does not hide the message until the confirm dialog is accepted", async () => {
+    const onHide = vi.fn();
+    render(<MessageActions mine onHide={onHide} />);
+    await openMenu();
+    await userEvent.click(screen.getByRole("menuitem", { name: /delete for me/i }));
+
+    expect(onHide).not.toHaveBeenCalled();
+    expect(screen.getByText("Delete message?")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /^delete$/i }));
+    expect(onHide).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not call onHide when the confirm dialog is cancelled", async () => {
+    const onHide = vi.fn();
+    render(<MessageActions mine onHide={onHide} />);
+    await openMenu();
+    await userEvent.click(screen.getByRole("menuitem", { name: /delete for me/i }));
+    await userEvent.click(screen.getByRole("button", { name: /cancel/i }));
+
+    expect(onHide).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByText("Delete message?")).not.toBeInTheDocument());
+  });
+
+  it("does not delete for everyone until the confirm dialog is accepted, and says it removes it for everyone", async () => {
+    const onDeleteForAll = vi.fn();
+    render(<MessageActions mine onDeleteForAll={onDeleteForAll} />);
+    await openMenu();
+    await userEvent.click(screen.getByRole("menuitem", { name: /delete for everyone/i }));
+
+    expect(onDeleteForAll).not.toHaveBeenCalled();
+    expect(screen.getByText(/removed for everyone/i)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /^delete$/i }));
+    expect(onDeleteForAll).toHaveBeenCalledTimes(1);
   });
 });
 

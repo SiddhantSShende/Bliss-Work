@@ -1,34 +1,49 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { StickyTaskDTO } from "@taskboard/shared";
 
-/** Sticky-widget preload. Display-only: receives its task, emits action intents. */
-const api = {
-  taskId: new URLSearchParams(location.search).get("taskId") ?? "",
+/** The carousel payload pushed from main on every reconcile/navigate: the
+ *  whole floating set plus which entry is currently shown. */
+export interface StickyTasksPayload {
+  tasks: StickyTaskDTO[];
+  index: number;
+}
 
+/**
+ * Sticky-widget preload. Display-only: receives the carousel state, emits
+ * action/navigation intents.
+ *
+ * Unlike the old per-task note, this window is not bound to one taskId — it
+ * carries the whole pinned-and-floating set, so every call that used to read
+ * an id off the URL now takes it explicitly from the renderer's current page.
+ */
+const api = {
   /** Whether the note should paint collapsed (as a pill) on first load —
    *  restored from persisted geometry by the main process via the URL. */
   collapsed: new URLSearchParams(location.search).get("collapsed") === "1",
 
-  onTask: (cb: (t: StickyTaskDTO) => void) => {
-    const handler = (_: unknown, t: StickyTaskDTO) => cb(t);
-    ipcRenderer.on("sticky:task", handler);
-    return () => ipcRenderer.removeListener("sticky:task", handler);
+  onTasks: (cb: (payload: StickyTasksPayload) => void) => {
+    const handler = (_: unknown, payload: StickyTasksPayload) => cb(payload);
+    ipcRenderer.on("sticky:tasks", handler);
+    return () => ipcRenderer.removeListener("sticky:tasks", handler);
   },
 
-  /** Tell main this note's renderer has registered its "sticky:task" listener
-   *  and is ready to receive the task. Main responds by (re)pushing it. The
-   *  main process also pushes once on did-finish-load, but that can fire BEFORE
-   *  the React effect subscribes — dropping the one-shot push and stranding the
-   *  note on "Loading…". This handshake closes that race. */
-  ready: () => ipcRenderer.send("sticky:ready", api.taskId),
+  /** Tell main this window's renderer has registered its "sticky:tasks"
+   *  listener and is ready to receive the carousel. Main responds by
+   *  (re)pushing it. Main also pushes once on did-finish-load, but that can
+   *  fire BEFORE the React effect subscribes — dropping the one-shot push and
+   *  stranding the note on "Loading…". This handshake closes that race. */
+  ready: () => ipcRenderer.send("sticky:ready"),
 
   /** action is a REST verb: acknowledge | complete | ignore | leave. On a
    *  locked note only "complete" is ever sent. */
   act: (taskId: string, action: string) => ipcRenderer.send("task:intent", { taskId, action }),
 
-  /** Collapse this note to a pill / expand it back; main resizes the window. */
-  setCollapsed: (collapsed: boolean) =>
-    ipcRenderer.send("sticky:collapse", { taskId: api.taskId, collapsed }),
+  /** Page the carousel to the next / previous pinned task, wrapping around. */
+  next: () => ipcRenderer.send("sticky:next"),
+  prev: () => ipcRenderer.send("sticky:prev"),
+
+  /** Collapse the container to a pill / expand it back; main resizes the window. */
+  setCollapsed: (collapsed: boolean) => ipcRenderer.send("sticky:collapse", { collapsed }),
 
   /** The window is opaque, not transparent (see windows.ts), so its native
    *  background has to be told what colour to be — it can't just inherit
@@ -37,15 +52,14 @@ const api = {
    *  see sticky.tsx's toHex) whenever the active theme changes, so the
    *  rounded-corner cutouts around the card stay matched instead of showing a
    *  stale colour. */
-  setBackgroundColor: (color: string) =>
-    ipcRenderer.send("sticky:bg", { taskId: api.taskId, color }),
+  setBackgroundColor: (color: string) => ipcRenderer.send("sticky:bg", { color }),
 
-  /** Take this note off screen for the rest of this run. Distinct from
-   *  `act(…, "ignore")` — that is a decision about the TASK; this is only about
-   *  the note, and the task keeps its status. NOT remembered across restarts:
-   *  an outstanding task gets its note back on the next launch, and only
-   *  completing or ignoring the task removes it for good. */
-  dismiss: () => ipcRenderer.send("sticky:dismiss", api.taskId),
+  /** Take the given task's note off screen for the rest of this run. Distinct
+   *  from `act(taskId, "ignore")` — that is a decision about the TASK; this is
+   *  only about the note, and the task keeps its status. NOT remembered across
+   *  restarts: an outstanding task gets its note back on the next launch, and
+   *  only completing or ignoring the task removes it for good. */
+  dismiss: (taskId: string) => ipcRenderer.send("sticky:dismiss", taskId),
 };
 
 contextBridge.exposeInMainWorld("sticky", api);

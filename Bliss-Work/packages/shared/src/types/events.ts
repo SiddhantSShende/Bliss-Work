@@ -387,6 +387,8 @@ export const ChannelMessageCreated = z.object({
   kind: MessageKindWire.optional(),
   /** Mirrors MessageCreated.isForward. */
   isForward: z.boolean().optional(),
+  /** Mirrors MessageCreated.replyToId. */
+  replyToId: z.string().uuid().optional(),
 });
 
 /**
