@@ -171,6 +171,16 @@ function set(next: boolean): void {
   for (const cb of listeners) cb(next);
 }
 
+/**
+ * How many consecutive empty reads in a row mean "this is a stub, not a
+ * momentary gap" — see the block comment on `sample()` below for why this
+ * exists at all. At POLL_MS=250ms, 8 ticks is exactly 2s: comfortably longer
+ * than any real transition between windows, short enough that a genuinely
+ * broken build is reported within a couple of seconds of launch.
+ */
+const STUB_SUSPECT_TICKS = 8;
+let consecutiveEmptyReads = 0;
+
 async function sample(win: GetWindows): Promise<void> {
   let active: ForegroundWindow | undefined;
   try {
@@ -182,6 +192,37 @@ async function sample(win: GetWindows): Promise<void> {
     return;
   }
   set(isSafeToFloat(active));
+
+  // A LOADED-BUT-BROKEN provider — the module imported without throwing, but
+  // the platform-specific native binding it needs was never bundled (the
+  // 0.2.2/0.2.3 incident: get-windows shipped with no win32 prebuild). Its own
+  // loader does not throw in that case; it silently returns a stub whose
+  // getActiveWindow() always resolves undefined — see get-windows/lib/windows.js.
+  // That failure mode is invisible to loadProvider()'s try/catch above (nothing
+  // ever throws) and was, before this, invisible to the user too: Settings'
+  // "application tracking isn't available" banner is driven by whether the
+  // module LOADED, not by whether it actually answers anything.
+  //
+  // On win32/darwin — the only platforms that ever reach this function, since
+  // Linux never calls loadProvider() at all (see startDesktopWatch) — there is
+  // essentially always SOME window in front, even if it's just the desktop
+  // shell. A real provider basically never returns undefined many polls in a
+  // row; a stub always does. Once tripped this does not un-trip: a provider
+  // that is genuinely a no-op stays one for the life of the process, and the
+  // point is to tell the user that once, reliably, not to chase a flapping
+  // signal.
+  if (active === undefined) {
+    consecutiveEmptyReads++;
+    if (consecutiveEmptyReads === STUB_SUSPECT_TICKS && providerError === null) {
+      providerError = "the native window-reading module loaded but never returns anything (likely built for the wrong platform)";
+      console.warn(
+        "[desktop-watch] provider loaded but appears to be a no-op stub; task notes will follow app focus only:",
+        providerError,
+      );
+    }
+  } else {
+    consecutiveEmptyReads = 0;
+  }
 }
 
 /**

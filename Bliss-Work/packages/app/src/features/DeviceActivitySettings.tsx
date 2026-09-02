@@ -159,9 +159,19 @@ export function DeviceActivitySettings() {
             <AlertTriangle size={13} className="mt-0.5 shrink-0 text-warning" />
             {/* Said out loud rather than silently recording nothing: an empty
                 "Apps used" panel would otherwise read to an admin as "they did
-                no work", which is a materially different claim. */}
+                no work", which is a materially different claim.
+
+                Also names the desktop task notes here on purpose: this reading
+                is the SAME native module those notes use to know when they
+                belong on your desktop, so a build with this warning also has
+                notes that only follow the app's own focus instead of resting
+                on the desktop — the two symptoms have one cause, and someone
+                troubleshooting "my notes disappear when I minimize" has no
+                reason to think to look at an activity-tracking panel unless
+                it says so. */}
             Application tracking isn't available here ({state.reason}). Idle time and
-            screen lock are still recorded.
+            screen lock are still recorded, and desktop task notes will only stay
+            visible while BlissWork itself is focused.
           </p>
         )}
 

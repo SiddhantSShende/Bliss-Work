@@ -474,11 +474,21 @@ export async function capability(): Promise<{
   titleTrackingReason: string | null;
 }> {
   const win = await loadProvider();
-  const appTracking = !!win;
+  // `win` alone answers "did the module IMPORT without throwing" — not "does
+  // it actually answer anything". A native binding built for the wrong
+  // platform (the 0.2.2/0.2.3 incident: get-windows shipped with no win32
+  // prebuild) imports fine and then silently returns a stub whose
+  // getActiveWindow() never resolves anything; ./foreground's own
+  // consecutive-empty-read heuristic is what catches that case and populates
+  // providerUnavailableReason() even though `win` is truthy. Fold that in
+  // here too, or a stub read as "loaded" (appTracking: true) would suppress
+  // the very banner below that exists to say this capability isn't working.
+  const appTracking = !!win && providerUnavailableReason() === null;
   if (!appTracking) {
-    // No provider at all: title tracking cannot be evaluated meaningfully —
-    // it is moot, not "denied". Reported as unavailable for the SAME reason
-    // as app tracking, since granting Screen Recording would not help.
+    // No provider at all, or one that never answers: title tracking cannot be
+    // evaluated meaningfully in either case — it is moot, not "denied".
+    // Reported as unavailable for the SAME reason as app tracking, since
+    // granting Screen Recording would not help either failure.
     return {
       appTracking, reason: providerUnavailableReason(),
       titleTracking: false, titleTrackingReason: providerUnavailableReason(),

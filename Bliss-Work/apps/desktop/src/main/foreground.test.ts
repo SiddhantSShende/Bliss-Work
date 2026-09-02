@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { isSafeToFloat, type ForegroundWindow } from "./foreground";
 
 /**
@@ -80,5 +80,73 @@ describe("isSafeToFloat", () => {
     expect(isSafeToFloat(undefined, "darwin")).toBe(false);
     expect(isSafeToFloat({}, "win32")).toBe(false);
     expect(isSafeToFloat({ owner: {} }, "darwin")).toBe(false);
+  });
+});
+
+/**
+ * THE SILENT-STUB REGRESSION TEST — the 0.2.2/0.2.3 packaging incident.
+ *
+ * `get-windows` shipped without its win32 native binding, and its own loader
+ * does NOT throw when that happens — it silently returns a stub whose
+ * activeWindow() always resolves undefined. That failure mode is invisible to
+ * loadProvider()'s try/catch (nothing ever throws) and, before this test's
+ * subject existed, invisible to `providerUnavailableReason()` too — the exact
+ * diagnostic Settings shows for "app tracking isn't available" never fired,
+ * because the module HAD loaded; it just never answered anything.
+ */
+describe("detecting a loaded-but-broken (stub) provider", () => {
+  let activeWindow: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.resetModules();
+    vi.useFakeTimers();
+    activeWindow = vi.fn(async () => undefined);
+    vi.doMock("get-windows", () => ({ activeWindow, openWindows: vi.fn() }));
+    vi.stubGlobal("process", { ...process, platform: "win32" });
+  });
+
+  afterEach(() => {
+    vi.doUnmock("get-windows");
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it("reports unavailable after several consecutive empty reads, not on the first one", async () => {
+    const fg = await import("./foreground");
+    expect(fg.providerUnavailableReason()).toBeNull();
+
+    await fg.startDesktopWatch();
+    // Let a couple of ticks pass — not yet enough to trip the detector.
+    await vi.advanceTimersByTimeAsync(250 * 3);
+    expect(fg.providerUnavailableReason()).toBeNull();
+
+    // Enough consecutive empty reads now.
+    await vi.advanceTimersByTimeAsync(250 * 10);
+    expect(fg.providerUnavailableReason()).not.toBeNull();
+    expect(fg.providerUnavailableReason()).toMatch(/never returns anything/);
+  });
+
+  it("does NOT trip when the provider genuinely answers", async () => {
+    activeWindow.mockResolvedValue({ title: "Program Manager" });
+    const fg = await import("./foreground");
+    await fg.startDesktopWatch();
+    await vi.advanceTimersByTimeAsync(250 * 20);
+    expect(fg.providerUnavailableReason()).toBeNull();
+  });
+
+  it("does not reset after tripping, even if a real answer arrives once", async () => {
+    // A provider that is genuinely a no-op stays one for the life of the
+    // process — a single stray real-looking read (unlikely, but not
+    // impossible to construct in a mock) must not erase an already-reported
+    // diagnosis and make it flap.
+    const fg = await import("./foreground");
+    await fg.startDesktopWatch();
+    await vi.advanceTimersByTimeAsync(250 * 10);
+    const reason = fg.providerUnavailableReason();
+    expect(reason).not.toBeNull();
+
+    activeWindow.mockResolvedValueOnce({ title: "Program Manager" });
+    await vi.advanceTimersByTimeAsync(250);
+    expect(fg.providerUnavailableReason()).toBe(reason);
   });
 });

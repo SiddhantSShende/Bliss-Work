@@ -153,6 +153,59 @@ if (existsSync(releaseDir) && existsSync(ICON_SRC)) {
   }
 }
 
+// ── 4. get-windows' native binary matches the platform it's bundled for ──────
+// The 0.2.2/0.2.3 incident: get-windows' own install script only fetches a
+// prebuild for the BUILD HOST's platform (linux/x64), and silently no-ops for
+// every other platform if nothing forces a fetch (see
+// scripts/build-desktop-container.sh, which now does). Critically, when the
+// load-bearing napi-9-<platform>-<libc>-<arch>/*.node file for a package's OWN
+// platform is missing, get-windows' loader (lib/windows.js, lib/linux.js,
+// lib/macos.js) does NOT throw — it silently returns a no-op stub — so this
+// must assert the file EXISTS with the right magic bytes at the exact path the
+// loader computes, not merely that "some .node file with the right bytes
+// exists somewhere" in the tree.
+const NATIVE_MAGIC = {
+  win: { bytes: Buffer.from("MZ"), desc: "PE executable", dirSuffix: "-win32-" },
+  linux: { bytes: Buffer.from([0x7f, 0x45, 0x4c, 0x46]), desc: "ELF binary", dirSuffix: "-linux-" },
+  mac: { bytes: Buffer.from([0xcf, 0xfa, 0xed, 0xfe]), desc: "Mach-O (64-bit) binary", dirSuffix: "-darwin-" },
+};
+
+function checkGetWindowsBinding(getWindowsDir, platformKey, label) {
+  checked++;
+  const { bytes, desc, dirSuffix } = NATIVE_MAGIC[platformKey];
+  const bindingDir = join(getWindowsDir, "lib/binding");
+  const ownDirs = existsSync(bindingDir)
+    ? readdirSync(bindingDir).filter((d) => d.includes(dirSuffix))
+    : [];
+  if (ownDirs.length === 0) {
+    problems.push(
+      `${label}: get-windows/lib/binding has no folder for this platform ` +
+        `(expected something matching "${dirSuffix}") — the native "what's the ` +
+        `frontmost window" reading will silently no-op here. This is the exact ` +
+        `class of bug that shipped in the 0.2.2/0.2.3 Windows installers.`,
+    );
+    return;
+  }
+  for (const d of ownDirs) {
+    for (const f of readdirSync(join(bindingDir, d)).filter((f) => f.endsWith(".node"))) {
+      const p = join(bindingDir, d, f);
+      if (!head(p, bytes.length).equals(bytes)) {
+        problems.push(`${label}: lib/binding/${d}/${f} does not start with the ${desc} magic bytes`);
+      }
+    }
+  }
+}
+
+if (existsSync(releaseDir)) {
+  for (const entry of readdirSync(releaseDir)) {
+    const gw = join(releaseDir, entry, "resources/app.asar.unpacked/node_modules/get-windows");
+    const macGw = join(releaseDir, entry, "BlissWork.app/Contents/Resources/app.asar.unpacked/node_modules/get-windows");
+    if (entry.includes("win") && existsSync(gw)) checkGetWindowsBinding(gw, "win", entry);
+    if (entry.includes("linux") && existsSync(gw)) checkGetWindowsBinding(gw, "linux", entry);
+    if (existsSync(macGw)) checkGetWindowsBinding(macGw, "mac", entry);
+  }
+}
+
 if (checked === 0) {
   console.error(
     `check-release-artifacts: found nothing to check under ${releaseDir}.\n` +
