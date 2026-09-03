@@ -21,7 +21,7 @@ from email.utils import formataddr
 
 import httpx
 
-from ..resilience import CircuitBreaker, retry_async
+from resilience import CircuitBreaker, retry_async
 
 _GMAIL_API = "https://gmail.googleapis.com/gmail/v1"
 _TIMEOUT = 15.0
@@ -129,38 +129,3 @@ async def send_message(token: str, raw: str, *, thread_id: str | None = None) ->
     return await _request(
         token, "POST", "/users/me/messages/send", json=payload, idempotent=False
     )
-
-
-# ── helpers ───────────────────────────────────────────────────────────────────
-def headers_of(message: dict) -> dict[str, str]:
-    """Flatten a Gmail message's header list into a case-insensitive-ish dict.
-
-    Gmail returns `payload.headers` as [{name, value}, …] with inconsistent
-    casing between accounts, so keys are lowercased. Duplicate headers keep the
-    FIRST occurrence, matching how a mail client resolves them.
-    """
-    out: dict[str, str] = {}
-    for h in (message.get("payload", {}) or {}).get("headers", []) or []:
-        name = str(h.get("name", "")).lower()
-        if name and name not in out:
-            out[name] = str(h.get("value", ""))
-    return out
-
-
-def message_ids_from_history(history: dict) -> list[str]:
-    """Every newly-added message id in a history page, de-duplicated in order.
-
-    One history record can list the same message under several changes, and a
-    page can repeat ids across records — the dedup here just avoids redundant
-    get_message calls. It is NOT the idempotency guard: that remains the
-    (connection_id, external_id_bidx) unique index in ingest_one.
-    """
-    seen: set[str] = set()
-    ids: list[str] = []
-    for record in history.get("history", []) or []:
-        for added in record.get("messagesAdded", []) or []:
-            mid = str((added.get("message") or {}).get("id") or "")
-            if mid and mid not in seen:
-                seen.add(mid)
-                ids.append(mid)
-    return ids

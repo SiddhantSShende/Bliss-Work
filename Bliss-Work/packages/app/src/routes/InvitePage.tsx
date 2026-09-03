@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ShieldAlert, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { Button, EmptyState, Input, PageHeader } from "@taskboard/ui";
+import type { Role } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
@@ -16,7 +17,7 @@ export function InvitePage() {
   const goBack = useGoBack();
   const isAdmin = useSession((s) => s.user?.roles.includes("org_admin") ?? false);
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<"member" | "org_admin">("member");
+  const [role, setRole] = useState<Role>("member");
 
   const { data: invites = [] } = useQuery({
     queryKey: qk.invites,
@@ -74,7 +75,7 @@ export function InvitePage() {
                   aria-label="Role"
                   className="h-11 w-full rounded-xl border border-border bg-surface px-3 text-sm text-fg focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/25"
                   value={role}
-                  onChange={(e) => setRole(e.target.value as "member" | "org_admin")}
+                  onChange={(e) => setRole(e.target.value as Role)}
                 >
                   <option value="member">Member</option>
                   <option value="org_admin">Admin</option>

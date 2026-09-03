@@ -18,7 +18,21 @@ from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 MIGRATIONS = pathlib.Path(__file__).resolve().parents[2] / "migrations"
-_RLS_TABLES = ("audit_log", "invites", "user_roles", "users", "org_keys", "orgs")
+_RLS_TABLES = (
+    "audit_log",
+    "invites",
+    "user_roles",
+    # Both FK-reference users(id) with default (blocking) ON DELETE — must be
+    # cleared before "users" below, or a test that commits real rows here
+    # (e.g. via the sa_engine fixture, whose writes persist instead of
+    # rolling back) breaks every subsequent test's cleanup with a
+    # ForeignKeyViolationError.
+    "mfa_backup_codes",
+    "mfa_webauthn_credentials",
+    "users",
+    "org_keys",
+    "orgs",
+)
 
 
 @pytest_asyncio.fixture

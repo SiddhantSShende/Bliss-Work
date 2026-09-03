@@ -1,7 +1,7 @@
 /**
- * One vertical icon+label control — shared by every button in CallSidebar and
- * by CallMoreMenu's own trigger, so the whole left rail reads as one
- * consistent set of controls rather than several one-off buttons.
+ * One vertical icon+label control — shared by every button in CallSidebar, so
+ * the whole left rail reads as one consistent set of controls rather than
+ * several one-off buttons.
  */
 import type { ReactNode } from "react";
 import { cn } from "@taskboard/ui";

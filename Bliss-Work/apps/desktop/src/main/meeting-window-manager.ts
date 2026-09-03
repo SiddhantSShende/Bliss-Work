@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain, type IpcMainEvent } from "electron";
+import { BrowserWindow, ipcMain, screen, type IpcMainEvent } from "electron";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { appIcon } from "./assets";
@@ -11,6 +11,18 @@ import { hardenWindow } from "./harden";
  *  windows that DO have one), but a hung/unresponsive renderer must not
  *  block the window from ever closing. */
 const GRACEFUL_CLOSE_TIMEOUT_MS = 1200;
+
+/**
+ * A meeting window's usability floor — big enough for the sidebar dock
+ * (CallSidebar, 80px) plus a legible video tile, small enough to fit a real
+ * laptop's work area with room to spare. Clamped against the actual work
+ * area in createWindow() below, so it can never exceed what the display can
+ * show — this is a minimum-usable-UI floor, not an assumed screen
+ * resolution (the window's actual open size is computed from
+ * screen.getPrimaryDisplay() every time, never a fixed literal).
+ */
+const MIN_MEETING_WIDTH = 480;
+const MIN_MEETING_HEIGHT = 360;
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 const DEV_URL = process.env.ELECTRON_RENDERER_URL;
@@ -155,11 +167,23 @@ export class MeetingWindowManager {
   }
 
   private createWindow(callId: string): BrowserWindow {
+    // Sized off the CURRENT display's own available space — never a fixed
+    // literal. This used to open at a hardcoded 1180×800 regardless of the
+    // user's actual screen, which could exceed a small/constrained display's
+    // work area or leave a needlessly small window on a large one. `workArea`
+    // already excludes the taskbar/dock, so a window sized from it always
+    // fits without a fix-up pass. Same screen-awareness pattern already used
+    // for the incoming-invite popup (see meeting-invite-manager.ts).
+    const { workArea } = screen.getPrimaryDisplay();
+    const width = Math.round(Math.min(workArea.width, Math.max(workArea.width * 0.82, MIN_MEETING_WIDTH)));
+    const height = Math.round(Math.min(workArea.height, Math.max(workArea.height * 0.82, MIN_MEETING_HEIGHT)));
     const win = new BrowserWindow({
-      width: 1180,
-      height: 800,
-      minWidth: 720,
-      minHeight: 480,
+      x: Math.round(workArea.x + (workArea.width - width) / 2),
+      y: Math.round(workArea.y + (workArea.height - height) / 2),
+      width,
+      height,
+      minWidth: Math.min(MIN_MEETING_WIDTH, workArea.width),
+      minHeight: Math.min(MIN_MEETING_HEIGHT, workArea.height),
       show: false,
       autoHideMenuBar: true,
       backgroundColor: "#16181f",

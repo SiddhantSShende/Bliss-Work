@@ -36,7 +36,7 @@ import base64
 import httpx
 
 from .logging_setup import get_logger
-from .resilience import CircuitBreaker, CircuitOpenError, retry_async
+from resilience import CircuitBreaker, CircuitOpenError, retry_async
 
 log = get_logger("provider_mail")
 
@@ -61,6 +61,7 @@ async def send(
     *,
     org_id: str,
     author_id: str,
+    mail_id: str,
     subject: str,
     text_body: str,
     html_body: str,
@@ -75,6 +76,21 @@ async def send(
     no connected mailbox, a message the provider will not accept, a malformed
     request — answers False, because the SMTP relay can still deliver it and a
     mail that goes out late by another route beats one that never goes out.
+
+    `mail_id` is integrations-svc's idempotency key for this call (see its
+    0013_mail_send_idempotency.sql): the SAME mail_id sent more than once —
+    this call's own retry_async, or a Kafka redelivery calling `send` again
+    from scratch after _record_transport lost the result — is deduplicated
+    there rather than triggering a second real email.
+
+    A 409 (the claim is ambiguous or already owned by another in-flight
+    attempt) always raises too, and — unlike a 5xx — can never accumulate
+    into a breaker-open False. Treating it as "safe, use the relay" would
+    reintroduce the exact duplicate the idempotency claim exists to prevent:
+    a run of these opening the breaker used to fall through to `except
+    CircuitOpenError: return False` below, which _decide_transport reads
+    exactly like "no mailbox" and relays a mail that may already be sitting
+    in the recipient's inbox.
     """
     if not author_id or not (to or cc or bcc):
         return False
@@ -82,6 +98,7 @@ async def send(
     payload = {
         "orgId": org_id,
         "userId": author_id,
+        "mailId": mail_id,
         "subject": subject,
         "bodyText": text_body,
         "bodyHtml": html_body,
@@ -109,6 +126,19 @@ async def send(
         if r.status_code == 404:
             # The ordinary case, not a fault: no connected mailbox.
             return False
+        if r.status_code == 409:
+            # The claim for this mail_id is ambiguous or still owned by
+            # another in-flight attempt (see 0013_mail_send_idempotency.sql
+            # and _claim_mail_send). Unlike every other answer here this one
+            # must NEVER become `False` — that tells the caller "nothing was
+            # sent, use the relay", and Graph may already have delivered this
+            # exact mail. raise_for_status() keeps it classified as
+            # non-transient (a 409 is below is_transient's >= 500 floor), so
+            # retry_async neither retries it nor counts it against the
+            # breaker — it can't accumulate into a CircuitOpenError that
+            # would fall through to the relay either. It always surfaces
+            # below as ProviderMailUnavailable instead.
+            r.raise_for_status()
         if r.status_code >= 500:
             # Becomes an HTTPStatusError, which retry_async classifies as
             # transient and the breaker counts. Deliberately NOT a bare

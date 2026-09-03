@@ -2,12 +2,13 @@ import { useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Camera, Loader2 } from "lucide-react";
-import { Avatar, Badge, Button, Input, PageHeader } from "@taskboard/ui";
+import { Avatar, Button, Input, PageHeader } from "@taskboard/ui";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
 import { useGoBack } from "../lib/useGoBack";
 import { makeThumbnail } from "../lib/thumbnail";
+import { RoleBadge } from "../features/RoleBadge";
 import { Field } from "./Onboarding";
 
 /** Matches the `accept` attribute below and messaging-svc's own image-type
@@ -109,9 +110,7 @@ export function Profile() {
               <div className="truncate text-lg font-semibold tracking-tight text-fg">{user.displayName}</div>
               <div className="truncate text-sm text-muted">@{user.username}</div>
             </div>
-            <Badge tone={isAdmin ? "accent" : "neutral"} className="ml-auto">
-              {isAdmin ? "Admin" : "Member"}
-            </Badge>
+            <RoleBadge isAdmin={isAdmin} className="ml-auto" />
           </div>
 
           <form

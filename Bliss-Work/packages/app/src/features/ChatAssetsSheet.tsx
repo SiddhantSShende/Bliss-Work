@@ -7,8 +7,8 @@
  * inside the text are only ever readable on the client. The panel says what it
  * covers instead of implying it holds the whole history.
  *
- * Layout follows MeetingPeopleSheet — the same Sheet, the same Tabs, the same
- * count line — because both answer "show me the contents of this thing".
+ * Sheet + Tabs + a count line: the same shape every "show me the contents of
+ * this thing" panel in the app uses.
  */
 import { useMemo, useState } from "react";
 import { ExternalLink, FileText, Images, Link2, Play } from "lucide-react";

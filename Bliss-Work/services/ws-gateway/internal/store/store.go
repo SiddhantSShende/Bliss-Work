@@ -593,38 +593,6 @@ func (s *Store) DeregisterNode(ctx context.Context, nodeID string) (err error) {
 	return s.rdb.Del(ctx, s.nodeKey(nodeID)).Err()
 }
 
-// NodesForUser returns the ids of nodes currently holding a socket for userID.
-//
-// Reads the same heartbeat-scored ZSET presence uses, and applies the same
-// staleness cutoff, so a node that died does not attract pushes for the users
-// it used to hold. Returns each node once even when a user has several sockets
-// on it — the push carries a user id, and that node fans out to all of them.
-func (s *Store) NodesForUser(ctx context.Context, userID string) (nodes []string, err error) {
-	defer observe(metrics.PurposeNodes, time.Now(), &err)
-	members, err := s.rdb.ZRangeByScore(ctx, s.presenceKey(userID), &redis.ZRangeBy{
-		Min: fmt.Sprintf("%f", staleBefore()),
-		Max: "+inf",
-	}).Result()
-	if err != nil {
-		return nil, err
-	}
-	seen := make(map[string]struct{}, len(members))
-	for _, m := range members {
-		// Members are "nodeId:connId"; a connId cannot contain a colon (both
-		// halves are UUIDs), so the first colon is the separator.
-		nodeID, _, ok := strings.Cut(m, ":")
-		if !ok || nodeID == "" {
-			continue
-		}
-		if _, dup := seen[nodeID]; dup {
-			continue
-		}
-		seen[nodeID] = struct{}{}
-		nodes = append(nodes, nodeID)
-	}
-	return nodes, nil
-}
-
 // NodesForUsers is NodesForUser for a whole recipient list, in one round trip.
 //
 // The batch form is not an optimisation, it is what makes routed delivery worth

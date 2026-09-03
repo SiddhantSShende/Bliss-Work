@@ -134,11 +134,14 @@ function installFakeChrome(): void {
 
 /** Simulates chrome delivering an externally_connectable message and
  *  resolving with whatever the listener's `reply` callback was called with —
- *  Chrome's real contract when a listener returns `true` for an async reply. */
-function sendExternal(msg: unknown): Promise<unknown> {
+ *  Chrome's real contract when a listener returns `true` for an async reply.
+ *  `senderOrigin` defaults to API_BASE's own origin — the realistic case of a
+ *  signed-in BlissWork tab naming its own apiBase, which is what every test
+ *  below except the mismatched-origin one is exercising. */
+function sendExternal(msg: unknown, senderOrigin: string = new URL(API_BASE).origin): Promise<unknown> {
   return new Promise((resolve) => {
     for (const cb of externalMessageListeners) {
-      const handled = cb(msg, {}, resolve);
+      const handled = cb(msg, { origin: senderOrigin }, resolve);
       if (handled) return;
     }
     resolve(undefined);
@@ -411,5 +414,22 @@ describe("automatic provisioning (externally_connectable)", () => {
       const body = JSON.parse((init as RequestInit).body as string) as { events?: unknown[] };
       expect(body.events ?? []).toHaveLength(0);
     }
+  });
+
+  // Regression test: a page in externally_connectable.matches (Chrome-checked
+  // before this listener ever runs) must still not be able to repoint the
+  // extension's ingest destination at a THIRD-PARTY host merely by naming it
+  // in the message body — see apiBaseMatchesSender's own docstring in
+  // background.ts. Without that check, this would have verified and stored
+  // "https://evil.example" as the extension's real ingest destination.
+  it("rejects a provision whose apiBase does not match the sender's own origin, and makes no network call at all", async () => {
+    await import("./background");
+    const res = await sendExternal(
+      { type: "blisswork:provision", token: "new-token", apiBase: "https://evil.example" },
+      new URL(API_BASE).origin, // the sender IS a trusted origin — only apiBase is hostile
+    );
+    expect(res).toEqual({ ok: false, reason: "bad-request" });
+    expect(localStorage._dump().token).toBeUndefined();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

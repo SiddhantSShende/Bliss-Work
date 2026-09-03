@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, Download, MessageSquare, Users } from "lucide-react";
 import { Avatar, Badge, Button, EmptyState, Spinner } from "@taskboard/ui";
 import type { MemberDTO } from "@taskboard/shared";
@@ -8,7 +8,7 @@ import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
 import { relativeTime } from "../lib/relativeTime";
-import { useSelectedChat } from "../lib/selectedChat";
+import { useOpenDirectMessage } from "../lib/useOpenDirectMessage";
 import { Tabs, type TabSpec } from "../features/Tabs";
 import { ExportActivityDialog } from "../features/ExportActivityDialog";
 import { MemberAdmin } from "../features/member/MemberAdmin";
@@ -24,9 +24,8 @@ type TabKey = "overview" | "timeline" | "analytics" | "sessions" | "admin" | "se
 export function MemberDetail() {
   const { userId = "" } = useParams();
   const { api } = useRuntime();
-  const qc = useQueryClient();
   const nav = useNavigate();
-  const { openChat } = useSelectedChat();
+  const { open: openDm, opening } = useOpenDirectMessage();
   const me = useSession((s) => s.user)!;
   const isAdmin = me.roles.includes("org_admin");
   const isSelf = userId === me.id;
@@ -81,27 +80,6 @@ export function MemberDetail() {
     queryKey: qk.conversations,
     queryFn: () => api.conversations(),
   });
-
-  const [opening, setOpening] = useState(false);
-  // Opens the chat without saying anything. This used to post "👋 Hi {name}!"
-  // because sending was the only way to create a conversation row.
-  const openDm = async () => {
-    const existing = conversations.find((c) => c.peerId === userId);
-    // openChat rather than a nav to /app/chats/<id>: it selects and moves to
-    // the section in one step, so the id is never put in the URL at all rather
-    // than put there and redirected away.
-    if (existing) return openChat(existing.id);
-    setOpening(true);
-    try {
-      const { conversationId } = await api.openConversation(userId);
-      // DMView reads its header from the conversation list, so refresh it before
-      // navigating or a brand-new chat flashes "Conversation not found".
-      await qc.invalidateQueries({ queryKey: qk.conversations });
-      openChat(conversationId);
-    } finally {
-      setOpening(false);
-    }
-  };
 
   const fromRoster = members?.find((m) => m.id === userId);
   const fromDirectory = directory.find((u) => u.id === userId);
@@ -212,7 +190,7 @@ export function MemberDetail() {
             size="sm"
             variant="secondary"
             loading={opening}
-            onClick={() => void openDm()}
+            onClick={() => void openDm(userId, conversations.find((c) => c.peerId === userId)?.id)}
             className="hidden sm:inline-flex"
           >
             <MessageSquare size={15} /> Message

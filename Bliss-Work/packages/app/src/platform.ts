@@ -90,7 +90,19 @@ export interface MeetingWindowStatus {
 }
 
 export interface PlatformConfig {
-  kind: "web" | "electron";
+  /**
+   * "mobile" = the React Native app (apps/mobile). It reuses this same
+   * config shape (and, unmodified, RuntimeProvider/ApiClient/WsClient) for
+   * exactly the fields below that are genuinely platform-agnostic — base
+   * URLs, the token getters, wsUrl. Every existing `config.kind === "web"`/
+   * `!== "web"`/`=== "electron"` check in this package already degrades
+   * correctly for a third value (verified: none of them are an exhaustive
+   * switch), so mobile falls into the same "not web"/"not electron" branches
+   * electron and web already fall into for each other today. The ~30
+   * Electron-only fields further down stay optional and simply absent on
+   * mobile, exactly as they're already absent on web.
+   */
+  kind: "web" | "electron" | "mobile";
   /**
    * The public web app origin — what a meeting-join link (or anything else
    * meant to leave the app and be opened by anybody, with or without

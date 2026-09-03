@@ -25,6 +25,7 @@
  * text node — never markup. See lib/roomMessages.
  */
 import { truncateToUtf8Bytes, utf8ByteLength } from "./textBytes";
+import { loadLocalCopy, meetingArtifactFilename, saveLocalCopy } from "./meetingArtifact";
 
 /** One message, from one participant. Immutable once sent. */
 export interface ChatEntry {
@@ -183,39 +184,16 @@ export function chatToText(
 
 /** A filename that says which meeting, and sorts. */
 export function chatFilename(title: string, at = new Date()): string {
-  const slug =
-    (title || "meeting")
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, "")
-      .slice(0, 40) || "meeting";
-  const day = `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, "0")}-${String(
-    at.getDate(),
-  ).padStart(2, "0")}`;
-  return `${slug}-chat-${day}.txt`;
+  return meetingArtifactFilename(title, "chat", at);
 }
 
 const KEY = (callId: string) => `bliss.chat.${callId}`;
 
-/** This browser's copy, so a reload mid-meeting does not lose the thread.
- *  Storage can be absent (private mode, a locked-down WebView) — that degrades
- *  to "chat lives only in this tab", never to a crash. */
+/** This browser's copy, so a reload mid-meeting does not lose the thread. */
 export function loadChat(callId: string): ChatEntry[] {
-  try {
-    const raw = localStorage.getItem(KEY(callId));
-    if (!raw) return [];
-    const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed) ? mergeChat([], parsed as ChatEntry[]) : [];
-  } catch {
-    return [];
-  }
+  return loadLocalCopy(KEY(callId), mergeChat);
 }
 
 export function saveChat(callId: string, chat: readonly ChatEntry[]): void {
-  try {
-    localStorage.setItem(KEY(callId), JSON.stringify(chat));
-  } catch {
-    // Quota, or no storage at all. The thread is still in memory and still on
-    // the wire; losing the cache is not worth interrupting a meeting for.
-  }
+  saveLocalCopy(KEY(callId), chat);
 }

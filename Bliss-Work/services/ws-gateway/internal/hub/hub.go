@@ -137,15 +137,6 @@ func (h *Hub) CloseAll() {
 	}
 }
 
-// HasUser reports whether at least one connection for userID is currently
-// registered on this node. Phase 9's signal dispatcher uses this to decide
-// between local Fanout and cross-node Redis pub/sub delivery.
-func (h *Hub) HasUser(userID string) bool {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	return len(h.users[userID]) > 0
-}
-
 // Fanout enqueues payload to every locally-connected socket of userID. It is
 // called from the SHARED Kafka fan-out goroutine, so it MUST stay non-blocking:
 // blocking on one slow client here would head-of-line-block live delivery for

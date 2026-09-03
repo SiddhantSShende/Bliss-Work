@@ -2,7 +2,7 @@
 
 These are pure-logic tests: no DB, Kafka, or Redis is touched. We only need
 the service root (the directory that contains the ``app`` package) on
-``sys.path`` so ``import app.resilience`` / ``import app.consumer`` resolve the
+``sys.path`` so ``import app.auth`` / ``import app.consumer`` resolve the
 same way they do when the service runs (``uvicorn app.main:app``).
 """
 from __future__ import annotations

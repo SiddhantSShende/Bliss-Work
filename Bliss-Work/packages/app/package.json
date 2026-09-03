@@ -5,7 +5,12 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./chatEnvelope": "./src/lib/chatEnvelope.ts"
+    "./chatEnvelope": "./src/lib/chatEnvelope.ts",
+    "./platform": "./src/platform.ts",
+    "./lib/runtime": "./src/lib/runtime.tsx",
+    "./lib/refresh": "./src/lib/refresh.ts",
+    "./lib/retryPolicy": "./src/lib/retryPolicy.ts",
+    "./store/session": "./src/store/session.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

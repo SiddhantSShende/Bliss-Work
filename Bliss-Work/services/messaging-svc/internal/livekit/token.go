@@ -173,19 +173,13 @@ func (m *Minter) Mint(g Grant) (string, time.Time, error) {
 	if ttl <= 0 {
 		ttl = DefaultTTL
 	}
-	now := time.Now().UTC()
-	exp := now.Add(ttl)
+	exp := time.Now().UTC().Add(ttl)
 
-	tok, err := jwt.NewBuilder().
-		Issuer(m.apiKey).
-		Subject(g.Identity).
-		IssuedAt(now).
-		NotBefore(now).
-		Expiration(exp).
+	signed, err := signVideoJWT(m.apiKey, m.apiSecret, g.Identity, exp, map[string]any{
 		// LiveKit reads identity from `sub`, but also honours this claim and
 		// uses it for the participant's display name.
-		Claim("name", g.Name).
-		Claim("video", videoGrant{
+		"name": g.Name,
+		"video": videoGrant{
 			Room:              g.Room,
 			RoomJoin:          true,
 			RoomAdmin:         g.RoomAdmin,
@@ -195,14 +189,39 @@ func (m *Minter) Mint(g Grant) (string, time.Time, error) {
 			// watch, which is what makes a listener role possible later.
 			CanSubscribe:   true,
 			CanPublishData: g.CanPublish,
-		}).
-		Build()
+		},
+	})
 	if err != nil {
-		return "", time.Time{}, fmt.Errorf("livekit: build token: %w", err)
+		return "", time.Time{}, err
 	}
-	signed, err := jwt.Sign(tok, jwt.WithKey(jwa.HS256, []byte(m.apiSecret)))
+	return signed, exp, nil
+}
+
+// signVideoJWT builds and signs the Issuer/Subject/IssuedAt/NotBefore/
+// Expiration envelope every LiveKit credential in this package needs, plus
+// whatever claims the caller supplies (always including "video" — LiveKit's
+// authorization claim — and, for Mint alone, "name"). Shared by Mint (a
+// participant's room token), roomManagementToken (server-to-server RoomService
+// calls, in rooms.go) and recordToken (the egress API, in egress.go) — the
+// three differ only in subject, lifetime, and what the video claim grants.
+func signVideoJWT(apiKey, apiSecret, subject string, exp time.Time, claims map[string]any) (string, error) {
+	now := time.Now().UTC()
+	b := jwt.NewBuilder().
+		Issuer(apiKey).
+		Subject(subject).
+		IssuedAt(now).
+		NotBefore(now).
+		Expiration(exp)
+	for k, v := range claims {
+		b = b.Claim(k, v)
+	}
+	tok, err := b.Build()
 	if err != nil {
-		return "", time.Time{}, fmt.Errorf("livekit: sign token: %w", err)
+		return "", fmt.Errorf("livekit: build token: %w", err)
 	}
-	return string(signed), exp, nil
+	signed, err := jwt.Sign(tok, jwt.WithKey(jwa.HS256, []byte(apiSecret)))
+	if err != nil {
+		return "", fmt.Errorf("livekit: sign token: %w", err)
+	}
+	return string(signed), nil
 }

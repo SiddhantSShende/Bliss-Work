@@ -15,15 +15,9 @@ import {
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
-import { Tabs, type TabSpec } from "../features/Tabs";
+import { Tabs } from "../features/Tabs";
 import { ExportActivityDialog } from "../features/ExportActivityDialog";
-import { computeRange, parseLocalDay, type RangeKey } from "../lib/dateRange";
-
-const RANGES: TabSpec<RangeKey>[] = [
-  { key: "7d", label: "Last 7 days" },
-  { key: "30d", label: "Last 30 days" },
-  { key: "90d", label: "Last 90 days" },
-];
+import { ACTIVITY_RANGES, computeRange, parseLocalDay, type RangeKey } from "../lib/dateRange";
 
 /** Workspace-wide activity: the whole team's shape, and a table of who did what. */
 export function OrgActivity() {
@@ -79,7 +73,7 @@ export function OrgActivity() {
       </div>
 
       <div className="min-h-0 flex-1 space-y-6 overflow-auto p-5">
-        <Tabs tabs={RANGES} active={range} onChange={setRange} />
+        <Tabs tabs={ACTIVITY_RANGES} active={range} onChange={setRange} />
 
         {isLoading ? (
           <div className="flex justify-center p-8"><Spinner /></div>

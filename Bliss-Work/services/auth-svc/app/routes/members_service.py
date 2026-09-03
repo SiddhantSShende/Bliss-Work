@@ -175,23 +175,7 @@ async def load_members_for_org(
         return []
 
     user_ids = [str(r.id) for r in rows]
-    role_rows = (
-        await conn.execute(
-            text(
-                """
-                SELECT ur.user_id, r.name
-                FROM user_roles ur
-                JOIN roles r ON r.id = ur.role_id
-                WHERE ur.user_id = ANY(CAST(:uids AS uuid[]))
-                ORDER BY ur.user_id, r.name
-                """
-            ),
-            {"uids": user_ids},
-        )
-    ).all()
-    roles_by_user: dict[str, list[str]] = {}
-    for rr in role_rows:
-        roles_by_user.setdefault(str(rr.user_id), []).append(rr.name)
+    roles_by_user = await service.roles_by_user_id(conn, user_ids)
 
     c = cryptor()
     return [

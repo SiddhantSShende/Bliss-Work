@@ -30,7 +30,7 @@ export function MfaSettings() {
 
   const [enrolling, setEnrolling] = useState<"totp" | null>(null);
   const [newBackupCodes, setNewBackupCodes] = useState<string[] | null>(null);
-  const [stepUpAction, setStepUpAction] = useState<"disable" | "regenerate" | null>(null);
+  const [stepUpAction, setStepUpAction] = useState<"disable" | "regenerate" | "addPasskey" | null>(null);
   const [passkeyBusy, setPasskeyBusy] = useState(false);
   // Whether the user has a registered passkey — gates the step-up modal's
   // "use a passkey instead" option (see StepUpModal). Not derivable from
@@ -147,7 +147,7 @@ export function MfaSettings() {
                       Use your device's fingerprint, face, or a security key instead of a code.
                     </div>
                   </div>
-                  <Button variant="subtle" size="sm" loading={passkeyBusy} onClick={addPasskey}>
+                  <Button variant="subtle" size="sm" onClick={() => setStepUpAction("addPasskey")}>
                     Add
                   </Button>
                 </div>
@@ -247,6 +247,10 @@ export function MfaSettings() {
         onClose={() => setStepUpAction(null)}
         onDisabled={() => void refreshUser()}
         onRegenerated={(codes) => setNewBackupCodes(codes)}
+        onPasskeyAdded={() => {
+          setHasPasskey(true);
+          void refreshUser();
+        }}
       />
     </div>
   );
@@ -258,14 +262,16 @@ function StepUpModal({
   onClose,
   onDisabled,
   onRegenerated,
+  onPasskeyAdded,
 }: {
-  action: "disable" | "regenerate" | null;
+  action: "disable" | "regenerate" | "addPasskey" | null;
   /** Whether the caller has a registered passkey — see MfaSettings' own
    *  `hasPasskey` state for why this can't be derived locally. */
   hasPasskey: boolean;
   onClose: () => void;
   onDisabled: () => void;
   onRegenerated: (codes: string[]) => void;
+  onPasskeyAdded: () => void;
 }) {
   const { api } = useRuntime();
   const [password, setPassword] = useState("");
@@ -284,7 +290,14 @@ function StepUpModal({
    *  passkey button below): dispatch to whichever action this modal is open
    *  for, then close it. Left to throw — each caller wraps this in its own
    *  try/catch so the error toast can say something specific to what it just
-   *  attempted (password+code vs. password+passkey). */
+   *  attempted (password+code vs. password+passkey).
+   *
+   *  `addPasskey` is the odd one out: `body` here only PROVES who's asking —
+   *  it still has to be forwarded as `stepUp` on a completely separate
+   *  WebAuthn REGISTRATION ceremony (a second, different browser prompt when
+   *  the step-up itself was done via an existing passkey) to actually add
+   *  the new credential, mirroring what the unauthenticated `addPasskey()`
+   *  above does for a first-time enrollee minus the step-up wrapper. */
   const finishStepUp = async (body: {
     password: string;
     totpCode?: string;
@@ -298,6 +311,12 @@ function StepUpModal({
     } else if (action === "regenerate") {
       const result = await api.mfaRegenerateBackupCodes(body);
       onRegenerated(result.backupCodes);
+    } else if (action === "addPasskey") {
+      const options = await api.mfaWebauthnRegisterStart();
+      const credential = await createPasskey(options);
+      await api.mfaWebauthnRegisterFinish({ credential, stepUp: body });
+      toast.success("Passkey added");
+      onPasskeyAdded();
     }
     reset();
     onClose();
@@ -343,7 +362,13 @@ function StepUpModal({
         reset();
         onClose();
       }}
-      title={action === "disable" ? "Confirm it's you" : "Confirm it's you to regenerate codes"}
+      title={
+        action === "disable"
+          ? "Confirm it's you"
+          : action === "regenerate"
+            ? "Confirm it's you to regenerate codes"
+            : "Confirm it's you to add a passkey"
+      }
     >
       <form onSubmit={submit} className="flex flex-col gap-3">
         <Input
@@ -386,7 +411,11 @@ function StepUpModal({
           disabled={!password || code.length < 4}
           className="mt-1 w-full"
         >
-          {action === "disable" ? "Turn off two-factor authentication" : "Regenerate backup codes"}
+          {action === "disable"
+            ? "Turn off two-factor authentication"
+            : action === "regenerate"
+              ? "Regenerate backup codes"
+              : "Add passkey"}
         </Button>
       </form>
     </Modal>

@@ -904,6 +904,13 @@ export const ChannelDTO = z.object({
   memberCount: z.number().int(),
   lastMessage: z.string().nullable(),
   lastMessageAt: z.string().nullable(),
+  /** Display name (falling back to username) of whoever sent lastMessage —
+   *  server-resolved, unlike ConversationDTO's same-named field (a DM only
+   *  ever has two possible senders, both already named elsewhere on that
+   *  DTO, so it never populates this). Drives the "<Name>: preview" list
+   *  label. Empty when there is no last message or the sender's projection
+   *  hasn't caught up yet. */
+  lastMessageSender: z.string().default(""),
   /** Who sent lastMessage — used to tell "I sent it" from "I received it"
    *  (e.g. the Link sent/Link received preview label) without relying on a
    *  display name, which is user-editable and can collide between members.

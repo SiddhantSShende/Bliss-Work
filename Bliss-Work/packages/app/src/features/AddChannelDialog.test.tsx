@@ -40,6 +40,7 @@ function chan(overrides: Partial<ChannelDTO>): ChannelDTO {
     memberCount: 5,
     lastMessage: null,
     lastMessageAt: null,
+    lastMessageSender: "",
     lastMessageSenderId: "",
     cleared: false,
     unread: 0,

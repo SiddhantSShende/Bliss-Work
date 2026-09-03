@@ -5,14 +5,12 @@ import { Download } from "lucide-react";
 import { Button } from "@taskboard/ui";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
-import { computeRange, localDay, type RangeKey } from "../lib/dateRange";
+import { ACTIVITY_RANGES, computeRange, localDay, type RangeKey } from "../lib/dateRange";
 import { exportAllMembersActivityToXlsx, exportMemberActivityToXlsx } from "../lib/xlsxTelemetry";
 import { Modal } from "./Modal";
 
-const RANGES: { key: RangeKey; label: string }[] = [
-  { key: "7d", label: "Last 7 days" },
-  { key: "30d", label: "Last 30 days" },
-  { key: "90d", label: "Last 90 days" },
+const RANGES: ReadonlyArray<{ key: RangeKey; label: string }> = [
+  ...ACTIVITY_RANGES,
   { key: "custom", label: "Custom range" },
 ];
 

@@ -8,7 +8,7 @@
 import { meetingJoinUrl } from "./meetingDeepLink";
 
 /** Only what this needs from the API client, so a test can pass three stubs. */
-export type CallLinkApi = {
+type CallLinkApi = {
   scheduleMeeting: (body: {
     title?: string;
     media?: "audio" | "video";
@@ -19,7 +19,7 @@ export type CallLinkApi = {
   sendMessage: (recipientId: string, body: string) => Promise<unknown>;
 };
 
-export type CallLinkResult = {
+type CallLinkResult = {
   /** The join URL. The caller posts this into the conversation itself. */
   link: string;
   /** How many of `alsoTo` could not be messaged. */

@@ -33,10 +33,6 @@ bin/
 # env / secrets
 .env
 .env.prod
-# Per-service internal-service-secret files (docker-compose.prod.yml Phase 2 —
-# see docs/AUTH_AUTHZ_REMEDIATION_PLAN.md). Real secrets, one file per
-# service, never committed — .env.prod.example documents the required names.
-.env.prod.*-internal-token
 *.local
 
 # deploy state written on the prod host by scripts/deploy-prod.sh

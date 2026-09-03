@@ -14,7 +14,7 @@
 import { readablePrefix } from "./chatEnvelope";
 import { downloadBlob } from "./download";
 
-export interface TranscriptMessage {
+interface TranscriptMessage {
   body: string;
   /** ISO timestamp. Absent on an optimistic message that has not landed. */
   at?: string;
@@ -23,7 +23,7 @@ export interface TranscriptMessage {
   deletedForAll?: boolean;
 }
 
-export interface TranscriptOptions {
+interface TranscriptOptions {
   /** "#general" or the peer's name — whatever titles the conversation on screen. */
   title: string;
   /** The reader, so their own lines read "You" as they do in the thread. */

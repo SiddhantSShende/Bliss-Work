@@ -3,8 +3,11 @@
 #
 # INTENDED USE: one production host (or a small VM), behind TLS, for a modest
 # user base or a staging/preview environment. It is the "one box" deployment.
-# For real horizontal scale, HA, rolling deploys and autoscaling, use the Helm
-# chart on Kubernetes instead — this file is the small-scale complement to it.
+# For real horizontal scale, HA, rolling deploys and autoscaling, a Helm chart
+# on Kubernetes would be the complement to it — NOTE: no such chart exists in
+# this repository today (no deploy/ or helm/ directory); comments below that
+# reference one describe an intended future path, not something you can `helm
+# install` right now.
 #
 # DIFFERENCES from the dev docker-compose.yml (which this file does NOT replace):
 #   • All secrets come from the ENVIRONMENT / a secrets file (env_file: .env.prod)
@@ -27,7 +30,8 @@
 #
 # `deploy.resources.limits` AND `deploy.replicas` are both honoured by
 # `docker compose up` (Compose v2) without Swarm. The rollout keys
-# (update_config / rollback_config) are not, and remain the Helm chart's job.
+# (update_config / rollback_config) are not — a future Kubernetes/Helm
+# deployment would own those; see the note at the top of this file.
 #
 # ── Horizontal scale on one host ─────────────────────────────────────────────
 #
@@ -62,9 +66,9 @@
 #
 # That leaves ~70 slots for psql, the exporters and headroom. Raising a replica
 # count by one costs ANOTHER 10 slots for that service; past roughly 4 replicas
-# each this needs pgbouncer in front of Postgres (the Helm chart already has
-# one — deploy/helm/taskboard/templates/pgbouncer.yaml) rather than a bigger
-# max_connections, because 200 backends would not be healthy on 8 cores.
+# each this needs pgbouncer in front of Postgres (a future Helm-based
+# deployment's job — see the note at the top of this file) rather than a
+# bigger max_connections, because 200 backends would not be healthy on 8 cores.
 #
 # ── What is deliberately NOT replicated ──────────────────────────────────────
 #
@@ -93,14 +97,17 @@
 name: task-board-prod
 
 # Shared defaults for the application services. Each reads its non-secret
-# config plus most secrets from .env.prod — nothing sensitive is inlined in
-# this file. auth-svc, task-svc, messaging-svc, integrations-svc, ws-gateway,
-# delivery-svc and email-worker additionally re-list `env_file:` (below, per
-# service) to layer in ONLY the internal-service-secret file(s) they actually
-# need — `<<:` REPLACES the env_file list rather than merging it, which is
-# exactly what makes this work: a service that doesn't re-list a given
-# .env.prod.*-internal-token file never receives that secret. See
-# docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 2.
+# config plus every secret — including the per-callee X-Internal-Token
+# values — from this single .env.prod. Every application service below just
+# inherits this env_file entry via `<<: *svc-defaults`; none re-lists its own.
+#
+# This used to be split further: auth-svc, task-svc, messaging-svc,
+# integrations-svc, ws-gateway, delivery-svc and email-worker each re-listed
+# `env_file:` to layer in ONLY the internal-service-secret file(s) they
+# actually needed, so a service that never called a given callee never
+# received that callee's secret. See the dated addendum in
+# docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 2, for why that per-service
+# isolation was traded for a single merged file.
 x-svc-defaults: &svc-defaults
   restart: unless-stopped
   env_file:
@@ -729,8 +736,8 @@ services:
   #   The bundled single broker speaks PLAINTEXT — IDENTICAL to dev — and is NOT
   #   the recommended production message bus (RF=1, no HA, no auth). For real
   #   production durability AND wire encryption, run Kafka EXTERNALLY (managed
-  #   MSK / Confluent Cloud / Redpanda or Strimzi via the Helm chart) with a
-  #   SASL_SSL listener, and point the producers/consumers at it by setting
+  #   MSK / Confluent Cloud / Redpanda, or self-hosted Strimzi on Kubernetes)
+  #   with a SASL_SSL listener, and point the producers/consumers at it by setting
   #   KAFKA_BROKERS + the KAFKA_SECURITY_* client vars in .env.prod (§6).
   #
   #   IMPORTANT HONEST CAVEAT: the in-tree clients (aiokafka in the Python
@@ -768,7 +775,7 @@ services:
       #
       # NOTE: single-broker KRaft. RF>1 (and the prod topic settings in
       # infra/kafka/create-topics.sh) require a MULTI-broker cluster — run Kafka
-      # externally (managed MSK/Confluent/Redpanda) or via the Helm chart for HA.
+      # externally (managed MSK/Confluent/Redpanda) for HA.
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
@@ -814,17 +821,8 @@ services:
     image: ${REGISTRY_PREFIX:-task-board}/auth-svc:${IMAGE_TAG:-latest}
     environment:
       IMAGE_TAG: ${IMAGE_TAG:-dev}
-    # Re-listed (not inherited) — see the x-svc-defaults note: `<<:` replaces
-    # the `env_file:` list rather than merging it. This service's OWN internal
-    # secret (validates callers of /internal/*) is a separate file from the
-    # shared .env.prod so notification-svc/graph-gw/telemetry-svc — which
-    # never call it — never receive it. See
-    # docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 2.
-    env_file:
-      - path: .env.prod
-        required: false
-      - path: .env.prod.auth-internal-token
-        required: false
+    # env_file inherited from x-svc-defaults (.env.prod, which now also
+    # carries AUTH_INTERNAL_TOKEN — see the Phase 2 addendum).
     volumes:
       - ./keys:/keys:ro   # Ed25519 keypair — provisioned per-env, gitignored.
       # Re-listed (not inherited) — see the x-svc-defaults note: `<<:` replaces
@@ -856,17 +854,8 @@ services:
       dockerfile: services/email-worker/Dockerfile
     image: ${REGISTRY_PREFIX:-task-board}/email-worker:${IMAGE_TAG:-latest}
     # email-worker CALLS auth-svc, messaging-svc and integrations-svc's
-    # /internal/* routes — it needs exactly those three secrets, and only
-    # those three. See docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 2.
-    env_file:
-      - path: .env.prod
-        required: false
-      - path: .env.prod.auth-internal-token
-        required: false
-      - path: .env.prod.messaging-internal-token
-        required: false
-      - path: .env.prod.integrations-internal-token
-        required: false
+    # /internal/* routes. env_file inherited from x-svc-defaults (.env.prod
+    # now carries every *_INTERNAL_TOKEN — see the Phase 2 addendum).
     # Pure Kafka consumer — no HTTP port, no /readyz. Liveness is process-up.
     depends_on:
       postgres: { condition: service_healthy }
@@ -886,16 +875,8 @@ services:
     image: ${REGISTRY_PREFIX:-task-board}/task-svc:${IMAGE_TAG:-latest}
     environment:
       IMAGE_TAG: ${IMAGE_TAG:-dev}
-    # This service's OWN internal secret (validates /internal/tasks/by-title)
-    # plus messaging-svc's (it CALLS /internal/channels/{id}/members) — see
-    # docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 2.
-    env_file:
-      - path: .env.prod
-        required: false
-      - path: .env.prod.task-internal-token
-        required: false
-      - path: .env.prod.messaging-internal-token
-        required: false
+    # env_file inherited from x-svc-defaults (.env.prod carries both
+    # TASK_INTERNAL_TOKEN and MESSAGING_INTERNAL_TOKEN — see the Phase 2 addendum).
     depends_on:
       postgres: { condition: service_healthy }
       kafka-init: { condition: service_completed_successfully }
@@ -949,14 +930,9 @@ services:
     image: ${REGISTRY_PREFIX:-task-board}/messaging-svc:${IMAGE_TAG:-latest}
     environment:
       IMAGE_TAG: ${IMAGE_TAG:-dev}
-    # This service's OWN internal secret — validates callers of its 5
-    # /internal/* routes (task-svc, ws-gateway, integrations-svc,
-    # email-worker). See docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 2.
-    env_file:
-      - path: .env.prod
-        required: false
-      - path: .env.prod.messaging-internal-token
-        required: false
+    # env_file inherited from x-svc-defaults (.env.prod carries
+    # MESSAGING_INTERNAL_TOKEN, which validates callers of its 5
+    # /internal/* routes — see the Phase 2 addendum).
     # Chat attachment bytes live on a named volume. `read_only: true` from the
     # anchor still applies — a volume mount stays writable regardless — and it is
     # the ONLY writable path in the container (/tmp is a small in-memory tmpfs,
@@ -982,8 +958,8 @@ services:
       # Two replicas behind the Caddy load balancer (see the header note).
       # Safe to replicate HERE specifically because all replicas mount
       # the SAME media_blobs volume on the same host — an upload accepted by one
-      # is readable by the others. The Helm chart pins this service at 1 for the
-      # opposite reason: pods get separate disks (see deploy/helm values.yaml).
+      # is readable by the others. A Kubernetes deployment would need to pin this
+      # at 1 replica for the opposite reason: pods get separate disks there.
       replicas: 2
       resources:
         limits: { cpus: "1.00", memory: 384M }
@@ -998,16 +974,8 @@ services:
     image: ${REGISTRY_PREFIX:-task-board}/integrations-svc:${IMAGE_TAG:-latest}
     environment:
       IMAGE_TAG: ${IMAGE_TAG:-dev}
-    # This service's OWN internal secret (validates /internal/messages/send,
-    # /internal/mail/send) plus messaging-svc's (it CALLS /internal/mail/
-    # inbound) — see docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 2.
-    env_file:
-      - path: .env.prod
-        required: false
-      - path: .env.prod.integrations-internal-token
-        required: false
-      - path: .env.prod.messaging-internal-token
-        required: false
+    # env_file inherited from x-svc-defaults (.env.prod carries both
+    # INTEGRATIONS_INTERNAL_TOKEN and MESSAGING_INTERNAL_TOKEN — see the Phase 2 addendum).
     depends_on:
       postgres: { condition: service_healthy }
       kafka-init: { condition: service_completed_successfully }
@@ -1068,16 +1036,9 @@ services:
     image: ${REGISTRY_PREFIX:-task-board}/sticky-svc:${IMAGE_TAG:-latest}
     environment:
       IMAGE_TAG: ${IMAGE_TAG:-dev}
-    # Re-listed (not inherited) — see the x-svc-defaults note: `<<:` replaces
-    # the `env_file:` list rather than merging it. This service's OWN internal
-    # secret (validates callers of /internal/pins/undelivered) lives in a
-    # separate file from the shared .env.prod, so every service that never calls
-    # it never receives it. Only sticky-relay gets the same file, below.
-    env_file:
-      - path: .env.prod
-        required: false
-      - path: .env.prod.sticky-internal-token
-        required: false
+    # env_file inherited from x-svc-defaults (.env.prod carries
+    # STICKY_INTERNAL_TOKEN, which validates callers of /internal/pins/undelivered
+    # — see the Phase 2 addendum).
     depends_on:
       postgres: { condition: service_healthy }
       kafka-init: { condition: service_completed_successfully }
@@ -1108,13 +1069,8 @@ services:
     image: ${REGISTRY_PREFIX:-task-board}/sticky-relay:${IMAGE_TAG:-latest}
     environment:
       IMAGE_TAG: ${IMAGE_TAG:-dev}
-    # The other half of the pair: sticky-relay SENDS the secret that sticky-svc
-    # validates, so it is the only other service that gets this file.
-    env_file:
-      - path: .env.prod
-        required: false
-      - path: .env.prod.sticky-internal-token
-        required: false
+    # env_file inherited from x-svc-defaults. sticky-relay SENDS the
+    # STICKY_INTERNAL_TOKEN that sticky-svc validates.
     depends_on:
       kafka-init: { condition: service_completed_successfully }
       sticky-svc: { condition: service_healthy }
@@ -1142,17 +1098,10 @@ services:
     image: ${REGISTRY_PREFIX:-task-board}/ws-gateway:${IMAGE_TAG:-latest}
     environment:
       IMAGE_TAG: ${IMAGE_TAG:-dev}
-    # This service's OWN internal secret (validates /internal/push, and is
-    # also what delivery-svc below uses to call it) plus messaging-svc's (the
-    # delivery-ack dispatcher CALLS /internal/messages/delivered) — see
-    # docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 2.
-    env_file:
-      - path: .env.prod
-        required: false
-      - path: .env.prod.ws-gateway-internal-token
-        required: false
-      - path: .env.prod.messaging-internal-token
-        required: false
+    # env_file inherited from x-svc-defaults (.env.prod carries both
+    # WS_GATEWAY_INTERNAL_TOKEN — validates /internal/push, also what
+    # delivery-svc below uses to call it — and MESSAGING_INTERNAL_TOKEN,
+    # used by the delivery-ack dispatcher to call /internal/messages/delivered).
     depends_on:
       redis: { condition: service_healthy }
       kafka-init: { condition: service_completed_successfully }
@@ -1225,14 +1174,9 @@ services:
     environment:
       IMAGE_TAG: ${IMAGE_TAG:-dev}
     entrypoint: ["/usr/local/bin/delivery-svc"]
-    # delivery-svc only CALLS ws-gateway nodes' /internal/push — it needs the
-    # gateway's secret and nothing else (not messaging-svc's — it never talks
-    # to messaging-svc). See docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 2.
-    env_file:
-      - path: .env.prod
-        required: false
-      - path: .env.prod.ws-gateway-internal-token
-        required: false
+    # env_file inherited from x-svc-defaults. delivery-svc only CALLS
+    # ws-gateway nodes' /internal/push, using WS_GATEWAY_INTERNAL_TOKEN
+    # (it never talks to messaging-svc).
     depends_on:
       redis: { condition: service_healthy }
       kafka-init: { condition: service_completed_successfully }

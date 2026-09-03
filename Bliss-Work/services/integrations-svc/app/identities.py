@@ -25,7 +25,8 @@ from typing import Sequence
 import uuid6
 from sqlalchemy import text
 
-from crypto import cryptor
+from crypto import cryptor, CryptoError
+from .logging_setup import log
 
 
 async def resolve_users(
@@ -196,7 +197,15 @@ async def list_identities(db, *, org_id: str, user_id: str) -> list[dict]:
 
     out: list[dict] = []
     for r in rows:
-        handle = await cryptor().decrypt(db, org_id, bytes(r.external_handle_enc))
+        # Isolated per row: a historical handle whose DEK version is gone
+        # (crypto-shredded) or whose ciphertext is malformed raises
+        # CryptoError by design (fail closed) — one bad row must not 500 the
+        # whole "My handles" list for every other, perfectly readable one.
+        try:
+            handle = await cryptor().decrypt(db, org_id, bytes(r.external_handle_enc))
+        except CryptoError as exc:
+            log.warning("identity_decrypt_failed", identity_id=str(r.id), error=str(exc))
+            handle = "(unavailable)"
         out.append(
             {
                 "id": str(r.id),

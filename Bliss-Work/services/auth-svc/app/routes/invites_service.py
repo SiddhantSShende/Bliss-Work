@@ -16,7 +16,6 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from .. import service
 from ..config import settings
 from crypto import cryptor
-from ..db import engine
 from ..events.outbox import TOPIC_AUTH, build_event, enqueue_event
 from ..logging_config import log
 from ..net import request_context
@@ -26,12 +25,7 @@ from ..routing.decision import Route, route_for
 from ..routing.events import KEY_INVITE, invite_key
 from ..schemas import AcceptInviteRequest, CreateInviteRequest, SessionDTO
 from ..security.auth_dep import Principal
-from ..security.passwords import (
-    PASSWORD_POLICY_MESSAGE,
-    hash_password_async,
-    password_meets_policy,
-    verify_password_async,
-)
+from ..security.passwords import PASSWORD_POLICY_MESSAGE, password_meets_policy
 
 INVITE_TTL = timedelta(hours=72)
 
@@ -238,7 +232,6 @@ async def accept_invite_tx(
     # Bind RLS to the invite's org and drop the bypass before any write/crypto.
     await conn.execute(text("SELECT set_config('app.bypass_rls', 'off', true)"))
     await service.set_org_guc(conn, org_id)
-    user_id = service.new_uuid()
     c = cryptor()
     email_enc = await c.encrypt(conn, org_id, str(invite.email))
     email_bidx = c.blind_index(str(invite.email))
@@ -246,76 +239,89 @@ async def accept_invite_tx(
     # Cross-org identity: if this email already has an identity, attach this
     # membership to it (reuse the shared credential) after authenticating with the
     # existing password; otherwise create a fresh identity. Invited users are
-    # email-verified (the invite proves control of the address).
-    existing_ident = (
+    # email-verified (the invite proves control of the address) regardless of
+    # the identity's own state, so that state is not read here.
+    identity_id, ph, _new_identity, _existing_verified = await service.resolve_or_create_identity(
+        conn,
+        email_bidx,
+        body.password,
+        new_identity_email_verified=True,
+        already_registered_error=HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            "that email already has an account — use your existing password to join",
+        ),
+    )
+    # A `users` row for this (org, email) can already exist — most commonly a
+    # previously-removed member being re-invited (members.py's remove_member
+    # docstring: "Re-invitable afterwards"; _apply_status's removed branch:
+    # "so a re-invite starts from a clean slate"). Neither actually clears
+    # email_bidx, so the row — and its slot in uq_users_org_email_bidx —
+    # survives removal forever; an unconditional INSERT below would hit that
+    # unique index and 500 instead of the clean-slate re-invite both of those
+    # comments promise. An active/suspended row is a different mistake (the
+    # invite target is already a member) and gets its own clear answer rather
+    # than the same crash.
+    existing_user = (
         await conn.execute(
-            text(
-                "SELECT id, password_hash, failed_login_count, locked_until "
-                "FROM identities WHERE email_bidx = :b"
-            ),
-            {"b": email_bidx},
+            text("SELECT id, status FROM users WHERE org_id = :org AND email_bidx = :bidx"),
+            {"org": org_id, "bidx": email_bidx},
         )
     ).first()
-    if existing_ident is not None:
-        # Same lockout the password-guess surface at /auth/login already has —
-        # invite acceptance gates a password guess exactly the same way. See
-        # docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 5.
-        now = datetime.now(timezone.utc)
-        if existing_ident.locked_until is not None and existing_ident.locked_until > now:
-            retry = max(1, int((existing_ident.locked_until - now).total_seconds()))
-            raise HTTPException(
-                status.HTTP_429_TOO_MANY_REQUESTS,
-                "account temporarily locked due to failed logins; try again later",
-                headers={"Retry-After": str(retry)},
-            )
-        if not await verify_password_async(existing_ident.password_hash, body.password):
-            # A SEPARATE transaction, deliberately — this function runs inside
-            # the router's own `engine.begin()` block, and the HTTPException
-            # below aborts THAT transaction. The failed-attempt counter must
-            # survive the abort, so it commits on its own connection instead
-            # of the caller's (mirrors poller.py's record_publish_failure).
-            async with engine.begin() as lockout_conn:
-                locked_secs = await service.register_failed_login(lockout_conn, existing_ident)
-            if locked_secs > 0:
-                raise HTTPException(
-                    status.HTTP_429_TOO_MANY_REQUESTS,
-                    "account temporarily locked due to failed logins; try again later",
-                    headers={"Retry-After": str(locked_secs)},
-                )
-            raise HTTPException(
-                status.HTTP_401_UNAUTHORIZED,
-                "that email already has an account — use your existing password to join",
-            )
-        identity_id = str(existing_ident.id)
-        ph = existing_ident.password_hash
-    else:
-        identity_id = service.new_uuid()
-        ph = await hash_password_async(body.password)
+    if existing_user is not None and existing_user.status != "removed":
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "this email already belongs to a member of this organization",
+        )
+
+    if existing_user is not None:
+        # Reactivate the removed row in place — its history (audit log,
+        # authored messages/tasks) points at this id, and the unique index
+        # would reject a second row for this (org, email) regardless.
+        user_id = str(existing_user.id)
         await conn.execute(
             text(
-                "INSERT INTO identities (id, email_bidx, password_hash, email_verified) "
-                "VALUES (:id, :b, :ph, true)"
+                """
+                UPDATE users
+                SET identity_id = :iid, email_enc = :email_enc, email_bidx = :email_bidx,
+                    username = :username, password_hash = :ph, display_name_enc = :dn_enc,
+                    email_verified = true, status = 'active', removed_at = NULL
+                WHERE id = :id
+                """
             ),
-            {"id": identity_id, "b": email_bidx, "ph": ph},
+            {
+                "id": user_id,
+                "iid": identity_id,
+                "email_enc": email_enc,
+                "email_bidx": email_bidx,
+                "username": body.username,
+                "ph": ph,
+                "dn_enc": dn_enc,
+            },
         )
-    await conn.execute(
-        text(
-            """
-            INSERT INTO users (id, org_id, identity_id, email_enc, email_bidx, username, password_hash, display_name_enc, email_verified)
-            VALUES (:id, :org, :iid, :email_enc, :email_bidx, :username, :ph, :dn_enc, true)
-            """
-        ),
-        {
-            "id": user_id,
-            "org": org_id,
-            "iid": identity_id,
-            "email_enc": email_enc,
-            "email_bidx": email_bidx,
-            "username": body.username,
-            "ph": ph,
-            "dn_enc": dn_enc,
-        },
-    )
+    else:
+        user_id = service.new_uuid()
+        await conn.execute(
+            text(
+                """
+                INSERT INTO users (id, org_id, identity_id, email_enc, email_bidx, username, password_hash, display_name_enc, email_verified)
+                VALUES (:id, :org, :iid, :email_enc, :email_bidx, :username, :ph, :dn_enc, true)
+                """
+            ),
+            {
+                "id": user_id,
+                "org": org_id,
+                "iid": identity_id,
+                "email_enc": email_enc,
+                "email_bidx": email_bidx,
+                "username": body.username,
+                "ph": ph,
+                "dn_enc": dn_enc,
+            },
+        )
+    # Either branch leaves this user with no role row: a fresh insert has
+    # never had one, and _apply_status's removal path deletes every role row
+    # for a removed user (see its own "clean slate" comment) — so this is
+    # always a fresh grant, never a conflict.
     await conn.execute(
         text(
             """

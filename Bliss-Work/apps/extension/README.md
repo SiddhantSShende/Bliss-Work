@@ -10,7 +10,15 @@ npm run build:firefox -w @taskboard/extension    # → apps/extension/dist-firef
 
 Load `apps/extension/dist` via `chrome://extensions` → Developer mode → Load
 unpacked. Works in Chrome, Edge, Brave and any Chromium browser at 116+ —
-same bundle, same manifest, no per-browser code. See
+same bundle, same manifest, no per-browser code.
+
+`dist/` is also exactly what `scripts/pack-crx.mjs` signs into `dist.crx`/
+`dist.zip` for real force-install, so a bare `npm run build` never allowlists
+a local dev origin in `externally_connectable`. To test the automatic
+provisioning handshake (a signed-in BlissWork tab auto-connecting the
+extension, see "How it authenticates" below) against the web app's own
+`npm run dev` server, build with `node build.mjs --dev` instead — see
+`build.mjs`'s own comment on `devOnlyConnectableOrigins`. See
 **[`docs/BROWSERS.md`](docs/BROWSERS.md)** for the full breakdown of what is
 shared vs. isolated per browser, the Firefox build, and why Safari is a
 distinct implementation concern (native Xcode wrapper, not a fourth

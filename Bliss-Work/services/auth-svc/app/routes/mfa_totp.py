@@ -70,6 +70,20 @@ async def enroll_confirm(
         user_id, org_id = await mfa_service.resolve_actor_for_enrollment(
             conn, authorization=authorization, pending_token=body.pendingToken
         )
+        if await mfa_service.is_already_enrolled(conn, user_id):
+            # Overwriting an EXISTING TOTP secret is as consequential as
+            # MFA-disable (it can lock the real owner out of their current
+            # authenticator, or hand an attacker holding only a stolen Bearer
+            # token a durable second factor) — gate it behind the same
+            # step-up re-auth disable/regenerate already require.
+            step_up = body.stepUp
+            ok = step_up is not None and await mfa_service.verify_step_up(
+                conn, org_id, user_id,
+                step_up.password, step_up.totpCode, step_up.backupCode, step_up.webauthnCredential,
+            )
+            if not ok:
+                raise HTTPException(status.HTTP_401_UNAUTHORIZED, "re-authentication failed")
+
         if not await mfa_service.verify_totp_replay_safe(conn, user_id, body.secret, body.code):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "incorrect code")
 
@@ -81,6 +95,11 @@ async def enroll_confirm(
             ),
             {"s": secret_enc, "id": user_id},
         )
+        # Invalidate any codes from a prior enrollment BEFORE inserting the
+        # fresh batch — same mandatory ordering as backup-codes/regenerate
+        # below (see mfa_service.invalidate_backup_codes's docstring):
+        # otherwise old codes stay valid indefinitely alongside the new ones.
+        await mfa_service.invalidate_backup_codes(conn, user_id)
         codes = mfa_service.generate_backup_codes()
         await mfa_service.store_backup_codes(conn, org_id, user_id, codes)
 

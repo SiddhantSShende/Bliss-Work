@@ -3,11 +3,24 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { Video, AlertCircle } from "lucide-react";
 import { Button, EmptyState } from "@taskboard/ui";
 import type { CallDTO } from "@taskboard/shared";
-import { useRuntime } from "../lib/runtime";
+import { useConnectEventBridge, useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { useMeetingSession } from "../lib/MeetingSession";
 import { RequireAuth } from "../lib/RequireAuth";
 import { MeetingHandoffLanding } from "../features/MeetingHandoffLanding";
+
+/**
+ * How long this route waits for the meeting overlay (MeetingHost/CallRoom) to
+ * take over before offering a way out. Below this, the route has no fallback
+ * of its own at all: a stall anywhere in enter()/MeetingHost's render
+ * (whatever the cause) leaves the visitor staring at inert placeholder text
+ * with no error and no recourse — exactly the failure mode CallWindow.tsx's
+ * own doc comment describes for /call/:callId. CallWindow eliminated it
+ * structurally, by rendering CallRoom directly instead of trusting a
+ * hand-off at all; this route still uses the hand-off pattern (see `enter`
+ * below), so it needs a runtime guard instead — see `HandOff` below.
+ */
+const HANDOFF_TIMEOUT_MS = 15_000;
 
 /**
  * Entry point for a meeting link: /join?t=<token>
@@ -63,6 +76,14 @@ function JoinCallRedeem({ token }: { token: string }) {
   const [call, setCall] = useState<CallDTO | null>(null);
   const [failed, setFailed] = useState(false);
   const [pending, setPending] = useState(true);
+
+  // This route sits outside /app (see App.tsx's own comment on why), so
+  // WsEventBridge — mounted only inside AppShell — never runs here. CallWindow
+  // needs the identical fix for /call/:callId, the other route outside /app;
+  // without it, someone joining by link never hears CallStarted (the pre-join
+  // lobby's auto-join in useCallRoom) or CallEnded live — only ever the 30s
+  // lobby-poll fallback.
+  useConnectEventBridge();
 
   useEffect(() => {
     if (!token) {
@@ -143,6 +164,34 @@ function HandOff({ call }: { call: CallDTO }) {
     if (active?.id === call.id) return;
     enter(call, () => nav("/app"));
   }, [call, active?.id, enter, nav]);
+
+  // A bounded backstop for the same handoff CallWindow guards against: if the
+  // overlay hasn't taken over within HANDOFF_TIMEOUT_MS, offer a reload
+  // instead of leaving "Joining the meeting…" on screen forever. Harmless if
+  // the overlay DID mount by then — it covers this route entirely (fixed
+  // inset-0, see CallRoomLazy), so this fallback renders invisibly
+  // underneath it.
+  const [timedOut, setTimedOut] = useState(false);
+  useEffect(() => {
+    setTimedOut(false);
+    const timer = setTimeout(() => setTimedOut(true), HANDOFF_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [call.id]);
+
+  if (timedOut) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-4 bg-surface p-6">
+        <EmptyState
+          icon={<AlertCircle size={24} />}
+          title="This is taking longer than expected"
+          hint="Reloading the page usually fixes this."
+        />
+        <Button variant="ghost" size="sm" onClick={() => window.location.reload()}>
+          Reload
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full items-center justify-center bg-surface text-sm text-muted">

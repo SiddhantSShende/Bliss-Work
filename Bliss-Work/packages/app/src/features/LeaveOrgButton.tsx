@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Button } from "@taskboard/ui";
 import { ApiError, type OrgMembershipDTO } from "@taskboard/shared";
-import { Modal } from "./Modal";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { useSwitchOrg } from "./OrgSwitcher";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
@@ -108,13 +108,12 @@ export function LeaveOrgButton({
       >
         Leave
       </Button>
-      <Modal
+      <ConfirmDialog
         open={open}
         onClose={() => !busy && setOpen(false)}
         title={`Leave ${org.orgName}?`}
-      >
-        <div className="flex flex-col gap-3.5">
-          <p className="text-sm text-muted">
+        message={
+          <>
             You'll lose access to every channel, message and task in{" "}
             <strong className="text-fg">{org.orgName}</strong>. Nothing you posted is
             deleted, and an admin there can invite you back.
@@ -124,22 +123,13 @@ export function LeaveOrgButton({
                 You'll be moved to <strong className="text-fg">{next.orgName}</strong>.
               </>
             )}
-          </p>
-          <div className="mt-2 flex justify-end gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              disabled={busy}
-              onClick={() => setOpen(false)}
-            >
-              Cancel
-            </Button>
-            <Button type="button" variant="danger" loading={busy} onClick={leave}>
-              {busy ? "Leaving…" : "Leave organization"}
-            </Button>
-          </div>
-        </div>
-      </Modal>
+          </>
+        }
+        confirmLabel="Leave organization"
+        danger
+        busy={busy}
+        onConfirm={leave}
+      />
     </>
   );
 }

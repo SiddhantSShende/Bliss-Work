@@ -1,0 +1,20 @@
+{
+  "extends": "@react-native/typescript-config",
+  "compilerOptions": {
+    // The base config's `lib` deliberately omits "dom" — Hermes has no
+    // window/document. But this app reuses several DOM-typed source files
+    // straight from packages/shared and packages/app/src/lib (ApiClient,
+    // WsClient, refresh.ts, authChannel.ts) rather than duplicating their
+    // logic, and TypeScript re-checks imported .ts source under the
+    // IMPORTING project's lib settings, not the source file's own. Most of
+    // what those files reference under "dom" — fetch, FormData, Blob,
+    // XMLHttpRequest, URLSearchParams, AbortController — are real,
+    // React-Native-implemented globals, not stand-ins; the few that genuinely
+    // aren't (BroadcastChannel, navigator.locks) are already feature-detected
+    // at runtime in that shared code (`typeof BroadcastChannel === "undefined"`)
+    // before use, so typing them here does not change what actually runs.
+    "lib": ["esnext", "dom", "dom.iterable"]
+  },
+  "include": ["**/*.ts", "**/*.tsx"],
+  "exclude": ["**/node_modules", "**/Pods"]
+}

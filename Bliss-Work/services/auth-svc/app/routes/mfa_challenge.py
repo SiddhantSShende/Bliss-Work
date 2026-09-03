@@ -88,8 +88,16 @@ async def verify_challenge(body: MfaChallengeRequest, request: Request, response
         elif body.backupCode:
             ok = await mfa_service.verify_and_consume_backup_code(conn, user_id, body.backupCode)
         elif body.webauthnCredential:
-            waid, _waorg = await verify_webauthn_assertion(conn, body.webauthnCredential)
-            ok = waid == user_id  # the challenge itself is scoped to this pending session
+            try:
+                waid, _waorg = await verify_webauthn_assertion(conn, body.webauthnCredential)
+            except HTTPException:
+                # Wrong/replayed/malformed assertion — normalize to a failed
+                # verification, same as mfa_service.verify_step_up does for
+                # this same call, so it flows through the failed-attempt/
+                # lockout bookkeeping below instead of raising past it.
+                ok = False
+            else:
+                ok = waid == user_id  # the challenge itself is scoped to this pending session
 
         if not ok:
             locked_secs = await service.register_failed_login(conn, ident)

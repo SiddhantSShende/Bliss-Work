@@ -9,7 +9,7 @@ these deletes over an org that is already gone is a no-op.
 """
 from __future__ import annotations
 
-from sqlalchemy import text
+from org_purge_tables import purge_org_tables
 
 from .db import session, set_bypass_rls
 from .logging_setup import log
@@ -17,31 +17,22 @@ from .logging_setup import log
 # Child tables before parents: task_assignees references tasks. Reviews are
 # columns ON task_assignees (004_task_reviews.sql), not a table of their own,
 # so they go with it.
+#
+# consumed_events is NOT here: it has no org_id column (003_rls.sql — a global
+# event-id dedup table, not an org-scoped one), so a stale reference here made
+# every purge_org() call raise (undefined column), rolling back the WHOLE
+# transaction and leaving every org.deleted permanently unprocessed — the same
+# failure integrations-svc's org_consumer.py hit with connection_verifications.
 _TABLES = (
     "task_assignees",
     "tasks",
     "availability_hidden",
     "user_projection",
     "idempotency_keys",
-    "consumed_events",
     # Last: see the note in telemetry-svc/app/org_purge.py.
     "org_keys",
 )
 
 
 async def purge_org(org_id: str) -> None:
-    async with session() as db:
-        # Acting on one org we were TOLD about rather than one derived from a
-        # request, so there is no request org to scope to. Without the bypass
-        # every delete below matches zero rows.
-        await set_bypass_rls(db)
-        deleted: dict[str, int] = {}
-        for table in _TABLES:
-            result = await db.execute(
-                text(f"DELETE FROM {table} WHERE org_id = :org"),  # noqa: S608 — fixed table list
-                {"org": org_id},
-            )
-            if result.rowcount:
-                deleted[table] = result.rowcount
-        await db.commit()
-    log.warning("org_purged", org_id=org_id, deleted=deleted)
+    await purge_org_tables(session, set_bypass_rls, log, org_id, _TABLES)

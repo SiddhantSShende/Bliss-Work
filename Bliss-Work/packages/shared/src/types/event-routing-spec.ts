@@ -4,13 +4,15 @@
  * services/ws-gateway/internal/contract/contract.go's `RecipientsOf`, which
  * was ported from this file and must stay in lockstep with it.
  *
- * This file's only consumer is events.mention.test.ts (and any future test
- * that pins a routing rule). That is intentional, not neglect: keeping the
- * rule expressed here, in the same language and next to the same Zod schemas
- * as the wire contract, is what lets a test assert "this event routes to
- * exactly these users" in a form a reviewer can read without cross-referencing
- * Go. When you change routing for an event type, update BOTH this function
- * and contract.go's RecipientsOf, and both test suites.
+ * This file's only consumer today is events.sticky.test.ts, and only for the
+ * StickyRefresh case — no test here pins any of the other routes (the Channel*
+ * ones included), so a copy that drifts from contract.go on one of those would
+ * go unnoticed from this side. That gap aside, the intent is: keeping the rule
+ * expressed here, in the same language and next to the same Zod schemas as the
+ * wire contract, is what lets a test assert "this event routes to exactly
+ * these users" in a form a reviewer can read without cross-referencing Go.
+ * When you change routing for an event type, update BOTH this function and
+ * contract.go's RecipientsOf, and both test suites.
  */
 import { z } from "zod";
 import {

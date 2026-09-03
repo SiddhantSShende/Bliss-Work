@@ -88,7 +88,17 @@ class RefreshWorker:
 
         # 2) Process each in its own transaction (failure isolation).
         for conn_id, org_id, provider, rt_enc in due:
-            await self._refresh_one(conn_id, org_id, provider, rt_enc)
+            try:
+                await self._refresh_one(conn_id, org_id, provider, rt_enc)
+            except Exception:  # noqa: BLE001 — one connection must not block the rest of the batch
+                # _refresh_one's own try/except only covers the token-exchange
+                # call; an error in what follows (encrypt, the UPDATE, commit)
+                # would otherwise escape this loop entirely and skip every
+                # connection queued after this one — which, sorted soonest-
+                # expiring-first, would then sort first again next sweep (its
+                # token_expires_at never advanced) and block in the same place
+                # every time.
+                log.exception("refresh_one_unexpected_error", connection_id=conn_id)
 
     async def _refresh_one(self, conn_id: str, org_id: str, provider: str, rt_enc: bytes) -> None:
         async with session() as db:
@@ -97,7 +107,28 @@ class RefreshWorker:
             creds = await app_credentials.load(db, org_id, vendor) if vendor else None
             cfg = oauth.config_for(provider, creds)
             if cfg is None:
-                return  # client creds removed — nothing we can do
+                # The org's own app credentials were deleted/rotated out and
+                # there is no server-env fallback configured for this
+                # provider — app_credentials.delete()'s docstring promises
+                # this surfaces as status='error' "through the normal path",
+                # but nothing else on this route ever writes it. Without this,
+                # the connection stays 'connected' forever with no signal to
+                # reconnect, while every future send keeps failing silently.
+                await db.execute(
+                    text(
+                        "UPDATE integration_connections SET status='error', "
+                        "last_error=:e, updated_at=now() WHERE id=:id"
+                    ),
+                    {
+                        "e": "OAuth app credentials are no longer configured for this provider",
+                        "id": conn_id,
+                    },
+                )
+                await db.commit()
+                log.warning(
+                    "refresh_skipped_no_app_credentials", connection_id=conn_id, provider=provider
+                )
+                return
             try:
                 refresh_token = await cryptor().decrypt(db, org_id, rt_enc)
                 tokens = await oauth.refresh_access_token(cfg, refresh_token or "")

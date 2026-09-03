@@ -8,6 +8,10 @@
  * call — one with no scheduledAt at all — turned up in only one of them.
  */
 import type { CallDTO } from "@taskboard/shared";
+import { dayLabel as _dayLabel, startOfDay } from "./dayLabel";
+import { groupConsecutiveByLabel } from "./groupConsecutive";
+
+export { startOfDay };
 
 /** The moment a call belongs at in the list: when it is meant to happen, or —
  *  for a "meet now" that was never scheduled — when it actually did. */
@@ -16,25 +20,12 @@ export function whenOf(c: CallDTO): number {
   return new Date(iso).getTime();
 }
 
-export function startOfDay(t: number): number {
-  const d = new Date(t);
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-}
-
 /** "Today" / "Tomorrow" / "Yesterday", else a short calendar date. Relative to
- *  the viewer's own day boundary, which is what a person means by "today". */
+ *  the viewer's own day boundary, which is what a person means by "today". A
+ *  call can be scheduled ahead, so unlike chatFormat's dayLabel this always
+ *  offers "Tomorrow" and a weekday-prefixed fallback. */
 export function dayLabel(t: number): string {
-  const days = Math.round((startOfDay(t) - startOfDay(Date.now())) / 86_400_000);
-  if (days === 0) return "Today";
-  if (days === 1) return "Tomorrow";
-  if (days === -1) return "Yesterday";
-  return new Date(t).toLocaleDateString(undefined, {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    // Only spell out the year once it stops being obvious.
-    year: new Date(t).getFullYear() === new Date().getFullYear() ? undefined : "numeric",
-  });
+  return _dayLabel(t, { tomorrow: true, weekday: true });
 }
 
 export function timeLabel(t: number): string {
@@ -67,12 +58,5 @@ export function whenLabel(c: CallDTO): string {
 
 /** Consecutive runs of the same day, in the order the caller sorted them. */
 export function groupByDay(calls: CallDTO[]): { label: string; items: CallDTO[] }[] {
-  const groups: { label: string; items: CallDTO[] }[] = [];
-  for (const c of calls) {
-    const label = dayLabel(whenOf(c));
-    const last = groups[groups.length - 1];
-    if (last && last.label === label) last.items.push(c);
-    else groups.push({ label, items: [c] });
-  }
-  return groups;
+  return groupConsecutiveByLabel(calls, (c) => dayLabel(whenOf(c)));
 }

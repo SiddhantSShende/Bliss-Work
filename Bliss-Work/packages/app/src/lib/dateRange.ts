@@ -9,6 +9,15 @@
  */
 export type RangeKey = "7d" | "30d" | "90d" | "custom";
 
+/** The 3 fixed windows every activity view offers, before any `custom` option
+ *  a particular screen adds on top. Shared so "Last 30 days" reads the same
+ *  word-for-word everywhere it appears. */
+export const ACTIVITY_RANGES: ReadonlyArray<{ key: RangeKey; label: string }> = [
+  { key: "7d", label: "Last 7 days" },
+  { key: "30d", label: "Last 30 days" },
+  { key: "90d", label: "Last 90 days" },
+];
+
 /** `YYYY-MM-DD` in the LOCAL timezone (not toISOString, which is UTC and would
  *  shift the date by a day for anyone west of Greenwich in the evening). */
 export function localDay(d: Date): string {

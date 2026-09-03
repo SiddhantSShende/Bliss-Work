@@ -14,7 +14,7 @@ export function ConfirmDialog({
   open: boolean;
   onClose: () => void;
   title: string;
-  message: string;
+  message: React.ReactNode;
   confirmLabel?: string;
   danger?: boolean;
   busy?: boolean;

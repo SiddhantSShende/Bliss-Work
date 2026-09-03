@@ -158,6 +158,20 @@ async def register_finish(
         user_id, org_id = await mfa_service.consume_webauthn_challenge(conn, challenge)
         uv_required = await _org_requires_uv(conn, org_id)
 
+        if await mfa_service.is_already_enrolled(conn, user_id):
+            # Adding another credential to an ALREADY-enrolled account is as
+            # consequential as MFA-disable (it plants a durable extra
+            # passkey an attacker holding only a stolen Bearer token could
+            # not otherwise obtain) — gate it behind the same step-up
+            # re-auth disable/regenerate already require.
+            step_up = body.stepUp
+            ok = step_up is not None and await mfa_service.verify_step_up(
+                conn, org_id, user_id,
+                step_up.password, step_up.totpCode, step_up.backupCode, step_up.webauthnCredential,
+            )
+            if not ok:
+                raise HTTPException(status.HTTP_401_UNAUTHORIZED, "re-authentication failed")
+
         try:
             verified = verify_registration_response(
                 credential=body.credential,

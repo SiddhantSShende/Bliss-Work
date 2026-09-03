@@ -23,8 +23,9 @@ from sqlalchemy.exc import IntegrityError
 from .. import app_credentials
 from ..auth import PrincipalDep, Principal
 from ..config import settings
-from crypto import cryptor
+from crypto import cryptor, CryptoError
 from ..db import session, set_org_context
+from ..logging_setup import log
 from ..providers import get_provider, oauth, slack
 from ..schemas import ConnectionOut, ConnectStartOut, ProviderActivityOut
 
@@ -114,8 +115,20 @@ async def hub_activity(principal: Principal = PrincipalDep) -> list[ProviderActi
         ).all()  # materialized — safe to run decrypt queries on the same session next
         out: list[ProviderActivityOut] = []
         for r in rows:
-            peer = await cryptor().decrypt(db, principal.org_id, bytes(r.peer_enc) if r.peer_enc else None)
-            body = await cryptor().decrypt(db, principal.org_id, bytes(r.body_enc) if r.body_enc else None)
+            # A row whose DEK version is gone (crypto-shredded) or whose
+            # ciphertext is malformed raises CryptoError by design (fail
+            # closed) — isolated per row so ONE bad historical row doesn't
+            # 500 the whole timeline for every other, perfectly readable one.
+            try:
+                peer = await cryptor().decrypt(
+                    db, principal.org_id, bytes(r.peer_enc) if r.peer_enc else None
+                )
+                body = await cryptor().decrypt(
+                    db, principal.org_id, bytes(r.body_enc) if r.body_enc else None
+                )
+            except CryptoError as exc:
+                log.warning("hub_activity_decrypt_failed", activity_id=str(r.id), error=str(exc))
+                peer, body = "(unavailable)", "(unavailable)"
             out.append(
                 ProviderActivityOut(
                     id=str(r.id),
@@ -279,13 +292,23 @@ async def connect_start(
                     ),
                 )
             verifier_enc = await cryptor().encrypt(db, principal.org_id, verifier)
+            # Snapshot the credentials actually resolved for THIS flow, not
+            # just a pointer to their row: app_credentials.save() upserts in
+            # place, so a secret rotated mid-consent would otherwise still be
+            # visible to the callback through app_credential_id alone (see
+            # 0014_oauth_state_credential_snapshot.sql). Encrypted the same
+            # way code_verifier_enc already is.
+            client_id_enc = await cryptor().encrypt(db, principal.org_id, cfg.client_id)
+            client_secret_enc = await cryptor().encrypt(db, principal.org_id, cfg.client_secret)
             await db.execute(
                 text(
                     """
                     INSERT INTO oauth_states
                         (state, org_id, owner_user_id, provider, code_verifier_enc,
-                         redirect_after, app_credential_id, expires_at)
-                    VALUES (:s, :o, :u, :p, :v, :r, :ac, now() + interval '10 minutes')
+                         redirect_after, app_credential_id, client_id_enc,
+                         client_secret_enc, tenant, expires_at)
+                    VALUES (:s, :o, :u, :p, :v, :r, :ac, :cid, :csec, :tenant,
+                            now() + interval '10 minutes')
                     """
                 ),
                 {
@@ -295,10 +318,14 @@ async def connect_start(
                     "p": provider,
                     "v": verifier_enc,
                     "r": redirect_after,
-                    # Pin the flow to the exact credential row, so rotating the
-                    # secret mid-consent doesn't fail the exchange. NULL for the
-                    # server-env fallback, which has no row.
+                    # Kept for audit/debugging (which credential row this flow
+                    # started against) — no longer what the callback relies on
+                    # to redeem the code. NULL for the server-env fallback,
+                    # which has no row.
                     "ac": creds.id if creds else None,
+                    "cid": client_id_enc,
+                    "csec": client_secret_enc,
+                    "tenant": creds.tenant if creds else None,
                 },
             )
             await db.commit()

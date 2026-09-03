@@ -21,7 +21,7 @@ export const MEETING_BUCKETS: readonly { key: MeetingBucket; label: string }[] =
 
 const DEFAULT_BUCKET: MeetingBucket = "upcoming";
 
-export function isMeetingBucket(v: unknown): v is MeetingBucket {
+function isMeetingBucket(v: unknown): v is MeetingBucket {
   return v === "upcoming" || v === "live" || v === "past";
 }
 

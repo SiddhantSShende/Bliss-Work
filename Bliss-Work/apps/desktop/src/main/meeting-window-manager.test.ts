@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { FakeWindow } from "../test/fake-window";
+import { FakeWindow, fakeScreen } from "../test/fake-window";
 
 /**
  * THE ZOMBIE-WINDOW REGRESSION.
@@ -34,6 +34,7 @@ const { fakeIpcMain } = vi.hoisted(() => {
 vi.mock("electron", () => ({
   BrowserWindow: FakeWindow,
   ipcMain: fakeIpcMain,
+  screen: fakeScreen,
 }));
 vi.mock("./harden", () => ({ hardenWindow: () => {} }));
 vi.mock("./assets", () => ({ appIcon: () => undefined }));
@@ -44,6 +45,54 @@ import { MeetingWindowManager } from "./meeting-window-manager";
 function crash(win: FakeWindow): void {
   win.emitWebContents("render-process-gone", {}, { reason: "crashed", exitCode: 1 });
 }
+
+describe("MeetingWindowManager — window size follows the actual display", () => {
+  let mgr: MeetingWindowManager;
+
+  beforeEach(() => {
+    FakeWindow.reset();
+    mgr = new MeetingWindowManager();
+  });
+
+  afterEach(() => {
+    mgr.destroyAll();
+  });
+
+  it("sizes the window from the display's work area, not a fixed literal", () => {
+    // fakeScreen's work area is 1920x1080 (see ../test/fake-window) — the
+    // window must fit inside it, and must NOT be the old hardcoded 1180x800
+    // (which happens to already fit that particular work area, so a size
+    // check alone wouldn't catch a regression back to it).
+    mgr.open("call-1");
+    const { opts } = FakeWindow.all[0]!;
+    const workArea = { x: 0, y: 0, width: 1920, height: 1080 };
+
+    expect(opts.width).toBeLessThanOrEqual(workArea.width);
+    expect(opts.height).toBeLessThanOrEqual(workArea.height);
+    expect(opts.width).not.toBe(1180);
+    expect(opts.height).not.toBe(800);
+    // Centered within the work area, not pinned to a corner.
+    expect((opts.x as number) + (opts.width as number) / 2).toBeCloseTo(workArea.width / 2, 0);
+    expect((opts.y as number) + (opts.height as number) / 2).toBeCloseTo(workArea.height / 2, 0);
+  });
+
+  it("never asks for a window bigger than a small display can show", () => {
+    // A stand-in for the display-size lookup returning a small/constrained
+    // screen: temporarily shrink what getPrimaryDisplay() reports.
+    const original = fakeScreen.getPrimaryDisplay;
+    fakeScreen.getPrimaryDisplay = () => ({ workArea: { x: 0, y: 0, width: 400, height: 300 } });
+    try {
+      mgr.open("call-1");
+      const { opts } = FakeWindow.all[0]!;
+      expect(opts.width).toBeLessThanOrEqual(400);
+      expect(opts.height).toBeLessThanOrEqual(300);
+      expect(opts.minWidth).toBeLessThanOrEqual(400);
+      expect(opts.minHeight).toBeLessThanOrEqual(300);
+    } finally {
+      fakeScreen.getPrimaryDisplay = original;
+    }
+  });
+});
 
 describe("MeetingWindowManager — recovering from a crashed meeting window", () => {
   let mgr: MeetingWindowManager;

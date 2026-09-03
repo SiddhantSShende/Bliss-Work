@@ -366,7 +366,7 @@ export class ApiClient {
       body: JSON.stringify(body),
     }, SessionDTO);
   }
-  createInvite(body: { email: string; role: "org_admin" | "member" }) {
+  createInvite(body: { email: string; role: Role }) {
     return this.req(this.cfg.authBase, "/auth/invites", {
       method: "POST",
       body: JSON.stringify(body),
@@ -789,7 +789,15 @@ export class ApiClient {
       { method: "POST", body: JSON.stringify({ pendingToken }) },
     );
   }
-  mfaWebauthnRegisterFinish(body: { credential: unknown; nickname?: string; pendingToken?: string }) {
+  mfaWebauthnRegisterFinish(body: {
+    credential: unknown;
+    nickname?: string;
+    pendingToken?: string;
+    /** Required when adding a credential to an ALREADY-enrolled account —
+     *  see mfaDisable's doc comment for why. Omitted for first-time
+     *  enrollment (nothing yet to step up from). */
+    stepUp?: { password: string; totpCode?: string; backupCode?: string; webauthnCredential?: unknown };
+  }) {
     return this.req(
       this.cfg.authBase,
       "/auth/mfa/webauthn/register/finish",

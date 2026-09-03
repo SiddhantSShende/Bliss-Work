@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
 
 from aiokafka import AIOKafkaProducer
 from opentelemetry import trace
 from opentelemetry.trace import SpanKind
 from sqlalchemy import text
+from kafka_lazy_producer import LazyKafkaProducer
 from kafka_security import kafka_security_kwargs
 
 from .config import settings
@@ -39,7 +39,12 @@ class OutboxPoller:
     """
 
     def __init__(self) -> None:
-        self._producer: AIOKafkaProducer | None = None
+        self._lazy_producer = LazyKafkaProducer(
+            bootstrap_servers=settings.kafka_brokers,
+            security_kwargs=kafka_security_kwargs(),
+            value_serializer=lambda v: json.dumps(v).encode("utf-8"),
+            key_serializer=lambda k: k.encode("utf-8") if k is not None else None,
+        )
         self._task: asyncio.Task | None = None
         self._stop = asyncio.Event()
 
@@ -50,33 +55,15 @@ class OutboxPoller:
         # service races the broker's boot. Connecting here made that race fatal
         # ("Application startup failed. Exiting.") and crash-looped the
         # container until Kafka came up. The connect now happens on first drain,
-        # under the backoff _run already applies.
+        # under the backoff _run already applies. See
+        # services/shared/kafka_lazy_producer/kafka_lazy_producer.py.
         self._stop.clear()
         self._task = asyncio.create_task(self._run(), name="outbox-poller")
         log.info("outbox_poller_started")
 
     async def _ensure_producer(self) -> AIOKafkaProducer:
         """Connect on first use. Failures propagate to _run's backoff."""
-        if self._producer is not None:
-            return self._producer
-        producer = AIOKafkaProducer(
-            bootstrap_servers=settings.kafka_brokers,
-            # TLS/SASL when KAFKA_SECURITY_PROTOCOL asks for it; empty otherwise.
-            **kafka_security_kwargs(),
-            enable_idempotence=True,
-            acks="all",
-            value_serializer=lambda v: json.dumps(v).encode("utf-8"),
-            key_serializer=lambda k: k.encode("utf-8") if k is not None else None,
-        )
-        try:
-            await producer.start()
-        except Exception:
-            # A producer whose start() failed is not reusable — discard it so
-            # the next attempt builds a fresh one.
-            with contextlib.suppress(Exception):
-                await producer.stop()
-            raise
-        self._producer = producer
+        producer = await self._lazy_producer.ensure()
         log.info("outbox_producer_connected")
         return producer
 
@@ -87,8 +74,7 @@ class OutboxPoller:
                 await asyncio.wait_for(self._task, timeout=5.0)
             except asyncio.TimeoutError:
                 self._task.cancel()
-        if self._producer is not None:
-            await self._producer.stop()
+        await self._lazy_producer.stop()
         log.info("outbox_poller_stopped")
 
     async def _run(self) -> None:
@@ -168,8 +154,16 @@ class OutboxPoller:
             # it travelled in, so an unfiltered row blocks healthy rows too.
             oversize = [r for r in rows if payload_bytes(r.payload) > MAX_PUBLISH_BYTES]
             if oversize:
-                await quarantine_oversize(db, [str(r.id) for r in oversize])
-                await db.commit()
+                # A SEPARATE session, deliberately: committing THIS one only ends
+                # its own transaction. Committing on `db` here would end the
+                # transaction holding the FOR UPDATE SKIP LOCKED lock on the REST
+                # of this batch too — not just the oversized rows — while they
+                # are still queued to be produced below, letting a second
+                # replica claim and double-publish them.
+                async with session() as db2:
+                    await set_bypass_rls(db2)
+                    await quarantine_oversize(db2, [str(r.id) for r in oversize])
+                    await db2.commit()
                 # ERROR, not warning: these are events a user's action produced
                 # that no consumer will ever see, and nothing else reports it.
                 log.error(

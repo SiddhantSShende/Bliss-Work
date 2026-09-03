@@ -7,15 +7,19 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 import uuid6
+from fastapi import HTTPException, status
 from slugify import slugify as _slugify
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from .config import settings
 from crypto import cryptor
+from .db import engine
 from .logging_config import log
 from .schemas import SessionDTO, UserDTO
 from .security.keys import mint_access_token
+from .security.passwords import hash_password_async, verify_password_async
 
 
 async def set_org_guc(conn: AsyncConnection, org_id: str) -> None:
@@ -191,18 +195,18 @@ _USER_DTO_COLUMNS = """u.id, u.org_id, u.username, u.display_name_enc,
                        o.plan, o.name AS org_name, o.require_mfa_for_admins, o.mfa_grace_period_ends_at"""
 
 
-async def _user_dtos_from_rows(conn: AsyncConnection, rows) -> list[UserDTO]:
-    """Rows selecting `_USER_DTO_COLUMNS` -> DTOs, in ONE extra round trip.
+async def roles_by_user_id(
+    conn: AsyncConnection, user_ids: list[str]
+) -> dict[str, list[str]]:
+    """Every role for the given users, in ONE query regardless of count.
 
-    Every role for every row is fetched with a single `= ANY(...)` rather than a
-    lookup per user. Decryption stays per-row because it must — each value is
-    separately AES-GCM sealed — but the org's key is cached after the first use,
-    so it is CPU and not another round trip.
+    Shared by every caller that batch-loads a page of users/members and needs
+    their roles alongside them — `_user_dtos_from_rows` here and
+    `load_members_for_org` (routes/members_service.py) both used to run this
+    exact query themselves.
     """
-    if not rows:
-        return []
-
-    user_ids = [str(r.id) for r in rows]
+    if not user_ids:
+        return {}
     role_rows = (
         await conn.execute(
             text(
@@ -220,6 +224,22 @@ async def _user_dtos_from_rows(conn: AsyncConnection, rows) -> list[UserDTO]:
     roles_by_user: dict[str, list[str]] = {}
     for rr in role_rows:
         roles_by_user.setdefault(str(rr.user_id), []).append(rr.name)
+    return roles_by_user
+
+
+async def _user_dtos_from_rows(conn: AsyncConnection, rows) -> list[UserDTO]:
+    """Rows selecting `_USER_DTO_COLUMNS` -> DTOs, in ONE extra round trip.
+
+    Every role for every row is fetched with a single `= ANY(...)` rather than a
+    lookup per user. Decryption stays per-row because it must — each value is
+    separately AES-GCM sealed — but the org's key is cached after the first use,
+    so it is CPU and not another round trip.
+    """
+    if not rows:
+        return []
+
+    user_ids = [str(r.id) for r in rows]
+    roles_by_user = await roles_by_user_id(conn, user_ids)
 
     c = cryptor()
     out: list[UserDTO] = []
@@ -745,6 +765,103 @@ async def register_failed_login(conn: AsyncConnection, ident) -> int:
         {"c": new_count, "id": str(ident.id)},
     )
     return 0
+
+
+async def resolve_or_create_identity(
+    conn: AsyncConnection,
+    email_bidx: bytes,
+    password: str,
+    *,
+    new_identity_email_verified: bool,
+    already_registered_error: HTTPException,
+) -> tuple[str, str, bool, bool]:
+    """Find-or-create the identity row behind a signup email.
+
+    The shared half of `create_org` and `accept_invite_tx`: reuse an existing
+    identity's shared credential (an existing user creating another org, or
+    joining one by invite) once its password is verified, or mint a fresh
+    identity otherwise. This is a password-guessing surface exactly like
+    `/auth/login`, so a wrong password is gated behind the SAME lockout (see
+    docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 5).
+
+    Returns `(identity_id, password_hash, is_new, existing_email_verified)`.
+    `existing_email_verified` is the IDENTITY's own `email_verified` column
+    when one already existed, and is always False when `is_new` is True —
+    `accept_invite_tx` ignores it, since an invited member's `users.
+    email_verified` is set True unconditionally regardless of the identity's
+    own state.
+
+    Raises `already_registered_error` — a caller-specific 409 or 401, since
+    the two callers word this differently — when an existing identity's
+    password does not match.
+    """
+    existing_ident = (
+        await conn.execute(
+            text(
+                "SELECT id, password_hash, email_verified, failed_login_count, locked_until "
+                "FROM identities WHERE email_bidx = :b"
+            ),
+            {"b": email_bidx},
+        )
+    ).first()
+    if existing_ident is None:
+        identity_id = new_uuid()
+        ph = await hash_password_async(password)
+        try:
+            # SAVEPOINT: two concurrent callers for the same brand-new email
+            # (two invite-accepts, or a signup racing an accept) both see no
+            # row above and both attempt this INSERT — email_bidx is UNIQUE
+            # (0007_identities.sql), so the loser's INSERT raises. Nested so
+            # only this attempt rolls back, not the caller's whole
+            # transaction — same shape as create_invite_tx's own retry for
+            # the analogous (org, email) race on `invites`.
+            async with conn.begin_nested():
+                await conn.execute(
+                    text(
+                        "INSERT INTO identities (id, email_bidx, password_hash, email_verified) "
+                        "VALUES (:id, :b, :ph, :ev)"
+                    ),
+                    {"id": identity_id, "b": email_bidx, "ph": ph, "ev": new_identity_email_verified},
+                )
+            return identity_id, ph, True, False
+        except IntegrityError:
+            # The other transaction's row is now visible (READ COMMITTED) —
+            # re-fetch it and fall through to the existing-identity path below,
+            # exactly as if it had been there from the start.
+            existing_ident = (
+                await conn.execute(
+                    text(
+                        "SELECT id, password_hash, email_verified, failed_login_count, locked_until "
+                        "FROM identities WHERE email_bidx = :b"
+                    ),
+                    {"b": email_bidx},
+                )
+            ).first()
+            assert existing_ident is not None  # the unique violation guarantees it
+
+    now = datetime.now(timezone.utc)
+    if existing_ident.locked_until is not None and existing_ident.locked_until > now:
+        retry = max(1, int((existing_ident.locked_until - now).total_seconds()))
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "account temporarily locked due to failed logins; try again later",
+            headers={"Retry-After": str(retry)},
+        )
+    if not await verify_password_async(existing_ident.password_hash, password):
+        # A SEPARATE transaction, deliberately — the caller's own write
+        # transaction aborts when `already_registered_error` is raised below,
+        # and the failed-attempt counter must survive that abort.
+        async with engine.begin() as lockout_conn:
+            locked_secs = await register_failed_login(lockout_conn, existing_ident)
+        if locked_secs > 0:
+            raise HTTPException(
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                "account temporarily locked due to failed logins; try again later",
+                headers={"Retry-After": str(locked_secs)},
+            )
+        raise already_registered_error
+
+    return str(existing_ident.id), existing_ident.password_hash, False, bool(existing_ident.email_verified)
 
 
 async def reset_identity_lockout(conn: AsyncConnection, identity_id: str) -> None:

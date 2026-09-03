@@ -72,6 +72,10 @@ export class WsClient {
   private seenOrder: string[] = [];
   private attempt = 0;
   private pingTimer?: ReturnType<typeof setInterval>;
+  /** Handle for the pending backoff timer armed by scheduleReconnect(), so
+   *  close() can cancel it — see hasLiveSocket()'s comment for why a lost
+   *  handle is dangerous even with that cancellation in place. */
+  private reconnectTimer?: ReturnType<typeof setTimeout>;
   private stopped = false;
   /** ackBuf: bucketed by (threadId ?? conversationId) so a single composer
    *  catching up on a backlog flushes one frame per bucket per ACK_FLUSH_MS. */
@@ -149,8 +153,7 @@ export class WsClient {
     // (the "messages stop arriving live until I restart" bug). A genuine
     // reconnect still runs via onclose → scheduleReconnect → open(), which picks
     // up the freshest token. readyState: 0=CONNECTING, 1=OPEN.
-    const rs = this.ws?.readyState;
-    if (rs === 0 || rs === 1) return;
+    if (this.hasLiveSocket()) return;
     await this.open();
   }
 
@@ -158,9 +161,19 @@ export class WsClient {
     this.stopped = true;
     if (this.pingTimer) clearInterval(this.pingTimer);
     if (this.replayTimer) clearTimeout(this.replayTimer);
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     // Best-effort drain: ack any buffered messageIds before the socket goes.
     this.flushAcks();
     this.ws?.close();
+  }
+
+  /** readyState: 0=CONNECTING, 1=OPEN — see connect()'s comment for why a
+   *  second socket in either state must never be dialed on top of it. Shared
+   *  by connect() and the reconnect timer (scheduleReconnect) so both paths
+   *  that can call open() agree on the same idempotency check. */
+  private hasLiveSocket(): boolean {
+    const rs = this.ws?.readyState;
+    return rs === 0 || rs === 1;
   }
 
   private setStatus(s: WsStatus) {
@@ -324,8 +337,8 @@ export class WsClient {
     }
 
     // Phase 5: queue a delivery ack for MessageCreated events not authored by
-    // me. The loop guard (NO_DELIVERY_ACK_FOR mirrored on the gateway) means
-    // delivered/read/dismissed events never echo back through this path.
+    // me. Only message.created ever reaches this branch, so delivered/read/
+    // dismissed events can never echo back through this path.
     if (e.type === "message.created") {
       this.queueAck(e.threadId ?? e.conversationId, e.messageId);
     }
@@ -382,7 +395,22 @@ export class WsClient {
     this.attempt += 1;
     const base = Math.min(MAX_BACKOFF_MS, 500 * 2 ** this.attempt);
     const jitter = Math.random() * base * 0.3;
-    setTimeout(() => void this.open(), base + jitter);
+    // Clear rather than leak: a timer already pending here (shouldn't happen
+    // in practice — see class field comment) would otherwise dodge close()'s
+    // cancellation entirely.
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = undefined;
+      // A close()/connect() cycle (sign-out/sign-in on the same long-lived
+      // client, or any other direct connect() call) may already have dialed a
+      // fresh socket while this timer sat waiting — close() cancels a timer it
+      // knows about, but calling open() unconditionally here would still race
+      // a connect() that ran without going through close() first. Guard the
+      // same way connect() does so a stale timer can never orphan a live
+      // socket with a second one.
+      if (this.hasLiveSocket()) return;
+      void this.open();
+    }, base + jitter);
   }
 }
 

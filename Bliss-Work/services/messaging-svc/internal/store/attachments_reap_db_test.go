@@ -127,3 +127,44 @@ func TestReapExpiredAttachments_UnexpiredRow_IsUntouched(t *testing.T) {
 		t.Errorf("unexpired attachment row %s was deleted", id)
 	}
 }
+
+// ── CountExpiredAttachments backs gc-attachments' dry-run mode: it must report
+// what ReapExpiredAttachments would delete without deleting anything itself ──
+func TestCountExpiredAttachments_ReportsWithoutDeleting(t *testing.T) {
+	s := lifecycleStore(t)
+	ctx := context.Background()
+
+	// Baseline first rather than asserting an absolute count: this is a
+	// cross-org sweep just like ReapExpiredAttachments, so it must not assume
+	// the table is otherwise empty.
+	baseRows, baseBytes, err := s.CountExpiredAttachments(ctx)
+	if err != nil {
+		t.Fatalf("CountExpiredAttachments (baseline): %v", err)
+	}
+
+	orgID := uuid.Must(uuid.NewV7()).String()
+	past := time.Now().Add(-time.Hour)
+	sha := "d44444444444444444444444444444444444444444444444444444444444444d"
+
+	expiredID := seedAttachment(t, s, orgID, sha, &past)
+	liveID := seedAttachment(t, s, orgID, sha, nil) // unexpired sibling; must not be counted
+
+	rows, totalBytes, err := s.CountExpiredAttachments(ctx)
+	if err != nil {
+		t.Fatalf("CountExpiredAttachments: %v", err)
+	}
+	if rows != baseRows+1 {
+		t.Fatalf("CountExpiredAttachments rows = %d, want %d (baseline %d + the 1 newly-expired row)", rows, baseRows+1, baseRows)
+	}
+	if wantBytes := baseBytes + 1024; totalBytes != wantBytes { // seedAttachment always uses size_bytes=1024
+		t.Fatalf("CountExpiredAttachments totalBytes = %d, want %d", totalBytes, wantBytes)
+	}
+
+	// The whole point: counting must not delete. Both rows are still there.
+	if !attachmentExists(t, s, expiredID) {
+		t.Errorf("CountExpiredAttachments deleted the expired row %s; it must be read-only", expiredID)
+	}
+	if !attachmentExists(t, s, liveID) {
+		t.Errorf("live sibling row %s was touched by a read-only count", liveID)
+	}
+}

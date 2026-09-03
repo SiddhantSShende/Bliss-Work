@@ -93,6 +93,29 @@ type NewAttachment struct {
 // are extracted here so the attachment path enforces exactly the same rule as
 // the send path rather than a lookalike reimplementation of it.
 
+// conversationMembers returns the ordered (low, high) pair and the current
+// seq_counter for convID within orgID, after verifying userID is one of the
+// two participants. Returns ErrForbidden under the same conditions as
+// requireConversationMember (which is defined in terms of this) — seq_counter
+// rides along on the same single-row lookup for the callers that need it to
+// compute the peer or stamp an event, rather than a second round trip.
+func conversationMembers(ctx context.Context, tx pgx.Tx, orgID, convID, userID string) (low, high string, seq int64, err error) {
+	var cOrg string
+	err = tx.QueryRow(ctx,
+		`SELECT org_id, user_low, user_high, seq_counter FROM conversations WHERE id = $1`, convID).
+		Scan(&cOrg, &low, &high, &seq)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && cOrg != orgID) {
+		return "", "", 0, ErrForbidden
+	}
+	if err != nil {
+		return "", "", 0, err
+	}
+	if userID != low && userID != high {
+		return "", "", 0, ErrForbidden
+	}
+	return low, high, seq, nil
+}
+
 // requireConversationMember returns ErrForbidden unless userID is one of the
 // two participants of the conversation within orgID.
 //
@@ -100,20 +123,8 @@ type NewAttachment struct {
 // so membership is "you are user_low or user_high", not a row in
 // conversation_members (whose rows also exist for hidden/ignored conversations).
 func requireConversationMember(ctx context.Context, tx pgx.Tx, orgID, convID, userID string) error {
-	var cOrg, low, high string
-	err := tx.QueryRow(ctx,
-		`SELECT org_id, user_low, user_high FROM conversations WHERE id = $1`, convID).
-		Scan(&cOrg, &low, &high)
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && cOrg != orgID) {
-		return ErrForbidden
-	}
-	if err != nil {
-		return err
-	}
-	if userID != low && userID != high {
-		return ErrForbidden
-	}
-	return nil
+	_, _, _, err := conversationMembers(ctx, tx, orgID, convID, userID)
+	return err
 }
 
 // requireThreadMember returns ErrForbidden unless userID has a thread_members
@@ -511,4 +522,24 @@ func (s *Store) ReapExpiredAttachments(ctx context.Context, limit int) ([]Expire
 		return nil, err
 	}
 	return out, nil
+}
+
+// CountExpiredAttachments reports how many rows ReapExpiredAttachments would
+// delete right now, and their total size. It performs no writes: this backs
+// gc-attachments' dry-run mode, which must report what a real run would
+// reclaim without deleting anything.
+//
+// The byte total is an upper bound on space actually freed, not a promise of
+// it: two rows can share one content-addressed blob (see
+// ReapExpiredAttachments), so a doomed row's content can survive via a
+// sibling that is not itself expired.
+func (s *Store) CountExpiredAttachments(ctx context.Context) (rows int, totalBytes int64, err error) {
+	err = s.withBypass(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `
+			SELECT count(*), COALESCE(sum(size_bytes), 0)
+			FROM attachments
+			WHERE expires_at IS NOT NULL AND expires_at < now()`,
+		).Scan(&rows, &totalBytes)
+	})
+	return rows, totalBytes, err
 }

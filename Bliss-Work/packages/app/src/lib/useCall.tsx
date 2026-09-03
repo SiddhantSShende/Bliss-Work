@@ -4,6 +4,7 @@ import type { UserDTO } from "@taskboard/shared";
 import { useRuntime } from "./runtime";
 import { useSession } from "../store/session";
 import { CallSession, type CallMedia } from "./callManager";
+import { isGetUserMediaDenied } from "./useCallRoom";
 import { toast } from "sonner";
 import { createRingtone, primeRingtoneAudio } from "./ringtone";
 import { notifyIncomingCall, notifyMissedCall, primeCallNotifications } from "./callNotify";
@@ -421,7 +422,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       } catch (e) {
         // Dismissing the picker is a normal thing to do, and not worth a toast.
         // Anything else is.
-        if (!(e instanceof DOMException) || e.name !== "NotAllowedError") {
+        if (!isGetUserMediaDenied(e)) {
           toast.error("Couldn't share your screen");
         }
         return;

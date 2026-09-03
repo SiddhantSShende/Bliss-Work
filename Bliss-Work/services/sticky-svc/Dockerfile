@@ -6,12 +6,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
 
 # ── BUILD CONTEXT IS THE REPOSITORY ROOT, not services/sticky-svc ───────────
-# requirements.txt points at four sibling packages as local path requirements:
+# requirements.txt points at sibling packages as local path requirements:
 # services/shared/kafka_security (Kafka SASL/TLS config), services/shared/tracing
 # (OTel Kafka context-propagation + shutdown helpers),
 # services/shared/internal_auth (constant-time internal-secret comparison, used
-# by GET /internal/pins/undelivered) and services/shared/logging_setup
-# (structlog -> stdout JSON). The build needs all four directories:
+# by GET /internal/pins/undelivered), services/shared/logging_setup
+# (structlog -> stdout JSON) and services/shared/org_purge_tables (the
+# org.deleted purge loop). The build needs every one of these directories:
 #
 #     docker build -f services/sticky-svc/Dockerfile .
 #
@@ -30,6 +31,7 @@ COPY services/shared/kafka_security services/shared/kafka_security
 COPY services/shared/tracing services/shared/tracing
 COPY services/shared/internal_auth services/shared/internal_auth
 COPY services/shared/logging_setup services/shared/logging_setup
+COPY services/shared/org_purge_tables services/shared/org_purge_tables
 WORKDIR /src/services/sticky-svc
 RUN pip install --upgrade pip && pip install -r requirements.txt
 

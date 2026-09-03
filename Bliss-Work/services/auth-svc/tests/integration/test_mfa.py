@@ -541,3 +541,195 @@ async def test_step_up_rejects_a_webauthn_credential_scoped_to_a_different_user(
         sa_conn, org_id, attacker_id, STEP_UP_PASSWORD, None, None, forged
     )
     assert ok is False
+
+
+# ── Route-handler-level regressions ───────────────────────────────────────────
+# These three exercise the actual route handlers (not just mfa_service
+# functions) against a real Postgres via `sa_engine`, the same "real DB, real
+# handler code" shape test_create_org_lockout.py uses. Bearer/JWT
+# verification is stubbed out where it would otherwise be exercised — it is
+# unrelated to what each bug is about, same convention as that file stubbing
+# place_org.
+class _FakeRequest:
+    """The tiny slice of fastapi.Request that request_context reads."""
+
+    client = None
+    headers: dict = {}
+
+
+async def test_totp_enroll_confirm_requires_step_up_when_already_enrolled(monkeypatch, sa_engine):
+    """Regression: resolve_enrollment_actor's principal (Bearer) branch used
+    to hand back the actor with no re-auth check at all, so a caller holding
+    only a Bearer token could silently overwrite an ALREADY-enrolled user's
+    TOTP secret — exactly the damage MFA-disable already refuses to do
+    without step-up re-auth (password + a still-valid second factor)."""
+    from fastapi import HTTPException, Response
+
+    from app.config import settings
+    from app.routes import mfa_totp
+    from app.schemas import MfaStepUpRequest, TotpEnrollConfirmRequest
+    from crypto import init_cryptor
+
+    # The dev KEK settings already carries is fine for a scratch test
+    # database — same as test_create_org_lockout.py's _init_crypto fixture.
+    # Only this test and the invalidate-stale-codes one below ever reach the
+    # cryptor().encrypt() call, so it's a plain call rather than an
+    # autouse fixture that would run pointlessly for every other test here.
+    init_cryptor(settings)
+
+    async with sa_engine.begin() as conn:
+        org_id, user_id = await _seed_org_and_user(conn)
+        await conn.execute(
+            text("UPDATE users SET mfa_enrolled = true, password_hash = :h WHERE id = :id"),
+            {"h": await hash_password_async(STEP_UP_PASSWORD), "id": user_id},
+        )
+        step_up_codes = mfa_service.generate_backup_codes(1)
+        await mfa_service.store_backup_codes(conn, org_id, user_id, step_up_codes)
+
+    async def _stub_resolve_actor(conn, *, authorization, pending_token):
+        # Stands in for a real Bearer principal — JWT minting/verification is
+        # unrelated to what this test is about.
+        await service.set_org_guc(conn, org_id)
+        return user_id, org_id
+
+    monkeypatch.setattr(mfa_service, "resolve_actor_for_enrollment", _stub_resolve_actor)
+    monkeypatch.setattr(mfa_totp, "engine", sa_engine)
+
+    def _fresh_body(step_up: MfaStepUpRequest | None = None) -> TotpEnrollConfirmRequest:
+        secret = pyotp.random_base32()
+        return TotpEnrollConfirmRequest(secret=secret, code=pyotp.TOTP(secret).now(), stepUp=step_up)
+
+    # No step-up at all: must be refused, not silently overwrite the secret.
+    with pytest.raises(HTTPException) as exc_info:
+        await mfa_totp.enroll_confirm(
+            _fresh_body(), _FakeRequest(), Response(), authorization="Bearer irrelevant-stubbed"
+        )
+    assert exc_info.value.status_code == 401
+
+    async with sa_engine.begin() as conn:
+        await service.set_org_guc(conn, org_id)
+        secret_enc = (
+            await conn.execute(
+                text("SELECT mfa_totp_secret_enc FROM users WHERE id = :id"), {"id": user_id}
+            )
+        ).scalar()
+    assert secret_enc is None, "the refused attempt must not have overwritten anything"
+
+    # Correct step-up (password + the still-valid backup code): now it may
+    # proceed, same as it would for MFA-disable/backup-codes-regenerate.
+    result = await mfa_totp.enroll_confirm(
+        _fresh_body(MfaStepUpRequest(password=STEP_UP_PASSWORD, backupCode=step_up_codes[0])),
+        _FakeRequest(),
+        Response(),
+        authorization="Bearer irrelevant-stubbed",
+    )
+    assert result.backupCodes
+
+
+async def test_webauthn_challenge_failure_still_counts_toward_the_lockout(monkeypatch, sa_engine):
+    """Regression: an invalid WebAuthn assertion at login-time challenge-verify
+    used to raise straight past the failed-attempt/lockout bookkeeping the
+    TOTP and backup-code branches correctly run — see
+    mfa_service.verify_step_up's own try/except around this exact call for
+    the pattern this mirrors."""
+    from fastapi import HTTPException, Response
+
+    from app.routes import mfa_challenge
+    from app.schemas import MfaChallengeRequest
+
+    async with sa_engine.begin() as conn:
+        org_id, user_id = await _seed_org_and_user(conn)
+        identity_id = str(uuid.uuid4())
+        # identities is cross-org with no RLS (migrations/0007_identities.sql) —
+        # no bypass/org GUC needed to write it, unlike users/mfa_* below.
+        await conn.execute(
+            text(
+                "INSERT INTO identities (id, email_bidx, password_hash, email_verified) "
+                "VALUES (:id, :b, 'x', true)"
+            ),
+            {"id": identity_id, "b": service.sha256_bytes(f"webauthn-lockout-{user_id}")},
+        )
+        await conn.execute(
+            text("UPDATE users SET identity_id = :iid WHERE id = :uid"),
+            {"iid": identity_id, "uid": user_id},
+        )
+
+    async with sa_engine.begin() as conn:
+        await service.set_org_guc(conn, org_id)
+        pending = await mfa_service.mint_mfa_pending(conn, org_id, user_id)
+        challenge = await mfa_service.mint_webauthn_challenge(conn, org_id, user_id)
+
+    # A well-formed, real-crypto assertion — but for a credential this user
+    # never registered, so verify_webauthn_assertion raises 401
+    # ("unrecognized passkey") instead of returning a plain False.
+    forged = WebauthnAuthenticator().authentication_response(
+        rp_id=RP_ID, origin=ORIGIN, challenge=challenge, sign_count=0
+    )
+
+    monkeypatch.setattr(mfa_challenge, "engine", sa_engine)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await mfa_challenge.verify_challenge(
+            MfaChallengeRequest(pendingToken=pending, webauthnCredential=forged),
+            _FakeRequest(),
+            Response(),
+        )
+    # Normalized to the SAME generic failure every other MFA method gets —
+    # not the WebAuthn-specific "unrecognized passkey" detail leaking through.
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail == "incorrect code"
+
+    async with sa_engine.begin() as conn:
+        row = (
+            await conn.execute(
+                text("SELECT failed_login_count FROM identities WHERE id = :id"), {"id": identity_id}
+            )
+        ).first()
+    assert row.failed_login_count == 1, "the failed WebAuthn attempt must count toward the lockout"
+
+
+async def test_totp_enroll_confirm_invalidates_stale_backup_codes_before_storing_new_ones(
+    monkeypatch, sa_engine
+):
+    """Regression: enroll-confirm's docstring (mirrored from
+    invalidate_backup_codes's own) requires invalidating every existing
+    unused code BEFORE inserting a fresh batch, exactly like backup-codes/
+    regenerate already does — otherwise a leftover code from an earlier
+    enrollment cycle stays valid indefinitely alongside the new batch."""
+    from fastapi import Response
+
+    from app.config import settings
+    from app.routes import mfa_totp
+    from app.schemas import TotpEnrollConfirmRequest
+    from crypto import init_cryptor
+
+    init_cryptor(settings)  # see the step-up test above for why this is needed
+
+    async with sa_engine.begin() as conn:
+        org_id, user_id = await _seed_org_and_user(conn)
+        stale_codes = mfa_service.generate_backup_codes()
+        await mfa_service.store_backup_codes(conn, org_id, user_id, stale_codes)
+
+    async def _stub_resolve_actor(conn, *, authorization, pending_token):
+        await service.set_org_guc(conn, org_id)
+        return user_id, org_id
+
+    monkeypatch.setattr(mfa_service, "resolve_actor_for_enrollment", _stub_resolve_actor)
+    monkeypatch.setattr(mfa_totp, "engine", sa_engine)
+
+    secret = pyotp.random_base32()
+    result = await mfa_totp.enroll_confirm(
+        TotpEnrollConfirmRequest(secret=secret, code=pyotp.TOTP(secret).now()),
+        _FakeRequest(),
+        Response(),
+        authorization="Bearer irrelevant-stubbed",
+    )
+
+    async with sa_engine.begin() as conn:
+        await service.set_org_guc(conn, org_id)
+        for stale in stale_codes:
+            assert await mfa_service.verify_and_consume_backup_code(conn, user_id, stale) is False
+        assert (
+            await mfa_service.verify_and_consume_backup_code(conn, user_id, result.backupCodes[0])
+            is True
+        )

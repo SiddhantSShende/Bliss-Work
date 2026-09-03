@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import signal
 
 import asyncpg
 import httpx
@@ -25,16 +24,15 @@ from opentelemetry import trace
 from opentelemetry.trace import SpanKind
 from kafka_security import kafka_security_kwargs
 
-from .config import Settings, load_settings
-from .logging_setup import configure_logging, get_logger
+from .config import Settings
+from .logging_setup import get_logger
 from .mailer import Mailer, is_valid_email
 from .templates import (
     render_email_verification_email,
     render_invite_email,
     render_password_reset_email,
 )
-from .tracing import setup_tracing
-from tracing import extract_context, inject_headers, shutdown_tracing
+from tracing import extract_context, inject_headers
 
 INVITE_CREATED = "invite.created"
 PASSWORD_RESET_REQUESTED = "password.reset.requested"
@@ -512,36 +510,3 @@ class EmailWorker:
             await asyncio.wait_for(self._stop.wait(), timeout=delay)
         except asyncio.TimeoutError:
             pass
-
-
-async def _amain() -> None:
-    settings = load_settings()
-    configure_logging(settings.log_level)
-    # Gated on OTEL_EXPORTER_OTLP_ENDPOINT — no-ops when unset (dev default).
-    setup_tracing()
-    worker = EmailWorker(settings)
-
-    loop = asyncio.get_running_loop()
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        try:
-            loop.add_signal_handler(sig, worker.request_stop)
-        except NotImplementedError:
-            # Signal handlers are unavailable on some platforms (e.g. Windows).
-            pass
-
-    try:
-        await worker.run()
-    finally:
-        # flush any buffered spans (no-op when disabled)
-        shutdown_tracing(log=get_logger("worker"))
-
-
-def main() -> None:
-    try:
-        asyncio.run(_amain())
-    except KeyboardInterrupt:
-        get_logger("worker").info("interrupted")
-
-
-if __name__ == "__main__":
-    main()

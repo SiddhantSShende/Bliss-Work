@@ -340,6 +340,80 @@ async def test_an_oversized_file_is_named_rather_than_dropped_in_silence(monkeyp
 
 
 @pytest.mark.asyncio
+async def test_unknown_size_attachments_share_the_remaining_budget(monkeypatch):
+    # Regression: before this fix, EVERY unknown-size attachment on the same
+    # mail was checked against the FULL per-mail budget independently, so
+    # several of them could together land well past the intended cap. The
+    # second attachment's ceiling must reflect what the first one actually
+    # consumed, not the budget again from scratch.
+    seen_budgets: list[int] = []
+
+    async def _record(_client, *, attachment, budget_bytes, **_kw):
+        seen_budgets.append(budget_bytes)
+        return b"x" * (6 * MB)
+
+    c, mailer = _consumer(monkeypatch, {}, budget=10 * MB)
+    monkeypatch.setattr(relay_consumer, "fetch_attachment", _record)
+
+    await c._handle(_event([  # noqa: SLF001
+        {"id": "first", "filename": "a.pdf"},  # no sizeBytes -> unknown
+        {"id": "second", "filename": "b.pdf"},  # no sizeBytes -> unknown
+    ]))
+
+    assert seen_budgets == [10 * MB, 4 * MB]
+    assert [a[0] for a in mailer.sends[0]["attachments"]] == ["a.pdf", "b.pdf"]
+
+
+@pytest.mark.asyncio
+async def test_a_known_size_attachment_cannot_spend_past_what_an_earlier_unknown_one_left(monkeypatch):
+    # Regression: the known-size branch of fetch() built its ceiling purely
+    # from the attachment's OWN declared size (+ slack), never checking it
+    # against what was actually left of the per-mail budget. within_budget
+    # only ever compares a declared size against the budget in isolation,
+    # before anything is fetched — so an unknown-size attachment that
+    # genuinely consumes most of the budget, followed by a declared-size
+    # attachment that "fit" by itself, let the mail's true total sail past
+    # the budget the two were supposed to share. This exercises the real
+    # fetch() (not the stubbed one _consumer() installs), so the ceiling
+    # bug actually gets a chance to manifest.
+    first_body = b"x" * (8 * MB)   # unknown size: consumes 8 of the 10 MB budget
+    second_body = b"y" * (5 * MB)  # declared 5 MB: "fits" the budget on its own
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/first"):
+            return httpx.Response(200, content=first_body)
+        return httpx.Response(200, content=second_body)
+
+    settings = _settings()
+    settings.mail_attachment_budget_bytes = 10 * MB
+    c = RelayConsumer(settings)
+    mailer = _RecordingMailer()
+    c._mailer = mailer  # noqa: SLF001
+    c._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))  # noqa: SLF001
+
+    async def _claim(*_a: str) -> bool:
+        return True
+
+    async def _mark_sent(*_a: str) -> None:
+        return None
+
+    c._claim = _claim  # noqa: SLF001
+    c._mark_sent = _mark_sent  # noqa: SLF001
+
+    await c._handle(_event([  # noqa: SLF001
+        {"id": "first", "filename": "a.pdf"},  # no sizeBytes -> unknown
+        {"id": "second", "filename": "b.pdf", "sizeBytes": 5 * MB},
+    ]))
+
+    sent = mailer.sends[0]
+    # Only 2 MB was left after "first" spent 8 of the 10 MB budget, so
+    # "second" (declared 5 MB) must be skipped like any other over-budget
+    # file, not silently attached on top of what "first" already spent.
+    assert [a[0] for a in sent["attachments"]] == ["a.pdf"]
+    assert "b.pdf" in sent["text_body"]
+
+
+@pytest.mark.asyncio
 async def test_an_oversized_file_is_never_fetched(monkeypatch):
     # Spending the budget on metadata is the whole point: downloading 90 MB into
     # a 384 MB container to then discard it is the failure being avoided.

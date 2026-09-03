@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/task-board/ws-gateway/internal/metrics"
+	"github.com/task-board/ws-gateway/internal/safego"
 )
 
 // Fanout delivers a payload to a set of users wherever their sockets are.
@@ -141,24 +142,30 @@ func (f *Fanout) Deliver(ctx context.Context, userIDs []string, payload []byte) 
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			_, err := f.transport.Send(ctx, nodeID, Batch{
-				Broadcast: &Broadcast{UserIDs: users, Payload: payload},
+			// Guarded rather than let a panic here take down the process: this
+			// goroutine already owns wg.Done()/sem release above (still needed
+			// after a recovered panic), so the per-node push itself is the only
+			// part wrapped.
+			safego.Guard(f.log, "push.fanout.node", func() {
+				_, err := f.transport.Send(ctx, nodeID, Batch{
+					Broadcast: &Broadcast{UserIDs: users, Payload: payload},
+				})
+				switch {
+				case err == nil:
+					metrics.NodeFanoutRecipientsTotal.WithLabelValues(metrics.WhereRemote).
+						Add(float64(len(users)))
+				case errors.Is(err, ErrNodeUnreachable):
+					// Ordinary: the registration expired between the presence read
+					// and here — the node died or is restarting, and its sockets went
+					// with it. Counted as unroutable rather than failed, because a
+					// fleet with WS_ADVERTISE_ADDR unset produces nothing BUT this and
+					// the two must not be conflated in the same metric.
+					metrics.NodeFanoutUnroutableTotal.Add(float64(len(users)))
+				default:
+					f.log.Warn("fanout push failed", "node", nodeID, "users", len(users), "err", err)
+				}
+				metrics.NodeFanoutRequestsTotal.WithLabelValues(metrics.Result(err)).Inc()
 			})
-			switch {
-			case err == nil:
-				metrics.NodeFanoutRecipientsTotal.WithLabelValues(metrics.WhereRemote).
-					Add(float64(len(users)))
-			case errors.Is(err, ErrNodeUnreachable):
-				// Ordinary: the registration expired between the presence read
-				// and here — the node died or is restarting, and its sockets went
-				// with it. Counted as unroutable rather than failed, because a
-				// fleet with WS_ADVERTISE_ADDR unset produces nothing BUT this and
-				// the two must not be conflated in the same metric.
-				metrics.NodeFanoutUnroutableTotal.Add(float64(len(users)))
-			default:
-				f.log.Warn("fanout push failed", "node", nodeID, "users", len(users), "err", err)
-			}
-			metrics.NodeFanoutRequestsTotal.WithLabelValues(metrics.Result(err)).Inc()
 		}(nodeID, users)
 	}
 	wg.Wait()

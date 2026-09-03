@@ -175,10 +175,7 @@ func (s *Store) JoinChannel(ctx context.Context, orgID, channelID, callerID stri
 		var locked bool
 		err = tx.QueryRow(ctx,
 			`SELECT org_id, is_locked, name FROM channels WHERE id = $1`, channelID).Scan(&cOrg, &locked, &cName)
-		if errors.Is(err, pgx.ErrNoRows) || (err == nil && cOrg != orgID) {
-			return ErrForbidden
-		}
-		if err != nil {
+		if err := classifyChannelOrgLookup(err, cOrg, orgID); err != nil {
 			return err
 		}
 		if locked {
@@ -355,10 +352,7 @@ func (s *Store) LeaveChannel(ctx context.Context, orgID, channelID, callerID str
 		var cOrg string
 		err = tx.QueryRow(ctx,
 			`SELECT org_id FROM channels WHERE id = $1`, channelID).Scan(&cOrg)
-		if errors.Is(err, pgx.ErrNoRows) || (err == nil && cOrg != orgID) {
-			return ErrForbidden
-		}
-		if err != nil {
+		if err := classifyChannelOrgLookup(err, cOrg, orgID); err != nil {
 			return err
 		}
 

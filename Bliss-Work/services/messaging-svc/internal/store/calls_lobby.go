@@ -124,6 +124,42 @@ func clearLobbyTx(ctx context.Context, tx pgx.Tx, callID string) ([]string, erro
 	return admitted, nil
 }
 
+// activateCallRowTx flips a SCHEDULED call to LIVE and empties its lobby —
+// the shared half of StartCall (a human starting it) and activateCallTx (the
+// clock starting it, calls_lifecycle.go), guarded the same way both callers
+// need: only the caller that actually flips the row (status = 'SCHEDULED')
+// gets started=true, so two hosts racing each other, or the sweeper catching
+// up with a host who just started it by hand, cannot double-report it.
+//
+// startedBy is nil for the clock, the starting caller's id for a human — the
+// same "nobody did this, the clock did" convention endCallTx's callers
+// already use for actorID. A SCHEDULED row's started_by is always NULL
+// already (this UPDATE is the only writer of that column, and the guard
+// means it only ever runs once per call), so setting it to nil here is not
+// distinguishable from activateCallTx's previous "leave it alone".
+func activateCallRowTx(
+	ctx context.Context, tx pgx.Tx, callID string, startedBy *string,
+) (started bool, admitted []string, err error) {
+	ct, err := tx.Exec(ctx, `
+		UPDATE calls
+		SET status = 'LIVE', started_at = COALESCE(started_at, now()), started_by = $2
+		WHERE id = $1 AND status = 'SCHEDULED'`, callID, startedBy)
+	if err != nil {
+		return false, nil, err
+	}
+	if ct.RowsAffected() == 0 {
+		return false, nil, nil
+	}
+	// Empty the lobby in one statement. This is the whole admission step —
+	// there is no second pass deciding which of them to let through, which is
+	// why it can be unconditional over the call.
+	admitted, err = clearLobbyTx(ctx, tx, callID)
+	if err != nil {
+		return false, nil, err
+	}
+	return true, admitted, nil
+}
+
 // StartCall opens a scheduled call and admits everyone waiting for it.
 //
 // Idempotent: starting a call that is already LIVE returns it unchanged rather
@@ -164,16 +200,7 @@ func (s *Store) StartCall(
 			return ErrForbidden
 		}
 		if c.status == CallScheduled {
-			if _, err := tx.Exec(ctx, `
-				UPDATE calls
-				SET status = 'LIVE', started_at = COALESCE(started_at, now()), started_by = $2
-				WHERE id = $1 AND status = 'SCHEDULED'`, callID, callerID); err != nil {
-				return err
-			}
-			// Empty the lobby in one statement. This is the whole admission
-			// step — there is no second pass deciding which of them to let
-			// through, which is why it can be unconditional over the call.
-			admitted, err = clearLobbyTx(ctx, tx, callID)
+			_, admitted, err = activateCallRowTx(ctx, tx, callID, &callerID)
 			if err != nil {
 				return err
 			}

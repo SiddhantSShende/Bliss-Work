@@ -38,7 +38,7 @@ export function isCalendarScale(v: unknown): v is CalendarScale {
  */
 const WEEK_STARTS_ON = 1;
 
-export function addDays(t: number, days: number): number {
+function addDays(t: number, days: number): number {
   const d = new Date(t);
   d.setDate(d.getDate() + days);
   // Rebuilt through the Date API rather than by adding 86_400_000 so a week

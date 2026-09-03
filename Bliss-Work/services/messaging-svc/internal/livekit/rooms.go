@@ -9,9 +9,6 @@ import (
 	"net/http"
 	"strings"
 	"time"
-
-	"github.com/lestrrat-go/jwx/v2/jwa"
-	"github.com/lestrrat-go/jwx/v2/jwt"
 )
 
 // Room administration on the SFU.
@@ -111,23 +108,10 @@ func (m *Minter) DeleteRoom(ctx context.Context, room string) error {
 // actually do. The mitigation available here is the one already in place:
 // a lifetime of barely longer than the single request that uses it.
 func (m *Minter) roomManagementToken() (string, error) {
-	now := time.Now().UTC()
-	tok, err := jwt.NewBuilder().
-		Issuer(m.apiKey).
-		Subject(m.apiKey).
-		IssuedAt(now).
-		NotBefore(now).
-		Expiration(now.Add(roomAPITimeout+time.Minute)).
-		Claim("video", map[string]any{"roomCreate": true}).
-		Build()
-	if err != nil {
-		return "", err
-	}
-	signed, err := jwt.Sign(tok, jwt.WithKey(jwa.HS256, []byte(m.apiSecret)))
-	if err != nil {
-		return "", err
-	}
-	return string(signed), nil
+	exp := time.Now().UTC().Add(roomAPITimeout + time.Minute)
+	return signVideoJWT(m.apiKey, m.apiSecret, m.apiKey, exp, map[string]any{
+		"video": map[string]any{"roomCreate": true},
+	})
 }
 
 // ── Room lifecycle, as the SFU reports it ────────────────────────────────────

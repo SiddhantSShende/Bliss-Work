@@ -14,7 +14,7 @@
  */
 import { readablePrefix } from "./chatEnvelope";
 
-export interface SearchableMessage {
+interface SearchableMessage {
   body: string;
   /** Rendered above the bubble in a channel; used so "ada" finds Ada's messages
    *  and not only messages containing the word. */

@@ -1,10 +1,11 @@
 """Each provider's outbound-send call must attempt exactly once on a
 ReadTimeout — not silently retry into a duplicate real email/chat message.
 
-Unlike test_resilience.py (which exercises retry_async directly), these tests
-go through the real provider functions end-to-end against a mocked transport,
-so a regression that drops the idempotent=False flag at any call site — not
-just a bug in retry_async itself — is caught.
+Unlike services/shared/resilience/tests/test_resilience.py (which exercises
+retry_async directly), these tests go through the real provider functions
+end-to-end against a mocked transport, so a regression that drops the
+idempotent=False flag at any call site — not just a bug in retry_async
+itself — is caught.
 """
 from __future__ import annotations
 
@@ -12,7 +13,7 @@ import httpx
 import pytest
 
 from app.providers import gmail, microsoft, slack
-from app.resilience import CircuitBreaker
+from resilience import CircuitBreaker
 
 
 @pytest.fixture(autouse=True)
@@ -81,10 +82,10 @@ async def test_slack_post_message_attempts_exactly_once_on_read_timeout(mock_asy
 
 
 # ── positive control: a read (not a send) still gets the full retry budget ──────
-async def test_gmail_profile_read_still_retries_a_read_timeout(mock_async_client):
-    # profile() is idempotent (GET, no side effect) — it must still retry, or
+async def test_slack_auth_test_still_retries_a_read_timeout(mock_async_client):
+    # auth_test() is idempotent (no side effect) — it must still retry, or
     # this whole test file would pass even if idempotent=False leaked onto
     # every call by accident.
     with pytest.raises(httpx.ReadTimeout):
-        await gmail.profile("tok")
+        await slack.auth_test("tok")
     assert mock_async_client.calls == 3

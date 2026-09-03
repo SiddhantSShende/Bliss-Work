@@ -13,7 +13,7 @@ import { usePresence } from "../lib/usePresence";
 import { toggleConversationPref, useConversationPrefs } from "../lib/conversationPrefs";
 import { usePopupDismiss } from "../lib/usePopupDismiss";
 import { useSelectedChat } from "../lib/selectedChat";
-import { listPreview } from "../lib/chatEnvelope";
+import { listPreview, withSenderLabel } from "../lib/chatEnvelope";
 import { ConfirmDialog } from "../features/ConfirmDialog";
 import { useSession } from "../store/session";
 
@@ -226,6 +226,7 @@ export function ChatsList() {
           visibleChats.map((c: ConversationDTO) => {
             const muted = prefs.isMuted("chat", c.id);
             const pinned = prefs.hasShortcut("chat", c.id);
+            const isOwnLastMessage = c.lastMessageSenderId ? c.lastMessageSenderId === me.id : undefined;
             return (
               // No longer a NavLink: there is no per-chat URL to link to, and
               // "active" is now the selection rather than a route match.
@@ -259,9 +260,9 @@ export function ChatsList() {
                       {c.cleared
                         ? ""
                         : c.lastMessage
-                          ? listPreview(
-                              c.lastMessage,
-                              c.lastMessageSenderId ? c.lastMessageSenderId === me.id : undefined,
+                          ? withSenderLabel(
+                              listPreview(c.lastMessage, isOwnLastMessage),
+                              isOwnLastMessage ? "You" : undefined,
                             )
                           : "Start chatting"}
                     </span>

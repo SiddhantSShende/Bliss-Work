@@ -80,10 +80,7 @@ func channelManagerCheck(
 ) (bool, error) {
 	var cOrg string
 	err := tx.QueryRow(ctx, `SELECT org_id FROM channels WHERE id = $1`, channelID).Scan(&cOrg)
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && cOrg != orgID) {
-		return false, ErrForbidden
-	}
-	if err != nil {
+	if err := classifyChannelOrgLookup(err, cOrg, orgID); err != nil {
 		return false, err
 	}
 	if isOrgAdmin(claimRoles) {

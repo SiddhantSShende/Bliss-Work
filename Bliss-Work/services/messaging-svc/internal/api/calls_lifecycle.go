@@ -170,8 +170,12 @@ func (s *Server) sweepOverdueCalls(ctx context.Context) {
 		// life.
 		s.notifyCall(ctx, c, events.TypeCallStarted, "")
 		// A call the clock starts records with a deployment that records at
-		// all, exactly like one a host starts by hand (startCall).
-		s.startRecording(ctx, c.ID, c.OrgID, c.Kind)
+		// all, exactly like one a host starts by hand (startCall). No response
+		// DTO to attach RecordingStatus to here, unlike startCall's own use of
+		// this — just log a failure to start it.
+		if _, err := s.startRecording(ctx, c.ID, c.OrgID, c.Kind); err != nil {
+			s.log.Warn("call sweep: recording failed to start", "call_id", c.ID, "err", err)
+		}
 		s.log.Info("call started: it reached its scheduled start",
 			"call_id", c.ID, "kind", c.Kind, "scheduled_at", c.ScheduledAt)
 	}

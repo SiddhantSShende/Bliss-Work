@@ -27,6 +27,7 @@ import (
 	"github.com/task-board/ws-gateway/internal/contract"
 	"github.com/task-board/ws-gateway/internal/metrics"
 	"github.com/task-board/ws-gateway/internal/push"
+	"github.com/task-board/ws-gateway/internal/safego"
 )
 
 // maxParallelPushes bounds how many nodes are pushed to concurrently for a
@@ -163,15 +164,21 @@ func (r *Router) pushAll(ctx context.Context, byNode map[string][]push.Delivery,
 		go func(nodeID, addr string, ds []push.Delivery) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			_, err := r.push.Push(ctx, addr, ds)
-			res := metrics.Result(err)
-			metrics.PushRequestsTotal.WithLabelValues(res).Inc()
-			metrics.PushSentTotal.WithLabelValues(res).Add(float64(len(ds)))
-			if err != nil {
-				r.log.Warn("push failed", "addr", addr, "deliveries", len(ds), "err", err)
-				// The address is cached; a failure says it may be stale. See Store.
-				r.store.ForgetNodeAddr(nodeID)
-			}
+
+			// Guarded rather than let a panic here take down the process: this
+			// goroutine already owns wg.Done()/sem release above (still needed
+			// after a recovered panic), so only the push itself is wrapped.
+			safego.Guard(r.log, "router.pushAll.node", func() {
+				_, err := r.push.Push(ctx, addr, ds)
+				res := metrics.Result(err)
+				metrics.PushRequestsTotal.WithLabelValues(res).Inc()
+				metrics.PushSentTotal.WithLabelValues(res).Add(float64(len(ds)))
+				if err != nil {
+					r.log.Warn("push failed", "addr", addr, "deliveries", len(ds), "err", err)
+					// The address is cached; a failure says it may be stale. See Store.
+					r.store.ForgetNodeAddr(nodeID)
+				}
+			})
 		}(nodeID, addr, deliveries)
 	}
 	wg.Wait()

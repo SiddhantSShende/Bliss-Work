@@ -30,7 +30,6 @@
  * channel is: the same audience, the same lifetime, and no table anywhere.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
 import { AlertCircle, Circle, Clock, Globe, Mic, MicOff, Video, VideoOff } from "lucide-react";
 import { toast } from "sonner";
 import { Button, cn } from "@taskboard/ui";
@@ -70,7 +69,7 @@ import { useMeetingSessionOptional } from "../lib/MeetingSession";
 import { useMeetingPiP } from "../lib/useMeetingPiP";
 import { useMeetingDisplayController } from "../lib/useMeetingDisplayController";
 import { useCallDuration } from "../lib/callTimer";
-import { meetingJoinUrl } from "../lib/meetingDeepLink";
+import { useCallInviteLink } from "../lib/useCallInviteLink";
 import { downloadBlob } from "../lib/download";
 import { useLocalRecording } from "../lib/useLocalRecording";
 import { MiniMeeting } from "./MiniMeeting";
@@ -743,31 +742,12 @@ export function CallRoom({
     toast("Recording started — it will save to this device");
   };
 
-  /**
-   * Mint (once) and copy a link anyone can use to join this call — the same
-   * `createCallInvite` + clipboard pattern MeetingCard.tsx uses outside the
-   * room. Cached locally so copying twice doesn't mint (and spend) a second
-   * token: the join route's token is only ever valid coming back once.
-   */
-  const [inviteLink, setInviteLink] = useState<string | null>(null);
-  const mintInviteLink = useMutation({
-    mutationFn: async () => {
-      const invite = await api.createCallInvite(call.id);
-      return meetingJoinUrl(config.webBaseUrl, invite.token);
-    },
-    onError: () => toast.error("Couldn't create an invite link"),
-  });
+  // Mint (once) and copy a link anyone can use to join this call — shared
+  // with MeetingInviteLink's own invite control outside the room, see
+  // lib/useCallInviteLink.
+  const { isPending: mintingInviteLink, copyLink: copyInviteLinkUrl } = useCallInviteLink(call.id);
   const copyInviteLink = async () => {
-    const url = inviteLink ?? (await mintInviteLink.mutateAsync().catch(() => null));
-    if (!url) return;
-    setInviteLink(url);
-    try {
-      await navigator.clipboard.writeText(url);
-      toast("Invite link copied");
-    } catch {
-      // Insecure origins and older WebViews have no clipboard API.
-      toast("Copy failed", { description: "Select the link and copy it manually." });
-    }
+    if (await copyInviteLinkUrl()) toast("Invite link copied");
   };
 
   const hangUp = async () => {
@@ -1069,7 +1049,7 @@ export function CallRoom({
           onAddPeople={() => setAddOpen(true)}
           canInviteLink={canAddPeople}
           inviteLinkTitle={addPeopleTitle}
-          mintingInviteLink={mintInviteLink.isPending}
+          mintingInviteLink={mintingInviteLink}
           onCopyInviteLink={() => void copyInviteLink()}
           chatActive={panel === "chat"}
           unreadChat={unread}
@@ -1087,7 +1067,12 @@ export function CallRoom({
           onEnd={() => void hangUp()}
         />
 
-        <div className="flex min-h-0 flex-1 flex-col">
+        {/* min-w-0: this is a flex-ROW child of the sidebar+content shell
+            above. Flex items default to min-width:auto (their content's
+            intrinsic width), which without this stops the panel shrinking
+            below that at a narrow window width — the classic cause of
+            horizontal overflow in a flex row. */}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <header className="shrink-0 px-6 py-4">
             <div className="truncate text-base font-semibold uppercase tracking-wide text-fg">
               {title}
@@ -1124,7 +1109,9 @@ export function CallRoom({
               Chat/Notes/Participants is open. Nothing here ever overlays the
               video as a popup — the side panel collapses in place instead. */}
           <div className="flex min-h-0 flex-1 flex-col gap-4 px-6 pb-6 lg:flex-row">
-            <main className="flex min-h-0 flex-1 flex-col gap-3">
+            {/* min-w-0: becomes a flex-ROW sibling of CallSidePanel at lg:,
+                same shrink-below-content-width reason as above. */}
+            <main className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
               {/* The sharer's own reminder, and the only stop control that exists. */}
               {sharing && <ScreenSharePopup startedAt={connectedAt} onStop={() => void toggleShare()} />}
 

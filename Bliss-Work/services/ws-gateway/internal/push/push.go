@@ -135,19 +135,6 @@ func (c *Client) Push(ctx context.Context, addr string, deliveries []Delivery) (
 	return c.SendTo(ctx, addr, Batch{Deliveries: deliveries})
 }
 
-// Broadcast sends ONE payload to several users on a single node. See Batch for
-// why this is a distinct shape rather than N deliveries.
-func (c *Client) Broadcast(
-	ctx context.Context, addr string, userIDs []string, payload []byte,
-) (Result, error) {
-	if len(userIDs) == 0 {
-		return Result{}, nil
-	}
-	return c.SendTo(ctx, addr, Batch{
-		Broadcast: &Broadcast{UserIDs: userIDs, Payload: payload},
-	})
-}
-
 // SendTo posts one batch to one node, in whichever shape it carries.
 //
 // Named SendTo rather than Send so that *Client does NOT structurally satisfy

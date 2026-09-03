@@ -1,0 +1,27 @@
+-- 0003_mail_transport_covered_envelopes.sql — which addresses a provider send
+-- actually reached, not just that one happened.
+--
+-- ── The bug this closes ──────────────────────────────────────────────────────
+-- mail_send.go's relayRecipients() deliberately gives a real wire copy to local
+-- org members too, not only addresses that left the org — a colleague's in-app
+-- delivery does not put the mail in their actual mailbox, and BlissWork mail is
+-- required to reach that too. But a mailbox-provider send only ever covers the
+-- EXTERNAL recipients (providerTo/providerCc/providerBcc) — including a local
+-- member there would double-deliver to someone who already has an in-app copy.
+--
+-- relay_consumer.py's TRANSPORT_PROVIDER handling did not know this: it treated
+-- "a provider send happened for this mail" as "every copy of this mail is
+-- covered, including mine" — true for every external copy, false for a local
+-- member's own copy, which was then silently dropped: never sent by the
+-- provider (deliberately excluded) and never relayed either (short-circuited
+-- as "nothing more to do"). Recording exactly which envelopes the provider
+-- send reached lets every OTHER copy check whether IT was actually one of
+-- them, instead of assuming so from the transport type alone.
+--
+-- covered_envelopes is nullable and deliberately left NULL for anything that
+-- predates this migration: a 'provider' row written before this shipped has no
+-- way to know its own covered set, and treating that as "assume covered" (the
+-- OLD behavior) is what keeps a redelivery of an in-flight mail during the
+-- rollout from being treated as newly-uncovered and relayed a second time.
+ALTER TABLE mail_transport
+    ADD COLUMN IF NOT EXISTS covered_envelopes text[];

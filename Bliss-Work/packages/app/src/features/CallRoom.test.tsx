@@ -468,46 +468,34 @@ describe("the manual picture-in-picture button", () => {
     h.pip.supported = true;
     renderRoom();
 
-    // Picture-in-picture now lives in the "More" menu (see CallMoreMenu) —
-    // either of the two instances (top cluster, bottom bar) offers the same
-    // items, so opening the first is enough.
-    await act(async () => {
-      // `getAllByRole` throws if nothing matches, so this is never actually
-      // undefined — the assertion just says so to the type checker.
-      screen.getAllByRole("button", { name: "More" }).at(0)!.click();
-    });
-    const button = screen.getByRole("menuitem", { name: "Picture-in-picture" });
+    // A first-class sidebar icon now (CallMoreMenu, the overflow it used to
+    // live behind, was removed) — no menu to open first. Queried by its
+    // title, not its short visible label ("PiP") — SidebarButton's
+    // aria-label prefers the fuller title when one is given (same pattern
+    // as the Add-people button), so that's the real accessible name.
+    const button = screen.getByRole("button", { name: "Picture-in-picture" });
     await act(async () => {
       button.click();
     });
     expect(h.pip.toggle).toHaveBeenCalledTimes(1);
   });
 
-  it("still offers the invite link when the platform has no Picture-in-Picture support", async () => {
+  it("is not offered at all when the platform has no Picture-in-Picture support", () => {
     h.pip.supported = false;
     renderRoom();
 
-    // The invite link is a normally-available action (this MEETING-kind call
-    // is connected), so unlike PiP/Minimise it keeps the More button around
-    // even with nothing else to offer.
-    await act(async () => {
-      screen.getAllByRole("button", { name: "More" }).at(0)!.click();
-    });
-    expect(screen.getByRole("menuitem", { name: "Copy invite link" })).toBeInTheDocument();
-    expect(screen.queryByRole("menuitem", { name: "Picture-in-picture" })).toBeNull();
+    // Unlike the PiP button, Copy Link is a normally-available action (this
+    // MEETING-kind call is connected) and stays present regardless.
+    expect(screen.getByRole("button", { name: "Copy invite link" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Picture-in-picture" })).toBeNull();
   });
 
-  it("reflects an active PiP session in its label", async () => {
+  it("reflects an active PiP session in its title", () => {
     h.pip.supported = true;
     h.pip.active = true;
     renderRoom();
 
-    await act(async () => {
-      // `getAllByRole` throws if nothing matches, so this is never actually
-      // undefined — the assertion just says so to the type checker.
-      screen.getAllByRole("button", { name: "More" }).at(0)!.click();
-    });
-    expect(screen.getByRole("menuitem", { name: "Exit picture-in-picture" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Exit picture-in-picture" })).toBeInTheDocument();
   });
 });
 
@@ -599,14 +587,12 @@ describe("the meeting display controller", () => {
     h.session = session;
     renderRoom();
 
-    // Minimise now lives in the "More" menu (see CallMoreMenu).
+    // A first-class sidebar icon now (CallMoreMenu, the overflow it used to
+    // live behind, was removed) — no menu to open first. "Minimise" (its
+    // title), not the short visible label "Minimize" — see the PiP tests
+    // above for why the title wins as the accessible name.
     await act(async () => {
-      // `getAllByRole` throws if nothing matches, so this is never actually
-      // undefined — the assertion just says so to the type checker.
-      screen.getAllByRole("button", { name: "More" }).at(0)!.click();
-    });
-    await act(async () => {
-      screen.getByRole("menuitem", { name: "Minimise" }).click();
+      screen.getByRole("button", { name: "Minimise" }).click();
     });
 
     expect(h.display.handleMinimize).toHaveBeenCalledTimes(1);

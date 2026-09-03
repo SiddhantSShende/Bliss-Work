@@ -59,3 +59,18 @@ opentelemetry-instrumentation-asyncpg==0.65b0
 # (every service that runs an outbox poller). See
 # services/shared/outbox_dlq/outbox_dlq.py.
 ../shared/outbox_dlq
+
+# X-Forwarded-For-aware caller identity for the rate limiter, shared with
+# task-svc, integrations-svc, telemetry-svc and sticky-svc. See
+# services/shared/client_ip/client_ip.py.
+../shared/client_ip
+
+# Retry + circuit-breaker helpers for cross-service HTTP calls, shared with
+# task-svc, integrations-svc, telemetry-svc, sticky-svc and email-worker. See
+# services/shared/resilience/resilience.py.
+../shared/resilience
+
+# Connect-on-first-use AIOKafkaProducer wrapper for the outbox poller, shared
+# with task-svc and integrations-svc. See
+# services/shared/kafka_lazy_producer/kafka_lazy_producer.py.
+../shared/kafka_lazy_producer

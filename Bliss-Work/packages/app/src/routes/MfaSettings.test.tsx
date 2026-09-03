@@ -46,7 +46,7 @@ vi.mock("../lib/webauthn", () => ({
 }));
 
 import { MfaSettings } from "./MfaSettings";
-import { getPasskeyAssertion } from "../lib/webauthn";
+import { createPasskey, getPasskeyAssertion } from "../lib/webauthn";
 
 function baseUser(over: Partial<UserDTO> = {}): UserDTO {
   return {
@@ -159,6 +159,45 @@ describe("MfaSettings — passkey step-up (Bug 1)", () => {
     );
     // Still open, and MFA was never actually reported as turned off.
     expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(toast.success).not.toHaveBeenCalled();
+  });
+});
+
+describe("MfaSettings — adding a passkey to an already-enrolled account requires step-up (Bug 4)", () => {
+  it("verifies step-up, then runs a fresh WebAuthn registration ceremony and reports it as a new credential", async () => {
+    api.mfaWebauthnRegisterStart.mockResolvedValue({ challenge: "c2" });
+    (createPasskey as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "newcred" });
+    api.mfaWebauthnRegisterFinish.mockResolvedValue({ id: "newcred" });
+    api.me.mockResolvedValue(currentUser);
+    const user = userEvent.setup();
+    renderPage();
+    await openStepUp(user, "Add");
+    fillCode("123456");
+    await user.click(screen.getByRole("button", { name: "Add passkey" }));
+
+    await waitFor(() =>
+      expect(api.mfaWebauthnRegisterFinish).toHaveBeenCalledWith({
+        credential: { id: "newcred" },
+        stepUp: { password: "hunter2", totpCode: "123456" },
+      }),
+    );
+    expect(toast.success).toHaveBeenCalledWith("Passkey added");
+  });
+
+  it("does not run the registration ceremony when step-up verification itself fails", async () => {
+    api.mfaWebauthnRegisterFinish.mockRejectedValue(new ApiError(401, "re-authentication failed"));
+    (createPasskey as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "newcred" });
+    const user = userEvent.setup();
+    renderPage();
+    await openStepUp(user, "Add");
+    fillCode("000000");
+    await user.click(screen.getByRole("button", { name: "Add passkey" }));
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith("Verification failed", {
+        description: "Check your password and code, then try again.",
+      }),
+    );
     expect(toast.success).not.toHaveBeenCalled();
   });
 });

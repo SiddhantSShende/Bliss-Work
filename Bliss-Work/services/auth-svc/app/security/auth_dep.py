@@ -14,7 +14,7 @@ from fastapi import Depends, Header, HTTPException, Request, status
 
 from ..config import settings
 from ..logging_config import log
-from .resilience import CircuitBreaker, CircuitOpenError, retry_async
+from resilience import CircuitBreaker, CircuitOpenError, retry_async
 
 _JWKS_CACHE_TTL = 300  # ~5 minutes
 

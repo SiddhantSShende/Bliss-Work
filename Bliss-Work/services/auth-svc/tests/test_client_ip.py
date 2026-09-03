@@ -1,21 +1,18 @@
-"""The per-IP limiter is only as good as the IP it keys on.
+"""This service's own wiring onto the shared client_ip package
+(services/shared/client_ip/client_ip.py), plus a regression guard specific to
+this service's code.
 
-This suite exists because that identity was wrong in production and nothing
-caught it. `slowapi.util.get_remote_address` returns `request.client.host`,
-which behind our edge is Caddy's address on every request in the world, so
-"10 logins per minute per IP" was enforced as ten logins per minute for the
-entire platform.
-
-The regression is invisible from the outside — the service works, the limiter
-returns 429s, and only counting requests reveals that every caller shares one
-bucket. So the assertions below are about the KEY, not about the behaviour.
+The identity algorithm itself — rightmost-entry reading, spoof-proofing,
+user-vs-IP keying — is tested once in
+services/shared/client_ip/tests/test_client_ip.py. What's specific to THIS
+service is only: does app/net.py's `client_ip`/`rate_limit_key` correctly
+thread `settings.trusted_proxy_hops` into it, and has nothing in this
+service's code reintroduced the banned `slowapi.util.get_remote_address`.
 """
 from __future__ import annotations
 
 import pytest
 from starlette.datastructures import Headers
-
-from app.net import client_ip, rate_limit_key
 
 
 class _Client:
@@ -34,73 +31,6 @@ class _Req:
             pass
 
         self.state = _State()
-
-
-def test_reads_the_rightmost_forwarded_entry() -> None:
-    """Only the last hop was observed by our own edge; everything before it is
-    whatever the client chose to send."""
-    req = _Req({"x-forwarded-for": "203.0.113.9"})
-    assert client_ip(req) == "203.0.113.9"
-
-
-def test_a_spoofed_prefix_cannot_change_the_bucket() -> None:
-    """The attack the leftmost reading enables: a fresh forged value per request
-    puts every request in a fresh bucket and the limiter stops existing."""
-    a = _Req({"x-forwarded-for": "1.1.1.1, 203.0.113.9"})
-    b = _Req({"x-forwarded-for": "2.2.2.2, 203.0.113.9"})
-    c = _Req({"x-forwarded-for": "9.9.9.9, 8.8.8.8, 203.0.113.9"})
-    assert client_ip(a) == client_ip(b) == client_ip(c) == "203.0.113.9"
-
-
-def test_two_real_callers_do_not_share_a_bucket() -> None:
-    """The actual production bug, stated as an assertion: distinct callers
-    arriving through the same proxy must key differently."""
-    one = _Req({"x-forwarded-for": "203.0.113.9"})
-    two = _Req({"x-forwarded-for": "198.51.100.4"})
-    assert rate_limit_key(one) != rate_limit_key(two)
-
-
-def test_falls_back_to_the_peer_when_unproxied() -> None:
-    """Direct calls (tests, in-cluster probes) have no header and must still
-    key on something narrower than 'everyone'."""
-    assert client_ip(_Req({}, peer="10.1.2.3")) == "10.1.2.3"
-
-
-def test_missing_peer_does_not_raise() -> None:
-    assert client_ip(_Req({}, peer=None)) == "unknown"
-
-
-def test_verified_user_beats_ip() -> None:
-    """The second half of the bug: `request.state.principal` was read but never
-    assigned, so the user branch was dead code. PrincipalMiddleware assigns it;
-    this asserts the key function actually prefers it."""
-
-    class _P:
-        user_id = "11111111-1111-1111-1111-111111111111"
-
-    req = _Req({"x-forwarded-for": "203.0.113.9"})
-    req.state.principal = _P()
-    assert rate_limit_key(req) == "user:11111111-1111-1111-1111-111111111111"
-
-
-def test_one_user_keeps_one_budget_across_networks() -> None:
-    """Why keying by user matters in the other direction: a phone changing
-    networks must not be handed a fresh allowance."""
-
-    class _P:
-        user_id = "22222222-2222-2222-2222-222222222222"
-
-    wifi = _Req({"x-forwarded-for": "203.0.113.9"})
-    cell = _Req({"x-forwarded-for": "198.51.100.4"})
-    wifi.state.principal = _P()
-    cell.state.principal = _P()
-    assert rate_limit_key(wifi) == rate_limit_key(cell)
-
-
-def test_unauthenticated_still_keys_by_ip() -> None:
-    """Login carries no token — the IP bucket is the only protection it has."""
-    req = _Req({"x-forwarded-for": "203.0.113.9"})
-    assert rate_limit_key(req) == "ip:203.0.113.9"
 
 
 @pytest.mark.parametrize("hops", [1, 2])

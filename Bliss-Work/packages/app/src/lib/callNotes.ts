@@ -15,7 +15,8 @@
  * call can read them, and nothing survives past the people who were there —
  * which is why exporting is a first-class action rather than a nicety.
  */
-import { truncateToUtf8Bytes, utf8ByteLength } from "./textBytes";
+import { utf8ByteLength } from "./textBytes";
+import { loadLocalCopy, meetingArtifactFilename, saveLocalCopy } from "./meetingArtifact";
 
 /** One point, written by one participant. Immutable once made. */
 export interface NoteEntry {
@@ -41,7 +42,7 @@ export const NOTE_TEXT_MAX = 500;
 /** How many entries a room keeps. A cap rather than unbounded growth: this
  *  lives in memory and in localStorage, and a meeting that produced five
  *  hundred points has other problems. */
-export const NOTES_MAX = 500;
+const NOTES_MAX = 500;
 
 export function isNoteEntry(v: unknown): v is NoteEntry {
   if (!v || typeof v !== "object") return false;
@@ -96,39 +97,16 @@ export function notesToText(title: string, notes: NoteEntry[]): string {
 
 /** A filename that says which meeting, and sorts. */
 export function notesFilename(title: string, at = new Date()): string {
-  const slug =
-    (title || "meeting")
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, "")
-      .slice(0, 40) || "meeting";
-  const day = `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, "0")}-${String(
-    at.getDate(),
-  ).padStart(2, "0")}`;
-  return `${slug}-notes-${day}.txt`;
+  return meetingArtifactFilename(title, "notes", at);
 }
 
 const KEY = (callId: string) => `bliss.notes.${callId}`;
 
-/** This browser's copy, so a reload mid-call does not lose the list. Storage
- *  can be absent (private mode, a locked-down WebView) — that degrades to
- *  "notes live only in this tab", never to a crash. */
+/** This browser's copy, so a reload mid-call does not lose the list. */
 export function loadNotes(callId: string): NoteEntry[] {
-  try {
-    const raw = localStorage.getItem(KEY(callId));
-    if (!raw) return [];
-    const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed) ? mergeNotes([], parsed as NoteEntry[]) : [];
-  } catch {
-    return [];
-  }
+  return loadLocalCopy(KEY(callId), mergeNotes);
 }
 
 export function saveNotes(callId: string, notes: NoteEntry[]): void {
-  try {
-    localStorage.setItem(KEY(callId), JSON.stringify(notes));
-  } catch {
-    // Quota, or no storage at all. The list is still in memory and still on the
-    // wire; losing the cache is not worth interrupting a meeting for.
-  }
+  saveLocalCopy(KEY(callId), notes);
 }

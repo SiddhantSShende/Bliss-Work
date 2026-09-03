@@ -34,6 +34,7 @@ function baseChannel(overrides: Partial<ChannelDTO>): ChannelDTO {
     memberCount: 5,
     lastMessage: null,
     lastMessageAt: null,
+    lastMessageSender: "",
     lastMessageSenderId: "",
     cleared: false,
     unread: 0,
@@ -87,6 +88,42 @@ describe("ChannelsList last-message preview", () => {
 
     await screen.findByText("fresh-channel");
     expect(await screen.findByText("quarterly numbers are in")).toBeInTheDocument();
+  });
+
+  it("prefixes the preview with the real sender's display name, even for the caller's own message", async () => {
+    api.channels.mockResolvedValue([
+      baseChannel({
+        id: "chan-own",
+        name: "team-channel",
+        lastMessage: "Please check the meeting update.",
+        lastMessageSender: "Siddhant Shende",
+        lastMessageSenderId: "me-1",
+        cleared: false,
+      }),
+    ]);
+    renderChannelsList();
+
+    await screen.findByText("team-channel");
+    expect(
+      await screen.findByText("Siddhant Shende: Please check the meeting update."),
+    ).toBeInTheDocument();
+  });
+
+  it("prefixes the preview with another member's display name", async () => {
+    api.channels.mockResolvedValue([
+      baseChannel({
+        id: "chan-other",
+        name: "ops-channel",
+        lastMessage: "deploy is done",
+        lastMessageSender: "Priya Nair",
+        lastMessageSenderId: "user-priya",
+        cleared: false,
+      }),
+    ]);
+    renderChannelsList();
+
+    await screen.findByText("ops-channel");
+    expect(await screen.findByText("Priya Nair: deploy is done")).toBeInTheDocument();
   });
 
   it("still shows the member-count placeholder for a channel that has never had a message", async () => {

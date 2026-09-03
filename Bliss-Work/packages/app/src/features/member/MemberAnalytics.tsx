@@ -28,15 +28,9 @@ import {
 } from "@taskboard/ui";
 import { useRuntime } from "../../lib/runtime";
 import { qk } from "../../lib/queryBridge";
-import { Tabs, type TabSpec } from "../Tabs";
-import { computeRange, parseLocalDay, type RangeKey } from "../../lib/dateRange";
+import { Tabs } from "../Tabs";
+import { ACTIVITY_RANGES, computeRange, parseLocalDay, type RangeKey } from "../../lib/dateRange";
 import { surfaceLabel } from "./activityLabels";
-
-const RANGES: TabSpec<RangeKey>[] = [
-  { key: "7d", label: "Last 7 days" },
-  { key: "30d", label: "Last 30 days" },
-  { key: "90d", label: "Last 90 days" },
-];
 
 /** Charts for one member. `userId` may be "me" — the server resolves it. */
 export function MemberAnalytics({ userId }: { userId: string }) {
@@ -243,7 +237,7 @@ function AnalyticsHeader({
         <h3 className="text-base font-semibold text-fg">Activity overview</h3>
         <p className="text-sm text-muted">Time, sessions, and focus across apps and sites.</p>
       </div>
-      <Tabs tabs={RANGES} active={range} onChange={onRangeChange} />
+      <Tabs tabs={ACTIVITY_RANGES} active={range} onChange={onRangeChange} />
     </div>
   );
 }

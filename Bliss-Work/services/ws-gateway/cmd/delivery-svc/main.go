@@ -43,6 +43,7 @@ import (
 	"github.com/task-board/ws-gateway/internal/config"
 	"github.com/task-board/ws-gateway/internal/push"
 	"github.com/task-board/ws-gateway/internal/router"
+	"github.com/task-board/ws-gateway/internal/safego"
 	"github.com/task-board/ws-gateway/internal/store"
 	"github.com/task-board/ws-gateway/internal/tracing"
 )
@@ -105,7 +106,7 @@ func main() {
 
 	r := router.New(st, push.NewClient(cfg.WSGatewayInternalToken), log)
 	consumer := router.NewConsumer(cfg.KafkaBrokers, r, log)
-	go consumer.Run(rootCtx)
+	safego.Go(log, "delivery-svc.consumer", func() { consumer.Run(rootCtx) })
 
 	// Metrics and health only. This service holds no sockets and serves no
 	// users; the port exists so Prometheus can scrape it and so an orchestrator

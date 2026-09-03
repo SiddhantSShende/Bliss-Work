@@ -16,9 +16,15 @@
  * falls back to opening the room in place.
  */
 
-/** Just the platform facts this needs, so a test can pass an object literal. */
+/** Just the platform facts this needs, so a test can pass an object literal.
+ *  `kind` mirrors PlatformConfig's own union (including "mobile") purely so a
+ *  full PlatformConfig is structurally assignable here — openCallTab's own
+ *  `kind !== "web"` check already treats every non-web platform the same
+ *  way, and a React Native app has no browser tab to open in the first
+ *  place (Meetings gets its own native screen in that phase), so this is
+ *  never actually called with `kind: "mobile"` in practice. */
 export interface CallWindowConfig {
-  kind: "web" | "electron";
+  kind: "web" | "electron" | "mobile";
   router: "browser" | "hash";
 }
 

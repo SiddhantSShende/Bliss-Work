@@ -669,10 +669,9 @@ export function DMView() {
         preview={forwardTo?.preview}
         onDone={selection.exit}
       />
-      {/* Mounted only while open, as MeetingCard does with its roster sheet:
-          the panel mints one signed link per attachment in the thread, and a
-          closed panel doing that on a refresh interval is a request nobody
-          asked for. */}
+      {/* Mounted only while open: the panel mints one signed link per
+          attachment in the thread, and a closed panel doing that on a
+          refresh interval is a request nobody asked for. */}
       {assetsOpen && (
         <ChatAssetsSheet
           open

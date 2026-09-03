@@ -27,7 +27,15 @@ type InboxCache = { pages: { items: InboxItemDTO[]; nextCursor: string | null }[
  */
 export function useMarkPeerRead(api: ApiClient, peerId: string | undefined, items: InboxItemDTO[]) {
   const qc = useQueryClient();
-  const markedRef = useRef<Set<string>>(new Set());
+  // refId -> lastEventAt at the moment it was marked read. THREAD's refId is
+  // the thread id, which stays the SAME for the life of the thread (see
+  // InboxItemDTO), so a plain "have we seen this id" set would permanently
+  // block a thread that goes unread -> read -> unread again (a later reply)
+  // from ever being re-reported to the server. lastEventAt is the field
+  // inboxPatch.ts bumps on every new arrival, so comparing against the value
+  // recorded at mark-time reliably detects "this is new activity, not the
+  // same unread we already handled".
+  const markedRef = useRef<Map<string, string>>(new Map());
 
   useEffect(() => {
     if (!peerId) return;
@@ -62,10 +70,10 @@ export function useMarkPeerRead(api: ApiClient, peerId: string | undefined, item
         it.peerUserId === peerId &&
         it.unreadCount > 0 &&
         (it.itemKind === "THREAD" || it.itemKind === "MAIL") &&
-        !markedRef.current.has(it.refId),
+        markedRef.current.get(it.refId) !== it.lastEventAt,
     );
     unread.forEach((it) => {
-      markedRef.current.add(it.refId);
+      markedRef.current.set(it.refId, it.lastEventAt);
       const done =
         it.itemKind === "THREAD"
           ? api.readThread(it.refId, READ_ALL_SEQ)

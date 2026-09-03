@@ -1,33 +1,24 @@
 import type { ClientFrame } from "@taskboard/shared";
+import { AUDIO_CAPTURE_DEFAULTS } from "./mediaConstraints";
 
 export type CallMedia = "audio" | "video";
 
 /**
  * Microphone capture constraints.
  *
- * `audio: true` alone leaves all three of these to the user agent's discretion,
- * and "whatever the UA felt like" is not a spec guarantee — it varies by
- * browser, by Electron version, and by whether the OS driver is already doing
- * some of it. That produced calls with audible background noise: room tone and
- * keyboard clatter carried through untouched, and worse, the peer's voice
- * leaving the speakers and re-entering the mic to be sent back as echo.
- *
- *   echoCancellation — the big one for anyone not on headphones. Without it,
- *     speaker output loops back through the mic; mild cases sound like a noisy
- *     background, bad ones howl.
- *   noiseSuppression — removes steady-state room noise (fans, traffic, hiss).
- *   autoGainControl  — levels a quiet or over-hot mic instead of letting it
- *     hiss at high gain or clip.
+ * `audio: true` alone leaves AUDIO_CAPTURE_DEFAULTS's three settings to the
+ * user agent's discretion, and "whatever the UA felt like" is not a spec
+ * guarantee — it varies by browser, by Electron version, and by whether the
+ * OS driver is already doing some of it. That produced calls with audible
+ * background noise: room tone and keyboard clatter carried through untouched,
+ * and worse, the peer's voice leaving the speakers and re-entering the mic to
+ * be sent back as echo.
  *
  * Requested as plain booleans rather than `{ ideal: true }` so a device that
  * genuinely cannot do them still yields a track instead of failing the call —
  * these are optional by nature, and a call with noise beats no call.
  */
-const AUDIO_CONSTRAINTS: MediaTrackConstraints = {
-  echoCancellation: true,
-  noiseSuppression: true,
-  autoGainControl: true,
-};
+const AUDIO_CONSTRAINTS: MediaTrackConstraints = AUDIO_CAPTURE_DEFAULTS;
 
 /**
  * Anything the two ends of a call say to each other that is not media.

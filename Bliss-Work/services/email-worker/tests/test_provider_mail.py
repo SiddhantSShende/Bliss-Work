@@ -17,7 +17,7 @@ import httpx
 import pytest
 
 from app import provider_mail as pm
-from app.resilience import CircuitBreaker
+from resilience import CircuitBreaker
 
 
 @pytest.fixture(autouse=True)
@@ -35,6 +35,7 @@ async def _send(client: httpx.AsyncClient, **overrides) -> bool:
     kwargs = {
         "org_id": "org-1",
         "author_id": "user-1",
+        "mail_id": "018f0000-0000-7000-8000-0000000000aa",
         "subject": "Q3",
         "text_body": "plain",
         "html_body": "<p>rich</p>",
@@ -147,6 +148,38 @@ async def test_an_unreachable_service_is_transient_then_relays(monkeypatch):
         # Fails fast: the open breaker means integrations-svc is not called at
         # all, so a down auxiliary service costs mail nothing but its identity.
         assert calls["n"] == before
+
+
+@pytest.mark.asyncio
+async def test_an_ambiguous_claim_conflict_raises_and_never_relays():
+    # 409 means integrations-svc's own claim for this mail_id is ambiguous or
+    # still owned by another in-flight attempt (see
+    # 0013_mail_send_idempotency.sql). It must raise, never return False —
+    # False tells _decide_transport "nothing was sent, use the relay", and
+    # Graph may already have delivered this exact mail through the winning
+    # attempt.
+    async with _client(lambda _r: httpx.Response(409)) as c:
+        with pytest.raises(pm.ProviderMailUnavailable):
+            await _send(c)
+
+
+@pytest.mark.asyncio
+async def test_repeated_claim_conflicts_never_open_the_breaker_to_the_relay(monkeypatch):
+    # The bug this pins: a 409 is a definitive "ask again later" from THIS
+    # mail_id's own claim, not a sign integrations-svc is unhealthy. Unlike a
+    # run of 5xx failures, a run of 409s must never accumulate into a
+    # CircuitOpenError that falls through to `return False` (the relay) —
+    # doing so would silently duplicate a mail that may already be out via
+    # the attempt that is still holding the claim.
+    breaker = CircuitBreaker(fail_max=3, reset_timeout=30.0)
+    monkeypatch.setattr(pm, "_breaker", breaker)
+
+    async with _client(lambda _r: httpx.Response(409)) as c:
+        for _ in range(10):  # far past fail_max — would trip a 5xx-counting breaker
+            with pytest.raises(pm.ProviderMailUnavailable):
+                await _send(c)
+
+    assert breaker.before() is None  # still closed, never opened
 
 
 @pytest.mark.asyncio

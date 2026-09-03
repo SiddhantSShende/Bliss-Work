@@ -123,3 +123,28 @@ export function useRuntime(): Runtime {
   if (!r) throw new Error("useRuntime outside RuntimeProvider");
   return r;
 }
+
+/**
+ * Connects whichever realtime transport this platform uses, for a route that
+ * sits outside /app.
+ *
+ * WsEventBridge (mounted only in AppShell) is what normally calls this — every
+ * route inside /app gets a live socket for free. A route reached directly
+ * (CallWindow at /call/:callId, JoinCallView at /join) never mounts that
+ * bridge, so without this call `ws`/`eventSource` is constructed but
+ * permanently idle: on web, a meeting entered this way never hears
+ * CallStarted or CallEnded live, only the 30s lobby-poll fallback; the same
+ * gap exists on Electron, which is why `config.eventSource` is checked first.
+ */
+export function useConnectEventBridge(): void {
+  const { ws, config } = useRuntime();
+  const eventSource = config.eventSource;
+  useEffect(() => {
+    if (eventSource) eventSource.connect();
+    else void ws.connect();
+    // Depends on the extracted eventSource, not `config` itself — matching
+    // useCallRoom's own subscribeToEvents — so this cannot be fooled into
+    // re-running by a config object that happens not to be referentially
+    // stable across renders.
+  }, [eventSource, ws]);
+}

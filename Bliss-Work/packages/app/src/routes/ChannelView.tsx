@@ -5,7 +5,6 @@ import { Hash, Users, ChevronLeft, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { EmptyState } from "@taskboard/ui";
 import type {
-  CallDTO,
   ChannelDTO,
   ChannelMessageDTO,
   ChannelReadReceiptDTO,
@@ -17,6 +16,7 @@ import { qk } from "../lib/queryBridge";
 import { ChatThread } from "../features/ChatThread";
 import { useOlderMessages } from "../lib/useOlderMessages";
 import { ChannelMembersSheet } from "../features/ChannelMembersSheet";
+import { LeaveChannelDialog } from "../features/LeaveChannelDialog";
 import { useWhatsAppForward } from "../lib/useWhatsAppForward";
 import { ForwardToDialog } from "../features/ForwardToDialog";
 import { RenameChannelDialog } from "../features/RenameChannelDialog";
@@ -27,7 +27,7 @@ import { ConversationMenu } from "../features/ConversationMenu";
 import { ConfirmDialog } from "../features/ConfirmDialog";
 import { SelectionToolbar } from "../features/SelectionToolbar";
 import { useMessageSelection } from "../lib/useMessageSelection";
-import { canDeleteForAll } from "../lib/messagePermissions";
+import { canDeleteForAll, canModerateChannel } from "../lib/messagePermissions";
 import { ChatSearchBar } from "../features/ChatSearchBar";
 import { ChatAssetsSheet } from "../features/ChatAssetsSheet";
 import { searchMessages } from "../lib/chatSearch";
@@ -204,15 +204,7 @@ export function ChannelView() {
     return map;
   }, [receipts]);
 
-  // Whether the caller may moderate: remove anyone's message, and pin for
-  // everyone. `myRole` is the caller's standing in THIS channel; an org_admin
-  // moderates every channel without needing to be in it, which is the same rule
-  // requireChannelManager applies server-side. The server re-checks regardless
-  // — this only decides what to OFFER.
-  const canModerate =
-    channel?.myRole === "owner" ||
-    channel?.myRole === "admin" ||
-    !!me.roles?.includes("org_admin");
+  const canModerate = canModerateChannel(channel, me);
 
   const react = useMutation({
     mutationFn: ({ id, emoji, on }: { id: string; emoji: string; on: boolean }) =>
@@ -592,17 +584,10 @@ export function ChannelView() {
         busy={clearChat.isPending}
         onConfirm={() => clearChat.mutate(undefined, { onSuccess: () => setClearChatOpen(false) })}
       />
-      <ConfirmDialog
+      <LeaveChannelDialog
+        channel={channel}
         open={leaveOpen}
         onClose={() => setLeaveOpen(false)}
-        title={channel ? `Leave #${channel.name}?` : "Leave channel?"}
-        message={
-          channel?.isLocked
-            ? "This is a locked channel. A member will need to re-invite you to come back."
-            : "You can re-join from the Browse tab whenever you want."
-        }
-        confirmLabel="Leave channel"
-        danger
         busy={leave.isPending}
         onConfirm={() => leave.mutate(undefined, { onSuccess: () => setLeaveOpen(false) })}
       />
@@ -630,10 +615,9 @@ export function ChannelView() {
         busy={bulkDelete.isPending}
         onConfirm={() => bulkDelete.mutate(selectedMessages.map((m) => m.id))}
       />
-      {/* Mounted only while open, as MeetingCard does with its roster sheet:
-          the panel mints one signed link per attachment in the thread, and a
-          closed panel doing that on a refresh interval is a request nobody
-          asked for. */}
+      {/* Mounted only while open: the panel mints one signed link per
+          attachment in the thread, and a closed panel doing that on a
+          refresh interval is a request nobody asked for. */}
       {assetsOpen && (
         <ChatAssetsSheet
           open

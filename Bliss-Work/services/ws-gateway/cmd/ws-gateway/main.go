@@ -21,6 +21,7 @@ import (
 	"github.com/task-board/ws-gateway/internal/hub"
 	"github.com/task-board/ws-gateway/internal/presence"
 	"github.com/task-board/ws-gateway/internal/push"
+	"github.com/task-board/ws-gateway/internal/safego"
 	"github.com/task-board/ws-gateway/internal/server"
 	rtcsignal "github.com/task-board/ws-gateway/internal/signal"
 	"github.com/task-board/ws-gateway/internal/store"
@@ -91,6 +92,18 @@ func main() {
 	}
 
 	h := hub.New()
+
+	// This node's entire authority over its own /internal/push endpoint: holding
+	// it lets a caller deliver an arbitrary payload to any connected user (see
+	// internal/server/push.go). Refusing to start without one is better than
+	// running with an empty token that internalauth.Matches fails closed on for
+	// every caller (delivery-svc's pushes, and any cross-node push from a peer
+	// gateway) while looking healthy — the same guard cmd/delivery-svc applies to
+	// its own copy of this token.
+	if cfg.WSGatewayInternalToken == "" {
+		log.Error("WS_GATEWAY_INTERNAL_TOKEN is required — it authorizes callers of /internal/push")
+		os.Exit(1)
+	}
 
 	// ── Addressability ───────────────────────────────────────────────────────
 	//
@@ -175,7 +188,7 @@ func main() {
 			os.Exit(1)
 		}
 		consumer := fanout.New(cfg.KafkaBrokers, cfg.BroadcastGroupID, st, h, log)
-		go consumer.Run(rootCtx)
+		safego.Go(log, "ws-gateway.fanout-consumer", func() { consumer.Run(rootCtx) })
 		log.Info("fan-out mode: broadcast (this pod consumes the entire event stream)",
 			"group", cfg.BroadcastGroupID)
 		if os.Getenv("WS_BROADCAST_GROUP_ID") == "" {
@@ -199,7 +212,7 @@ func main() {
 	// per recipient over 500ms windows and POSTs to messaging-svc, which
 	// emits MessageDelivered through its outbox (gateway never produces).
 	dispatcher := delivery.New(cfg.MessagingBaseInternal, cfg.MessagingInternalToken, log)
-	go dispatcher.Run(rootCtx)
+	safego.Go(log, "ws-gateway.delivery-dispatcher", func() { dispatcher.Run(rootCtx) })
 
 	// Blocked-pair check for call.invite (P0-A). Same messaging-svc internal
 	// endpoint config the delivery-ack dispatcher above already uses — no new

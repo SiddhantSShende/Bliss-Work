@@ -73,7 +73,7 @@ def _consumer() -> tuple[RelayConsumer, _RecordingMailer, dict[str, str]]:
     c._presence = None  # noqa: SLF001 — mail is never presence-gated
 
     sent: set[tuple[str, str]] = set()
-    transport: dict[str, str] = {}
+    transport: dict[str, tuple[str, frozenset[str]]] = {}
 
     async def _claim(event_id: str, recipient_id: str) -> bool:
         return (event_id, recipient_id) not in sent
@@ -84,11 +84,11 @@ def _consumer() -> tuple[RelayConsumer, _RecordingMailer, dict[str, str]]:
     async def _mark_sent(event_id: str, recipient_id: str) -> None:
         sent.add((event_id, recipient_id))
 
-    async def _read_transport(mail_id: str) -> str | None:
+    async def _read_transport(mail_id: str) -> tuple[str, frozenset[str]] | None:
         return transport.get(mail_id)
 
-    async def _record_transport(mail_id: str, value: str) -> None:
-        transport.setdefault(mail_id, value)
+    async def _record_transport(mail_id: str, value: str, covered: frozenset[str]) -> None:
+        transport.setdefault(mail_id, (value, covered))
 
     c._claim = _claim                        # noqa: SLF001
     c._is_sent = _is_sent                    # noqa: SLF001
@@ -152,7 +152,10 @@ async def test_the_deciding_copy_sends_through_the_authors_mailbox(monkeypatch):
     # is that this mail never touches the deployment's shared SMTP identity.
     assert len(provider.sends) == 1
     assert mailer.sends == []
-    assert transport[MAIL_ID] == rc.TRANSPORT_PROVIDER
+    assert transport[MAIL_ID] == (
+        rc.TRANSPORT_PROVIDER,
+        frozenset({"partner@outside.test", "cc-person@outside.test", "blind@outside.test"}),
+    )
 
 
 @pytest.mark.asyncio
@@ -201,7 +204,7 @@ async def test_no_connected_mailbox_sends_every_copy_over_the_relay(monkeypatch)
     assert await c._handle(_event("partner@outside.test", primary=True)) is True  # noqa: SLF001
     assert await c._handle(_event("cc-person@outside.test", primary=False)) is True  # noqa: SLF001
 
-    assert transport[MAIL_ID] == rc.TRANSPORT_RELAY
+    assert transport[MAIL_ID] == (rc.TRANSPORT_RELAY, frozenset())
     # One envelope per copy, which is what the relay needs and what keeps a Bcc
     # out of the headers. The deployment with no integrations configured is the
     # common one, and it behaves exactly as it did before.
@@ -251,6 +254,35 @@ async def test_an_event_without_an_author_still_relays(monkeypatch):
     assert await c._handle(raw) is True  # noqa: SLF001
     assert provider.sends == []
     assert len(mailer.sends) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_local_members_own_copy_is_still_relayed_after_a_provider_send(monkeypatch):
+    # Regression: mail_send.go's relayRecipients() deliberately gives a local
+    # org member a real wire copy too (their in-app inbox row is not a copy in
+    # their ACTUAL mailbox) — but a mailbox-provider send only ever reaches
+    # providerTo/Cc/Bcc, which never includes a local member (that would
+    # double-deliver to someone who already has the in-app copy). Before this
+    # fix, TRANSPORT_PROVIDER short-circuited EVERY copy of the mail, silently
+    # dropping the local member's own copy instead of relaying it.
+    provider = _RecordingProvider()
+    monkeypatch.setattr(rc, "provider_send", provider)
+    c, mailer, transport = _consumer()
+
+    # The deciding copy: an external address, sent through the author's mailbox.
+    assert await c._handle(_event("partner@outside.test", primary=True)) is True  # noqa: SLF001
+    assert len(provider.sends) == 1
+    assert transport[MAIL_ID][0] == rc.TRANSPORT_PROVIDER
+
+    # A local colleague's own copy of the SAME mail — never in providerTo/Cc/Bcc,
+    # so the provider send above did not (and must not) reach them.
+    local_member = "colleague@acme.test"
+    assert await c._handle(_event(local_member, primary=False)) is True  # noqa: SLF001
+
+    # Still exactly one provider send (unchanged) — but the local member's copy
+    # must have gone out over the relay, not been silently marked done.
+    assert len(provider.sends) == 1
+    assert [s["to"] for s in mailer.sends] == [local_member]
 
 
 @pytest.mark.asyncio

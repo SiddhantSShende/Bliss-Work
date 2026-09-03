@@ -23,11 +23,18 @@ from .providers import gmail, microsoft as ms, slack
 
 class OutboundError(Exception):
     """Send failed. `retryable` distinguishes "try again" from "never will work",
-    which is what decides between a 502 and a 400 at the API boundary."""
+    which is what decides between a 502 and a 400 at the API boundary.
 
-    def __init__(self, message: str, *, retryable: bool = False) -> None:
+    `is_auth_error` flags the specific case of a provider 401 at send time:
+    gmail.py/microsoft.py's own docstrings promise the caller re-arms
+    token_expires_at so refresh_worker's next sweep renews it, rather than
+    waiting out the token's original (now-wrong) expiry — see send_via_connection.
+    """
+
+    def __init__(self, message: str, *, retryable: bool = False, is_auth_error: bool = False) -> None:
         super().__init__(message)
         self.retryable = retryable
+        self.is_auth_error = is_auth_error
 
 
 class OutboundUnsupported(OutboundError):
@@ -99,7 +106,7 @@ async def _send_gmail(token: str, target: str, text: str, subject: str | None) -
     except gmail.GmailAuthError as exc:
         # Retryable: the refresh worker renews the token, and the next attempt
         # succeeds. Marking this permanent would drop the message.
-        raise OutboundError(str(exc), retryable=True) from exc
+        raise OutboundError(str(exc), retryable=True, is_auth_error=True) from exc
     except gmail.GmailRateLimited as exc:
         raise OutboundError(str(exc), retryable=True) from exc
     except gmail.GmailError as exc:
@@ -111,7 +118,7 @@ async def _send_outlook(token: str, target: str, text: str, subject: str | None)
     try:
         await ms.send_mail(token, to=target, subject=subject or DEFAULT_SUBJECT, body=text)
     except ms.MicrosoftAuthError as exc:
-        raise OutboundError(str(exc), retryable=True) from exc
+        raise OutboundError(str(exc), retryable=True, is_auth_error=True) from exc
     except ms.MicrosoftRateLimited as exc:
         raise OutboundError(str(exc), retryable=True) from exc
     except ms.MicrosoftError as exc:
@@ -124,7 +131,7 @@ async def _send_teams(token: str, target: str, text: str) -> SendResult:
     try:
         res = await ms.send_chat_message(token, target, text)
     except ms.MicrosoftAuthError as exc:
-        raise OutboundError(str(exc), retryable=True) from exc
+        raise OutboundError(str(exc), retryable=True, is_auth_error=True) from exc
     except ms.MicrosoftRateLimited as exc:
         raise OutboundError(str(exc), retryable=True) from exc
     except ms.MicrosoftError as exc:

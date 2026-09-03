@@ -30,11 +30,17 @@ from .invites_service import (
     create_invite_tx,
     iso_z,
 )
+from .members_service import require_live_admin
 
 router = APIRouter(prefix="/auth/invites", tags=["invites"])
 
 
-@router.post("", response_model=CreateInviteResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=CreateInviteResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(enforce_origin)],
+)
 async def create_invite(
     body: CreateInviteRequest,
     principal: Principal = Depends(require_org_admin),
@@ -43,6 +49,13 @@ async def create_invite(
         # Reads `orgs`, writes `invites` + `audit_log` (all RLS) for the admin's
         # verified org; scope the tx before the helper runs any query.
         await service.set_org_guc(conn, principal.org_id)
+        # require_org_admin only checks the JWT claim, which survives a
+        # demotion for the rest of the token's life (see require_live_admin's
+        # own docstring). Minting an invite grants org_admin to whoever
+        # accepts it, so this is exactly the "endpoint that grants power"
+        # case that guard exists for — without it, a just-demoted/removed
+        # admin could invite themself straight back in as org_admin.
+        await require_live_admin(conn, principal)
         invite_id = await create_invite_tx(conn, body, principal)
     log.info("invite_created", invite_id=invite_id, org_id=principal.org_id)
     return CreateInviteResponse(id=invite_id)
@@ -83,7 +96,11 @@ async def list_invites(
     ]
 
 
-@router.delete("/{invite_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{invite_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(enforce_origin)],
+)
 async def revoke_invite(
     invite_id: str,
     response: Response,
@@ -92,6 +109,10 @@ async def revoke_invite(
     async with engine.begin() as conn:
         # Updates `invites` + writes `audit_log` (both RLS) for the admin's org.
         await service.set_org_guc(conn, principal.org_id)
+        # See create_invite: revoking a pending admin invite is the same
+        # "grants/revokes power" class of action require_live_admin exists
+        # for, not an ordinary read the stale JWT claim is fine for.
+        await require_live_admin(conn, principal)
         result = await conn.execute(
             text(
                 """

@@ -10,19 +10,17 @@ import { formatDuration } from "./activityLabels";
  * Sign-in sessions: device, when it started, when it ended and why.
  *
  * `endReason` is worth reading carefully — it is the difference between "they
- * signed out" and "we stopped hearing from them":
- *   logout      they signed out
+ * signed out" and "we stopped hearing from them". Only two reasons are ever
+ * actually written by telemetry-svc today:
  *   disconnect  the tab closed and got the goodbye out
  *   timeout     they went quiet; ended_at is the LAST time we heard from them,
  *               not the moment we noticed
- *   revoked     an admin suspended or removed them
+ * Nothing currently closes a session for a suspend, removal, role change, or
+ * org switch, so those reasons never appear here.
  */
 const END_REASON: Record<string, string> = {
-  logout: "Signed out",
   disconnect: "Closed the app",
   timeout: "Went quiet",
-  revoked: "Access revoked",
-  org_switch: "Switched workspace",
 };
 
 export function MemberSessions({ userId }: { userId: string }) {

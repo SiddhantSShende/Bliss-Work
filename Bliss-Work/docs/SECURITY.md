@@ -163,7 +163,7 @@ practice: the AppImage and `.deb` are the builds produced natively by this repo.
 
 3. If a 1:1 chat or channel is open at the moment of the attempt, the same
    detected event ALSO posts an ordinary system message into it — "X tried to
-   take a screenshot of this page." (`kind: "screenshot_attempt"`, rendered the
+   take a screenshot" (`kind: "screenshot_attempt"`, rendered the
    same way a missed-call pill is). This is independent of the telemetry route
    above: it fires whether or not the activity agent already recorded the
    attempt, and it does nothing when no chat/channel is open. It makes the

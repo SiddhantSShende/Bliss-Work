@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AudioPresets,
-  ConnectionState,
   DisconnectReason,
   RemoteTrack,
   RemoteTrackPublication,
@@ -15,6 +14,7 @@ import { toast } from "sonner";
 import { EventType, type ServerEvent, type WsEventMeta } from "@taskboard/shared";
 import { useRuntime } from "./runtime";
 import { decodeRoomMessage, encodeRoomMessage, type RoomMessage } from "./roomMessages";
+import { AUDIO_CAPTURE_DEFAULTS } from "./mediaConstraints";
 
 /**
  * A participant as the call UI needs to render them.
@@ -345,14 +345,8 @@ export function useCallRoom(callId: string | null) {
           // of more than two.
           resolution: VideoPresets.h720.resolution,
         },
-        audioCaptureDefaults: {
-          // Stated rather than assumed. These are browser defaults today, but
-          // they are the difference between a call and an echo chamber, and a
-          // default is a thing that changes without telling you.
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
+        // Shared with the 1:1 call path (callManager.ts) — see mediaConstraints.ts.
+        audioCaptureDefaults: AUDIO_CAPTURE_DEFAULTS,
 
         // ── Publish ──────────────────────────────────────────────────────────
         publishDefaults: {
@@ -767,6 +761,3 @@ export function useCallRoom(callId: string | null) {
     waiting: status === "waiting",
   };
 }
-
-/** Exposed for the tile component, which needs the enum without importing the SDK. */
-export { ConnectionState };

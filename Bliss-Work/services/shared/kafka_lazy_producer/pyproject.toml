@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kafka-lazy-producer"
+version = "0.1.0"
+description = "Connect-on-first-use AIOKafkaProducer wrapper, shared across this repo's Python outbox pollers."
+requires-python = ">=3.13"
+dependencies = ["aiokafka"]
+
+[tool.setuptools]
+py-modules = ["kafka_lazy_producer"]

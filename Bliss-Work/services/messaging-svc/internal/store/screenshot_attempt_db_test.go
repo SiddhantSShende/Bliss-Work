@@ -86,7 +86,7 @@ func TestSendMessageScreenshotAttemptBodyIsServerAuthored(t *testing.T) {
 	}
 
 	got := decryptedBody(t, s, orgID, "messages", "id", res.MessageID)
-	want := "Jane Okafor tried to take a screenshot of this page."
+	want := "Jane Okafor tried to take a screenshot"
 	if got != want {
 		t.Errorf("stored body = %q, want %q (forged client body must never be stored)", got, want)
 	}
@@ -126,7 +126,7 @@ func TestSendChannelMessageScreenshotAttemptBodyIsServerAuthored(t *testing.T) {
 	}
 
 	got := decryptedBody(t, s, orgID, "channel_messages", "id", res.MessageID)
-	want := "Priya Nair tried to take a screenshot of this page."
+	want := "Priya Nair tried to take a screenshot"
 	if got != want {
 		t.Errorf("stored body = %q, want %q (forged client body must never be stored)", got, want)
 	}

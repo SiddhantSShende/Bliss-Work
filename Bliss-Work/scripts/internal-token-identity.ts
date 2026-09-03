@@ -12,6 +12,17 @@
  * Run against a live stack (docker-compose.yml's dev tokens are distinct per
  * service specifically so this test means something — see .env.example):
  *     npx tsx scripts/internal-token-identity.ts
+ *
+ * WHAT THIS DOES NOT COVER: this only exercises the HTTP-facing check (does
+ * the wrong token get rejected?), not blast radius — whether a compromised
+ * container's own environment exposes secrets beyond the one it needs. In
+ * docker-compose.prod.yml that second property was traded away when the six
+ * per-service .env.prod.*-internal-token files were merged back into a
+ * single .env.prod (see the dated addendum in
+ * docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 2) — every application service's
+ * container now carries every *_INTERNAL_TOKEN regardless of whether it
+ * calls that callee. This suite passing is not evidence that isolation
+ * property holds; it never tested it.
  */
 import { BASE } from "./_tb.ts";
 

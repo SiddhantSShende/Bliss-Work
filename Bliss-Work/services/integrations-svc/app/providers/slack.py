@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import httpx
 
-from ..resilience import CircuitBreaker, retry_async
+from resilience import CircuitBreaker, retry_async
 
 _SLACK_API = "https://slack.com/api"
 _TIMEOUT = 10.0

@@ -121,18 +121,9 @@ func (s *Store) MarkRead(ctx context.Context, orgID, callerID, convID string, up
 			return err
 		}
 
-		var low, high, cOrg string
-		err = tx.QueryRow(ctx,
-			`SELECT org_id, user_low, user_high FROM conversations WHERE id = $1`, convID).
-			Scan(&cOrg, &low, &high)
-		if errors.Is(err, pgx.ErrNoRows) || (err == nil && cOrg != orgID) {
-			return ErrForbidden
-		}
+		low, high, _, err := conversationMembers(ctx, tx, orgID, convID, callerID)
 		if err != nil {
 			return err
-		}
-		if callerID != low && callerID != high {
-			return ErrForbidden
 		}
 		peer := high
 		if callerID == high {
@@ -437,18 +428,8 @@ func (s *Store) ListMessages(
 	out := []MessageDTO{}
 	// RLS: membership read, message read, and per-row decrypt all under app.org_id.
 	err := s.withOrg(ctx, orgID, func(tx pgx.Tx) error {
-		var low, high, cOrg string
-		serr := tx.QueryRow(ctx,
-			`SELECT org_id, user_low, user_high FROM conversations WHERE id = $1`, convID).
-			Scan(&cOrg, &low, &high)
-		if errors.Is(serr, pgx.ErrNoRows) || (serr == nil && cOrg != orgID) {
-			return ErrForbidden
-		}
-		if serr != nil {
-			return serr
-		}
-		if callerID != low && callerID != high {
-			return ErrForbidden
+		if err := requireConversationMember(ctx, tx, orgID, convID, callerID); err != nil {
+			return err
 		}
 
 		rows, err := tx.Query(ctx, `

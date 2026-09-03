@@ -250,6 +250,32 @@ diagram in the original ask):
   verified against the resolved runtime environment, not just read off the
   YAML.
 
+**Addendum (2026-09-03) — per-service isolation reverted.** What actually
+shipped for this phase was the simpler variant sketched earlier in this
+section, not the `secrets.internal.prod` + `environment:` allowlist design
+above: six separate gitignored files at the repo root
+(`.env.prod.<callee>-internal-token`, one per exposing service — including
+`sticky-internal-token`, added later for sticky-svc and never folded back
+into this doc), each layered onto `.env.prod` only via the `env_file:` list
+of the services that actually called that callee.
+
+At explicit request, this was collapsed back into a single `.env.prod`
+carrying all six `*_INTERNAL_TOKEN` values, with every application service
+(notification-svc, graph-gw and telemetry-svc included) now receiving all
+six via the shared `x-svc-defaults` anchor. **The isolation this phase
+built — a compromised service, or a leaked env file, handing out only its
+own credential rather than every internal endpoint's — no longer holds.**
+Rotating any one token now means redeploying every service, not just its
+actual callers. Separately: the six formerly-separate token values were
+inadvertently printed into a terminal/log during this merge (2026-09-03) and
+must be rotated (`openssl rand -hex 32` each) — as of this writing that
+rotation has NOT been confirmed done; do not assume it has been. Re-establishing
+the isolation would mean implementing the `environment:`-allowlist design
+actually described above, not just re-adding the files. (This doc's other
+comments reference a Helm chart at `deploy/helm/taskboard/` as an existing
+deployment path with its own per-secret mounts — no such directory exists in
+this repository, so that is not currently a fallback either.)
+
 ---
 
 ## Phase 3 — Kafka: raw secrets never touch the broker (Item 1, redesigned)

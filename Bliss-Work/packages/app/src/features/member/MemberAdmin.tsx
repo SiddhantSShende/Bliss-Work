@@ -6,7 +6,8 @@ import { Badge, Button } from "@taskboard/ui";
 import type { MemberDTO, Role } from "@taskboard/shared";
 import { useRuntime } from "../../lib/runtime";
 import { qk } from "../../lib/queryBridge";
-import { Modal } from "../Modal";
+import { ConfirmDialog } from "../ConfirmDialog";
+import { RoleBadge } from "../RoleBadge";
 
 /**
  * Admin actions on one member: role, suspend, remove.
@@ -91,7 +92,7 @@ export function MemberAdmin({
         hint="Admins can invite people, manage members and see the audit trail. Changing a role signs the member out of every device so their new permissions take effect immediately."
       >
         <div className="flex items-center gap-2">
-          <Badge tone={isAdmin ? "accent" : "neutral"}>{isAdmin ? "Admin" : "Member"}</Badge>
+          <RoleBadge isAdmin={isAdmin} />
           <Button
             size="sm"
             variant="secondary"
@@ -146,42 +147,30 @@ export function MemberAdmin({
         </div>
       </Section>
 
-      <Modal
+      <ConfirmDialog
         open={confirm !== null}
         onClose={() => !lifecycle.isPending && setConfirm(null)}
         title={confirm === "remove" ? "Remove from workspace?" : "Suspend member?"}
-      >
-        <div className="space-y-4">
-          <p className="text-sm text-muted">
-            {confirm === "remove" ? (
-              <>
-                <strong className="text-fg">{member.displayName}</strong> will lose access to this
-                workspace immediately and disappear from the directory. Everything they wrote stays.
-                You can invite them back at any time.
-              </>
-            ) : (
-              <>
-                <strong className="text-fg">{member.displayName}</strong> will be signed out
-                everywhere and won't be able to sign back in until you reactivate them. Nothing is
-                deleted.
-              </>
-            )}
-          </p>
-          <div className="flex justify-end gap-2">
-            <Button variant="ghost" size="sm" disabled={lifecycle.isPending} onClick={() => setConfirm(null)}>
-              Cancel
-            </Button>
-            <Button
-              variant="danger"
-              size="sm"
-              loading={lifecycle.isPending}
-              onClick={() => lifecycle.mutate(confirm === "remove" ? "remove" : "suspend")}
-            >
-              {confirm === "remove" ? "Remove" : "Suspend"}
-            </Button>
-          </div>
-        </div>
-      </Modal>
+        message={
+          confirm === "remove" ? (
+            <>
+              <strong className="text-fg">{member.displayName}</strong> will lose access to this
+              workspace immediately and disappear from the directory. Everything they wrote stays.
+              You can invite them back at any time.
+            </>
+          ) : (
+            <>
+              <strong className="text-fg">{member.displayName}</strong> will be signed out
+              everywhere and won't be able to sign back in until you reactivate them. Nothing is
+              deleted.
+            </>
+          )
+        }
+        confirmLabel={confirm === "remove" ? "Remove" : "Suspend"}
+        danger
+        busy={lifecycle.isPending}
+        onConfirm={() => lifecycle.mutate(confirm === "remove" ? "remove" : "suspend")}
+      />
     </div>
   );
 }

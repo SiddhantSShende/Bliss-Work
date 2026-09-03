@@ -627,7 +627,7 @@ func screenshotAttemptBody(displayName, username string) string {
 		// falls back to trusting the client's own text.
 		name = "Someone"
 	}
-	return fmt.Sprintf("%s tried to take a screenshot of this page.", name)
+	return fmt.Sprintf("%s tried to take a screenshot", name)
 }
 
 type MessageDTO struct {

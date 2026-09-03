@@ -11,8 +11,9 @@ import { ListHeader, rowClass, relTime } from "../features/ListPane";
 import { AddChannelDialog } from "../features/AddChannelDialog";
 import { toggleConversationPref, useConversationPrefs } from "../lib/conversationPrefs";
 import { usePopupDismiss } from "../lib/usePopupDismiss";
-import { listPreview } from "../lib/chatEnvelope";
-import { ConfirmDialog } from "../features/ConfirmDialog";
+import { listPreview, withSenderLabel } from "../lib/chatEnvelope";
+import { useJoinChannel } from "../lib/useJoinChannel";
+import { LeaveChannelDialog } from "../features/LeaveChannelDialog";
 import { useSession } from "../store/session";
 
 /**
@@ -98,15 +99,7 @@ export function ChannelsList() {
   });
   const open: ChannelDTO[] = openPages?.pages.flat() ?? [];
 
-  const joinMut = useMutation({
-    mutationFn: (channelId: string) => api.joinChannel(channelId),
-    onSuccess: () => {
-      toast.success("Joined the channel.");
-      void qc.invalidateQueries({ queryKey: qk.channels });
-      void qc.invalidateQueries({ queryKey: qk.openChannels });
-    },
-    onError: (e) => toast.error("Couldn't join", { description: String(e) }),
-  });
+  const joinMut = useJoinChannel();
 
   // Same call and confirmation ChannelView's header menu makes when leaving
   // from inside the channel — see confirmLeave there.
@@ -251,17 +244,10 @@ export function ChannelsList() {
         )}
       </div>
       <AddChannelDialog open={newOpen} onClose={() => setNewOpen(false)} />
-      <ConfirmDialog
+      <LeaveChannelDialog
+        channel={leaveTarget}
         open={!!leaveTarget}
         onClose={() => setLeaveTarget(null)}
-        title={leaveTarget ? `Leave #${leaveTarget.name}?` : "Leave channel?"}
-        message={
-          leaveTarget?.isLocked
-            ? "This is a locked channel. A member will need to re-invite you to come back."
-            : "You can re-join from the Browse tab whenever you want."
-        }
-        confirmLabel="Leave channel"
-        danger
         busy={leaveMut.isPending}
         onConfirm={() => {
           if (!leaveTarget) return;
@@ -326,7 +312,7 @@ function ChannelRow({
               {c.cleared
                 ? ""
                 : c.lastMessage
-                  ? listPreview(c.lastMessage, isOwnLastMessage)
+                  ? withSenderLabel(listPreview(c.lastMessage, isOwnLastMessage), c.lastMessageSender || undefined)
                   : `${c.memberCount} member${c.memberCount === 1 ? "" : "s"}`}
             </span>
             {c.unread > 0 && (

@@ -50,7 +50,7 @@ export interface MediaItem {
   durationMs?: number;
 }
 
-export interface MediaEnvelope {
+interface MediaEnvelope {
   v: 2;
   kind: "media";
   items: MediaItem[];
@@ -67,13 +67,13 @@ export interface LocationEnvelope {
 }
 
 /** A v1 file offer, kept so historical messages keep rendering. */
-export interface FileOfferV2Wrapper {
+interface FileOfferV2Wrapper {
   v: 1;
   kind: "fileOffer";
   offer: FileOfferEnvelope;
 }
 
-export type ChatEnvelope = MediaEnvelope | LocationEnvelope | FileOfferV2Wrapper;
+type ChatEnvelope = MediaEnvelope | LocationEnvelope | FileOfferV2Wrapper;
 
 // ── encoding ────────────────────────────────────────────────────────────────
 
@@ -86,7 +86,7 @@ function encode(prefix: string, envelope: MediaEnvelope | LocationEnvelope): str
  * the envelope is concerned — inbox rows, push notifications, the desktop
  * tray. It has to stand alone.
  */
-export function mediaPrefix(items: MediaItem[]): string {
+function mediaPrefix(items: MediaItem[]): string {
   if (items.length === 0) return "📎 Attachment";
   const only = items.length === 1 ? items[0] : undefined;
   if (only) {
@@ -255,21 +255,16 @@ export function listPreview(body: string, isOwn?: boolean): string {
 }
 
 /**
- * True when a message is a media attachment.
- *
- * NOTE: this no longer gates the Forward action. It used to — forwarding cloned
- * the body verbatim, so the recipient got attachment ids scoped to a
- * conversation they were not in and every tile read "Not available to you".
- * The server now re-scopes them on forward (store.recloneAttachments), so media
- * forwards land correctly and the affordance is offered for every message.
- *
- * Used to hide the Forward affordance: forwarding clones the body verbatim, so
- * the recipient would receive attachment ids scoped to a conversation they are
- * not in, and every download would 403 into a broken card. Text and locations
- * forward fine — a location is self-contained.
+ * Prefix a list preview with who sent it — "You: Hello" in a chat,
+ * "Priya Nair: Please check the update" in a channel. `sender` is resolved by
+ * the caller (a chat only ever labels the viewer's own messages "You" and
+ * leaves the peer's unprefixed; a channel always names the real sender,
+ * including the viewer) — this just does the string join both share, so the
+ * two surfaces don't each reinvent it. Empty/undefined `sender` renders the
+ * preview unprefixed, same as today.
  */
-export function isMediaMessage(body: string): boolean {
-  return parseChatEnvelope(body)?.kind === "media";
+export function withSenderLabel(preview: string, sender: string | undefined): string {
+  return sender ? `${sender}: ${preview}` : preview;
 }
 
 /** Convenience for the render path: the ids a message needs signed URLs for. */

@@ -257,9 +257,11 @@ class TaskSvcConsumer:
         elif event_type == "org.deleted":
             # The whole workspace is gone. Crypto-shred has already made the
             # encrypted columns unreadable; this removes the rows, which is the
-            # part a shred cannot do. Not dedup-claimed on purpose — the purge
-            # empties consumed_events for this org, so a claim would delete
-            # itself. The purge is idempotent instead.
+            # part a shred cannot do. Not dedup-claimed on purpose —
+            # consumed_events is a global event-id table with no org_id (see
+            # org_purge.py), so it plays no part in this event and there is
+            # nothing here for a claim to delete out from under itself. The
+            # purge is idempotent instead: a redelivery just re-runs it.
             org_id = event.get("orgId")
             if org_id:
                 await purge_org(str(org_id))

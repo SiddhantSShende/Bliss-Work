@@ -22,7 +22,7 @@ from typing import Protocol
 import httpx
 
 from ..config import settings
-from ..resilience import CircuitBreaker, retry_async
+from resilience import CircuitBreaker, retry_async
 
 
 class AppCredentialsLike(Protocol):
@@ -162,6 +162,28 @@ def authorize_url(cfg: OAuthConfig, state: str, challenge: str, redirect_uri: st
     return cfg.authorize_endpoint + "?" + urllib.parse.urlencode(params)
 
 
+def _raise_for_token_status(r: httpx.Response) -> None:
+    """Classify a non-200 token-endpoint response.
+
+    5xx and 429 are the endpoint throttling or unhealthy, not rejecting this
+    specific code/refresh-token — raising via raise_for_status() keeps them as
+    a plain httpx.HTTPStatusError, which resilience.is_transient() recognizes
+    (letting retry_async retry a 5xx) and which callers like refresh_worker's
+    `except oauth.OAuthError` does NOT catch, so it falls into their generic
+    "transient, try again later" handling instead of being marked a definitive,
+    terminal failure. Everything else (400 invalid_grant, 401, ...) is a real
+    answer from the provider about this exact request and stays an OAuthError.
+    """
+    if r.status_code >= 500 or r.status_code == 429:
+        r.raise_for_status()
+    try:
+        body = r.json()
+        msg = body.get("error_description") or body.get("error") or r.text
+    except Exception:  # noqa: BLE001
+        msg = r.text
+    raise OAuthError(f"{r.status_code}: {msg}")
+
+
 async def exchange_code(cfg: OAuthConfig, code: str, verifier: str, redirect_uri: str) -> dict:
     """Swap an authorization code for tokens. Returns the token response
     ({access_token, refresh_token?, expires_in, scope, ...})."""
@@ -182,12 +204,7 @@ async def exchange_code(cfg: OAuthConfig, code: str, verifier: str, redirect_uri
             )
             if r.status_code == 200:
                 return r.json()
-            try:
-                body = r.json()
-                msg = body.get("error_description") or body.get("error") or r.text
-            except Exception:  # noqa: BLE001
-                msg = r.text
-            raise OAuthError(f"{r.status_code}: {msg}")
+            _raise_for_token_status(r)
 
     return await retry_async(_attempt, attempts=3, breaker=_oauth_breaker)
 
@@ -213,12 +230,7 @@ async def refresh_access_token(cfg: OAuthConfig, refresh_token: str) -> dict:
             )
             if r.status_code == 200:
                 return r.json()
-            try:
-                body = r.json()
-                msg = body.get("error_description") or body.get("error") or r.text
-            except Exception:  # noqa: BLE001
-                msg = r.text
-            raise OAuthError(f"{r.status_code}: {msg}")
+            _raise_for_token_status(r)
 
     return await retry_async(_attempt, attempts=3, breaker=_oauth_breaker)
 

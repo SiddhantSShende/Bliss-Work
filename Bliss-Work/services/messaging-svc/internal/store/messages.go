@@ -195,18 +195,9 @@ func (s *Store) replyImpl(ctx context.Context, orgID, senderID, convID, parentMe
 			return err
 		}
 
-		var low, high, cOrg string
-		err = tx.QueryRow(ctx,
-			`SELECT org_id, user_low, user_high FROM conversations WHERE id = $1`, convID).
-			Scan(&cOrg, &low, &high)
-		if errors.Is(err, pgx.ErrNoRows) || (err == nil && cOrg != orgID) {
-			return ErrForbidden
-		}
+		low, high, _, err := conversationMembers(ctx, tx, orgID, convID, senderID)
 		if err != nil {
 			return err
-		}
-		if senderID != low && senderID != high {
-			return ErrForbidden
 		}
 
 		// Block gates sends in BOTH directions: if EITHER member blocked the other,

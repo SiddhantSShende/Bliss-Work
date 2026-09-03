@@ -389,11 +389,11 @@ const DueSweepLimit = 50
 // arrived, admitting anyone already waiting in its lobby, and returns the ones
 // this pass actually started.
 //
-// Mirrors StartCall's own SCHEDULED -> LIVE transition (calls_lobby.go) so a
-// call the CLOCK starts looks, to every client, identical to one a host
-// started by hand. started_by is left NULL — the same "nobody did this, the
-// clock did" convention endCallTx's callers already use for actorID when a
-// call ends by itself.
+// Shares its SCHEDULED -> LIVE transition with StartCall (calls_lobby.go) via
+// activateCallRowTx, so a call the CLOCK starts looks, to every client,
+// identical to one a host started by hand. started_by is left nil — the same
+// "nobody did this, the clock did" convention endCallTx's callers already use
+// for actorID when a call ends by itself.
 //
 // SAFE TO RUN ON EVERY REPLICA CONCURRENTLY, on the same terms as
 // ExpireOverdueCalls: FOR UPDATE SKIP LOCKED claims each row exclusively, and
@@ -437,26 +437,18 @@ func (s *Store) ActivateDueCalls(ctx context.Context, limit int) ([]*CallDTO, er
 // returns it as it is AFTER starting, or nil if somebody else already did (the
 // UPDATE's own status guard reports zero rows affected).
 //
-// The batched, no-caller counterpart to StartCall's single-call transition:
-// same status/started_at UPDATE, same lobby clear, with no canStartCallTx
-// check because there is no caller to authorise — this only ever runs from
-// ActivateDueCalls, over a row the sweep itself already claimed with
-// FOR UPDATE SKIP LOCKED.
+// The batched, no-caller counterpart to StartCall's single-call transition —
+// both share activateCallRowTx's UPDATE and lobby clear, with no
+// canStartCallTx check here because there is no caller to authorise: this
+// only ever runs from ActivateDueCalls, over a row the sweep itself already
+// claimed with FOR UPDATE SKIP LOCKED.
 func activateCallTx(ctx context.Context, tx pgx.Tx, callID string) (*CallDTO, error) {
-	ct, err := tx.Exec(ctx, `
-		UPDATE calls SET status = 'LIVE', started_at = COALESCE(started_at, now())
-		WHERE id = $1 AND status = 'SCHEDULED'`, callID)
+	started, _, err := activateCallRowTx(ctx, tx, callID, nil)
 	if err != nil {
 		return nil, err
 	}
-	if ct.RowsAffected() == 0 {
+	if !started {
 		return nil, nil
-	}
-	// Admit anyone already parked in the lobby — the same thing StartCall does
-	// for a human-started call. A scheduled call the clock opens must let its
-	// early arrivals in exactly like one a host opens by hand.
-	if _, err := clearLobbyTx(ctx, tx, callID); err != nil {
-		return nil, err
 	}
 	return getCallTx(ctx, tx, callID)
 }

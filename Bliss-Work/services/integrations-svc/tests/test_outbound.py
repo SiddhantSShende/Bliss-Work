@@ -212,6 +212,56 @@ async def test_microsoft_failures_classify_correctly(crypt, monkeypatch, exc, re
     assert ei.value.retryable is retryable
 
 
+@pytest.mark.parametrize(
+    "provider,exc",
+    [
+        ("gmail", gmail.GmailAuthError("expired")),
+        ("outlook", ms.MicrosoftAuthError("expired")),
+        ("teams", ms.MicrosoftAuthError("expired")),
+    ],
+)
+async def test_a_401_at_send_time_is_flagged_as_an_auth_error(crypt, monkeypatch, provider, exc):
+    # gmail.py/microsoft.py's own docstrings promise the caller re-arms
+    # token_expires_at on a 401 so refresh_worker's next sweep renews it
+    # rather than waiting out the token's original expiry — routes/internal.py
+    # only does that when this flag is set.
+    crypt()
+    send_attr = {"gmail": "send_message", "outlook": "send_mail", "teams": "send_chat_message"}[
+        provider
+    ]
+
+    async def boom(*_a, **_kw):
+        raise exc
+
+    monkeypatch.setattr(getattr(outbound, "gmail" if provider == "gmail" else "ms"), send_attr, boom)
+    with pytest.raises(outbound.OutboundError) as ei:
+        await outbound.send_via_connection(
+            None, "org", _Row(provider), target="a@b.com" if provider != "teams" else "chat1", text="x"
+        )
+    assert ei.value.is_auth_error is True
+
+
+@pytest.mark.parametrize(
+    "provider,exc",
+    [
+        ("gmail", gmail.GmailRateLimited("slow down", 30)),
+        ("outlook", ms.MicrosoftRateLimited("throttled", 60)),
+        ("outlook", ms.MicrosoftError("400: bad recipient")),
+    ],
+)
+async def test_a_non_auth_failure_is_never_flagged_as_an_auth_error(crypt, monkeypatch, provider, exc):
+    crypt()
+    send_attr = "send_message" if provider == "gmail" else "send_mail"
+
+    async def boom(*_a, **_kw):
+        raise exc
+
+    monkeypatch.setattr(getattr(outbound, "gmail" if provider == "gmail" else "ms"), send_attr, boom)
+    with pytest.raises(outbound.OutboundError) as ei:
+        await outbound.send_via_connection(None, "org", _Row(provider), target="a@b.com", text="x")
+    assert ei.value.is_auth_error is False
+
+
 async def test_unsupported_is_never_retryable(crypt):
     # OutboundUnsupported subclasses OutboundError; internal.py maps it to 400
     # explicitly, but the flag must agree or a future caller gets it wrong.

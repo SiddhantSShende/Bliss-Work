@@ -47,7 +47,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { AlertCircle } from "lucide-react";
 import { Button, EmptyState } from "@taskboard/ui";
-import { useRuntime } from "../lib/runtime";
+import { useConnectEventBridge, useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { OPENED_BY_APP_PARAM, closeMeetingTab, rememberMeetingTab } from "../lib/callWindow";
 import { MeetingSessionContext } from "../lib/MeetingSession";
@@ -56,25 +56,16 @@ import { CallRoom } from "../features/CallRoomLazy";
 export function CallWindow() {
   const { callId = "" } = useParams();
   const [params] = useSearchParams();
-  const { api, ws, config } = useRuntime();
+  const { api } = useRuntime();
   const nav = useNavigate();
   const [retrying, setRetrying] = useState(false);
 
   // This route sits outside /app, so WsEventBridge (mounted only in
-  // AppShell) never runs here and never calls connect() — on web that left
-  // `ws` constructed but permanently idle, so a meeting popped into its own
-  // tab never heard CallStarted (the lobby's auto-join) or CallEnded (the
+  // AppShell) never runs here — without this, a meeting popped into its own
+  // tab never hears CallStarted (the lobby's auto-join) or CallEnded (the
   // auto-close below) over a live socket, only ever the 30s lobby poll
-  // fallback. Same fix Electron's meeting window needs, for the same reason.
-  const eventSource = config.eventSource;
-  useEffect(() => {
-    if (eventSource) eventSource.connect();
-    else void ws.connect();
-    // Depends on the extracted eventSource, not `config` itself — matching
-    // useCallRoom's own subscribeToEvents — so this cannot be fooled into
-    // re-running by a config object that happens not to be referentially
-    // stable across renders.
-  }, [eventSource, ws]);
+  // fallback. Same fix JoinCallView needs, for the same reason.
+  useConnectEventBridge();
 
   const {
     data: call,

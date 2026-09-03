@@ -1,8 +1,4 @@
-"""Rate limit configuration for task-svc — mirrors auth-svc/app/rate_limit.py.
-
-Task creation and state mutation are limited per-user since these turn into
-fan-out events; an org_admin who scripts a million `createTask` calls is the
-worst case to plan for.
+"""Rate limit configuration for sticky-svc — mirrors auth-svc/app/rate_limit.py.
 """
 from __future__ import annotations
 
@@ -11,15 +7,17 @@ from fastapi.responses import JSONResponse
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 
-from .net import rate_limit_key
+from client_ip import rate_limit_key as _rate_limit_key
 
 from .config import settings
 
 
 # NOTE: slowapi.util.get_remote_address is deliberately NOT used here. It
 # returns request.client.host, which behind our edge is Caddy's address on
-# every request — see app/net.py. Reintroducing it silently turns the
-# per-caller budget below into a single global one.
+# every request — see services/shared/client_ip/client_ip.py. Reintroducing
+# it silently turns the per-caller budget below into a single global one.
+def rate_limit_key(request: Request) -> str:
+    return _rate_limit_key(request, settings.trusted_proxy_hops)
 
 
 limiter = Limiter(

@@ -22,6 +22,15 @@ type Config struct {
 	MessagingBaseInternal string
 	// MessagingInternalToken authenticates the OUTBOUND delivery-ack POST to
 	// messaging-svc above — messaging-svc's OWN secret, not this service's.
+	//
+	// No default. A secret is either configured or it is not; a built-in
+	// fallback (as this used to have) is indistinguishable at runtime from a
+	// real value and would silently authenticate every outbound call with a
+	// well-known, source-controlled string the moment the env var is unset in
+	// prod. Empty when unset instead — see internalauth.Matches, which fails
+	// CLOSED on an empty expected secret, and messaging-svc's own
+	// MESSAGING_INTERNAL_TOKEN (services/messaging-svc/internal/api/internal_delivery.go),
+	// which follows the same no-default convention.
 	MessagingInternalToken string
 	// WSGatewayInternalToken authenticates callers of THIS service's own
 	// /internal/push (see push.go) — presented in the X-Internal-Token
@@ -30,6 +39,12 @@ type Config struct {
 	// own secret rather than one token shared platform-wide (previously both
 	// were the same TB_INTERNAL_TOKEN value) — see
 	// docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 2. Never log it.
+	//
+	// No default, for the same reason as MessagingInternalToken above — and
+	// more sharply here, since holding this credential means being able to
+	// deliver an arbitrary payload to any connected user (see push.go). Both
+	// cmd/ws-gateway and cmd/delivery-svc refuse to start when this is empty
+	// rather than falling back to a well-known development value.
 	WSGatewayInternalToken string
 	// MaxConnections caps the number of concurrent WebSockets this node accepts.
 	// Beyond it the upgrade is rejected (1013 Try Again Later) so a connection
@@ -130,16 +145,17 @@ func Load() Config {
 	}
 	return Config{
 		// The container always listens on 8080 (compose maps ${WS_GATEWAY_PORT}:8080).
-		Port:                   "8080",
-		JWKSURL:                getenv("JWKS_URL", "http://auth-svc:8001/.well-known/jwks.json"),
-		JWTIssuer:              getenv("JWT_ISSUER", "task-board"),
-		RedisURL:               getenv("REDIS_URL", "redis://redis:6379/0"),
-		KafkaBrokers:           brokers,
-		WebOrigin:              getenv("WEB_ORIGIN", "http://localhost:5173"),
-		LogLevel:               getenv("LOG_LEVEL", "info"),
-		MessagingBaseInternal:  getenv("TB_MESSAGING_INTERNAL_BASE", "http://messaging-svc:8004"),
-		MessagingInternalToken: getenv("MESSAGING_INTERNAL_TOKEN", "dev-internal-token"),
-		WSGatewayInternalToken: getenv("WS_GATEWAY_INTERNAL_TOKEN", "dev-internal-token"),
+		Port:                  "8080",
+		JWKSURL:               getenv("JWKS_URL", "http://auth-svc:8001/.well-known/jwks.json"),
+		JWTIssuer:             getenv("JWT_ISSUER", "task-board"),
+		RedisURL:              getenv("REDIS_URL", "redis://redis:6379/0"),
+		KafkaBrokers:          brokers,
+		WebOrigin:             getenv("WEB_ORIGIN", "http://localhost:5173"),
+		LogLevel:              getenv("LOG_LEVEL", "info"),
+		MessagingBaseInternal: getenv("TB_MESSAGING_INTERNAL_BASE", "http://messaging-svc:8004"),
+		// Secrets get no default — see the field comments above.
+		MessagingInternalToken: os.Getenv("MESSAGING_INTERNAL_TOKEN"),
+		WSGatewayInternalToken: os.Getenv("WS_GATEWAY_INTERNAL_TOKEN"),
 		MaxConnections:         getenvInt("WS_MAX_CONNECTIONS", 50000),
 		MaxConnsPerUser:        getenvInt("WS_MAX_CONNS_PER_USER", 20),
 		// Defaults to the existing behaviour. Routed delivery is opt-in, and

@@ -23,8 +23,8 @@ import contextlib
 import json
 
 from aiokafka import AIOKafkaConsumer
-from sqlalchemy import text
 from kafka_security import kafka_security_kwargs
+from org_purge_tables import purge_org_tables
 
 from .config import settings
 from .db import session, set_bypass_rls
@@ -48,12 +48,14 @@ _MAX_BATCH_SIZE = 200
 _BATCH_LINGER_MS = 250
 
 # Ordered children-before-parents. provider_identities and provider_activity
-# reference a connection; oauth_states and connection_verifications are
-# in-flight records against one.
+# reference a connection; oauth_states is an in-flight record against one.
+# connection_verifications is NOT here: 0009_drop_connection_verification.sql
+# dropped that table, and nothing recreated it — a stale reference here made
+# every purge_org() call raise (undefined table), rolling back the whole
+# transaction and leaving org.deleted permanently unprocessed.
 _TABLES = (
     "provider_activity",
     "provider_identities",
-    "connection_verifications",
     "oauth_states",
     "integration_connections",
     "provider_app_credentials",
@@ -64,20 +66,7 @@ _TABLES = (
 
 async def purge_org(org_id: str) -> None:
     """Delete one org's integration rows. Idempotent."""
-    async with session() as db:
-        # Acting on an org we were told about rather than one from a request,
-        # so there is no request org to scope to and RLS would zero every DELETE.
-        await set_bypass_rls(db)
-        deleted: dict[str, int] = {}
-        for table in _TABLES:
-            result = await db.execute(
-                text(f"DELETE FROM {table} WHERE org_id = :org"),  # noqa: S608 — fixed table list
-                {"org": org_id},
-            )
-            if result.rowcount:
-                deleted[table] = result.rowcount
-        await db.commit()
-    log.warning("org_purged", org_id=org_id, deleted=deleted)
+    await purge_org_tables(session, set_bypass_rls, log, org_id, _TABLES)
 
 
 class OrgLifecycleConsumer:

@@ -403,15 +403,27 @@ func (s *Store) insertChannelMember(ctx context.Context, tx pgx.Tx, channelID, o
 	return err
 }
 
+// classifyChannelOrgLookup turns the result of a `SELECT org_id ... FROM
+// channels WHERE id = $1` probe into the one thing every channel-scoped
+// caller needs from it: ErrForbidden for "no such channel" and "channel
+// belongs to another org" alike (a cross-org caller must not be able to tell
+// the two apart), the query's own error otherwise, nil when the row is the
+// caller's own org's. Shared by requireChannelMember below, channelManagerCheck
+// (channels_roles.go), and JoinChannel/LeaveChannel (channels_membership.go) —
+// each does this exact probe before anything else it does with the channel.
+func classifyChannelOrgLookup(err error, cOrg, orgID string) error {
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && cOrg != orgID) {
+		return ErrForbidden
+	}
+	return err
+}
+
 // requireChannelMember returns ErrForbidden unless the user is a member of the
 // channel within the given org.
 func requireChannelMember(ctx context.Context, tx pgx.Tx, orgID, channelID, userID string) error {
 	var cOrg string
 	err := tx.QueryRow(ctx, `SELECT org_id FROM channels WHERE id = $1`, channelID).Scan(&cOrg)
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && cOrg != orgID) {
-		return ErrForbidden
-	}
-	if err != nil {
+	if err := classifyChannelOrgLookup(err, cOrg, orgID); err != nil {
 		return err
 	}
 	var exists bool

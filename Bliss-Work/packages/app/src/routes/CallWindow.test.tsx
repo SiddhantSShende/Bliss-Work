@@ -5,6 +5,7 @@
  * that fails to load gets a distinct, retryable error rather than the same
  * "meeting isn't available" text a genuinely-ended call gets.
  */
+import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -13,10 +14,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 const api = { call: vi.fn() };
 const ws = { connect: vi.fn(async () => {}) };
 // config: {} is the web shape (no eventSource) — matches lib/useCallRoom.test.ts's
-// own mock, and exercises the same ws.connect() branch this route now takes on
-// mount (see CallWindow.tsx's own comment on why: WsEventBridge, the only other
-// caller of connect(), never mounts on this route).
-vi.mock("../lib/runtime", () => ({ useRuntime: () => ({ api, ws, config: {} }) }));
+// own mock. useConnectEventBridge is mocked to go straight to ws.connect(),
+// the branch it takes for this config shape, since WsEventBridge (the only
+// other caller of connect()) never mounts on this route.
+vi.mock("../lib/runtime", () => ({
+  useRuntime: () => ({ api, ws, config: {} }),
+  useConnectEventBridge: () => useEffect(() => void ws.connect(), []),
+}));
 
 vi.mock("../lib/callWindow", () => ({
   OPENED_BY_APP_PARAM: "opened",

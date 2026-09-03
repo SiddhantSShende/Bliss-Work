@@ -11,7 +11,7 @@ gone is a no-op rather than an error.
 """
 from __future__ import annotations
 
-from sqlalchemy import text
+from org_purge_tables import purge_org_tables
 
 from .db import session, set_bypass_rls
 from .logging_setup import log
@@ -20,8 +20,20 @@ from .logging_setup import log
 # practice these tables are independent (every one is keyed by org_id, and
 # activity_events is partitioned by day rather than joined), but the order is
 # written down so adding a table later has an obvious place to go.
+#
+# activity_events is day-partitioned, so its DELETE is a parent-table one
+# rather than a DROP: slower than the retention prune's partition drop, but
+# correct for an arbitrary org spanning arbitrary days, and an org's share of
+# any one day is small.
+#
+# activity_sessions holds `title`/`app_name`/`domain` in the CLEAR (see
+# 0005_activity_sessions.sql — an indexed-lookup exception to this service's
+# usual encrypt-everything convention), so unlike every other table here the
+# crypto-shred (org_keys, below) does nothing to protect it: this DELETE is
+# the only thing that ever removes it.
 _TABLES = (
     "activity_events",
+    "activity_sessions",
     "user_sessions",
     "activity_daily",
     "app_usage_daily",
@@ -35,22 +47,4 @@ _TABLES = (
 
 
 async def purge_org(org_id: str) -> None:
-    async with session() as db:
-        # Cross-org background worker acting on one org it was TOLD about, not
-        # one derived from a request. Bypass RLS or every delete below silently
-        # matches zero rows.
-        await set_bypass_rls(db)
-        deleted: dict[str, int] = {}
-        for table in _TABLES:
-            # activity_events is day-partitioned, so this is a parent-table
-            # DELETE rather than a DROP: slower than the retention prune's
-            # partition drop, but correct for an arbitrary org spanning
-            # arbitrary days, and an org's share of any one day is small.
-            result = await db.execute(
-                text(f"DELETE FROM {table} WHERE org_id = :org"),  # noqa: S608 — fixed table list
-                {"org": org_id},
-            )
-            if result.rowcount:
-                deleted[table] = result.rowcount
-        await db.commit()
-    log.warning("org_purged", org_id=org_id, deleted=deleted)
+    await purge_org_tables(session, set_bypass_rls, log, org_id, _TABLES)

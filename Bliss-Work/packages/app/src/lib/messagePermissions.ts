@@ -16,3 +16,22 @@ export function canDeleteForAll(
   // a message as the caller's own — mirrors ChatThread's own `mine` guard.
   return (!!meId && msg.senderId === meId) || !!canModerate;
 }
+
+/**
+ * May the caller moderate this channel: remove anyone's message, pin for
+ * everyone, manage its roster? `channel.myRole` is the caller's own standing
+ * in THIS channel; an org_admin moderates every channel without needing to be
+ * a member of it, which is the same rule requireChannelManager applies
+ * server-side. The server re-checks regardless — this only decides what to
+ * OFFER.
+ */
+export function canModerateChannel(
+  channel: { myRole?: string } | undefined,
+  me: { roles?: string[] },
+): boolean {
+  return (
+    channel?.myRole === "owner" ||
+    channel?.myRole === "admin" ||
+    !!me.roles?.includes("org_admin")
+  );
+}

@@ -56,9 +56,10 @@ async def list_members(
     queries total regardless of member count (see its docstring).
 
     `limit` is optional and not sent by the current SPA (`packages/app/src/
-    routes/MembersList.tsx`), which still expects a bare array of every
-    member; omitting it preserves that exact response. A caller that does not
-    need the whole roster can pass it to cap the result. Real keyset
+    routes/MemberDetail.tsx`, via `client.ts`'s `listMembers()`), which still
+    expects a bare array of every member; omitting it preserves that exact
+    response. A caller that does not need the whole roster can pass it to cap
+    the result. Real keyset
     pagination like `list_audit`'s below is left for whoever next wires the
     frontend to consume it — this endpoint's order (active first, then
     alphabetical) is not a single monotonic key the way `audit_log.id` is, so

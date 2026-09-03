@@ -31,7 +31,6 @@ from ..security.origin import enforce_origin
 from ..security.passwords import (
     PASSWORD_POLICY_MESSAGE,
     dummy_verify_async,
-    hash_password_async,
     password_meets_policy,
     verify_password_async,
 )
@@ -122,59 +121,15 @@ async def create_org(body: CreateOrgRequest, response: Response) -> SessionDTO:
         # Cross-org identity: if this email already has an identity (an existing
         # user creating another org), reuse the shared credential — but only after
         # authenticating with its password. Otherwise create a fresh identity.
-        existing_ident = (
-            await conn.execute(
-                text(
-                    "SELECT id, password_hash, email_verified, failed_login_count, locked_until "
-                    "FROM identities WHERE email_bidx = :b"
-                ),
-                {"b": email_bidx},
-            )
-        ).first()
-        if existing_ident is not None:
-            # Same lockout the password-guess surface at /auth/login and
-            # /auth/invites/accept already have — this is a password-guessing
-            # surface too. See docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 5.
-            now = datetime.now(timezone.utc)
-            if existing_ident.locked_until is not None and existing_ident.locked_until > now:
-                retry = max(1, int((existing_ident.locked_until - now).total_seconds()))
-                raise HTTPException(
-                    status.HTTP_429_TOO_MANY_REQUESTS,
-                    "account temporarily locked due to failed logins; try again later",
-                    headers={"Retry-After": str(retry)},
-                )
-            if not await verify_password_async(existing_ident.password_hash, body.password):
-                # A SEPARATE transaction, deliberately — this whole handler runs
-                # inside the outer `engine.begin()` block above, and the
-                # HTTPException below aborts THAT transaction. The failed-attempt
-                # counter must survive the abort, so it commits on its own
-                # connection instead (mirrors invites_service.py's identical
-                # existing-identity check).
-                async with engine.begin() as lockout_conn:
-                    locked_secs = await service.register_failed_login(lockout_conn, existing_ident)
-                if locked_secs > 0:
-                    raise HTTPException(
-                        status.HTTP_429_TOO_MANY_REQUESTS,
-                        "account temporarily locked due to failed logins; try again later",
-                        headers={"Retry-After": str(locked_secs)},
-                    )
-                raise HTTPException(status.HTTP_409_CONFLICT, "that email is already registered")
-            identity_id = str(existing_ident.id)
-            ph = existing_ident.password_hash
-            member_verified = bool(existing_ident.email_verified)
-            new_identity = False
-        else:
-            identity_id = service.new_uuid()
-            ph = await hash_password_async(body.password)
-            await conn.execute(
-                text(
-                    "INSERT INTO identities (id, email_bidx, password_hash, email_verified) "
-                    "VALUES (:id, :b, :ph, false)"
-                ),
-                {"id": identity_id, "b": email_bidx, "ph": ph},
-            )
-            member_verified = False
-            new_identity = True
+        identity_id, ph, new_identity, member_verified = await service.resolve_or_create_identity(
+            conn,
+            email_bidx,
+            body.password,
+            new_identity_email_verified=False,
+            already_registered_error=HTTPException(
+                status.HTTP_409_CONFLICT, "that email is already registered"
+            ),
+        )
         await conn.execute(
             text(
                 """

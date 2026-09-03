@@ -1,7 +1,8 @@
 /** Formatting + grouping helpers for the chat thread. */
+import { dayLabel as _dayLabel } from "./dayLabel";
 
 /** A run of a message body: either literal text or a URL found inside it. */
-export interface MessageSegment {
+interface MessageSegment {
   type: "text" | "link";
   value: string;
 }
@@ -92,22 +93,15 @@ export function clock(iso?: string): string {
 }
 
 /** "Today" / "Yesterday" / "12 Jun" (+ year when not the current year). */
+/** "Today" / "Yesterday", else a short calendar date — never "Tomorrow" or a
+ *  weekday prefix, unlike meetingTime's dayLabel: a chat/mail timestamp is
+ *  never in the future, so that branch would be dead here either way. */
 export function dayLabel(iso?: string): string {
   if (!iso) return "";
-  const d = new Date(iso);
-  const today = new Date();
-  const y = new Date(today);
-  y.setDate(today.getDate() - 1);
-  if (d.toDateString() === today.toDateString()) return "Today";
-  if (d.toDateString() === y.toDateString()) return "Yesterday";
-  return d.toLocaleDateString([], {
-    day: "numeric",
-    month: "short",
-    year: d.getFullYear() === today.getFullYear() ? undefined : "numeric",
-  });
+  return _dayLabel(new Date(iso).getTime());
 }
 
-export interface ChatRow<T> {
+interface ChatRow<T> {
   msg: T;
   /** Present when this message starts a new calendar day. */
   day?: string;
@@ -130,18 +124,4 @@ export function groupMessages<T extends { senderId: string; at?: string }>(messa
     rows.push({ msg: m, day: newDay ? dayLabel(m.at) : undefined, grouped });
   });
   return rows;
-}
-
-/** Short relative-time label for inbox rows: 2m / 3h / Yesterday / 12 Jun. */
-export function relative(iso?: string): string {
-  if (!iso) return "";
-  const ms = Date.now() - new Date(iso).getTime();
-  if (ms < 0) return "now";
-  const s = Math.floor(ms / 1000);
-  if (s < 60) return "now";
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h`;
-  return dayLabel(iso);
 }

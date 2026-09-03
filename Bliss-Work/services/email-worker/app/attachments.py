@@ -134,6 +134,18 @@ async def fetch(
     must not turn into an undeliverable message — the words someone wrote are
     the part that matters, and a retry would put the whole mail back on the
     queue to fix one of its files.
+
+    `budget_bytes` is the allowance still REMAINING for this mail at the time
+    this file is fetched, not necessarily the mail's full per-mail budget —
+    the caller (_collect_attachments) shrinks it as earlier attachments in the
+    same mail are actually fetched. Passing the full budget unconditionally
+    here would let several unknown-size attachments on one mail each be
+    fetched up to the whole budget independently, together landing well past
+    the total the budget was meant to cap. A known declared size is checked
+    against the same remaining allowance for the same reason: within_budget
+    only compared it against the budget in isolation before anything was
+    fetched, so an unknown-size attachment fetched earlier in this mail can
+    have since spent enough of it that a "fits" declared size no longer does.
     """
     url = f"{base_url.rstrip('/')}/internal/mail/{mail_id}/attachments/{attachment.id}"
     # Streamed with a ceiling rather than read whole. The budget was spent
@@ -141,11 +153,22 @@ async def fetch(
     # actually tested: a response longer than declared is abandoned mid-transfer
     # instead of being buffered into a container with 384 MB to its name.
     if attachment.size_bytes is not None:
+        if attachment.size_bytes > budget_bytes:
+            # The declared size alone no longer fits what's left of the
+            # per-mail budget — reject before a byte moves rather than
+            # discovering it mid-transfer, the same outcome (skipped, logged,
+            # mail still sent) the unknown-size branch reaches once IT hits
+            # this same ceiling below.
+            log.warning("attachment_exceeds_remaining_budget", mail_id=mail_id,
+                        attachment_id=attachment.id, declared=attachment.size_bytes,
+                        remaining=budget_bytes)
+            return None
         ceiling = attachment.size_bytes + _SIZE_SLACK
     else:
         # within_budget let this one through without knowing its real size —
-        # the only ceiling that still means anything is the per-mail budget
-        # itself, not a few KB of slack around a declared size we don't have.
+        # the only ceiling that still means anything is what's left of the
+        # per-mail budget, not a few KB of slack around a declared size we
+        # don't have.
         ceiling = max(budget_bytes, 0)
     try:
         async with client.stream(

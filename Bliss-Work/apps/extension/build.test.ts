@@ -44,10 +44,23 @@ describe("build.mjs", () => {
     expect(manifest.background.scripts).toBeUndefined();
     expect(manifest.browser_specific_settings).toBeUndefined();
     expect(manifest.storage?.managed_schema).toBe("managed-schema.json");
+    // The production artifact (this is byte-for-byte what scripts/pack-crx.mjs
+    // signs into dist.crx/dist.zip) must never allowlist a local dev port in
+    // externally_connectable — see build.mjs's devOnlyConnectableOrigins.
+    expect(manifest.externally_connectable.matches).not.toContain("http://localhost:5173/*");
+    expect(manifest.externally_connectable.matches).toEqual(
+      expect.arrayContaining(["https://communication.rnrtechs.com/*", "https://blisswork.rnrtechs.com/*"]),
+    );
 
     const bundle = readFileSync(join(CHROMIUM_OUT, "background.js"), "utf8");
     expect(bundle).toContain('"chrome"');
     expect(bundle).not.toContain("__BROWSER__"); // the define must have replaced it, not left it as a global read
+  });
+
+  it("restores the localhost dev origin ONLY with an explicit --dev flag, for testing the automatic-provisioning handshake locally", () => {
+    runBuild("chromium", "--dev");
+    const manifest = JSON.parse(readFileSync(join(CHROMIUM_OUT, "manifest.json"), "utf8"));
+    expect(manifest.externally_connectable.matches).toContain("http://localhost:5173/*");
   });
 
   it("builds the firefox target with the firefox browser constant, background.scripts, and gecko settings — no managed-storage schema", () => {

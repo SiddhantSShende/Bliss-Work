@@ -7,6 +7,8 @@ import type { ChannelDTO, ChannelRole, UserDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
+import { canModerateChannel } from "../lib/messagePermissions";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { Sheet } from "./Modal";
 import { MemberPicker } from "./MemberPicker";
 
@@ -33,8 +35,10 @@ export function ChannelMembersSheet({
   const me = useSession((s) => s.user)!;
   const isOrgAdmin = me.roles.includes("org_admin");
   const [adding, setAdding] = useState(false);
+  const [transferTarget, setTransferTarget] = useState<{ userId: string; displayName: string } | null>(null);
+  const [blockTarget, setBlockTarget] = useState<{ userId: string; displayName: string } | null>(null);
 
-  const canManage = isOrgAdmin || channel.myRole === "owner" || channel.myRole === "admin";
+  const canManage = canModerateChannel(channel, me);
   // Only an owner (or an org admin) may change roles — an admin cannot mint
   // more admins, so the moderator set stays something the owner chose.
   const canSetRoles = isOrgAdmin || channel.myRole === "owner";
@@ -150,11 +154,7 @@ export function ChannelMembersSheet({
                         <Action
                           title="Transfer ownership"
                           disabled={act.isPending}
-                          onClick={() => {
-                            if (window.confirm(`Make ${u?.displayName ?? "them"} the owner of #${channel.name}? You'll become an admin.`)) {
-                              act.mutate({ kind: "role", userId: m.userId, role: "owner" });
-                            }
-                          }}
+                          onClick={() => setTransferTarget({ userId: m.userId, displayName: u?.displayName ?? "them" })}
                         >
                           <Crown size={15} />
                         </Action>
@@ -170,11 +170,7 @@ export function ChannelMembersSheet({
                         title="Block from channel"
                         danger
                         disabled={act.isPending}
-                        onClick={() => {
-                          if (window.confirm(`Block ${u?.displayName ?? "them"} from #${channel.name}? They'll be removed and can't rejoin.`)) {
-                            act.mutate({ kind: "block", userId: m.userId });
-                          }
-                        }}
+                        onClick={() => setBlockTarget({ userId: m.userId, displayName: u?.displayName ?? "them" })}
                       >
                         <Ban size={15} />
                       </Action>
@@ -213,6 +209,38 @@ export function ChannelMembersSheet({
           </section>
         )}
       </div>
+      <ConfirmDialog
+        open={transferTarget !== null}
+        onClose={() => setTransferTarget(null)}
+        title="Transfer ownership?"
+        message={`Make ${transferTarget?.displayName ?? "them"} the owner of #${channel.name}? You'll become an admin.`}
+        confirmLabel="Transfer"
+        danger
+        busy={act.isPending}
+        onConfirm={() => {
+          if (!transferTarget) return;
+          act.mutate(
+            { kind: "role", userId: transferTarget.userId, role: "owner" },
+            { onSuccess: () => setTransferTarget(null) },
+          );
+        }}
+      />
+      <ConfirmDialog
+        open={blockTarget !== null}
+        onClose={() => setBlockTarget(null)}
+        title="Block from channel?"
+        message={`Block ${blockTarget?.displayName ?? "them"} from #${channel.name}? They'll be removed and can't rejoin.`}
+        confirmLabel="Block"
+        danger
+        busy={act.isPending}
+        onConfirm={() => {
+          if (!blockTarget) return;
+          act.mutate(
+            { kind: "block", userId: blockTarget.userId },
+            { onSuccess: () => setBlockTarget(null) },
+          );
+        }}
+      />
     </Sheet>
   );
 }

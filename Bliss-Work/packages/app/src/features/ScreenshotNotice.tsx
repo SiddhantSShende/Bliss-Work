@@ -36,7 +36,7 @@ import { qk } from "../lib/queryBridge";
  * ── The in-chat notice ────────────────────────────────────────────────────────
  * If a 1:1 chat or channel is open when the attempt happens, the SAME detected
  * event also posts an ordinary system message there — "X tried to take a
- * screenshot of this page." — via the same send path any other message takes
+ * screenshot" — via the same send path any other message takes
  * (kind: "screenshot_attempt"; see ChatThread/ThreadView for how it renders).
  * This is a DIFFERENT concern from the telemetry beacon above and fires on its
  * own schedule: it does not care whether the desktop's activity agent already
@@ -107,7 +107,7 @@ export function ScreenshotNotice() {
       // the email local-part — see lib/userLabel — so displayName wins whenever
       // it's set).
       const name = user.displayName || user.username;
-      const body = `${name} tried to take a screenshot of this page.`;
+      const body = `${name} tried to take a screenshot`;
       const createdAt = new Date().toISOString();
 
       if (thread.kind === "chat") {

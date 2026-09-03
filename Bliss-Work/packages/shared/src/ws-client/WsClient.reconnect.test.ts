@@ -187,4 +187,48 @@ describe("WsClient reconnect gating", () => {
     // onclose -> scheduleReconnect() path — a fresh socket was dialed.
     expect(FakeWS.instances).toHaveLength(2);
   });
+
+  it("never lets a stale reconnect timer open a second socket after a close()/connect() cycle", async () => {
+    // Sequence that used to orphan a socket (see apps/desktop/src/main/ws-process.ts,
+    // which runs exactly this close()-then-connect() cycle on sign-out/sign-in
+    // on the same long-lived WsClient):
+    //   1. A network blip drops the socket -> onclose arms a reconnect timer.
+    //   2. Something calls close() (e.g. sign-out) BEFORE that timer fires.
+    //   3. Something calls connect() again (e.g. sign-in) -> a fresh socket opens.
+    //   4. The stale timer from step 1 finally fires.
+    // Without tracking the timer handle, close() couldn't cancel it, and
+    // without the reconnect path sharing connect()'s idempotency guard, step 4
+    // dialed a THIRD socket on top of the one from step 3 — messages then only
+    // arrive on whichever socket the server/client happens to route them to.
+    const ws = new WsClient({
+      url: "ws://x/ws",
+      getToken: () => liveToken(),
+      WebSocketImpl: FakeWS as unknown as typeof WebSocket,
+    });
+
+    await ws.connect();
+    const first = FakeWS.latest();
+    first.accept();
+
+    // 1. Network blip: the remote end drops the socket, arming the backoff timer.
+    first.close();
+    expect(FakeWS.instances).toHaveLength(1);
+
+    // 2. Deliberate close (e.g. sign-out) before the backoff timer fires.
+    ws.close();
+
+    // 3. Sign back in on the same instance: a fresh socket opens.
+    await ws.connect();
+    expect(FakeWS.instances).toHaveLength(2);
+    const second = FakeWS.latest();
+    expect(second).not.toBe(first);
+    second.accept();
+
+    // 4. Let the stale timer's backoff window (and then some) fully elapse.
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    // No third, orphaning socket — the stale timer either got cancelled by
+    // close() or found `second` already live and declined to dial again.
+    expect(FakeWS.instances).toHaveLength(2);
+  });
 });

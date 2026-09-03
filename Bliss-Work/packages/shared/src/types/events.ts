@@ -1105,34 +1105,3 @@ export const CALL_CONTROL_TYPES = new Set<string>([
   "call.cancel",
   "call.end",
 ]);
-
-/**
- * Loop guard: ws-gateway must NEVER generate a delivery ack for any of these
- * event types. Without this, message.delivered → ack → message.delivered would
- * fan-in cycle. Phase 5 gateway code consults this set before forwarding to
- * messaging-svc's internal /delivered endpoint.
- */
-export const NO_DELIVERY_ACK_FOR = new Set<string>([
-  EventType.MessageDelivered,
-  EventType.MessageRead,
-  EventType.MessageDismissed,
-  // Neither is a message arriving, so neither has a delivery to acknowledge —
-  // acking them would fan straight back into messaging-svc for nothing.
-  EventType.MessageDeleted,
-  EventType.MessageReaction,
-  // Provenance, not an arrival: the system entry that DOES arrive in the chat
-  // is an ordinary message.created and carries the delivery ack on its own.
-  EventType.MessageForwarded,
-  EventType.ConversationIgnored,
-  EventType.ConversationBlocked,
-  EventType.ConversationUnblocked,
-  EventType.TaskAcknowledged,
-  EventType.TaskCompleted,
-  EventType.TaskIgnored,
-  EventType.TaskLeft,
-  EventType.TaskReviewed,
-  EventType.NotificationCreated,
-  // A mail is not a chat message and carries no `messageId`, so a delivery
-  // ack derived from one has nothing to ack and would 400 downstream.
-  EventType.MailDelivered,
-]);

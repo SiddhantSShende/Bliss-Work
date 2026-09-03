@@ -7,29 +7,31 @@
  * Grid/Layout (the force-full-grid toggle) is deliberately NOT carried over:
  * the redesign's control list doesn't include it, and there's no natural
  * home for it in a fixed-length vertical dock the way there was in a header
- * cluster. Picture-in-picture and Minimise aren't in that list either, but
- * both are real capabilities (keep the call running while you do something
- * else) with nothing else offering them, so they're kept — tucked into a
- * small "More" menu at the bottom rather than given two more first-class
- * icons the reference design didn't ask for. The invite link lives there too
- * now, alongside them, to keep this dock from growing without bound as more
- * secondary actions show up — see CallMoreMenu.
+ * cluster. Picture-in-picture, Minimise and the invite link aren't in that
+ * list either, but each is a real capability with nothing else offering it,
+ * so they're kept as first-class icons below a divider — same gating as
+ * always (PiP only where supported, Minimize only where there's a session to
+ * minimise into, Copy Link always present but disabled+tooltipped when
+ * unavailable). They used to be tucked behind a "More" overflow button
+ * (CallMoreMenu); that's gone now, and this is the whole control surface.
  */
 import {
   Disc,
   Hand,
+  Link2,
   MessageSquare,
   Mic,
   MicOff,
+  Minimize2,
   NotebookPen,
   PhoneOff,
+  PictureInPicture2,
   ScreenShare,
   UserPlus,
   Users,
   Video,
   VideoOff,
 } from "lucide-react";
-import { CallMoreMenu } from "./CallMoreMenu";
 import { SidebarButton } from "./SidebarButton";
 
 export function CallSidebar({
@@ -177,16 +179,35 @@ export function CallSidebar({
 
       <div className="my-1 h-px w-8 shrink-0 bg-border/70" />
 
-      <CallMoreMenu
-        canInviteLink={canInviteLink}
-        inviteLinkTitle={inviteLinkTitle}
-        mintingInviteLink={mintingInviteLink}
-        onCopyInviteLink={onCopyInviteLink}
-        pipSupported={pipSupported}
-        pipActive={pipActive}
-        onTogglePip={onTogglePip}
-        onMinimize={onMinimize}
+      {/* Formerly collapsed behind a "More" overflow button (CallMoreMenu,
+          removed). Same handlers, same gating (PiP only where supported,
+          Minimize only where there's a session to minimise into, Copy Link
+          always present but disabled with a tooltip when unavailable) — just
+          first-class icons now instead of a popover. */}
+      <SidebarButton
+        icon={<Link2 size={20} />}
+        label="Copy Link"
+        onClick={onCopyInviteLink}
+        disabled={!canInviteLink || mintingInviteLink}
+        title={canInviteLink ? "Copy invite link" : inviteLinkTitle}
       />
+      {pipSupported && (
+        <SidebarButton
+          icon={<PictureInPicture2 size={20} />}
+          label={pipActive ? "Exit PiP" : "PiP"}
+          onClick={onTogglePip}
+          active={pipActive}
+          title={pipActive ? "Exit picture-in-picture" : "Picture-in-picture"}
+        />
+      )}
+      {onMinimize && (
+        <SidebarButton
+          icon={<Minimize2 size={20} />}
+          label="Minimize"
+          onClick={onMinimize}
+          title="Minimise"
+        />
+      )}
 
       <div className="mt-auto pt-2">
         <SidebarButton

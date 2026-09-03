@@ -368,12 +368,42 @@ chrome.runtime.onMessage.addListener((msg: { type?: string }, _sender, reply) =>
 });
 
 /**
+ * Whether a provisioning message's caller-supplied `apiBase` is one the
+ * sending page is actually entitled to name.
+ *
+ * `externally_connectable.matches` (Chrome-enforced before this listener ever
+ * runs) restricts WHO can send `blisswork:provision`; it says nothing about
+ * WHAT `apiBase` that sender may put in the message body. Left unchecked, any
+ * trusted origin could repoint the extension's telemetry destination — and
+ * its stored ingest token — at an arbitrary third-party host simply by naming
+ * it. Requiring `apiBase` to share the sender's own origin closes that off
+ * without needing a second, separately-maintained host allowlist: every
+ * production deployment reverse-proxies its API under the same origin as the
+ * page that serves it (see .env.prod's VITE_*_BASE values, all
+ * `https://communication.rnrtechs.com/api/...`), so this costs the real flow
+ * nothing. A deployment where that does not hold still has the unrestricted
+ * manual "paste a code" flow in options.ts as a fallback — the same fallback
+ * PlatformConfig.chromeExtensionId's own doc comment already describes for
+ * "no automatic path configured" today.
+ */
+function apiBaseMatchesSender(apiBase: string | undefined, senderOrigin: string | undefined): boolean {
+  if (!apiBase || !senderOrigin) return false;
+  try {
+    return new URL(apiBase).origin === senderOrigin;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Automatic provisioning from a signed-in BlissWork tab — the officially
  * supported alternative to the manual copy/paste flow in options.ts.
  *
  * Reachable ONLY from origins the manifest's `externally_connectable.matches`
  * lists; Chrome enforces that at the platform level before this listener ever
- * sees a message, so there is no second origin check to keep in sync here.
+ * sees a message, so there is no second check to keep in sync for WHO may
+ * send one. `apiBaseMatchesSender` above is the separate check for WHAT a
+ * sender may claim as its `apiBase`.
  *
  *   blisswork:ping        -> { connected, version } for the calling page to
  *                             decide whether to offer "Connect" or nothing.
@@ -384,7 +414,7 @@ chrome.runtime.onMessage.addListener((msg: { type?: string }, _sender, reply) =>
  *                             provisioning is not consent.
  */
 chrome.runtime.onMessageExternal.addListener(
-  (msg: { type?: string; token?: string; apiBase?: string }, _sender, reply) => {
+  (msg: { type?: string; token?: string; apiBase?: string }, sender, reply) => {
     if (msg?.type === "blisswork:ping") {
       void config().then((cfg) =>
         reply({ connected: !!cfg.token, version: chrome.runtime.getManifest().version }),
@@ -393,6 +423,10 @@ chrome.runtime.onMessageExternal.addListener(
     }
     if (msg?.type === "blisswork:provision") {
       void (async () => {
+        if (!apiBaseMatchesSender(msg.apiBase, sender.origin)) {
+          reply({ ok: false, reason: "bad-request" });
+          return;
+        }
         const result = await provisionToken(msg.token ?? "", msg.apiBase ?? "");
         if (result.ok) {
           await reconcile();

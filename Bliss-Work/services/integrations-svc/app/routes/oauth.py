@@ -8,6 +8,7 @@ store the connection with encrypted tokens, and redirect back to the app.
 from __future__ import annotations
 
 import html
+import urllib.parse
 from datetime import datetime, timezone
 
 import uuid6
@@ -15,7 +16,7 @@ from fastapi import APIRouter, HTTPException, Request, Response, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import text
 
-from .. import app_credentials
+from ..app_credentials import AppCredentials
 from ..config import settings
 from crypto import cryptor
 from ..db import session, set_bypass_rls
@@ -74,7 +75,11 @@ async def oauth_callback(provider: str, request: Request) -> Response:
     q = request.query_params
     if q.get("error"):
         # The state (and therefore the return mode) is unknown this early.
-        return RedirectResponse(_app_url(f"?error={q.get('error')}"), status_code=302)
+        # url-encoded, matching _finish's html.escape below — this value is
+        # attacker-controlled (no state/session required to reach this branch)
+        # and lands in a Location header the SPA reads back out of its own URL.
+        error_param = urllib.parse.quote(q.get("error", ""), safe="")
+        return RedirectResponse(_app_url(f"?error={error_param}"), status_code=302)
     code = q.get("code")
     state = q.get("state")
     if not code or not state:
@@ -88,7 +93,7 @@ async def oauth_callback(provider: str, request: Request) -> Response:
                 text(
                     """
                     SELECT org_id, owner_user_id, provider, code_verifier_enc, expires_at,
-                           redirect_after, app_credential_id
+                           redirect_after, client_id_enc, client_secret_enc, tenant
                       FROM oauth_states WHERE state = :s
                     """
                 ),
@@ -107,16 +112,23 @@ async def oauth_callback(provider: str, request: Request) -> Response:
         owner = str(st.owner_user_id)
         redirect_after = st.redirect_after
 
-        # Redeem against the SAME app the flow started with. Pinning matters
-        # because an admin can rotate the client secret while a user sits on the
-        # consent screen; resolving by (org, vendor) again would exchange the
-        # code against the new secret and fail with an opaque invalid_client.
-        # A NULL pin means the server-env fallback started it (no row exists).
-        vendor = app_credentials.vendor_for(provider)
-        if st.app_credential_id:
-            creds = await app_credentials.load_by_id(db, org, str(st.app_credential_id))
-        else:
-            creds = await app_credentials.load(db, org, vendor) if vendor else None
+        # Redeem against the EXACT credentials snapshotted when this flow
+        # started (see 0014_oauth_state_credential_snapshot.sql), never
+        # re-resolved by (org, vendor) — that would read whatever is CURRENTLY
+        # stored, which a secret rotated mid-consent would have replaced,
+        # failing the exchange with an opaque invalid_client. NULL client_id/
+        # secret means the server-env fallback started it (nothing to decrypt).
+        client_id = await cryptor().decrypt(
+            db, org, bytes(st.client_id_enc) if st.client_id_enc else None
+        )
+        client_secret = await cryptor().decrypt(
+            db, org, bytes(st.client_secret_enc) if st.client_secret_enc else None
+        )
+        creds = (
+            AppCredentials(client_id=client_id, client_secret=client_secret, tenant=st.tenant)
+            if client_id and client_secret
+            else None
+        )
         cfg = oauth.config_for(provider, creds)
         if cfg is None:
             # The credentials were deleted mid-flow. State is already consumed.
@@ -168,6 +180,16 @@ async def oauth_callback(provider: str, request: Request) -> Response:
                     status            = 'connected',
                     last_error        = NULL,
                     updated_at        = now()
+                -- Only reconnecting your OWN existing connection may update it.
+                -- Without this, a teammate completing OAuth for the SAME
+                -- external account (a shared support mailbox, say) would
+                -- silently overwrite its stored tokens while the row kept
+                -- showing the ORIGINAL owner — every owner-keyed mail lookup
+                -- would then use the wrong person's credentials with no
+                -- error, no notification to either party. The conflicting
+                -- row is left untouched instead (no rows updated, nothing
+                -- RETURNING) and the caller below rejects with a clear error.
+                WHERE integration_connections.owner_user_id = EXCLUDED.owner_user_id
                 RETURNING id
                 """
             ),
@@ -186,6 +208,13 @@ async def oauth_callback(provider: str, request: Request) -> Response:
             },
         )
         conn_row = res.one_or_none()
+        if conn_row is None:
+            # The INSERT path (no prior row) always RETURNs a row, so reaching
+            # here means the conflict path's WHERE blocked the update above —
+            # this exact external account is already connected under a
+            # DIFFERENT owner. The original owner must disconnect it first.
+            await db.commit()
+            return _finish(redirect_after, "?error=already_connected_by_teammate")
 
         # Auto-derive this account's mention handles, in the SAME transaction as
         # the connection itself — so a user who connects Gmail is immediately
@@ -199,7 +228,7 @@ async def oauth_callback(provider: str, request: Request) -> Response:
                 provider=provider,
                 handle=value,
                 handle_kind=handle_kind,
-                connection_id=str(conn_row.id) if conn_row else None,
+                connection_id=str(conn_row.id),
             )
 
         await db.commit()

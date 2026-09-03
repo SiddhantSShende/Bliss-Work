@@ -50,6 +50,10 @@ opentelemetry-instrumentation-asyncpg==0.65b0
 # services/shared/prune_events/prune_events.py.
 ../shared/prune_events
 
+# org.deleted table-wipe loop, shared with integrations-svc and
+# telemetry-svc. See services/shared/org_purge_tables/org_purge_tables.py.
+../shared/org_purge_tables
+
 # structlog -> stdout JSON bootstrap, shared with every other Python service.
 # See services/shared/logging_setup/shared_logging_setup.py.
 ../shared/logging_setup
@@ -58,3 +62,18 @@ opentelemetry-instrumentation-asyncpg==0.65b0
 # (every service that runs an outbox poller). See
 # services/shared/outbox_dlq/outbox_dlq.py.
 ../shared/outbox_dlq
+
+# X-Forwarded-For-aware caller identity for the rate limiter, shared with
+# auth-svc, integrations-svc, telemetry-svc and sticky-svc. See
+# services/shared/client_ip/client_ip.py.
+../shared/client_ip
+
+# Retry + circuit-breaker helpers for cross-service HTTP calls, shared with
+# auth-svc, integrations-svc, telemetry-svc, sticky-svc and email-worker. See
+# services/shared/resilience/resilience.py.
+../shared/resilience
+
+# Connect-on-first-use AIOKafkaProducer wrapper for the outbox poller, shared
+# with auth-svc and integrations-svc. See
+# services/shared/kafka_lazy_producer/kafka_lazy_producer.py.
+../shared/kafka_lazy_producer

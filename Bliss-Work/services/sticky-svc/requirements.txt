@@ -45,3 +45,17 @@ opentelemetry-instrumentation-asyncpg==0.65b0
 # structlog -> stdout JSON bootstrap, shared with every other Python service.
 # See services/shared/logging_setup/shared_logging_setup.py.
 ../shared/logging_setup
+
+# Retry + circuit-breaker helpers for cross-service HTTP calls, shared with
+# auth-svc, task-svc, integrations-svc, telemetry-svc and email-worker. See
+# services/shared/resilience/resilience.py.
+../shared/resilience
+
+# X-Forwarded-For-aware caller identity for the rate limiter, shared with
+# auth-svc, task-svc, integrations-svc and telemetry-svc. See
+# services/shared/client_ip/client_ip.py.
+../shared/client_ip
+
+# Shared org.deleted purge loop, shared with task-svc, telemetry-svc and
+# integrations-svc. See services/shared/org_purge_tables/org_purge_tables.py.
+../shared/org_purge_tables

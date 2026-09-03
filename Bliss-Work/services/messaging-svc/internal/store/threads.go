@@ -319,13 +319,13 @@ func (s *Store) ListThreadMessages(
 	ctx context.Context, orgID, callerID, threadID string,
 	beforeSeq int64, limit int,
 ) ([]MessageDTO, error) {
+	// Matches the HTTP layer's DefaultThreadPageSize/MaxThreadPageSize
+	// (internal/api/threads.go), which is the frontend-pinned contract; this is
+	// only a fallback since the HTTP handler already clamps before calling in.
 	if limit <= 0 || limit > 50 {
-		limit = 16
+		limit = 12
 	}
-	// beforeSeq = 0 means "from the newest" (large sentinel).
-	if beforeSeq <= 0 {
-		beforeSeq = 1<<62 - 1
-	}
+	beforeSeq = beforeSeqOrNewest(beforeSeq)
 
 	out := []MessageDTO{}
 	// RLS: membership check, message read, and per-row decrypt all under app.org_id.

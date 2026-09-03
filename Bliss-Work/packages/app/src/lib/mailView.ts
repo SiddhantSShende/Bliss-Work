@@ -8,6 +8,7 @@
  */
 import type { InboxItemDTO } from "@taskboard/shared";
 import { clock, dayLabel } from "./chatFormat";
+import { groupConsecutiveByLabel } from "./groupConsecutive";
 
 /** The folders the folder column lists. */
 export type MailFolder = "inbox" | "sent" | "drafts" | "deleted" | "favorites";
@@ -132,14 +133,7 @@ export interface DayGroup {
  * and stays in that order; this only inserts the boundaries.
  */
 export function groupByDay(items: InboxItemDTO[]): DayGroup[] {
-  const groups: DayGroup[] = [];
-  for (const item of items) {
-    const label = dayLabel(item.lastEventAt);
-    const last = groups[groups.length - 1];
-    if (last && last.label === label) last.items.push(item);
-    else groups.push({ label, items: [item] });
-  }
-  return groups;
+  return groupConsecutiveByLabel(items, (item) => dayLabel(item.lastEventAt));
 }
 
 /** Mail-client timestamp: the clock for today, the day for anything older. */

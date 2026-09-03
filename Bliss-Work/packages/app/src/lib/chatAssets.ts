@@ -38,7 +38,7 @@ export interface LinkAsset extends Provenance {
   url: string;
 }
 
-export interface ChatAssets {
+interface ChatAssets {
   /** Photos and video — the things worth showing as a grid of thumbnails. */
   media: MediaAsset[];
   /** Every other attachment: PDFs, spreadsheets, archives, audio. */

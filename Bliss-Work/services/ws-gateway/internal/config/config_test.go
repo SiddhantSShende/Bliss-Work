@@ -50,6 +50,53 @@ func TestAdvertiseAddrIsNormalizedToABaseURL(t *testing.T) {
 	}
 }
 
+// Bug: WSGatewayInternalToken and MessagingInternalToken used to fall back to
+// a hard-coded "dev-internal-token" whenever their env vars were unset, which
+// meant Config could never actually report an empty secret. That silently
+// defeated the startup guards in cmd/ws-gateway and cmd/delivery-svc (an
+// `if cfg.WSGatewayInternalToken == "" { os.Exit(1) }` that could never fire)
+// and, worse, meant a prod deployment that forgot to set WS_GATEWAY_INTERNAL_TOKEN
+// would authorize every caller of /internal/push — which can deliver an
+// arbitrary payload to any connected user — using a well-known,
+// source-controlled string.
+//
+// Every other internal-service secret in this repo (STICKY_INTERNAL_TOKEN,
+// MESSAGING_INTERNAL_TOKEN as read directly by messaging-svc) has no built-in
+// default; this test locks these two into the same convention: unset means
+// empty, full stop.
+func TestLoadDoesNotDefaultInternalTokens(t *testing.T) {
+	// t.Setenv to "" and plain-unset are indistinguishable to os.Getenv (both
+	// read back as ""), and t.Setenv restores the prior value automatically —
+	// simpler than saving/unsetting/restoring by hand.
+	t.Setenv("WS_GATEWAY_INTERNAL_TOKEN", "")
+	t.Setenv("MESSAGING_INTERNAL_TOKEN", "")
+
+	cfg := Load()
+
+	if cfg.WSGatewayInternalToken != "" {
+		t.Errorf("WSGatewayInternalToken = %q with WS_GATEWAY_INTERNAL_TOKEN unset, want empty (no built-in default)", cfg.WSGatewayInternalToken)
+	}
+	if cfg.MessagingInternalToken != "" {
+		t.Errorf("MessagingInternalToken = %q with MESSAGING_INTERNAL_TOKEN unset, want empty (no built-in default)", cfg.MessagingInternalToken)
+	}
+}
+
+// A configured token must still come through untouched — the fix removes the
+// fallback, not the ability to set a real value.
+func TestLoadPassesThroughConfiguredInternalTokens(t *testing.T) {
+	t.Setenv("WS_GATEWAY_INTERNAL_TOKEN", "real-ws-gateway-secret")
+	t.Setenv("MESSAGING_INTERNAL_TOKEN", "real-messaging-secret")
+
+	cfg := Load()
+
+	if cfg.WSGatewayInternalToken != "real-ws-gateway-secret" {
+		t.Errorf("WSGatewayInternalToken = %q, want %q", cfg.WSGatewayInternalToken, "real-ws-gateway-secret")
+	}
+	if cfg.MessagingInternalToken != "real-messaging-secret" {
+		t.Errorf("MessagingInternalToken = %q, want %q", cfg.MessagingInternalToken, "real-messaging-secret")
+	}
+}
+
 // A trailing slash must not survive: the push path is appended directly, and
 // "http://host//internal/push" is a different route from "/internal/push".
 func TestAdvertiseAddrJoinsCleanlyWithThePushPath(t *testing.T) {

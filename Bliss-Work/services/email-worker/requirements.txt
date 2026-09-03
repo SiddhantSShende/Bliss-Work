@@ -26,3 +26,8 @@ opentelemetry-instrumentation-asyncpg==0.65b0
 # structlog -> stdout JSON bootstrap, shared with every other Python service.
 # See services/shared/logging_setup/shared_logging_setup.py.
 ../shared/logging_setup
+
+# Retry + circuit-breaker helpers for cross-service HTTP calls, shared with
+# auth-svc, task-svc, integrations-svc, telemetry-svc and sticky-svc. See
+# services/shared/resilience/resilience.py.
+../shared/resilience

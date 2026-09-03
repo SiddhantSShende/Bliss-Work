@@ -40,7 +40,9 @@ export function MeetingRow({
   const nav = useNavigate();
   const { start, end } = occurrenceOf(call);
   const bucket = bucketFor(call);
-  const joinable = (bucket === "upcoming" || bucket === "live") && call.status !== "CANCELLED";
+  // bucketFor only puts LIVE/SCHEDULED calls into these two buckets, so
+  // call.status can never be CANCELLED here.
+  const joinable = bucket === "upcoming" || bucket === "live";
   const Icon = call.media === "audio" ? Phone : Video;
   const joined = call.participants.filter((p) => p.joinedAt).length;
   const scope =

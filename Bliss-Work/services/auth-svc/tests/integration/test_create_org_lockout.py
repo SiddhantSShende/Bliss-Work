@@ -28,6 +28,7 @@ import pytest
 from fastapi import HTTPException, Response
 from sqlalchemy import text
 
+from app import service
 from app.config import settings
 from app.routes import auth as auth_routes
 from app.routes import captcha_service as cs
@@ -76,8 +77,16 @@ def _stub_placement(monkeypatch: pytest.MonkeyPatch):
 @pytest.fixture
 async def real_engine(monkeypatch: pytest.MonkeyPatch, sa_engine):
     """Points auth_routes.engine (module-level, used directly by create_org)
-    at the real migrated test database instead of the app's normal one."""
+    at the real migrated test database instead of the app's normal one.
+
+    Also patches service.engine: the existing-identity lockout write happens
+    in a SEPARATE transaction inside service.resolve_or_create_identity (so it
+    survives the caller's transaction aborting on a wrong password), and that
+    function pulls its own `engine` from app.service rather than from
+    whichever route called it.
+    """
     monkeypatch.setattr(auth_routes, "engine", sa_engine)
+    monkeypatch.setattr(service, "engine", sa_engine)
     return sa_engine
 
 

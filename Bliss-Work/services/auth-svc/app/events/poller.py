@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
 
 from aiokafka import AIOKafkaProducer
@@ -10,6 +9,7 @@ from opentelemetry import trace
 from opentelemetry.trace import SpanKind
 from sqlalchemy import text
 
+from kafka_lazy_producer import LazyKafkaProducer
 from kafka_security import kafka_security_kwargs
 
 from ..config import settings
@@ -59,7 +59,10 @@ FAILURE_LOG_EVERY = 10
 
 class OutboxPoller:
     def __init__(self) -> None:
-        self._producer: AIOKafkaProducer | None = None
+        self._lazy_producer = LazyKafkaProducer(
+            bootstrap_servers=settings.kafka_brokers,
+            security_kwargs=kafka_security_kwargs(),
+        )
         self._task: asyncio.Task | None = None
         self._stop = asyncio.Event()
 
@@ -70,31 +73,15 @@ class OutboxPoller:
         # service races the broker's boot. Connecting here made that race fatal
         # ("Application startup failed. Exiting.") and crash-looped the
         # container until Kafka came up. The connect now happens on first drain,
-        # under the backoff _run already applies.
+        # under the backoff _run already applies. See
+        # services/shared/kafka_lazy_producer/kafka_lazy_producer.py.
         self._stop.clear()
         self._task = asyncio.create_task(self._run(), name="outbox-poller")
         log.info("outbox_poller_started")
 
     async def _ensure_producer(self) -> AIOKafkaProducer:
         """Connect on first use. Failures propagate to _run's backoff."""
-        if self._producer is not None:
-            return self._producer
-        producer = AIOKafkaProducer(
-            bootstrap_servers=settings.kafka_brokers,
-            # TLS/SASL when KAFKA_SECURITY_PROTOCOL asks for it; empty otherwise.
-            **kafka_security_kwargs(),
-            enable_idempotence=True,
-            acks="all",
-        )
-        try:
-            await producer.start()
-        except Exception:
-            # A producer whose start() failed is not reusable — discard it so
-            # the next attempt builds a fresh one.
-            with contextlib.suppress(Exception):
-                await producer.stop()
-            raise
-        self._producer = producer
+        producer = await self._lazy_producer.ensure()
         log.info("outbox_producer_connected")
         return producer
 
@@ -105,8 +92,7 @@ class OutboxPoller:
                 await asyncio.wait_for(self._task, timeout=5)
             except asyncio.TimeoutError:
                 self._task.cancel()
-        if self._producer is not None:
-            await self._producer.stop()
+        await self._lazy_producer.stop()
         log.info("outbox_poller_stopped")
 
     async def _run(self) -> None:

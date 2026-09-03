@@ -309,14 +309,14 @@ export function WsEventBridge() {
         // media connection; this is what a client reads to know a share is in
         // progress before any track of it turns up.
         //
-        // Also invalidates the LIST, not just this one call: MeetingCard reads
-        // `activeShares` off the row it was handed by qk.calls (the Meetings
-        // page) or qk.channelCalls (a channel's call history), and neither of
-        // those is the same cache entry as qk.call. Without this, a share that
-        // ended kept showing as active on every card built from a list query —
+        // Also invalidates the LIST, not just this one call: a row rendered
+        // from qk.calls (the Meetings page) or qk.channelCalls (a channel's
+        // call history) would read `activeShares` off its own list-query row,
+        // which is not the same cache entry as qk.call. Without this, a share
+        // that ended could keep showing as active on any such list-built view —
         // a stale "sharing their screen" that no amount of the room's own
-        // cleanup could touch, because the room was never where it was reading
-        // that from.
+        // cleanup could touch, because it was never where that view was
+        // reading from.
         case EventType.CallShareStarted:
         case EventType.CallShareStopped: {
           invalidate(qk.calls);
@@ -351,6 +351,18 @@ export function WsEventBridge() {
             patchInboxOnMessage(qc, e, me);
             patchThreadOnMessage(qc, e);
           }
+          // Patch the list row's own preview straight from the event — instant,
+          // no refetch round-trip — rather than waiting on the coalesced
+          // invalidate below. Runs for BOTH a live-received message and the
+          // sender's own echo (this event reaches the sender too, per the skip
+          // above), so "You: …" appears the moment a send completes.
+          qc.setQueryData<ConversationDTO[]>(qk.conversations, (prev) =>
+            (prev ?? []).map((c) =>
+              c.id !== e.conversationId
+                ? c
+                : { ...c, lastMessage: e.body, lastMessageAt: e.occurredAt, lastMessageSenderId: e.senderId, cleared: false },
+            ),
+          );
           // conversation list refreshes (revive + reorder + unread)
           invalidate(qk.conversations);
           // People sidebar + open per-person feed (all-feed already patched).
@@ -503,6 +515,24 @@ export function WsEventBridge() {
               return next.sort((a, b) => a.seq - b.seq);
             });
           }
+          // Patch the channel list row's preview straight from the event —
+          // same reason as MessageCreated above: instant "<Name>: …", and it
+          // covers the sender's own echo too. senderDisplayName/senderUsername
+          // mirrors how the server itself resolves lastMessageSender.
+          qc.setQueryData<ChannelDTO[]>(qk.channels, (prev) =>
+            (prev ?? []).map((c) =>
+              c.id !== e.channelId
+                ? c
+                : {
+                    ...c,
+                    lastMessage: e.body,
+                    lastMessageAt: e.occurredAt,
+                    lastMessageSenderId: e.senderId,
+                    lastMessageSender: e.senderDisplayName || e.senderUsername,
+                    cleared: false,
+                  },
+            ),
+          );
           invalidate(qk.channels);
           break;
         }

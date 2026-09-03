@@ -12,21 +12,26 @@ provider_activity so it shows up in the unified hub.
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 
+import httpx
 import uuid6
 from fastapi import APIRouter, Header, HTTPException, status
 from internal_auth import internal_token_matches
 from pydantic import BaseModel
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 from .. import outbound
 from ..config import settings
 from crypto import cryptor
 from ..db import session, set_org_context
 from ..events import emit_activity_created
+from ..logging_setup import log
 from ..providers import microsoft as ms
+from resilience import CircuitOpenError
 
 router = APIRouter()
 
@@ -97,6 +102,19 @@ async def internal_send(
             # misconfigured or the provider has no outbound path.
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         except outbound.OutboundError as exc:
+            if exc.is_auth_error:
+                # Documented in gmail.py/microsoft.py: a 401 here is NOT a
+                # broken connection — re-arm token_expires_at so
+                # refresh_worker's next sweep (within 60s) renews it, instead
+                # of waiting out the token's original, now-wrong expiry.
+                await db.execute(
+                    text(
+                        "UPDATE integration_connections SET token_expires_at = now() "
+                        "WHERE id = :id"
+                    ),
+                    {"id": body.connectionId},
+                )
+                await db.commit()
             # 502 signals "try again" to messaging-svc; 400 would make it give
             # up on a message that a token refresh would have delivered.
             code = (
@@ -158,6 +176,12 @@ class MailSendReq(BaseModel):
     #: The member who composed the mail. Their connected mailbox is the one it
     #: is sent from — this endpoint never falls back to somebody else's.
     userId: str
+    #: messaging-svc's mail_messages.id — stable across every redelivery of the
+    #: same mail.outbound Kafka event, which is exactly what makes it usable as
+    #: an idempotency key (see 0013_mail_send_idempotency.sql). Optional only so
+    #: a caller mid-rollout without it degrades to the old unprotected
+    #: behaviour rather than failing closed; email-worker always sends it.
+    mailId: str | None = None
     subject: str = ""
     bodyText: str = ""
     bodyHtml: str = ""
@@ -174,6 +198,111 @@ class MailSendReq(BaseModel):
 class MailSendResp(BaseModel):
     status: str
     provider: str
+
+
+async def _claim_mail_send(db, mail_id: str, org_id: str) -> str:
+    """Atomically claim the right to actually call the provider for `mail_id`.
+
+    Returns "claimed" (this call owns the send — proceed), "sent" (a prior
+    attempt already succeeded — replay that result, never call the provider
+    again) or "in_progress" (another attempt currently owns this mail_id —
+    the caller answers 503 so the ORIGINAL requester retries later through its
+    normal redelivery path, instead of a second real send racing the first).
+
+    Insert-first-then-resolve-the-conflict, not a check-then-insert: two
+    callers racing the same mail_id both attempt the INSERT, the unique
+    primary key lets exactly one of them commit it, and the loser sees
+    IntegrityError and reads back whichever row actually won — the same shape
+    task-svc's create_task uses for its own idempotency key.
+    """
+    try:
+        await db.execute(
+            text("INSERT INTO mail_send_attempts (mail_id, org_id) VALUES (:m, :o)"),
+            {"m": mail_id, "o": org_id},
+        )
+        await db.commit()
+        return "claimed"
+    except IntegrityError:
+        await db.rollback()
+
+    # The rollback above clears the transaction-local app.org_id GUC.
+    await set_org_context(db, org_id)
+    existing = (
+        await db.execute(
+            text("SELECT status FROM mail_send_attempts WHERE mail_id = :m"),
+            {"m": mail_id},
+        )
+    ).one_or_none()
+    if existing is None:
+        # Nothing deletes these rows, so this should be unreachable — but fail
+        # closed (retry later) rather than assume either outcome.
+        return "in_progress"
+    if existing.status == "sent":
+        return "sent"
+    if existing.status != "failed":
+        return "in_progress"  # 'sending': another attempt owns this right now
+
+    # 'failed': a definitive prior attempt, safe to retry — but only for
+    # whichever caller actually wins this transition, in case two retries of
+    # the same failed mail race each other too.
+    reclaimed = await db.execute(
+        text(
+            "UPDATE mail_send_attempts SET status = 'sending', updated_at = now() "
+            "WHERE mail_id = :m AND status = 'failed'"
+        ),
+        {"m": mail_id},
+    )
+    await db.commit()
+    return "claimed" if reclaimed.rowcount == 1 else "in_progress"
+
+
+async def _resolve_mail_send(db, mail_id: str, org_id: str, outcome: str) -> None:
+    """Record the terminal outcome ('sent' or 'failed') of a claimed attempt.
+
+    Never called for the ambiguous case — see internal_send_mail's handling of
+    a network fault on the provider call itself, which leaves the row
+    'sending' on purpose rather than guessing.
+
+    By the time this runs, the provider call it follows has already happened
+    — successfully or definitively not — so retrying the UPDATE below can
+    never cause a duplicate send; it can only fail to record an outcome that
+    is already final. Retries a transient DB hiccup a few times first, same
+    backoff as relay_consumer.py's _mark_sent/_read_transport on the
+    email-worker side of this same idempotency feature, since a lost write
+    here still sends the row to the same place: stranded in 'sending', which
+    per 0013_mail_send_idempotency.sql's docstring needs a manual SQL fix, and
+    for a 'failed' outcome makes an otherwise safe-to-retry mail permanently
+    un-retryable.
+
+    Unlike _mark_sent, exhausting retries here re-raises rather than
+    swallowing: _mark_sent's caller always advances the Kafka offset
+    regardless, so swallowing there only risks a lost cache entry. Here the
+    caller's response (a replayed "sent", or a definitive 400/502) IS a claim
+    about what got persisted — swallowing would let that response go out
+    unchanged while the row silently stayed 'sending', hiding exactly the
+    failure an operator needs to see.
+    """
+    for attempt in range(3):
+        try:
+            await set_org_context(db, org_id)
+            await db.execute(
+                text(
+                    "UPDATE mail_send_attempts SET status = :s, updated_at = now() "
+                    "WHERE mail_id = :m"
+                ),
+                {"s": outcome, "m": mail_id},
+            )
+            await db.commit()
+            return
+        except Exception as exc:  # noqa: BLE001 - retried, then re-raised below
+            await db.rollback()
+            if attempt == 2:
+                log.error(
+                    "mail_send_resolve_failed", mail_id=mail_id, org=org_id,
+                    outcome=outcome, error=str(exc),
+                )
+                raise
+            await asyncio.sleep(0.5 * (2**attempt))
 
 
 @router.post("/mail/send", response_model=MailSendResp)
@@ -201,6 +330,16 @@ async def internal_send_mail(
     and this mail is already IN the hub: messaging-svc wrote the Sent row that
     produced the event in the first place, so mirroring it would show the member
     their own mail twice.
+
+    Idempotent on body.mailId (see 0013_mail_send_idempotency.sql): the SAME
+    mail_id is claimed at most once and every repeat call — a Kafka
+    redelivery, two workers racing, a caller retrying after losing the
+    response — replays the recorded outcome instead of sending a second real
+    email. The one case that cannot be resolved this way is a network fault on
+    the sendMail call itself: Graph may have accepted the message before the
+    fault, so the claim is deliberately left in place (never reclaimed
+    automatically) rather than risking a genuine duplicate — see the except
+    clause below and the migration's docstring.
     """
     _require_internal(x_internal_token)
 
@@ -246,6 +385,20 @@ async def internal_send_mail(
                 status_code=status.HTTP_502_BAD_GATEWAY, detail="connection has no usable token"
             )
 
+        if body.mailId:
+            claim = await _claim_mail_send(db, body.mailId, body.orgId)
+            if claim == "sent":
+                return MailSendResp(status="sent", provider="outlook")
+            if claim == "in_progress":
+                # 409, not 503: this is never "integrations-svc is unhealthy,
+                # fail fast and fall back" — provider_mail.py must not let a
+                # run of these open its breaker and relay a mail that may
+                # already be on its way through the winning attempt.
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="this mail is already being sent by another attempt",
+                )
+
         try:
             await ms.send_mail(
                 token,
@@ -259,12 +412,64 @@ async def internal_send_mail(
                 save_to_sent_items=body.saveToSentItems,
             )
         except (ms.MicrosoftAuthError, ms.MicrosoftRateLimited) as exc:
+            # Definitive answers from Graph BEFORE it accepted anything — safe
+            # to let a later attempt reclaim and retry this mailId.
+            if body.mailId:
+                await _resolve_mail_send(db, body.mailId, body.orgId, "failed")
+            if isinstance(exc, ms.MicrosoftAuthError):
+                # Documented in microsoft.py: NOT a broken connection — re-arm
+                # token_expires_at so refresh_worker's next sweep (within 60s)
+                # renews it, instead of waiting out the token's original,
+                # now-wrong expiry. _resolve_mail_send's commit above reset
+                # the transaction-local app.org_id GUC, so it's set again here.
+                await set_org_context(db, body.orgId)
+                await db.execute(
+                    text("UPDATE integration_connections SET token_expires_at = now() WHERE id = :id"),
+                    {"id": str(row.id)},
+                )
+                await db.commit()
             # 502 means "ask again": a refreshed token or an expired throttle
             # window makes this exact request work.
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
         except ms.MicrosoftError as exc:
             # Definitive — including the mail being too large to send inline.
             # The caller relays this copy over SMTP instead of losing it.
+            if body.mailId:
+                await _resolve_mail_send(db, body.mailId, body.orgId, "failed")
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        except CircuitOpenError as exc:
+            # The breaker short-circuits BEFORE any request is made — Graph was
+            # definitely not contacted this time, so this is safe to mark
+            # 'failed' and let a later attempt reclaim, same as the two
+            # branches above.
+            if body.mailId:
+                await _resolve_mail_send(db, body.mailId, body.orgId, "failed")
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+        except (httpx.HTTPError, OSError) as exc:
+            # AMBIGUOUS: a network fault on the sendMail call itself. Graph may
+            # have already accepted the message — send_mail's own idempotent=
+            # False means this was not silently retried underneath us — so the
+            # claim from above is deliberately left 'sending' rather than
+            # 'failed': marking it failed would let a redelivery reclaim and
+            # resend a mail that may already be sitting in the recipient's
+            # inbox. This mailId now answers 409 forever until an operator
+            # confirms the real outcome (checking the member's Sent folder)
+            # and resolves the row by hand — see the migration's docstring.
+            # 409, not 502/503: those are the codes provider_mail.py's shared
+            # breaker treats as "integrations-svc is unhealthy" and, once
+            # enough of them accumulate, answers with a fall-back-to-relay
+            # False — which for THIS mail_id means a genuine duplicate send.
+            # A 409 is never transient to that breaker, so it can never open
+            # it on this mail's account; see provider_mail.send's docstring.
+            log.error(
+                "mail_send_outcome_unknown", mail_id=body.mailId, org=body.orgId, error=str(exc)
+            )
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="mail send outcome unknown; needs manual review",
+            ) from exc
+
+        if body.mailId:
+            await _resolve_mail_send(db, body.mailId, body.orgId, "sent")
 
     return MailSendResp(status="sent", provider="outlook")

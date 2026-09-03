@@ -99,6 +99,41 @@ describe("ChatsList last-message preview", () => {
     expect(await screen.findByText("quarterly numbers are in")).toBeInTheDocument();
   });
 
+  it("prefixes the preview with \"You: \" when the caller sent the last message", async () => {
+    api.conversations.mockResolvedValue([
+      baseConv({
+        id: "conv-own",
+        peerId: "peer-own",
+        peerDisplayName: "Own Peer",
+        lastMessage: "Hello, how are you?",
+        lastMessageSenderId: "me-1",
+        cleared: false,
+      }),
+    ]);
+    renderChatsList();
+
+    await screen.findByText("Own Peer");
+    expect(await screen.findByText("You: Hello, how are you?")).toBeInTheDocument();
+  });
+
+  it("leaves the peer's own message unprefixed, same as before", async () => {
+    api.conversations.mockResolvedValue([
+      baseConv({
+        id: "conv-peer",
+        peerId: "peer-theirs",
+        peerDisplayName: "Their Peer",
+        lastMessage: "on my way",
+        lastMessageSenderId: "peer-theirs",
+        cleared: false,
+      }),
+    ]);
+    renderChatsList();
+
+    await screen.findByText("Their Peer");
+    expect(await screen.findByText("on my way")).toBeInTheDocument();
+    expect(screen.queryByText(/^You:/)).not.toBeInTheDocument();
+  });
+
   it("still shows the 'Start chatting' placeholder for a chat that has never had a message", async () => {
     api.conversations.mockResolvedValue([
       baseConv({

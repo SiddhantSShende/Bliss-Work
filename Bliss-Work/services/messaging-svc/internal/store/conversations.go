@@ -87,19 +87,9 @@ func (s *Store) Ignore(ctx context.Context, orgID, callerID, convID string) erro
 			return err
 		}
 
-		var low, high, cOrg string
-		var seq int64
-		err = tx.QueryRow(ctx,
-			`SELECT org_id, user_low, user_high, seq_counter FROM conversations WHERE id = $1`, convID).
-			Scan(&cOrg, &low, &high, &seq)
-		if errors.Is(err, pgx.ErrNoRows) || (err == nil && cOrg != orgID) {
-			return ErrForbidden
-		}
+		low, high, seq, err := conversationMembers(ctx, tx, orgID, convID, callerID)
 		if err != nil {
 			return err
-		}
-		if callerID != low && callerID != high {
-			return ErrForbidden
 		}
 
 		// Hide BOTH member rows at the current seq (no user filter).

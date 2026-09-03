@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "client-ip"
+version = "0.1.0"
+description = "Shared X-Forwarded-For-aware caller identity for this repo's Python services."
+requires-python = ">=3.13"
+dependencies = ["starlette"]
+
+[tool.setuptools]
+py-modules = ["client_ip"]

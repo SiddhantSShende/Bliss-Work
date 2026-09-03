@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { create } from "zustand";
@@ -9,6 +9,7 @@ import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
 import { broadcastSession } from "../lib/authChannel";
+import { usePopupDismiss } from "../lib/usePopupDismiss";
 
 /** What a switch attempt actually did. A non-throwing resolution is NOT
  *  enough on its own to mean "switched" — it is also what a redirect to
@@ -96,18 +97,9 @@ export function OrgSwitcher() {
   const switchOrg = useSwitchOrg();
   const [open, setOpen] = useState(false);
   const busyOrgId = useOrgSwitchBusyId();
-  const ref = useRef<HTMLDivElement>(null);
+  const ref = usePopupDismiss<HTMLDivElement>(open, () => setOpen(false));
 
   const { data: orgs = [] } = useQuery({ queryKey: qk.myOrgs, queryFn: () => api.myOrgs() });
-
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, [open]);
 
   const label = user?.orgName || orgs.find((o) => o.active)?.orgName || "Workspace";
   const canSwitch = orgs.length > 1;

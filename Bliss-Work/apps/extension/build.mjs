@@ -5,6 +5,12 @@
  *   npm run build -w @taskboard/extension                # Chromium -> dist/
  *   npm run build:firefox -w @taskboard/extension         # Firefox -> dist-firefox/
  *
+ * `dist/` doubles as the input to scripts/pack-crx.mjs's dist.crx/dist.zip,
+ * so the plain `--target=chromium` build above always produces the manifest
+ * that is safe to ship. Pass `--dev` (e.g. `node build.mjs --dev`) only to
+ * test the automatic-provisioning handshake against a local web-app dev
+ * server — see TARGETS.chromium's `devOnlyConnectableOrigins` comment below.
+ *
  * esbuild rather than Vite: there is no dev server, no HMR and no framework —
  * two entry points and a manifest. The MV3 service worker must be a real ES
  * module with no dynamic requires, which is exactly esbuild's default output.
@@ -39,7 +45,7 @@
  * with it on a real Mac (this script cannot invoke Xcode).
  */
 import { build } from "esbuild";
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -55,6 +61,19 @@ const TARGETS = {
     outDir: "dist",
     esbuildTarget: "chrome116",
     browserConstant: "chrome",
+    // `externally_connectable.matches` entries that exist ONLY to let a
+    // developer test the automatic-provisioning handshake (background.ts's
+    // `blisswork:provision`) against an unpacked build while running the web
+    // app's local dev server — never something a real, shipped artifact may
+    // contain. `dist/` is not only "what a developer loads unpacked": it is
+    // also, byte-for-byte, what scripts/pack-crx.mjs signs into dist.crx/
+    // dist.zip for real force-install. A well-known Vite dev port like
+    // localhost:5173 is common enough on OTHER, unrelated local projects that
+    // leaving it allowlisted in a shipped build would let any page on that
+    // port silently repoint a real install's telemetry token (see
+    // provisioning.ts) — so these origins are stripped from every build by
+    // default and restored only with the explicit `--dev` flag below.
+    devOnlyConnectableOrigins: ["http://localhost:5173/*"],
   },
   firefox: {
     manifest: "manifest.firefox.json",
@@ -92,6 +111,15 @@ if (!target) {
   process.exit(1);
 }
 
+// Opt-IN, not opt-out: a bare `npm run build` — the same command
+// scripts/pack-crx.mjs's own docblock says to run before packing dist.crx —
+// must always produce the safe, shippable manifest. `--dev` is for a
+// developer who explicitly wants to test the automatic-provisioning handshake
+// against a local web-app dev server (see TARGETS.chromium's own comment on
+// `devOnlyConnectableOrigins`) and is loading the result unpacked, never
+// packing or distributing it.
+const devBuild = process.argv.includes("--dev");
+
 const manifestPath = join(root, target.manifest);
 if (!existsSync(manifestPath)) {
   console.error(`Missing manifest for target "${targetArg}": ${target.manifest}`);
@@ -120,6 +148,27 @@ if (targetArg === "firefox" && process.argv.includes("--strict")) {
   }
 }
 
+/**
+ * Copy `srcPath` to `destPath`, stripping this target's dev-only
+ * `externally_connectable` origins unless `--dev` was passed. This is the
+ * ONE place a shipped manifest is allowed to diverge from the one checked
+ * into source, and it only ever REMOVES an entry, never adds one that isn't
+ * already declared in the source manifest.
+ */
+function writeManifest(srcPath, destPath) {
+  const devOnly = target.devOnlyConnectableOrigins;
+  if (devBuild || !devOnly?.length) {
+    cpSync(srcPath, destPath);
+    return;
+  }
+  const manifest = JSON.parse(readFileSync(srcPath, "utf8"));
+  const matches = manifest.externally_connectable?.matches;
+  if (Array.isArray(matches)) {
+    manifest.externally_connectable.matches = matches.filter((m) => !devOnly.includes(m));
+  }
+  writeFileSync(destPath, `${JSON.stringify(manifest, null, 2)}\n`);
+}
+
 const out = join(root, target.outDir);
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
@@ -135,11 +184,12 @@ await build({
   // store upload for no user benefit.
   sourcemap: false,
   // The ONE per-target substitution in the bundled JS — everything else that
-  // differs between targets lives in the manifest, copied below unmodified.
+  // differs between targets lives in the manifest, written below (verbatim,
+  // except for the dev-only stripping writeManifest performs).
   define: { __BROWSER__: JSON.stringify(target.browserConstant) },
 });
 
-cpSync(manifestPath, join(out, "manifest.json"));
+writeManifest(manifestPath, join(out, "manifest.json"));
 cpSync(join(root, "options.html"), join(out, "options.html"));
 cpSync(join(root, "icons"), join(out, "icons"), { recursive: true });
 

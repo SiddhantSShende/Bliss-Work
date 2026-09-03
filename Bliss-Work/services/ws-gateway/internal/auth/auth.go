@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lestrrat-go/jwx/v2/jwa"
 	"github.com/lestrrat-go/jwx/v2/jwk"
 	"github.com/lestrrat-go/jwx/v2/jwt"
 )
@@ -115,9 +114,6 @@ func (v *Verifier) Verify(ctx context.Context, token string) (*Claims, error) {
 	claims.Memberships = normalizeMemberships(raw, claims.OrgID, claims.UserID)
 	return claims, nil
 }
-
-// AlgEdDSA is exported so callers can assert the expected signing algorithm.
-var AlgEdDSA = jwa.EdDSA
 
 // normalizeMemberships turns the raw `memberships` claim into the list presence
 // iterates, and GUARANTEES the caller's current membership is in it.

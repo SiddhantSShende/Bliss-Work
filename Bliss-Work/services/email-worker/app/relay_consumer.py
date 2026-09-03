@@ -45,7 +45,7 @@ from .config import Settings
 from .mailer import Mailer, is_valid_email
 from .presence import Presence
 from .provider_mail import ProviderMailUnavailable, send as provider_send
-from .resilience import CircuitBreaker, CircuitOpenError, retry_async
+from resilience import CircuitBreaker, CircuitOpenError, retry_async
 from .templates import render_new_message_email, render_new_task_email, render_user_mail
 from tracing import extract_context, inject_headers
 
@@ -338,7 +338,20 @@ class RelayConsumer:
         Dedup still applies, keyed by (eventId, mailId): messaging-svc emits one
         event per external addressee, so the pair is unique per copy and a
         redelivered batch cannot send the same person the same mail twice.
+
+        The whole body runs behind a catch-all boundary (mirroring the one
+        _handle already puts around the notification path's _send_for_event):
+        without it, any exception here — a DB error surfacing through
+        _decide_transport despite the hardening above, or anything else —
+        propagated out of _handle, _consume_loop and run(), crashing every
+        consumer in the process over one bad message.
         """
+        try:
+            return await self._do_handle_outbound_mail(event, event_id)
+        except Exception as exc:  # noqa: BLE001 - poison-message handling below
+            return await self._on_failure(str(event_id), event, str(exc))
+
+    async def _do_handle_outbound_mail(self, event: dict, event_id: str) -> bool:
         envelope = str(event.get("envelope") or "")
         mail_id = event.get("mailId")
         if not mail_id:
@@ -374,7 +387,7 @@ class RelayConsumer:
             # Through the author's own mailbox when they have one — see
             # provider_mail for why that is worth preferring.
             try:
-                transport = await self._decide_transport(
+                transport, covered = await self._decide_transport(
                     event, mail_id, parts, subject, text, html
                 )
             except ProviderMailUnavailable as exc:
@@ -384,9 +397,14 @@ class RelayConsumer:
                 # momentarily unreachable.
                 _log.warning("relay_mail_provider_unavailable", mail_id=mail_id, error=str(exc))
                 return False
-            if transport == TRANSPORT_PROVIDER:
-                # One send through the mailbox already covered every external
-                # recipient of this mail, this copy's own envelope among them.
+            # `covered` is the set of envelopes the provider send actually
+            # reached (None means an old, pre-migration row with no recorded
+            # set — treated as "assume covered", the prior behavior). A local
+            # org member's own copy is deliberately NEVER in that set (see
+            # mail_send.go's relayRecipients / splitExternalsByKind) — it still
+            # needs its own real-mailbox copy, so it falls through to the
+            # relay send below exactly like the no-connected-mailbox case.
+            if transport == TRANSPORT_PROVIDER and (covered is None or envelope.lower() in covered):
                 await self._mark_sent(event_id, mail_id)
                 self._failures.pop(str(event_id), None)
                 _log.info("relay_mail_sent_via_provider", event_id=event_id, mail_id=mail_id)
@@ -400,6 +418,9 @@ class RelayConsumer:
                     str(event_id), event, "provider transport not decided for this mail"
                 )
 
+            # TRANSPORT_RELAY, or a PROVIDER decision that didn't cover THIS
+            # copy's own envelope (a local org member's copy) — either way
+            # this specific copy still needs its own real send over SMTP.
             try:
                 await self._mailer.send(
                     to=envelope,
@@ -438,78 +459,153 @@ class RelayConsumer:
         subject: str,
         text_body: str,
         html_body: str,
-    ) -> str:
+    ) -> tuple[str, frozenset[str] | None]:
         """Which way this mail leaves — and, for one copy, actually send it.
 
         A mail addressed to several outside recipients arrives as one event per
         address, which is what SMTP wants and what keeps a Bcc'd address out of
         everybody's headers. A mailbox provider cannot work that way: it has no
         envelope of its own and delivers to exactly the addresses it is handed,
-        so ONE send covers every external recipient and the other copies must do
-        nothing at all.
+        so ONE send covers every EXTERNAL recipient — local org members are
+        deliberately excluded from that send (they already have an in-app copy)
+        but still need their own real-mailbox copy, same as relayRecipients on
+        the producer side gives them one.
 
         messaging-svc therefore marks exactly one copy (`providerCopy`) and puts
         the whole external recipient list on it. That copy sends, records what
-        happened, and the rest read the record — they cannot work it out for
-        themselves, because whether the mailbox exists is only known once it has
-        been tried.
+        happened AND which envelopes it actually covered, and the rest read the
+        record — they cannot work it out for themselves, because whether the
+        mailbox exists is only known once it has been tried, and whether THEIR
+        OWN envelope was one of the covered ones is not derivable from their own
+        payload (only the deciding copy carries providerTo/Cc/Bcc).
 
-        Returns TRANSPORT_PROVIDER (already delivered, nothing more to do),
-        TRANSPORT_RELAY (send this copy over SMTP) or TRANSPORT_UNDECIDED.
+        Returns (TRANSPORT_PROVIDER, covered) — covered is the set of envelopes
+        (lowercased) the provider send reached, or None for a pre-migration row
+        recorded before covered_envelopes existed (treated as "assume covered"
+        by the caller, preserving the old behavior for those) — (TRANSPORT_RELAY,
+        None), or (TRANSPORT_UNDECIDED, None).
         """
         author_id = str(event.get("authorId") or "")
         if not author_id:
             # An event produced before authorId existed. SMTP is the only route
             # available for it, which is exactly what it was emitted expecting.
-            return TRANSPORT_RELAY
+            return TRANSPORT_RELAY, None
         if not event.get("providerCopy"):
-            return await self._read_transport(mail_id) or TRANSPORT_UNDECIDED
+            decided = await self._read_transport(mail_id)
+            return decided if decided is not None else (TRANSPORT_UNDECIDED, None)
 
         # Recorded BEFORE the send is retried, not after: this is the marker
         # that makes the deciding copy idempotent. Without it a redelivery
         # (crash between the send and the offset commit) sends a second time.
         decided = await self._read_transport(mail_id)
-        if decided:
+        if decided is not None:
             return decided
 
+        provider_to = [str(a) for a in (event.get("providerTo") or [])]
+        provider_cc = [str(a) for a in (event.get("providerCc") or [])]
+        provider_bcc = [str(a) for a in (event.get("providerBcc") or [])]
         sent = await provider_send(
             self._http,
             self._settings.integrations_internal_base,
             self._settings.integrations_internal_token,
             org_id=str(event.get("orgId") or ""),
             author_id=author_id,
+            mail_id=mail_id,
             subject=subject,
             text_body=text_body,
             html_body=html_body,
-            to=[str(a) for a in (event.get("providerTo") or [])],
-            cc=[str(a) for a in (event.get("providerCc") or [])],
-            bcc=[str(a) for a in (event.get("providerBcc") or [])],
+            to=provider_to,
+            cc=provider_cc,
+            bcc=provider_bcc,
             attachments=parts,
         )
-        transport = TRANSPORT_PROVIDER if sent else TRANSPORT_RELAY
-        await self._record_transport(mail_id, transport)
-        return transport
+        if sent:
+            transport = TRANSPORT_PROVIDER
+            covered = frozenset(a.lower() for a in provider_to + provider_cc + provider_bcc)
+        else:
+            transport = TRANSPORT_RELAY
+            covered = frozenset()
+        await self._record_transport(mail_id, transport, covered)
+        return transport, covered
 
-    async def _read_transport(self, mail_id: str) -> str | None:
+    async def _read_transport(self, mail_id: str) -> tuple[str, frozenset[str] | None] | None:
+        """Look up a previously recorded transport decision for `mail_id`.
+
+        Retries a transient DB hiccup a few times (same backoff as
+        _mark_sent) before giving up and returning None, rather than treating
+        the FIRST failure as "no decision yet". That distinction matters here
+        specifically: the deciding copy in _decide_transport reads this to
+        decide whether it is safe to call provider_send, which is a REAL
+        external send, not idempotent, and not safe to repeat. A read that
+        gives up too eagerly on a plain DB blip would look identical to
+        "nobody has decided" and could send the same mail through the
+        author's mailbox a second time. Retrying first narrows that window to
+        a DB outage that outlasts the retries, at which point falling back to
+        None still can't crash the consumer — the caller either treats it as
+        "not decided" (safe: nothing has been sent yet) or, for the deciding
+        copy, the failure is caught by _handle_outbound_mail's boundary and
+        the event is retried later via _on_failure, never by assuming success
+        or failure of a prior send.
+        """
         assert self._db is not None
-        async with self._db.acquire() as conn:
-            return await conn.fetchval(
-                "SELECT transport FROM mail_transport WHERE mail_id = $1", mail_id
-            )
+        for attempt in range(3):
+            try:
+                async with self._db.acquire() as conn:
+                    row = await conn.fetchrow(
+                        "SELECT transport, covered_envelopes FROM mail_transport WHERE mail_id = $1",
+                        mail_id,
+                    )
+                    if row is None:
+                        return None
+                    raw_covered = row["covered_envelopes"]
+                    covered = frozenset(a.lower() for a in raw_covered) if raw_covered is not None else None
+                    return row["transport"], covered
+            except Exception as exc:  # noqa: BLE001
+                if attempt == 2:
+                    _log.error("relay_read_transport_failed", mail_id=mail_id, error=str(exc))
+                    return None
+                await asyncio.sleep(0.5 * (2**attempt))
+        return None  # unreachable, satisfies type checkers
 
-    async def _record_transport(self, mail_id: str, transport: str) -> None:
+    async def _record_transport(
+        self, mail_id: str, transport: str, covered: frozenset[str]
+    ) -> None:
         """First decision wins — a redelivery must not change how a mail that
-        has already gone out is described to the copies still to be read."""
+        has already gone out is described to the copies still to be read.
+
+        `covered` is the set of envelopes (lowercased) the provider send
+        actually reached — empty for TRANSPORT_RELAY, where it is never
+        consulted. Recording it (rather than just the transport type) is what
+        lets a local org member's own copy — deliberately never in that set —
+        tell it apart from a covered external one and still get its own relay
+        send instead of being silently treated as already delivered.
+
+        Best-effort, no retry: unlike _mark_sent, a failure here is never the
+        only thing standing between "sent" and "not sent" — the provider send
+        this follows has already happened (or definitively not happened) by
+        the time this runs, so retrying can't change that outcome, only delay
+        recording it. Logged and swallowed rather than raised: the caller
+        still needs to mark the event 'sent' and move on (see
+        _handle_outbound_mail), because retrying the whole event on THIS
+        failure would re-read a transport that is genuinely missing and could
+        send the mail through the provider a second time — see
+        _read_transport. A lost write here just means the other copies fail
+        safe into a bounded retry + eventual DLQ instead of a clean read.
+        """
         assert self._db is not None
-        async with self._db.acquire() as conn:
-            await conn.execute(
-                """
-                INSERT INTO mail_transport (mail_id, transport)
-                VALUES ($1, $2)
-                ON CONFLICT (mail_id) DO NOTHING
-                """,
-                mail_id, transport,
-            )
+        try:
+            async with self._db.acquire() as conn:
+                await conn.execute(
+                    """
+                    INSERT INTO mail_transport (mail_id, transport, covered_envelopes)
+                    VALUES ($1, $2, $3)
+                    ON CONFLICT (mail_id) DO NOTHING
+                    """,
+                    mail_id, transport, list(covered),
+                )
+        except Exception as exc:  # noqa: BLE001
+            _log.error("relay_record_transport_failed", mail_id=mail_id,
+                       transport=transport, error=str(exc))
 
     async def _collect_attachments(
         self, event: dict, event_id: str, mail_id: str
@@ -547,6 +643,13 @@ class RelayConsumer:
         org_id = str(event.get("orgId") or "")
         parts: list[tuple[str, str, bytes]] = []
         skipped = [att.filename for att in oversized]
+        # within_budget lets an unknown-declared-size file through without
+        # reserving any of the budget for it (its real cost isn't known yet),
+        # so fetch()'s ceiling for THAT file must come from what earlier
+        # attachments in this same mail actually consumed — not the full
+        # per-mail budget again — or several such files can each be fetched up
+        # to the full budget independently and together blow well past it.
+        remaining = self._settings.mail_attachment_budget_bytes
         for att in wanted:
             data = None
             if self._http is not None and org_id:
@@ -557,12 +660,13 @@ class RelayConsumer:
                     org_id=org_id,
                     mail_id=mail_id,
                     attachment=att,
-                    budget_bytes=self._settings.mail_attachment_budget_bytes,
+                    budget_bytes=max(remaining, 0),
                 )
             if data is None:
                 skipped.append(att.filename)
                 continue
             parts.append((att.filename, att.mime, data))
+            remaining -= len(data)
         return parts, skipped
 
     async def _on_failure(self, event_id: str, event: dict, error: str) -> bool:

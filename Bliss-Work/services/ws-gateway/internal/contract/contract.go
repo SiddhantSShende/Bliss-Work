@@ -140,29 +140,6 @@ func (e *Event) RecipientsOf() []string {
 	}
 }
 
-// NoDeliveryAckFor mirrors NO_DELIVERY_ACK_FOR in events.ts. Phase 5's
-// gateway conn handler MUST NOT forward a message.ack derived from these
-// event types — otherwise the delivered → ack → delivered fan-in cycles.
-var NoDeliveryAckFor = map[string]struct{}{
-	"message.delivered":      {},
-	"message.read":           {},
-	"message.dismissed":      {},
-	"message.deleted":        {},
-	"message.reaction":       {},
-	"conversation.ignored":   {},
-	"conversation.blocked":   {},
-	"conversation.unblocked": {},
-	"task.acknowledged":      {},
-	"task.completed":         {},
-	"task.ignored":           {},
-	"task.left":              {},
-	"task.reviewed":          {},
-	"notification.created":   {},
-	// Mail carries no messaging messageId, so an ack derived from one has
-	// nothing to ack and would 400 at the delivery endpoint.
-	"mail.delivered": {},
-}
-
 func dedupe(in []string) []string {
 	seen := make(map[string]struct{}, len(in))
 	out := make([]string, 0, len(in))

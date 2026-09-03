@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
  * and the reason the minutes are not zero-padded in the short form: "7:04" is a
  * duration, "07:04" reads as a time of day.
  */
-export function formatCallDuration(ms: number): string {
+function formatCallDuration(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
   const seconds = total % 60;
   const minutes = Math.floor(total / 60) % 60;

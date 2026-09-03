@@ -243,7 +243,11 @@ export function CallUI() {
 
   return (
     <Backdrop dark={showingVideo}>
-      <div className="relative flex h-full max-h-[90vh] w-full max-w-3xl flex-col items-center justify-center gap-6 rounded-3xl bg-black/80 p-6">
+      {/* dvh, not vh: on a browser with a dynamic toolbar (mobile, some
+          desktop PWA chrome) vh can overshoot the actually-visible area,
+          clipping the bottom of the card — the same fix CallRoom's pre-join
+          preview already applies to its own height cap. */}
+      <div className="relative flex h-full max-h-[90dvh] w-full max-w-3xl flex-col items-center justify-center gap-6 rounded-3xl bg-black/80 p-6">
         {/* The voice, always — never on the <video>, which is muted, so the
             sound does not cut out when a camera or a share starts. */}
         <RemoteAudio stream={call.remoteStream} onBlocked={onAudioBlocked} />

@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { useQuery } from "@tanstack/react-query";
 import { Check, Compass, Globe, Lock, LogIn, Search } from "lucide-react";
 import { Button, EmptyState, Input } from "@taskboard/ui";
 import type { ChannelDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
+import { useJoinChannel } from "../lib/useJoinChannel";
 import { Modal } from "./Modal";
 import { CreateChannelPanel } from "./CreateChannelPanel";
 
@@ -37,7 +37,6 @@ const ALL_OPEN_LIMIT = 200;
  */
 export function AddChannelDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { api } = useRuntime();
-  const qc = useQueryClient();
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState<"create" | "browse">("create");
 
@@ -80,20 +79,12 @@ export function AddChannelDialog({ open, onClose }: { open: boolean; onClose: ()
   const filtered = query ? all.filter((c) => c.name.toLowerCase().includes(query)) : all;
   const loading = minePending || openPending;
 
-  const joinMut = useMutation({
-    mutationFn: (channelId: string) => api.joinChannel(channelId),
-    onSuccess: () => {
-      toast.success("Joined the channel.");
-      // Same invalidations the sidebar's own Browse tab makes on join —
-      // qk.channels feeds both "My channels" and the rail badge
-      // (routes/AppShell.tsx), so the newly-joined channel appears in the
-      // sidebar immediately, no refresh, no extra wiring needed here.
-      void qc.invalidateQueries({ queryKey: qk.channels });
-      void qc.invalidateQueries({ queryKey: qk.openChannels });
-      void qc.invalidateQueries({ queryKey: [...qk.openChannels, "all"] });
-    },
-    onError: (e) => toast.error("Couldn't join", { description: String(e) }),
-  });
+  // Same mutation, same toasts, same invalidations (qk.channels feeds both
+  // "My channels" and the rail badge in routes/AppShell.tsx) as the sidebar's
+  // own Browse tab — see lib/useJoinChannel. Invalidating qk.openChannels
+  // (["channels","open"]) also covers this dialog's own
+  // [...qk.openChannels, "all"] key, since TanStack Query matches by prefix.
+  const joinMut = useJoinChannel();
 
   return (
     <Modal open={open} onClose={onClose} title="Add Channel">

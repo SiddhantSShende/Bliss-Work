@@ -127,6 +127,23 @@ async def resolve_actor_for_enrollment(
     )
 
 
+async def is_already_enrolled(conn: AsyncConnection, user_id: str) -> bool:
+    """Whether this membership already has MFA enrolled. TOTP enroll-confirm
+    and WebAuthn register-finish call this to decide whether the write they
+    are about to make — overwrite the TOTP secret, or add another WebAuthn
+    credential — needs step-up re-auth first, exactly like MFA-disable and
+    backup-codes/regenerate already require: a user with nothing enrolled yet
+    has no existing factor for a stolen Bearer token to hijack, but
+    overwriting or augmenting an EXISTING one is exactly as consequential as
+    disabling MFA outright (it can lock the real owner out, or plant a
+    durable extra credential) and must be gated the same way.
+    """
+    row = (
+        await conn.execute(text("SELECT mfa_enrolled FROM users WHERE id = :id"), {"id": user_id})
+    ).first()
+    return bool(row and row.mfa_enrolled)
+
+
 # ── Login-time / switch-org-time gate ────────────────────────────────────────
 async def mfa_gate(conn: AsyncConnection, user_id: str, org_id: str, roles: list[str]) -> tuple[bool, bool]:
     """(mfa_required_now, must_enroll_first) for the membership being entered.

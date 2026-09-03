@@ -299,6 +299,12 @@ class TotpEnrollConfirmRequest(BaseModel):
     # credential (see MfaPendingDTO); absent for an ordinary Bearer-authed
     # enrollment from Settings.
     pendingToken: str | None = Field(default=None, max_length=512)
+    # Required only when this membership already has MFA enrolled — i.e. this
+    # call would overwrite an existing TOTP secret rather than set up the
+    # first factor. Same shape/purpose as MFA-disable's step-up: a stolen
+    # Bearer token alone must not be able to hijack an already-protected
+    # account's second factor. See mfa_totp.py's enroll_confirm.
+    stepUp: MfaStepUpRequest | None = None
 
 
 class TotpEnrollConfirmResponse(BaseModel):
@@ -321,6 +327,12 @@ class WebauthnRegisterFinishRequest(BaseModel):
     credential: dict
     nickname: str | None = Field(default=None, max_length=80)
     pendingToken: str | None = Field(default=None, max_length=512)
+    # Required only when this membership already has MFA enrolled — i.e. this
+    # call would add another credential to an already-protected account
+    # rather than set up its first factor. Same shape/purpose as
+    # TotpEnrollConfirmRequest.stepUp above; see mfa_webauthn.py's
+    # register_finish.
+    stepUp: MfaStepUpRequest | None = None
 
 
 class WebauthnRegisterFinishResponse(BaseModel):

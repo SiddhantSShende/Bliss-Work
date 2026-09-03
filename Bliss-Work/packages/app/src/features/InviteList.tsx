@@ -2,6 +2,7 @@ import { Mail, Trash2 } from "lucide-react";
 import { Badge, Button, EmptyState } from "@taskboard/ui";
 import type { InviteDTO } from "@taskboard/shared";
 import { relTime } from "./ListPane";
+import { RoleBadge } from "./RoleBadge";
 
 /** Pending-invite rows with a revoke action (admin invite page). */
 export function InviteList({
@@ -39,9 +40,7 @@ export function InviteList({
               </div>
             </div>
             {expired && <Badge tone="danger">Expired</Badge>}
-            <Badge tone={inv.role === "org_admin" ? "accent" : "neutral"}>
-              {inv.role === "org_admin" ? "Admin" : "Member"}
-            </Badge>
+            <RoleBadge isAdmin={inv.role === "org_admin"} />
             <Button
               variant="ghost"
               size="sm"

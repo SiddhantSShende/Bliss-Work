@@ -17,7 +17,7 @@ import base64
 
 import httpx
 
-from ..resilience import CircuitBreaker, retry_async
+from resilience import CircuitBreaker, retry_async
 
 _GRAPH = "https://graph.microsoft.com/v1.0"
 _TIMEOUT = 15.0

@@ -4,10 +4,22 @@ Subscribes to task.events.v1 and applies `app.transitions.plan_transition` — t
 whole rule lives there, pure and unit-tested, so this file is only the plumbing
 that gets events to it and writes the answer down.
 
+Also subscribes to auth.events for org.deleted alone (see org_purge.py) — every
+other Python service purges its own org-scoped tables on that event, and this
+one has an org-scoped table (sticky_pins) too.
+
 Structure (reconnect-with-backoff, batched fetch, manual offset commit, per-event
 dedup claim) deliberately mirrors task-svc/app/consumer.py. A consumer that
 handles broker blips differently from its neighbours is one that fails in a way
 nobody on the team has debugged before.
+
+One deliberate difference from task-svc: a `handle()` failure here does NOT
+skip-and-commit past the event. task-svc can afford that (its handlers are
+heterogeneous, rare side effects; losing one costs a retroactive fan-out at
+worst). Here it would mean a pin update silently never happens — the task-svc
+version of "the note never leaves the desktop" — so `_consume_loop` instead
+seeks back and retries the whole batch, exactly like
+telemetry-svc/app/consumer.py.
 """
 
 from __future__ import annotations
@@ -24,10 +36,15 @@ from sqlalchemy.exc import IntegrityError
 from .config import settings
 from .db import session, set_bypass_rls
 from .logging_setup import log
+from .org_purge import purge_org
 from .transitions import ASSIGNED, PinRow, plan_transition
 
 _GROUP_ID = "sticky-svc"
 TASK_TOPIC = "task.events.v1"
+# Read for org.deleted only: sticky_pins has no other reason to react to
+# anything on this topic. See org_purge.py.
+AUTH_TOPIC = "auth.events"
+ORG_DELETED = "org.deleted"
 
 # Kafka reconnect backoff: doubles from _RECONNECT_BASE up to _RECONNECT_MAX.
 _RECONNECT_BASE = 1.0
@@ -38,6 +55,12 @@ _MAX_BATCH_SIZE = 200
 # a person waits between being given a task and seeing it appear on their
 # desktop. 250ms is far below anything noticeable, and matches task-svc.
 _BATCH_LINGER_MS = 250
+
+# Backoff after a transient failure, so a dead database is retried rather than
+# hammered. Paired with the seek-back in `_consume_loop` — without a pause, a
+# batch that fails instantly would spin at full speed. Matches
+# telemetry-svc/app/consumer.py's `_RETRY_BACKOFF`.
+_RETRY_BACKOFF = 1.0
 
 
 class StickyConsumer:
@@ -54,7 +77,7 @@ class StickyConsumer:
         # broker may well not be up yet. _run connects with backoff instead.
         self._stop.clear()
         self._task = asyncio.create_task(self._run(), name="sticky-svc-consumer")
-        log.info("consumer_started", topics=[TASK_TOPIC])
+        log.info("consumer_started", topics=[TASK_TOPIC, AUTH_TOPIC])
 
     async def stop(self) -> None:
         self._stop.set()
@@ -70,6 +93,7 @@ class StickyConsumer:
     def _build_consumer(self) -> AIOKafkaConsumer:
         return AIOKafkaConsumer(
             TASK_TOPIC,
+            AUTH_TOPIC,
             bootstrap_servers=settings.kafka_brokers,
             **kafka_security_kwargs(),
             group_id=_GROUP_ID,
@@ -110,7 +134,7 @@ class StickyConsumer:
 
             attempt = 0
             self._consumer = consumer
-            log.info("consumer_connected", topics=[TASK_TOPIC])
+            log.info("consumer_connected", topics=[TASK_TOPIC, AUTH_TOPIC])
             try:
                 await self._consume_loop(consumer)
             except asyncio.CancelledError:
@@ -129,29 +153,79 @@ class StickyConsumer:
                 )
                 if not batches:
                     continue
-                for _tp, messages in batches.items():
-                    for msg in messages:
-                        try:
-                            await self.handle(msg.value)
-                        except Exception as exc:  # noqa: BLE001
-                            # One bad event costs one pin, not the batch. Logged
-                            # with the id so it can be replayed by hand.
-                            log.warning(
-                                "sticky_event_failed",
-                                error=str(exc),
-                                event_id=(msg.value or {}).get("eventId"),
-                            )
-                if self._stop.is_set():
-                    break
-                await consumer.commit()
+                if await self._process_batch(batches):
+                    if self._stop.is_set():
+                        break
+                    await consumer.commit()
+                    continue
+
+                # Transient failure. Rewind every partition to the first message
+                # of this batch so it is genuinely retried.
+                #
+                # NOT committing is not enough on its own, and this is the trap
+                # worth spelling out (see telemetry-svc/app/consumer.py's
+                # _consume_loop for the original write-up): the fetch position
+                # has ALREADY moved past these messages, so the next getmany()
+                # returns the ones after them — and when that batch succeeds,
+                # its commit advances the offset past the batch that failed.
+                # The event would be skipped permanently rather than
+                # redelivered. Seeking back is what makes "offsets follow the
+                # transaction" actually true.
+                #
+                # Retrying costs nothing: every event is dedup-claimed by
+                # event_id inside handle(), so whatever the failed batch did
+                # manage to write is a no-op the second time through.
+                for tp, records in batches.items():
+                    consumer.seek(tp, records[0].offset)
+                await self._sleep_or_stop(_RETRY_BACKOFF)
         except asyncio.CancelledError:
             pass
 
+    async def _process_batch(self, batches: dict) -> bool:
+        """Handle one fetch, in order. True if the offsets may advance.
+
+        Stops at the first `handle()` failure instead of swallowing it and
+        moving on to the next message: swallowing is exactly the bug this
+        replaces — a DB hiccup or lock timeout was logged and then the batch
+        was committed anyway, so the pin update was gone for good instead of
+        being redelivered. Leaving the offset uncommitted here is what lets
+        `_consume_loop` seek back and retry the whole batch.
+
+        A message that cannot be handled at all (missing fields, wrong shape,
+        a different topic's event) is not a failure here — `handle()` returns
+        early for those rather than raising, so a genuinely malformed message
+        cannot get stuck retrying forever the way a transient DB error should.
+        """
+        for _tp, messages in batches.items():
+            for msg in messages:
+                try:
+                    await self.handle(msg.value)
+                except Exception as exc:  # noqa: BLE001 — abandon batch, don't die
+                    log.warning(
+                        "sticky_event_failed",
+                        error=str(exc),
+                        event_id=(msg.value or {}).get("eventId"),
+                    )
+                    return False
+        return True
+
     async def handle(self, event: dict) -> None:
-        """Apply one task event to the pin table."""
+        """Apply one task event to the pin table, or purge a deleted org."""
         if not isinstance(event, dict):
             return
         event_type = event.get("type", "")
+
+        # A different topic and a different shape entirely — handled before
+        # the task-event field checks below, none of which an org.deleted
+        # event carries. purge_org's DELETEs are idempotent on their own
+        # (see org_purge.py), so this skips the task-event dedup claim rather
+        # than needing one of its own.
+        if event_type == ORG_DELETED:
+            org_id = event.get("orgId")
+            if org_id:
+                await purge_org(str(org_id))
+            return
+
         event_id = event.get("eventId")
         org_id = event.get("orgId")
         task_id = event.get("taskId")

@@ -11,6 +11,7 @@ import (
 
 	"github.com/task-board/ws-gateway/internal/auth"
 	"github.com/task-board/ws-gateway/internal/hub"
+	"github.com/task-board/ws-gateway/internal/safego"
 	"github.com/task-board/ws-gateway/internal/signal"
 	"github.com/task-board/ws-gateway/internal/store"
 )
@@ -117,7 +118,7 @@ func (s *Server) serveConn(parent context.Context, ws *websocket.Conn, claims *a
 		s.log.Info("ws disconnected", "user", claims.UserID, "conn", connID)
 	}()
 
-	go s.writeLoop(ctx, cancel, ws, conn, sess)
+	safego.Go(s.log, "server.writeLoop", func() { s.writeLoop(ctx, cancel, ws, conn, sess) })
 	s.readLoop(ctx, ws, conn, sess)
 }
 

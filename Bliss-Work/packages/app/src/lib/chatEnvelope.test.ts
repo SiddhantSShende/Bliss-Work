@@ -4,10 +4,10 @@ import {
   attachmentIdsOf,
   encodeLocation,
   encodeMedia,
-  isMediaMessage,
   listPreview,
   parseChatEnvelope,
   readablePrefix,
+  withSenderLabel,
   type MediaItem,
 } from "./chatEnvelope";
 import { encodeFileOffer } from "./fileOffer";
@@ -223,12 +223,23 @@ describe("listPreview", () => {
   });
 });
 
-describe("isMediaMessage", () => {
-  // Drives whether the Forward affordance is shown: forwarding clones the body
-  // verbatim, handing attachment ids to someone outside their scope.
-  it("is true only for media", () => {
-    expect(isMediaMessage(encodeMedia([img()]))).toBe(true);
-    expect(isMediaMessage(encodeLocation({ lat: 1, lng: 2 }))).toBe(false);
-    expect(isMediaMessage("plain text")).toBe(false);
+describe("withSenderLabel", () => {
+  it("prefixes the preview with the given sender, chat-style", () => {
+    expect(withSenderLabel("Hello, how are you?", "You")).toBe("You: Hello, how are you?");
+  });
+
+  it("prefixes with a real name, channel-style", () => {
+    expect(withSenderLabel("Please check the meeting update.", "Siddhant Shende")).toBe(
+      "Siddhant Shende: Please check the meeting update.",
+    );
+  });
+
+  it("works on a structured preview label too, not just plain text", () => {
+    expect(withSenderLabel(listPreview(encodeMedia([img()])), "You")).toBe("You: Image sent");
+  });
+
+  it("leaves the preview unprefixed when there is no sender to label it with", () => {
+    expect(withSenderLabel("just a message", undefined)).toBe("just a message");
+    expect(withSenderLabel("just a message", "")).toBe("just a message");
   });
 });

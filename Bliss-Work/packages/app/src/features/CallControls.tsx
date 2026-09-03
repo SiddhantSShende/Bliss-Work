@@ -14,12 +14,6 @@ import { useCallDuration } from "../lib/callTimer";
  * thing to want, and the media session reserves a video slot up front precisely
  * so it can be answered without renegotiating.
  *
- * The room adds four of its own — raise hand, members, recording, notes —
- * through `extras`, which lands them BEFORE End Call. A slot rather than four
- * more props: they are meaningless on a 1:1 peer connection, which has no
- * roster to list and no room to record, and End Call has to stay last wherever
- * it is rendered. Nothing about CallUI's row changes when `extras` is absent.
- *
  * A control that cannot do anything right now is DISABLED rather than removed,
  * so the row does not change shape underneath a moving cursor and the fifth
  * button is always in the same place.
@@ -84,10 +78,6 @@ function Control({
   );
 }
 
-/** One control, in the same skin as the five. Exported so a surface can add its
- *  own without re-deriving the sizes and states this row is built from. */
-export const CallControlButton = Control;
-
 export function CallControls({
   micOn,
   camOn,
@@ -97,7 +87,6 @@ export function CallControls({
   addPeopleTitle = "Add people",
   addingPeople = false,
   variant = "overlay",
-  extras,
   className,
   onAddPeople,
   onToggleShare,
@@ -119,9 +108,6 @@ export function CallControls({
   addPeopleTitle?: string;
   addingPeople?: boolean;
   variant?: Variant;
-  /** Surface-specific controls, rendered just before End Call. Use
-   *  CallControlButton so they carry the same skin as the five above. */
-  extras?: ReactNode;
   /** For a surface that needs the row to behave differently — the room lets it
    *  wrap, because nine controls do not fit one line on a phone. */
   className?: string;
@@ -195,8 +181,6 @@ export function CallControls({
       >
         {camOn ? <Video size={skin.icon} /> : <VideoOff size={skin.icon} />}
       </Control>
-
-      {extras}
 
       <Control
         variant={variant}

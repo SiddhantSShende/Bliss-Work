@@ -300,23 +300,10 @@ func isTwirpNotFound(body []byte) bool {
 // recordToken mints the credential the egress API requires: roomRecord, scoped
 // to one room where there is one, and valid for barely longer than the request.
 func (r *Recorder) recordToken(room string) (string, error) {
-	now := time.Now().UTC()
-	tok, err := jwt.NewBuilder().
-		Issuer(r.apiKey).
-		Subject(r.apiKey).
-		IssuedAt(now).
-		NotBefore(now).
-		Expiration(now.Add(egressAPITimeout+time.Minute)).
-		Claim("video", map[string]any{"roomRecord": true, "room": room}).
-		Build()
-	if err != nil {
-		return "", err
-	}
-	signed, err := jwt.Sign(tok, jwt.WithKey(jwa.HS256, []byte(r.apiSecret)))
-	if err != nil {
-		return "", err
-	}
-	return string(signed), nil
+	exp := time.Now().UTC().Add(egressAPITimeout + time.Minute)
+	return signVideoJWT(r.apiKey, r.apiSecret, r.apiKey, exp, map[string]any{
+		"video": map[string]any{"roomRecord": true, "room": room},
+	})
 }
 
 // ── Wire shapes ──────────────────────────────────────────────────────────────

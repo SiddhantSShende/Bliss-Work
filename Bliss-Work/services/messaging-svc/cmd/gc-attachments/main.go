@@ -108,6 +108,20 @@ func main() {
 	}
 
 	start := time.Now()
+
+	if dryRun {
+		rows, totalBytes, err := st.CountExpiredAttachments(ctx)
+		if err != nil {
+			log.Error("dry run count failed", "err", err)
+			os.Exit(1)
+		}
+		log.Info("gc-attachments dry run: nothing deleted",
+			"would_delete_rows", rows,
+			"would_reclaim_bytes_upper_bound", totalBytes,
+			"duration_ms", time.Since(start).Milliseconds())
+		return
+	}
+
 	var rows, unlinked, failed int
 
 	// Loop until a batch comes back short, so a large backlog drains in one run
@@ -115,10 +129,6 @@ func main() {
 	for {
 		if ctx.Err() != nil {
 			log.Warn("interrupted; stopping early")
-			break
-		}
-		if dryRun {
-			log.Info("dry run: skipping deletion")
 			break
 		}
 
