@@ -28,6 +28,7 @@ COPY services/email-worker/requirements.txt services/email-worker/requirements.t
 COPY services/shared/kafka_security services/shared/kafka_security
 COPY services/shared/tracing services/shared/tracing
 COPY services/shared/logging_setup services/shared/logging_setup
+COPY services/shared/resilience services/shared/resilience
 WORKDIR /src/services/email-worker
 RUN pip install --upgrade pip && pip install -r requirements.txt
 

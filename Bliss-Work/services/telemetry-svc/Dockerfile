@@ -29,6 +29,9 @@ COPY services/shared/kafka_security services/shared/kafka_security
 COPY services/shared/crypto services/shared/crypto
 COPY services/shared/tracing services/shared/tracing
 COPY services/shared/logging_setup services/shared/logging_setup
+COPY services/shared/org_purge_tables services/shared/org_purge_tables
+COPY services/shared/client_ip services/shared/client_ip
+COPY services/shared/resilience services/shared/resilience
 WORKDIR /src/services/telemetry-svc
 RUN pip install --upgrade pip && pip install -r requirements.txt
 

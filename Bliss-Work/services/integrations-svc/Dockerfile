@@ -36,6 +36,10 @@ COPY services/shared/internal_auth services/shared/internal_auth
 COPY services/shared/prune_events services/shared/prune_events
 COPY services/shared/logging_setup services/shared/logging_setup
 COPY services/shared/outbox_dlq services/shared/outbox_dlq
+COPY services/shared/org_purge_tables services/shared/org_purge_tables
+COPY services/shared/client_ip services/shared/client_ip
+COPY services/shared/resilience services/shared/resilience
+COPY services/shared/kafka_lazy_producer services/shared/kafka_lazy_producer
 WORKDIR /src/services/integrations-svc
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
