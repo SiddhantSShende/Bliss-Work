@@ -73,6 +73,29 @@ async def sessionize(db: AsyncSession, rows: list[SessionizableRow]) -> None:
     and within the SAME transaction/RLS context — this never sets org context
     itself, matching insert_events's own contract.
     """
+    if not rows:
+        return
+    # The desktop sampler and the browser extension are independent PROCESSES
+    # for the same (org, user) — each holds its own ingest token (see
+    # routes/agent.py's per-(org,user) token scoping, which is why every row
+    # in one call here always shares one org_id/user_id) and POSTs its own
+    # batch through its own request. Nothing upstream serializes those two
+    # requests against each other, and a focus switch can make both sensors
+    # flush within the same moment: under READ COMMITTED, both transactions'
+    # `_find_uncorrelated` lookups would then miss each other's not-yet-
+    # committed row and each insert an independent standalone session
+    # (kind='app' and kind='site') instead of one merged 'app+site' row.
+    #
+    # This blocking, txn-scoped lock — released automatically at commit, same
+    # idiom as service.write_audit's per-org lock in auth-svc — makes the
+    # second request wait for the first to commit and then find its row, so
+    # correlation always sees a consistent picture regardless of which
+    # sensor's batch happens to land first. Scoped to (org_id, user_id), not
+    # global, so unrelated users' sessionize calls never contend.
+    await db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:k)::bigint)"),
+        {"k": f"sessionize:{rows[0].org_id}:{rows[0].user_id}"},
+    )
     for row in rows:
         if row.category == "app":
             await _sessionize_desktop(db, row)
@@ -292,12 +315,17 @@ async def _reanchor_standalone_site_session(
     detail_enc = await cryptor().encrypt(
         db, org_id, json.dumps(detail, separators=(",", ":"), sort_keys=True)
     ) if detail else None
+    # title is encrypted the same way (see 0008_encrypt_activity_session_title.sql):
+    # the legacy plaintext `title` column is explicitly cleared on every write
+    # this function makes, never merely left alone.
+    title_enc = await cryptor().encrypt(db, org_id, title) if title else None
     result = await db.execute(
         text(
             """
             UPDATE activity_sessions
                SET anchor_event_id = :new_anchor, correlated_event_id = :correlated,
-                   kind = :kind, app_name = :app_name, domain = :domain, title = :title,
+                   kind = :kind, app_name = :app_name, domain = :domain,
+                   title = NULL, title_enc = :title_enc,
                    started_at = :started, ended_at = :ended, duration_ms = :duration,
                    detail_enc = :detail, updated_at = now()
              WHERE anchor_event_id = :old_anchor AND org_id = :org
@@ -305,7 +333,7 @@ async def _reanchor_standalone_site_session(
         ),
         {
             "new_anchor": new_anchor_id, "correlated": correlated_id, "kind": kind,
-            "app_name": app_name, "domain": domain, "title": title,
+            "app_name": app_name, "domain": domain, "title_enc": title_enc,
             "started": started_at, "ended": ended_at,
             "duration": int((ended_at - started_at).total_seconds() * 1000),
             "detail": detail_enc, "old_anchor": site_event_id, "org": org_id,
@@ -318,10 +346,10 @@ _INSERT = text(
     """
     INSERT INTO activity_sessions (
         id, org_id, user_id, anchor_event_id, correlated_event_id, started_at,
-        ended_at, duration_ms, kind, app_name, domain, title, detail_enc
+        ended_at, duration_ms, kind, app_name, domain, title, title_enc, detail_enc
     ) VALUES (
         :id, :org, :uid, :anchor, :correlated, :started, :ended, :duration,
-        :kind, :app_name, :domain, :title, :detail
+        :kind, :app_name, :domain, NULL, :title_enc, :detail
     )
     """
 )
@@ -330,10 +358,11 @@ _INSERT = text(
 # second session for an anchor it has already seen through the SELECT-then-
 # branch in `_upsert_session` below, which finds the existing row and updates
 # it instead — the check-then-act race that would matter under true
-# concurrent writers is closed by the fact that a given (org, user)'s events
-# are only ever sessionized by ONE request at a time in this deployment
-# (desktop and browser batches are serialized per-producer by their own
-# ingest route, never issued concurrently by the same agent).
+# concurrent writers is closed by sessionize()'s per-(org,user) advisory
+# lock: a given (org, user)'s batches are serialized against EACH OTHER
+# (desktop vs. browser, or a retried batch racing the original), not merely
+# against themselves, so only one request at a time ever reaches this code
+# for that user.
 
 
 async def _upsert_session(
@@ -360,6 +389,10 @@ async def _upsert_session(
     already sessionized, which must update in place, not insert twice).
     """
     detail_enc = await cryptor().encrypt(db, row.org_id, json.dumps(detail, separators=(",", ":"), sort_keys=True)) if detail else None
+    # Same treatment as detail_enc — see 0008_encrypt_activity_session_title.sql.
+    # The legacy plaintext `title` column is explicitly cleared (never merely
+    # left alone) on both the insert and the update branch below.
+    title_enc = await cryptor().encrypt(db, row.org_id, title) if title else None
     existing = (
         await db.execute(
             text("SELECT id FROM activity_sessions WHERE org_id = :org AND anchor_event_id = :anchor"),
@@ -372,7 +405,8 @@ async def _upsert_session(
                 """
                 UPDATE activity_sessions
                    SET correlated_event_id = COALESCE(:correlated, correlated_event_id),
-                       kind = :kind, app_name = :app_name, domain = :domain, title = :title,
+                       kind = :kind, app_name = :app_name, domain = :domain,
+                       title = NULL, title_enc = :title_enc,
                        started_at = :started, ended_at = :ended, duration_ms = :duration,
                        detail_enc = :detail, updated_at = now()
                  WHERE id = :id
@@ -380,7 +414,7 @@ async def _upsert_session(
             ),
             {
                 "id": str(existing.id), "correlated": correlated_id, "kind": kind,
-                "app_name": app_name, "domain": domain, "title": title,
+                "app_name": app_name, "domain": domain, "title_enc": title_enc,
                 "started": started_at, "ended": ended_at,
                 "duration": int((ended_at - started_at).total_seconds() * 1000),
                 "detail": detail_enc,
@@ -393,7 +427,7 @@ async def _upsert_session(
             "id": session_id, "org": row.org_id, "uid": row.user_id, "anchor": anchor_id,
             "correlated": correlated_id, "started": started_at, "ended": ended_at,
             "duration": int((ended_at - started_at).total_seconds() * 1000),
-            "kind": kind, "app_name": app_name, "domain": domain, "title": title,
+            "kind": kind, "app_name": app_name, "domain": domain, "title_enc": title_enc,
             "detail": detail_enc,
         },
     )

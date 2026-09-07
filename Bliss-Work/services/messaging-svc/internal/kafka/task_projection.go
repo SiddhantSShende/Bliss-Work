@@ -21,6 +21,9 @@ const (
 	typeTaskCompleted    = "task.completed"
 	typeTaskIgnored      = "task.ignored"
 	typeTaskLeft         = "task.left"
+	// Internal-only (see packages/shared/src/types/events.ts's TaskDeleted):
+	// an admin hard-deleted the task via task-svc's internal by-title endpoint.
+	typeTaskDeleted = "task.deleted"
 )
 
 // TaskProjectionConsumer eagerly projects task.events.v1 into the messagingdb
@@ -122,7 +125,7 @@ func (c *TaskProjectionConsumer) handle(ctx context.Context, value []byte) bool 
 		return true
 	}
 	switch evt.Type {
-	case typeTaskAssigned, typeTaskAcknowledged, typeTaskCompleted, typeTaskIgnored, typeTaskLeft:
+	case typeTaskAssigned, typeTaskAcknowledged, typeTaskCompleted, typeTaskIgnored, typeTaskLeft, typeTaskDeleted:
 		// supported
 	default:
 		return true
@@ -162,6 +165,8 @@ func (c *TaskProjectionConsumer) handle(ctx context.Context, value []byte) bool 
 		werr = c.updateBadge(ctx, evt, occurred, "LEFT")
 	case typeTaskIgnored:
 		werr = c.store.HideTaskInboxItem(ctx, evt.AssigneeID, evt.TaskID, occurred)
+	case typeTaskDeleted:
+		werr = c.store.DeleteTaskInboxItem(ctx, evt.AssigneeID, evt.TaskID, occurred)
 	}
 	if werr != nil {
 		c.log.Error("task projector write failed",

@@ -29,12 +29,36 @@ const queryClient = new QueryClient({
 // devEndpoints()'s "localhost"/"10.0.2.2" defaults (constants/endpoints.ts)
 // only resolve on an emulator/simulator running on the SAME machine as the
 // backend — meaningless on a real phone or iPhone. Testing on a physical
-// device therefore needs either the always-reachable production backend
-// (no networking setup at all — just flip this to true) or a local
-// docker-compose stack on the same LAN, reached via that machine's real IP
-// through resolveEndpoints's `overrides` param. Leave false for emulator/
-// simulator testing against a local dev stack, which needs neither.
-const FORCE_PROD_BACKEND = true;
+// device therefore needs either the always-reachable production backend (no
+// networking setup at all) or a local docker-compose stack on the same LAN,
+// reached via that machine's real IP through resolveEndpoints's `overrides`
+// param.
+//
+// This used to be a hardcoded `true` here, which meant EVERY build —
+// including an ordinary `__DEV__` build on an emulator meant to hit a local
+// docker-compose stack — silently talked to the real production backend
+// (real login attempts, real MFA/captcha) unless a developer happened to
+// notice this line and flip it back. It now defaults to `false` and reads an
+// explicit, machine-local opt-in instead: create
+// `src/constants/localBackendOverride.ts` (gitignored — see
+// apps/mobile/.gitignore, the same versioned-default/gitignored-local-
+// override split ios/.xcode.env + .xcode.env.local already use) exporting
+// `export const FORCE_PROD_BACKEND = true;` ONLY on the machine doing
+// physical-device testing. No such file — the default on every other
+// checkout — resolves to `false`.
+function readForceProdBackendOverride(): boolean {
+  try {
+    // Deliberately a `require`, not a static `import`: the file is expected
+    // to be absent on every checkout except a physical-device tester's, and
+    // only `require` lets that absence be caught here instead of failing the
+    // bundle for everyone else.
+    const override = require('../constants/localBackendOverride') as { FORCE_PROD_BACKEND?: boolean };
+    return override.FORCE_PROD_BACKEND === true;
+  } catch {
+    return false;
+  }
+}
+const FORCE_PROD_BACKEND = readForceProdBackendOverride();
 const endpoints = resolveEndpoints(FORCE_PROD_BACKEND || !__DEV__, Platform.OS === 'ios' ? 'ios' : 'android');
 initAuthCookie(endpoints.authBase);
 

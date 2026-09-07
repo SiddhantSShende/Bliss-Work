@@ -17,7 +17,7 @@ from crypto import cryptor
 from ..db import session, set_org_context
 from ..logging_setup import log
 from ..schemas import CreateTaskRequest, CreateTaskResponse, MAX_ASSIGNEES
-from .helpers import resolve_username
+from .helpers import enqueue_outbox, resolve_username
 
 router = APIRouter()
 
@@ -277,6 +277,12 @@ async def delete_task_by_title_internal(
     Deletes all tasks with the specified title in that org. If username is
     provided, only deletes tasks created by that username.
 
+    Emits one `task.deleted` outbox event per deleted assignee (see
+    events.task_deleted) so downstream projections that only close on a
+    terminal task.* event — sticky-svc's desktop pins, messaging-svc's unified
+    inbox — don't go stale forever for a task that was hard-deleted rather
+    than carried through the normal lifecycle.
+
     Titles are stored encrypted (title_enc) under each org's own DEK, with no
     plaintext column and no search index, so matching by title means fetching
     candidate rows and decrypting each with its own org_id before comparing.
@@ -359,17 +365,41 @@ async def delete_task_by_title_internal(
                 "username": username,
             }
 
-        result = await db.execute(
-            text("DELETE FROM task_assignees WHERE task_id = ANY(:ids)"),
-            {"ids": matching_ids},
-        )
-        assignees_deleted = result.rowcount
+        # RETURNING captures the pre-delete rows so a task.deleted event can be
+        # enqueued per surviving assignee below — sticky-svc's pins and
+        # messaging-svc's inbox rows otherwise have no terminal event to close
+        # on and go stale forever (this endpoint used to just delete rows and
+        # tell no one).
+        assignee_rows = (
+            await db.execute(
+                text(
+                    "DELETE FROM task_assignees WHERE task_id = ANY(:ids) "
+                    "RETURNING task_id, assignee_id, status_version"
+                ),
+                {"ids": matching_ids},
+            )
+        ).all()
+        assignees_deleted = len(assignee_rows)
 
-        result = await db.execute(
-            text("DELETE FROM tasks WHERE id = ANY(:ids) RETURNING id"),
-            {"ids": matching_ids},
-        )
-        tasks_deleted = result.rowcount
+        task_rows = (
+            await db.execute(
+                text("DELETE FROM tasks WHERE id = ANY(:ids) RETURNING id, sender_id"),
+                {"ids": matching_ids},
+            )
+        ).all()
+        tasks_deleted = len(task_rows)
+
+        sender_by_task = {str(row.id): str(row.sender_id) for row in task_rows}
+        for row in assignee_rows:
+            task_id = str(row.task_id)
+            evt = events.task_deleted(
+                org_id=org_id,
+                task_id=task_id,
+                assignee_id=str(row.assignee_id),
+                sender_id=sender_by_task[task_id],
+                status_version=row.status_version + 1,
+            )
+            await enqueue_outbox(db, events.TASK_TOPIC, task_id, evt)
 
         await db.commit()
         log.info(

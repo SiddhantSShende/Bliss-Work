@@ -413,13 +413,24 @@ async def refresh(
 async def logout(
     response: Response,
     request: Request,
+    body: RefreshRequest | None = None,
     refresh_token: str | None = Cookie(default=None, alias=REFRESH_COOKIE),
 ) -> Response:
-    if refresh_token:
+    """Logout carries no bearer token — this is the same pre-org-context shape
+    as /auth/refresh, and for the same reason accepts the raw refresh token in
+    the request body as well as the cookie: desktop and mobile cannot rely on
+    the cookie travelling (see apps/desktop/src/main/session-token.ts), and
+    previously had no way to name which session to revoke here at all. Mobile
+    used to work around this by writing its Keychain-mirrored token back into
+    the native cookie jar immediately before calling logout, purely so THIS
+    endpoint would see it — see apps/mobile/src/services/authCookie.ts's
+    ensureJarMatchesMirrorForLogout, now removable once this ships.
+    """
+    raw = (body.token if body else None) or refresh_token
+    if raw:
         async with engine.begin() as conn:
-            # Logout carries no bearer token — the cookie is the only credential
-            # — so the member is resolved from the refresh-token row itself
-            # BEFORE the family is revoked. Cross-org lookup by token hash, hence
+            # The member is resolved from the refresh-token row itself BEFORE
+            # the family is revoked. Cross-org lookup by token hash, hence
             # bypass, exactly as /auth/refresh does.
             await service.set_bypass_rls(conn)
             row = (
@@ -428,10 +439,10 @@ async def logout(
                         "SELECT u.id, u.org_id, rt.family_id FROM refresh_tokens rt "
                         "JOIN users u ON u.id = rt.user_id WHERE rt.token_hash = :h"
                     ),
-                    {"h": service.sha256_bytes(refresh_token)},
+                    {"h": service.sha256_bytes(raw)},
                 )
             ).first()
-            await service.revoke_family_by_token(conn, refresh_token)
+            await service.revoke_family_by_token(conn, raw)
             if row is not None:
                 ip, user_agent, request_id = request_context(request)
                 await session_events.session_ended(

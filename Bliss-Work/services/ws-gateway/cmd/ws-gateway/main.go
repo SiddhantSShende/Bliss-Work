@@ -21,6 +21,7 @@ import (
 	"github.com/task-board/ws-gateway/internal/hub"
 	"github.com/task-board/ws-gateway/internal/presence"
 	"github.com/task-board/ws-gateway/internal/push"
+	"github.com/task-board/ws-gateway/internal/revoke"
 	"github.com/task-board/ws-gateway/internal/safego"
 	"github.com/task-board/ws-gateway/internal/server"
 	rtcsignal "github.com/task-board/ws-gateway/internal/signal"
@@ -207,6 +208,17 @@ func main() {
 				"no per-pod offset to lose.")
 		}
 	}
+
+	// Session-revocation consumer: force-closes a locally-connected socket the
+	// moment its session is revoked (auth-svc's /auth/sessions, /auth/members/
+	// {id}/sessions). Runs UNCONDITIONALLY, independent of WS_FANOUT_MODE above
+	// — which topology carries chat/task/notification events is a delivery
+	// concern; enforcing a revoked session promptly is a security baseline that
+	// must hold the same way in both modes. See internal/revoke's doc comment
+	// for why its consumer group is per-node but NOT restart-stable, unlike the
+	// broadcast fan-out consumer's.
+	revokeConsumer := revoke.New(cfg.KafkaBrokers, nodeID, h, log)
+	safego.Go(log, "ws-gateway.session-revoke-consumer", func() { revokeConsumer.Run(rootCtx) })
 
 	// Phase 5: delivery-ack dispatcher. Batches client message.ack frames
 	// per recipient over 500ms windows and POSTs to messaging-svc, which

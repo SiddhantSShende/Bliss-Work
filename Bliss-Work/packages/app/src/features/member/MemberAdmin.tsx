@@ -1,13 +1,14 @@
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ShieldCheck, ShieldOff, UserMinus, UserPlus } from "lucide-react";
-import { Badge, Button } from "@taskboard/ui";
-import type { MemberDTO, Role } from "@taskboard/shared";
+import { Badge, Button, Spinner } from "@taskboard/ui";
+import { ApiError, type ActiveSessionDTO, type MemberDTO, type Role } from "@taskboard/shared";
 import { useRuntime } from "../../lib/runtime";
 import { qk } from "../../lib/queryBridge";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { RoleBadge } from "../RoleBadge";
+import { ActiveSessionsList } from "../ActiveSessionsList";
 
 /**
  * Admin actions on one member: role, suspend, remove.
@@ -147,6 +148,8 @@ export function MemberAdmin({
         </div>
       </Section>
 
+      <MemberSessionsSection memberId={member.id} />
+
       <ConfirmDialog
         open={confirm !== null}
         onClose={() => !lifecycle.isPending && setConfirm(null)}
@@ -172,6 +175,84 @@ export function MemberAdmin({
         onConfirm={() => lifecycle.mutate(confirm === "remove" ? "remove" : "suspend")}
       />
     </div>
+  );
+}
+
+/**
+ * A member's active sign-in sessions, with per-session remote sign-out.
+ *
+ * Separate query/mutation from the self-service ActiveSessions.tsx page —
+ * different endpoint (GET/DELETE /auth/members/{id}/sessions, org_admin
+ * only). Passes no `currentSessionId` to ActiveSessionsList (defaults to
+ * null): this is never the admin's own session — the server itself refuses
+ * that with a 409, same self-action rule as suspend/remove above. Shares
+ * ActiveSessionsList for the row rendering so a session looks the same
+ * whether an admin or the member themselves is looking at it.
+ */
+function MemberSessionsSection({ memberId }: { memberId: string }) {
+  const { api } = useRuntime();
+  const qc = useQueryClient();
+  const [confirmSession, setConfirmSession] = useState<ActiveSessionDTO | null>(null);
+  const [revokingId, setRevokingId] = useState<string | null>(null);
+
+  const { data: sessions, isLoading } = useQuery({
+    queryKey: qk.memberActiveSessions(memberId),
+    queryFn: () => api.listMemberSessions(memberId),
+  });
+
+  const confirmRevoke = async () => {
+    if (!confirmSession) return;
+    const target = confirmSession;
+    setRevokingId(target.id);
+    try {
+      await api.revokeMemberSession(memberId, target.id);
+      qc.setQueryData<ActiveSessionDTO[]>(qk.memberActiveSessions(memberId), (prev) =>
+        (prev ?? []).filter((s) => s.id !== target.id),
+      );
+      toast.success(`Signed out ${target.device}`);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) {
+        await qc.invalidateQueries({ queryKey: qk.memberActiveSessions(memberId) });
+      } else {
+        toast.error("Couldn't sign out that session", { description: "Please try again." });
+      }
+    } finally {
+      setRevokingId(null);
+      setConfirmSession(null);
+    }
+  };
+
+  return (
+    <Section
+      title="Active sessions"
+      hint="Signing out a session ends it immediately — the device will need to sign in again."
+    >
+      {isLoading ? (
+        <div className="flex justify-center p-4">
+          <Spinner />
+        </div>
+      ) : !sessions || sessions.length === 0 ? (
+        <p className="text-sm text-muted">No active sessions.</p>
+      ) : (
+        <ActiveSessionsList sessions={sessions} revokingId={revokingId} onRevoke={setConfirmSession} />
+      )}
+
+      <ConfirmDialog
+        open={confirmSession !== null}
+        onClose={() => !revokingId && setConfirmSession(null)}
+        title="Sign out this session?"
+        message={
+          <>
+            <strong className="text-fg">{confirmSession?.device}</strong> will be signed out
+            immediately and will need to sign in again.
+          </>
+        }
+        confirmLabel="Sign out"
+        danger
+        busy={revokingId === confirmSession?.id}
+        onConfirm={confirmRevoke}
+      />
+    </Section>
   );
 }
 

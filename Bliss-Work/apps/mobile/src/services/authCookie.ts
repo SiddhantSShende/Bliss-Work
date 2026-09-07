@@ -31,12 +31,12 @@ import {
  * from the mirror, not the jar, so a value already spent/rotated server-side
  * is never handed back as if it were current.
  *
- * `/auth/refresh` accepts the token in the request BODY as well as the
- * cookie (RefreshRequest.token) — already built for exactly this, no
- * backend change needed; `packages/app/src/lib/refresh.ts` already calls
- * `config.getRefreshToken()` to populate that body field. `/auth/logout`,
- * however, reads ONLY the cookie (no body-token path) — see signOut()
- * below for how that's worked around without a backend change.
+ * Both `/auth/refresh` and `/auth/logout` accept the token in the request
+ * BODY as well as the cookie (RefreshRequest.token) — `getRefreshToken()`
+ * below is the one accessor both paths call to populate that body field:
+ * `packages/app/src/lib/refresh.ts` via `config.getRefreshToken()`, and
+ * this app's `services/auth.ts::signOut()` for /auth/logout. Neither
+ * depends on the native cookie jar's copy travelling correctly.
  */
 
 const COOKIE_NAME = 'refresh_token';
@@ -96,33 +96,6 @@ export async function persistRefreshToken(token: string | null): Promise<void> {
     await setStoredRefreshToken(token);
   } else {
     await clearStoredRefreshToken();
-  }
-}
-
-/**
- * Sign-out workaround for the one backend gap this can't fix: `POST
- * /auth/logout` reads the refresh token ONLY from the request's `Cookie`
- * header (services/auth-svc/app/routes/auth.py — no RefreshRequest-style
- * body param like /auth/refresh has). If the native jar's cookie has gone
- * stale relative to the Keychain mirror for any reason, the server-side
- * revoke would silently no-op. Guarantee correctness instead of hoping the
- * jar agrees: write the mirrored value into the jar immediately before the
- * logout call, so the `Cookie:` header fetch sends is provably the same
- * token being revoked.
- */
-export async function ensureJarMatchesMirrorForLogout(): Promise<void> {
-  if (!cookieOrigin) return;
-  const token = await getStoredRefreshToken();
-  if (!token) return;
-  try {
-    await CookieManager.set(cookieOrigin, {
-      name: COOKIE_NAME,
-      value: token,
-      path: '/',
-    });
-  } catch {
-    /* best-effort — logout still proceeds and clears the LOCAL session
-       either way; see clearRefreshTokenEverywhere. */
   }
 }
 

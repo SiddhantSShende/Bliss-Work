@@ -15,6 +15,13 @@ forever:
     outbox            one row per event ever produced, WITH ITS FULL JSON
                       PAYLOAD
     consumed_events   one row per event ever consumed
+    oauth_states      one row per OAuth connect attempt, ABANDONED ONES INCLUDED
+
+`oauth_states` is the clearest evidence it was an oversight rather than a
+decision: the schema carries an `idx_oauth_states_expiry` index whose only
+conceivable use is a sweeper by age, and no sweeper was ever written — every
+OAuth flow a user starts and then abandons (closes the tab, clicks "Cancel" on
+the provider's consent screen) leaves its row behind forever.
 
 The failure is slow and then sudden, and it is not primarily about disk. The hot
 paths stay index probes throughout; what degrades is everything around them —
@@ -39,6 +46,15 @@ Each table is kept for as long as something can still USE it, and not longer.
   * consumed_events — the dedup window. A row's only job is to recognise a
     redelivery, and Kafka cannot redeliver past its topic retention, so anything
     older than that (plus a wide margin) can never match again.
+
+  * oauth_states — connect_start sets `expires_at` to a 10-minute TTL, and the
+    callback route already refuses (and consumes) any row past it, so a row
+    surviving past its own `expires_at` is already dead to every code path
+    that reads this table. It also carries an ENCRYPTED snapshot of the org's
+    OAuth client secret and PKCE verifier (see
+    0014_oauth_state_credential_snapshot.sql), so there is a confidentiality
+    reason to bound it, not just a growth one. The retention window below is
+    pure grace margin past that expiry, not a live-use window.
 
 The batching/locking mechanics live in the shared `prune_events` package
 (services/shared/prune_events) — this file supplies only what is specific to
@@ -70,6 +86,16 @@ TARGETS: tuple[Target, ...] = (
         where="consumed_at < now() - make_interval(secs => :retention)",
         retention_seconds=30 * DAY,
         why="past Kafka's retention a redelivery cannot happen, so the row can never match",
+    ),
+    Target(
+        table="oauth_states",
+        # expires_at is already the "stale as of" instant (a 10-minute TTL set
+        # at connect_start) — the callback route refuses any row past it, so
+        # :retention here is pure grace margin, not a live-use window.
+        where="expires_at < now() - make_interval(secs => :retention)",
+        retention_seconds=DAY,
+        why="an abandoned OAuth flow (closed tab, declined consent) never gets "
+        "consumed by the callback; expires_at already marks the row dead",
     ),
 )
 

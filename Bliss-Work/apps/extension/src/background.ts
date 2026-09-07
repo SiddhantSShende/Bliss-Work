@@ -132,13 +132,33 @@ async function setOpen(open: OpenSpan | null): Promise<void> {
   else await chrome.storage.session.remove("open");
 }
 
+// Serializes every read-modify-write against the "queue" key. chrome.storage
+// gives no transaction guarantee, and MV3 dispatches listeners concurrently,
+// so enqueue() and flush() — each independently a get-then-set — could
+// otherwise interleave: flush() reads the queue, a concurrent enqueue() reads
+// the same stale value and writes queue+[C], then flush()'s own pending write
+// (computed from its earlier read) overwrites that, silently dropping C. This
+// chain forces every mutation to fully apply before the next one reads.
+let queueLock: Promise<unknown> = Promise.resolve();
+function withQueue<T>(mutate: (queue: unknown[]) => { queue: unknown[]; result: T }): Promise<T> {
+  const run = queueLock.then(async () => {
+    const { queue = [] } = await chrome.storage.session.get("queue");
+    const { queue: next, result } = mutate(queue as unknown[]);
+    await chrome.storage.session.set({ queue: next });
+    return result;
+  });
+  queueLock = run.catch(() => {}); // keep the chain alive past a rejection
+  return run;
+}
+
 async function enqueue(events: unknown[]): Promise<void> {
   if (!events.length) return;
-  const { queue = [] } = await chrome.storage.session.get("queue");
-  // Drop the OLDEST past the cap: after a long offline stretch the recent spans
-  // are the ones worth keeping.
-  const next = [...(queue as unknown[]), ...events].slice(-MAX_QUEUED);
-  await chrome.storage.session.set({ queue: next });
+  await withQueue((queue) => ({
+    // Drop the OLDEST past the cap: after a long offline stretch the recent
+    // spans are the ones worth keeping.
+    queue: [...queue, ...events].slice(-MAX_QUEUED),
+    result: undefined,
+  }));
 }
 
 /** Close the open span, decide whether it may be recorded, and buffer it. */
@@ -210,12 +230,11 @@ async function refreshTitle(url: string | undefined, title: string | undefined):
 async function flush(): Promise<void> {
   const cfg = await config();
   if (!cfg.token || !cfg.apiBase) return;
-  const { queue = [] } = await chrome.storage.session.get("queue");
-  const events = queue as unknown[];
-  if (!events.length) return;
-
-  const batch = events.slice(0, 200);
-  await chrome.storage.session.set({ queue: events.slice(batch.length) });
+  const batch = await withQueue((queue) => ({
+    queue: queue.slice(200),
+    result: queue.slice(0, 200),
+  }));
+  if (!batch.length) return;
   try {
     const res = await fetch(`${cfg.apiBase}/telemetry/ingest/agent`, {
       method: "POST",
@@ -227,8 +246,17 @@ async function flush(): Promise<void> {
       // ended. Forget the token and everything buffered: there is nothing to
       // recover, and retrying would be a former colleague's browser repeatedly
       // reporting into a workspace it no longer belongs to.
+      //
+      // "everything buffered" includes the in-progress open span, not just
+      // the queue — an open span left behind here survives this token and
+      // sits inert (focus() early-returns without cfg.token) until this
+      // machine is re-paired with a DIFFERENT token. reconcile() then finds
+      // paused:true on the new pairing and calls closeSpan(), flushing this
+      // stale, possibly weeks-old span under the NEW identity: one person's
+      // leftover browsing attributed to whoever re-paired the device.
+      // Mirrors options.ts's disconnect handler, which already clears both.
       await chrome.storage.local.remove("token");
-      await chrome.storage.session.remove("queue");
+      await chrome.storage.session.remove(["queue", "open"]);
       await setBadge("!");
       return;
     }

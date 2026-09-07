@@ -162,6 +162,31 @@ export const ActivitySessionPage = z.object({
 export type ActivitySessionPage = z.infer<typeof ActivitySessionPage>;
 
 /**
+ * One AUTHENTICATED sign-in session — auth-svc's GET /auth/sessions and its
+ * admin twin GET /auth/members/{userId}/sessions. `id` is the refresh-token
+ * family id (the actual thing DELETE /auth/sessions/{id} revokes), NOT to be
+ * confused with `ActivitySessionDTO.id` above: that is telemetry-svc's
+ * "one browser tab, roughly" activity record, entirely separate data with no
+ * shared identifier. `device`/`approxLocation` are already the same
+ * non-identifying, coarsened presentation ActivitySessionDTO uses
+ * (deviceLabel/ipPrefix) — this type just names them for what they are here.
+ *
+ * No `isCurrent` field: only the client holds the access token that answers
+ * "is this the session that made this request", and a server-side check
+ * (the refresh cookie) only ever worked on web — desktop/mobile don't
+ * reliably send it. Decode the access token's own `sid` claim instead (see
+ * `decodeJwtPayload` in `../lib/jwt`) and compare it to a session's `id`.
+ */
+export const ActiveSessionDTO = z.object({
+  id: z.string(),
+  createdAt: z.string(),
+  lastSeenAt: z.string(),
+  device: z.string(),
+  approxLocation: z.string().nullable().default(null),
+});
+export type ActiveSessionDTO = z.infer<typeof ActiveSessionDTO>;
+
+/**
  * One `activity_sessions` row — the CORRELATED desktop+browser record
  * telemetry-svc's sessionizer.py builds: a desktop `app.focus` span merged
  * with the browser `site.visit` span that overlapped it, or either span
@@ -493,6 +518,18 @@ export const MessageDTO = z.object({
    * with nothing to say otherwise.
    */
   isForward: z.boolean().optional(),
+  /**
+   * Set only when `kind` is "forward_external" (a WhatsApp deep-link pill), to
+   * the normalized destination — "whatsapp" today. The generic provenance UI
+   * (ForwardBadge/externalForward.ts) derives "Message forwarded to WhatsApp"
+   * from this rather than from text baked into `body`, so a future destination
+   * needs a new value here, not a new hardcoded string in the renderer.
+   *
+   * A bare string, not a strict enum: an unrecognized value must still degrade
+   * to a readable label (see externalPlatformDisplayName) rather than fail
+   * validation, the same tolerance MessageKindWire gives an unknown `kind`.
+   */
+  forwardPlatform: z.string().optional(),
 });
 
 /** One emoji's tally on one message, from the caller's point of view. */
@@ -972,6 +1009,8 @@ export const ChannelMessageDTO = z.object({
   kind: MessageKindWire.optional(),
   /** Mirrors MessageDTO.isForward. */
   isForward: z.boolean().optional(),
+  /** Mirrors MessageDTO.forwardPlatform. */
+  forwardPlatform: z.string().optional(),
   /** Tombstone: deleted for everyone. `body` is EMPTY on the wire when this is
    *  set — the server never decrypts a deleted message, so there is nothing
    *  here for a client to be trusted to conceal. */

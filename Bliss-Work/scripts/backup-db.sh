@@ -21,6 +21,8 @@
 # backup that fails silently is worse than none, because you stop looking.
 set -Eeuo pipefail
 
+source "$(dirname "${BASH_SOURCE[0]}")/lib/compose-job.sh"
+
 : "${BACKUP_ENCRYPTION_KEY:?set BACKUP_ENCRYPTION_KEY (the dump encryption passphrase)}"
 PG_USER="${POSTGRES_USER:-taskboard}"
 OUT_DIR="${BACKUP_DIR:-backups}"
@@ -35,31 +37,9 @@ COMPOSE_FILE="${COMPOSE_FILE:-$REPO_DIR/docker-compose.prod.yml}"
 export COMPOSE_FILE
 
 # Docker may need sudo depending on the invoking user's groups; under systemd
-# this runs as root and needs neither. Detect rather than assume.
-if docker info >/dev/null 2>&1; then
-  USE_SUDO=0
-elif sudo -n docker info >/dev/null 2>&1; then
-  USE_SUDO=1
-else
-  echo "cannot reach the Docker daemon (with or without passwordless sudo)" >&2
-  exit 1
-fi
-
-# COMPOSE_FILE must reach compose, and SUDO SANITIZES THE ENVIRONMENT — an
-# exported COMPOSE_FILE does NOT survive `sudo docker compose`. Compose then
-# falls back to ./docker-compose.yml, i.e. the DEV stack, whose postgres is not
-# running on this host. The failure reads "service postgres is not running",
-# which points at the database rather than at the missing variable, so it costs
-# real time to diagnose. (deploy-prod.sh documents the identical trap for
-# IMAGE_TAG.) Under systemd this runs as root, takes the no-sudo branch and the
-# bug is invisible — it only bites a human running the script by hand.
-compose() {
-  if (( USE_SUDO )); then
-    sudo env COMPOSE_FILE="$COMPOSE_FILE" docker compose "$@"
-  else
-    docker compose "$@"
-  fi
-}
+# this runs as root and needs neither. Detect rather than assume. (compose()
+# in lib/compose-job.sh documents the COMPOSE_FILE/sudo-env trap this avoids.)
+detect_docker_sudo
 
 # A dump smaller than this is not a real database — it's a connection error that
 # got encrypted. Even an empty schema-only dump is several KB of DDL.
@@ -68,7 +48,7 @@ MIN_BYTES=2048
 mkdir -p "$OUT_DIR"
 failed=0
 
-for db in authdb taskdb messagingdb notificationdb emaildb integrationsdb telemetrydb; do
+for db in authdb taskdb messagingdb notificationdb emaildb integrationsdb telemetrydb stickydb; do
   out="$OUT_DIR/${db}-${TS}.sql.enc"
   part="$out.part"
   echo "backing up $db -> $out"

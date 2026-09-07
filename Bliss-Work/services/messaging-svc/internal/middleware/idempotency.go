@@ -10,6 +10,11 @@
 //
 // A failed claim (DB unavailable) is a 5xx — DON'T silently skip the
 // dedup or two retries can race-execute the same side effect.
+//
+// A claim only sticks when the handler actually succeeds. If the wrapped
+// handler responds with a non-2xx status, the claim is released so a
+// legitimate retry with the same key isn't silently dropped on the floor
+// (see claimAndServe).
 package middleware
 
 import (
@@ -26,12 +31,15 @@ import (
 //
 // Behavior matrix:
 //
-//	Header absent          → pass through (back-compat with callers that don't
-//	                         supply the header; the gated endpoints are still
-//	                         idempotent at the data layer so this is safe).
-//	Header present, fresh  → claim + pass through.
-//	Header present, replay → respond 204 immediately; do NOT run the handler.
-//	DB error on claim      → 500 with internal_error.
+//	Header absent           → pass through (back-compat with callers that
+//	                          don't supply the header; the gated endpoints
+//	                          are still idempotent at the data layer so this
+//	                          is safe).
+//	Header present, fresh    → claim + run the handler. A 2xx response keeps
+//	                          the claim; a non-2xx response releases it so
+//	                          the caller can safely retry the same key.
+//	Header present, replay   → respond 204 immediately; do NOT run the handler.
+//	DB error on claim        → 500 with internal_error.
 //
 // The header is scoped to (caller user_id, key) — different users can choose
 // the same key without colliding.
@@ -53,19 +61,41 @@ func Idempotency(pool *pgxpool.Pool, log *slog.Logger) func(http.Handler) http.H
 				http.Error(w, `{"error":"missing auth context"}`, http.StatusUnauthorized)
 				return
 			}
-			fresh, err := claimIdempotencyKey(r.Context(), pool, claims.UserID, key)
-			if err != nil {
-				log.Error("idempotency claim failed",
-					"user", claims.UserID, "key_len", len(key), "err", err)
-				http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
-				return
-			}
-			if !fresh {
-				w.WriteHeader(http.StatusNoContent)
-				return
-			}
-			next.ServeHTTP(w, r)
+			claimAndServe(w, r, pool, log, claims.UserID, key, next)
 		})
+	}
+}
+
+// claimAndServe claims (userID, key), runs next, and releases the claim again
+// if next responds with a non-2xx status — otherwise a handler that fails
+// (validation error, downstream 5xx, etc.) would leave the key claimed
+// forever, and a legitimate client retry with the same key would be silently
+// short-circuited to 204 without the handler ever re-running. A successful
+// (2xx) response leaves the claim in place, which is what makes a replay
+// short-circuit to 204 in the first place.
+func claimAndServe(w http.ResponseWriter, r *http.Request, pool *pgxpool.Pool, log *slog.Logger, userID, key string, next http.Handler) {
+	fresh, err := claimIdempotencyKey(r.Context(), pool, userID, key)
+	if err != nil {
+		log.Error("idempotency claim failed",
+			"user", userID, "key_len", len(key), "err", err)
+		http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+		return
+	}
+	if !fresh {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+	next.ServeHTTP(rec, r)
+
+	if rec.status < 200 || rec.status >= 300 {
+		if releaseErr := releaseIdempotencyKey(r.Context(), pool, userID, key); releaseErr != nil {
+			// The handler's own (already-sent) response wins regardless — we
+			// only log here, we don't fail the response a second time.
+			log.Error("idempotency release failed",
+				"user", userID, "key_len", len(key), "status", rec.status, "err", releaseErr)
+		}
 	}
 }
 
@@ -82,4 +112,17 @@ func claimIdempotencyKey(ctx context.Context, pool *pgxpool.Pool, userID, key st
 		return false, err
 	}
 	return ct.RowsAffected() > 0, nil
+}
+
+// releaseIdempotencyKey deletes a claimed (user_id, key) row, symmetric with
+// claimIdempotencyKey. Used to undo a claim when the wrapped handler fails,
+// so a legitimate retry with the same key isn't silently dropped.
+func releaseIdempotencyKey(ctx context.Context, pool *pgxpool.Pool, userID, key string) error {
+	if pool == nil {
+		return errors.New("nil pool")
+	}
+	_, err := pool.Exec(ctx,
+		`DELETE FROM idempotency_keys WHERE user_id = $1 AND key = $2`,
+		userID, key)
+	return err
 }

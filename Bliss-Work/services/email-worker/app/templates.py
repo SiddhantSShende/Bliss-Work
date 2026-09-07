@@ -5,6 +5,19 @@ from jinja2 import Environment, select_autoescape
 
 _env = Environment(autoescape=select_autoescape(["html"]))
 
+# select_autoescape(["html"]) decides by FILE EXTENSION — meaningless for a
+# template compiled with from_string(), which has no filename (name=None).
+# Jinja's default_for_string then applies, which defaults to True: every
+# from_string() template on `_env`, HTML or not, silently autoescaped. That
+# was fine for the HTML halves (interpolating a name/message into markup
+# genuinely needs escaping) but wrong for the PLAIN-TEXT halves below,
+# which got HTML-entity-escaped too — a name like "O'Brien" or a subject
+# containing "R&D" was corrupted in the text/plain MIME part of every email
+# this service sends, including a user's own composed mail body (see
+# render_user_mail). A separate, explicitly non-autoescaping environment for
+# every _*_TEXT template fixes this without touching the HTML ones.
+_text_env = Environment(autoescape=False)  # noqa: S701 — plain text, never rendered as markup
+
 _HTML_TEMPLATE = _env.from_string(
     """\
 <!DOCTYPE html>
@@ -62,7 +75,7 @@ _HTML_TEMPLATE = _env.from_string(
 """
 )
 
-_TEXT_TEMPLATE = _env.from_string(
+_TEXT_TEMPLATE = _text_env.from_string(
     """\
 You're invited to {{ org_name }} on BlissWork
 
@@ -144,7 +157,7 @@ _NEW_MSG_HTML = _env.from_string(
 """
 )
 
-_NEW_MSG_TEXT = _env.from_string(
+_NEW_MSG_TEXT = _text_env.from_string(
     """\
 {{ sender_username }} sent you a message on BlissWork.
 
@@ -203,7 +216,7 @@ _NEW_TASK_HTML = _env.from_string(
 """
 )
 
-_NEW_TASK_TEXT = _env.from_string(
+_NEW_TASK_TEXT = _text_env.from_string(
     """\
 {{ sender_username }} assigned you a task on BlissWork.
 
@@ -288,7 +301,7 @@ _USER_MAIL_HTML = _env.from_string(
 </body></html>"""
 )
 
-_USER_MAIL_TEXT = _env.from_string(
+_USER_MAIL_TEXT = _text_env.from_string(
     """{{ body }}
 
 --
@@ -380,7 +393,7 @@ def _action_email(
 </html>
 """
     )
-    text = _env.from_string(
+    text = _text_env.from_string(
         """\
 {{ title }}
 

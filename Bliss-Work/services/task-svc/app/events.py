@@ -99,6 +99,24 @@ def task_left(
     }
 
 
+def task_deleted(
+    *, org_id: str, task_id: str, assignee_id: str, sender_id: str,
+    status_version: int,
+) -> dict:
+    # Internal-only (see packages/shared/src/types/events.ts's TaskDeleted):
+    # emitted when an admin hard-deletes a task via
+    # DELETE /internal/tasks/by-title/{title}, never a client action, so unlike
+    # task_left/task_ignored there is no assignee_username to stamp — nobody
+    # renders this as a toast.
+    return {
+        **_envelope(org_id, "task.deleted"),
+        "taskId": task_id,
+        "assigneeId": assignee_id,
+        "senderId": sender_id,
+        "statusVersion": status_version,
+    }
+
+
 def task_reviewed(
     *, org_id: str, task_id: str, assignee_id: str, sender_id: str,
     status_version: int, reviewer_username: str,

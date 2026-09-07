@@ -308,6 +308,12 @@ class StickyConsumer:
                         "                          ELSE last_delivered_at END, "
                         "  delivery_attempts = CASE WHEN :is_assign THEN 0 "
                         "                          ELSE delivery_attempts END, "
+                        # A reopened pin's watchdog backoff also has to restart —
+                        # otherwise it can inherit a next_eligible_at built up
+                        # over its previous (closed) life and go unnudged for
+                        # up to an hour in its new one.
+                        "  next_eligible_at = CASE WHEN :is_assign THEN now() "
+                        "                          ELSE next_eligible_at END, "
                         "  last_event_at = now() "
                         " WHERE org_id = :org AND assignee_id = :me AND task_id = :task"
                     ),

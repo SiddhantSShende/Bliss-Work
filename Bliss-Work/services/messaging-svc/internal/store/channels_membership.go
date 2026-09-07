@@ -10,8 +10,8 @@
 //	                    the "browse" counterpart.
 //
 //	JoinChannel       — self-add for an open channel. Locked channels reject
-//	                    with ErrForbidden; the caller has to be added by an
-//	                    existing member via AddChannelMembers instead.
+//	                    with ErrForbidden; the caller has to be added by a
+//	                    channel manager via AddChannelMembers instead.
 //
 //	LeaveChannel      — soft-leave: drop the membership row and audit it in
 //	                    channel_member_history so a future "you can re-join
@@ -152,7 +152,7 @@ func (s *Store) ListOpenChannels(
 
 // JoinChannel adds the caller to an OPEN channel in their org. Idempotent.
 // Locked channels return ErrForbidden — those require AddChannelMembers from
-// an existing member.
+// a channel manager.
 //
 // Emits ChannelMemberJoined on the messaging topic so task-svc can fan out
 // any active channel-allocated tasks to the new member. The outbox row is

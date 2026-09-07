@@ -61,8 +61,14 @@ export async function signOut(
     /* a failed hang-up must not strand the user in a signed-in-looking UI */
   }
 
-  // 4. Revoke server-side, then forget everything local.
-  await api.logout().catch(() => {});
+  // 4. Revoke server-side, then forget everything local. `getRefreshToken` is
+  //    the same accessor refreshSession() uses for the body-token fallback
+  //    (see lib/refresh.ts) — desktop/mobile's refresh cookie doesn't
+  //    reliably travel, so without this /auth/logout had no credential at
+  //    all on those platforms and only ever cleared a cookie that was never
+  //    really the source of truth there.
+  const bodyToken = await config.getRefreshToken?.().catch(() => null);
+  await api.logout(bodyToken ?? undefined).catch(() => {});
   useSession.getState().clear();
   // Electron mirrors the refresh token to an encrypted file so the session
   // survives a restart; without this, signing out would leave that mirror on

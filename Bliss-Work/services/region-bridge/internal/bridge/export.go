@@ -233,11 +233,17 @@ func (e *Exporter) publishAll(ctx context.Context, topic string, batch []kafka.M
 		metrics.Failures.WithLabelValues("export", "publish").Inc()
 		e.state.Fault(health.Export, err)
 
-		if attempt >= maxPublishAttempts {
+		if attempt >= maxPublishAttempts && e.dlq != nil {
 			// Set the stragglers aside so the topic moves again. Dead-lettering
 			// beats blocking: the events behind a poison one are healthy, and
 			// stalling the whole topic to protect one event is the trade the
 			// outbox poller learned not to make.
+			//
+			// With dead-lettering DISABLED (e.dlq == nil) this branch is skipped
+			// and the loop below falls through to retry instead: there is
+			// nowhere to set the stragglers aside TO, so the documented trade
+			// (see Config.DLQTopic) is to keep retrying and block this topic,
+			// not to silently drop them.
 			for i, msg := range pending {
 				if msg == nil {
 					continue

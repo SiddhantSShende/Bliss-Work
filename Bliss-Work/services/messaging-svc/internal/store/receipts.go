@@ -16,6 +16,17 @@ import (
 //
 // Called by the Phase 5 internal HTTP endpoint that ws-gateway POSTs after
 // it forwards bytes for a MessageCreated to the recipient's live socket.
+//
+// ── Why this is batched, not a loop ──────────────────────────────────────────
+// internal_delivery.go caps messageIds at 256 per call — the same number
+// ws-gateway uses for its outbound flushes — so this is deliberately built for
+// large batches. It used to run one SELECT, one conditional membership query,
+// and one INSERT per id, sequentially, inside a retry loop that replayed the
+// WHOLE batch on any serialization conflict: worst case, several hundred
+// sequential round trips for one ack call. appendCallsTx (calls.go) already
+// solved the identical shape of problem for paging calls — batch the reads
+// with `= ANY($1)`, resolve membership once per distinct conversation/thread
+// rather than once per message, and stitch the results together in memory.
 func (s *Store) MarkDelivered(ctx context.Context, recipientID string, messageIDs []string) error {
 	if len(messageIDs) == 0 {
 		return nil
@@ -34,75 +45,277 @@ func (s *Store) MarkDelivered(ctx context.Context, recipientID string, messageID
 			return err
 		}
 
-		for _, mid := range messageIDs {
-			var orgID, convID, senderID string
-			var threadID *string
-			err = tx.QueryRow(ctx, `
-				SELECT org_id, conversation_id, sender_id, thread_id
-				FROM messages WHERE id = $1`, mid).
-				Scan(&orgID, &convID, &senderID, &threadID)
-			if errors.Is(err, pgx.ErrNoRows) {
-				// Unknown messageId — skip, no event.
-				continue
-			}
-			if err != nil {
-				return err
-			}
-			// Self-delivery (sender is recipient): no-op.
-			if senderID == recipientID {
-				continue
-			}
+		// 1. Every message in the ask, in one round trip. Unknown ids are simply
+		// absent from the result — the same "skip, no event" outcome the old
+		// per-id ErrNoRows branch produced. messages.id is a primary key, so a
+		// repeated id in messageIDs collapses to one row here for free.
+		candidates, err := fetchDeliveryCandidatesTx(ctx, tx, messageIDs)
+		if err != nil {
+			return err
+		}
 
-			// The recipient must actually be a participant of this message's
-			// conversation (or thread, when set) before we stamp delivery and
-			// emit an event for them — MarkRead/MarkReadThread enforce the same
-			// rule for the caller; this path trusts recipientID from ws-gateway
-			// instead of a JWT, so it must not skip the check. A bad/spoofed
-			// recipientID for this one message is skipped, not fatal to the
-			// rest of the batch — messageIDs can span unrelated conversations.
-			memberErr := requireConversationMember(ctx, tx, orgID, convID, recipientID)
-			if threadID != nil {
-				memberErr = requireThreadMember(ctx, tx, orgID, *threadID, recipientID)
-			}
-			if memberErr != nil {
-				continue
-			}
+		// 2. Self-deliveries dropped, then conversation/thread membership
+		// resolved ONCE PER DISTINCT conversation or thread rather than once
+		// per message. A bad/spoofed recipientID for one message is excluded,
+		// not fatal to the rest of the batch — messageIds can span unrelated
+		// conversations — exactly as before.
+		deliverable, err := filterDeliverableTx(ctx, tx, recipientID, candidates)
+		if err != nil {
+			return err
+		}
+		if len(deliverable) == 0 {
+			return tx.Commit(ctx)
+		}
 
-			// Try to claim the delivered_at slot. ON CONFLICT … WHERE
-			// delivered_at IS NULL ensures only the first ack emits the event.
-			ct, dberr := tx.Exec(ctx, `
-				INSERT INTO message_delivery (message_id, recipient_id, delivered_at)
-				VALUES ($1, $2, now())
-				ON CONFLICT (message_id, recipient_id)
-				DO UPDATE SET delivered_at = COALESCE(message_delivery.delivered_at, now())
-				WHERE message_delivery.delivered_at IS NULL`,
-				mid, recipientID)
-			if dberr != nil {
-				return dberr
-			}
-			if ct.RowsAffected() == 0 {
-				// Already delivered (recipient acked twice). Skip event emit.
-				continue
-			}
+		// 3. Claim delivered_at for the whole batch in one statement. The
+		// ON CONFLICT … WHERE delivered_at IS NULL guard is unchanged from the
+		// per-row version — RETURNING reports exactly the messageIds actually
+		// claimed, i.e. everything except a recipient acking the same message
+		// twice.
+		claimed, err := claimDeliveryTx(ctx, tx, recipientID, deliverable)
+		if err != nil {
+			return err
+		}
+		if len(claimed) == 0 {
+			return tx.Commit(ctx)
+		}
 
-			evt := events.MessageDelivered{
-				Type:           events.TypeMessageDelivered,
-				EventID:        uuid.Must(uuid.NewV7()).String(),
-				OrgID:          orgID,
-				OccurredAt:     nowISO(),
-				ConversationID: convID,
-				ThreadID:       threadID,
-				MessageID:      mid,
-				SenderID:       senderID,
-				RecipientID:    recipientID,
-				DeliveredAt:    nowISO(),
-			}
-			if err := insertOutbox(ctx, tx, convID, evt); err != nil {
-				return err
-			}
+		// 4. One outbox row per newly-claimed message, batched per conversation
+		// (its outbox key) since messageIds can span unrelated conversations.
+		if err := emitDeliveredEventsTx(ctx, tx, recipientID, deliverable, claimed); err != nil {
+			return err
 		}
 		return tx.Commit(ctx)
 	})
+}
+
+// deliveryCandidate is one message pulled from a MarkDelivered batch, carrying
+// everything the membership check and the eventual MessageDelivered event need.
+type deliveryCandidate struct {
+	messageID string
+	orgID     string
+	convID    string
+	senderID  string
+	threadID  *string
+}
+
+// fetchDeliveryCandidatesTx batch-reads the messages named by ids. Replaces a
+// `SELECT ... WHERE id = $1` per id with one `= ANY($1)` — the same technique
+// appendCallsTx uses in calls.go to hydrate a page of calls in three queries
+// regardless of the page size.
+func fetchDeliveryCandidatesTx(ctx context.Context, tx pgx.Tx, ids []string) ([]deliveryCandidate, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT id, org_id, conversation_id, sender_id, thread_id
+		FROM messages WHERE id = ANY($1)`, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []deliveryCandidate
+	for rows.Next() {
+		var c deliveryCandidate
+		if err := rows.Scan(&c.messageID, &c.orgID, &c.convID, &c.senderID, &c.threadID); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// filterDeliverableTx drops self-deliveries and messages whose recipientID is
+// not actually a member of the message's conversation (or thread, when set) —
+// the same rule requireConversationMember/requireThreadMember enforce for a
+// single id (attachments.go), resolved here once per distinct conversation or
+// thread rather than once per message.
+//
+// Mirrors the original precedence exactly: a message with a thread_id is
+// checked against thread membership ONLY, never conversation membership too —
+// see MarkRead/MarkReadThread's own doc comments for why a thread can be
+// deleted-for-owner independently of the conversation underneath it.
+func filterDeliverableTx(
+	ctx context.Context, tx pgx.Tx, recipientID string, candidates []deliveryCandidate,
+) ([]deliveryCandidate, error) {
+	var convIDs, threadIDs []string
+	seenConv, seenThread := map[string]bool{}, map[string]bool{}
+	for _, c := range candidates {
+		if c.senderID == recipientID {
+			continue // self-delivery: no-op, and never needs a membership check
+		}
+		if c.threadID != nil {
+			if !seenThread[*c.threadID] {
+				seenThread[*c.threadID] = true
+				threadIDs = append(threadIDs, *c.threadID)
+			}
+			continue
+		}
+		if !seenConv[c.convID] {
+			seenConv[c.convID] = true
+			convIDs = append(convIDs, c.convID)
+		}
+	}
+
+	convOrgs, err := conversationOrgsTx(ctx, tx, convIDs, recipientID)
+	if err != nil {
+		return nil, err
+	}
+	threadOrgs, err := threadOrgsTx(ctx, tx, threadIDs, recipientID)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]deliveryCandidate, 0, len(candidates))
+	for _, c := range candidates {
+		if c.senderID == recipientID {
+			continue
+		}
+		if c.threadID != nil {
+			if threadOrgs[*c.threadID] != c.orgID {
+				continue
+			}
+		} else if convOrgs[c.convID] != c.orgID {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out, nil
+}
+
+// conversationOrgsTx reads convIDs' org_id, keyed by conversation id, but ONLY
+// for conversations where recipientID is actually one of the two participants
+// — the same "you are user_low or user_high" rule requireConversationMember
+// enforces one id at a time. An id absent from the result failed that check,
+// whatever its org.
+func conversationOrgsTx(
+	ctx context.Context, tx pgx.Tx, convIDs []string, recipientID string,
+) (map[string]string, error) {
+	out := map[string]string{}
+	if len(convIDs) == 0 {
+		return out, nil
+	}
+	rows, err := tx.Query(ctx, `
+		SELECT id, org_id, user_low, user_high
+		FROM conversations WHERE id = ANY($1)`, convIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, orgID, low, high string
+		if err := rows.Scan(&id, &orgID, &low, &high); err != nil {
+			return nil, err
+		}
+		if recipientID == low || recipientID == high {
+			out[id] = orgID
+		}
+	}
+	return out, rows.Err()
+}
+
+// threadOrgsTx reads threadIDs' org_id, keyed by thread id, but ONLY for
+// threads recipientID actually has a thread_members row for — the same rule
+// requireThreadMember enforces one id at a time.
+func threadOrgsTx(
+	ctx context.Context, tx pgx.Tx, threadIDs []string, recipientID string,
+) (map[string]string, error) {
+	out := map[string]string{}
+	if len(threadIDs) == 0 {
+		return out, nil
+	}
+	rows, err := tx.Query(ctx, `
+		SELECT t.id, t.org_id
+		FROM threads t
+		JOIN thread_members tm ON tm.thread_id = t.id AND tm.user_id = $2
+		WHERE t.id = ANY($1)`, threadIDs, recipientID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, orgID string
+		if err := rows.Scan(&id, &orgID); err != nil {
+			return nil, err
+		}
+		out[id] = orgID
+	}
+	return out, rows.Err()
+}
+
+// claimDeliveryTx claims message_delivery.delivered_at for every candidate in
+// one statement. The ON CONFLICT … WHERE guard is unchanged from the per-row
+// version: a message already delivered to this recipient is left untouched
+// and excluded from RETURNING, which is how the caller tells a fresh claim
+// from a duplicate ack without a second round trip.
+func claimDeliveryTx(
+	ctx context.Context, tx pgx.Tx, recipientID string, candidates []deliveryCandidate,
+) ([]string, error) {
+	ids := make([]string, len(candidates))
+	for i, c := range candidates {
+		ids[i] = c.messageID
+	}
+	rows, err := tx.Query(ctx, `
+		INSERT INTO message_delivery (message_id, recipient_id, delivered_at)
+		SELECT unnest($1::uuid[]), $2, now()
+		ON CONFLICT (message_id, recipient_id)
+		DO UPDATE SET delivered_at = COALESCE(message_delivery.delivered_at, now())
+		WHERE message_delivery.delivered_at IS NULL
+		RETURNING message_id`, ids, recipientID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var claimed []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		claimed = append(claimed, id)
+	}
+	return claimed, rows.Err()
+}
+
+// emitDeliveredEventsTx writes one MessageDelivered outbox row per
+// newly-claimed message, batched per conversation — messageIds can span
+// unrelated conversations, so a single insertOutboxBatch call (one kafka key)
+// cannot cover the whole page the way it does for e.g. AddMembers.
+func emitDeliveredEventsTx(
+	ctx context.Context, tx pgx.Tx, recipientID string,
+	deliverable []deliveryCandidate, claimedIDs []string,
+) error {
+	claimed := make(map[string]bool, len(claimedIDs))
+	for _, id := range claimedIDs {
+		claimed[id] = true
+	}
+
+	byConv := map[string][]any{}
+	var convOrder []string
+	for _, c := range deliverable {
+		if !claimed[c.messageID] {
+			continue
+		}
+		evt := events.MessageDelivered{
+			Type:           events.TypeMessageDelivered,
+			EventID:        uuid.Must(uuid.NewV7()).String(),
+			OrgID:          c.orgID,
+			OccurredAt:     nowISO(),
+			ConversationID: c.convID,
+			ThreadID:       c.threadID,
+			MessageID:      c.messageID,
+			SenderID:       c.senderID,
+			RecipientID:    recipientID,
+			DeliveredAt:    nowISO(),
+		}
+		if _, ok := byConv[c.convID]; !ok {
+			convOrder = append(convOrder, c.convID)
+		}
+		byConv[c.convID] = append(byConv[c.convID], evt)
+	}
+	for _, convID := range convOrder {
+		if err := insertOutboxBatch(ctx, tx, convID, byConv[convID]); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // MarkRead advances the caller's last_read_seq and emits message.read.

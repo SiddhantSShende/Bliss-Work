@@ -23,12 +23,18 @@ ACKNOWLEDGED = "task.acknowledged"
 COMPLETED = "task.completed"
 IGNORED = "task.ignored"
 LEFT = "task.left"
+# An admin hard-deleted the task via task-svc's internal by-title endpoint.
+# Terminal like the others above: the task is gone, so any pin for it must
+# close rather than sit open forever waiting for a lifecycle event that will
+# never arrive.
+DELETED = "task.deleted"
 
 #: Terminal event type -> the close_reason recorded against the pin.
 TERMINAL_REASONS = {
     COMPLETED: "COMPLETED",
     IGNORED: "IGNORED",
     LEFT: "LEFT",
+    DELETED: "DELETED",
 }
 
 OPEN = "OPEN"

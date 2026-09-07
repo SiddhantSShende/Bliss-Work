@@ -231,7 +231,7 @@ func (s *Store) ChannelMessages(
 			// need the row to survive.
 			`SELECT m.id, m.channel_id, m.seq, m.sender_id,
 			        COALESCE(up.username, ''), COALESCE(up.display_name, ''),
-			        m.body, m.body_enc, m.created_at, m.kind, m.is_forward,
+			        m.body, m.body_enc, m.created_at, m.kind, m.is_forward, m.forward_platform,
 			        m.deleted_for_all_at IS NOT NULL AS deleted_for_all,
 			        m.pinned_at IS NOT NULL AS pinned, m.reply_to_id
 			 FROM channel_messages m
@@ -250,19 +250,20 @@ func (s *Store) ChannelMessages(
 		// Buffer raw rows, then close the cursor BEFORE decrypting on the same tx
 		// (a Decrypt query while rows is open would error with "conn busy").
 		type rawChMsg struct {
-			m         ChannelMessageDTO
-			created   time.Time
-			bodyTxt   *string
-			bodyEnc   []byte
-			kind      string
-			replyToID *string
+			m               ChannelMessageDTO
+			created         time.Time
+			bodyTxt         *string
+			bodyEnc         []byte
+			kind            string
+			replyToID       *string
+			forwardPlatform *string
 		}
 		var raws []rawChMsg
 		for rows.Next() {
 			var r rawChMsg
 			if err := rows.Scan(&r.m.ID, &r.m.ChannelID, &r.m.Seq, &r.m.SenderID,
 				&r.m.SenderUsername, &r.m.SenderDisplayName,
-				&r.bodyTxt, &r.bodyEnc, &r.created, &r.kind, &r.m.IsForward,
+				&r.bodyTxt, &r.bodyEnc, &r.created, &r.kind, &r.m.IsForward, &r.forwardPlatform,
 				&r.m.DeletedForAll, &r.m.Pinned, &r.replyToID); err != nil {
 				rows.Close()
 				return err
@@ -282,6 +283,9 @@ func (s *Store) ChannelMessages(
 			m := r.m
 			if r.replyToID != nil {
 				m.ReplyToID = *r.replyToID
+			}
+			if r.forwardPlatform != nil {
+				m.ForwardPlatform = *r.forwardPlatform
 			}
 			// A tombstone never ships its body. Skipping the decrypt IS the point:
 			// "deleted" that still sends the text to every client and hides it in

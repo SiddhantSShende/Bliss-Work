@@ -92,7 +92,7 @@ export REGISTRY_PREFIX
 
 # Compose SERVICE names we build (or pull) rather than take from upstream.
 # Everything else in the compose file is a digest-pinned upstream image.
-BUILT_SERVICES=(auth-svc email-worker task-svc notification-svc messaging-svc integrations-svc telemetry-svc ws-gateway caddy)
+BUILT_SERVICES=(auth-svc email-worker task-svc notification-svc messaging-svc integrations-svc telemetry-svc sticky-svc sticky-relay ws-gateway graph-gw caddy)
 
 # IMAGE repository names, one per entry above — identical except for caddy,
 # whose service is `caddy` but whose image is `caddy-waf`.
@@ -102,7 +102,7 @@ BUILT_SERVICES=(auth-svc email-worker task-svc notification-svc messaging-svc in
 # to a shared registry, a fixed tag lets every WAF change overwrite the same
 # manifest, leaving nothing to roll back to. It is now tagged, pruned and rolled
 # back like everything else.
-SHA_TAGGED_IMAGES=(auth-svc email-worker task-svc notification-svc messaging-svc integrations-svc telemetry-svc ws-gateway caddy-waf)
+SHA_TAGGED_IMAGES=(auth-svc email-worker task-svc notification-svc messaging-svc integrations-svc telemetry-svc sticky-svc sticky-relay ws-gateway graph-gw caddy-waf)
 
 # Services that declare a healthcheck and must report `healthy` before a deploy
 # counts as good. email-worker declares none, so polling it would wait forever on
@@ -113,7 +113,7 @@ SHA_TAGGED_IMAGES=(auth-svc email-worker task-svc notification-svc messaging-svc
 # a healthcheck. A deploy once passed this gate with every service behind the edge
 # healthy while the edge itself crash-looped — the gate was measuring the wrong
 # eight things.
-HEALTH_SERVICES=(auth-svc task-svc notification-svc messaging-svc integrations-svc telemetry-svc ws-gateway nginx caddy)
+HEALTH_SERVICES=(auth-svc task-svc notification-svc messaging-svc integrations-svc telemetry-svc sticky-svc sticky-relay ws-gateway graph-gw nginx caddy)
 
 # The full application scope for `compose up -d` — deliberately EXCLUDES the
 # observability stack (otel-collector, prometheus, the 3 exporters, cadvisor,
@@ -124,7 +124,7 @@ HEALTH_SERVICES=(auth-svc task-svc notification-svc messaging-svc integrations-s
 # host that never intended to redeploy monitoring) on every single app deploy.
 # `delivery-svc` and `desktop-builder` are already excluded via their own
 # `profiles: [routed]` / `profiles: [desktop]`, so they don't need listing here.
-CORE_SERVICES=(postgres redis kafka kafka-init livekit coturn auth-svc email-worker task-svc notification-svc messaging-svc integrations-svc telemetry-svc ws-gateway graph-gw caddy nginx)
+CORE_SERVICES=(postgres redis kafka kafka-init livekit coturn auth-svc email-worker task-svc notification-svc messaging-svc integrations-svc telemetry-svc sticky-svc sticky-relay ws-gateway graph-gw caddy nginx)
 
 # 180s (the original default) is too tight on this host: `wait_healthy` polls
 # each of the 9 HEALTH_SERVICES with its own `sudo docker compose ... ps -q` +

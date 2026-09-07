@@ -10,13 +10,15 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import text
 
 from .. import service
 from ..db import engine
 from ..logging_config import log
+from ..net import request_context
 from ..schemas import (
+    ActiveSessionDTO,
     AuditEntryDTO,
     AuditPage,
     ChangeRoleRequest,
@@ -24,8 +26,10 @@ from ..schemas import (
 )
 from ..security.auth_dep import Principal, require_org_admin
 from ..security.origin import enforce_origin
+from . import session_events
 from .invites_service import iso_z
-from .members_service import change_role_tx, load_members_for_org, set_status_tx
+from .members_service import change_role_tx, load_member, load_members_for_org, set_status_tx
+from .session_presentation import device_label, ip_prefix, session_origins
 
 router = APIRouter(prefix="/auth", tags=["members"])
 
@@ -145,6 +149,91 @@ async def remove_member(
         member = await set_status_tx(conn, principal, user_id, "removed")
     log.info("member_removed", org_id=principal.org_id, user_id=user_id)
     return member
+
+
+@router.get("/members/{user_id}/sessions", response_model=list[ActiveSessionDTO])
+async def list_member_sessions(
+    user_id: str, principal: Principal = Depends(require_org_admin)
+) -> list[ActiveSessionDTO]:
+    """A member's active sessions, for an org admin. Identical shape to the
+    self-service GET /auth/sessions — ActiveSessionDTO carries no
+    "is this my session" marker at all (see its own doc comment), so there's
+    nothing here to omit or get wrong: this is simply never the admin's own
+    session either way.
+
+    `load_member` 404s if `user_id` is not a member of the ADMIN'S org, which
+    is what keeps this from leaking another org's sessions: `user_id` values
+    are globally unique but each belongs to exactly one org, and an admin who
+    guesses a foreign user_id gets the same 404 as a nonexistent one.
+    """
+    async with engine.connect() as conn:
+        await service.set_org_guc(conn, principal.org_id)
+        await load_member(conn, principal.org_id, user_id)
+        families = await service.list_active_sessions(conn, user_id)
+        if not families:
+            return []
+        origins = await session_origins(
+            conn, principal.org_id, [f["familyId"] for f in families]
+        )
+    return [
+        ActiveSessionDTO(
+            id=f["familyId"],
+            createdAt=iso_z(f["createdAt"]),
+            lastSeenAt=iso_z(f["lastSeenAt"]),
+            device=device_label(origins.get(f["familyId"], {}).get("userAgent")),
+            approxLocation=ip_prefix(origins.get(f["familyId"], {}).get("ip")),
+        )
+        for f in families
+    ]
+
+
+@router.delete(
+    "/members/{user_id}/sessions/{family_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(enforce_origin)],
+)
+async def revoke_member_session(
+    user_id: str, family_id: str, request: Request, principal: Principal = Depends(require_org_admin)
+):
+    """Revoke one of a member's sessions. Refused on yourself — same reasoning
+    as every other self-action in this file (`_reject_self`): use the
+    self-service DELETE /auth/sessions/{id} instead, which doesn't require
+    the org_admin role.
+
+    `load_member` confines `user_id` to the admin's own org (same as the GET
+    above) BEFORE the revoke runs, so `service.revoke_family_by_id` — which
+    only checks `family_id AND user_id` — cannot be pointed at a family that
+    happens to share an id with one in another org: the id space is a UUID,
+    but the org check here is what makes a guess unreachable, not luck.
+    """
+    _reject_self(principal, user_id)
+    ip, user_agent, request_id = request_context(request)
+    async with engine.begin() as conn:
+        await service.set_org_guc(conn, principal.org_id)
+        await load_member(conn, principal.org_id, user_id)
+        revoked = await service.revoke_family_by_id(conn, user_id, family_id)
+        if revoked:
+            await session_events.session_revoked(
+                conn,
+                principal.org_id,
+                user_id,
+                session_id=family_id,
+                actor_id=principal.user_id,
+                by="admin",
+                ip=ip,
+                user_agent=user_agent,
+                request_id=request_id,
+            )
+    if not revoked:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found")
+    log.info(
+        "session_revoked",
+        org_id=principal.org_id,
+        actor_id=principal.user_id,
+        user_id=user_id,
+        family_id=family_id,
+        by="admin",
+    )
 
 
 @router.get("/audit", response_model=AuditPage)

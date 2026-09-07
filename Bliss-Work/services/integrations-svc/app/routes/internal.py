@@ -46,6 +46,14 @@ class SendReq(BaseModel):
     #: outbound.DEFAULT_SUBJECT rather than sending an empty subject (which is
     #: far more likely to be filtered as spam).
     subject: str | None = None
+    #: The Bliss-Work message being forwarded — messaging-svc's stable id for
+    #: it, carried unchanged on every copy/redelivery of the same forward
+    #: event, which is exactly what makes it usable as an idempotency key (see
+    #: 0015_message_send_idempotency.sql, mirroring MailSendReq.mailId below).
+    #: Optional only so a caller mid-rollout without it degrades to the old
+    #: unprotected behaviour rather than failing closed; a real caller should
+    #: always send it.
+    messageId: str | None = None
 
 
 class SendResp(BaseModel):
@@ -61,10 +69,111 @@ def _require_internal(token: str | None) -> None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="unauthorized")
 
 
+async def _claim_message_send(db, message_id: str, org_id: str) -> str:
+    """Atomically claim the right to actually call the provider for `message_id`.
+
+    Identical shape to _claim_mail_send below (see its docstring for the full
+    rationale) — insert-first-then-resolve-the-conflict against
+    message_send_attempts' PRIMARY KEY, so two callers racing the same
+    message_id both attempt the INSERT and exactly one wins it.
+
+    Returns "claimed" (this call owns the send — proceed), "sent" (a prior
+    attempt already succeeded — replay that result, never call the provider
+    again) or "in_progress" (another attempt currently owns this message_id —
+    the caller answers 409 so the ORIGINAL requester retries later through its
+    normal redelivery path, instead of a second real send racing the first).
+    """
+    try:
+        await db.execute(
+            text("INSERT INTO message_send_attempts (message_id, org_id) VALUES (:m, :o)"),
+            {"m": message_id, "o": org_id},
+        )
+        await db.commit()
+        return "claimed"
+    except IntegrityError:
+        await db.rollback()
+
+    # The rollback above clears the transaction-local app.org_id GUC.
+    await set_org_context(db, org_id)
+    existing = (
+        await db.execute(
+            text("SELECT status FROM message_send_attempts WHERE message_id = :m"),
+            {"m": message_id},
+        )
+    ).one_or_none()
+    if existing is None:
+        # Nothing deletes these rows, so this should be unreachable — but fail
+        # closed (retry later) rather than assume either outcome.
+        return "in_progress"
+    if existing.status == "sent":
+        return "sent"
+    if existing.status != "failed":
+        return "in_progress"  # 'sending': another attempt owns this right now
+
+    # 'failed': a definitive prior attempt, safe to retry — but only for
+    # whichever caller actually wins this transition, in case two retries of
+    # the same failed message race each other too.
+    reclaimed = await db.execute(
+        text(
+            "UPDATE message_send_attempts SET status = 'sending', updated_at = now() "
+            "WHERE message_id = :m AND status = 'failed'"
+        ),
+        {"m": message_id},
+    )
+    await db.commit()
+    return "claimed" if reclaimed.rowcount == 1 else "in_progress"
+
+
+async def _resolve_message_send(db, message_id: str, org_id: str, outcome: str) -> None:
+    """Record the terminal outcome ('sent' or 'failed') of a claimed attempt.
+
+    Identical shape to _resolve_mail_send below (see its docstring for the
+    full rationale, including why a persistent DB failure here re-raises
+    rather than being swallowed): retried a few times to absorb a transient
+    DB hiccup, since by the time this runs the provider call has already
+    happened — successfully or definitively not — so retrying the UPDATE
+    itself can never cause a duplicate send.
+    """
+    for attempt in range(3):
+        try:
+            await set_org_context(db, org_id)
+            await db.execute(
+                text(
+                    "UPDATE message_send_attempts SET status = :s, updated_at = now() "
+                    "WHERE message_id = :m"
+                ),
+                {"s": outcome, "m": message_id},
+            )
+            await db.commit()
+            return
+        except Exception as exc:  # noqa: BLE001 - retried, then re-raised below
+            await db.rollback()
+            if attempt == 2:
+                log.error(
+                    "message_send_resolve_failed", message_id=message_id, org=org_id,
+                    outcome=outcome, error=str(exc),
+                )
+                raise
+            await asyncio.sleep(0.5 * (2**attempt))
+
+
 @router.post("/messages/send", response_model=SendResp)
 async def internal_send(
     body: SendReq, x_internal_token: str | None = Header(default=None)
 ) -> SendResp:
+    """Forward one Bliss-Work message out to a connected Slack/Teams/Gmail
+    integration via outbound.send_via_connection, then mirror the send into
+    provider_activity.
+
+    Idempotent on body.messageId (see 0015_message_send_idempotency.sql): the
+    SAME message_id is claimed at most once, and every repeat call — a Kafka
+    redelivery, two workers racing, a caller retrying after losing the
+    response — replays the recorded outcome instead of sending a second real
+    Slack/Teams message or Gmail mail. Mirrors internal_send_mail's
+    claim/resolve shape exactly, including leaving the claim in place (409)
+    rather than guessing when an ambiguous network fault hits the provider
+    call itself — see internal_send_mail's docstring and _claim_message_send.
+    """
     _require_internal(x_internal_token)
 
     async with session() as db:
@@ -91,6 +200,21 @@ async def internal_send(
         if not token:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="connection has no token")
 
+        if body.messageId:
+            claim = await _claim_message_send(db, body.messageId, body.orgId)
+            if claim == "sent":
+                return SendResp(status="sent", externalId=None, provider=row.provider)
+            if claim == "in_progress":
+                # 409, not 503: this is never "integrations-svc is unhealthy,
+                # fail fast and fall back" — a run of these must not let a
+                # caller's own breaker open and resend a message that may
+                # already be on its way through the winning attempt (mirrors
+                # internal_send_mail's identical 409 choice).
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="this message is already being sent by another attempt",
+                )
+
         # Provider dispatch lives in outbound.py so this path and any future
         # caller (an in-app reply to a mention) can never drift apart.
         try:
@@ -99,14 +223,24 @@ async def internal_send(
             )
         except outbound.OutboundUnsupported as exc:
             # Nothing about this will work on a retry — the connection is
-            # misconfigured or the provider has no outbound path.
+            # misconfigured or the provider has no outbound path. Still safe
+            # to mark 'failed': the provider was never called.
+            if body.messageId:
+                await _resolve_message_send(db, body.messageId, body.orgId, "failed")
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         except outbound.OutboundError as exc:
+            # Definitive one way or the other before the provider call
+            # completed — safe to let a later attempt reclaim and retry.
+            if body.messageId:
+                await _resolve_message_send(db, body.messageId, body.orgId, "failed")
             if exc.is_auth_error:
                 # Documented in gmail.py/microsoft.py: a 401 here is NOT a
                 # broken connection — re-arm token_expires_at so
                 # refresh_worker's next sweep (within 60s) renews it, instead
                 # of waiting out the token's original, now-wrong expiry.
+                # _resolve_message_send's commit above reset the
+                # transaction-local app.org_id GUC, so it's set again here.
+                await set_org_context(db, body.orgId)
                 await db.execute(
                     text(
                         "UPDATE integration_connections SET token_expires_at = now() "
@@ -123,7 +257,40 @@ async def internal_send(
                 else status.HTTP_400_BAD_REQUEST
             )
             raise HTTPException(status_code=code, detail=str(exc)) from exc
+        except CircuitOpenError as exc:
+            # The breaker short-circuits BEFORE any request is made — the
+            # provider was definitely not contacted this time, so this is
+            # safe to mark 'failed' and let a later attempt reclaim.
+            if body.messageId:
+                await _resolve_message_send(db, body.messageId, body.orgId, "failed")
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+        except (httpx.HTTPError, OSError) as exc:
+            # AMBIGUOUS: a network fault on the provider call itself (every
+            # provider send here runs idempotent=False — see slack.py/
+            # gmail.py/microsoft.py — so a ReadTimeout etc. surfaces as the
+            # raw httpx exception rather than a *Error subclass). The provider
+            # may have already accepted the send, so the claim from above is
+            # deliberately left 'sending' rather than 'failed': marking it
+            # failed would let a redelivery reclaim and resend a message that
+            # may already be sitting on the far side. Same 409-not-502/503
+            # reasoning as internal_send_mail's identical except clause.
+            if body.messageId:
+                log.error(
+                    "message_send_outcome_unknown", message_id=body.messageId, org=body.orgId,
+                    error=str(exc),
+                )
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="message send outcome unknown; needs manual review",
+            ) from exc
         external_id = result.external_id
+
+        if body.messageId:
+            await _resolve_message_send(db, body.messageId, body.orgId, "sent")
+            # _resolve_message_send's own commit above reset the
+            # transaction-local app.org_id GUC, so it's set again here for
+            # the activity mirror below.
+            await set_org_context(db, body.orgId)
 
         owner = str(row.owner_user_id) if row.owner_user_id else None
         activity_id = str(uuid6.uuid7())

@@ -33,6 +33,11 @@ type Consumer struct {
 	reader *kafka.Reader
 	dlq    *kafka.Writer
 	log    *slog.Logger
+	// stop triggers the same graceful shutdown main.go uses for a fatal HTTP
+	// listen failure. runBatch calls it whenever a batch is abandoned
+	// uncommitted — see runBatch's doc comment for why that must end this
+	// process rather than let the loop keep going on the same reader.
+	stop func()
 }
 
 // New constructs a Consumer subscribed to task.events.v1, auth.events and
@@ -47,7 +52,12 @@ type Consumer struct {
 //
 // GroupTopics rather than one reader each — a single consumer group covering
 // all three keeps offset management and rebalancing in one place.
-func New(pool *pgxpool.Pool, brokers []string, log *slog.Logger) *Consumer {
+//
+// stop is called if a batch is ever abandoned uncommitted (see runBatch) —
+// pass the same signal.NotifyContext stop func main.go uses for its rootCtx,
+// so this triggers the identical graceful-shutdown-then-restart path as any
+// other fatal condition in the process.
+func New(pool *pgxpool.Pool, brokers []string, log *slog.Logger, stop func()) *Consumer {
 	r := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:        brokers,
 		GroupID:        "notification-svc",
@@ -81,7 +91,7 @@ func New(pool *pgxpool.Pool, brokers []string, log *slog.Logger) *Consumer {
 		RequiredAcks: kafka.RequireAll,
 		BatchTimeout: 50 * time.Millisecond,
 	}
-	return &Consumer{pool: pool, reader: r, dlq: dlq, log: log}
+	return &Consumer{pool: pool, reader: r, dlq: dlq, log: log, stop: stop}
 }
 
 // Run consumes until ctx is cancelled. The loop body is wrapped so a panic in
@@ -148,10 +158,28 @@ const (
 //   - A malformed message is dead-lettered and its offset still committed, so a
 //     poison pill cannot block the partition — and one poison message no longer
 //     costs the whole batch, because it is skipped rather than failed.
+//
+// "Abandon and redeliver" only actually redelivers if the NEXT fetch starts
+// from where this batch started. It does not: kafka-go's FetchMessage already
+// advanced this reader's in-memory read position past every message in the
+// batch the instant it returned them, regardless of whether they are ever
+// committed — and a GroupID reader like this one cannot be rewound with
+// SetOffset. So once a batch is abandoned, any LATER batch on this same
+// reader that DOES commit successfully would commit past the abandoned
+// offsets too (CommitMessages advances to the highest offset it is given),
+// silently discarding the gap forever. The only sound recovery is to never
+// let that later commit happen on this reader again: every abandon path
+// below calls c.stop (the same shutdown func the HTTP listen-failure path in
+// main.go already uses) to trigger a full graceful shutdown. The process
+// exits, the container's restart policy brings up a fresh one, and a new
+// reader resumes each partition from the group's last TRULY committed
+// broker offset — which is exactly the abandoned batch, now genuinely
+// redelivered.
 func (c *Consumer) runBatch(ctx context.Context) {
 	defer func() {
 		if rec := recover(); rec != nil {
-			c.log.Error("consumer panic recovered; offsets left uncommitted for redelivery", "panic", rec)
+			c.log.Error("consumer panic recovered; batch abandoned, restarting for redelivery", "panic", rec)
+			c.stop()
 		}
 	}()
 
@@ -162,7 +190,8 @@ func (c *Consumer) runBatch(ctx context.Context) {
 
 	tx, err := c.pool.Begin(ctx)
 	if err != nil {
-		c.log.Error("begin batch tx failed; offsets left uncommitted", "error", err, "batch", len(batch))
+		c.log.Error("begin batch tx failed; batch abandoned, restarting for redelivery", "error", err, "batch", len(batch))
+		c.stop()
 		return
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
@@ -196,17 +225,20 @@ func (c *Consumer) runBatch(ctx context.Context) {
 		case errors.Is(err, errMalformed):
 			poison = append(poison, m)
 		default:
-			// Transient (e.g. the DB went away). Abandon the batch; it
-			// redelivers whole and the dedup makes that a no-op.
-			c.log.Error("handle message failed; abandoning batch for redelivery",
+			// Transient (e.g. the DB went away). Abandon the batch and
+			// restart (see runBatch's doc comment) so it genuinely
+			// redelivers; the dedup makes reprocessing a no-op.
+			c.log.Error("handle message failed; batch abandoned, restarting for redelivery",
 				"error", err, "batch", len(batch))
+			c.stop()
 			return
 		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
 		if !errors.Is(err, pgx.ErrTxClosed) {
-			c.log.Error("commit batch tx failed; offsets left uncommitted", "error", err, "batch", len(batch))
+			c.log.Error("commit batch tx failed; batch abandoned, restarting for redelivery", "error", err, "batch", len(batch))
+			c.stop()
 			return
 		}
 	}
@@ -215,7 +247,8 @@ func (c *Consumer) runBatch(ctx context.Context) {
 	// the DLQ produce fails the batch redelivers, which is the safe direction.
 	for _, m := range poison {
 		if derr := c.deadLetter(ctx, m); derr != nil {
-			c.log.Error("dead-letter produce failed; offsets left uncommitted for redelivery", "error", derr)
+			c.log.Error("dead-letter produce failed; batch abandoned, restarting for redelivery", "error", derr)
+			c.stop()
 			return
 		}
 		c.log.Warn("dlq: poison message dead-lettered",
@@ -225,8 +258,18 @@ func (c *Consumer) runBatch(ctx context.Context) {
 	// One commit for the whole batch. CommitMessages advances each partition to
 	// the highest offset it sees, so passing the batch is correct even when it
 	// spans partitions or topics.
+	//
+	// A failure here still needs the same restart-for-redelivery treatment as
+	// every other abandon path, even though this batch's DB work already
+	// committed: this reader's in-memory read position has already moved past
+	// these messages, so if a LATER batch on this same reader commits
+	// successfully, it would commit past this batch's offsets too and this
+	// notification would never show as committed. Reprocessing it after
+	// restart is a safe no-op (dedup), so restarting is strictly safer than
+	// continuing.
 	if err := c.reader.CommitMessages(ctx, batch...); err != nil {
-		c.log.Error("commit messages failed", "error", err, "batch", len(batch))
+		c.log.Error("commit messages failed; restarting for redelivery", "error", err, "batch", len(batch))
+		c.stop()
 	}
 }
 
@@ -404,8 +447,14 @@ type notification struct {
 func (c *Consumer) create(ctx context.Context, tx pgx.Tx, n notification) error {
 	eventID, err := uuid.Parse(n.sourceEventID)
 	if err != nil {
-		c.log.Warn("skipping event with invalid eventId", "eventId", n.sourceEventID)
-		return nil
+		// Malformed like any other bad payload — route through the same
+		// dead-letter-then-commit path (errMalformed), not a silent success.
+		// Returning nil here used to make this a full no-op: no DB row, no
+		// DLQ entry, nothing but a log line — a producer regression shipping
+		// a bad eventId would permanently and silently drop every affected
+		// notification with no operational signal at all.
+		c.log.Warn("invalid eventId, dead-lettering", "eventId", n.sourceEventID)
+		return errMalformed
 	}
 
 	// Dedup: claim this event id. If it already exists, skip. Within a batch

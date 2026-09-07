@@ -27,6 +27,7 @@ import { shouldOfferPin, type StickyTaskDTO, type TaskAction } from "@taskboard/
 export function StickyWidget({
   task,
   onAction,
+  busy = false,
   compact = false,
   onPin,
   pinned = false,
@@ -36,6 +37,9 @@ export function StickyWidget({
 }: {
   task: StickyTaskDTO;
   onAction: (action: TaskAction) => void;
+  /** True while a previous onAction call is still in flight — disables every
+   *  action button so a slow request can't be double-submitted. */
+  busy?: boolean;
   compact?: boolean;
   /** Electron-only: pin this task to the desktop (shown on ACKNOWLEDGED tasks). */
   onPin?: () => void;
@@ -137,8 +141,9 @@ export function StickyWidget({
             // action (SENT). For acknowledged/terminal tasks there is no Ignore,
             // so the X is hidden rather than firing a 409.
             <button
-              className="app-no-drag rounded-lg p-1 text-muted hover:bg-surface-2 hover:text-danger"
+              className="app-no-drag rounded-lg p-1 text-muted hover:bg-surface-2 hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
               title="Dismiss (ignore)"
+              disabled={busy}
               onClick={() => onAction("IGNORE")}
             >
               <X size={16} />
@@ -174,7 +179,7 @@ export function StickyWidget({
           content-sized card pushed past the window edge. */}
       <div className="app-no-drag flex shrink-0 flex-wrap gap-2">
         {task.actions.includes("ACKNOWLEDGE") && !locked && (
-          <ActionBtn tone="accent" label="Acknowledge" onClick={() => onAction("ACKNOWLEDGE")}>
+          <ActionBtn tone="accent" label="Acknowledge" disabled={busy} onClick={() => onAction("ACKNOWLEDGE")}>
             <Check size={15} /> Acknowledge
           </ActionBtn>
         )}
@@ -184,17 +189,17 @@ export function StickyWidget({
             expect (and asked for) a clearly-labelled Ignore button beside
             Acknowledge rather than only a corner ✗ — so render it in both. */}
         {task.actions.includes("IGNORE") && !locked && (
-          <ActionBtn tone="danger" label="Ignore" onClick={() => onAction("IGNORE")}>
+          <ActionBtn tone="danger" label="Ignore" disabled={busy} onClick={() => onAction("IGNORE")}>
             <X size={15} /> Ignore
           </ActionBtn>
         )}
         {task.actions.includes("COMPLETE") && (
-          <ActionBtn tone="success" label="Complete" onClick={() => onAction("COMPLETE")}>
+          <ActionBtn tone="success" label="Complete" disabled={busy} onClick={() => onAction("COMPLETE")}>
             <Flag size={15} /> Complete
           </ActionBtn>
         )}
         {task.actions.includes("LEAVE") && !locked && (
-          <ActionBtn tone="ghost" label="Leave" onClick={() => onAction("LEAVE")}>
+          <ActionBtn tone="ghost" label="Leave" disabled={busy} onClick={() => onAction("LEAVE")}>
             <LogOut size={15} /> Leave
           </ActionBtn>
         )}
@@ -218,12 +223,14 @@ function ActionBtn({
   onClick,
   tone,
   label,
+  disabled = false,
 }: {
   children: React.ReactNode;
   onClick: () => void;
   tone: "accent" | "success" | "ghost" | "danger";
   /** Tooltip text. The visible label is the button's own children. */
   label?: string;
+  disabled?: boolean;
 }) {
   const tones = {
     accent: "bg-accent text-accent-fg hover:bg-accent-strong shadow-soft",
@@ -234,8 +241,9 @@ function ActionBtn({
   return (
     <button
       onClick={onClick}
+      disabled={disabled}
       title={label}
-      className={`inline-flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium transition-all active:scale-[0.98] ${tones[tone]}`}
+      className={`inline-flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 ${tones[tone]}`}
     >
       {children}
     </button>

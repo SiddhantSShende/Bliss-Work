@@ -101,6 +101,15 @@ func (s *Server) forwardLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// external_forward_provenance_recorded: safe, non-PII fields only — never
+	// the recipient's phone/name (PII, and RLS-scoped to the org already) or
+	// message contents. has_recipient answers "was one known" without saying
+	// who; org/user are already on every request-scoped log via middleware.
+	s.log.Info("external forward provenance recorded",
+		"platform", linkChannelWhatsApp, "source_message_id", msgID,
+		"system_message_id", res.SystemMessageID, "has_recipient", phone != "" || name != "",
+		"delivery", "unconfirmed")
+
 	writeJSON(w, http.StatusCreated, forwardLinkResp{
 		Status:          "recorded",
 		Platform:        linkChannelWhatsApp,

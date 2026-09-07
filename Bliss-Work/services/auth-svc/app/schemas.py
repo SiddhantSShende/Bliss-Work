@@ -152,6 +152,46 @@ class SessionDTO(BaseModel):
     expiresIn: int
 
 
+class ActiveSessionDTO(BaseModel):
+    """One active session (refresh-token family) as the "Active sessions"
+    settings panel shows it. `id` is the family id — the natural session
+    identifier already used for reuse detection and revocation (see
+    service.build_session). Deliberately no token/hash of any kind, and no
+    raw IP or user agent: `device` and `approxLocation` are the same coarsened,
+    non-identifying presentation telemetry-svc already uses for the member
+    activity screen (device_label / ip_prefix in
+    services/telemetry-svc/app/sessions.py) — this endpoint follows that
+    existing product convention rather than introducing a second one.
+
+    No `isCurrent` field: "is this the session that made this request" is
+    only knowable to whoever HOLDS the access token, and only the client
+    holds it on every platform (a server-side check against the refresh
+    cookie worked on web but was always wrong on desktop/mobile, where the
+    cookie doesn't reliably travel — see the removed `_current_family_id` in
+    routes/sessions.py). The client decodes its own `sid` claim instead
+    (packages/shared/src/lib/jwt.ts) and compares it to `id` itself."""
+
+    id: str
+    createdAt: str
+    lastSeenAt: str
+    device: str
+    approxLocation: str | None = None
+
+
+class RevokeOtherSessionsRequest(BaseModel):
+    """Body for POST /auth/sessions/revoke-others.
+
+    `currentSessionId` is the caller's own `sid` claim, decoded CLIENT-SIDE
+    from its own access token — not verified against anything server-side.
+    That's safe here specifically because this whole action is already
+    scoped to the verified principal's own user_id (see
+    routes/sessions.py::revoke_other_sessions): a caller can only ever
+    misname one of ITS OWN sessions, never another user's. Omit it to revoke
+    literally every session, including the one making this call."""
+
+    currentSessionId: str | None = Field(default=None, max_length=64)
+
+
 class CreateInviteResponse(BaseModel):
     id: str
 

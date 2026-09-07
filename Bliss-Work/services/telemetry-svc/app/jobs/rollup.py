@@ -31,18 +31,64 @@ _TZ = settings.rollup_timezone
 
 _SESSION_ROLLUP = text(
     f"""
+    WITH day_bounds AS (
+        -- Local midnight, in the configured zone, as a real instant — not a
+        -- date comparison, since user_sessions.started_at/ended_at are
+        -- timestamptz.
+        SELECT (:day::timestamp AT TIME ZONE '{_TZ}')                    AS day_start,
+               (:day::timestamp AT TIME ZONE '{_TZ}') + interval '1 day' AS day_end
+    ),
+    -- A session belongs to :day if ANY part of its wall-clock span overlaps
+    -- it — not just the day it STARTED on. A session that opens before
+    -- midnight and stays open into the next day (heartbeats don't close it)
+    -- used to have its ENTIRE active_ms/idle_ms/online duration credited to
+    -- the start day alone: the next day's activity_daily row could show
+    -- sessions_count=0 next to a nonzero events_count for that same day,
+    -- an inconsistency that never self-corrected since this table is kept
+    -- forever and never recomputed.
+    overlapping AS (
+        SELECT
+            s.org_id, s.user_id, s.active_ms, s.idle_ms,
+            s.started_at,
+            COALESCE(s.ended_at, s.last_seen_at) AS session_end,
+            GREATEST(s.started_at, db.day_start)                       AS clipped_start,
+            LEAST(COALESCE(s.ended_at, s.last_seen_at), db.day_end)    AS clipped_end
+          FROM user_sessions s, day_bounds db
+         WHERE s.started_at < db.day_end
+           AND COALESCE(s.ended_at, s.last_seen_at) >= db.day_start
+    ),
+    per_session AS (
+        SELECT
+            org_id, user_id, active_ms, idle_ms,
+            clipped_start, clipped_end,
+            EXTRACT(EPOCH FROM (clipped_end - clipped_start)) * 1000 AS day_online_ms,
+            -- The session's TOTAL wall-clock span, floored at 1ms to guard
+            -- the division below against a session whose started_at and
+            -- session_end land on the same instant.
+            GREATEST(EXTRACT(EPOCH FROM (session_end - started_at)) * 1000, 1) AS total_online_ms
+          FROM overlapping
+    )
     INSERT INTO activity_daily (
         org_id, user_id, day, first_seen_at, last_seen_at, sessions_count,
         active_ms, idle_ms, online_ms, computed_at)
-    SELECT org_id, user_id,
-           (started_at AT TIME ZONE '{_TZ}')::date AS day,
-           MIN(started_at), MAX(last_seen_at), COUNT(*),
-           COALESCE(SUM(active_ms), 0), COALESCE(SUM(idle_ms), 0),
-           COALESCE(SUM(EXTRACT(EPOCH FROM (COALESCE(ended_at, last_seen_at) - started_at)) * 1000), 0)::bigint,
+    SELECT org_id, user_id, :day,
+           MIN(clipped_start), MAX(clipped_end), COUNT(*),
+           -- active_ms/idle_ms have no per-instant timestamp to bucket
+           -- exactly the way activity_events' by_hour does — user_sessions
+           -- only ever stored running TOTALS (open_or_touch's
+           -- active_ms = active_ms + :active), never when each increment
+           -- happened. Prorated by this day's share of the session's total
+           -- wall-clock span: the best available approximation without a
+           -- schema change to record per-interval accrual, and strictly
+           -- better than crediting 100% of it to a single day.
+           COALESCE(SUM(active_ms * day_online_ms / total_online_ms), 0)::bigint,
+           COALESCE(SUM(idle_ms   * day_online_ms / total_online_ms), 0)::bigint,
+           -- online_ms is exact, not approximated: it is the actual clipped
+           -- wall-clock overlap with this day, which needs no proration.
+           COALESCE(SUM(day_online_ms), 0)::bigint,
            now()
-      FROM user_sessions
-     WHERE (started_at AT TIME ZONE '{_TZ}')::date = :day
-     GROUP BY org_id, user_id, (started_at AT TIME ZONE '{_TZ}')::date
+      FROM per_session
+     GROUP BY org_id, user_id
     ON CONFLICT (org_id, user_id, day) DO UPDATE SET
         first_seen_at  = EXCLUDED.first_seen_at,
         last_seen_at   = EXCLUDED.last_seen_at,

@@ -22,27 +22,14 @@
 #   ROLLUP_DAY=YYYY-MM-DD bash scripts/telemetry-rollup.sh
 set -Eeuo pipefail
 
+source "$(dirname "${BASH_SOURCE[0]}")/lib/compose-job.sh"
+
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 COMPOSE_FILE="${COMPOSE_FILE:-$REPO_DIR/docker-compose.prod.yml}"
 export COMPOSE_FILE
 cd "$REPO_DIR"
 
-if docker info >/dev/null 2>&1; then
-  USE_SUDO=0
-elif sudo -n docker info >/dev/null 2>&1; then
-  USE_SUDO=1
-else
-  echo "cannot reach the Docker daemon (with or without passwordless sudo)" >&2
-  exit 1
-fi
-
-compose() {
-  if (( USE_SUDO )); then
-    sudo env COMPOSE_FILE="$COMPOSE_FILE" docker compose "$@"
-  else
-    docker compose "$@"
-  fi
-}
+detect_docker_sudo
 
 if ! compose ps --status running --services 2>/dev/null | grep -qx telemetry-svc; then
   echo "telemetry-svc is not running — cannot prune activity" >&2
@@ -52,12 +39,7 @@ fi
 args=()
 [ -n "${PRUNE_DRY_RUN:-}" ] && args=(--dry-run)
 
-# Captured and re-emitted so the output lands in THIS unit's journal — the snap
-# Docker CLI re-parents into its own transient scope. See gc-attachments.sh.
-set +e
-output="$(compose exec -T telemetry-svc python -m app.jobs.prune "${args[@]}" 2>&1)"
-status=$?
-set -e
-
-[ -n "$output" ] && printf '%s\n' "$output"
-exit "$status"
+# Captured and re-emitted so the output lands in THIS unit's journal — see
+# run_and_capture_for_journald() in lib/compose-job.sh.
+run_and_capture_for_journald compose exec -T telemetry-svc python -m app.jobs.prune "${args[@]}"
+exit $?

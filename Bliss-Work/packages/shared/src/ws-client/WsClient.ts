@@ -5,6 +5,7 @@
  * eventId; emits raw ServerEvents after zod validation.
  */
 import { ServerEvent, ControlFrame, type ClientFrame } from "../types/events";
+import { decodeJwtPayload } from "../lib/jwt";
 
 /**
  * What the client knows about an event beyond the event itself.
@@ -39,6 +40,14 @@ export interface WsClientOptions {
 }
 
 const PING_INTERVAL_MS = 20_000;
+/** How long to wait for a pong after sending a ping before treating the
+ *  connection as a zombie. A socket can sit at readyState OPEN with no bytes
+ *  actually flowing — a dead NAT/proxy path, a silent network partition — and
+ *  without this the heartbeat is send-only: pings go out forever and nothing
+ *  ever notices the replies stopped. Mirrors ws-gateway's own pingTimeout
+ *  (10s — see services/ws-gateway/internal/server/conn.go) so the client
+ *  notices a stall on roughly the same timescale the server would. */
+const PONG_TIMEOUT_MS = 10_000;
 const MAX_BACKOFF_MS = 30_000;
 const DEDUP_LRU = 2048;
 /** How long to wait for `onopen` before giving up on this attempt. A refused
@@ -72,6 +81,9 @@ export class WsClient {
   private seenOrder: string[] = [];
   private attempt = 0;
   private pingTimer?: ReturnType<typeof setInterval>;
+  /** Dead-man's switch armed on every ping, cleared on the matching pong — see
+   *  PONG_TIMEOUT_MS. */
+  private pongTimer?: ReturnType<typeof setTimeout>;
   /** Handle for the pending backoff timer armed by scheduleReconnect(), so
    *  close() can cancel it — see hasLiveSocket()'s comment for why a lost
    *  handle is dangerous even with that cancellation in place. */
@@ -160,6 +172,7 @@ export class WsClient {
   close(): void {
     this.stopped = true;
     if (this.pingTimer) clearInterval(this.pingTimer);
+    if (this.pongTimer) clearTimeout(this.pongTimer);
     if (this.replayTimer) clearTimeout(this.replayTimer);
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     // Best-effort drain: ack any buffered messageIds before the socket goes.
@@ -260,6 +273,7 @@ export class WsClient {
       clearTimeout(connectTimer);
       this.setStatus("closed");
       if (this.pingTimer) clearInterval(this.pingTimer);
+      if (this.pongTimer) clearTimeout(this.pongTimer);
       this.scheduleReconnect();
     };
 
@@ -288,10 +302,22 @@ export class WsClient {
     this.pingTimer = setInterval(() => {
       try {
         this.ws?.send(JSON.stringify({ type: "ping" }));
+        this.armPongTimeout();
       } catch {
         /* ignore */
       }
     }, PING_INTERVAL_MS);
+  }
+
+  /** Arms the zombie-connection dead-man's switch for one ping. If no pong
+   *  clears it within PONG_TIMEOUT_MS, the socket is forced closed — the
+   *  ordinary onclose -> scheduleReconnect() path then recovers it exactly as
+   *  it would for any other disconnect. */
+  private armPongTimeout() {
+    if (this.pongTimer) clearTimeout(this.pongTimer);
+    this.pongTimer = setTimeout(() => {
+      this.ws?.close();
+    }, PONG_TIMEOUT_MS);
   }
 
   private async handleMessage(raw: unknown) {
@@ -299,6 +325,17 @@ export class WsClient {
     try {
       parsed = JSON.parse(typeof raw === "string" ? raw : String(raw));
     } catch {
+      return;
+    }
+
+    // The heartbeat reply. Handled ahead of the typed unions below because
+    // "pong" — like the "ping" this answers — is a raw wire-level frame, not
+    // part of the ClientFrame/ControlFrame/ServerEvent contract.
+    if ((parsed as { type?: unknown } | null)?.type === "pong") {
+      if (this.pongTimer) {
+        clearTimeout(this.pongTimer);
+        this.pongTimer = undefined;
+      }
       return;
     }
 
@@ -414,17 +451,6 @@ export class WsClient {
   }
 }
 
-/** base64url JWT-payload decode that works in both the browser (atob) and the
- *  Electron utilityProcess / Node (Buffer). Returns "" if neither is available. */
-function decodeBase64Url(b64url: string): string {
-  const b64 = b64url.replace(/-/g, "+").replace(/_/g, "/");
-  const pad = b64.length % 4 ? "=".repeat(4 - (b64.length % 4)) : "";
-  if (typeof atob === "function") return atob(b64 + pad);
-  const B = (globalThis as { Buffer?: { from: (s: string, e: string) => { toString: (e: string) => string } } }).Buffer;
-  if (B) return B.from(b64 + pad, "base64").toString("binary");
-  return "";
-}
-
 /**
  * Best-effort check that a JWT is missing or within `skewSec` of expiry, so the
  * WS can refresh BEFORE the gateway rejects it at the handshake. A token we
@@ -433,13 +459,7 @@ function decodeBase64Url(b64url: string): string {
  */
 function isExpiredJwt(token: string | undefined, skewSec = 15): boolean {
   if (!token) return true;
-  const payload = token.split(".")[1];
-  if (!payload) return false;
-  try {
-    const json = JSON.parse(decodeBase64Url(payload));
-    if (typeof json.exp !== "number") return false;
-    return json.exp * 1000 <= Date.now() + skewSec * 1000;
-  } catch {
-    return false;
-  }
+  const claims = decodeJwtPayload<{ exp?: number }>(token);
+  if (!claims || typeof claims.exp !== "number") return false;
+  return claims.exp * 1000 <= Date.now() + skewSec * 1000;
 }

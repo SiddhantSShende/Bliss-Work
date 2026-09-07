@@ -155,13 +155,21 @@ func (s *Store) IsBlockedPair(ctx context.Context, orgID, userA, userB string) (
 
 // Reply appends a message to an existing conversation; the caller must be a member.
 // If parentMessageID is empty the reply nests under the conversation's *most recent*
-// thread (rare; used by legacy /conversations/{id}/reply with no thread context).
+// thread (this is DMView's normal send path — /conversations/{id}/reply carries no
+// thread context at all, so every chat message except a brand-new conversation's
+// first goes through here with no parent).
 func (s *Store) Reply(ctx context.Context, orgID, senderID, convID, body, clientMsgID, replyToID string) (*SendResult, error) {
-	return s.replyImpl(ctx, orgID, senderID, convID, "", body, clientMsgID, replyToID)
+	return s.replyImpl(ctx, orgID, senderID, convID, "", "", body, clientMsgID, replyToID, true)
 }
 
 // ReplyToThread appends a message under a specific parent (Phase 3 /threads
 // path). If parentMessageID == "", appends as a sibling of the thread root.
+//
+// Note: this already knows its target thread (threadID, above) — it does NOT
+// ask replyImpl to fall back to the conversation's most-recent thread the way
+// Reply does, since a conversation can have more than one thread and silently
+// substituting a "more recent" one for the caller's explicit threadID would be
+// wrong here.
 func (s *Store) ReplyToThread(ctx context.Context, orgID, senderID, threadID, parentMessageID, body, clientMsgID, replyToID string) (*SendResult, error) {
 	// Look up the conv from the thread; defense against cross-thread sneaking.
 	// RLS: the threads read runs inside withOrg so app.org_id is set.
@@ -178,10 +186,21 @@ func (s *Store) ReplyToThread(ctx context.Context, orgID, senderID, threadID, pa
 	if err != nil {
 		return nil, err
 	}
-	return s.replyImpl(ctx, orgID, senderID, convID, parentMessageID, body, clientMsgID, replyToID)
+	return s.replyImpl(ctx, orgID, senderID, convID, threadID, parentMessageID, body, clientMsgID, replyToID, false)
 }
 
-func (s *Store) replyImpl(ctx context.Context, orgID, senderID, convID, parentMessageID, body, clientMsgID, replyToID string) (*SendResult, error) {
+// replyImpl is Reply's and ReplyToThread's shared body. mostRecentThreadFallback
+// is Reply's "true" / ReplyToThread's "false" — see each one's doc comment for
+// why: only Reply's caller has no thread context of its own to prefer.
+//
+// knownThreadID is ReplyToThread's already-resolved target thread ("" for
+// Reply, which has none). It is threaded straight through to threadIDHint
+// below — appendMessageTx only consults threadIDHint when parentMessageID is
+// empty, so this has no effect on an explicit-parent reply, but it is exactly
+// what keeps a PARENTLESS reply to a known thread appending to THAT thread
+// instead of falling into appendMessageTx's top-level-send branch and minting
+// an unrelated new one.
+func (s *Store) replyImpl(ctx context.Context, orgID, senderID, convID, knownThreadID, parentMessageID, body, clientMsgID, replyToID string, mostRecentThreadFallback bool) (*SendResult, error) {
 	var out *SendResult
 	err := RetryOnSerializationFailure(ctx, 3, func(ctx context.Context) error {
 		tx, err := s.pool.Begin(ctx)
@@ -228,7 +247,38 @@ func (s *Store) replyImpl(ctx context.Context, orgID, senderID, convID, parentMe
 			return err
 		}
 
-		res, err := s.appendMessage(ctx, tx, orgID, convID, senderID, recipientID, body, clientMsgID, parentMessageID, "",
+		// Reply's documented behavior: a parentless reply nests under the
+		// conversation's most recently active thread instead of leaving
+		// threadIDHint empty, which is what used to send appendMessageTx down
+		// its top-level-send branch and mint a brand-new thread (+ 2
+		// thread_members rows) for every single chat message.
+		//
+		// "" stays correct here too: a conversation with no thread yet (this
+		// conversation's genuinely first message, also sent through Reply —
+		// see its doc comment) still falls through to that same top-level
+		// branch and creates the one thread it needs.
+		//
+		// ReplyToThread already knows its target thread (knownThreadID) and
+		// must never be second-guessed by the most-recent-thread lookup below
+		// — see this function's doc comment.
+		threadIDHint := knownThreadID
+		if threadIDHint == "" && parentMessageID == "" && mostRecentThreadFallback {
+			// Same lock a new-thread creation takes below, re-entered here
+			// (harmless within one tx — see ensureThread's comment) so two
+			// concurrent parentless replies to a conversation with no thread
+			// yet can't both see "no thread exists" and each mint their own:
+			// the loser blocks until the winner's thread commits and is
+			// visible to the lookup just below.
+			if err := lockConversationForRootSend(ctx, tx, convID, orgID); err != nil {
+				return err
+			}
+			threadIDHint, err = mostRecentThreadID(ctx, tx, convID)
+			if err != nil {
+				return err
+			}
+		}
+
+		res, err := s.appendMessage(ctx, tx, orgID, convID, senderID, recipientID, body, clientMsgID, parentMessageID, threadIDHint,
 			appendOpts{replyToID: replyToID})
 		if err != nil {
 			return err
@@ -264,6 +314,10 @@ type appendOpts struct {
 	// misattribute it to them.
 	isForward     bool
 	forwardedFrom string
+	// forwardPlatform is set ONLY by ForwardLinkRecord, to PlatformWhatsApp —
+	// never alongside isForward, which marks the DIFFERENT case of an internal
+	// forward's clone. See MessageDTO.ForwardPlatform.
+	forwardPlatform string
 }
 
 // kindArg is the messages.kind value to insert — 'text' unless a system kind
@@ -459,15 +513,19 @@ func (s *Store) appendMessageTx(
 	if opts.forwardedFrom != "" {
 		forwardedFromArg = &opts.forwardedFrom
 	}
+	var forwardPlatformArg *string
+	if opts.forwardPlatform != "" {
+		forwardPlatformArg = &opts.forwardPlatform
+	}
 	_, err = tx.Exec(ctx,
 		`INSERT INTO messages
 		   (id, org_id, conversation_id, seq, sender_id, body, body_enc, client_msg_id,
 		    thread_id, parent_message_id, is_thread_root, server_acked_at,
-		    kind, reply_to_id, is_forward, forwarded_from_message_id)
-		 VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8, $9, $10, now(), $11, $12, $13, $14)`,
+		    kind, reply_to_id, is_forward, forwarded_from_message_id, forward_platform)
+		 VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8, $9, $10, now(), $11, $12, $13, $14, $15)`,
 		msgID, orgID, convID, seq, senderID, bodyEnc, clientMsgID,
 		threadID, parentArg, isThreadRoot,
-		opts.kindArg(), replyToArg, opts.isForward, forwardedFromArg)
+		opts.kindArg(), replyToArg, opts.isForward, forwardedFromArg, forwardPlatformArg)
 	if err != nil {
 		return nil, err
 	}
@@ -524,9 +582,10 @@ func (s *Store) appendMessageTx(
 		// client optimistically inserts an inbox row on MessageCreated, and
 		// without the origin it would put back exactly the rows we stopped
 		// writing above.
-		Origin:    origin,
-		ReplyToID: opts.replyToID,
-		IsForward: opts.isForward,
+		Origin:          origin,
+		ReplyToID:       opts.replyToID,
+		IsForward:       opts.isForward,
+		ForwardPlatform: opts.forwardPlatform,
 	}
 	if err := insertOutbox(ctx, tx, convID, evt); err != nil {
 		return nil, err

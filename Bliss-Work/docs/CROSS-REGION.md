@@ -284,7 +284,7 @@ failure, not a hang.
 |---|---|---|
 | `BRIDGE_REGION` | — | Required. Lowercase letters, digits, dashes: it is a NATS subject token. |
 | `BRIDGE_PEER_REGIONS` | — | Comma-separated. Listing itself is refused: that builds a cycle. |
-| `BRIDGE_TOPICS` | the five platform topics | Explicit, never discovered — a bridge that discovered topics would replicate a new one across the WAN the moment somebody created it. |
+| `BRIDGE_TOPICS` | `routing.events.v1` alone | Explicit, never discovered — a bridge that discovered topics would replicate a new one across the WAN the moment somebody created it. The platform's business topics (messaging/task/notification/auth) must never be added here — see §9: org data is partitioned by site and never replicated, and none of those services' consumers filter by site placement. |
 | `BRIDGE_DLQ_TOPIC` | `region-bridge-dlq` | Empty disables dead-lettering, which makes a poison event stall its topic. |
 | `BRIDGE_EXPORT_ENABLED` / `BRIDGE_IMPORT_ENABLED` | `true` | The rollback switches. |
 | `BRIDGE_BATCH_SIZE` | 256 | Also the blast radius of a retry: a failed batch replays whole. |

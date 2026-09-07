@@ -9,7 +9,7 @@ import { useSwitchOrg } from "./OrgSwitcher";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
-import { broadcastLogout } from "../lib/authChannel";
+import { signOut } from "../lib/signOut";
 
 /**
  * Leave one of your own organizations, from the row that names it.
@@ -36,11 +36,10 @@ export function LeaveOrgButton({
    *  mid-leave and clear the query cache out from under it. */
   onBusyChange?: (busy: boolean) => void;
 }) {
-  const { api, config } = useRuntime();
+  const { api, config, ws } = useRuntime();
   const qc = useQueryClient();
   const nav = useNavigate();
   const user = useSession((s) => s.user);
-  const clearSession = useSession((s) => s.clear);
   const switchOrg = useSwitchOrg();
   const [open, setOpen] = useState(false);
   const [busy, setBusyState] = useState(false);
@@ -87,9 +86,14 @@ export function LeaveOrgButton({
       // the only honest end state: the session in hand belongs to a membership
       // that no longer exists, so staying put only defers a bare 401 to
       // whichever screen the user opens next.
-      clearSession();
-      config.persistRefreshToken?.(null); // Electron mirrors it to disk
-      broadcastLogout();
+      //
+      // Goes through the shared signOut() helper — not a hand-rolled
+      // clear+persist+broadcast — so this forced logout also closes the
+      // activity session and the realtime socket first, exactly like an
+      // ordinary sign-out does. It used to skip both, which is the same "I
+      // logged out and still show as Online" bug signOut()'s own docstring
+      // describes, reintroduced at this second call site.
+      await signOut(api, config, ws);
       nav("/login");
       toast.error("Signed out", { description: "Please sign in again to continue." });
     } finally {

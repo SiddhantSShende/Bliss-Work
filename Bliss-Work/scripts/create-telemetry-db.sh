@@ -22,6 +22,8 @@
 # Safe to re-run: every step is guarded.
 set -Eeuo pipefail
 
+source "$(dirname "${BASH_SOURCE[0]}")/lib/compose-job.sh"
+
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 COMPOSE_FILE="${COMPOSE_FILE:-$REPO_DIR/docker-compose.prod.yml}"
 export COMPOSE_FILE
@@ -30,22 +32,7 @@ cd "$REPO_DIR"
 : "${TELEMETRY_DB_PASSWORD:?set TELEMETRY_DB_PASSWORD (must match TELEMETRY_DATABASE_URL in .env.prod)}"
 PG_USER="${POSTGRES_USER:-taskboard}"
 
-if docker info >/dev/null 2>&1; then
-  USE_SUDO=0
-elif sudo -n docker info >/dev/null 2>&1; then
-  USE_SUDO=1
-else
-  echo "cannot reach the Docker daemon (with or without passwordless sudo)" >&2
-  exit 1
-fi
-
-compose() {
-  if (( USE_SUDO )); then
-    sudo env COMPOSE_FILE="$COMPOSE_FILE" docker compose "$@"
-  else
-    docker compose "$@"
-  fi
-}
+detect_docker_sudo
 
 psql_super() {
   # Piped over stdin, never `docker cp`: the prod containers run with a read-only

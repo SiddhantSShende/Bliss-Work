@@ -79,8 +79,23 @@ async def org_summary(
             )
             params["today_start"] = datetime.combine(today, time.min, tzinfo=timezone.utc)
         user_ids = [str(r.user_id) for r in (await db.execute(text(sql), params)).all()]
+
+        # Batched, not one _summary_for call per member: that was up to 3
+        # sequential DB round trips (1 rollup fetch + 2 _today_live queries)
+        # PER USER, which for a 100-person org meant ~300 queries in one
+        # admin-page request. _daily_rows_by_user and _today_live_batch fetch
+        # every member's rows in one GROUP BY user_id query each — the same
+        # shape roster() (routes/timeline.py) already uses for the identical
+        # problem — and _summary_from_rollup then builds each member's DTO
+        # from the slice already in memory, with no further queries.
+        rows_by_user = await _daily_rows_by_user(db, principal.org_id, user_ids, start, end)
+        live_by_user = (
+            await _today_live_batch(db, principal.org_id, user_ids, today)
+            if start <= today <= end
+            else {}
+        )
         members = [
-            await _summary_for(db, principal.org_id, uid, start, end, with_detail=False)
+            _summary_from_rollup(uid, start, end, rows_by_user.get(uid, []), live_by_user.get(uid))
             for uid in user_ids
         ]
         days = _merge_days(members)
@@ -174,6 +189,40 @@ async def _summary_for(
         )
     ).all()
 
+    today = _today()
+    live = await _today_live(db, org_id, user_id, today) if start <= today <= end else None
+
+    apps: list[NamedCount] = []
+    sites: list[NamedCount] = []
+    if with_detail:
+        apps = await _top_overall(db, org_id, user_id, "app_usage_daily", "app_name",
+                                  "foreground_ms", "switches", start, end)
+        sites = await _top_overall(db, org_id, user_id, "site_usage_daily", "domain",
+                                   "visit_ms", "visits", start, end)
+        # Same reasoning as the `days` top-up in _summary_from_rollup: app_usage_daily/
+        # site_usage_daily are rollup tables the nightly job (jobs/rollup.py) only ever
+        # writes for YESTERDAY and earlier, so without this, using the app today never
+        # shows up under "Top Applications"/"Top Sites" until tomorrow — active/idle
+        # time already accounts for today, but the per-app breakdown silently did not.
+        if start <= today <= end:
+            apps = _merge_top(apps, await _live_top_targets(db, org_id, user_id, today, "app"))
+            sites = _merge_top(sites, await _live_top_targets(db, org_id, user_id, today, "site"))
+
+    return _summary_from_rollup(user_id, start, end, rows, live, apps=apps, sites=sites)
+
+
+def _summary_from_rollup(
+    user_id: str, start: date, end: date, rows, live: DayBucket | None,
+    *, apps: list[NamedCount] | None = None, sites: list[NamedCount] | None = None,
+) -> SummaryDTO:
+    """Builds a member's SummaryDTO from already-fetched activity_daily rows
+    plus an already-fetched `live` (today's) bucket.
+
+    Shared by _summary_for (one user, its own two queries above) and
+    org_summary (every member's rows/live buckets fetched once each, in bulk,
+    by _daily_rows_by_user/_today_live_batch) so the two call sites can never
+    compute a member's totals differently.
+    """
     days = [
         DayBucket(
             day=r.day.isoformat(), activeMs=int(r.active_ms or 0), idleMs=int(r.idle_ms or 0),
@@ -193,29 +242,9 @@ async def _summary_for(
             if str(hour).isdigit() and 0 <= int(hour) < 24:
                 hourly[weekday][int(hour)] += int(ms or 0)
 
-    today = _today()
-    if start <= today <= end:
-        live = await _today_live(db, org_id, user_id, today)
-        if live is not None:
-            days = [d for d in days if d.day != today.isoformat()] + [live]
-            days.sort(key=lambda d: d.day)
-
-    apps: list[NamedCount] = []
-    sites: list[NamedCount] = []
-    if with_detail:
-        apps = await _top_overall(db, org_id, user_id, "app_usage_daily", "app_name",
-                                  "foreground_ms", "switches", start, end)
-        sites = await _top_overall(db, org_id, user_id, "site_usage_daily", "domain",
-                                   "visit_ms", "visits", start, end)
-        # Same reasoning as the `days` top-up above: app_usage_daily/site_usage_daily
-        # are rollup tables the nightly job (jobs/rollup.py) only ever writes for
-        # YESTERDAY and earlier, so without this, using the app today never shows
-        # up under "Top Applications"/"Top Sites" until tomorrow — active/idle
-        # time already accounts for today, but the per-app breakdown silently did
-        # not.
-        if start <= today <= end:
-            apps = _merge_top(apps, await _live_top_targets(db, org_id, user_id, today, "app"))
-            sites = _merge_top(sites, await _live_top_targets(db, org_id, user_id, today, "site"))
+    if live is not None:
+        days = [d for d in days if d.day != live.day] + [live]
+        days.sort(key=lambda d: d.day)
 
     return SummaryDTO(
         **{"from": start.isoformat(), "to": end.isoformat()},
@@ -228,10 +257,93 @@ async def _summary_for(
         days=days,
         bySurface=_named(by_surface),
         byAction=_named(by_action),
-        topApps=apps,
-        topSites=sites,
+        topApps=apps or [],
+        topSites=sites or [],
         hourly=hourly,
     )
+
+
+async def _daily_rows_by_user(
+    db, org_id: str, user_ids: list[str], start: date, end: date
+) -> dict[str, list]:
+    """Every activity_daily row for ALL given users, in ONE query, grouped in
+    Python by user_id — the org_summary equivalent of _summary_for's per-user
+    fetch above. Same shape as roster()'s single GROUP BY query
+    (routes/timeline.py): one round trip regardless of member count, instead
+    of one per member.
+    """
+    if not user_ids:
+        return {}
+    rows = (
+        await db.execute(
+            text(
+                """
+                SELECT user_id, day, active_ms, idle_ms, online_ms, sessions_count,
+                       events_count, by_surface, by_action, by_hour
+                  FROM activity_daily
+                 WHERE org_id = :org AND user_id = ANY(:uids) AND day BETWEEN :s AND :e
+                 ORDER BY user_id, day
+                """
+            ),
+            {"org": org_id, "uids": user_ids, "s": start, "e": end},
+        )
+    ).all()
+    by_user: dict[str, list] = {}
+    for r in rows:
+        by_user.setdefault(str(r.user_id), []).append(r)
+    return by_user
+
+
+async def _today_live_batch(
+    db, org_id: str, user_ids: list[str], today: date
+) -> dict[str, DayBucket]:
+    """Batched _today_live: today's totals for ALL given users from the live
+    tables, in the two GROUP BY queries this needs (sessions, events) instead
+    of up to 2*N single-user queries.
+
+    A user only gets an entry when GROUP BY actually emits a row for them,
+    which — same as _today_live's own `not s.n and not (e and e.n)` check —
+    only happens when they have at least one matching session or event today.
+    """
+    if not user_ids:
+        return {}
+    start = datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc)
+    session_rows = (
+        await db.execute(
+            text(
+                "SELECT user_id, COALESCE(SUM(active_ms),0) a, COALESCE(SUM(idle_ms),0) i, "
+                "COUNT(*) n, "
+                "COALESCE(SUM(EXTRACT(EPOCH FROM (COALESCE(ended_at, now()) - started_at)) * 1000), 0) o "
+                "FROM user_sessions "
+                "WHERE org_id = :org AND user_id = ANY(:uids) AND started_at >= :s "
+                "GROUP BY user_id"
+            ),
+            {"org": org_id, "uids": user_ids, "s": start},
+        )
+    ).all()
+    event_rows = (
+        await db.execute(
+            text(
+                "SELECT user_id, COUNT(*) n FROM activity_events "
+                "WHERE org_id = :org AND user_id = ANY(:uids) AND occurred_at >= :s "
+                "GROUP BY user_id"
+            ),
+            {"org": org_id, "uids": user_ids, "s": start},
+        )
+    ).all()
+
+    events_by_user = {str(r.user_id): int(r.n or 0) for r in event_rows}
+    live: dict[str, DayBucket] = {}
+    for r in session_rows:
+        uid = str(r.user_id)
+        live[uid] = DayBucket(
+            day=today.isoformat(), activeMs=int(r.a or 0), idleMs=int(r.i or 0),
+            onlineMs=int(r.o or 0), sessions=int(r.n or 0), events=events_by_user.get(uid, 0),
+        )
+    for uid, n in events_by_user.items():
+        if uid not in live:
+            live[uid] = DayBucket(day=today.isoformat(), events=n)
+    return live
 
 
 async def _today_live(db, org_id: str, user_id: str, today: date) -> DayBucket | None:

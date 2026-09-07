@@ -24,30 +24,14 @@
 # a day produces the same rows rather than doubled ones.
 set -Eeuo pipefail
 
+source "$(dirname "${BASH_SOURCE[0]}")/lib/compose-job.sh"
+
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 COMPOSE_FILE="${COMPOSE_FILE:-$REPO_DIR/docker-compose.prod.yml}"
 export COMPOSE_FILE
 cd "$REPO_DIR"
 
-if docker info >/dev/null 2>&1; then
-  USE_SUDO=0
-elif sudo -n docker info >/dev/null 2>&1; then
-  USE_SUDO=1
-else
-  echo "cannot reach the Docker daemon (with or without passwordless sudo)" >&2
-  exit 1
-fi
-
-# sudo SANITIZES the environment, so an exported COMPOSE_FILE does not survive
-# `sudo docker compose` — it would silently fall back to the DEV compose file
-# whose services are not running here. Same trap as backup-db.sh.
-compose() {
-  if (( USE_SUDO )); then
-    sudo env COMPOSE_FILE="$COMPOSE_FILE" docker compose "$@"
-  else
-    docker compose "$@"
-  fi
-}
+detect_docker_sudo
 
 if ! compose ps --status running --services 2>/dev/null | grep -qx telemetry-svc; then
   echo "telemetry-svc is not running — cannot roll up activity" >&2
@@ -61,14 +45,11 @@ else
   args=(--day="${ROLLUP_DAY:-yesterday}")
 fi
 
-# Output is CAPTURED and re-emitted from this shell. The snap Docker CLI
-# re-parents into its own transient scope, so anything it writes lands in THAT
-# unit's journal — `journalctl -u blisswork-telemetry-rollup.service` would
-# otherwise show only "Started" and "Finished" and none of the job's own lines.
-set +e
-output="$(compose exec -T telemetry-svc python -m app.jobs.rollup "${args[@]}" 2>&1)"
-status=$?
-set -e
-
-[ -n "$output" ] && printf '%s\n' "$output"
-exit "$status"
+# Output is CAPTURED and re-emitted from this shell — see
+# run_and_capture_for_journald() in lib/compose-job.sh. The snap Docker CLI
+# re-parents into its own transient scope, so anything it writes would
+# otherwise land in THAT unit's journal — `journalctl -u
+# blisswork-telemetry-rollup.service` would show only "Started" and
+# "Finished" and none of the job's own lines.
+run_and_capture_for_journald compose exec -T telemetry-svc python -m app.jobs.rollup "${args[@]}"
+exit $?

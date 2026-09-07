@@ -1,7 +1,9 @@
-import { app, ipcMain, shell } from "electron";
+import { app, ipcMain, shell, type BrowserWindow } from "electron";
 import { createWriteStream, existsSync } from "node:fs";
 import { unlink } from "node:fs/promises";
-import { join } from "node:path";
+import { extname, join } from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { safeExternalUrl } from "../shared/external-url";
 
 /**
@@ -41,13 +43,57 @@ function uniquePath(fileName: string): string {
   return candidate;
 }
 
-export function registerAttachmentOpen(): void {
+// Extensions Windows will run on double-click with no "Mark of the Web"
+// SmartScreen prompt — files this handler writes via fs.createWriteStream
+// never get that tag (only a browser download does), so an attachment saved
+// and then opened the normal way (shell.openPath) would auto-execute.
+//
+// Also covers container formats that Explorer auto-mounts on double-click:
+// MOTW does not propagate to a file INSIDE a mounted .iso/.img/.vhd(x), so a
+// malicious .exe hidden inside one loses its SmartScreen warning entirely —
+// the same silent-execution outcome as the extensions above, one level of
+// indirection removed.
+const EXECUTABLE_EXTENSIONS = new Set([
+  ".exe", ".scr", ".js", ".jse", ".bat", ".cmd", ".msi", ".ps1",
+  ".vbs", ".vbe", ".wsf", ".wsh", ".cpl", ".com", ".pif", ".reg",
+  ".lnk", ".hta", ".msc", ".jar",
+  ".iso", ".img", ".vhd", ".vhdx",
+  ".url", ".chm", ".appref-ms", ".settingcontent-ms", ".website",
+]);
+
+/** Checked against the SAVED/sanitized path, not the sender-supplied
+ *  filename — what matters is what will actually land on disk and be handed
+ *  to shell.openPath. */
+function isExecutableAttachment(savedPath: string): boolean {
+  return EXECUTABLE_EXTENSIONS.has(extname(savedPath).toLowerCase());
+}
+
+// Bounds the WHOLE download, not just time-to-first-byte — Node's fetch has no
+// separate "headers took too long" signal, and reusing update-integrity.ts's
+// 10s (sized for a tiny manifest) would abort a large-but-healthy attachment
+// on a slow connection. Generous enough to let a real transfer finish; short
+// enough that a server that never responds at all can't hang this IPC handler
+// (and the renderer's "downloading" state with it) indefinitely.
+const FETCH_TIMEOUT_MS = 5 * 60_000;
+
+export function registerAttachmentOpen(getMainWindow: () => BrowserWindow | null): void {
+  // Same trust boundary as index.ts's fromMainWindow: this handler fetches an
+  // arbitrary URL and writes/opens a file, so only the main window's
+  // webContents may drive it. Locally-scoped (rather than importing
+  // index.ts's private helper) to avoid a circular dependency — see
+  // updater.ts/window-state-guard.ts for the same getMainWindow-getter
+  // pattern.
+  const fromMainWindow = (e: { sender: Electron.WebContents }): boolean =>
+    e.sender === getMainWindow()?.webContents;
+
   ipcMain.handle(
     "attachment:open",
     async (
-      _e,
+      e,
       { url, fileName }: { url: string; fileName: string },
     ): Promise<{ ok: boolean; error?: string }> => {
+      if (!fromMainWindow(e)) return { ok: false, error: "Refused: not the main window." };
+
       // Validate BEFORE ever touching the network — the renderer is treated
       // as hostile input for anything that reaches the OS, same rule as
       // openExternal/setWindowOpenHandler in harden.ts.
@@ -56,16 +102,30 @@ export function registerAttachmentOpen(): void {
 
       let path: string | undefined;
       try {
-        const res = await fetch(safe);
+        const res = await fetch(safe, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
         if (!res.ok) return { ok: false, error: `Download failed (${res.status}).` };
-        const buf = Buffer.from(await res.arrayBuffer());
+        if (!res.body) return { ok: false, error: "Empty response body." };
         path = uniquePath(sanitize(fileName || "download"));
-        await new Promise<void>((resolve, reject) => {
-          const ws = createWriteStream(path!);
-          ws.on("error", reject);
-          ws.on("finish", () => resolve());
-          ws.end(buf);
-        });
+        // Streamed straight to disk rather than buffered whole into memory
+        // first (the previous `Buffer.from(await res.arrayBuffer())`): this is
+        // the main process, not a renderer — one large attachment held in its
+        // heap at once is a much bigger blast radius than in an ordinary tab,
+        // since an OOM here takes every window down at once. Nothing later in
+        // this handler needs the full buffer — the executable-extension check
+        // runs on the saved PATH, not the bytes.
+        // fetch's res.body types against lib.dom's ReadableStream; Readable.fromWeb
+        // wants node:stream/web's — the same runtime object, two nominal TS
+        // types with no overlap the compiler can see.
+        await pipeline(
+          Readable.fromWeb(res.body as unknown as import("node:stream/web").ReadableStream<Uint8Array>),
+          createWriteStream(path),
+        );
+        if (isExecutableAttachment(path)) {
+          // Never auto-run an executable-class attachment — reveal it in the
+          // file manager and make the user open it themselves.
+          shell.showItemInFolder(path);
+          return { ok: true };
+        }
         const failure = await shell.openPath(path);
         if (failure) {
           await unlink(path).catch(() => {});

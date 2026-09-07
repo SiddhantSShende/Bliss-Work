@@ -21,6 +21,7 @@ from ..config import settings
 from crypto import cryptor
 from ..db import session, set_bypass_rls
 from ..identities import upsert_oauth_identity
+from ..logging_setup import log
 from ..providers import oauth
 
 router = APIRouter()
@@ -79,6 +80,22 @@ async def oauth_callback(provider: str, request: Request) -> Response:
         # attacker-controlled (no state/session required to reach this branch)
         # and lands in a Location header the SPA reads back out of its own URL.
         error_param = urllib.parse.quote(q.get("error", ""), safe="")
+        error_state = q.get("state")
+        if error_state:
+            # A routine decline (the user clicks "Cancel" on the provider's
+            # consent screen) is the common case here, not an edge case — and
+            # this row carries an ENCRYPTED snapshot of the org's OAuth client
+            # secret and PKCE verifier (0014_oauth_state_credential_snapshot.sql).
+            # Consume it now instead of leaving it for prune_event_tables's
+            # next sweep. Mirrors the success path's single-use consume below;
+            # a missing/unknown state is a silent no-op — this is already an
+            # error-handling path and must not gain a new failure mode.
+            async with session() as db:
+                await set_bypass_rls(db)
+                await db.execute(
+                    text("DELETE FROM oauth_states WHERE state = :s"), {"s": error_state}
+                )
+                await db.commit()
         return RedirectResponse(_app_url(f"?error={error_param}"), status_code=302)
     code = q.get("code")
     state = q.get("state")
@@ -143,7 +160,8 @@ async def oauth_callback(provider: str, request: Request) -> Response:
             tokens = await oauth.exchange_code(cfg, code, verifier or "", redirect_uri)
             identity = await oauth.fetch_identity(cfg, tokens.get("access_token", ""))
             ext_id, label = identity.account_id, identity.label
-        except Exception:  # noqa: BLE001 — surface as a friendly redirect
+        except Exception as exc:  # noqa: BLE001 — surface as a friendly redirect
+            log.warning("oauth_callback_failed", provider=provider, error=str(exc))
             await db.commit()  # state already consumed
             return _finish(redirect_after, "?error=oauth_failed")
 

@@ -1,3 +1,4 @@
+import { toast } from "sonner";
 import { SessionDTO } from "@taskboard/shared"; // value import: it's a Zod schema
 import { useSession } from "../store/session";
 import { broadcastSession, getRecentSession } from "./authChannel";
@@ -129,6 +130,15 @@ async function performRefresh(
           sessionDead = true;
           persist?.(null);
           useSession.getState().clear();
+          // The store is cleared here on EVERY 401'd request that happens to
+          // discover the session is dead (the API 401-retry, the WS re-auth,
+          // the proactive refresh in runtime.tsx) — none of which are a user
+          // action, so none of them had anywhere else to explain what just
+          // happened. Fires exactly once per session-death: `sessionDead`
+          // short-circuits every later call before it reaches here again.
+          // Same wording as MfaChallenge.tsx's own "session expired" screen,
+          // so the message is consistent regardless of which path found it.
+          toast.error("Session expired", { description: "Please sign in again." });
         }
       }
       return null;

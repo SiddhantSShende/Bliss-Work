@@ -227,30 +227,38 @@ func (i *Importer) bridged(topic string) bool {
 }
 
 // terminate settles a message that must never be redelivered, and parks a copy
-// where a human can find it.
+// where a human can find it — UNLESS dead-lettering is disabled, in which case
+// there is nowhere to park it: this NAKs the message back for redelivery
+// instead of Term()-ing it away, so a poison event keeps recycling rather than
+// being silently dropped. See Config.DLQTopic's "disabled makes a poison event
+// block its partition" contract.
 //
-// Term rather than Nak: everything routed here fails for a reason redelivery
-// cannot change, and a permanent failure on an infinite retry is how a consumer
-// stops making progress at all.
+// Term rather than Nak (when a DLQ IS configured): everything routed here
+// fails for a reason redelivery cannot change, and a permanent failure on an
+// infinite retry is how a consumer stops making progress at all.
 func (i *Importer) terminate(msg jetstream.Msg, reason string) {
-	if i.dlq != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		hdr := msg.Headers()
-		// No Topic on the message — see the note in export.go's deadLetter.
-		err := i.dlq.WriteMessages(ctx, kafka.Message{
-			Key:   []byte(hdr.Get(loop.HeaderKafkaKey)),
-			Value: msg.Data(),
-			Headers: []kafka.Header{
-				{Key: "X-Bridge-Reject-Reason", Value: []byte(reason)},
-				{Key: "X-Bridge-Subject", Value: []byte(msg.Subject())},
-				{Key: loop.HeaderOriginRegion, Value: []byte(hdr.Get(loop.HeaderOriginRegion))},
-				{Key: "X-Bridge-Region", Value: []byte(i.cfg.Region)},
-			},
-		})
-		if err != nil {
-			i.log.Error("dead-letter write failed; event is lost", "subject", msg.Subject(), "err", err)
+	if i.dlq == nil {
+		if err := msg.Nak(); err != nil {
+			i.log.Warn("nak failed; the event will be redelivered on ack-wait timeout regardless", "err", err)
 		}
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	hdr := msg.Headers()
+	// No Topic on the message — see the note in export.go's deadLetter.
+	err := i.dlq.WriteMessages(ctx, kafka.Message{
+		Key:   []byte(hdr.Get(loop.HeaderKafkaKey)),
+		Value: msg.Data(),
+		Headers: []kafka.Header{
+			{Key: "X-Bridge-Reject-Reason", Value: []byte(reason)},
+			{Key: "X-Bridge-Subject", Value: []byte(msg.Subject())},
+			{Key: loop.HeaderOriginRegion, Value: []byte(hdr.Get(loop.HeaderOriginRegion))},
+			{Key: "X-Bridge-Region", Value: []byte(i.cfg.Region)},
+		},
+	})
+	if err != nil {
+		i.log.Error("dead-letter write failed; event is lost", "subject", msg.Subject(), "err", err)
 	}
 	if err := msg.Term(); err != nil {
 		i.log.Warn("terminate failed; the event will be redelivered", "err", err)

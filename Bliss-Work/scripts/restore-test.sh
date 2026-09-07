@@ -78,7 +78,7 @@ ts="${latest_authdb#*authdb-}"
 ts="${ts%.sql.enc}"
 echo "testing backup set ts=${ts}"
 
-DBS="authdb taskdb messagingdb notificationdb emaildb integrationsdb telemetrydb"
+DBS="authdb taskdb messagingdb notificationdb emaildb integrationsdb telemetrydb stickydb"
 for db in $DBS; do
   f="$BACKUP_DIR/${db}-${ts}.sql.enc"
   [ -f "$f" ] || fail "missing $f — backup set is incomplete for ts=${ts}"
@@ -132,7 +132,7 @@ for db in $DBS; do
 done
 
 if [ "$total_rows" -eq 0 ]; then
-  fail "every restored database has zero rows across all seven — the backup set restored structurally but carries no data"
+  fail "every restored database has zero rows across all eight — the backup set restored structurally but carries no data"
 fi
 
 # ── Media blob archive: extract and count, don't fail on a legitimately

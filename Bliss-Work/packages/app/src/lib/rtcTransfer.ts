@@ -296,6 +296,29 @@ export interface ReceiverHandle {
   state: () => TransferState;
 }
 
+/**
+ * True if accepting this chunk would take the receiver past what the offer
+ * itself negotiated — a peer sending more than it originally offered.
+ *
+ * Extracted as its own pure function (rather than inlined in the DataChannel
+ * handler) specifically so it can be unit-tested without a real
+ * RTCDataChannel: `maxChunkIndex`/`offerSize` MUST come from the offer
+ * (FileOfferMeta.size, agreed before the peer connection carried a single
+ * byte), never from anything the sender says over the channel afterward —
+ * see startReceiverTransfer's own chunkTotal, which the sender's INIT frame
+ * is allowed to overwrite for progress-display purposes and is therefore
+ * unfit to bound anything.
+ */
+export function chunkExceedsOffer(
+  chunkIndex: number,
+  payloadByteLength: number,
+  bytesReceivedSoFar: number,
+  maxChunkIndex: number,
+  offerSize: number,
+): boolean {
+  return chunkIndex >= maxChunkIndex || bytesReceivedSoFar + payloadByteLength > offerSize;
+}
+
 export function startReceiverTransfer(opts: {
   meta: FileOfferMeta;
   peerUserId: string;
@@ -364,6 +387,13 @@ export function startReceiverTransfer(opts: {
   let chunkTotal = Math.ceil(opts.meta.size / CHUNK_SIZE);
   let bytesDone = (opts.resumeFromChunkIndex ?? 0) * CHUNK_SIZE;
   let nextExpected = opts.resumeFromChunkIndex ?? 0;
+  // Immutable, derived from the OFFER's own size — agreed before this peer
+  // connection carried a single byte. `chunkTotal` above gets overwritten
+  // from the sender's own INIT frame just below (display purposes: "in case
+  // the sender re-segmented"), which makes it peer-controlled and unfit to
+  // bound anything. A peer that keeps streaming past what it originally
+  // offered fails the transfer here instead of writing forever.
+  const maxChunkIndex = chunkTotal;
 
   pc.ondatachannel = (ev) => {
     const dc = ev.channel;
@@ -421,6 +451,12 @@ export function startReceiverTransfer(opts: {
       if (idx !== nextExpected) {
         // SCTP ordered=true means this shouldn't happen; defensive drop.
         return;
+      }
+      if (chunkExceedsOffer(idx, payload.byteLength, bytesDone, maxChunkIndex, opts.meta.size)) {
+        // The peer is sending more than the offer it made — fail loudly
+        // rather than silently keep writing (or silently keep dropping,
+        // which would just let it retry forever). See maxChunkIndex above.
+        throw new Error("peer sent more data than the offer's negotiated size");
       }
       await opts.onChunk(idx, payload);
       nextExpected += 1;

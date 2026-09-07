@@ -44,27 +44,14 @@
 # unprunable database must not leave the other four growing.
 set -Eeuo pipefail
 
+source "$(dirname "${BASH_SOURCE[0]}")/lib/compose-job.sh"
+
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 COMPOSE_FILE="${COMPOSE_FILE:-$REPO_DIR/docker-compose.prod.yml}"
 export COMPOSE_FILE
 cd "$REPO_DIR"
 
-if docker info >/dev/null 2>&1; then
-  USE_SUDO=0
-elif sudo -n docker info >/dev/null 2>&1; then
-  USE_SUDO=1
-else
-  echo "cannot reach the Docker daemon (with or without passwordless sudo)" >&2
-  exit 1
-fi
-
-compose() {
-  if (( USE_SUDO )); then
-    sudo env COMPOSE_FILE="$COMPOSE_FILE" docker compose "$@"
-  else
-    docker compose "$@"
-  fi
-}
+detect_docker_sudo
 
 args=()
 [ -n "${PRUNE_DRY_RUN:-}" ] && args=(--dry-run)
@@ -79,6 +66,7 @@ declare -a JOBS=(
   "task-svc:python -m app.jobs.prune_event_tables"
   "auth-svc:python -m app.jobs.prune_event_tables"
   "integrations-svc:python -m app.jobs.prune_event_tables"
+  "sticky-svc:python -m app.jobs.prune_event_tables"
 )
 
 failures=0

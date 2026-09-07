@@ -32,9 +32,14 @@ export const WA_URL_MAX = 1900;
  * readable prefix is used instead — and for a location the coordinates are
  * turned into a maps link, which is the part the recipient can actually act on.
  *
- * Media messages never reach here: ChatThread hides the forward affordance for
- * them, because their attachment ids are scoped to a conversation the recipient
- * is not in.
+ * A media message's readable prefix is its auto description ("🖼️ photo.jpg ·
+ * 2.0 MB"), never the attachment itself — wa.me's `text` param is the only
+ * thing this link can carry, on every platform, so there is no version of
+ * "attach the photo" that belongs in a URL. ChatThread additionally fires a
+ * best-effort media hand-off (useWhatsAppMediaForward) on the same click, via
+ * the OS share sheet where the runtime supports it — see that module for what
+ * it can and cannot promise. Neither path puts an attachment id or a signed
+ * download URL in front of WhatsApp or the eventual recipient.
  */
 export function waForwardText(body: string): string {
   const text = readablePrefix(body);

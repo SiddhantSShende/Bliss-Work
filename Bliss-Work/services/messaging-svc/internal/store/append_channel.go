@@ -38,6 +38,9 @@ type channelAppendOpts struct {
 	// whoever forwarded it.
 	isForward     bool
 	forwardedFrom string
+	// forwardPlatform mirrors appendOpts.forwardPlatform — set only by
+	// ForwardLinkRecord's channel branch.
+	forwardPlatform string
 }
 
 func (o channelAppendOpts) kindArg() string {
@@ -87,13 +90,17 @@ func (s *Store) appendChannelMessageTx(
 	if opts.forwardedFrom != "" {
 		forwardedFrom = &opts.forwardedFrom
 	}
+	var forwardPlatform *string
+	if opts.forwardPlatform != "" {
+		forwardPlatform = &opts.forwardPlatform
+	}
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO channel_messages
 		   (id, org_id, channel_id, seq, sender_id, body, body_enc, client_msg_id, kind,
-		    is_forward, forwarded_from_message_id)
-		 VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8, $9, $10)`,
+		    is_forward, forwarded_from_message_id, forward_platform)
+		 VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8, $9, $10, $11)`,
 		msgID, orgID, channelID, seq, senderID, bodyEnc, clientMsgID, opts.kindArg(),
-		opts.isForward, forwardedFrom); err != nil {
+		opts.isForward, forwardedFrom, forwardPlatform); err != nil {
 		return "", err
 	}
 
@@ -106,19 +113,20 @@ func (s *Store) appendChannelMessageTx(
 		return "", err
 	}
 	evt := events.ChannelMessageCreated{
-		Type:           events.TypeChannelMessageCreated,
-		EventID:        uuid.Must(uuid.NewV7()).String(),
-		OrgID:          orgID,
-		OccurredAt:     nowISO(),
-		ChannelID:      channelID,
-		MessageID:      msgID,
-		Seq:            seq,
-		SenderID:       senderID,
-		SenderUsername: senderName,
-		Body:           body,
-		Members:        members,
-		Kind:           opts.kind,
-		IsForward:      opts.isForward,
+		Type:            events.TypeChannelMessageCreated,
+		EventID:         uuid.Must(uuid.NewV7()).String(),
+		OrgID:           orgID,
+		OccurredAt:      nowISO(),
+		ChannelID:       channelID,
+		MessageID:       msgID,
+		Seq:             seq,
+		SenderID:        senderID,
+		SenderUsername:  senderName,
+		Body:            body,
+		Members:         members,
+		Kind:            opts.kind,
+		IsForward:       opts.isForward,
+		ForwardPlatform: opts.forwardPlatform,
 	}
 	if err := insertOutbox(ctx, tx, channelID, evt); err != nil {
 		return "", err

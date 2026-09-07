@@ -103,19 +103,19 @@ export function patchThreadOnMessage(qc: QueryClient, e: MessageCreated): void {
 /** Drop the thread row from the unified inbox on ConversationIgnored. */
 export function patchInboxOnIgnored(qc: QueryClient, e: ConversationIgnored): void {
   if (!e.threadId) {
-    // Legacy /conversations/{id}/ignore — drop every THREAD row whose conv matches.
-    qc.setQueryData<InboxInfinite>(qk.unifiedInbox, (prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        pages: prev.pages.map((p) => ({
-          ...p,
-          items: p.items.filter(
-            (it) => !(it.itemKind === "THREAD" /* and conv match would go here */),
-          ),
-        })),
-      };
-    });
+    // Legacy /conversations/{id}/ignore (still DMView's Ignore button and
+    // ChatsList's Delete-chat, per messaging-svc's Store.Ignore) carries only
+    // conversationId — never enough to scope a cache patch: InboxItemDTO's
+    // THREAD rows key on `refId`, which is the THREAD id, not a conversation
+    // id, and the item shape has no conversationId field at all to match
+    // e.conversationId against. This used to filter out every THREAD row
+    // regardless (the comment even admitted "conv match would go here" was
+    // never implemented), wiping the entire unified inbox's mail threads on
+    // any single Ignore/Delete. Rather than guess with insufficient data,
+    // fall back to invalidating so the next refetch reflects the server's
+    // real state — the item this call can't identify locally still
+    // disappears, just not instantly, and nothing else is touched.
+    void qc.invalidateQueries({ queryKey: qk.unifiedInbox });
     return;
   }
   qc.setQueryData<InboxInfinite>(qk.unifiedInbox, (prev) => {

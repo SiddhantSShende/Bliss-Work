@@ -66,6 +66,11 @@ yarn-error.log
 # testing
 /coverage
 
+# Local, machine-specific dev overrides — never committed. Same
+# versioned-default/gitignored-local-override split as ios/.xcode.env vs
+# .xcode.env.local above, for the JS side (see AppProviders.tsx).
+src/constants/localBackendOverride.ts
+
 # Yarn
 .yarn/*
 !.yarn/patches

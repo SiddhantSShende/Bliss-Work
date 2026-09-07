@@ -75,8 +75,16 @@ export default defineConfig({
     // still prefers process.env.TB_GOOGLE_API_KEY at runtime when one is set.
     // Absent is a supported configuration: location sharing then falls back to
     // the server's IP lookup instead of a precise fix.
+    //
+    // __TB_UPDATE_MANIFEST_MIRROR_URL__ is the same pattern for updater.ts's
+    // second-source integrity check (see update-integrity.ts): a bare
+    // process.env read there would only ever see an END USER's OS
+    // environment at runtime, which never has this set — it has to be baked
+    // in at build time, from whatever .env.prod had when the installer was
+    // built (see docs/DEPLOY.md's "The second-source integrity check").
     define: {
       __TB_GOOGLE_API_KEY__: JSON.stringify(process.env.TB_GOOGLE_API_KEY ?? ""),
+      __TB_UPDATE_MANIFEST_MIRROR_URL__: JSON.stringify(process.env.TB_UPDATE_MANIFEST_MIRROR_URL ?? ""),
     },
     build: {
       rollupOptions: {

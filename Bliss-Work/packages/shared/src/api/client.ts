@@ -9,6 +9,7 @@ import {
   AttachmentLinkDTO,
   type AttachmentScope,
   ActivityExportRow,
+  ActiveSessionDTO,
   ActivitySessionPage,
   ActivitySessionEntryPage,
   AgentTokenDTO,
@@ -387,6 +388,30 @@ export class ApiClient {
     return this.req(this.cfg.authBase, `/auth/directory${q}`, {}, z.array(UserDTO));
   }
 
+  // ── active sessions (sign-in sessions, not activity/telemetry ones) ────────
+  /** The caller's own active sessions in their current org. `isCurrent` marks
+   *  the one this very request is authenticated by, where the server could
+   *  tell (web only — see auth-svc's routes/sessions.py). */
+  listSessions() {
+    return this.req(this.cfg.authBase, "/auth/sessions", {}, z.array(ActiveSessionDTO));
+  }
+  /** Revoke one of the caller's own sessions. 404s (never 403) on a session
+   *  that isn't the caller's — see the server's own note on why that
+   *  ambiguity is deliberate. */
+  revokeSession(id: string) {
+    return this.req<void>(this.cfg.authBase, `/auth/sessions/${id}`, { method: "DELETE" });
+  }
+  /** Revoke every one of the caller's OTHER sessions in one call. Pass the
+   *  current session's id (decode it from the access token's own `sid`
+   *  claim — see `decodeJwtPayload`) to keep it signed in; omit it to sign
+   *  out everywhere, including this session. Returns the ids revoked. */
+  revokeOtherSessions(currentSessionId?: string) {
+    return this.req(this.cfg.authBase, "/auth/sessions/revoke-others", {
+      method: "POST",
+      body: JSON.stringify({ currentSessionId: currentSessionId ?? null }),
+    }, z.array(z.string()));
+  }
+
   // ── member administration (org_admin) ────────────────────────────────────────
   /** Every membership including suspended and removed ones — this is the screen
    *  they are reactivated from, so hiding them would strand them. */
@@ -416,6 +441,17 @@ export class ApiClient {
     return this.req(this.cfg.authBase, `/auth/members/${userId}`, {
       method: "DELETE",
     }, MemberDTO);
+  }
+  /** A member's active sessions — org_admin only. No `isCurrent`: this is
+   *  never the admin's own session (self-revoking here is refused server-side
+   *  — use `revokeSession` instead). */
+  listMemberSessions(userId: string) {
+    return this.req(this.cfg.authBase, `/auth/members/${userId}/sessions`, {}, z.array(ActiveSessionDTO));
+  }
+  revokeMemberSession(userId: string, sessionId: string) {
+    return this.req<void>(this.cfg.authBase, `/auth/members/${userId}/sessions/${sessionId}`, {
+      method: "DELETE",
+    });
   }
   // ── member activity record (telemetry-svc) ──────────────────────────────────
   // `userId` accepts the literal "me" so a member can read their own record
@@ -606,8 +642,18 @@ export class ApiClient {
       body: JSON.stringify(body),
     }, UserDTO);
   }
-  logout() {
-    return this.req<void>(this.cfg.authBase, "/auth/logout", { method: "POST" });
+  /** `refreshToken` mirrors /auth/refresh's own body-token support: desktop
+   *  and mobile cannot rely on the refresh cookie travelling (it's read from
+   *  OS-encrypted storage instead — see apps/desktop/src/main/session-token.ts),
+   *  so without this the server had no credential to resolve WHICH session to
+   *  revoke and logout only ever cleared the cookie. Omit on web, where the
+   *  cookie is the only — and sufficient — credential. */
+  logout(refreshToken?: string) {
+    return this.req<void>(this.cfg.authBase, "/auth/logout", {
+      method: "POST",
+      // req() already sends content-type: application/json unconditionally.
+      ...(refreshToken ? { body: JSON.stringify({ token: refreshToken }) } : {}),
+    });
   }
   /** Organizations the signed-in identity belongs to (for the switcher). */
   myOrgs() {
@@ -1040,16 +1086,20 @@ export class ApiClient {
     body: string,
     opts?: { parentMessageId?: string; clientMsgId?: string; replyToId?: string },
   ) {
+    // Resolved ONCE: the header and the body's clientMsgId must be the same
+    // value, or a retry's idempotency-key header would not match the id the
+    // first attempt's row was actually keyed on.
+    const clientMsgId = opts?.clientMsgId ?? uuid();
     return this.req(
       this.cfg.messagingBase,
       `/api/v1/threads/${threadId}/reply`,
       {
         method: "POST",
-        headers: { "idempotency-key": opts?.clientMsgId ?? uuid() },
+        headers: { "idempotency-key": clientMsgId },
         body: JSON.stringify({
           body,
           parentMessageId: opts?.parentMessageId ?? null,
-          clientMsgId: opts?.clientMsgId ?? uuid(),
+          clientMsgId,
           replyToId: opts?.replyToId,
         }),
       },
@@ -1137,6 +1187,7 @@ export class ApiClient {
   sendMail(
     mailId: string,
     mail: { to: string[]; cc?: string[]; bcc?: string[]; subject: string; bodyText: string },
+    idempotencyKey?: string,
   ) {
     return this.req(
       this.cfg.messagingBase,
@@ -1145,7 +1196,9 @@ export class ApiClient {
         method: "POST",
         // Send has no natural client-supplied id, so the idempotency key is
         // what stops a double-tap on a slow connection fanning out twice.
-        headers: { "idempotency-key": uuid() },
+        // Caller-suppliable so a retry after a dropped connection reuses the
+        // same key instead of minting a new one that looks like a second send.
+        headers: { "idempotency-key": idempotencyKey ?? uuid() },
         body: JSON.stringify({
           to: mail.to,
           cc: mail.cc ?? [],
@@ -1281,10 +1334,10 @@ export class ApiClient {
    * cannot read — so an abandoned upload can never be discovered as an orphan
    * by inspection. Call this once the message has actually been sent.
    */
-  commitAttachment(id: string) {
+  commitAttachment(id: string, idempotencyKey?: string) {
     return this.req<void>(this.cfg.messagingBase, `/api/v1/attachments/${id}/commit`, {
       method: "POST",
-      headers: { "idempotency-key": uuid() },
+      headers: { "idempotency-key": idempotencyKey ?? uuid() },
     });
   }
 
@@ -1393,10 +1446,10 @@ export class ApiClient {
   }
 
   /** Removes the thread from BOTH users' inbox; revives on next reply. */
-  ignoreThread(threadId: string) {
+  ignoreThread(threadId: string, idempotencyKey?: string) {
     return this.req<void>(this.cfg.messagingBase, `/api/v1/threads/${threadId}/ignore`, {
       method: "POST",
-      headers: { "idempotency-key": uuid() },
+      headers: { "idempotency-key": idempotencyKey ?? uuid() },
     });
   }
   /**
@@ -1404,10 +1457,10 @@ export class ApiClient {
    * party may do it, for any message; the other side is unaffected and never
    * learns of it.
    */
-  hideMessage(messageId: string) {
+  hideMessage(messageId: string, idempotencyKey?: string) {
     return this.req<void>(this.cfg.messagingBase, `/api/v1/messages/${messageId}/hide`, {
       method: "POST",
-      headers: { "idempotency-key": uuid() },
+      headers: { "idempotency-key": idempotencyKey ?? uuid() },
     });
   }
   /**
@@ -1416,10 +1469,10 @@ export class ApiClient {
    * orders the conversation and other tables reference the id, and a reader
    * seeing "this message was deleted" is more honest than a silent gap.
    */
-  deleteMessageForAll(messageId: string) {
+  deleteMessageForAll(messageId: string, idempotencyKey?: string) {
     return this.req<void>(this.cfg.messagingBase, `/api/v1/messages/${messageId}`, {
       method: "DELETE",
-      headers: { "idempotency-key": uuid() },
+      headers: { "idempotency-key": idempotencyKey ?? uuid() },
     });
   }
   /**
@@ -1476,11 +1529,11 @@ export class ApiClient {
   // services/messaging-svc/internal/store/channels_message_actions.go.
 
   /** "Delete for me" in a channel. Invisible to everyone else. */
-  hideChannelMessage(messageId: string) {
+  hideChannelMessage(messageId: string, idempotencyKey?: string) {
     return this.req<void>(
       this.cfg.messagingBase,
       `/api/v1/channel-messages/${messageId}/hide`,
-      { method: "POST", headers: { "idempotency-key": uuid() } },
+      { method: "POST", headers: { "idempotency-key": idempotencyKey ?? uuid() } },
     );
   }
   /**
@@ -1490,11 +1543,11 @@ export class ApiClient {
    * channel admin, org_admin). The server is the authority; the UI only decides
    * whether to offer the option.
    */
-  deleteChannelMessageForAll(messageId: string) {
+  deleteChannelMessageForAll(messageId: string, idempotencyKey?: string) {
     return this.req<void>(
       this.cfg.messagingBase,
       `/api/v1/channel-messages/${messageId}`,
-      { method: "DELETE", headers: { "idempotency-key": uuid() } },
+      { method: "DELETE", headers: { "idempotency-key": idempotencyKey ?? uuid() } },
     );
   }
   /** The batch form of deleteChannelMessageForAll — same contract as
@@ -1543,10 +1596,10 @@ export class ApiClient {
     );
   }
   /** Sender-only soft-delete: hides this message from the sender's own inbox. */
-  dismissMessage(messageId: string) {
+  dismissMessage(messageId: string, idempotencyKey?: string) {
     return this.req<void>(this.cfg.messagingBase, `/api/v1/messages/${messageId}/dismiss`, {
       method: "POST",
-      headers: { "idempotency-key": uuid() },
+      headers: { "idempotency-key": idempotencyKey ?? uuid() },
     });
   }
   /** Record a forward the caller is about to make by opening a WhatsApp link,
@@ -1687,11 +1740,11 @@ export class ApiClient {
    * go through `taskAction(id, "ignore")` so the state machine actually runs,
    * because this endpoint only hides the projection row.
    */
-  ignoreInboxItem(kind: InboxItemKind, refId: string) {
+  ignoreInboxItem(kind: InboxItemKind, refId: string, idempotencyKey?: string) {
     return this.req<void>(
       this.cfg.messagingBase,
       `/api/v1/inbox/items/${kind}/${refId}/ignore`,
-      { method: "POST", headers: { "idempotency-key": uuid() } },
+      { method: "POST", headers: { "idempotency-key": idempotencyKey ?? uuid() } },
     );
   }
   /**
@@ -1702,11 +1755,11 @@ export class ApiClient {
    * caller's feed row, so there is nothing else to reverse: the same mail, with
    * the same read state, reappears where it was.
    */
-  restoreMail(refId: string) {
+  restoreMail(refId: string, idempotencyKey?: string) {
     return this.req<void>(
       this.cfg.messagingBase,
       `/api/v1/inbox/items/MAIL/${refId}/restore`,
-      { method: "POST", headers: { "idempotency-key": uuid() } },
+      { method: "POST", headers: { "idempotency-key": idempotencyKey ?? uuid() } },
     );
   }
 
@@ -1720,10 +1773,10 @@ export class ApiClient {
      *  auto-added via the ChannelMemberJoined consumer in task-svc.
      *  When set, `assigneeIds` is ignored — server is the source of truth. */
     channelId?: string;
-  }) {
+  }, idempotencyKey?: string) {
     return this.req(this.cfg.taskBase, "/api/v1/tasks", {
       method: "POST",
-      headers: { "idempotency-key": uuid() },
+      headers: { "idempotency-key": idempotencyKey ?? uuid() },
       body: JSON.stringify(body),
     }, z.object({ taskId: z.string() }));
   }
@@ -1780,11 +1833,15 @@ export class ApiClient {
   tasksSent() {
     return this.req(this.cfg.taskBase, "/api/v1/tasks/sent", {}, z.array(SentTaskDTO));
   }
-  taskAction(taskId: string, action: "acknowledge" | "complete" | "ignore" | "leave") {
+  taskAction(
+    taskId: string,
+    action: "acknowledge" | "complete" | "ignore" | "leave",
+    idempotencyKey?: string,
+  ) {
     return this.req(
       this.cfg.taskBase,
       `/api/v1/tasks/${taskId}/assignees/me/${action}`,
-      { method: "POST", headers: { "idempotency-key": uuid() } },
+      { method: "POST", headers: { "idempotency-key": idempotencyKey ?? uuid() } },
       z.object({ status: z.string(), statusVersion: z.number() }),
     );
   }
@@ -2493,7 +2550,7 @@ export class ApiError extends Error {
       const err = body.error;
       if (err && typeof err === "object") {
         return new ApiError(res.status, err.message ?? res.statusText, {
-          code: err.code,
+          code: asErrorCode(err.code),
           requestId: err.requestId || requestId,
           details: err.details,
         });

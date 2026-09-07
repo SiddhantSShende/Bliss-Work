@@ -275,7 +275,7 @@ async def activity_sessions_for(
             await db.execute(
                 text(
                     """
-                    SELECT id, kind, app_name, domain, title, started_at,
+                    SELECT id, kind, app_name, domain, title, title_enc, started_at,
                            ended_at, duration_ms, detail_enc,
                            anchor_event_id, correlated_event_id
                       FROM activity_sessions
@@ -305,7 +305,11 @@ async def activity_sessions_for(
                 kind=r.kind,
                 appName=r.app_name,
                 domain=r.domain,
-                title=r.title,
+                # title_enc is the current write path (see
+                # 0008_encrypt_activity_session_title.sql); the plaintext
+                # `title` column is the fallback for rows written before that
+                # migration, until they are backfilled or age out.
+                title=await _title(db, principal.org_id, r.title_enc, r.title),
                 startedAt=iso_z(r.started_at) or "",
                 endedAt=iso_z(r.ended_at) or "",
                 durationMs=int(r.duration_ms or 0),
@@ -348,6 +352,29 @@ async def _detail(db, org_id: str, blob) -> dict[str, str] | None:
     except ValueError:
         return None
     return {k: str(v) for k, v in parsed.items()} if isinstance(parsed, dict) else None
+
+
+async def _title(db, org_id: str, title_enc, legacy_title: str | None) -> str | None:
+    """Decrypt activity_sessions.title_enc, or return None.
+
+    Same fail-open contract as `_detail` above, and for the same reason: a
+    crypto-shredded org's historical titles become permanently unreadable BY
+    DESIGN, and a session row should still render (app/domain/duration) rather
+    than 500 the whole page over one undecryptable field.
+
+    Falls back to the legacy plaintext `title` column when `title_enc` is
+    unset — rows written before 0008_encrypt_activity_session_title.sql, not
+    yet backfilled (see scripts/backfill-telemetry-session-title.py) or aged
+    out of the visible window.
+    """
+    if title_enc is None:
+        return legacy_title
+    try:
+        raw = await cryptor().decrypt(db, org_id, title_enc)
+    except CryptoError:
+        log.info("session_title_undecryptable", org_id=org_id)
+        return None
+    return raw or None
 
 
 async def _last_auth_actions(db, org_id: str) -> dict[str, tuple[datetime | None, datetime | None]]:

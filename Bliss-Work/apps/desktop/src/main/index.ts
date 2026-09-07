@@ -266,8 +266,8 @@ function bootstrap() {
 
   startWsProcess();
   createTray();
-  registerFileSink();
-  registerAttachmentOpen();
+  registerFileSink(() => mainWindow);
+  registerAttachmentOpen(() => mainWindow);
 
   // Keep sticky notes on the main desktop screen when the display layout
   // changes (monitor plugged/unplugged/resolution change) — re-confine any note

@@ -7,5 +7,6 @@ export * from "./policy/activityDestination";
 export * from "./policy/mailAddress";
 export * from "./policy/titlePrivacy";
 export * from "./ws-client/WsClient";
+export * from "./lib/jwt";
 export * from "./graphql/operations";
 export * from "./api/client";

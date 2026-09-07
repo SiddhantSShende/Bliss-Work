@@ -39,7 +39,10 @@
 #     signal.
 #
 # PERSISTENCE: the rules are written into /etc/ufw/after.rules, so they are
-# re-applied on `ufw reload` and at boot.
+# re-applied on `ufw reload` and at boot. This script and db-allowlist.sh
+# share ONE combined DOCKER-USER block rather than one each — see
+# lib/docker-user-allowlist.sh's header for why (a second `:DOCKER-USER - [0:0]`
+# declaration would flush the chain and silently wipe the other script's rule).
 #
 # Usage:
 #   sudo bash infra/host/nats-gateway-allowlist.sh <peer-ip-or-cidr>
@@ -54,19 +57,20 @@
 #
 # Re-running is idempotent: the managed block is replaced, never duplicated.
 #
+# The DOCKER-USER installation itself (root check, interface auto-detection,
+# CIDR validation, iptables-restore pre-flight, after.rules splice, ufw
+# reload with rollback, live-chain verification) is shared with
+# db-allowlist.sh — see lib/docker-user-allowlist.sh.
+#
 set -euo pipefail
 
-if [[ "${EUID}" -ne 0 ]]; then
-  echo "ERROR: run as root:  sudo bash $0 <peer-ip-or-cidr>" >&2
-  exit 1
-fi
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/docker-user-allowlist.sh
+source "${SCRIPT_DIR}/lib/docker-user-allowlist.sh"
 
-log() { printf '\n\033[1;36m[nats-gateway-allowlist]\033[0m %s\n' "$*"; }
+require_root " <peer-ip-or-cidr>"
 
 GATEWAY_PORT="${GATEWAY_PORT:-7222}"
-AFTER_RULES="${AFTER_RULES:-/etc/ufw/after.rules}"
-BEGIN_MARK="# BEGIN BLISSWORK-NATS-GATEWAY-ALLOWLIST (managed by infra/host/nats-gateway-allowlist.sh)"
-END_MARK="# END BLISSWORK-NATS-GATEWAY-ALLOWLIST"
 
 if [[ $# -eq 0 ]]; then
   echo "ERROR: no peer IP/CIDR given. Unlike db-allowlist.sh, this has no default —" >&2
@@ -77,101 +81,23 @@ if [[ $# -eq 0 ]]; then
 fi
 ALLOW=("$@")
 
-EXT_IF="${EXT_IF:-$(ip -4 route show default | awk '/default/ {print $5; exit}')}"
-if [[ -z "${EXT_IF}" ]]; then
-  echo "ERROR: could not determine the external interface; set EXT_IF=<iface>." >&2
-  exit 1
-fi
-if ! ip link show "${EXT_IF}" >/dev/null 2>&1; then
-  echo "ERROR: interface '${EXT_IF}' does not exist." >&2
-  exit 1
-fi
-
-for src in "${ALLOW[@]}"; do
-  if ! [[ "${src}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}(/([0-9]|[12][0-9]|3[0-2]))?$ ]]; then
-    echo "ERROR: '${src}' is not a valid IPv4 address or CIDR (e.g. 203.0.113.7/32)." >&2
-    exit 1
-  fi
-done
-
-if [[ ! -f "${AFTER_RULES}" ]]; then
-  echo "ERROR: ${AFTER_RULES} not found — is ufw installed? Run harden-host.sh first." >&2
-  exit 1
-fi
-
-log "Allowing ${GATEWAY_PORT}/tcp on ${EXT_IF} from: ${ALLOW[*]}"
-
-block="$(
-  printf '%s\n' "${BEGIN_MARK}"
-  printf '%s\n' "# The NATS cross-region gateway is host-published only once a real peer"
-  printf '%s\n' "# region exists (docker-compose.crossregion.yml has no ports: by default)."
-  printf '%s\n' "# ufw cannot filter a published Docker port, so the gate lives here in"
-  printf '%s\n' "# DOCKER-USER. Edit via the script, not by hand — a 'ufw reload' rewrites"
-  printf '%s\n' "# this block from it."
-  printf '%s\n' "*filter"
-  printf '%s\n' ":DOCKER-USER - [0:0]"
-  for src in "${ALLOW[@]}"; do
-    printf -- '-A DOCKER-USER -i %s -p tcp --dport %s -s %s -j RETURN\n' \
-      "${EXT_IF}" "${GATEWAY_PORT}" "${src}"
-  done
-  printf -- '-A DOCKER-USER -i %s -p tcp --dport %s -j DROP\n' "${EXT_IF}" "${GATEWAY_PORT}"
-  printf '%s\n' "COMMIT"
-  printf '%s\n' "${END_MARK}"
+BLOCK_COMMENT="$(cat <<'EOF'
+# The NATS cross-region gateway is host-published only once a real peer
+# region exists (docker-compose.crossregion.yml has no ports: by default).
+# ufw cannot filter a published Docker port, so the gate lives here in
+# DOCKER-USER. Edit via the script, not by hand — a 'ufw reload' rewrites
+# this block from it.
+EOF
 )"
 
-log "Validating the ruleset with iptables-restore --test"
-if ! grep -v '^#' <<<"${block}" | iptables-restore --test --noflush; then
-  echo "ERROR: the generated rules are not valid; ${AFTER_RULES} left untouched." >&2
-  echo "--- generated block ---" >&2
-  echo "${block}" >&2
-  exit 1
-fi
+install_docker_user_allowlist \
+  "nats-gateway-allowlist" \
+  "${GATEWAY_PORT}" \
+  "${BLOCK_COMMENT}" \
+  "NATS cross-region gateway" \
+  "" \
+  "${ALLOW[@]}"
 
-backup="${AFTER_RULES}.blisswork-$(date +%Y%m%d%H%M%S).bak"
-cp -a "${AFTER_RULES}" "${backup}"
-log "Backed up ${AFTER_RULES} → ${backup}"
-
-tmp="$(mktemp)"
-trap 'rm -f "${tmp}"' EXIT
-awk -v b="${BEGIN_MARK}" -v e="${END_MARK}" '
-  $0 == b { skip = 1 }
-  !skip   { print }
-  $0 == e { skip = 0 }
-' "${AFTER_RULES}" > "${tmp}"
-printf '\n%s\n' "${block}" >> "${tmp}"
-install -m 0640 -o root -g root "${tmp}" "${AFTER_RULES}"
-
-log "Reloading ufw"
-if ! ufw reload; then
-  echo "ERROR: 'ufw reload' failed — restoring ${AFTER_RULES} from backup." >&2
-  cp -a "${backup}" "${AFTER_RULES}"
-  ufw reload || true
-  exit 1
-fi
-
-for src in "${ALLOW[@]}"; do
-  ufw allow from "${src}" to any port "${GATEWAY_PORT}" proto tcp \
-    comment 'NATS cross-region gateway (actually enforced in DOCKER-USER)' >/dev/null
-done
-
-live="$(iptables -S DOCKER-USER 2>/dev/null || true)"
-missing=0
-for src in "${ALLOW[@]}"; do
-  grep -qF -- "-i ${EXT_IF} -p tcp -m tcp --dport ${GATEWAY_PORT} -s ${src}" <<<"${live}" \
-    || grep -qF -- "-s ${src} -i ${EXT_IF} -p tcp -m tcp --dport ${GATEWAY_PORT} -j RETURN" <<<"${live}" \
-    || missing=1
-done
-grep -q -- "--dport ${GATEWAY_PORT} -j DROP" <<<"${live}" || missing=1
-
-if [[ "${missing}" -ne 0 ]]; then
-  echo "ERROR: DOCKER-USER does not contain the expected rules after reload." >&2
-  echo "       Port ${GATEWAY_PORT} may be UNPROTECTED. Live chain:" >&2
-  echo "${live}" >&2
-  exit 1
-fi
-
-log "Done. Live DOCKER-USER chain:"
-iptables -S DOCKER-USER
 cat <<NOTE
 
 Now add the port publish itself — it is NOT in docker-compose.crossregion.yml

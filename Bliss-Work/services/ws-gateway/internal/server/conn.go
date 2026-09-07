@@ -36,7 +36,7 @@ type session struct {
 
 func (s *Server) serveConn(parent context.Context, ws *websocket.Conn, claims *auth.Claims) {
 	connID := uuid.NewString()
-	conn := hub.NewConn(claims.UserID, connID)
+	conn := hub.NewConn(claims.UserID, connID, claims.SessionID)
 	sess := &session{}
 	sess.claims.Store(claims)
 
@@ -218,8 +218,15 @@ func (s *Server) writeLoop(ctx context.Context, cancel context.CancelFunc, ws *w
 		case <-ctx.Done():
 			return
 		case <-conn.Done:
-			// Slow consumer or remote close requested.
-			_ = ws.Close(websocket.StatusInternalError, "send buffer full")
+			// Slow consumer, remote close requested, or an explicit reason
+			// from CloseWithReason (e.g. hub.CloseSession on session.revoked)
+			// — see Conn.closeReason's doc comment for why reading it here,
+			// after the receive above, needs no lock.
+			if reason := conn.CloseReason(); reason != "" {
+				_ = ws.Close(websocket.StatusPolicyViolation, reason)
+			} else {
+				_ = ws.Close(websocket.StatusInternalError, "send buffer full")
+			}
 			return
 		case payload := <-conn.Send:
 			wctx, wc := context.WithTimeout(ctx, writeTimeout)
@@ -230,6 +237,22 @@ func (s *Server) writeLoop(ctx context.Context, cancel context.CancelFunc, ws *w
 				return
 			}
 		case <-pingTicker.C:
+			// The JWT is verified once, at the handshake — nothing after that
+			// ever re-checks it against wall-clock time, so a connection opened
+			// with a valid token stayed authorized for as long as the socket
+			// itself stayed open, regardless of the token's own exp or the
+			// user being deactivated/removed mid-session. auth.renew swaps in
+			// a fresh token voluntarily, but nothing forces a client to send
+			// it. Piggybacking the check on the ping tick (every pingInterval)
+			// closes that gap without a third ticker: a client that has gone
+			// past its token's exp gets force-closed here and has to
+			// reconnect, which re-verifies from scratch.
+			claims := sess.claims.Load()
+			if time.Now().After(claims.Expiry) {
+				s.log.Info("ws closing: token expired", "user", claims.UserID, "conn", conn.ConnID)
+				_ = ws.Close(websocket.StatusPolicyViolation, "token expired")
+				return
+			}
 			pctx, pc := context.WithTimeout(ctx, pingTimeout)
 			err := ws.Ping(pctx)
 			pc()

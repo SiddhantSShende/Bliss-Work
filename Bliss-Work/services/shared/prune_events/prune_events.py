@@ -59,11 +59,26 @@ class Logger(Protocol):
     def exception(self, event: str, **kw: object) -> None: ...
 
 
+#: Every service using this runner enables + FORCEs row-level security on its
+#: org-scoped tables (a row is visible only when `org_id` matches the
+#: transaction-local `app.org_id` GUC, or this trusted GUC is 'on' — see each
+#: service's own RLS migration). A retention sweep legitimately spans every
+#: org, so it belongs in the same "trusted server code" category as a Kafka
+#: consumer or the outbox poller, per that convention. Without this, a target
+#: on an RLS-protected table (nothing in `app.org_id` is ever set here) would
+#: match zero rows under the least-privileged role the app connects as in
+#: production — silently, since the DELETE/count still succeeds, it just never
+#: sees any of the rows it should. `is_local => true` keeps it scoped to the
+#: current transaction only, same as every other bypass_rls call in this repo.
+_BYPASS_RLS = text("SELECT set_config('app.bypass_rls', 'on', true)")
+
+
 async def prune_target(engine, log: Logger, target: Target, dry_run: bool) -> None:
     params = {"retention": target.retention_seconds}
 
     if dry_run:
         async with engine.connect() as conn:
+            await conn.execute(_BYPASS_RLS)
             n = (
                 await conn.execute(
                     text(f"SELECT count(*) FROM {target.table} WHERE {target.where}"),  # noqa: S608 — fixed table list
@@ -103,6 +118,7 @@ async def prune_target(engine, log: Logger, target: Target, dry_run: bool) -> No
     deleted = 0
     for _ in range(MAX_BATCHES):
         async with engine.begin() as conn:
+            await conn.execute(_BYPASS_RLS)
             n = (await conn.execute(stmt, params)).rowcount or 0
         deleted += n
         if n < BATCH_SIZE:

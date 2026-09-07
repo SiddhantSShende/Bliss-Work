@@ -1,0 +1,28 @@
+-- 0008_encrypt_activity_session_title — encrypt activity_sessions.title.
+--
+-- 0005_activity_sessions.sql stored `title` in the clear as a documented,
+-- narrow exception ("ordinary indexed lookups"), but no query in this service
+-- actually filters, orders, or groups by it — every read of it (app/*.py) only
+-- ever SELECTs and returns it verbatim, through routes/timeline.py's
+-- activity_sessions_for. Left in the clear it is a real privacy exposure: any
+-- DB dump, backup, or read-replica access exposes every session's window/tab
+-- title (document names, email subject lines, ...) in plain text, and
+-- org_purge.py's own note on this column already acknowledges crypto-shred
+-- does nothing to protect it.
+--
+-- Adds `title_enc` alongside the existing, already-nullable `title` —
+-- additive only, mirroring task-svc's 003_column_encryption.sql /
+-- 005_drop_plaintext_task_cols.sql rollout shape. sessionizer.py now writes
+-- ONLY title_enc (and clears `title` on any row it touches); routes/
+-- timeline.py decrypts title_enc, falling back to the legacy plaintext
+-- `title` for rows written before this migration — until they are backfilled
+-- (see scripts/backfill-telemetry-session-title.py) or age out of the
+-- visible window. `title` itself is deliberately NOT dropped here; see that
+-- script's docstring for when it is safe to do so in a later, separate
+-- migration.
+--
+-- `app_name`/`domain` are unaffected — this migration only touches `title`,
+-- the field the privacy review flagged (window/tab titles can carry document
+-- names, email subject lines, and other free text far more revealing than an
+-- application or site name).
+ALTER TABLE activity_sessions ADD COLUMN IF NOT EXISTS title_enc bytea;

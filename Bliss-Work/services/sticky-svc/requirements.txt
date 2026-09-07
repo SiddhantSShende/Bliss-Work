@@ -59,3 +59,8 @@ opentelemetry-instrumentation-asyncpg==0.65b0
 # Shared org.deleted purge loop, shared with task-svc, telemetry-svc and
 # integrations-svc. See services/shared/org_purge_tables/org_purge_tables.py.
 ../shared/org_purge_tables
+
+# Batched-delete retention runner for event-plumbing tables, shared with
+# task-svc, auth-svc and integrations-svc. See
+# services/shared/prune_events/prune_events.py.
+../shared/prune_events

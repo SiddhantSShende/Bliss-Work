@@ -303,6 +303,7 @@ function AssignedBucket({ view }: { view: string }) {
               <StickyWidget
                 task={t}
                 onAction={(a) => act.mutate({ taskId: t.taskId, action: a })}
+                busy={act.isPending && act.variables?.taskId === t.taskId}
                 onPin={config.pinTask ? () => void pin(t.taskId) : undefined}
                 pinned={floatable}
                 locked={floatable}

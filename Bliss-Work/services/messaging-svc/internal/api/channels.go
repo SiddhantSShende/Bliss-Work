@@ -236,6 +236,10 @@ func (s *Server) sendChannelMessage(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "unknown message kind")
 		return
 	}
+	if req.ReplyToID != "" && !validUUID(req.ReplyToID) {
+		writeErr(w, http.StatusBadRequest, "invalid replyToId")
+		return
+	}
 	res, err := s.store.SendChannelMessage(r.Context(), claims.OrgID, channelID, claims.UserID, req.Body, req.ClientMsgID, req.Kind, req.ReplyToID)
 	if err != nil {
 		s.mapErr(w, err)
@@ -266,7 +270,7 @@ func (s *Server) addChannelMembers(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := s.store.AddChannelMembers(r.Context(), claims.OrgID, channelID, claims.UserID, req.MemberIDs); err != nil {
+	if err := s.store.AddChannelMembers(r.Context(), claims.OrgID, channelID, claims.UserID, claims.Roles, req.MemberIDs); err != nil {
 		s.mapErr(w, err)
 		return
 	}

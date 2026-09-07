@@ -124,6 +124,49 @@ async def session_ended(
         )
 
 
+async def session_revoked(
+    conn: AsyncConnection,
+    org_id: str,
+    user_id: str,
+    *,
+    session_id: str,
+    actor_id: str,
+    by: str,
+    ip: str | None = None,
+    user_agent: str | None = None,
+    request_id: str | None = None,
+) -> None:
+    """A specific session (refresh-token family) was revoked outside the
+    ordinary logout flow — via routes/sessions.py (self-service, `by="self"`,
+    `actor_id == user_id`) or routes/members.py's admin variant (`by="admin"`,
+    `actor_id` is the ADMIN, distinct from `user_id`, the session's owner).
+    Unlike `session_ended` (fired only by /auth/logout, where the caller's OWN
+    active session just ended) this fires for revoking ANY session, including
+    ones that are not the caller's current one.
+
+    The `session.revoked` event is what lets a live WebSocket be closed
+    promptly instead of waiting out its access token's TTL or the next ping's
+    expiry check — see services/ws-gateway/internal/events. That is an
+    ADDITIONAL enforcement layer, not the source of truth: the revoke itself
+    (refresh_tokens.revoked, already committed by the caller before this runs)
+    is what actually stops the session; this event only shortens how long an
+    already-open socket stays connected after that. `userId` on the event is
+    always the session's OWNER (`user_id`), never the admin — that is whose
+    socket ws-gateway needs to find.
+    """
+    await _emit(conn, "session.revoked", org_id, user_id, sessionId=session_id, by=by)
+    await service.write_audit(
+        conn,
+        org_id=org_id,
+        actor_id=actor_id,
+        action="auth.session_revoked",
+        target=user_id,
+        meta=context_meta(
+            session_id=session_id, ip=ip, user_agent=user_agent, request_id=request_id, by=by
+        ),
+    )
+
+
 async def org_switched(
     conn: AsyncConnection,
     org_id: str,

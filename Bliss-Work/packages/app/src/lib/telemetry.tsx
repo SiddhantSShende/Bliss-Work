@@ -25,6 +25,9 @@ import { useRuntime } from "./runtime";
 import { useSession } from "../store/session";
 import { surfaceOf } from "./section";
 import { TelemetryQueue, type QueuedEvent } from "./telemetryQueue";
+
+/** Every field but the id `TelemetryQueue.push()` assigns itself. */
+type UnstampedEvent = Omit<QueuedEvent, "clientEventId">;
 import {
   endSession,
   getSessionId,
@@ -123,11 +126,11 @@ export function TelemetryBridge() {
     });
 
     const now = () => Date.now();
-    const push = (event: QueuedEvent) => {
+    const push = (event: UnstampedEvent) => {
       queue.push(event);
       if (queue.shouldFlush) void queue.flush();
     };
-    const stamp = (extra: Partial<QueuedEvent> & { action: string }): QueuedEvent => ({
+    const stamp = (extra: Partial<UnstampedEvent> & { action: string }): UnstampedEvent => ({
       category: "navigation",
       occurredAt: new Date().toISOString(),
       ...extra,

@@ -111,6 +111,11 @@ type MessageCreated struct {
 	// IsForward marks a delivered copy of someone else's message, so the
 	// receiving client labels it instead of attributing it to the forwarder.
 	IsForward bool `json:"isForward,omitempty"`
+	// ForwardPlatform is set only when Kind is store.MessageKindForwardExternal,
+	// to the normalized destination (store.PlatformWhatsApp today) — mirrors
+	// store.MessageDTO.ForwardPlatform so a live-pushed pill renders the same
+	// generic "Message forwarded to X" line a page-load would.
+	ForwardPlatform string `json:"forwardPlatform,omitempty"`
 }
 
 // ConversationIgnored is emitted when a participant ignores (hides) a conversation
@@ -305,6 +310,8 @@ type ChannelMessageCreated struct {
 	// IsForward marks a delivered copy of someone else's message, so the
 	// receiving client labels it instead of attributing it to the forwarder.
 	IsForward bool `json:"isForward,omitempty"`
+	// ForwardPlatform mirrors MessageCreated.ForwardPlatform.
+	ForwardPlatform string `json:"forwardPlatform,omitempty"`
 	// ReplyToID is the message this one quotes, if any. Mirrors
 	// MessageCreated.ReplyToID.
 	ReplyToID string `json:"replyToId,omitempty"`

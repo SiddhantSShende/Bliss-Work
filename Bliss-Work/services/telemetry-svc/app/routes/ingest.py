@@ -13,6 +13,7 @@ payload), and the batch size and every field length are bounded by the schema.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request, Response
+from sqlalchemy import text
 
 from ..auth import Principal, require_principal
 from ..db import session, set_org_context
@@ -54,6 +55,26 @@ async def beacon(
 
     async with session() as db:
         await set_org_context(db, principal.org_id)
+
+        # Claim this batch's activeMs/idleMs delta before accruing it — a
+        # retry of the exact same batch (same clientEventId, see
+        # telemetryQueue.ts's pendingRetry) must not add the same time twice.
+        # No clientEventId (an older client) means no claim to make, so the
+        # accrual always applies, same as before this existed. See
+        # migrations/0009_beacon_batch_idempotency.sql.
+        active_ms, idle_ms = body.activeMs, body.idleMs
+        if body.clientEventId:
+            claimed = await db.execute(
+                text(
+                    "INSERT INTO beacon_batches (org_id, user_id, client_event_id) "
+                    "VALUES (:org, :uid, :ceid) ON CONFLICT DO NOTHING"
+                ),
+                {"org": principal.org_id, "uid": principal.user_id, "ceid": body.clientEventId},
+            )
+            if not claimed.rowcount:
+                log.info("beacon_batch_duplicate_skipped", client_event_id=body.clientEventId)
+                active_ms, idle_ms = 0, 0
+
         session_id = await sess.open_or_touch(
             db,
             session_id=body.sessionId,
@@ -61,8 +82,8 @@ async def beacon(
             user_id=principal.user_id,
             source=body.source,
             at=now,
-            active_ms=body.activeMs,
-            idle_ms=body.idleMs,
+            active_ms=active_ms,
+            idle_ms=idle_ms,
             user_agent=ua,
             ip=ip,
         )
@@ -81,6 +102,7 @@ async def beacon(
                 target_id=e.targetId,
                 duration_ms=e.durationMs,
                 detail=dict(e.detail or {}),
+                client_event_id=e.clientEventId,
             )
             for e in body.events
         ]

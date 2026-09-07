@@ -662,6 +662,12 @@ type MessageDTO struct {
 	// client labels it, because content shown under the forwarder's name with
 	// no marker attributes it to them.
 	IsForward bool `json:"isForward,omitempty"`
+	// ForwardPlatform is set only when Kind == MessageKindForwardExternal, to
+	// the normalized destination (PlatformWhatsApp today). The client derives
+	// the pill's "Message forwarded to X" line from this rather than from
+	// hardcoded prose, so a future destination is a new value here, not a new
+	// string baked into the server. See migrations/0032_forward_platform.sql.
+	ForwardPlatform string `json:"forwardPlatform,omitempty"`
 }
 
 // ChannelDTO mirrors the canonical ChannelDTO contract.
@@ -718,6 +724,8 @@ type ChannelMessageDTO struct {
 	Kind string `json:"kind,omitempty"`
 	// IsForward mirrors MessageDTO.IsForward.
 	IsForward bool `json:"isForward,omitempty"`
+	// ForwardPlatform mirrors MessageDTO.ForwardPlatform.
+	ForwardPlatform string `json:"forwardPlatform,omitempty"`
 	// DeletedForAll marks a tombstone. The body is empty on the wire when this
 	// is set — the server does not decrypt a deleted message (channels_read.go).
 	DeletedForAll bool `json:"deletedForAll,omitempty"`

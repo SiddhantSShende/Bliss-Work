@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from "react";
 import { useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { X } from "lucide-react";
 import { Avatar } from "@taskboard/ui";
 import type { MessageDTO, UserDTO } from "@taskboard/shared";
@@ -64,10 +65,17 @@ function MailThreadContent({ threadId, me }: { threadId: string; me: UserDTO }) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threadId, messages.length, header?.lastMessageSeq]);
 
+  // Optimistic send with real error handling: onMutate inserts the temp
+  // bubble, onSuccess reconciles it against the server's id/seq, and onError
+  // removes it and toasts — mirroring useOptimisticSend (DMView/ChannelView).
+  // This used to do the optimistic insert AND the send inside one
+  // mutationFn with no onError at all: a failed api.replyToThread left the
+  // "Sending…" bubble in the cache forever, with no error shown and no way
+  // to retry short of navigating away and back.
   const sendMut = useMutation({
-    mutationFn: async (body: string) => {
-      // Optimistic temp message into the cache so the bubble renders instantly.
-      const clientMsgId = crypto.randomUUID();
+    mutationFn: ({ body, clientMsgId }: { body: string; clientMsgId: string }) =>
+      api.replyToThread(threadId, body, { clientMsgId }),
+    onMutate: ({ body, clientMsgId }) => {
       const tempId = `temp:${clientMsgId}`;
       qc.setQueryData<{ pages: MessageDTO[][]; pageParams: unknown[] }>(qk.threadMessages(threadId), (prev) => {
         if (!prev) return prev;
@@ -85,7 +93,9 @@ function MailThreadContent({ threadId, me }: { threadId: string; me: UserDTO }) 
         const page0 = prev.pages[0] ?? [];
         return { ...prev, pages: [[...page0, m], ...prev.pages.slice(1)] };
       });
-      const res = await api.replyToThread(threadId, body, { clientMsgId });
+      return { tempId };
+    },
+    onSuccess: (res, { body, clientMsgId }) => {
       const real: MessageDTO = {
         id: res.messageId,
         conversationId: header?.conversationId ?? "",
@@ -103,11 +113,20 @@ function MailThreadContent({ threadId, me }: { threadId: string; me: UserDTO }) 
         return { ...prev, pages: [page0, ...prev.pages.slice(1)] };
       });
     },
+    onError: (_err, _vars, ctx) => {
+      qc.setQueryData<{ pages: MessageDTO[][]; pageParams: unknown[] }>(qk.threadMessages(threadId), (prev) => {
+        if (!prev || !ctx) return prev;
+        const page0 = (prev.pages[0] ?? []).filter((m) => m.id !== ctx.tempId);
+        return { ...prev, pages: [page0, ...prev.pages.slice(1)] };
+      });
+      toast.error("Message failed to send");
+    },
   });
 
   const ignoreMut = useMutation({
     mutationFn: () => api.ignoreThread(threadId),
     onSuccess: () => void qc.invalidateQueries({ queryKey: qk.unifiedInbox }),
+    onError: () => toast.error("Couldn't remove this thread"),
   });
 
   // The peer's real name. `peerUsername` is the email local-part, so it must
@@ -136,7 +155,7 @@ function MailThreadContent({ threadId, me }: { threadId: string; me: UserDTO }) 
     scope: "thread",
     scopeId: threadId,
     meId: me.id,
-    send: (body) => sendMut.mutate(body),
+    send: (body) => sendMut.mutate({ body, clientMsgId: crypto.randomUUID() }),
     // 1:1 surface, so files over the server limit can still go peer-to-peer.
     p2pFallback: header ? (file) => void ft.send(file, threadId, header.peerId) : undefined,
   });
@@ -168,7 +187,8 @@ function MailThreadContent({ threadId, me }: { threadId: string; me: UserDTO }) 
           )}
           <button
             onClick={() => ignoreMut.mutate()}
-            className="rounded-lg p-1.5 text-muted hover:bg-surface-2 hover:text-danger"
+            disabled={ignoreMut.isPending}
+            className="rounded-lg p-1.5 text-muted hover:bg-surface-2 hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
             title="Ignore — hides for both sides"
           >
             <X size={16} />

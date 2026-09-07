@@ -1,12 +1,22 @@
--- One-shot cleanup: keep only the two AEIV users and the AEIV org;
+-- One-shot cleanup: keep only two hardcoded dev accounts and their org;
 -- wipe every chat, channel, task, notification, conversation, inbox row,
 -- outbox event, refresh token, audit log, and idempotency key in the
--- entire stack. Run via:
---   docker exec -i task-board-postgres-1 psql -U taskboard < scripts/wipe.sql
+-- entire stack. THERE IS NO UNDO.
 --
--- AEIV org    : 019ed5d8-abe9-72c9-b02e-ef301069b9ce
--- siddhantsshende@gmail.com  : 019ed5d8-abeb-7329-8d31-cfc67dee3b52
--- siddhant.shende.btech2023@sitnagpur.siu.edu.in : 019ed705-bc7e-7c63-936b-2254b478ee17
+-- Do NOT run this file directly (docker exec ... < scripts/wipe.sql) — it
+-- used to be copy-paste-executable with no idea what database it was about
+-- to run against, unlike every other destructive script in this repo
+-- (purge-orgs.sh, backup-db.sh, restore-db.sh), which hardcode their target
+-- compose project explicitly and require deliberate opt-in. This one now
+-- does too:
+--
+--   WIPE_CONFIRM=I-understand-this-deletes-data bash scripts/wipe-dev-db.sh
+--
+-- The kept org/user ids below are the maintainer's own personal dev-stack
+-- accounts (not scripts/seed.ts's demo org — those are separate identities)
+-- and are meaningless outside this one hardcoded dev database. The emails
+-- that used to be here as identifying comments have been removed; the ids
+-- are all the SQL below actually needs.
 
 \connect authdb
 BEGIN;

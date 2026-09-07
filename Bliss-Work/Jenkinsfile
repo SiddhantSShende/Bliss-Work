@@ -137,6 +137,7 @@ def GLOBAL_PATHS = ['Jenkinsfile']
 
 // Filled in later by the pipeline.
 def changedImages = []
+def unchangedImages = []
 
 
 pipeline {
@@ -418,6 +419,8 @@ pipeline {
                         }
                     }
 
+                    unchangedImages = allImages - changedImages
+
                     if (changedImages.isEmpty()) {
                         echo "Nothing to build. The rest of the pipeline will skip."
                     }
@@ -545,6 +548,22 @@ pipeline {
                         """
                     }
                     echo "Tagged ${changedImages.size()} image(s)"
+
+                    // Unchanged images were not rebuilt, so there is no fresh local
+                    // image to tag. Re-tag the most recent existing :latest under
+                    // this build's tags instead, so deploy-prod.sh's unconditional
+                    // "compose pull" of every service can still find every tag.
+                    unchangedImages.each { image ->
+                        sh """
+                            set -e
+                            docker pull ${env.REGISTRY}/${env.NAMESPACE}/${image}:latest
+                            docker tag ${env.REGISTRY}/${env.NAMESPACE}/${image}:latest ${env.REGISTRY}/${env.NAMESPACE}/${image}:${env.IMAGE_TAG}
+                            docker tag ${env.REGISTRY}/${env.NAMESPACE}/${image}:latest ${env.REGISTRY}/${env.NAMESPACE}/${image}:b${BUILD_NUMBER}
+                        """
+                    }
+                    if (!unchangedImages.isEmpty()) {
+                        echo "Re-tagged ${unchangedImages.size()} unchanged image(s) from :latest"
+                    }
                 }
             }
         }
@@ -562,6 +581,19 @@ pipeline {
                                 docker push ${env.REGISTRY}/${env.NAMESPACE}/${image}:${env.IMAGE_TAG}
                                 docker push ${env.REGISTRY}/${env.NAMESPACE}/${image}:b${BUILD_NUMBER}
                                 docker push ${env.REGISTRY}/${env.NAMESPACE}/${image}:latest
+                            """
+                        }
+                    }
+
+                    // Unchanged images only got re-tagged from the existing :latest,
+                    // which is already in the registry - push the new :<sha> and
+                    // :b<number> tags only, not :latest (it didn't change).
+                    unchangedImages.each { image ->
+                        jobs[image] = {
+                            sh """
+                                set -e
+                                docker push ${env.REGISTRY}/${env.NAMESPACE}/${image}:${env.IMAGE_TAG}
+                                docker push ${env.REGISTRY}/${env.NAMESPACE}/${image}:b${BUILD_NUMBER}
                             """
                         }
                     }

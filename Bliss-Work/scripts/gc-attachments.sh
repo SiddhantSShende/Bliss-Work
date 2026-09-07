@@ -28,34 +28,17 @@
 # in the store's reaper query, not here.
 set -Eeuo pipefail
 
+source "$(dirname "${BASH_SOURCE[0]}")/lib/compose-job.sh"
+
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 COMPOSE_FILE="${COMPOSE_FILE:-$REPO_DIR/docker-compose.prod.yml}"
 export COMPOSE_FILE
 cd "$REPO_DIR"
 
-if docker info >/dev/null 2>&1; then
-  USE_SUDO=0
-elif sudo -n docker info >/dev/null 2>&1; then
-  USE_SUDO=1
-else
-  echo "cannot reach the Docker daemon (with or without passwordless sudo)" >&2
-  exit 1
-fi
-
-# COMPOSE_FILE must reach compose, and SUDO SANITIZES THE ENVIRONMENT — an
-# exported COMPOSE_FILE does not survive `sudo docker compose`, which then falls
-# back to the DEV docker-compose.yml whose services are not running here. The
-# failure reads "service messaging-svc is not running", pointing at the service
-# rather than at the missing variable. Same trap as backup-db.sh and the
-# IMAGE_TAG one documented in deploy-prod.sh.
-compose() {
-  if (( USE_SUDO )); then
-    sudo env COMPOSE_FILE="$COMPOSE_FILE" GC_DRY_RUN="${GC_DRY_RUN:-}" \
-        GC_BATCH_SIZE="${GC_BATCH_SIZE:-}" docker compose "$@"
-  else
-    docker compose "$@"
-  fi
-}
+detect_docker_sudo
+# GC_DRY_RUN/GC_BATCH_SIZE must also survive `sudo docker compose`, same as
+# COMPOSE_FILE — see compose() in lib/compose-job.sh.
+COMPOSE_SUDO_ENV_VARS="GC_DRY_RUN GC_BATCH_SIZE"
 
 # Fail loudly if the service is down. A silent no-op here would let expired rows
 # pile up for weeks while the timer reported success every night.
@@ -67,23 +50,13 @@ fi
 # -T: no TTY under systemd. The binary reads its configuration from the
 # container's own environment; only the GC_* knobs are passed through.
 #
-# The output is CAPTURED and re-emitted from this shell rather than inherited
-# straight through. The snap Docker CLI re-parents itself into its own transient
-# scope (snap.docker.docker-<uuid>.scope), so anything it writes is attributed to
-# THAT unit in the journal — `journalctl -u blisswork-gc-attachments.service`
-# would show only "Started" and "Finished" and none of the reaper's own log
-# lines, which is exactly the output you want when a nightly reap misbehaves.
-# Echoing from bash puts the writer back in the service's cgroup.
-#
-# Cost: the output arrives at the end rather than streaming. This job prints two
-# lines and finishes in milliseconds, so that trade is free.
-set +e
-output="$(compose exec -T \
+# Output capture/re-emit: see run_and_capture_for_journald() in
+# lib/compose-job.sh — the snap Docker CLI re-parents into its own transient
+# scope, so output inherited straight through would land in the wrong
+# journal unit ("Started"/"Finished" only, none of the reaper's own lines),
+# which is exactly the output you want when a nightly reap misbehaves.
+run_and_capture_for_journald compose exec -T \
   -e GC_DRY_RUN="${GC_DRY_RUN:-}" \
   -e GC_BATCH_SIZE="${GC_BATCH_SIZE:-}" \
-  messaging-svc /app/gc-attachments 2>&1)"
-status=$?
-set -e
-
-[ -n "$output" ] && printf '%s\n' "$output"
-exit "$status"
+  messaging-svc /app/gc-attachments
+exit $?

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { X, MessageSquare, ChevronLeft, Ban } from "lucide-react";
@@ -27,6 +27,7 @@ import { toggleConversationPref, useConversationPrefs } from "../lib/conversatio
 import { useWhatsAppForward } from "../lib/useWhatsAppForward";
 import { ForwardToDialog } from "../features/ForwardToDialog";
 import { useChatMedia } from "../features/useChatMedia";
+import { useOptimisticSend } from "../lib/useOptimisticSend";
 import { useChatTyping } from "../lib/useChatTyping";
 import { useCall } from "../lib/useCall";
 import { useOlderMessages } from "../lib/useOlderMessages";
@@ -193,6 +194,25 @@ export function DMView() {
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.reactions(conversationId) }),
     onError: () => toast.error("Couldn't save that reaction"),
   });
+  // Guards against a fast double-tap firing two overlapping requests for the
+  // SAME (message, emoji) chip: setReaction carries no idempotency key, and a
+  // PUT racing a DELETE for one toggle has no ordering guarantee — whichever
+  // request's transaction commits last wins, which is not necessarily the
+  // user's actual last tap. A ref (not state) so the check is synchronous and
+  // immune to React batching two rapid clicks into the same render.
+  const pendingReactionsRef = useRef<Set<string>>(new Set());
+  const reactToggle = useCallback(
+    (id: string, emoji: string, on: boolean) => {
+      const key = `${id} ${emoji}`;
+      if (pendingReactionsRef.current.has(key)) return;
+      pendingReactionsRef.current.add(key);
+      react.mutate(
+        { id, emoji, on },
+        { onSettled: () => pendingReactionsRef.current.delete(key) },
+      );
+    },
+    [react],
+  );
 
   const hide = useMutation({
     mutationFn: (id: string) => api.hideMessage(id),
@@ -245,42 +265,26 @@ export function DMView() {
     onError: () => toast.error("Couldn't delete those messages"),
   });
 
-  const reply = useMutation({
-    mutationFn: ({ body, replyToId }: { body: string; replyToId?: string }) =>
-      api.reply(conversationId, body, undefined, replyToId),
-    onMutate: async ({ body, replyToId }) => {
-      await qc.cancelQueries({ queryKey: qk.messages(conversationId) });
-      const prev = qc.getQueryData<MessageDTO[]>(qk.messages(conversationId)) ?? [];
-      const tempId = `temp:${crypto.randomUUID()}`;
-      const seq = prev.reduce((m, x) => Math.max(m, x.seq), 0) + 1;
-      const optimistic: MessageDTO = {
-        id: tempId, conversationId, seq, senderId: me.id, body, replyToId,
-        createdAt: new Date().toISOString(),
-      };
-      qc.setQueryData<MessageDTO[]>(qk.messages(conversationId), [...prev, optimistic]);
-      return { tempId };
-    },
-    onSuccess: (res, _body, ctx) => {
-      qc.setQueryData<MessageDTO[]>(qk.messages(conversationId), (prev) =>
-        (prev ?? []).map((m) =>
-          m.id === ctx?.tempId
-            ? // SENT is the whole point of the 201, and it has to be written
-              // here: the optimistic row carries no status (it has not reached
-              // the server yet) and `pending` stops being true the moment the
-              // real id lands. Without it the bubble goes from "Sending…" to a
-              // blank — the server says SENT, but nothing refetches this list,
-              // so the badge stayed empty until the receipt for the NEXT state
-              // happened to arrive.
-              { ...m, id: res.messageId, seq: res.seq, status: "SENT" as const }
-            : m,
-        ),
-      );
-      qc.invalidateQueries({ queryKey: qk.conversations });
-    },
-    onError: (_e, _body, ctx) => {
-      qc.setQueryData<MessageDTO[]>(qk.messages(conversationId), (prev) => (prev ?? []).filter((m) => m.id !== ctx?.tempId));
-      toast.error("Message failed to send");
-    },
+  const reply = useOptimisticSend<MessageDTO>({
+    queryKey: qk.messages(conversationId),
+    buildOptimistic: (tempId, { body, replyToId }, prev) => ({
+      id: tempId,
+      conversationId,
+      seq: prev.reduce((m, x) => Math.max(m, x.seq), 0) + 1,
+      senderId: me.id,
+      body,
+      replyToId,
+      createdAt: new Date().toISOString(),
+    }),
+    mutationFn: ({ body, replyToId }) => api.reply(conversationId, body, undefined, replyToId),
+    // SENT is the whole point of the 201, and it has to be written here: the
+    // optimistic row carries no status (it has not reached the server yet) and
+    // `pending` stops being true the moment the real id lands. Without it the
+    // bubble goes from "Sending…" to a blank — the server says SENT, but
+    // nothing refetches this list, so the badge stayed empty until the receipt
+    // for the NEXT state happened to arrive.
+    reconcile: (m) => ({ ...m, status: "SENT" as const }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.conversations }),
   });
 
   const ignore = useMutation({
@@ -292,6 +296,7 @@ export function DMView() {
       // ignored conversation open on screen.
       closeChat();
     },
+    onError: () => toast.error("Couldn't remove this conversation"),
   });
 
   // Clears the caller's own history only — unlike "Ignore" above, the
@@ -398,7 +403,7 @@ export function DMView() {
         id: m.id, senderId: m.senderId, body: m.body, at: m.createdAt, kind: m.kind,
         status: m.status, pending: m.id.startsWith("temp:"),
         replyToId: m.replyToId, deletedForAll: m.deletedForAll,
-        isForward: m.isForward,
+        isForward: m.isForward, forwardPlatform: m.forwardPlatform,
         reactions: reactionsByMessage.get(m.id),
       })),
     [messages, reactionsByMessage],
@@ -549,7 +554,13 @@ export function DMView() {
           >
             <Ban size={15} /> {conv.blockedByMe ? "Unblock" : "Block"}
           </Button>
-          <Button variant="ghost" size="sm" onClick={() => ignore.mutate()} title="Remove from both inboxes">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => ignore.mutate()}
+            disabled={ignore.isPending}
+            title="Remove from both inboxes"
+          >
             <X size={15} /> Ignore
           </Button>
           <ConversationMenu
@@ -603,7 +614,7 @@ export function DMView() {
           if (message) markUnread.mutate(Math.max(0, message.seq - 1));
         }}
         onDeleteForAll={(id) => removeForAll.mutate(id)}
-        onReact={(id, emoji, on) => react.mutate({ id, emoji, on })}
+        onReact={reactToggle}
         selectionMode={selection.active}
         selectedIds={selection.selected}
         onToggleSelect={selection.toggle}

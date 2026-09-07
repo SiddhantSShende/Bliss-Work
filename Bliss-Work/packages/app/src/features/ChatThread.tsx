@@ -4,10 +4,11 @@ import { MessageSquare, Ban, Check, Forward, PhoneMissed, Pin, Camera } from "lu
 import { Avatar } from "@taskboard/ui";
 import { clock, groupMessages } from "../lib/chatFormat";
 import type { ChannelReadReceiptDTO, MessageDTO, ReactionDTO } from "@taskboard/shared";
-import { readablePrefix, type MediaItem } from "../lib/chatEnvelope";
+import { parseChatEnvelope, readablePrefix, type MediaItem } from "../lib/chatEnvelope";
 import { usePopupDismiss } from "../lib/usePopupDismiss";
 import { useUserLabels } from "../lib/userLabel";
 import { waForwardText, waShareLink } from "../lib/waLink";
+import { useWhatsAppMediaForward } from "../lib/useWhatsAppMediaForward";
 import { Composer } from "./Composer";
 import { SystemPill } from "./SystemPill";
 import { ForwardBadge } from "./ForwardBadge";
@@ -37,6 +38,10 @@ export interface ThreadMessage {
    *  bubble — the same content under the forwarder's name with no marker
    *  attributes it to them. */
   isForward?: boolean;
+  /** Set only when `kind` is "forward_external" — the normalized destination
+   *  (MessageDTO.forwardPlatform / ChannelMessageDTO.forwardPlatform) the
+   *  ForwardBadge derives its "Message forwarded to X" line from. */
+  forwardPlatform?: string;
   /** Pinned for everyone in the channel. Channels only; DMs never set it. */
   pinned?: boolean;
   /** Who has read this one. CHANNELS only — a DM's equivalent is `status`,
@@ -203,6 +208,12 @@ export function ChatThread({
    * The navigation itself is the anchor's own doing (see MessageActions); this
    * only ARMS the record on the same click. The recipient is chosen inside
    * WhatsApp, so there is nothing to capture here and no second entry.
+   *
+   * When the message carries attachments, this component ALSO fires the
+   * media hand-off (useWhatsAppMediaForward) from the same click — a separate,
+   * un-awaited call, never one that could delay or risk the anchor's own
+   * synchronous navigation. See that hook for what it can and cannot actually
+   * deliver to WhatsApp.
    */
   onForward?: (messageId: string) => void;
   /** Start a reply quoting this message. */
@@ -292,6 +303,7 @@ export function ChatThread({
   selectionToolbar?: React.ReactNode;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
+  const forwardMedia = useWhatsAppMediaForward();
 
   // Index for resolving a reply's quoted message, over the pages currently
   // held. A quote whose target predates the loaded window renders via the
@@ -442,7 +454,7 @@ export function ChatThread({
               return (
                 <div key={m.id}>
                   {dayChip}
-                  <ForwardBadge body={m.body} at={m.at} mine={mine} />
+                  <ForwardBadge body={m.body} at={m.at} mine={mine} platform={m.forwardPlatform} />
                 </div>
               );
             }
@@ -565,7 +577,28 @@ export function ChatThread({
                             onForward ? waShareLink(waForwardText(m.body)) : undefined
                           }
                           onForwardTo={onForwardTo ? () => onForwardTo(m.id) : undefined}
-                          onForward={onForward ? () => onForward(m.id) : undefined}
+                          onForward={
+                            onForward
+                              ? () => {
+                                  // Arms the text pill's provenance record — unchanged,
+                                  // still the anchor's own synchronous click.
+                                  onForward(m.id);
+                                  // A SEPARATE, un-awaited call: wa.me cannot carry
+                                  // media at all (see useWhatsAppMediaForward), so a
+                                  // media message additionally gets a best-effort
+                                  // hand-off through the OS share sheet (or a download
+                                  // fallback), fired here rather than blocking the
+                                  // anchor's own navigation on a network fetch.
+                                  const env = parseChatEnvelope(m.body);
+                                  if (env?.kind === "media") {
+                                    forwardMedia(
+                                      env.items.map((it) => ({ id: it.id, name: it.name, mime: it.mime })),
+                                      waForwardText(m.body),
+                                    );
+                                  }
+                                }
+                              : undefined
+                          }
                           onReply={onReply ? () => onReply(m.id) : undefined}
                           onHide={onHide ? () => onHide(m.id) : undefined}
                           onMarkUnread={onMarkUnread ? () => onMarkUnread(m.id) : undefined}

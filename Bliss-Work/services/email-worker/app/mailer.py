@@ -172,17 +172,36 @@ class Mailer:
         message.set_content(text_body)
         message.add_alternative(html_body, subtype="html")
         for filename, mime, data in attachments or []:
-            maintype, _, subtype = mime.partition("/")
+            # Same header-injection hazard as the fields above (see safe_header):
+            # this mime string comes off a Kafka event, not typed by our own
+            # code, and is byte-identical on every redelivery — unsanitized, a
+            # stray CR/LF in it would raise on every attempt and DLQ the message
+            # permanently.
+            maintype, _, subtype = safe_header(mime).partition("/")
             # A type we cannot split is not a type. octet-stream is the correct
             # answer for "bytes of unknown kind" and is what every client falls
             # back to anyway; guessing from the extension here would be guessing
             # about a file we did not open.
             if not maintype or not subtype:
                 maintype, subtype = "application", "octet-stream"
-            message.add_attachment(
-                data, maintype=maintype, subtype=subtype,
-                filename=safe_filename(filename),
-            )
+            try:
+                message.add_attachment(
+                    data, maintype=maintype, subtype=subtype,
+                    filename=safe_filename(filename),
+                )
+            except Exception as exc:
+                # add_attachment can still refuse a type it does not like (e.g.
+                # a maintype/subtype pair it cannot register a handler for).
+                # Same reasoning as the unsplittable-mime fallback above: retrying
+                # would not change anything about the next attempt, so fall back
+                # to the type every client already treats as "just bytes."
+                log.warning(
+                    "attachment_mime_rejected", filename=filename, mime=mime, error=str(exc),
+                )
+                message.add_attachment(
+                    data, maintype="application", subtype="octet-stream",
+                    filename=safe_filename(filename),
+                )
 
         attempt = 0
         while True:

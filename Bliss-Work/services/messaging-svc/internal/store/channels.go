@@ -117,10 +117,12 @@ func (s *Store) DeleteChannel(ctx context.Context, orgID, channelID, callerID st
 	})
 }
 
-// AddChannelMembers adds members to a channel; caller must already be a
-// member. Emits ChannelMemberJoined for every member that was actually new
-// (re-adding an existing member is a no-op and emits nothing).
-func (s *Store) AddChannelMembers(ctx context.Context, orgID, channelID, callerID string, memberIDs []string) error {
+// AddChannelMembers adds members to a channel; caller must be a channel
+// manager (its owner, one of its admins, or an org_admin) — the same
+// requirement as RenameChannel and DeleteChannel. Emits ChannelMemberJoined
+// for every member that was actually new (re-adding an existing member is a
+// no-op and emits nothing).
+func (s *Store) AddChannelMembers(ctx context.Context, orgID, channelID, callerID string, claimRoles []string, memberIDs []string) error {
 	return RetryOnSerializationFailure(ctx, 3, func(ctx context.Context) error {
 		tx, err := s.pool.Begin(ctx)
 		if err != nil {
@@ -133,7 +135,7 @@ func (s *Store) AddChannelMembers(ctx context.Context, orgID, channelID, callerI
 			return err
 		}
 
-		if err := requireChannelMember(ctx, tx, orgID, channelID, callerID); err != nil {
+		if err := requireChannelManager(ctx, tx, orgID, channelID, callerID, claimRoles); err != nil {
 			return err
 		}
 

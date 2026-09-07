@@ -45,6 +45,7 @@ import sys
 
 from sqlalchemy import text
 
+from .. import service
 from ..db import engine
 from ..logging_config import log
 
@@ -53,6 +54,14 @@ async def run(*, dry_run: bool = False) -> tuple[int, int]:
     """Expire every pending token/invite. Returns (tokens, invites) touched."""
     if dry_run:
         async with engine.connect() as conn:
+            # user_tokens/invites are RLS (FORCE ROW LEVEL SECURITY) and this
+            # touches every org at once by design (see module docstring) — no
+            # single app.org_id applies, so bypass is the only correct
+            # context here, same as the migration runner (app/db.py) and
+            # purge_orgs.py use for other whole-platform operations. Without
+            # it these SELECT COUNTs silently return 0 regardless of how
+            # many rows actually match.
+            await service.set_bypass_rls(conn)
             tokens = (
                 await conn.execute(
                     text(
@@ -70,6 +79,10 @@ async def run(*, dry_run: bool = False) -> tuple[int, int]:
         return tokens, invites
 
     async with engine.begin() as conn:
+        # Same reasoning as the dry-run branch above: no org context applies
+        # to a whole-platform remediation, so these UPDATEs need bypass or
+        # they silently touch zero rows.
+        await service.set_bypass_rls(conn)
         token_result = await conn.execute(
             text(
                 "UPDATE user_tokens SET status = 'used', used_at = now() "

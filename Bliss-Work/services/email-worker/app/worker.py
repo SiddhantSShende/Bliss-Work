@@ -190,16 +190,25 @@ class EmailWorker:
             self._log.warning("missing_event_id_skipped", type=event_type)
             return True
 
-        # Durable dedup: a 'sent' row keyed by this event already means done.
-        if await self._already_sent(str(event_id)):
-            self._log.info("duplicate_skipped", event_id=event_id)
-            return True
-
         # inviteId for invites, userId for reset/verify — read from the
         # (possibly still-slim) event before it's replaced by the fetched
         # payload below, so a permanently-gone outbox row can still be
-        # marked sent under the right recipient key.
+        # marked sent under the right recipient key. Also the CLAIM key
+        # right below: any event lacking both falls back to event_id itself,
+        # matching _mark_sent's own fallback.
         recipient_key = event.get("inviteId") or event.get("userId")
+        claim_recipient_id = recipient_key or str(event_id)
+
+        # Atomic claim BEFORE anything externally visible: a plain "already
+        # sent?" check-then-act let two consumer instances (a rebalance
+        # mid-send, or a redelivery landing while a previous attempt was
+        # still retrying) both pass and both send the same invite/reset/
+        # verify email. _claim only refuses when a 'sent' row already
+        # exists — see its docstring for why a still-'pending' row is
+        # reclaimed and retried rather than deferred forever.
+        if not await self._claim(str(event_id), claim_recipient_id):
+            self._log.info("duplicate_skipped", event_id=event_id)
+            return True
 
         try:
             outbox_id = event.get("outboxId")
@@ -427,6 +436,63 @@ class EmailWorker:
             self._log.error("dlq_publish_failed", event_id=event.get("eventId"), error=str(exc))
 
     # ── durable dedup (reuses email_consumed; recipient_id = inviteId) ───────
+
+    async def _claim(self, event_id: str, recipient_id: str) -> bool:
+        """Atomically claim (event_id, recipient_id) before sending anything.
+
+        True means it is safe to proceed and send now — either a fresh claim
+        (no row existed) or a RECLAIM of a row still 'pending'. False means a
+        'sent' row already exists: a genuine duplicate, do not send.
+
+        Reclaiming rather than refusing a still-'pending' row is deliberate:
+        this consumer processes one message at a time with no internal
+        concurrency, so by far the most common reason a claim conflicts is
+        this exact process's own earlier attempt for this event, which
+        failed (or the process crashed) and is now being legitimately
+        retried via Kafka redelivery — refusing THAT would turn one bad SMTP
+        attempt into an invite/reset link that can never be sent, which is
+        worse than the rare duplicate this whole fix exists to narrow. A
+        reclaim does not confirm the other side (if any) is actually done —
+        same tradeoff RelayConsumer's own claim makes today — so a second
+        instance genuinely still mid-retry during an active rebalance can
+        still race this and send twice. That is a real but narrow residual
+        window (a rebalance/crash timing coincidence), not "every message
+        goes through a plain check-then-act" the way this looked before.
+        `state='pending'` in the UPDATE's WHERE is what stops a 'sent' row
+        from ever being reopened, and is why this returns False for those.
+
+        owner='email_worker' (matching this table's CHECK constraint) is
+        what keeps RelayConsumer's reaper — which otherwise flips any
+        pending row older than 30s to 'sent' WITHOUT sending it, an
+        acceptable tradeoff for relay's own notifications but not for a
+        link with no in-app fallback — from ever touching this row. See
+        migrations/0004_email_consumed_owner.sql.
+        """
+        assert self._db is not None
+        async with self._db.acquire() as conn:
+            try:
+                row = await conn.fetchrow(
+                    """
+                    INSERT INTO email_consumed (event_id, recipient_id, state, owner)
+                    VALUES ($1, $2, 'pending', 'email_worker')
+                    ON CONFLICT (event_id, recipient_id) DO UPDATE
+                        SET consumed_at = now()
+                        WHERE email_consumed.state = 'pending'
+                    RETURNING 1
+                    """,
+                    event_id, recipient_id,
+                )
+                # A row comes back for a fresh insert AND for a reclaimed
+                # still-'pending' row. Nothing comes back when the ON
+                # CONFLICT ... WHERE didn't match — the only way that
+                # happens is the existing row is already 'sent'.
+                return row is not None
+            except Exception as exc:  # noqa: BLE001 - a DB hiccup must cost
+                # this event (treated as "claim failed", so the caller does
+                # not send and instead leaves the offset uncommitted for
+                # retry), not the whole process.
+                self._log.error("claim_failed", event_id=event_id, error=str(exc))
+                return False
 
     async def _already_sent(self, event_id: str) -> bool:
         assert self._db is not None

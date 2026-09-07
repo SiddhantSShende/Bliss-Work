@@ -95,7 +95,7 @@ func runSweep(
 	}
 
 	now := time.Now()
-	refreshes := sweep.Plan(undelivered, now)
+	refreshes := sweep.Plan(undelivered)
 	if len(refreshes) == 0 {
 		// Every pin claimed this pass was inside its backoff or past the cap.
 		// Worth saying, because it is the difference between "nothing to do"

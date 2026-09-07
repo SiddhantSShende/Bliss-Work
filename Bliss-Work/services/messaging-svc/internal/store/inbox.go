@@ -537,3 +537,25 @@ func (s *Store) HideTaskInboxItem(
 		return err
 	})
 }
+
+// DeleteTaskInboxItem flips deleted_for_owner=true on task.deleted — an admin
+// hard-deleted the task via task-svc's internal by-title endpoint. Unlike
+// HideTaskInboxItem's hidden_for_owner (task.ignored, which Reply-style writes
+// can revive), deleted_for_owner is permanent: the task itself no longer
+// exists, so there is nothing a later write could revive this row from.
+func (s *Store) DeleteTaskInboxItem(
+	ctx context.Context, assigneeID, taskID string, occurredAt time.Time,
+) error {
+	// RLS: cross-org background task projector → BYPASS.
+	return s.withBypass(ctx, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
+			UPDATE inbox_items
+			SET deleted_for_owner = true,
+			    status_badge      = 'DELETED',
+			    last_event_at     = GREATEST(last_event_at, $3),
+			    updated_at        = now()
+			WHERE owner_user_id = $1 AND item_kind = 'TASK' AND ref_id = $2`,
+			assigneeID, taskID, occurredAt)
+		return err
+	})
+}

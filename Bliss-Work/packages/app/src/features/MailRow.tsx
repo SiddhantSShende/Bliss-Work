@@ -34,6 +34,11 @@ export function MailRow({
   onComplete,
   favorite = false,
   onToggleFavorite,
+  ignorePending = false,
+  restorePending = false,
+  dismissPending = false,
+  acknowledgePending = false,
+  completePending = false,
 }: {
   item: InboxItemDTO;
   /** The list's own query string (folder + person), carried into the reading
@@ -55,6 +60,14 @@ export function MailRow({
   onComplete?: (refId: string) => void;
   favorite?: boolean;
   onToggleFavorite?: (refId: string) => void;
+  /** True while THIS row's own ignore/restore/dismiss/acknowledge/complete
+   *  request is in flight — disables the matching button so a slow request
+   *  can't be double-submitted. */
+  ignorePending?: boolean;
+  restorePending?: boolean;
+  dismissPending?: boolean;
+  acknowledgePending?: boolean;
+  completePending?: boolean;
 }) {
   const { nameOf, emailOf } = useUserLabels();
   const isTask = item.itemKind === "TASK";
@@ -200,6 +213,7 @@ export function MailRow({
               title="Acknowledge — accept this task"
               label="Acknowledge"
               tone="accent"
+              disabled={acknowledgePending}
               onClick={(e) => { e.preventDefault(); onAcknowledge(item.refId); }}
             />
           )}
@@ -209,6 +223,7 @@ export function MailRow({
               title="Mark complete"
               label="Complete"
               tone="success"
+              disabled={completePending}
               onClick={(e) => { e.preventDefault(); onComplete(item.refId); }}
             />
           )}
@@ -218,6 +233,7 @@ export function MailRow({
               title="Restore — puts this mail back in the folder it came from"
               label="Restore"
               tone="accent"
+              disabled={restorePending}
               onClick={(e) => { e.preventDefault(); onRestore(item.refId); }}
             />
           )}
@@ -234,6 +250,7 @@ export function MailRow({
               label={isMail ? "Delete" : "Ignore"}
               hideLabel={!isTask}
               tone="danger"
+              disabled={ignorePending}
               onClick={(e) => { e.preventDefault(); onIgnore(item.itemKind, item.refId); }}
             />
           )}
@@ -246,6 +263,7 @@ export function MailRow({
               label="Delete from your mailbox"
               hideLabel
               tone="muted"
+              disabled={dismissPending}
               onClick={(e) => { e.preventDefault(); onDismiss(item.refId); }}
             />
           )}
@@ -267,6 +285,7 @@ function Quick({
   label,
   hideLabel = false,
   tone,
+  disabled = false,
   onClick,
 }: {
   icon: React.ReactNode;
@@ -281,6 +300,8 @@ function Quick({
   /** Icon only. For Delete, whose icon is conventional and whose row is full. */
   hideLabel?: boolean;
   tone: "muted" | "danger" | "accent" | "success";
+  /** True while this row's own request for this action is in flight. */
+  disabled?: boolean;
   onClick: (e: React.MouseEvent) => void;
 }) {
   const tones = {
@@ -292,9 +313,10 @@ function Quick({
   return (
     <button
       onClick={onClick}
+      disabled={disabled}
       title={title}
       aria-label={label}
-      className={`inline-flex items-center gap-1 rounded-lg p-1.5 text-[11px] font-medium transition-colors ${tones[tone]}`}
+      className={`inline-flex items-center gap-1 rounded-lg p-1.5 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${tones[tone]}`}
     >
       {icon}
       {!hideLabel && label}

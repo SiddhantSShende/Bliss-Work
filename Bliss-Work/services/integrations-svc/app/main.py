@@ -19,7 +19,13 @@ from crypto import init_cryptor
 from .db import dispose_engine, get_engine, init_engine, run_migrations
 from .errors import register_exception_handlers
 from .logging_setup import configure_logging, log
-from .middleware import BodySizeLimitMiddleware, PrincipalMiddleware, RequestIDMiddleware, SecurityHeadersMiddleware
+from .middleware import (
+    MAIL_SEND_MAX_BODY_BYTES,
+    BodySizeLimitMiddleware,
+    PrincipalMiddleware,
+    RequestIDMiddleware,
+    SecurityHeadersMiddleware,
+)
 from .org_consumer import consumer as org_consumer
 from .outbox import poller
 from .rate_limit import limiter, rate_limit_handler
@@ -83,7 +89,7 @@ app.add_middleware(SlowAPIMiddleware)
 app.add_middleware(PrincipalMiddleware)
 app.add_middleware(RequestIDMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
-app.add_middleware(BodySizeLimitMiddleware)
+app.add_middleware(BodySizeLimitMiddleware, path_overrides={"/internal/mail/send": MAIL_SEND_MAX_BODY_BYTES})
 # CORS allowlist: web origin (exact) + Electron desktop origins in every env;
 # loopback only outside production. Mirrors task-svc. NOTE: the public webhook /
 # OAuth-callback routes (added with the provider layer) are server-to-server and

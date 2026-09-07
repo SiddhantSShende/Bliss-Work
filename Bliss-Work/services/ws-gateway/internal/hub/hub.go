@@ -33,25 +33,61 @@ const sendChanCap = 64
 type Conn struct {
 	UserID string
 	ConnID string
-	Send   chan []byte
+	// SessionID is the refresh-token family (auth.Claims.SessionID) that
+	// authenticated this connection AT HANDSHAKE TIME. Deliberately fixed for
+	// the life of the connection, even across an auth.renew that swaps
+	// sess.claims to a token from the same identity: the socket was opened by
+	// this session, so this is the session CloseSession must be able to find
+	// it under. May be empty for a token minted before the `sid` claim
+	// existed — such a connection is simply unreachable by a session-scoped
+	// revoke (see internal/revoke) and relies on its own token's expiry.
+	SessionID string
+	Send      chan []byte
 	// closeOnce guards Done so it is only closed a single time.
 	closeOnce sync.Once
 	Done      chan struct{}
+	// closeReason is set (at most once, by CloseWithReason) BEFORE Done is
+	// closed, and read by writeLoop only AFTER it receives from Done — the
+	// channel close itself is what makes that safe without a mutex (Go's
+	// memory model guarantees everything before close(ch) happens-before a
+	// receive on ch observing the close). Empty for the plain Close() path,
+	// which writeLoop maps to its pre-existing generic reason.
+	closeReason string
 }
 
 // NewConn creates a connection handle with a buffered send channel.
-func NewConn(userID, connID string) *Conn {
+func NewConn(userID, connID, sessionID string) *Conn {
 	return &Conn{
-		UserID: userID,
-		ConnID: connID,
-		Send:   make(chan []byte, sendChanCap),
-		Done:   make(chan struct{}),
+		UserID:    userID,
+		ConnID:    connID,
+		SessionID: sessionID,
+		Send:      make(chan []byte, sendChanCap),
+		Done:      make(chan struct{}),
 	}
 }
 
 // Close signals the connection's goroutines to stop. Idempotent.
 func (c *Conn) Close() {
 	c.closeOnce.Do(func() { close(c.Done) })
+}
+
+// CloseWithReason is Close, plus a reason writeLoop's Done handler uses to
+// pick an accurate WebSocket close code/message instead of the generic
+// "send buffer full" every plain Close() gets today. Idempotent like Close —
+// on an already-closing connection the reason is silently dropped, same as a
+// second plain Close() is a no-op.
+func (c *Conn) CloseWithReason(reason string) {
+	c.closeOnce.Do(func() {
+		c.closeReason = reason
+		close(c.Done)
+	})
+}
+
+// CloseReason returns the reason passed to CloseWithReason, or "" for a plain
+// Close(). Only safe to call after receiving from Done — see closeReason's
+// doc comment for why no lock is needed given that ordering.
+func (c *Conn) CloseReason() string {
+	return c.closeReason
 }
 
 // Hub tracks locally-connected sockets keyed by userId.
@@ -135,6 +171,42 @@ func (h *Hub) CloseAll() {
 	for _, c := range targets {
 		c.Close()
 	}
+}
+
+// CloseSession force-closes every LOCAL connection registered under userID
+// whose SessionID matches sessionID. Used when a refresh-token family is
+// revoked (auth-svc's routes/sessions.py and routes/members.py, via the
+// session.revoked Kafka event — see internal/revoke) so a live WebSocket
+// doesn't keep working for the rest of its access token's TTL after the
+// session that opened it has been revoked.
+//
+// Returns how many connections were closed. Zero is the ordinary outcome —
+// the revoked session's own socket, if it has one at all, most often lives on
+// a DIFFERENT node, which independently consumes the same event and finds it
+// there instead; this method only ever touches THIS node's local registry.
+//
+// An empty sessionID matches nothing (rather than every connection of the
+// user with no SessionID set) — see internal/revoke's handler for why a
+// missing claim on the EVENT is refused before this is ever called; this
+// check is the second, cheaper layer of the same discipline.
+func (h *Hub) CloseSession(userID, sessionID string) int {
+	if sessionID == "" {
+		return 0
+	}
+	h.mu.RLock()
+	conns := h.users[userID]
+	targets := make([]*Conn, 0, len(conns))
+	for _, c := range conns {
+		if c.SessionID == sessionID {
+			targets = append(targets, c)
+		}
+	}
+	h.mu.RUnlock()
+
+	for _, c := range targets {
+		c.CloseWithReason("session revoked")
+	}
+	return len(targets)
 }
 
 // Fanout enqueues payload to every locally-connected socket of userID. It is

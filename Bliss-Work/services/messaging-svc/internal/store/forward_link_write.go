@@ -100,7 +100,7 @@ func (s *Store) ForwardLinkRecord(
 			ForwardedBy:         forwarderID,
 			ForwardedToExternal: phone,
 			ForwardedToName:     name,
-			Platform:            "whatsapp",
+			Platform:            PlatformWhatsApp,
 			Delivery:            "unconfirmed",
 			Depth:               fc.Depth,
 			BodyPreview:         truncatePreview(fc.Body),
@@ -120,10 +120,11 @@ func (s *Store) ForwardLinkRecord(
 		// the transaction it is handed (see messages.go) — nothing may be written on
 		// this tx after it returns. Everything above is therefore already staged, and
 		// the whole set lands or none of it does.
-		pill := linkPillBody(fc.Scope, name, phone)
+		pill := linkPillDetail(fc.Scope, name, phone)
 		if fc.Scope == scopeChannel {
 			systemMessageID, err := s.appendChannelMessageTx(ctx, tx, orgID, fc.ChannelID,
-				forwarderID, pill, clientMsgID, channelAppendOpts{kind: MessageKindForwardExternal})
+				forwarderID, pill, clientMsgID,
+				channelAppendOpts{kind: MessageKindForwardExternal, forwardPlatform: PlatformWhatsApp})
 			if err != nil {
 				return err
 			}
@@ -139,7 +140,8 @@ func (s *Store) ForwardLinkRecord(
 		// reconnecting client and appears in history like any other message. It
 		// commits; do not commit again here.
 		res, err := s.appendMessage(ctx, tx, orgID, fc.ConversationID, forwarderID, fc.OtherUserID,
-			pill, clientMsgID, "", fc.ThreadID, appendOpts{kind: MessageKindForwardExternal})
+			pill, clientMsgID, "", fc.ThreadID,
+			appendOpts{kind: MessageKindForwardExternal, forwardPlatform: PlatformWhatsApp})
 		if err != nil {
 			return err
 		}

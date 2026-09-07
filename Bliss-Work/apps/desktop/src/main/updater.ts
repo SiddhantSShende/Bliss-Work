@@ -1,9 +1,32 @@
 import { app, dialog, type BrowserWindow } from "electron";
-import electronUpdater from "electron-updater";
+import electronUpdater, { type UpdateInfo } from "electron-updater";
+import { checkSecondSource } from "./update-integrity";
 
 // electron-updater ships CommonJS; under ESM interop the named exports live on the
 // default export object.
 const { autoUpdater } = electronUpdater;
+
+/** Injected by electron.vite.config.ts. Empty string when the build had none. */
+declare const __TB_UPDATE_MANIFEST_MIRROR_URL__: string;
+
+/**
+ * Second, independently-hosted copy of the expected installer hash — see
+ * update-integrity.ts for the full threat model and manifest contract, and
+ * docs/DEPLOY.md's "The second-source integrity check" for how it's
+ * provisioned (github.com/AE-4pvt/blisswork-update-manifest).
+ *
+ * Runtime env wins over the baked-in constant so an operator can repoint a
+ * build without rebuilding it — same precedence as geo-key.ts's API key and
+ * src/shared/endpoints.ts's service URLs. The baked-in constant is what
+ * actually matters for a packaged app: it is launched from the Dock/Start
+ * menu with no shell environment, so a bare `process.env` read alone would
+ * only ever see whatever (nothing) is set on the END USER's machine — never
+ * what .env.prod had when this installer was built.
+ */
+const SECOND_SOURCE_MANIFEST_URL =
+  process.env.TB_UPDATE_MANIFEST_MIRROR_URL?.trim() ||
+  (typeof __TB_UPDATE_MANIFEST_MIRROR_URL__ === "string" ? __TB_UPDATE_MANIFEST_MIRROR_URL__.trim() : "") ||
+  undefined;
 
 /**
  * Wire auto-update for the packaged NSIS / AppImage / dmg builds.
@@ -32,7 +55,11 @@ export function initAutoUpdate(getMainWindow: () => BrowserWindow | null): void 
 
   windowGetter = getMainWindow;
 
-  autoUpdater.autoDownload = true;
+  // Was `true`: electron-updater downloaded the instant a newer version was
+  // found. Now gated behind the second-source integrity check below — the
+  // "update-available" handler calls downloadUpdate() itself once (or if)
+  // that check clears.
+  autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
 
   autoUpdater.on("error", (err: Error) => {
@@ -52,8 +79,9 @@ export function initAutoUpdate(getMainWindow: () => BrowserWindow | null): void 
     }
   });
 
-  autoUpdater.on("update-available", (info: { version: string }) => {
+  autoUpdater.on("update-available", (info: UpdateInfo) => {
     console.log("[updater] update available:", info.version);
+    void verifyAndDownload(info);
   });
 
   autoUpdater.on("update-downloaded", (info: { version: string }) => {
@@ -122,6 +150,55 @@ function check(): void {
 }
 
 /**
+ * Runs once per "update-available" event, from both the silent background
+ * path and an on-demand checkForUpdatesNow() — both funnel through the same
+ * electron-updater event, so gating here covers either caller without
+ * duplicating the check.
+ *
+ * See update-integrity.ts for what "second source" means and why it's
+ * necessary: with autoDownload off, this is the only thing that decides
+ * whether the download actually starts.
+ */
+async function verifyAndDownload(info: UpdateInfo): Promise<void> {
+  const artifact = info.files[0];
+  const expectedSha512 = artifact?.sha512 ?? info.sha512;
+  const artifactFileName = artifact?.url ?? info.path;
+
+  const result = await checkSecondSource({
+    mirrorUrl: SECOND_SOURCE_MANIFEST_URL,
+    version: info.version,
+    artifactFileName,
+    expectedSha512,
+  });
+
+  if (!result.verified && result.blocking) {
+    // Real evidence the primary feed disagrees with an independent source —
+    // refuse to install. Same renderer-notification path as a failed
+    // download (see the "error" handler above): only worth interrupting the
+    // user if they're the one who asked.
+    console.error(`[updater] refusing update ${info.version}: ${result.reason}`);
+    if (manualCheckInFlight) {
+      manualCheckInFlight = false;
+      windowGetter?.()?.webContents.send(
+        "update:check-failed",
+        "Update integrity check failed. Please try again later.",
+      );
+    }
+    return;
+  }
+
+  if (!result.verified) {
+    // No second opinion available — not evidence of tampering, just not yet
+    // a defense. Loud on purpose: see update-integrity.ts's header.
+    console.warn(`[updater] second-source check not performed for ${info.version}: ${result.reason}`);
+  }
+
+  autoUpdater.downloadUpdate().catch((e: unknown) => {
+    console.error("[updater] downloadUpdate failed:", e instanceof Error ? e.message : e);
+  });
+}
+
+/**
  * Re-check the moment the main window regains focus — on top of the periodic
  * timer, this is the single most likely moment to catch someone actually
  * looking at the app right after a release went out (reopening it, or
@@ -169,10 +246,13 @@ export async function checkForUpdatesNow(): Promise<UpdateCheckResult> {
     const result = await autoUpdater.checkForUpdates();
     const latest = result?.updateInfo?.version;
     if (latest && latest !== app.getVersion()) {
-      // autoDownload is on, so it is already fetching; the restart prompt comes
-      // from the update-downloaded handler above. If the download itself later
-      // fails, the "error" handler forwards it to the renderer — this promise
-      // has already resolved by then and can't say so itself.
+      // checkForUpdates() above already fired "update-available", which
+      // triggers verifyAndDownload() — the integrity check, then the actual
+      // download — asynchronously; the restart prompt comes from the
+      // update-downloaded handler once that finishes. If verification
+      // refuses the update or the download itself later fails, the
+      // respective handler forwards it to the renderer as "update:check-failed"
+      // — this promise has already resolved by then and can't say so itself.
       manualCheckInFlight = true;
       return { status: "downloading", version: latest };
     }

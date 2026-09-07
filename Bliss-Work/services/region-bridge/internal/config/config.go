@@ -113,7 +113,7 @@ func Load() (*Config, error) {
 		Peers:           splitList(os.Getenv("BRIDGE_PEER_REGIONS")),
 		KafkaBrokers:    splitList(envOr("KAFKA_BROKERS", "kafka:9092")),
 		Topics:          splitList(envOr("BRIDGE_TOPICS", defaultTopics)),
-		DLQTopic:        envOr("BRIDGE_DLQ_TOPIC", "region-bridge-dlq"),
+		DLQTopic:        dlqTopicOr("BRIDGE_DLQ_TOPIC", "region-bridge-dlq"),
 		KafkaGroupID:    envOr("BRIDGE_KAFKA_GROUP", "region-bridge"),
 		NATSURL:         envOr("NATS_URL", "nats://nats:4222"),
 		NATSCredentials: os.Getenv("NATS_CREDENTIALS"),
@@ -207,15 +207,25 @@ func Load() (*Config, error) {
 	return c, nil
 }
 
-// defaultTopics is every topic the platform fans out today. Kept in one place
-// so adding a topic is a config change in one file rather than a discovery rule
-// nobody can audit.
-// `routing.events.v1` is the cross-site routing DIRECTORY — which org and which
-// invite live at which site. It is the one topic on this list that the bridge is
-// not merely a convenience for: org data is partitioned by site and never
-// replicated, so without the directory reaching every site, a request that lands
-// on the wrong one has no way to discover where its data actually lives.
-const defaultTopics = "messaging.events.v1,task.events.v1,notification.events.v1,auth.events,routing.events.v1"
+// defaultTopics is the routing DIRECTORY ALONE — which org and which invite
+// live at which site (docs/CROSS-REGION.md §9). It is the one topic every
+// site genuinely needs from every other: org data is partitioned by site and
+// never replicated, so without the directory reaching every site, a request
+// that lands on the wrong one has no way to discover where its data actually
+// lives.
+//
+// The platform's business topics (messaging.events.v1, task.events.v1,
+// notification.events.v1, auth.events) must NOT be in this list. Each of
+// those services' Kafka consumers has no concept of "site placement" — it
+// processes whatever lands in its LOCAL topic — so bridging them would make
+// every peer region's task-svc/messaging-svc/notification-svc/auth-svc
+// materialize rows for orgs that were never placed there, permanently and
+// with no cleanup path. §9's "never replicated" guarantee is enforced by
+// this list staying short, not by anything downstream.
+//
+// Kept in one place so adding a topic is a config change in one file rather
+// than a discovery rule nobody can audit.
+const defaultTopics = "routing.events.v1"
 
 // OutboundStream is the name of the stream this region publishes into.
 func (c *Config) OutboundStream() string { return "EVENTS_OUT_" + Upper(c.Region) }
@@ -265,6 +275,19 @@ func envOr(k, def string) string {
 		return v
 	}
 	return def
+}
+
+// dlqTopicOr resolves BRIDGE_DLQ_TOPIC specifically, distinguishing "unset"
+// (use the default) from "explicitly set to empty" (dead-lettering
+// intentionally disabled — see Config.DLQTopic). envOr cannot make that
+// distinction: it treats every empty value, set or not, as unset, which is
+// why an operator could never actually disable the DLQ before this.
+func dlqTopicOr(k, def string) string {
+	v, ok := os.LookupEnv(k)
+	if !ok {
+		return def
+	}
+	return strings.TrimSpace(v)
 }
 
 func intOr(k string, def int) int {

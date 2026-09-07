@@ -45,6 +45,12 @@ export const EventType = {
   TaskIgnored: "task.ignored",
   TaskLeft: "task.left",
   TaskReviewed: "task.reviewed",
+  /** Internal-only, like OrgDeleted below: an admin hard-deleted the task via
+   *  task-svc's internal by-title endpoint. Never pushed to a client socket —
+   *  it exists so sticky-svc's pins and messaging-svc's inbox rows, which only
+   *  close on a terminal task.* event, don't go stale forever for a task that
+   *  bypassed the normal lifecycle. */
+  TaskDeleted: "task.deleted",
   NotificationCreated: "notification.created",
   /** Emitted by services/sticky-relay: "you have desktop notes you may never
    *  have received — re-fetch". A repair signal, not news; see StickyRefresh. */
@@ -145,6 +151,10 @@ export const MessageCreated = z.object({
    *  The receiving client labels it — content shown under the forwarder's name
    *  with no marker attributes it to them. */
   isForward: z.boolean().optional(),
+  /** Mirrors MessageDTO.forwardPlatform (domain.ts) — set only when kind is
+   *  "forward_external", so a live-pushed pill renders the same
+   *  "Message forwarded to WhatsApp" line a page-load would. */
+  forwardPlatform: z.string().optional(),
 });
 
 export const ConversationIgnored = z.object({
@@ -387,6 +397,8 @@ export const ChannelMessageCreated = z.object({
   kind: MessageKindWire.optional(),
   /** Mirrors MessageCreated.isForward. */
   isForward: z.boolean().optional(),
+  /** Mirrors MessageCreated.forwardPlatform. */
+  forwardPlatform: z.string().optional(),
   /** Mirrors MessageCreated.replyToId. */
   replyToId: z.string().uuid().optional(),
 });
@@ -492,6 +504,14 @@ export const TaskLeft = z.object({
   type: z.literal(EventType.TaskLeft),
   ...taskBase,
   assigneeUsername: z.string(),
+});
+
+/** Admin hard-delete via task-svc's internal by-title endpoint. INTERNAL-ONLY
+ *  (see EventType.TaskDeleted) — carries only taskBase, no username field: it
+ *  is never rendered as a toast, only consumed to close a stale projection. */
+export const TaskDeleted = z.object({
+  type: z.literal(EventType.TaskDeleted),
+  ...taskBase,
 });
 
 /** Allocator wrote a review on a completed assignment. Signal-only — the review
@@ -907,6 +927,7 @@ export type TaskAcknowledged = z.infer<typeof TaskAcknowledged>;
 export type TaskCompleted = z.infer<typeof TaskCompleted>;
 export type TaskIgnored = z.infer<typeof TaskIgnored>;
 export type TaskLeft = z.infer<typeof TaskLeft>;
+export type TaskDeleted = z.infer<typeof TaskDeleted>;
 export type TaskReviewed = z.infer<typeof TaskReviewed>;
 export type NotificationCreated = z.infer<typeof NotificationCreated>;
 export type StickyRefresh = z.infer<typeof StickyRefresh>;

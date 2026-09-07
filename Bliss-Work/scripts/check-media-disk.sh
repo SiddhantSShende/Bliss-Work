@@ -26,6 +26,8 @@
 # bad.
 set -Eeuo pipefail
 
+source "$(dirname "${BASH_SOURCE[0]}")/lib/compose-job.sh"
+
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${ENV_FILE:-$REPO_DIR/.env.prod}"
 VOLUME="${MEDIA_VOLUME:-task-board-prod_media_blobs}"
@@ -35,22 +37,8 @@ STATE_FILE="${ALERT_STATE_FILE:-/var/lib/blisswork-alerts/media-disk.state}"
 REPEAT_HOURS="${ALERT_REPEAT_HOURS:-24}"
 HOSTNAME_S="$(hostname)"
 
-if docker info >/dev/null 2>&1; then
-  USE_SUDO=0
-elif sudo -n docker info >/dev/null 2>&1; then
-  USE_SUDO=1
-else
-  echo "cannot reach the Docker daemon (with or without passwordless sudo)" >&2
-  exit 1
-fi
+detect_docker_sudo
 dkr() { if ((USE_SUDO)); then sudo docker "$@"; else docker "$@"; fi; }
-
-# Read a single key out of the env file WITHOUT sourcing it. Sourcing would
-# execute whatever is in there, and it holds every production secret.
-envval() {
-  [ -f "$ENV_FILE" ] || return 0
-  grep -E "^$1=" "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- | sed 's/^"\(.*\)"$/\1/'
-}
 
 # ── Measure ──────────────────────────────────────────────────────────────────
 # Resolve the volume's real path rather than assuming /var/lib/docker: the
@@ -136,12 +124,12 @@ If media is the cause:
 
 Backups are separate (see scripts/backup-db.sh); pruning media does not touch
 them."
-  if SMTP_HOST="$(envval SMTP_HOST)" \
-     SMTP_PORT="$(envval SMTP_PORT)" \
-     SMTP_USERNAME="$(envval SMTP_USERNAME)" \
-     SMTP_PASSWORD="$(envval SMTP_PASSWORD)" \
-     SMTP_FROM="$(envval SMTP_FROM)" \
-     ALERT_TO="${ALERT_EMAIL_TO:-$(envval SMTP_FROM)}" \
+  if SMTP_HOST="$(envval "$ENV_FILE" SMTP_HOST)" \
+     SMTP_PORT="$(envval "$ENV_FILE" SMTP_PORT)" \
+     SMTP_USERNAME="$(envval "$ENV_FILE" SMTP_USERNAME)" \
+     SMTP_PASSWORD="$(envval "$ENV_FILE" SMTP_PASSWORD)" \
+     SMTP_FROM="$(envval "$ENV_FILE" SMTP_FROM)" \
+     ALERT_TO="${ALERT_EMAIL_TO:-$(envval "$ENV_FILE" SMTP_FROM)}" \
      SUBJECT="$SUBJECT" BODY="$BODY" python3 "$REPO_DIR/scripts/send-alert.py"; then
     echo "$LEVEL $NOW" > "$STATE_FILE"
     echo "alert sent: $SUBJECT"

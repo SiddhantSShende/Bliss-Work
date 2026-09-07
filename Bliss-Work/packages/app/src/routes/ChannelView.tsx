@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Hash, Users, ChevronLeft, Lock } from "lucide-react";
@@ -21,6 +21,7 @@ import { useWhatsAppForward } from "../lib/useWhatsAppForward";
 import { ForwardToDialog } from "../features/ForwardToDialog";
 import { RenameChannelDialog } from "../features/RenameChannelDialog";
 import { useChatMedia } from "../features/useChatMedia";
+import { useOptimisticSend } from "../lib/useOptimisticSend";
 import { ScheduleCallDialog } from "../features/ScheduleCallDialog";
 import { CallMenu } from "../features/CallMenu";
 import { ConversationMenu } from "../features/ConversationMenu";
@@ -212,6 +213,23 @@ export function ChannelView() {
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.channelReactions(channelId) }),
     onError: () => toast.error("Couldn't save that reaction"),
   });
+  // Guards against a fast double-tap firing two overlapping requests for the
+  // SAME (message, emoji) chip — see DMView.tsx's identical reactToggle for
+  // why setChannelReaction's lack of an idempotency key makes this matter,
+  // and why the guard is a ref rather than state.
+  const pendingReactionsRef = useRef<Set<string>>(new Set());
+  const reactToggle = useCallback(
+    (id: string, emoji: string, on: boolean) => {
+      const key = `${id} ${emoji}`;
+      if (pendingReactionsRef.current.has(key)) return;
+      pendingReactionsRef.current.add(key);
+      react.mutate(
+        { id, emoji, on },
+        { onSettled: () => pendingReactionsRef.current.delete(key) },
+      );
+    },
+    [react],
+  );
 
   const hide = useMutation({
     mutationFn: (id: string) => api.hideChannelMessage(id),
@@ -366,32 +384,26 @@ export function ChannelView() {
     return id;
   };
 
-  const send = useMutation({
-    mutationFn: ({ body, replyToId }: { body: string; replyToId?: string }) =>
+  const send = useOptimisticSend<ChannelMessageDTO>({
+    queryKey: qk.channelMessages(channelId),
+    buildOptimistic: (tempId, { body, replyToId }, prev) => ({
+      id: tempId,
+      channelId,
+      seq: prev.reduce((m, x) => Math.max(m, x.seq), 0) + 1,
+      senderId: me.id,
+      senderUsername: me.username,
+      senderDisplayName: me.displayName,
+      body,
+      replyToId,
+      createdAt: new Date().toISOString(),
+    }),
+    mutationFn: ({ body, replyToId }) =>
       api.sendChannelMessage(channelId, body, undefined, undefined, replyToId),
-    onMutate: async ({ body, replyToId }) => {
-      await qc.cancelQueries({ queryKey: qk.channelMessages(channelId) });
-      const prev = qc.getQueryData<ChannelMessageDTO[]>(qk.channelMessages(channelId)) ?? [];
-      const tempId = `temp:${crypto.randomUUID()}`;
-      const seq = prev.reduce((m, x) => Math.max(m, x.seq), 0) + 1;
-      const optimistic: ChannelMessageDTO = {
-        id: tempId, channelId, seq, senderId: me.id,
-        senderUsername: me.username, senderDisplayName: me.displayName,
-        body, replyToId, createdAt: new Date().toISOString(),
-      };
-      qc.setQueryData<ChannelMessageDTO[]>(qk.channelMessages(channelId), [...prev, optimistic]);
-      return { tempId };
-    },
-    onSuccess: (res, _body, ctx) => {
-      qc.setQueryData<ChannelMessageDTO[]>(qk.channelMessages(channelId), (prev) =>
-        (prev ?? []).map((m) => (m.id === ctx?.tempId ? { ...m, id: res.messageId, seq: res.seq } : m)),
-      );
-      qc.invalidateQueries({ queryKey: qk.channels });
-    },
-    onError: (_e, _body, ctx) => {
-      qc.setQueryData<ChannelMessageDTO[]>(qk.channelMessages(channelId), (prev) => (prev ?? []).filter((m) => m.id !== ctx?.tempId));
-      toast.error("Message failed to send");
-    },
+    // No reconcile: unlike DMView's messages, a ChannelMessageDTO carries no
+    // `status` field at all (channels use per-member read receipts instead —
+    // see receiptsByMessage below), so the plain id/seq patch is everything
+    // a channel send needs.
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.channels }),
   });
 
   /**
@@ -409,6 +421,7 @@ export function ChannelView() {
         // reader should see above a channel bubble.
         id: m.id, senderId: m.senderId, senderName: m.senderDisplayName || m.senderUsername,
         body: m.body, at: m.createdAt, kind: m.kind, isForward: m.isForward,
+        forwardPlatform: m.forwardPlatform,
         pending: m.id.startsWith("temp:"),
         replyToId: m.replyToId,
         deletedForAll: m.deletedForAll,
@@ -664,7 +677,7 @@ export function ChannelView() {
         // sees, so the entry is simply absent for an ordinary member rather than
         // present and refused.
         onTogglePin={canModerate ? (id, on) => togglePin.mutate({ id, on }) : undefined}
-        onReact={(id, emoji, on) => react.mutate({ id, emoji, on })}
+        onReact={reactToggle}
         selectionMode={selection.active}
         selectedIds={selection.selected}
         onToggleSelect={selection.toggle}

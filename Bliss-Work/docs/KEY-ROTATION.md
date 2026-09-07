@@ -12,9 +12,10 @@ the old one retired; existing ciphertext keeps decrypting via its embedded
 `key_version`, only new writes use the new DEK.
 
 ```sh
-# Rotate authdb's DEK for an org (internal, shared-secret auth):
+# Rotate authdb's DEK for an org (internal, shared-secret auth — see §5 for
+# why this is AUTH_INTERNAL_TOKEN specifically, not a single shared token):
 curl -s -X POST "http://localhost:8001/internal/keys/rotate/<ORG_ID>" \
-     -H "X-Internal-Token: $TB_INTERNAL_TOKEN"
+     -H "X-Internal-Token: $AUTH_INTERNAL_TOKEN"
 # -> {"orgId":"...","oldVersion":1,"newVersion":2}
 ```
 
@@ -52,11 +53,39 @@ Already supported via `JWT_KID`/`JWT_PUBLIC_KEY_PATH_PREVIOUS`/`JWT_KID_PREVIOUS
 wait out the access-token TTL + verifier JWKS cache, then retire the old key. All
 existing access tokens expire within the TTL.
 
-## 5. `TB_INTERNAL_TOKEN` (service-to-service)
+## 5. Internal service-to-service secrets (six per-callee tokens)
 
-Rotate via the secret manager and roll the services. The internal endpoints fail
-closed (reject all) if unset and use constant-time comparison, so a brief mismatch
-window only rejects internal calls (retried) — never accepts an attacker.
+There is no longer a single shared `TB_INTERNAL_TOKEN`. Each exposing service
+validates its own independent secret against its own env var (see
+`docs/AUTH_AUTHZ_REMEDIATION_PLAN.md`, Phase 2):
+
+| Var | Validated by |
+|---|---|
+| `AUTH_INTERNAL_TOKEN` | auth-svc (`app/routes/internal.py`) |
+| `TASK_INTERNAL_TOKEN` | task-svc (`app/routes/tasks_write.py`) |
+| `MESSAGING_INTERNAL_TOKEN` | messaging-svc (`internal/api/internal_delivery.go`) |
+| `WS_GATEWAY_INTERNAL_TOKEN` | ws-gateway (`internal/server/push.go` / config) |
+| `INTEGRATIONS_INTERNAL_TOKEN` | integrations-svc (`app/routes/internal.py`) |
+| `STICKY_INTERNAL_TOKEN` | sticky-relay (`internal/config/config.go`) |
+
+Rotate one at a time via the secret manager (`openssl rand -hex 32` for a new
+value). **Which containers you must roll depends on how the secrets are
+currently wired**, per the dated addendum in Phase 2 of
+`AUTH_AUTHZ_REMEDIATION_PLAN.md`: the isolated design (each service's
+`docker-compose.prod.yml` entry naming only the secrets it actually needs) was
+reverted, and today all six values live in the single shared `.env.prod`,
+injected into every application service via the `x-svc-defaults` `env_file:`
+anchor. Until that isolation is re-established, rotating any one token means
+redeploying **every** service that inherits `.env.prod` — not just the
+exposing service and its confirmed callers, even though only the confirmed
+callers actually send that particular value.
+
+Each internal endpoint fails closed (rejects all) if its own token env var is
+unset, and uses constant-time comparison (`internal_token_matches` in
+`services/shared/internal_auth` for the Python services, `Matches` in
+`services/shared/internalauth` for the Go ones), so a brief mismatch window
+during rotation only rejects internal calls (safe to retry) — never accepts
+an attacker.
 
 ## 6. Database passwords (`*_DB_PASSWORD`)
 

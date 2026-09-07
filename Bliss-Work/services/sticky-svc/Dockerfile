@@ -11,8 +11,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # (OTel Kafka context-propagation + shutdown helpers),
 # services/shared/internal_auth (constant-time internal-secret comparison, used
 # by GET /internal/pins/undelivered), services/shared/logging_setup
-# (structlog -> stdout JSON) and services/shared/org_purge_tables (the
-# org.deleted purge loop). The build needs every one of these directories:
+# (structlog -> stdout JSON), services/shared/org_purge_tables (the
+# org.deleted purge loop) and services/shared/prune_events (batched-delete
+# retention runner, also used by task-svc, auth-svc and integrations-svc).
+# The build needs every one of these directories:
 #
 #     docker build -f services/sticky-svc/Dockerfile .
 #
@@ -34,6 +36,7 @@ COPY services/shared/logging_setup services/shared/logging_setup
 COPY services/shared/org_purge_tables services/shared/org_purge_tables
 COPY services/shared/client_ip services/shared/client_ip
 COPY services/shared/resilience services/shared/resilience
+COPY services/shared/prune_events services/shared/prune_events
 WORKDIR /src/services/sticky-svc
 RUN pip install --upgrade pip && pip install -r requirements.txt
 

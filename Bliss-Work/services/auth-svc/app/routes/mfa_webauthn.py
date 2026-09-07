@@ -148,6 +148,13 @@ async def register_finish(
     session: SessionDTO | None = None
     raw_refresh: str | None = None
     async with engine.begin() as conn:
+        # Pre-org-context: the challenge is redeemed by token hash before the
+        # org is known, so that lookup runs under bypass (user_tokens is RLS) —
+        # same pattern as invites_service.accept_invite_tx. Once org_id comes
+        # back, pin app.org_id so every write below (mfa_webauthn_credentials,
+        # users) is genuinely org-scoped rather than trusting bypass for the
+        # whole transaction.
+        await service.set_bypass_rls(conn)
         try:
             client_data_json = bytes(
                 _b64(body.credential["response"]["clientDataJSON"])
@@ -156,6 +163,7 @@ async def register_finish(
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "malformed credential") from exc
         challenge = _client_data_challenge(client_data_json)
         user_id, org_id = await mfa_service.consume_webauthn_challenge(conn, challenge)
+        await service.set_org_guc(conn, org_id)
         uv_required = await _org_requires_uv(conn, org_id)
 
         if await mfa_service.is_already_enrolled(conn, user_id):

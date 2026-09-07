@@ -229,6 +229,47 @@ Three things are load-bearing and fail *silently* if broken, so each has a guard
 Installers keep the 1-hour cache — they are immutable per version, and the 110 MB
 transfer is the expensive part.
 
+### The second-source integrity check
+
+The feed above is a single-source trust model: `latest*.yml`'s sha512 comes
+from the same host as the installer, so a compromised download host or
+release pipeline can push a malicious auto-installed update with a hash that
+"verifies" against itself. `apps/desktop/src/main/update-integrity.ts`'s
+`checkSecondSource` adds an independent second opinion, fetched from
+[`github.com/AE-4pvt/blisswork-update-manifest`](https://github.com/AE-4pvt/blisswork-update-manifest)
+(public — unlike this repo — specifically so the desktop app can fetch its
+`manifest.json` with no embedded token) via `raw.githubusercontent.com`.
+Genuinely separate infrastructure from `communication.rnrtechs.com`: a
+different host, different DNS, different credentials.
+
+Required after **every** installer publish (`scripts/publish-desktop.sh` or
+the `desktop-builder` compose profile), once `latest*.yml` is live:
+
+```bash
+node scripts/publish-second-source-manifest.mjs /home/ubuntu/BlissWork/downloads
+```
+
+It reads the just-published `latest*.yml` files (all platforms) and pushes
+an updated `manifest.json` to the mirror repo — see that script's own header
+for the env vars that control which repo/checkout it uses. It does not
+recompute any hash itself: the point is to catch the primary feed
+disagreeing with itself between publish and download, not to add a second
+hash algorithm with its own bugs.
+
+`TB_UPDATE_MANIFEST_MIRROR_URL` (in `.env.prod`) is what turns this check on
+for shipped clients — unset, `checkSecondSource` always falls back to the
+pre-existing single-source trust model (not a regression, just not yet a
+second opinion) and says so loudly in the logs. **Build-time, not runtime**:
+`updater.ts` runs in the packaged app on an end user's machine, which never
+has `.env.prod` — `electron.vite.config.ts` bakes the value into the bundle
+at build time (`__TB_UPDATE_MANIFEST_MIRROR_URL__`, same pattern as the
+Google geolocation key), so it has to be set **before** the desktop build
+that should carry it, not after:
+
+```
+TB_UPDATE_MANIFEST_MIRROR_URL=https://raw.githubusercontent.com/AE-4pvt/blisswork-update-manifest/main/manifest.json
+```
+
 ### Microsoft Store builds are not covered
 
 `updater.ts` early-returns on `process.windowsStore`: the Store manages those

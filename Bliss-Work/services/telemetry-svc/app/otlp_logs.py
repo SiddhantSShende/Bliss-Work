@@ -23,6 +23,18 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
+# Mirrors AgentBatch.events' cap (schemas.py, max_length=200) — an OTLP
+# export is just another batched producer, and a collector that gathered
+# more than 200 log records before flushing is treated the same as an agent
+# posting more than 200 events in a single call (see schemas.py's comment:
+# "a hostile or buggy agent must not be able to turn this into free
+# storage"). Not imported from schemas.py: that module's DTOs are a REST
+# concern, and this one deliberately has no opinion about BlissWork's
+# activity model (see module docstring) — the two are kept in sync by this
+# comment, the same way otlp_bridge.py's _AGENT_CATEGORIES already mirrors
+# routes/agent.py's by comment rather than import.
+MAX_LOG_RECORDS = 200
+
 
 @dataclass
 class ParsedLogRecord:
@@ -102,9 +114,28 @@ def parse_export_logs_request(payload: dict[str, Any]) -> list[ParsedLogRecord]:
     partially fails (a savepoint undoes only the failed statement), applied
     here one level earlier: one bad log record must not cost the other 199
     good ones in the same export.
+
+    Raises `ValueError` if the export carries more than `MAX_LOG_RECORDS`
+    `logRecords[]` entries in total (summed across every resourceLogs /
+    scopeLogs group, so a producer cannot evade the cap by splitting a huge
+    batch across several groups in one request) — rejected outright rather
+    than truncated, the same "reject, don't silently drop the tail" contract
+    AgentBatch/Beacon already get for free from Pydantic's `max_length`.
+    Checked before any record is parsed: counting logRecords[] lengths is
+    cheap, and there is no reason to spend work turning AnyValue/kvlist trees
+    into Python for an export this bridge is about to reject anyway.
     """
+    resource_logs_groups = payload.get("resourceLogs") or []
+    total_records = sum(
+        len(scope_logs.get("logRecords") or [])
+        for resource_logs in resource_logs_groups
+        for scope_logs in resource_logs.get("scopeLogs") or []
+    )
+    if total_records > MAX_LOG_RECORDS:
+        raise ValueError(f"export exceeds {MAX_LOG_RECORDS} log records (got {total_records})")
+
     out: list[ParsedLogRecord] = []
-    for resource_logs in payload.get("resourceLogs") or []:
+    for resource_logs in resource_logs_groups:
         resource = resource_logs.get("resource") or {}
         resource_attrs = _kvlist_to_dict(resource.get("attributes") or [])
         for scope_logs in resource_logs.get("scopeLogs") or []:

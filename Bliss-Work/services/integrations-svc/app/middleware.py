@@ -22,13 +22,36 @@ HEADER_REQUEST_ID = "X-Request-Id"
 # additionally bounded by the reverse-proxy body limit in prod.
 MAX_BODY_BYTES = 1 << 20  # 1 MiB
 
+# /internal/mail/send carries attachments as base64 JSON. providers/microsoft.py's
+# MAX_INLINE_ATTACHMENT_BYTES caps the raw attachment total at 3 MiB; base64 inflates
+# that by ~4/3 (~4 MiB), and the surrounding MailSendReq JSON (subject/recipients/etc.)
+# adds a little more, so 5 MiB gives headroom without opening the cap up generally.
+MAIL_SEND_MAX_BODY_BYTES = 5 * 1024 * 1024  # 5 MiB
+
 
 class BodySizeLimitMiddleware(BaseHTTPMiddleware):
-    """Reject requests whose declared Content-Length exceeds the cap with 413."""
+    """Reject requests whose declared Content-Length exceeds the cap with 413.
 
-    def __init__(self, app, max_bytes: int = MAX_BODY_BYTES) -> None:
+    `path_overrides` raises the cap for specific routes (matched by path prefix)
+    that legitimately carry larger bodies, e.g. mail-send attachments, without
+    loosening the default cap everywhere else.
+    """
+
+    def __init__(
+        self,
+        app,
+        max_bytes: int = MAX_BODY_BYTES,
+        path_overrides: dict[str, int] | None = None,
+    ) -> None:
         super().__init__(app)
         self.max_bytes = max_bytes
+        self.path_overrides = path_overrides or {}
+
+    def _limit_for(self, path: str) -> int:
+        for prefix, limit in self.path_overrides.items():
+            if path.startswith(prefix):
+                return limit
+        return self.max_bytes
 
     async def dispatch(
         self,
@@ -38,7 +61,7 @@ class BodySizeLimitMiddleware(BaseHTTPMiddleware):
         cl = request.headers.get("content-length")
         if cl is not None:
             try:
-                if int(cl) > self.max_bytes:
+                if int(cl) > self._limit_for(request.url.path):
                     return Response("request entity too large", status_code=413)
             except ValueError:
                 return Response("invalid content-length", status_code=400)

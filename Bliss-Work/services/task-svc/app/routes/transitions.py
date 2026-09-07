@@ -36,7 +36,26 @@ async def acknowledge(task_id: str, principal: Principal = PrincipalDep) -> Tran
         )
         updated = res.first()
         if updated is None:
+            # Re-fetch rather than trust `current` above, which was read
+            # BEFORE this UPDATE was attempted: under a duplicate concurrent
+            # request (double-click, or a client retry after a dropped
+            # response) the other request's UPDATE can commit in the gap
+            # between our pre-read and this CAS attempt. Deciding
+            # idempotent-success vs. conflict from the stale pre-read would
+            # then report a spurious 409 for a request that actually
+            # succeeded.
+            #
+            # Must run BEFORE db.rollback(): app.org_id is bound with
+            # set_config(..., is_local=true) — transaction-scoped — so rolling
+            # back first clears the RLS context and this query would silently
+            # see no rows (404) instead of the real, current status. READ
+            # COMMITTED (Postgres's default, unchanged here) re-takes its
+            # snapshot per statement, so this still-open transaction sees the
+            # other request's commit without needing to roll back first.
+            current = await current_assignee(db, org_id, task_id, me)
             await db.rollback()
+            if current is None:
+                raise HTTPException(status_code=404, detail="assignment not found")
             if current.status == "ACKNOWLEDGED":
                 # Idempotent: already acknowledged, emit nothing.
                 return TransitionResponse(status=current.status, statusVersion=current.status_version)
@@ -78,7 +97,14 @@ async def complete(task_id: str, principal: Principal = PrincipalDep) -> Transit
         )
         updated = res.first()
         if updated is None:
+            # See acknowledge()'s comment on this same pattern: re-fetch
+            # BEFORE rollback (which clears the transaction-scoped app.org_id
+            # RLS context), or this would silently see no rows instead of the
+            # real status.
+            current = await current_assignee(db, org_id, task_id, me)
             await db.rollback()
+            if current is None:
+                raise HTTPException(status_code=404, detail="assignment not found")
             if current.status == "COMPLETED":
                 return TransitionResponse(status=current.status, statusVersion=current.status_version)
             raise HTTPException(status_code=409, detail=f"cannot complete from {current.status}")
@@ -118,7 +144,14 @@ async def ignore(task_id: str, principal: Principal = PrincipalDep) -> Transitio
         )
         updated = res.first()
         if updated is None:
+            # See acknowledge()'s comment on this same pattern: re-fetch
+            # BEFORE rollback (which clears the transaction-scoped app.org_id
+            # RLS context), or this would silently see no rows instead of the
+            # real status.
+            current = await current_assignee(db, org_id, task_id, me)
             await db.rollback()
+            if current is None:
+                raise HTTPException(status_code=404, detail="assignment not found")
             if current.status == "IGNORED":
                 return TransitionResponse(status=current.status, statusVersion=current.status_version)
             raise HTTPException(status_code=409, detail=f"cannot ignore from {current.status}")
@@ -158,7 +191,14 @@ async def leave(task_id: str, principal: Principal = PrincipalDep) -> Transition
         )
         updated = res.first()
         if updated is None:
+            # See acknowledge()'s comment on this same pattern: re-fetch
+            # BEFORE rollback (which clears the transaction-scoped app.org_id
+            # RLS context), or this would silently see no rows instead of the
+            # real status.
+            current = await current_assignee(db, org_id, task_id, me)
             await db.rollback()
+            if current is None:
+                raise HTTPException(status_code=404, detail="assignment not found")
             if current.status == "LEFT":
                 return TransitionResponse(status=current.status, statusVersion=current.status_version)
             raise HTTPException(status_code=409, detail=f"cannot leave from {current.status}")

@@ -37,6 +37,15 @@ type Claims struct {
 	// may do — the org a request acts in is OrgID alone.
 	Memberships []Membership
 	Expiry      time.Time
+	// SessionID is the refresh-token family this access token was minted
+	// alongside (auth-svc's `sid` claim — see app/security/keys.py's
+	// mint_access_token). Like Memberships, this is routing/correlation
+	// metadata, NOT authorization: it exists so a connection can be matched
+	// to the session that opened it and force-closed if that session is
+	// revoked (see internal/revoke). Empty for a token minted before this
+	// claim existed — such a connection simply cannot be targeted by a
+	// session-scoped revoke and is only reached by its own token expiry.
+	SessionID string
 }
 
 // Verifier validates EdDSA JWTs against a cached JWKS.
@@ -108,6 +117,12 @@ func (v *Verifier) Verify(ctx context.Context, token string) (*Claims, error) {
 
 	if claims.UserID == "" || claims.OrgID == "" {
 		return nil, errors.New("token missing sub/org_id")
+	}
+
+	if sid, ok := parsed.Get("sid"); ok {
+		if s, ok := sid.(string); ok {
+			claims.SessionID = s
+		}
 	}
 
 	raw, _ := parsed.Get("memberships")

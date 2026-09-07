@@ -94,7 +94,7 @@ func main() {
 		pub.Run(rootCtx)
 	}()
 
-	cons := consumer.New(pool, cfg.KafkaBrokers, logger)
+	cons := consumer.New(pool, cfg.KafkaBrokers, logger, stop)
 	workers.Add(1)
 	go func() {
 		defer workers.Done()

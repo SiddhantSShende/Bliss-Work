@@ -29,6 +29,11 @@ from ..logging_setup import configure_logging, log
 # Kafka dedup keys only need to outlive any plausible redelivery window; a week
 # is far beyond it and keeps the table from growing without bound.
 CONSUMED_EVENT_RETENTION_DAYS = 7
+# A beacon-batch claim only needs to outlive a client's own retry window
+# (the next flush tick after a lost ack, at most minutes) — a day is already
+# generous margin, and keeps this table from growing without bound the same
+# way consumed_events would have without CONSUMED_EVENT_RETENTION_DAYS.
+BEACON_BATCH_RETENTION_DAYS = 1
 _PARTITION_PREFIX = "activity_events_"
 
 
@@ -98,6 +103,58 @@ async def assert_rolled_up(db, day: date) -> None:
         )
 
 
+async def assert_sessions_rolled_up(db, retention_days: int) -> None:
+    """Refuse to drop any user_sessions row whose (org, day) was never rolled
+    up into activity_daily — the same safety property assert_rolled_up
+    already gives activity_events partitions, extended to cover sessions.
+
+    Needed because assert_rolled_up alone only ever looks at
+    activity_events: a day whose ONLY platform-wide activity was session/
+    heartbeat traffic has zero qualifying activity_events rows (heartbeats
+    are dropped before storage — see NON_EVENT_ACTIONS), so it sees nothing
+    to flag. The unconditional `DELETE FROM user_sessions` below had no
+    equivalent guard at all before this.
+
+    Checked at BOTH of a session's endpoints (started_at's day and
+    ended_at's day), not just one — since the session rollup fix (see
+    rollup.py's _SESSION_ROLLUP) now prorates a midnight-spanning session's
+    contribution across every day it touches, a session can legitimately
+    have rows in activity_daily on two different days.
+    """
+    tz = settings.rollup_timezone
+    unrolled = (
+        await db.execute(
+            text(
+                f"""
+                SELECT DISTINCT org_id, day FROM (
+                    SELECT org_id, (started_at AT TIME ZONE '{tz}')::date AS day
+                      FROM user_sessions
+                     WHERE ended_at IS NOT NULL
+                       AND ended_at < now() - make_interval(days => :d)
+                    UNION
+                    SELECT org_id, (ended_at AT TIME ZONE '{tz}')::date AS day
+                      FROM user_sessions
+                     WHERE ended_at IS NOT NULL
+                       AND ended_at < now() - make_interval(days => :d)
+                ) endpoints
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM activity_daily ad
+                     WHERE ad.org_id = endpoints.org_id AND ad.day = endpoints.day
+                )
+                """  # noqa: S608 — tz is service config, never request input
+            ),
+            {"d": retention_days},
+        )
+    ).all()
+    if unrolled:
+        days = sorted({r.day for r in unrolled})
+        raise UnrolledDayError(
+            f"user_sessions has {len(unrolled)} (org, day) pair(s) about to be pruned with "
+            f"no activity_daily rollup, spanning {days[0].isoformat()}..{days[-1].isoformat()} "
+            "— run `python -m app.jobs.rollup` for the missing day(s) first"
+        )
+
+
 async def run(dry_run: bool = False) -> int:
     cutoff = datetime.now(timezone.utc).date() - timedelta(days=settings.raw_retention_days)
     dropped = 0
@@ -138,6 +195,13 @@ async def run(dry_run: bool = False) -> int:
             dropped += 1
             log.info("prune_dropped_partition", partition=name, day=day.isoformat())
 
+        # Same safety property as assert_rolled_up above, extended to cover
+        # user_sessions — see that function's own doc comment for why
+        # assert_rolled_up's activity_events-only check cannot see this gap
+        # on its own. Checked in both dry-run and real runs, same as the
+        # partition loop's own assert_rolled_up calls.
+        await assert_sessions_rolled_up(db, settings.raw_retention_days)
+
         if not dry_run:
             # Sessions are not partitioned (there are orders of magnitude fewer
             # of them), so they are deleted the ordinary way.
@@ -155,12 +219,40 @@ async def run(dry_run: bool = False) -> int:
                 ),
                 {"d": CONSUMED_EVENT_RETENTION_DAYS},
             )
+            beacon_batches_gone = await db.execute(
+                text(
+                    "DELETE FROM beacon_batches "
+                    "WHERE claimed_at < now() - make_interval(days => :d)"
+                ),
+                {"d": BEACON_BATCH_RETENTION_DAYS},
+            )
+            # activity_sessions (the correlated app/site record — see
+            # migrations/0005_activity_sessions.sql) is a DERIVED, recomputable
+            # projection of activity_events, never a rollup input and never
+            # authoritative on its own — nothing reads it for aggregation, so
+            # it needs no assert_rolled_up-style gate. It was never pruned at
+            # all before this: docs/TELEMETRY.md documents "Sessions: 90 days
+            # after they end" and this table shares that retention window
+            # (same setting as user_sessions, its closest sibling), but
+            # nothing ever enforced it — the row survives indefinitely,
+            # including app_name/domain held in the CLEAR (see
+            # org_purge.py's note on this same table), past even the raw
+            # activity_events partition it was built from.
+            activity_sessions_gone = await db.execute(
+                text(
+                    "DELETE FROM activity_sessions "
+                    "WHERE ended_at < now() - make_interval(days => :d)"
+                ),
+                {"d": settings.raw_retention_days},
+            )
             await db.commit()
             log.info(
                 "prune_complete",
                 partitions_dropped=dropped,
                 sessions_deleted=sessions_gone.rowcount,
                 consumed_deleted=consumed_gone.rowcount,
+                beacon_batches_deleted=beacon_batches_gone.rowcount,
+                activity_sessions_deleted=activity_sessions_gone.rowcount,
                 retention_days=settings.raw_retention_days,
             )
     return dropped

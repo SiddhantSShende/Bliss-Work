@@ -73,6 +73,7 @@ const InvitePage = lazyRoute(() => import("./routes/InvitePage"), "InvitePage");
 const Profile = lazyRoute(() => import("./routes/Profile"), "Profile");
 const Settings = lazyRoute(() => import("./routes/Settings"), "Settings");
 const MfaSettings = lazyRoute(() => import("./routes/MfaSettings"), "MfaSettings");
+const ActiveSessions = lazyRoute(() => import("./routes/ActiveSessions"), "ActiveSessions");
 const Org = lazyRoute(() => import("./routes/Org"), "Org");
 // The Mail layout owns the message column; the routes below it are what shows
 // in the reading pane beside it. Both named exports live in one module, so the
@@ -328,6 +329,7 @@ export function App({ config }: { config: PlatformConfig }) {
                     <Route path="settings" element={<Settings />} />
                     <Route path="settings/activity" element={<MyActivity />} />
                     <Route path="settings/security" element={<MfaSettings />} />
+                    <Route path="settings/sessions" element={<ActiveSessions />} />
                     <Route path="org" element={<Org />} />
                   </Route>
                   <Route path="*" element={<Navigate to="/app" replace />} />

@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { NotificationDTO, StickyTaskDTO, TaskAction } from "@taskboard/shared";
+import { ApiError, type NotificationDTO, type StickyTaskDTO, type TaskAction } from "@taskboard/shared";
 import { EmptyState } from "@taskboard/ui";
 import { ListTodo } from "lucide-react";
 import { useRuntime } from "../lib/runtime";
@@ -61,6 +61,8 @@ export function MailTask() {
       void qc.invalidateQueries({ queryKey: qk.sticky });
       void qc.invalidateQueries({ queryKey: qk.unifiedInbox });
     },
+    onError: (err) =>
+      toast.error(err instanceof ApiError ? err.message : "Couldn't update that task"),
   });
 
   // Mark the task "seen" the moment its detail view opens. Task inbox rows are
@@ -144,6 +146,7 @@ export function MailTask() {
         <StickyWidget
           task={task}
           onAction={(a) => actMut.mutate(a)}
+          busy={actMut.isPending}
           compact={false}
           onPin={config.pinTask ? () => void pin() : undefined}
           pinned={floatable}

@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { FolderOpen, Inbox, PenSquare, RefreshCw, X } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { ApiError } from "@taskboard/shared";
 import { EmptyState, IconButton } from "@taskboard/ui";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
@@ -170,6 +172,9 @@ export function MailList() {
     void qc.invalidateQueries({ queryKey: qk.sticky });
   };
 
+  const onMutError = (fallback: string) => (err: unknown) =>
+    toast.error(err instanceof ApiError ? err.message : fallback);
+
   const ignoreMut = useMutation({
     mutationFn: async ({ kind, refId }: { kind: string; refId: string }) => {
       if (kind === "THREAD") return api.ignoreThread(refId);
@@ -183,22 +188,27 @@ export function MailList() {
       await api.taskAction(refId, "ignore");
     },
     onSuccess: refresh,
+    onError: onMutError("Couldn't remove that item"),
   });
   const restoreMut = useMutation({
     mutationFn: (refId: string) => api.restoreMail(refId),
     onSuccess: refresh,
+    onError: onMutError("Couldn't restore that mail"),
   });
   const dismissMut = useMutation({
     mutationFn: (messageId: string) => api.dismissMessage(messageId),
     onSuccess: refresh,
+    onError: onMutError("Couldn't delete that message"),
   });
   const ackMut = useMutation({
     mutationFn: (taskId: string) => api.taskAction(taskId, "acknowledge"),
     onSuccess: refresh,
+    onError: onMutError("Couldn't acknowledge that task"),
   });
   const completeMut = useMutation({
     mutationFn: (taskId: string) => api.taskAction(taskId, "complete"),
     onSuccess: refresh,
+    onError: onMutError("Couldn't complete that task"),
   });
 
   return (
@@ -345,6 +355,11 @@ export function MailList() {
                   onDismiss={(refId) => dismissMut.mutate(refId)}
                   onAcknowledge={(refId) => ackMut.mutate(refId)}
                   onComplete={(refId) => completeMut.mutate(refId)}
+                  ignorePending={ignoreMut.isPending && ignoreMut.variables?.refId === it.refId}
+                  restorePending={restoreMut.isPending && restoreMut.variables === it.refId}
+                  dismissPending={dismissMut.isPending && dismissMut.variables === it.refId}
+                  acknowledgePending={ackMut.isPending && ackMut.variables === it.refId}
+                  completePending={completeMut.isPending && completeMut.variables === it.refId}
                 />
               );
             })}

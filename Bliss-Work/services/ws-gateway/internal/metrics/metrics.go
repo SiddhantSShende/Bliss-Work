@@ -241,6 +241,10 @@ const (
 	CachePeer = "peer"
 	// CacheNodeAddr is the node id → address mapping.
 	CacheNodeAddr = "node_addr"
+	// CacheBlock is Forward's block-list check (signal/dispatcher.go's
+	// forwardAllowed) — unlike CachePeer/CacheNodeAddr this one caches BOTH
+	// hit outcomes (blocked and not-blocked), see that cache's own comment.
+	CacheBlock = "block"
 
 	CacheHit  = "hit"
 	CacheMiss = "miss"
@@ -290,6 +294,35 @@ const (
 	PurposeNodes = "nodes"
 )
 
+// ── Session revocation ───────────────────────────────────────────────────────
+//
+// See internal/revoke. These exist to answer one question in production: is a
+// revoke (self-service "sign out" or an admin kicking a member) actually
+// reaching connected sockets promptly, or is enforcement silently falling
+// back to the slower token-expiry check in server/conn.go's writeLoop?
+
+var (
+	// SessionRevokeEventsTotal counts session.revoked events this node
+	// processed — identical on every node, since each subscribes to the
+	// entire auth.events stream (see revoke.New's doc comment on why that is
+	// the right shape here, unlike fan-out).
+	SessionRevokeEventsTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "ws_session_revoke_events_total",
+		Help: "session.revoked events read from auth.events by this node.",
+	})
+
+	// SessionRevokeDisconnectsTotal counts sockets actually closed as a
+	// result. Near-zero relative to SessionRevokeEventsTotal is the ordinary
+	// case (most revokes target a session with no currently-open socket, or
+	// one that lives on a different node); a sustained zero on EVERY node for
+	// a workload that should be producing some is the sign this pipeline
+	// stopped working.
+	SessionRevokeDisconnectsTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "ws_session_revoke_disconnects_total",
+		Help: "Sockets force-closed because their session was revoked.",
+	})
+)
+
 // ── TURN ─────────────────────────────────────────────────────────────────────
 
 // TurnCredentialsTotal counts credential mints, and whether a relay was
@@ -332,6 +365,8 @@ func init() {
 		RouteCacheTotal,
 		RedisOpsTotal,
 		RedisOpDuration,
+		SessionRevokeEventsTotal,
+		SessionRevokeDisconnectsTotal,
 		TurnCredentialsTotal,
 	)
 	// Pre-create the label combinations that matter, so a dashboard shows a
@@ -354,7 +389,7 @@ func init() {
 	for _, w := range []string{WhereLocal, WhereRemote} {
 		NodeFanoutRecipientsTotal.WithLabelValues(w)
 	}
-	for _, c := range []string{CachePeer, CacheNodeAddr} {
+	for _, c := range []string{CachePeer, CacheNodeAddr, CacheBlock} {
 		for _, r := range []string{CacheHit, CacheMiss} {
 			RouteCacheTotal.WithLabelValues(c, r)
 		}

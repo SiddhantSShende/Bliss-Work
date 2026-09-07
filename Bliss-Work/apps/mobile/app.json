@@ -1,4 +1,12 @@
 {
   "name": "BlissWorkMobile",
-  "displayName": "BlissWorkMobile"
+  "displayName": "BlissWorkMobile",
+  "extra": {
+    "eas": {
+      "projectId": "d93cbbcf-ef6c-48cc-8b6b-bc990373ebe2"
+    }
+  },
+  "android": {
+    "package": "com.mayank2109.blissworkmobile"
+  }
 }

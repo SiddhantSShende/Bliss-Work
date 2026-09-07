@@ -1,0 +1,24 @@
+-- 003_next_eligible_at — gate the watchdog's claim on the backoff ladder
+-- itself, not just on staleness.
+--
+-- ── The bug this closes ──────────────────────────────────────────────────────
+-- GET /internal/pins/undelivered claimed (and incremented delivery_attempts on)
+-- EVERY stale, open, unconfirmed pin on EVERY sweep tick, regardless of whether
+-- sticky-relay's backoff ladder (services/sticky-relay/internal/sweep/sweep.go
+-- — BackoffLadder, isDue/backoffFor) actually judged a nudge due. With the
+-- defaults (60s sweep, 5min staleness), a pin that should be nudged at
+-- 1m/5m/15m/1h/1h/... instead hit MaxNudges (12) from mere reclaiming within
+-- about 16 minutes, having sent exactly one real nudge — and kept re-running
+-- the same UPDATE forever after that, for no further effect.
+--
+-- This column moves the "is a nudge due" decision into the claim query itself
+-- (see app/routes/internal.py): a pin is only claimable when
+-- `next_eligible_at <= now()`, and claiming it advances `next_eligible_at` by
+-- the same ladder sweep.go already applies client-side. sweep.go remains the
+-- canonical definition of the ladder's values and the reasoning behind them;
+-- internal.py's copy is derived and must be kept in sync by hand.
+--
+-- Defaults to now() so every EXISTING open pin stays immediately eligible —
+-- unchanged behavior for pins already in flight when this migration runs.
+ALTER TABLE sticky_pins
+    ADD COLUMN IF NOT EXISTS next_eligible_at timestamptz NOT NULL DEFAULT now();

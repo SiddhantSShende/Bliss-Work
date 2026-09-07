@@ -35,12 +35,13 @@ import (
 // fromUserId is provided by the caller (gateway has the verified JWT
 // claims), NOT trusted from the client wire frame.
 type Dispatcher struct {
-	hub    *hub.Hub
-	store  PresenceChecker
-	blocks BlockChecker
-	fanout *push.Fanout
-	peers  *ttlcache.Cache[bool]
-	log    *slog.Logger
+	hub     *hub.Hub
+	store   PresenceChecker
+	blocks  BlockChecker
+	fanout  *push.Fanout
+	peers   *ttlcache.Cache[bool]
+	blocked *ttlcache.Cache[bool]
+	log     *slog.Logger
 }
 
 // PresenceChecker is the one question the dispatcher asks of shared state.
@@ -103,16 +104,39 @@ const (
 	peerCacheMax = 50_000
 )
 
+// ── The block cache ──────────────────────────────────────────────────────────
+//
+// Forward used to run NO block check at all: CallInviteAllowed gates
+// call.invite specifically, once per call attempt, uncached — but a raw
+// rtc.offer/answer/ice/cancel or typing frame sent directly (skipping
+// call.invite, or arriving after one side blocks the other mid-exchange)
+// went straight to Forward with nothing standing in for it. A blocked party
+// could keep pushing signaling/typing at the blocker indefinitely.
+//
+// Unlike peerAllowed above, this caches BOTH answers, not positives only —
+// deliberately: signaling is the same bursty hot path (twenty to forty
+// frames per call) IsBlocked's own doc comment already says must never run
+// uncached on every frame, and unlike presence there is no cheap, already-
+// stale-by-design upstream signal to lean on instead. The tradeoff this
+// accepts: a block or unblock takes up to blockCacheTTL to reach live
+// signaling on an already-open exchange, instead of being instant. Bounded
+// and short, versus the alternative this replaces — no check at all.
+const (
+	blockCacheTTL = 5 * time.Second
+	blockCacheMax = 50_000
+)
+
 // New constructs a Dispatcher. `fanout` may be nil in tests that only exercise
 // same-node delivery.
 func New(h *hub.Hub, st PresenceChecker, bc BlockChecker, f *push.Fanout, log *slog.Logger) *Dispatcher {
 	return &Dispatcher{
-		hub:    h,
-		store:  st,
-		blocks: bc,
-		fanout: f,
-		peers:  ttlcache.New[bool](peerCacheTTL, peerCacheMax),
-		log:    log,
+		hub:     h,
+		store:   st,
+		blocks:  bc,
+		fanout:  f,
+		peers:   ttlcache.New[bool](peerCacheTTL, peerCacheMax),
+		blocked: ttlcache.New[bool](blockCacheTTL, blockCacheMax),
+		log:     log,
 	}
 }
 
@@ -163,6 +187,26 @@ func (d *Dispatcher) CallInviteAllowed(ctx context.Context, orgID, fromUserID, t
 	return !blocked, nil
 }
 
+// forwardAllowed is Forward's block check — see the block-cache commentary
+// above for why, unlike CallInviteAllowed, this one is cached (and caches
+// both answers). An error asking messaging-svc fails closed, same
+// convention as CallInviteAllowed and peerAllowed.
+func (d *Dispatcher) forwardAllowed(ctx context.Context, orgID, fromUserID, toUserID string) (bool, error) {
+	key := orgID + "\x00" + fromUserID + "\x00" + toUserID
+	if v, ok := d.blocked.Get(key); ok {
+		metrics.RouteCacheTotal.WithLabelValues(metrics.CacheBlock, metrics.CacheHit).Inc()
+		return !v, nil
+	}
+	metrics.RouteCacheTotal.WithLabelValues(metrics.CacheBlock, metrics.CacheMiss).Inc()
+
+	blocked, err := d.blocks.IsBlocked(ctx, orgID, fromUserID, toUserID)
+	if err != nil {
+		return false, err
+	}
+	d.blocked.Put(key, blocked)
+	return !blocked, nil
+}
+
 // Forward routes a signaling frame from `from` to `to`. The caller is
 // responsible for the rate limit check (per-conn) before calling.
 //
@@ -179,6 +223,18 @@ func (d *Dispatcher) Forward(
 	// promised this but the code did not enforce it.)
 	if ok, err := d.peerAllowed(ctx, senderOrg, toUserID); err != nil {
 		d.log.Warn("rtc org check failed", "from", fromUserID, "to", toUserID, "err", err)
+		return false
+	} else if !ok {
+		return false
+	}
+
+	// Block enforcement: call.invite is gated by CallInviteAllowed, but a raw
+	// rtc.offer/answer/ice/cancel or typing frame sent straight to Forward —
+	// skipping call.invite, or arriving after one side blocks the other
+	// mid-exchange — used to reach here with no block check of any kind. See
+	// forwardAllowed's doc comment for the caching tradeoff this accepts.
+	if ok, err := d.forwardAllowed(ctx, senderOrg, fromUserID, toUserID); err != nil {
+		d.log.Warn("rtc block check failed", "from", fromUserID, "to", toUserID, "err", err)
 		return false
 	} else if !ok {
 		return false

@@ -11,7 +11,7 @@
  * they sync across devices.
  */
 import { useEffect, useState } from "react";
-import { Palette, MoreVertical, Check, Bell, BellOff, Info, RefreshCw, Eye, ShieldCheck } from "lucide-react";
+import { Palette, MoreVertical, Check, Bell, BellOff, Info, RefreshCw, Eye, ShieldCheck, MonitorSmartphone } from "lucide-react";
 import { toast } from "sonner";
 import { Button, PageHeader, useTheme, THEMES, themeClasses, themeName, type ThemeId } from "@taskboard/ui";
 import { Link } from "react-router-dom";
@@ -70,6 +70,17 @@ export function Settings() {
             action={
               <Link to="/app/settings/security">
                 <Button variant="subtle" size="sm">Manage</Button>
+              </Link>
+            }
+          />
+
+          <SettingRow
+            icon={<MonitorSmartphone size={18} />}
+            title="Active sessions"
+            description="See every device signed in to your account, and sign any of them out remotely."
+            action={
+              <Link to="/app/settings/sessions">
+                <Button variant="subtle" size="sm">View</Button>
               </Link>
             }
           />

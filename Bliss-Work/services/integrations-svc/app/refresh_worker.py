@@ -103,6 +103,44 @@ class RefreshWorker:
     async def _refresh_one(self, conn_id: str, org_id: str, provider: str, rt_enc: bytes) -> None:
         async with session() as db:
             await set_bypass_rls(db)
+
+            # Claim this row before doing anything else. _refresh_due's own
+            # SELECT (no lock) lets both of this service's 2 replicas see the
+            # same connection as due in the same sweep — especially right
+            # after a coordinated restart, when both workers' timers start
+            # together. Without this, both call the provider's refresh
+            # endpoint concurrently; Microsoft rotates the refresh token on
+            # use, so whichever call lands second gets invalid_grant and
+            # wrongly marks a healthy connection as errored. SKIP LOCKED
+            # means a replica that loses the race sees zero rows here and
+            # backs off cleanly instead of racing — same pattern outbox.py's
+            # poller already uses, scoped to ONE connection's own
+            # transaction (not the whole batch) specifically so a later
+            # connection's failure can never roll back an earlier one's
+            # already-committed refresh in the same sweep.
+            #
+            # Re-reads refresh_token_enc fresh rather than trusting the
+            # `rt_enc` this was called with: that value is from _refresh_due's
+            # batch SELECT, which could already be stale by the time this
+            # transaction acquires the lock (e.g. this exact connection was
+            # already refreshed and committed by the other replica a moment
+            # earlier, in which case status would no longer be 'connected'
+            # either).
+            locked = (
+                await db.execute(
+                    text(
+                        "SELECT refresh_token_enc FROM integration_connections "
+                        "WHERE id = :id AND status = 'connected' AND refresh_token_enc IS NOT NULL "
+                        "FOR UPDATE SKIP LOCKED"
+                    ),
+                    {"id": conn_id},
+                )
+            ).first()
+            if locked is None:
+                log.info("refresh_skipped_locked_or_changed", connection_id=conn_id)
+                return
+            rt_enc = bytes(locked.refresh_token_enc)
+
             vendor = app_credentials.vendor_for(provider)
             creds = await app_credentials.load(db, org_id, vendor) if vendor else None
             cfg = oauth.config_for(provider, creds)

@@ -30,6 +30,11 @@ class BeaconEvent(BaseModel):
     # unbounded one would let a client turn the telemetry store into free
     # storage — or into a place to park data that outlives its own retention.
     detail: dict[str, str] | None = None
+    # Same purpose as AgentEvent.clientEventId below: generated once by the
+    # client when the event is first queued, preserved across a re-queue-and-
+    # retry, so a retried beacon collapses this row into a no-op (migration
+    # 0006) instead of a duplicate. Optional: absent from an older client.
+    clientEventId: str | None = Field(default=None, max_length=64)
 
 
 class Beacon(BaseModel):
@@ -48,6 +53,16 @@ class Beacon(BaseModel):
     # session closes precisely instead of waiting for the sweeper.
     ended: bool = False
     events: list[BeaconEvent] = Field(default_factory=list, max_length=100)
+    # Identifies THIS BATCH's activeMs/idleMs delta — distinct from each
+    # event's own clientEventId above. Generated once per flush attempt and
+    # reused verbatim if that exact attempt is retried (see
+    # telemetryQueue.ts's pendingRetry), never regenerated for a retry and
+    # never reused across two different batches. See migrations/
+    # 0009_beacon_batch_idempotency.sql: without this, activeMs/idleMs has no
+    # way to tell "the same 30s resent because the ack was lost" apart from
+    # "a genuinely new 30s", and a retry silently double-counted it. Optional:
+    # absent from an older client, which is simply never deduped here.
+    clientEventId: str | None = Field(default=None, max_length=64)
 
 
 class BeaconAck(BaseModel):

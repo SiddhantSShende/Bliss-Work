@@ -68,6 +68,15 @@ TASK_ASSIGNED = "task.assigned"
 # no auth-svc lookup, and a template that does not dress it up.
 MAIL_OUTBOUND = "mail.outbound"
 
+# mail.outbound's own content/recipient fields — never forwarded to the DLQ
+# topic (see _to_dlq), which has the same no-ACL exposure as every other
+# topic. Same reasoning as worker.py's _SECRET_URL_FIELDS, for a user's
+# actual message body and real recipient addresses instead of a secret URL.
+# A no-op for message.created/task.assigned, neither of which has these keys.
+_MAIL_CONTENT_FIELDS = (
+    "bodyText", "bodyHtml", "fromAddress", "to", "providerTo", "providerCc", "providerBcc",
+)
+
 # How one mail left the deployment. Persisted in mail_transport — see the
 # migration and _decide_transport for why the copies of one mail have to agree.
 TRANSPORT_PROVIDER = "provider"
@@ -282,11 +291,26 @@ class RelayConsumer:
         # 'pending' row; False if a row (sent or in-flight pending) exists.
         claimed = await self._claim(event_id, recipient_id)
         if not claimed:
-            # A 'sent' row means a true duplicate — done. A 'pending' row means
-            # OUR earlier attempt failed before _mark_sent (the offset never
-            # committed, so Kafka redelivered) — re-run the pipeline to retry.
+            # A 'sent' row means a true duplicate — done.
             if await self._is_sent(event_id, recipient_id):
                 return True
+            # Still 'pending', not 'sent': this process's own _inflight set
+            # only ever sees ITS OWN in-flight work, never another process's
+            # — so this is NOT proof "our earlier attempt failed before
+            # _mark_sent". During a rebalance where the prior owner hasn't
+            # crashed (just hasn't polled recently — max.poll.interval.ms
+            # exceeded, say), a second instance reaches this exact branch
+            # while the first is still genuinely mid-send. Retrying here
+            # used to send a duplicate straight into an external recipient's
+            # inbox. This module's own docstring already says the right
+            # answer: leave a still-pending row for the reaper (_reap_once),
+            # which only reclaims a row once it has been abandoned long
+            # enough that "still genuinely in flight" is no longer
+            # plausible. Returning False leaves the offset uncommitted, so
+            # Kafka redelivers and this same check runs again later — by
+            # then either the owning attempt has committed 'sent' (caught
+            # above) or the reaper has reclaimed it.
+            return False
 
         async with self._mark_inflight(str(event_id), str(recipient_id)):
             # Offline gate. event.occurredAt is the canonical "when did this
@@ -690,7 +714,12 @@ class RelayConsumer:
         if self._producer is None:
             _log.error("relay_dlq_producer_unavailable", event_id=event.get("eventId"))
             return
-        envelope = {"reason": error, "source": "relay", "event": event}
+        # Strip mail.outbound's content/recipient fields before this ever
+        # reaches Kafka — see _MAIL_CONTENT_FIELDS above. worker.py's
+        # _to_dlq already does the equivalent for secret URLs; this was the
+        # one DLQ path in this service without any scrubbing.
+        safe_event = {k: v for k, v in event.items() if k not in _MAIL_CONTENT_FIELDS}
+        envelope = {"reason": error, "source": "relay", "event": safe_event}
         try:
             # PRODUCER span: inject traceparent so the DLQ message stays linked
             # to this trace. No-op when tracing is disabled.
@@ -851,10 +880,17 @@ class RelayConsumer:
         assert self._db is not None
         async with self._db.acquire() as conn:
             try:
+                # owner='relay' (explicit, matching the column's DEFAULT) is
+                # what lets _reap_once's sweep touch only this consumer's own
+                # rows — see migrations/0004_email_consumed_owner.sql. Never
+                # EmailWorker's: an invite/reset/verify link has no in-app
+                # fallback the way a relayed notification does, so the
+                # reaper's "flip to sent without sending" tradeoff would
+                # silently lose the email instead of just being redundant.
                 ct = await conn.execute(
                     """
-                    INSERT INTO email_consumed (event_id, recipient_id, state)
-                    VALUES ($1, $2, 'pending')
+                    INSERT INTO email_consumed (event_id, recipient_id, state, owner)
+                    VALUES ($1, $2, 'pending', 'relay')
                     ON CONFLICT (event_id, recipient_id) DO NOTHING
                     """,
                     event_id, recipient_id,
@@ -957,10 +993,14 @@ class RelayConsumer:
         assert self._db is not None
         try:
             async with self._db.acquire() as conn:
+                # owner = 'relay': this sweep must never touch EmailWorker's
+                # claim rows (invite/password-reset/email-verification) — see
+                # _claim's comment and migrations/0004_email_consumed_owner.sql.
                 candidates = await conn.fetch(
                     """
                     SELECT event_id, recipient_id FROM email_consumed
-                    WHERE state = 'pending' AND consumed_at < now() - interval '30 seconds'
+                    WHERE state = 'pending' AND owner = 'relay'
+                          AND consumed_at < now() - interval '30 seconds'
                     """,
                 )
                 stale = [
@@ -972,6 +1012,7 @@ class RelayConsumer:
                         """
                         UPDATE email_consumed SET state = 'sent', sent_at = now()
                         WHERE event_id = $1 AND recipient_id = $2 AND state = 'pending'
+                              AND owner = 'relay'
                         """,
                         stale,
                     )

@@ -206,7 +206,11 @@ async def exchange_code(cfg: OAuthConfig, code: str, verifier: str, redirect_uri
                 return r.json()
             _raise_for_token_status(r)
 
-    return await retry_async(_attempt, attempts=3, breaker=_oauth_breaker)
+    # idempotent=False: authorization codes are single-use by spec. A
+    # ReadTimeout after the provider already consumed the code must not be
+    # retried with the same code — the retry would just fail with
+    # invalid_grant instead of surfacing the original transient error.
+    return await retry_async(_attempt, attempts=3, breaker=_oauth_breaker, idempotent=False)
 
 
 async def refresh_access_token(cfg: OAuthConfig, refresh_token: str) -> dict:
@@ -232,7 +236,12 @@ async def refresh_access_token(cfg: OAuthConfig, refresh_token: str) -> dict:
                 return r.json()
             _raise_for_token_status(r)
 
-    return await retry_async(_attempt, attempts=3, breaker=_oauth_breaker)
+    # idempotent=False: Microsoft rotates the refresh token on every use (and
+    # Google's is single-use per exchange in effect), so a ReadTimeout after
+    # the provider already consumed this token must not be retried with the
+    # same (now-stale) token — that would fail with invalid_grant and mark a
+    # live connection as errored instead of surfacing the original timeout.
+    return await retry_async(_attempt, attempts=3, breaker=_oauth_breaker, idempotent=False)
 
 
 @dataclass(frozen=True)

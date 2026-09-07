@@ -1,9 +1,19 @@
 # Auth/Authz Remediation Plan
 
-Status: **planned, not yet implemented**. Written 2026-08-25, revised after two
-technical review passes, against `auth-svc`, `task-svc`, `email-worker`,
-`messaging-svc`, `ws-gateway`, `integrations-svc`, and the frontend at the
-current state of this branch (post the
+Status: **partially implemented.** Written 2026-08-25 as a fully "planned, not
+yet implemented" document. As of 2026-09-07, direct code inspection confirms
+**Phase 2** (per-service internal secrets), **Phase 3** (Kafka/outbox
+raw-token removal), **Phase 7** (MFA: TOTP + WebAuthn), and **Phase 8**
+(access-token TTL reduced to 300s) have since shipped — each is marked
+**Shipped** at the top of its own section below, with the file references
+that confirm it. The remaining phases (0, 1, 4, 5, 6, 9, 10) were not
+re-verified against current code as part of this status correction; do not
+infer their status from this line either way — check each phase's own
+file/line references against the current codebase before relying on it.
+
+Revised after two technical review passes, against `auth-svc`, `task-svc`,
+`email-worker`, `messaging-svc`, `ws-gateway`, `integrations-svc`, and the
+frontend at the current state of this branch (post the
 `services/shared/{crypto,kafka_security,tracing}` de-duplication refactor —
 import paths below already reflect that, e.g. `from crypto import cryptor`
 rather than `from ..crypto import cryptor`).
@@ -147,6 +157,19 @@ Doc corrections that depend on later phases are deferred to **Phase 10**.
 
 ## Phase 2 — Internal service-to-service secrets: per-callee-service (Item 9)
 
+**Shipped** (confirmed 2026-09-07 by direct code inspection): all six
+per-callee secrets exist and are each validated independently by their owning
+service — `AUTH_INTERNAL_TOKEN` read straight off the env in
+`services/auth-svc/app/routes/internal.py`, `TASK_INTERNAL_TOKEN`/
+`MESSAGING_INTERNAL_TOKEN` in `services/task-svc/app/config.py`,
+`INTEGRATIONS_INTERNAL_TOKEN` in `services/integrations-svc/app/config.py`,
+`MESSAGING_INTERNAL_TOKEN`/`WS_GATEWAY_INTERNAL_TOKEN`/
+`STICKY_INTERNAL_TOKEN` in the Go services, and all six declared in
+`.env.prod.example`. The plan below is left as originally written for
+context; see the 2026-09-03 addendum a few paragraphs down for what actually
+shipped instead of the `secrets.internal.prod` file-splitting design, and its
+still-open rotation caveat (carried into `docs/KEY-ROTATION.md`).
+
 **Sequencing note**: this phase now lands *before* the Kafka redesign
 (Phase 3), which was the reverse of the previous revision. Phase 3 introduces
 a new internal endpoint that must be guarded by a real secret from day one —
@@ -279,6 +302,12 @@ this repository, so that is not currently a fallback either.)
 ---
 
 ## Phase 3 — Kafka: raw secrets never touch the broker (Item 1, redesigned)
+
+**Shipped** (confirmed 2026-09-07): `GET /internal/outbox-events/{outbox_id}`
+exists in `services/auth-svc/app/routes/internal.py`, guarded by
+`AUTH_INTERNAL_TOKEN`, restricted to `SECRET_EVENT_TYPES`, sets
+`Cache-Control: no-store`, and 404s once the row's URL fields are redacted —
+matching the redesign below.
 
 **Why the first draft was insufficient**: renaming the topic
 (`auth.events` → `auth.secrets`) reduces which consumer *groups* subscribe,
@@ -527,6 +556,11 @@ pending invite before minting a new one.
 
 ## Phase 7 — MFA: TOTP + WebAuthn, opt-in + org-admin-mandatory (Item 4)
 
+**Shipped** (confirmed 2026-09-07): `services/auth-svc/app/routes/mfa_totp.py`,
+`mfa_webauthn.py`, `mfa_challenge.py`, and `mfa_service.py` all exist, and the
+MFA schema migration is present (shipped as `0017_mfa.sql`, not `0016` as
+below — an unrelated migration took `0016` first by the time this landed).
+
 Largest single item — deliberately last in P1 so nothing here delays the P0
 severity fixes above. Split across several new files rather than one large
 `mfa.py`, given the ceremony logic for TOTP vs. WebAuthn is genuinely
@@ -760,6 +794,10 @@ round-trip end to end.
 
 ## Phase 8 — Access-token TTL reduction (Item 5)
 
+**Shipped** (confirmed 2026-09-07): `jwt_access_ttl_seconds` in
+`services/auth-svc/app/config.py` is `300`, with a comment there pointing
+back at this phase for why access tokens are not denylisted.
+
 Current: `verify_bearer` (`auth-svc/app/security/auth_dep.py:161-206`) is
 purely stateless — no denylist check — and `jwt_access_ttl_seconds` defaults
 to 900s. Chosen approach (over a cross-service Redis denylist, given every
@@ -853,6 +891,179 @@ Do this last, once Phases 0-9 have actually shipped.
 - Note mTLS/workload identity and Kafka ACLs as explicit documented future
   steps (not built in this pass).
 
+**2026-09-07 — partial reconciliation done.** Phases 2, 3, 7, and 8 are
+confirmed shipped by direct code inspection (see the **Shipped** line added
+to each of their headings above, and the corrected Status line at the top of
+this document). Making this plan's own status claim match the code, for
+those four phases, is this phase's deliverable for them. The other bullets
+above — the `THREAT_MODEL.md`/`COMPLIANCE.md` line-specific edits, the
+CI-coverage claim, and the mTLS/Kafka-ACL follow-up notes — were not
+re-verified as part of this pass and should still be treated as open until
+checked against current code. See also `docs/KEY-ROTATION.md` §5, corrected
+in this same pass to describe the six per-service secrets instead of the
+retired single `TB_INTERNAL_TOKEN`.
+
+---
+
+## Phase 11 — Active session management (new work, not one of Items 1-10)
+
+**Shipped** (confirmed 2026-09-07). Not part of the original ten-item ask this
+plan was written against — added here because it's built on top of the same
+refresh-token-family model Phase 8 and Phase 9 already document, and because
+`docs/KEY-ROTATION.md`/the threat-model docs should know it exists. Lets a
+person see and end their own signed-in devices, and lets an org admin end a
+member's, without introducing a new "session" concept: a session **is**
+exactly the existing refresh-token family (`refresh_tokens.family_id`) that
+`service.build_session` already mints one of per login/switch/MFA-verify —
+this phase adds a read/revoke surface over it, no new session store.
+
+### Schema — new migration `0019_session_management.sql`
+
+No new tables or columns. A session's device/IP metadata already lives in
+`audit_log.meta` (`sessionId`/`ip`/`userAgent`, written by
+`session_events.session_started`/`org_switched` since Phase 9), so the only
+addition is a partial expression index that lets the sessions list resolve a
+handful of a user's family ids to their login/switch audit row without a full
+`audit_log` scan — that table is append-only and never pruned (it's the
+tamper-evident chain), so it only grows:
+
+```sql
+CREATE INDEX IF NOT EXISTS idx_audit_log_session_lookup
+    ON audit_log (org_id, (meta->>'sessionId'))
+    WHERE action IN ('auth.login', 'auth.org_switched');
+```
+
+### New `service.py` functions
+
+- `list_active_sessions(conn, user_id)` — every family for one org membership
+  that is neither revoked nor expired, newest-active first. Reads
+  `created_at`/`last_seen_at` straight off `MIN`/`MAX(issued_at)` across the
+  family's rows (the first row was written by whatever opened the session,
+  the newest by its latest refresh rotation) — no new columns, and it reuses
+  the existing `idx_refresh_tokens_user` index.
+- `revoke_family_by_id(conn, user_id, family_id)` — the id-keyed twin of the
+  existing `revoke_family_by_token`, for callers holding a family id from the
+  listing rather than a raw refresh token. Scoped by `family_id AND user_id`
+  in one statement; returns `False` — no row touched — whether the family
+  belongs to someone else or doesn't exist, so the caller can turn both cases
+  into the same 404 and a revoke attempt can never be used to probe whether
+  another user's family id exists.
+- `family_id_for_raw_refresh(conn, raw_token)` — resolves the caller's own
+  refresh cookie to its family id, used only to mark `isCurrent` on the
+  caller's own listing. Same `token_hash` index every refresh/logout already
+  uses; never used to authenticate or authorize anything.
+
+### New routes — both reuse the same revocation primitive
+
+- `GET`/`DELETE /auth/sessions[/{id}]` (`services/auth-svc/app/routes/sessions.py`,
+  self-service, any authenticated principal): list/revoke the caller's own
+  sessions in their current org membership. `isCurrent` is set by comparing
+  against `family_id_for_raw_refresh` on the caller's own refresh cookie —
+  omitted (not guessed at) for desktop/mobile, which don't reliably send it.
+- `GET`/`DELETE /auth/members/{user_id}/sessions[/{id}]`
+  (`services/auth-svc/app/routes/members.py`, `org_admin` only): same shape
+  for a member of the admin's own org. `load_member` confines `user_id` to
+  the admin's org before either call runs, and revoking your own account
+  through this path is refused (use the self-service route instead, which
+  also knows about `isCurrent`).
+- **IDOR-safe by construction, not by convention**: both DELETE routes 404 —
+  never 403 — whether the target family belongs to someone else or doesn't
+  exist, because `revoke_family_by_id` itself can't tell the difference and
+  the routes don't try to. A revoke attempt can't be used to enumerate
+  another user's (or another org's) session ids.
+- Revoking a session ends the refresh-token family only; an access token
+  already issued for it keeps working until its own 5-minute TTL expires —
+  same posture as every other revoke path since Phase 8, not a new gap. The
+  Kafka-driven WebSocket close below is the additional enforcement layer for
+  that gap, not a substitute for it.
+
+### New `sid` claim on the access token
+
+`mint_access_token` (`services/auth-svc/app/security/keys.py`) now accepts an
+optional `session_id` and, when given, includes it as a short `sid` claim —
+the refresh-token family the access token was minted alongside. Additive and
+explicitly **not** an authorization claim, the same pattern already
+established for the pre-existing `memberships` claim: nothing grants access
+on the strength of it, a token minted without it (an older one, or a caller
+that couldn't resolve it) still works fully, and its only consumer is
+ws-gateway associating a live socket with the session that opened it.
+
+### New Kafka event: `session.revoked`
+
+`session_events.session_revoked` (`services/auth-svc/app/routes/session_events.py`)
+emits `session.revoked` (`{userId, sessionId, by}`) on the existing
+`auth.events` topic — no new topic — whenever `sessions.py`/`members.py`
+revoke a family, and separately writes an `auth.session_revoked` audit row
+carrying the same ip/user-agent/request-id fields Phase 9 already threads
+through. This is consumed by a new `services/ws-gateway/internal/revoke`
+package (`consumer.go`) that force-closes any locally-connected socket for
+that `(userId, sessionId)` via `hub.CloseSession`. Per that package's own doc
+comments:
+- Each node runs its **own** ephemeral Kafka consumer group
+  (`ws-gateway-session-revoke-<nodeID>`), unlike the broadcast fan-out
+  consumer's restart-stable group — a missed event here only means an
+  already-open socket stays open a little longer (still bounded by its own
+  token's TTL), so there's nothing worth resuming and no harm starting fresh
+  at the tip on every boot.
+- It runs **unconditionally, independent of `WS_FANOUT_MODE`**
+  (`cmd/ws-gateway/main.go`): which topology carries ordinary chat/task/
+  notification events is a delivery-throughput concern, but promptly
+  enforcing a revoked session is a security baseline that must hold the same
+  way in both `broadcast` and `routed` mode, so it isn't gated on that
+  switch.
+- `hub.CloseSession` only closes connections whose `SessionID` matches
+  exactly, refuses an empty target, and is a no-op when the user has no
+  locally-connected socket on this node at all (the ordinary case in a
+  multi-node fleet — the revoked socket, if it exists, is probably on a
+  different node, which is running the same consumer).
+
+### `POST /auth/logout` now optionally accepts a body token
+
+Mirrors `/auth/refresh`'s existing shape: `logout` accepts an optional
+`RefreshRequest` body and falls back to the `refresh_token` cookie when no
+body is given, since desktop/mobile can't rely on the cookie travelling. This
+removes a client-side workaround mobile previously needed — writing its
+Keychain-mirrored token back into the native cookie jar immediately before
+calling logout, purely so this endpoint would see it
+(`apps/mobile/src/services/authCookie.ts`'s `ensureJarMatchesMirrorForLogout`,
+now removable).
+
+### Frontend
+
+- `packages/app/src/routes/ActiveSessions.tsx` — self-service "Active
+  sessions" settings page.
+- `packages/app/src/features/member/MemberAdmin.tsx` — admin session panel on
+  a member's detail page.
+- Both render through the shared `packages/app/src/features/ActiveSessionsList.tsx`
+  so the two look identical; each caller keeps its own data fetching, revoke
+  mutation, and confirmation, since the two differ in authorization (self vs.
+  `org_admin`), revoke endpoint, and — for the self-service page only —
+  revoking the caller's own *current* session has to route through the
+  ordinary sign-out flow rather than a bare `DELETE`.
+
+### Explicitly not built (prior architectural decisions, not gaps)
+
+- **Access-token revocation / denylist.** Consistent with Phase 8's already-
+  documented choice: a cross-service denylist would mean every JWT-verifying
+  service needs its own revocation check, against a stateless-JWT design
+  chosen deliberately. A revoked session's access token still works until its
+  own 5-minute TTL expires; the WebSocket close above narrows that specific
+  gap for live connections without reopening the denylist question.
+- **Redis-backed sessions.** A session remains exactly a Postgres
+  `refresh_tokens` family, per Phase 8's existing rationale for avoiding a
+  second source of truth for session state.
+
+### Tests
+
+`services/auth-svc/tests/integration/test_active_sessions.py` covers
+`list_active_sessions` ordering/exclusion of revoked and expired families,
+`revoke_family_by_id` scoping and its effect on further refreshes, both
+routes' `isCurrent`/cookie behavior, and the IDOR cases directly: another
+user's family and a nonexistent family both 404 on revoke, an admin can't see
+or revoke another org's member sessions, and an admin revoking their own
+session is refused. `hub_test.go` covers `CloseSession`'s matching, multi-
+connection, empty-target, and no-local-connection behavior.
+
 ---
 
 ## Open follow-ups to flag back to stakeholders (not solved by this plan)
@@ -871,12 +1082,17 @@ Do this last, once Phases 0-9 have actually shipped.
 
 ## Migrations added by this plan
 
-- `0015_invite_pending_uniqueness.sql` (Phase 6): partial unique index
+- `0016_invite_pending_uniqueness.sql` (Phase 6, shipped as `0016` — this
+  section originally called it `0015`; an unrelated migration took that
+  number first by the time it landed): partial unique index
   `invites (org_id, email) WHERE status = 'pending'`.
-- `0016_mfa.sql` (Phase 7): `users` MFA columns (including
-  `mfa_totp_last_counter`), `orgs.require_mfa_for_admins` +
-  `orgs.mfa_grace_period_ends_at`, `mfa_backup_codes`,
-  `mfa_webauthn_credentials` + RLS policies.
+- `0017_mfa.sql` (Phase 7, shipped as `0017` for the same reason): `users`
+  MFA columns (including `mfa_totp_last_counter`),
+  `orgs.require_mfa_for_admins` + `orgs.mfa_grace_period_ends_at`,
+  `mfa_backup_codes`, `mfa_webauthn_credentials` + RLS policies.
+- `0019_session_management.sql` (Phase 11): one partial expression index on
+  `audit_log` (`meta->>'sessionId'`, filtered to `auth.login`/
+  `auth.org_switched`) — no new tables or columns; see Phase 11 above for why.
 
 No other phase requires a schema migration — Phase 3's redesign is
 deliberately schema-free (it reuses `outbox.id` and the payload's own

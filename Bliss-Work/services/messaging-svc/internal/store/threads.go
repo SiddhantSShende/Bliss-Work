@@ -144,6 +144,29 @@ func resolveThreadForReply(
 	return threadID, rootSenderID, rootRecipientID, nil
 }
 
+// mostRecentThreadID returns the id of the conversation's most recently
+// active thread (by last_event_at), or "" if the conversation has none yet —
+// which is the correct answer for a conversation's genuinely first message.
+// Backed by idx_threads_conv_last_event (conversation_id, last_event_at DESC),
+// so this is an index-only LIMIT 1 lookup, not a scan.
+//
+// Used by replyImpl (messages.go) to give Reply's doc-commented behavior an
+// actual implementation: nest a parentless reply under the existing thread
+// instead of minting a new one every time.
+func mostRecentThreadID(ctx context.Context, tx pgx.Tx, convID string) (string, error) {
+	var threadID string
+	err := tx.QueryRow(ctx,
+		`SELECT id FROM threads WHERE conversation_id = $1 ORDER BY last_event_at DESC LIMIT 1`,
+		convID).Scan(&threadID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("most recent thread: %w", err)
+	}
+	return threadID, nil
+}
+
 // upsertThreadMember inserts/touches a per-(thread, user) state row and
 // revives visibility on send. ON CONFLICT keeps last_read_seq intact.
 func upsertThreadMember(ctx context.Context, tx pgx.Tx, threadID, orgID, userID string) error {
@@ -525,7 +548,7 @@ type rawMessage struct {
 const messageColumns = `
 	m.id, m.conversation_id, m.thread_id, m.parent_message_id, m.is_thread_root,
 	m.seq, m.sender_id, m.body, m.body_enc, m.created_at, m.sender_dismissed_at, m.kind,
-	m.reply_to_id, m.deleted_for_all_at, m.is_forward,
+	m.reply_to_id, m.deleted_for_all_at, m.is_forward, m.forward_platform,
 	CASE
 	    WHEN md.read_at      IS NOT NULL THEN 'SEEN'
 	    WHEN md.delivered_at IS NOT NULL THEN 'DELIVERED'
@@ -555,13 +578,14 @@ func scanRawMessage(rows pgx.Rows) (rawMessage, error) {
 		replyToID         *string
 		deletedForAllAt   *time.Time
 		isForward         bool
+		forwardPlatform   *string
 		status            string
 	)
 	var kind string
 	if err := rows.Scan(
 		&r.m.ID, &r.m.ConversationID, &threadID, &parentMsgID, &isThreadRoot,
 		&r.m.Seq, &r.m.SenderID, &bodyPlain, &bodyEnc, &created, &senderDismissedAt, &kind,
-		&replyToID, &deletedForAllAt, &isForward, &status,
+		&replyToID, &deletedForAllAt, &isForward, &forwardPlatform, &status,
 	); err != nil {
 		return rawMessage{}, err
 	}
@@ -571,6 +595,9 @@ func scanRawMessage(rows pgx.Rows) (rawMessage, error) {
 	r.m.Status = status
 	r.m.DeletedForAll = deletedForAllAt != nil
 	r.m.IsForward = isForward
+	if forwardPlatform != nil {
+		r.m.ForwardPlatform = *forwardPlatform
+	}
 	// 'text' is the overwhelming majority; omit it so the wire shape for an
 	// ordinary message is byte-identical to what clients saw before.
 	if kind != MessageKindText {

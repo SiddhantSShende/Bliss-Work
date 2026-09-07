@@ -112,6 +112,7 @@ def mint_access_token(
     username: str,
     plan: str = "free",
     memberships: list[dict] | None = None,
+    session_id: str | None = None,
 ) -> tuple[str, int]:
     """Return (signed JWT, expires_in_seconds).
 
@@ -131,6 +132,16 @@ def mint_access_token(
     deliberately additive: a token minted without it (an older one, or a path
     that could not resolve the list) still works, and the gateway falls back to
     the single current membership.
+
+    `session_id` is the refresh-token family this access token was minted
+    alongside (service.build_session / rotate_refresh_token) — the same id
+    routes/sessions.py exposes as a session's `id`. Also additive/optional and
+    also not an authorization claim: it exists solely so ws-gateway can
+    associate a live WebSocket with the session that opened it, and force-close
+    it when that session is revoked (see services/ws-gateway/internal/events).
+    Omitted when unknown for the same reason `memberships` is — a caller that
+    cannot resolve it (there is none today, but the shape matches) still mints
+    a valid, just less precisely revocable, token.
     """
     now = int(time.time())
     ttl = settings.jwt_access_ttl_seconds
@@ -151,6 +162,8 @@ def mint_access_token(
     # one and takes the same fallback.
     if memberships:
         claims["memberships"] = memberships[:MAX_PRESENCE_MEMBERSHIPS]
+    if session_id:
+        claims["sid"] = session_id
     token = jwt.encode(
         claims,
         _private_pem(),

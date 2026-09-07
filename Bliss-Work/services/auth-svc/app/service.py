@@ -436,6 +436,10 @@ async def build_session(
     dto = await user_dto(conn, user_id)
     if dto is None:
         raise RuntimeError("user not found while building session")
+    # Minted before the token so it can ride in the access token's `sid` claim
+    # (mint_access_token) — ws-gateway needs it there to associate a live
+    # WebSocket with the session that opened it. See that function's docstring.
+    family_id = new_uuid()
     token, ttl = mint_access_token(
         user_id=dto.id,
         org_id=dto.orgId,
@@ -443,8 +447,8 @@ async def build_session(
         username=dto.username,
         plan=dto.plan,
         memberships=await presence_memberships(conn, user_id),
+        session_id=family_id,
     )
-    family_id = new_uuid()
     raw_refresh, _ = await issue_refresh_token(conn, user_id=user_id, family_id=family_id)
     return SessionDTO(accessToken=token, user=dto, expiresIn=ttl), raw_refresh, family_id
 
@@ -504,17 +508,43 @@ async def rotate_refresh_token(
     now = datetime.now(timezone.utc)
 
     # Reuse detection: token already rotated or revoked -> revoke entire family,
-    # unless the successor was issued within the replay grace window (above).
+    # unless the successor was issued within the replay grace window (above) AND
+    # this is the FIRST replay of this stale token. The second condition is not
+    # optional: without it, a stale token can be replayed repeatedly, each time
+    # riding the fresh sibling minted by its OWN previous replay to look "fresh"
+    # again — chaining out unlimited undetected sibling sessions in the family,
+    # since the reused sibling never collides with the real successor and never
+    # ages past the window (the window resets every time). `is_latest_in_family`
+    # anchors the check to the ORIGINAL rotation event instead: it is true only
+    # when nothing else has been issued into the family since that successor,
+    # which stops being the case the moment one grace replay has already minted
+    # a sibling. The mint below is guarded to match — a stale row's `rotated_to`
+    # is written at most once, ever — so this anchor cannot be reset either.
     if row.revoked or row.rotated_to is not None:
-        successor_at = None
+        successor = None
         if row.rotated_to is not None:
-            successor_at = (
+            successor = (
                 await conn.execute(
-                    text("SELECT issued_at FROM refresh_tokens WHERE id = :id AND NOT revoked"),
-                    {"id": str(row.rotated_to)},
+                    text(
+                        """
+                        SELECT issued_at,
+                               NOT EXISTS (
+                                   SELECT 1 FROM refresh_tokens later
+                                   WHERE later.family_id = :fam
+                                     AND later.issued_at > refresh_tokens.issued_at
+                               ) AS is_latest_in_family
+                        FROM refresh_tokens
+                        WHERE id = :id AND NOT revoked
+                        """
+                    ),
+                    {"id": str(row.rotated_to), "fam": str(row.family_id)},
                 )
-            ).scalar()
-        fresh_replay = successor_at is not None and (now - successor_at) <= REFRESH_REPLAY_GRACE
+            ).first()
+        fresh_replay = (
+            successor is not None
+            and successor.is_latest_in_family
+            and (now - successor.issued_at) <= REFRESH_REPLAY_GRACE
+        )
         if not fresh_replay:
             await conn.execute(
                 text("UPDATE refresh_tokens SET revoked = true WHERE family_id = :fam"),
@@ -562,10 +592,17 @@ async def rotate_refresh_token(
         )
 
     # Issue the next family member, then point the old token at it + revoke it.
+    # Guarded on `rotated_to IS NULL` so this is a one-time write per row: a
+    # grace-forgiven replay (row already has a successor from the original
+    # rotation) still mints a usable sibling for the replaying caller, but
+    # leaves `rotated_to` pointing at that ORIGINAL successor rather than the
+    # new one — which is what keeps the freshness check above anchored to the
+    # one-time rotation event instead of resetting on every replay.
     new_raw, new_id = await issue_refresh_token(conn, user_id=user_id, family_id=family_id)
     await conn.execute(
         text(
-            "UPDATE refresh_tokens SET rotated_to = :to, revoked = true WHERE id = :id"
+            "UPDATE refresh_tokens SET rotated_to = :to, revoked = true "
+            "WHERE id = :id AND rotated_to IS NULL"
         ),
         {"to": new_id, "id": str(row.id)},
     )
@@ -582,6 +619,9 @@ async def rotate_refresh_token(
         # Re-resolved on every refresh, so a membership added or removed since
         # login reaches presence within one token lifetime without a re-login.
         memberships=await presence_memberships(conn, user_id),
+        # Unchanged by rotation — the family_id IS the session, before and
+        # after this rotation swaps which raw secret represents it.
+        session_id=family_id,
     )
     return SessionDTO(accessToken=token, user=dto, expiresIn=ttl), new_raw
 
@@ -599,6 +639,99 @@ async def revoke_family_by_token(conn: AsyncConnection, raw_token: str) -> None:
             text("UPDATE refresh_tokens SET revoked = true WHERE family_id = :fam"),
             {"fam": str(row.family_id)},
         )
+
+
+async def list_active_sessions(conn: AsyncConnection, user_id: str) -> list[dict]:
+    """Every currently-active session (refresh-token family) for one org
+    membership, newest-active first.
+
+    A family is "active" when its most recently issued row is neither revoked
+    nor expired — rotation guarantees at most one such row per family, so
+    `bool_or` here is really "does that one row exist", not an aggregate over
+    many. `created_at`/`last_seen_at` come straight from `issued_at` across the
+    family's rows: the first row was written by the login/switch/MFA-verify
+    that opened the session, and the newest by its most recent refresh
+    rotation — no new columns needed, refresh_tokens already carries this.
+    Uses the existing idx_refresh_tokens_user index; no new index required.
+    """
+    rows = (
+        await conn.execute(
+            text(
+                """
+                SELECT family_id,
+                       MIN(issued_at) AS created_at,
+                       MAX(issued_at) AS last_seen_at
+                FROM refresh_tokens
+                WHERE user_id = :uid
+                GROUP BY family_id
+                HAVING bool_or(NOT revoked AND expires_at > now())
+                ORDER BY MAX(issued_at) DESC
+                """
+            ),
+            {"uid": user_id},
+        )
+    ).all()
+    return [
+        {"familyId": str(r.family_id), "createdAt": r.created_at, "lastSeenAt": r.last_seen_at}
+        for r in rows
+    ]
+
+
+async def revoke_family_by_id(conn: AsyncConnection, user_id: str, family_id: str) -> bool:
+    """Revoke one session (refresh-token family) by id, scoped to its owner.
+
+    Returns False — no row touched — when the family does not exist or
+    belongs to a different user. The caller (routes/sessions.py) turns that
+    into a 404 either way, so a revoke attempt can never be used to probe
+    whether some other user's family id exists (IDOR). This is the id-keyed
+    twin of `revoke_family_by_token` above, for callers that hold a family id
+    from the active-sessions listing rather than a raw refresh token — the
+    active-sessions UI never sees a raw token, only ids.
+    """
+    result = await conn.execute(
+        text(
+            "UPDATE refresh_tokens SET revoked = true "
+            "WHERE family_id = :fam AND user_id = :uid"
+        ),
+        {"fam": family_id, "uid": user_id},
+    )
+    return result.rowcount > 0
+
+
+async def revoke_other_sessions(
+    conn: AsyncConnection, user_id: str, keep_family_id: str | None
+) -> list[str]:
+    """Revoke every ACTIVE session for one user in a single statement,
+    optionally keeping one. Returns the family ids actually revoked, so the
+    caller can emit a session.revoked event (and therefore a live WebSocket
+    disconnect) for each one — the same follow-up a single revoke_family_by_id
+    call gets, just for potentially many families at once.
+
+    `WHERE ... AND NOT revoked` needs no DISTINCT: rotation revokes a
+    family's predecessor the moment it mints a successor (rotate_refresh_token),
+    so at most one row per family is ever un-revoked at a time — this query
+    naturally returns exactly one row per active family, never a rotation
+    history.
+
+    `keep_family_id` uses the same `CAST(... AS uuid) IS NULL OR ...` idiom as
+    list_audit's optional cursor (routes/members.py) rather than building the
+    WHERE clause conditionally, so asyncpg always sees one fixed parameter set.
+    """
+    rows = (
+        await conn.execute(
+            text(
+                """
+                UPDATE refresh_tokens SET revoked = true
+                WHERE user_id = :uid
+                  AND NOT revoked
+                  AND (CAST(:keep AS uuid) IS NULL OR family_id != CAST(:keep AS uuid))
+                RETURNING family_id
+                """
+            ),
+            {"uid": user_id, "keep": keep_family_id},
+        )
+    ).all()
+    return [str(r.family_id) for r in rows]
 
 
 async def revoke_all_user_tokens(conn: AsyncConnection, user_id: str) -> None:

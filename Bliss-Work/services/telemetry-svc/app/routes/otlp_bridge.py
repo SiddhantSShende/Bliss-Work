@@ -42,11 +42,18 @@ REJECTED and worth retrying, which would spin forever on a genuinely
 malformed batch. A 202 says "received, some or none of it usable" and lets
 the collector move on, the same posture insert_events already takes toward
 individual bad rows within an otherwise-good batch.
+
+This is distinct from the bound checks below (invalid gzip, invalid JSON, a
+non-object body, or an export over MAX_LOG_RECORDS) — those are structural
+problems with the request itself, not "some records didn't parse", and DO
+return 400: an oversized or malformed export is worth the collector logging
+and dropping, not retrying forever either way.
 """
 from __future__ import annotations
 
 import gzip
 import hashlib
+import io
 import json
 from datetime import datetime, timezone
 
@@ -84,9 +91,36 @@ _SIGNAL_ATTR = "blisswork.signal"
 _SOURCE_ATTR = "blisswork.source"
 _VALID_SOURCES = {"web", "desktop", "extension"}
 
+# gzip.decompress() has no ceiling of its own: a compressed body already
+# capped at 1 MiB by BodySizeLimitMiddleware (middleware.py) can still
+# inflate to gigabytes before parse_export_logs_request ever sees it — the
+# same "zip bomb" class of unbounded-input attack AgentBatch/Beacon's field
+# caps (schemas.py) exist to rule out on the REST ingest paths. 8 MiB is
+# generous headroom over anything MAX_LOG_RECORDS (otlp_logs.py) worth of
+# JSON log records legitimately needs.
+_MAX_DECOMPRESSED_BYTES = 8 * (1 << 20)  # 8 MiB
+
 
 def _hash(raw: str) -> bytes:
     return hashlib.sha256(raw.encode("utf-8")).digest()
+
+
+def _decompress_gzip(raw: bytes) -> bytes:
+    """Bounded inverse of the otlphttp exporter's gzip compression.
+
+    `GzipFile.read(n)` only inflates enough of the stream to satisfy the
+    read, so capping the read size caps the memory/CPU spent decompressing
+    no matter what the compressed stream claims to unpack to — unlike
+    `gzip.decompress`, which always inflates the entire stream first.
+    """
+    try:
+        with gzip.GzipFile(fileobj=io.BytesIO(raw)) as gz:
+            body = gz.read(_MAX_DECOMPRESSED_BYTES + 1)
+    except OSError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid gzip body") from exc
+    if len(body) > _MAX_DECOMPRESSED_BYTES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "decompressed body too large")
+    return body
 
 
 @router.post("/otlp/logs", status_code=status.HTTP_202_ACCEPTED)
@@ -121,10 +155,7 @@ async def ingest_otlp_logs(
 
     raw = await request.body()
     if request.headers.get("content-encoding", "").lower() == "gzip":
-        try:
-            raw = gzip.decompress(raw)
-        except OSError as exc:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid gzip body") from exc
+        raw = _decompress_gzip(raw)
     try:
         body = json.loads(raw) if raw else {}
     except (TypeError, ValueError) as exc:
@@ -133,7 +164,10 @@ async def ingest_otlp_logs(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "body must be an ExportLogsServiceRequest object")
 
     now = datetime.now(timezone.utc)
-    records = parse_export_logs_request(body)
+    try:
+        records = parse_export_logs_request(body)
+    except ValueError:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "too many log records in export")
 
     async with session() as db:
         # Pre-org-context: identical reasoning to routes/agent.py — the token

@@ -28,6 +28,13 @@ import "time"
 // a frame that was already lost, and the client's own reconnect is faster than
 // anything here. Ending at an hour keeps a genuinely unreachable client from
 // generating steady traffic for as long as it stays unreachable.
+//
+// The CANONICAL definition — sticky-svc's own claim query hand-maintains a
+// copy of these same values in SQL (see internal.py's CASE expression) because
+// "is a nudge due" has to be decided server-side, inside the claim, where this
+// package's isDue can no longer see it (see isDue's doc comment for why this
+// package stopped recomputing that decision itself). Update the CASE
+// expression by hand if these values ever change.
 var BackoffLadder = []time.Duration{
 	1 * time.Minute,
 	5 * time.Minute,
@@ -63,10 +70,9 @@ type Refresh struct {
 
 // Plan turns a page of undelivered pins into the nudges to send right now.
 //
-// `now` is passed in rather than read from the clock so the backoff is testable.
 // Input order is preserved so the output is deterministic, which matters for a
 // job that logs what it did.
-func Plan(pins []Pin, now time.Time) []Refresh {
+func Plan(pins []Pin) []Refresh {
 	// Group by PERSON, not by pin. Someone who was handed six tasks while
 	// offline needs one "go and look", not six.
 	type bucket struct {
@@ -91,7 +97,7 @@ func Plan(pins []Pin, now time.Time) []Refresh {
 			order = append(order, key)
 		}
 		b.count++
-		if isDue(p, now) {
+		if isDue(p) {
 			b.due = true
 		}
 	}
@@ -115,23 +121,24 @@ func Plan(pins []Pin, now time.Time) []Refresh {
 	return out
 }
 
-// isDue reports whether enough time has passed since a pin was opened for its
-// next nudge, given how many it has already had.
-func isDue(p Pin, now time.Time) bool {
-	if p.DeliveryAttempts >= MaxNudges {
-		return false
-	}
-	return !now.Before(p.OpenedAt.Add(backoffFor(p.DeliveryAttempts)))
-}
-
-// backoffFor returns the wait before the nth nudge, clamping past the ladder's
-// end to its last entry.
-func backoffFor(attempts int) time.Duration {
-	if attempts < 0 {
-		attempts = 0
-	}
-	if attempts >= len(BackoffLadder) {
-		return BackoffLadder[len(BackoffLadder)-1]
-	}
-	return BackoffLadder[attempts]
+// isDue reports whether a pin sticky-svc handed back should still be nudged.
+//
+// sticky-svc's own claim query (services/sticky-svc/app/routes/internal.py,
+// GET /internal/pins/undelivered) already gates on next_eligible_at <= now()
+// BEFORE returning a row — by the time a pin reaches this function, the
+// server has already judged its backoff window elapsed and "spent" this
+// attempt claiming it. This used to recompute that same decision
+// independently, from OpenedAt + a flat per-attempt offset (BackoffLadder,
+// via the now-removed backoffFor) — a DIFFERENT formula from the server's
+// own now()-compounding-forward one, which diverges starting at the second
+// nudge. A pin the server correctly claimed could fail this second, wrong
+// check and get silently dropped from Plan()'s output: the claim (and the
+// attempt it spent) wasted, no nudge ever sent, real nudges arriving far
+// later and less often than the ladder intends.
+//
+// The server's gate is authoritative now. This keeps MaxNudges as a
+// defensive, redundant check — the server enforces the same cutoff
+// (_MAX_NUDGES in internal.py) — rather than trusting a page of pins blindly.
+func isDue(p Pin) bool {
+	return p.DeliveryAttempts < MaxNudges
 }

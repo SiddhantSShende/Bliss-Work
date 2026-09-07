@@ -264,34 +264,37 @@ func resolveForwardProvenance(ctx context.Context, tx pgx.Tx, sourceMessageID, s
 	return nil
 }
 
-// linkPillBody is the text of the system entry written into the origin chat.
-//
-// The wording is deliberately weak: we know the link was built and opened, not
-// that anything was sent.
+// linkPillDetail is the OPTIONAL recipient fragment stored as the system
+// entry's body — everything the generic "Message forwarded to WhatsApp" line
+// (rendered client-side from forward_platform; see ForwardBadge/
+// externalForward.ts) does not already say. It never names the destination
+// itself: that would be exactly the hardcoded-into-the-database label the
+// generic provenance renderer exists to avoid, and it would drift from
+// forward_platform for anyone reading the two side by side.
 //
 // USUAL CASE — no recipient. The link carries no number, so WhatsApp shows its
 // own contact chooser and whoever was picked is never reported back to us. The
-// pill says only that the message left towards WhatsApp. Naming a recipient here
-// would be invention, and this pill is the original author's evidence that their
-// message left the workspace — the one place a guess is least acceptable.
+// pill says only that the message left towards WhatsApp (the generic line
+// alone). Naming a recipient here would be invention, and this pill is the
+// original author's evidence that their message left the workspace — the one
+// place a guess is least acceptable.
 //
 // When a number IS known, it appears in a DM and not in a channel. A DM has
 // exactly two readers: the forwarder and the author of the message that left. A
 // channel can have dozens, and publishing a third party's phone number to all of
 // them is not something that third party agreed to. The number stays on the
-// message_forwards edge either way, which is RLS-scoped.
-func linkPillBody(scope forwardScope, name, phone string) string {
-	if phone == "" && name == "" {
-		return "Opened WhatsApp to forward this message"
-	}
-	if name == "" {
-		if scope == scopeDM {
-			return fmt.Sprintf("Opened WhatsApp to forward this to +%s", phone)
+// message_forwards edge either way, which is RLS-scoped. A channel where only a
+// phone (no name) is known therefore gets no fragment at all, same as the
+// no-recipient case — there is nothing safe to disclose there.
+func linkPillDetail(scope forwardScope, name, phone string) string {
+	if name != "" {
+		if scope == scopeDM && phone != "" {
+			return fmt.Sprintf("to %s (+%s)", name, phone)
 		}
-		return "Opened WhatsApp to forward this to a WhatsApp contact"
+		return "to " + name
 	}
 	if scope == scopeDM && phone != "" {
-		return fmt.Sprintf("Opened WhatsApp to forward this to %s (+%s)", name, phone)
+		return fmt.Sprintf("to +%s", phone)
 	}
-	return "Opened WhatsApp to forward this to " + name
+	return ""
 }

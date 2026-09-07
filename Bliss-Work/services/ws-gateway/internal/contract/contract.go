@@ -25,6 +25,9 @@ type Event struct {
 	ThreadID        string   `json:"threadId"`
 	ParentMessageID string   `json:"parentMessageId"`
 	DismissedBy     string   `json:"dismissedBy"`
+	// message.forwarded only — see that case in RecipientsOf.
+	ForwardedBy  string `json:"forwardedBy"`
+	RootAuthorID string `json:"rootAuthorId"`
 	// The person a channel moderation event was ABOUT. They are usually no
 	// longer in `Members` — that is precisely why it has to be carried
 	// separately, or the removed member never learns they were removed.
@@ -91,6 +94,17 @@ func (e *Event) RecipientsOf() []string {
 		// may well have screenshotted first; a reaction nobody sees arrive is
 		// not a reaction.
 		return dedupe(e.Members)
+	case "message.forwarded":
+		// The forwarder (multi-device sync) and the ORIGINAL author, who is
+		// the person entitled to know their message left the workspace.
+		// Deliberately NOT Members: for a channel source that would publish a
+		// third party's name to the whole roster, and the pill written into
+		// the chat already tells the room as much as it should know. Mirrors
+		// event-routing-spec.ts's MessageForwarded case exactly — this was
+		// missing here entirely (fell through to the zero-recipient default,
+		// which drops the event from both live delivery and the replay
+		// outbox) even though messaging-svc actively produces it.
+		return dedupe([]string{e.ForwardedBy, e.RootAuthorID})
 	case "task.assigned":
 		return dedupe([]string{e.AssigneeID})
 	case "sticky.refresh":
