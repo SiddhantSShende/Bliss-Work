@@ -1,4 +1,4 @@
-"""Nightly rollup: raw activity → activity_daily (+ app/site usage).
+"""Nightly rollup: raw activity → activity_daily.
 
 Runs at 01:30 UTC for the previous day, BEFORE the 02:30 backup, so the day's
 aggregates are inside that night's dump rather than a day behind it.
@@ -158,48 +158,6 @@ _EVENT_ROLLUP = text(
     """  # noqa: S608 — _TZ is service config, never request input
 )
 
-# Foreground app usage (desktop agent) and site usage (browser extension) share
-# a shape: group the day's span rows by their target and sum the durations.
-#
-# For apps, `target_id` carries the DISPLAY name ("Google Chrome") and the
-# primary key is its lowercase form, so the same app reported with different
-# casing by two OS APIs does not split into two rows. Window TITLES are never
-# collected — see docs/SECURITY.md.
-_APP_ROLLUP = text(
-    f"""
-    INSERT INTO app_usage_daily (org_id, user_id, day, app_key, app_name, foreground_ms, switches)
-    SELECT org_id, user_id, (occurred_at AT TIME ZONE '{_TZ}')::date,
-           lower(target_id), MAX(target_id),
-           COALESCE(SUM(duration_ms), 0), COUNT(*)
-      FROM activity_events
-     WHERE (occurred_at AT TIME ZONE '{_TZ}')::date = :day
-       AND target_kind = 'app' AND target_id IS NOT NULL
-     GROUP BY org_id, user_id, (occurred_at AT TIME ZONE '{_TZ}')::date, lower(target_id)
-    ON CONFLICT (org_id, user_id, day, app_key) DO UPDATE SET
-        app_name      = EXCLUDED.app_name,
-        foreground_ms = EXCLUDED.foreground_ms,
-        switches      = EXCLUDED.switches
-    """  # noqa: S608
-)
-
-# For sites, `target_id` is the registrable domain — plaintext precisely so this
-# GROUP BY is possible. The full URL path lives encrypted in detail_enc and is
-# only ever read one row at a time on the timeline.
-_SITE_ROLLUP = text(
-    f"""
-    INSERT INTO site_usage_daily (org_id, user_id, day, domain, visit_ms, visits)
-    SELECT org_id, user_id, (occurred_at AT TIME ZONE '{_TZ}')::date,
-           lower(target_id), COALESCE(SUM(duration_ms), 0), COUNT(*)
-      FROM activity_events
-     WHERE (occurred_at AT TIME ZONE '{_TZ}')::date = :day
-       AND target_kind = 'site' AND target_id IS NOT NULL
-     GROUP BY org_id, user_id, (occurred_at AT TIME ZONE '{_TZ}')::date, lower(target_id)
-    ON CONFLICT (org_id, user_id, day, domain) DO UPDATE SET
-        visit_ms = EXCLUDED.visit_ms,
-        visits   = EXCLUDED.visits
-    """  # noqa: S608
-)
-
 
 async def rollup_day(day: date) -> None:
     async with session() as db:
@@ -211,8 +169,6 @@ async def rollup_day(day: date) -> None:
         # rather than inserting and immediately updating.
         await db.execute(_SESSION_ROLLUP, {"day": day})
         await db.execute(_EVENT_ROLLUP, {"day": day})
-        await db.execute(_APP_ROLLUP, {"day": day})
-        await db.execute(_SITE_ROLLUP, {"day": day})
         await db.commit()
     log.info("rollup_complete", day=day.isoformat(), timezone=_TZ)
 

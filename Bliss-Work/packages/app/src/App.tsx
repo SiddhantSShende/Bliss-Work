@@ -23,7 +23,6 @@ import { MeetingHost } from "./features/MeetingHost";
 import { MeetingSessionProvider } from "./lib/MeetingSession";
 import { ScreenshotNotice } from "./features/ScreenshotNotice";
 import { MeetingWindowStatusBar } from "./features/MeetingWindowStatusBar";
-import { AgentProvisioningBridge, ExtensionProvisioningBridge } from "./lib/agentProvisioning";
 import { RequireAuth } from "./lib/RequireAuth";
 // ── Route loading: eager for signed-out, lazy for everything behind the login ─
 //
@@ -363,17 +362,6 @@ export function App({ config }: { config: PlatformConfig }) {
                 meeting is open. Outside <Router> like ScreenshotNotice, for
                 the same reason: it needs no route, just RuntimeProvider. */}
             <MeetingWindowStatusBar />
-            {/* Renders nothing; auto-pairs the desktop activity agent's
-                credential once signed in (never its consent — see the file's
-                own docstring). Inert on web. Outside <Router> like
-                ScreenshotNotice: it needs no route, just RuntimeProvider. */}
-            <AgentProvisioningBridge />
-            {/* Renders nothing; the web-side half of the same idea — finishes
-                connecting the browser extension once signed in, after
-                BrowserExtensionCTA (Login.tsx) offered the install step
-                pre-auth. Inert on Electron and on any deployment with no
-                chromeExtensionId configured — see its own docstring. */}
-            <ExtensionProvisioningBridge />
           </RuntimeProvider>
       </QueryClientProvider>
     </ErrorBoundary>

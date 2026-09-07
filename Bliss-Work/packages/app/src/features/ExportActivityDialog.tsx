@@ -126,7 +126,7 @@ export function ExportActivityDialog({
 
         <p className="text-xs leading-relaxed text-muted">
           One row per member per day: active and idle time, sessions, recorded actions,
-          and the section, app and site they spent most time in. Dates are counted in
+          and the section they spent most time in. Dates are counted in
           your own timezone.
         </p>
 

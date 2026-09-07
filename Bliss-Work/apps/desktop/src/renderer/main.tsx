@@ -51,27 +51,6 @@ declare global {
         message?: string;
       }>;
       onUpdateCheckFailed: (cb: (message: string) => void) => () => void;
-      activity: {
-        state: () => Promise<{
-          enabled: boolean;
-          paired: boolean;
-          deviceKey: string;
-          appTracking: boolean;
-          reason: string | null;
-          titleTracking: boolean;
-          titleTrackingReason: string | null;
-        } | null>;
-        setEnabled: (enabled: boolean) => Promise<{ enabled: boolean; paired: boolean } | null>;
-        pair: (token: string | null) => Promise<{ enabled: boolean; paired: boolean } | null>;
-        openScreenRecordingSettings: () => Promise<boolean>;
-        signedOut: () => Promise<null>;
-      };
-      browsers: {
-        list: () => Promise<
-          Array<{ family: string; label: string; path: string | null; installed: boolean }>
-        >;
-        launch: (path: string) => Promise<boolean>;
-      };
       notifications: {
         getDesktopEnabled: () => Promise<boolean>;
         setDesktopEnabled: (enabled: boolean) => Promise<void>;
@@ -191,8 +170,6 @@ const config: PlatformConfig = {
   appVersion: () => bridge.appVersion(),
   checkForUpdates: () => bridge.checkForUpdates(),
   onUpdateCheckFailed: (cb) => bridge.onUpdateCheckFailed(cb),
-  activityAgent: bridge.activity,
-  browserAgent: bridge.browsers,
   notificationPrefs: bridge.notifications,
   // Omitted entirely for the meeting window: its events do not need to ride
   // the shared utilityProcess socket (there is nothing there for it — no

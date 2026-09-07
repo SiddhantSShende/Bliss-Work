@@ -226,25 +226,6 @@ async def run(dry_run: bool = False) -> int:
                 ),
                 {"d": BEACON_BATCH_RETENTION_DAYS},
             )
-            # activity_sessions (the correlated app/site record — see
-            # migrations/0005_activity_sessions.sql) is a DERIVED, recomputable
-            # projection of activity_events, never a rollup input and never
-            # authoritative on its own — nothing reads it for aggregation, so
-            # it needs no assert_rolled_up-style gate. It was never pruned at
-            # all before this: docs/TELEMETRY.md documents "Sessions: 90 days
-            # after they end" and this table shares that retention window
-            # (same setting as user_sessions, its closest sibling), but
-            # nothing ever enforced it — the row survives indefinitely,
-            # including app_name/domain held in the CLEAR (see
-            # org_purge.py's note on this same table), past even the raw
-            # activity_events partition it was built from.
-            activity_sessions_gone = await db.execute(
-                text(
-                    "DELETE FROM activity_sessions "
-                    "WHERE ended_at < now() - make_interval(days => :d)"
-                ),
-                {"d": settings.raw_retention_days},
-            )
             await db.commit()
             log.info(
                 "prune_complete",
@@ -252,7 +233,6 @@ async def run(dry_run: bool = False) -> int:
                 sessions_deleted=sessions_gone.rowcount,
                 consumed_deleted=consumed_gone.rowcount,
                 beacon_batches_deleted=beacon_batches_gone.rowcount,
-                activity_sessions_deleted=activity_sessions_gone.rowcount,
                 retention_days=settings.raw_retention_days,
             )
     return dropped

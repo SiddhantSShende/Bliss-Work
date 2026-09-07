@@ -39,8 +39,6 @@ function dailyColumns(tz: string) {
     { header: `First seen (${tz})`, key: "firstSeen", width: 24 },
     { header: `Last seen (${tz})`, key: "lastSeen", width: 24 },
     { header: "Top section", key: "topSurface", width: 16 },
-    { header: "Top app", key: "topApp", width: 20 },
-    { header: "Top site", key: "topSite", width: 22 },
   ];
 }
 
@@ -62,8 +60,6 @@ function dailyRows(rows: ActivityExportRow[], people: Map<string, Person>) {
       firstSeen: fmtLocal(r.firstSeenAt),
       lastSeen: fmtLocal(r.lastSeenAt),
       topSurface: r.topSurface ?? "",
-      topApp: r.topApp ?? "",
-      topSite: r.topSite ?? "",
     };
   });
 }

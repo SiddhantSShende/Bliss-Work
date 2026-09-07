@@ -5,18 +5,14 @@ import {
   BarChart3,
   CalendarClock,
   Clock,
-  ExternalLink,
-  Globe,
   Layers,
   LogIn,
-  Monitor,
   Sparkles,
   Timer,
   TrendingUp,
   Zap,
 } from "lucide-react";
 import {
-  Badge,
   BarChart,
   Card,
   EmptyState,
@@ -64,15 +60,6 @@ export function MemberAnalytics({ userId }: { userId: string }) {
 
   const days = data.days;
   const activeDays = days.filter((d) => d.activeMs > 0).length;
-  // Time OUTSIDE BlissWork for the period: browsing (all sites) + foreground
-  // time in non-BlissWork desktop apps. The desktop agent reports the app it
-  // runs under as "BlissWork Desktop", so that one is excluded — everything else
-  // a person had in front of them counts as "not in BlissWork".
-  const siteMs = data.topSites.reduce((n, s) => n + s.valueMs, 0);
-  const otherAppMs = data.topApps
-    .filter((a) => !/blisswork/i.test(a.key) && !/blisswork/i.test(a.label))
-    .reduce((n, a) => n + a.valueMs, 0);
-  const outsideMs = siteMs + otherAppMs;
   const bars = days.map((d) => ({
     label: parseLocalDay(d.day).toLocaleDateString(undefined, { day: "numeric", month: "short" }),
     title: parseLocalDay(d.day).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" }),
@@ -134,16 +121,6 @@ export function MemberAnalytics({ userId }: { userId: string }) {
           value={formatMs(avgSessionMs)}
           hint="active time per session"
         />
-        {/* The headline for "what were they doing off-task": time spent outside
-            BlissWork entirely. Only populated once the browser extension and/or
-            desktop agent are reporting — otherwise there is no off-app signal to
-            show, and it reads 0 rather than implying they never left. */}
-        <KpiCard
-          icon={<ExternalLink size={15} />}
-          label="Outside BlissWork"
-          value={formatMs(outsideMs)}
-          hint={siteMs || otherAppMs ? "browsing + other apps" : "no agent data yet"}
-        />
         <KpiCard icon={<Zap size={15} />} label="Actions" value={String(data.events)} hint="recorded events" />
       </div>
 
@@ -191,33 +168,6 @@ export function MemberAnalytics({ userId }: { userId: string }) {
           />
         </SectionCard>
       </div>
-
-      {(data.topApps.length > 0 || data.topSites.length > 0) && (
-        <div className="grid gap-4 md:grid-cols-2">
-          <SectionCard
-            icon={<Monitor size={16} />}
-            title="Apps used"
-            hint="From the desktop app, when enabled."
-            meta={data.topApps.length > 0 && <Badge>{data.topApps.length}</Badge>}
-          >
-            <RankedBars
-              data={data.topApps.map((a) => ({ key: a.key, label: a.label, value: a.valueMs }))}
-              emptyHint="No desktop app activity recorded."
-            />
-          </SectionCard>
-          <SectionCard
-            icon={<Globe size={16} />}
-            title="Sites visited"
-            hint="From the browser extension, when installed."
-            meta={data.topSites.length > 0 && <Badge>{data.topSites.length}</Badge>}
-          >
-            <RankedBars
-              data={data.topSites.map((s) => ({ key: s.key, label: s.label, value: s.valueMs }))}
-              emptyHint="No browsing activity recorded."
-            />
-          </SectionCard>
-        </div>
-      )}
     </div>
   );
 }

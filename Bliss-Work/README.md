@@ -122,13 +122,12 @@ and publish with `bash scripts/publish-desktop.sh <dir>`.
 | [`docs/OPERATIONS.md`](docs/OPERATIONS.md) | Backups, key rotation, WAF rollout |
 | [`docs/GRAPH-GATEWAY.md`](docs/GRAPH-GATEWAY.md) | The GraphQL gateway: what it fronts, what it must never front, trusted documents |
 | [`docs/TELEMETRY.md`](docs/TELEMETRY.md) | What the activity record collects, retention, the nightly jobs |
-| [`apps/extension/README.md`](apps/extension/README.md) | The browser extension: what it records, how it pairs, how to ship it |
 | [`apps/desktop/STORE.md`](apps/desktop/STORE.md) | Microsoft Store submission |
 
 ## Layout
 
 ```
-packages/{shared,ui,app}          apps/{web,desktop,extension}
+packages/{shared,ui,app}          apps/{web,desktop}
 services/{auth-svc,email-worker,task-svc,notification-svc,messaging-svc,integrations-svc,telemetry-svc,ws-gateway,graph-gw}
 infra/{postgres,kafka,nginx,caddy}
 scripts/   (seed.ts, gen-keys.ts, wait-for.sh, deploy-prod.sh, security-authz.ts)

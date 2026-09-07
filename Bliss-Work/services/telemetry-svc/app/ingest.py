@@ -172,8 +172,8 @@ async def _execute_insert(db: AsyncSession, params: list[dict[str, object]]) -> 
     `RETURNING` (asyncpg silently returns a cursor with no row metadata,
     surfacing as `ResourceClosedError` the moment it's read). Confirmed against
     a real Postgres instance before writing this: a 1-row list returns rows
-    fine, a 2+-row list does not. Batches are capped at 200 (AgentBatch.events),
-    so a per-row round trip is not a scale concern.
+    fine, a 2+-row list does not. Batches are capped at 100 (Beacon.events), so
+    a per-row round trip is not a scale concern.
     """
     written: set[str] = set()
     for p in params:

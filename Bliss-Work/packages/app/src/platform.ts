@@ -1,5 +1,4 @@
 import type { ServerEvent, ClientFrame, ControlFrame, PinResult, WsEventMeta } from "@taskboard/shared";
-import type { BrowserFamily } from "./lib/browserDetect";
 
 /**
  * Platform abstraction — the one seam between the web shell and the Electron
@@ -141,28 +140,6 @@ export interface PlatformConfig {
   wsUrl: string;
   /** "browser" for web, "hash" for the Electron file:// renderer. */
   router: "browser" | "hash";
-  /**
-   * Web only: the built, force-installed BlissWork extension's id, if one is
-   * pinned for this deployment. Unset by default — the self-hosted CRX
-   * signing key is generated fresh per machine today and Chrome Web Store
-   * publishing isn't done, so there is no stable id to target yet (see
-   * apps/extension/scripts/pack-crx.mjs). When absent, ConnectedAgents.tsx's
-   * auto-detect/auto-provision simply never runs and the existing manual
-   * "paste a code" flow is the only path — a safe, deliberate fallback, not a
-   * broken feature.
-   */
-  chromeExtensionId?: string;
-  /**
-   * Web only: where the "Install Browser Extension" CTA sends someone, keyed
-   * by browser family (see lib/browserDetect.ts). Unset — the whole map, or
-   * one family's entry — means this deployment has nothing real to link to
-   * for that browser yet (no Chrome Web Store listing, no Firefox AMO
-   * listing, no Safari App Store distribution — see apps/extension/README.md
-   * "Distribution"). The CTA reflects that honestly ("not available yet")
-   * rather than linking to a placeholder or a raw .crx file, which the target
-   * browser would refuse to install from a webpage regardless.
-   */
-  extensionInstallUrls?: Partial<Record<BrowserFamily, string>>;
   /** Present only in Electron: realtime events relayed from the utilityProcess. */
   eventSource?: EventSource;
   /** Present only in Electron: rtc.* signaling bridged from the ws-process. */
@@ -254,57 +231,6 @@ export interface PlatformConfig {
    *  prompt — this is the only way a subsequent failure can still reach the
    *  UI, so it doesn't look like the download is silently stuck forever. */
   onUpdateCheckFailed?: (cb: (message: string) => void) => () => void;
-  /** Present only in Electron: consent + pairing for the desktop activity agent.
-   *  Absent on web, where the browser gives no way to observe other apps at all
-   *  — the Settings section simply does not render. Deliberately narrow: no way
-   *  to read a sample and no way to read the pairing secret back, because the
-   *  sampled data never enters the renderer. */
-  activityAgent?: {
-    state: () => Promise<{
-      enabled: boolean;
-      paired: boolean;
-      /** Stable per-installation id — pass to createAgentToken(kind, label,
-       *  deviceKey) so provisioning is safe to call automatically (e.g. on
-       *  every login) without minting a fresh secret each time. */
-      deviceKey: string;
-      appTracking: boolean;
-      reason: string | null;
-      /** Whether window-TITLE capture works, separately from `appTracking` —
-       *  always true on Windows/Linux; on macOS reflects the Screen Recording
-       *  grant. App-name-level tracking ("Switched to VS Code") works on
-       *  macOS regardless of this — only the second line ("activity.go -
-       *  BlissWork") needs it. See apps/desktop/src/main/macos-permissions.ts. */
-      titleTracking: boolean;
-      titleTrackingReason: string | null;
-    } | null>;
-    setEnabled: (enabled: boolean) => Promise<{ enabled: boolean; paired: boolean } | null>;
-    pair: (token: string | null) => Promise<{ enabled: boolean; paired: boolean } | null>;
-    /** Open the OS page where Screen Recording access is granted. Resolves
-     *  false on a platform with no such page (Windows/Linux) — a caller
-     *  should not offer the button when `titleTracking` is already true. */
-    openScreenRecordingSettings: () => Promise<boolean>;
-    /** Explicit sign-out hook — see signOut.ts. Absent on web, where there is
-     *  no desktop agent to stop. */
-    signedOut?: () => Promise<null>;
-  };
-  /**
-   * Present only in Electron: read-only installed-browser detection, and
-   * launching one at a BlissWork page — see
-   * apps/desktop/src/main/browser-detect.ts's own doc comment for why this,
-   * rather than talking to a browser extension directly, is what the desktop
-   * app can legitimately do to help provision it (there is no `chrome.runtime`
-   * in an Electron renderer). Absent on web, where the browser IS the page
-   * already and BrowserExtensionCTA/ConnectedAgents handle detection
-   * directly via extensionProvisioning.ts.
-   */
-  browserAgent?: {
-    list: () => Promise<
-      Array<{ family: string; label: string; path: string | null; installed: boolean }>
-    >;
-    /** `path` must be one `list()` just returned — the main process
-     *  re-validates it against its own detection before launching anything. */
-    launch: (path: string) => Promise<boolean>;
-  };
   /** Present only in Electron: mirrors the "Desktop notifications" preference
    *  (packages/app/src/lib/notificationPrefs.ts's localStorage copy) to the
    *  main process, which raises OS popups for messages/tasks/calls on its own

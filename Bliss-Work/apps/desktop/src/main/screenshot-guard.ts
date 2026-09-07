@@ -1,5 +1,4 @@
 import { app, BrowserWindow, globalShortcut, type WebContents } from "electron";
-import * as activityAgent from "./activity-agent";
 
 /**
  * Screenshot deterrence, detection, and an audit trail.
@@ -42,11 +41,10 @@ import * as activityAgent from "./activity-agent";
 /**
  * Notified on every detected attempt, so main can toast the renderer.
  *
- * `recorded` says whether the attempt already reached the activity record here.
- * It has not, for anyone who declined the activity agent — which is most
- * people — and the renderer reports those itself so the control still leaves a
- * server-side trace. Passing the fact along is what stops it being recorded
- * twice for everyone else.
+ * `recorded` says whether the attempt already reached a server-side record
+ * here in main. It never has — main no longer records anything itself — so
+ * the renderer always reports the attempt through its own session beacon,
+ * which is what keeps the control leaving a server-side trace.
  */
 type AttemptListener = (source: string, recorded: boolean) => void;
 
@@ -64,11 +62,10 @@ const CAPTURE_ACCELERATORS = ["PrintScreen", "Alt+PrintScreen", "CommandOrContro
 let registered = false;
 
 /**
- * Record and announce one attempt.
+ * Announce one attempt to the renderer.
  *
- * Both effects are best-effort and neither may throw into an input handler:
- * telemetry is gated on the user's activity-agent consent (see below) and the
- * renderer may be mid-reload.
+ * Best-effort and must not throw into an input handler: the renderer may be
+ * mid-reload.
  */
 function onAttempt(source: string): void {
   const now = Date.now();
@@ -77,23 +74,10 @@ function onAttempt(source: string): void {
 
   console.warn(`[security] screenshot attempt blocked (${source})`);
 
-  // Recorded here ONLY for users who consented to the activity agent and paired
-  // a device — activityAgent.recordScreenshotAttempt is a no-op otherwise. That
-  // is deliberate: the alternative is writing MONITORING records about people
-  // who explicitly declined monitoring, which is exactly what the consent notice
-  // exists to prevent.
-  //
-  // It runs before the notify below so the renderer can be told whether it still
-  // needs to report the attempt through its own session beacon. That beacon is
-  // ordinary session telemetry the client already sends, not the activity agent,
-  // so declining monitoring costs the user their app-usage record — not the
-  // security record of a refused capture.
-  let recorded = false;
-  try {
-    recorded = activityAgent.recordScreenshotAttempt();
-  } catch (err) {
-    console.error("[security] failed to record screenshot attempt", err);
-  }
+  // The activity agent used to record this here for consented/paired users;
+  // now every attempt is reported by the renderer's own session beacon (see
+  // `notify` below), so this simply always reports `recorded: false`.
+  const recorded = false;
 
   try {
     notify(source, recorded);

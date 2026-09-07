@@ -1,7 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { ChevronLeft, Eye } from "lucide-react";
 import { PageHeader } from "@taskboard/ui";
-import { ConnectedAgents } from "../features/ConnectedAgents";
 import { MemberTimeline } from "../features/member/MemberTimeline";
 
 /**
@@ -52,8 +51,6 @@ export function MyActivity() {
           are available on request, but are not browsable in the app.
         </p>
       </section>
-
-      <ConnectedAgents />
 
       <MemberTimeline userId="me" />
     </div>

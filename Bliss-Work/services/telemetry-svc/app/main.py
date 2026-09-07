@@ -20,10 +20,8 @@ from .errors import register_exception_handlers
 from .logging_setup import configure_logging, log
 from .middleware import BodySizeLimitMiddleware, PrincipalMiddleware, RequestIDMiddleware, SecurityHeadersMiddleware
 from .rate_limit import limiter, rate_limit_handler
-from .routes.agent import router as agent_router
 from .routes.analytics import router as analytics_router
 from .routes.ingest import router as ingest_router
-from .routes.otlp_bridge import router as otlp_bridge_router
 from .routes.timeline import router as timeline_router
 from .sessions import sweeper
 from .tracing import setup_tracing
@@ -118,7 +116,5 @@ async def readyz() -> JSONResponse:
 
 
 app.include_router(ingest_router)
-app.include_router(agent_router)
-app.include_router(otlp_bridge_router)
 app.include_router(timeline_router)
 app.include_router(analytics_router)

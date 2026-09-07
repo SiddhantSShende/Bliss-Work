@@ -20,10 +20,7 @@ import {
   setRefreshToken,
   clearRefreshToken,
 } from "./session-token";
-import * as activityAgent from "./activity-agent";
-import * as activityState from "./activity-state";
 import * as notificationPrefs from "./notification-prefs";
-import { screenRecordingSettingsUrl } from "./macos-permissions";
 import { flushSync as flushStickyState, initStickyState } from "./sticky-state";
 import { trayIcon } from "./assets";
 import { buildAppMenu } from "./menu";
@@ -39,7 +36,6 @@ import { popupFor, raise, shouldNotify, userIdFromToken, windowStateOf } from ".
 import { resolveEndpointsFromEnv } from "../shared/endpoints";
 import { findDeepLink, parseDeepLink } from "../shared/deeplink";
 import { openExternalSafely } from "./harden";
-import { detectBrowsers, launchBrowser } from "./browser-detect";
 import { forwardDeepLinkWhenReady } from "./deep-link-forwarder";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
@@ -366,9 +362,6 @@ function forwardDeepLink(url?: string) {
 function startWsProcess() {
   wsProc = utilityProcess.fork(join(here, "ws-process.js"));
   wsProc.postMessage({ type: "config", ...ENDPOINTS });
-  // Starts only if consent was granted AT THIS VERSION and a pairing token
-  // exists; otherwise it is a no-op that costs one function call.
-  activityAgent.reconcile(ENDPOINTS.telemetryBase);
 
   // Recover from a child crash: realtime events + sticky pushes flow through
   // this utility process, so a silent death would freeze the whole app's live
@@ -580,20 +573,8 @@ ipcMain.on("auth:token", (e, token: string | null) => {
   if (!fromMainWindow(e)) return;
   // Every token change comes through here (login, refresh, sign-out), which
   // makes it the one place that always knows who is signed in.
-  const nextUserId = userIdFromToken(token);
-  const accountChanged = nextUserId !== sessionUserId;
-  sessionUserId = nextUserId;
+  sessionUserId = userIdFromToken(token);
   wsProc?.postMessage({ type: "token", token });
-  if (accountChanged) {
-    // Re-bind (or clear) the activity agent's ownership BEFORE anything else
-    // reacts to this token change — a stale "signed in as the previous
-    // account" must not survive into the new one for even one tick. Covers
-    // login, logout and account-switch alike; explicit sign-out ALSO calls
-    // activity:signed-out directly (see below) rather than relying on this
-    // alone, matching signOut.ts's own "do it here explicitly" philosophy.
-    activityState.setSignedInAccount(nextUserId);
-    activityAgent.reconcile(ENDPOINTS.telemetryBase);
-  }
 });
 
 // See src/main/session-token.ts: the packaged renderer is on file://, so it
@@ -613,73 +594,6 @@ ipcMain.on("auth:set-refresh-token", (e, token: unknown) => {
   if (typeof token !== "string" || !token) return;
   setRefreshToken(token);
 });
-// ── Desktop activity agent ───────────────────────────────────────────────────
-// Guarded by fromMainWindow for the same reason the auth channels are: only the
-// main window holds a session, and consent for OS-level monitoring is not
-// something a sticky-note window should be able to grant.
-ipcMain.handle("activity:state", async (e) => {
-  if (!fromMainWindow(e)) return null;
-  const { token, deviceKey } = activityState.getState();
-  const cap = await activityAgent.capability();
-  // `enabled` reports whether the sampler is ACTUALLY running (`isActive()`),
-  // not merely the last-saved preference — the two can silently diverge (most
-  // commonly an auto-update bumping `app.getVersion()` past the stored
-  // `consentedVersion`, which sends `reconcile()` to `stop()` while the saved
-  // preference stays on). Reporting the raw preference here left Settings
-  // showing "recording" while nothing was: a click of the same-looking toggle
-  // then landed on `setEnabled(false)` instead of the `setEnabled(true)` that
-  // would have refreshed `consentedVersion` and actually restarted it.
-  // `paired` stays keyed off the raw token: a device with a token but a stale
-  // consent is still paired, just not currently recording, and should show
-  // Pause/Resume rather than reverting to "Turn on for this device".
-  return { enabled: activityState.isActive(), paired: !!token, deviceKey, ...cap };
-});
-
-ipcMain.handle("activity:set-enabled", (e, enabled: unknown) => {
-  if (!fromMainWindow(e)) return null;
-  const next = activityState.setEnabled(enabled === true);
-  activityAgent.reconcile(ENDPOINTS.telemetryBase);
-  return { enabled: next.enabled, paired: !!next.token };
-});
-
-ipcMain.handle("activity:pair", (e, token: unknown) => {
-  if (!fromMainWindow(e)) return null;
-  const value = typeof token === "string" && token.trim() ? token.trim() : null;
-  const next = activityState.setToken(value);
-  activityAgent.reconcile(ENDPOINTS.telemetryBase);
-  // Confirm the credential actually round-trips, independent of consent —
-  // see pingStatus's own docstring. Fire-and-forget: pairing already
-  // succeeded (this call cannot fail it), a dead token just stays unconfirmed
-  // until the next attempt.
-  if (value) void activityAgent.pingStatus(ENDPOINTS.telemetryBase, value);
-  return { enabled: next.enabled, paired: !!next.token };
-});
-
-// Explicit sign-out path, matching signOut.ts's own philosophy of doing
-// things here rather than relying on an indirect mechanism — belt-and-
-// suspenders alongside auth:token's account-change handling above, so a
-// monitoring feature never keeps running for even a few extra ticks after
-// someone pressed "sign out".
-ipcMain.handle("activity:signed-out", (e) => {
-  if (!fromMainWindow(e)) return null;
-  activityState.setSignedInAccount(null);
-  activityAgent.reconcile(ENDPOINTS.telemetryBase);
-  return null;
-});
-
-// Open the OS page where Screen Recording access is granted — the ONE macOS
-// permission the activity agent's window-title reading needs (see
-// macos-permissions.ts). Same no-argument, fixed-URL design as
-// `geo:open-settings` above, and for the identical reason: nothing
-// renderer-supplied ever reaches `shell.openExternal`.
-ipcMain.handle("activity:open-screen-recording-settings", async (e) => {
-  if (!fromMainWindow(e)) return false;
-  const url = screenRecordingSettingsUrl();
-  if (!url) return false;
-  await shell.openExternal(url);
-  return true;
-});
-
 // ── Desktop notification preference ──────────────────────────────────────────
 // The renderer's own copy lives in localStorage (see
 // packages/app/src/lib/notificationPrefs.ts); this mirror is what
@@ -695,36 +609,6 @@ ipcMain.handle("notifications:get-desktop-enabled", (e) => {
 ipcMain.handle("notifications:set-desktop-enabled", (e, enabled: unknown) => {
   if (!fromMainWindow(e)) return;
   notificationPrefs.setDesktopEnabled(enabled === true);
-});
-
-// ── Browser extension provisioning helper ────────────────────────────────────
-// The desktop app has no way to talk to a browser extension directly — there
-// is no `chrome.runtime` in an Electron renderer (see extensionProvisioning.ts
-// in packages/app), so the real ping/provision handshake can only run inside
-// an actual browser tab. What this app CAN legitimately do is (a) report which
-// supported browsers are installed, read-only, and (b) open one of them at a
-// BlissWork page, where the existing web-side detection/connection flow
-// (BrowserExtensionCTA / ConnectedAgents) takes over. Guarded by
-// fromMainWindow for the same reason every other renderer-facing IPC here is.
-ipcMain.handle("browsers:list", async (e) => {
-  if (!fromMainWindow(e)) return [];
-  return detectBrowsers();
-});
-
-ipcMain.handle("browsers:launch", async (e, path: unknown) => {
-  if (!fromMainWindow(e)) return false;
-  if (typeof path !== "string" || !path) return false;
-  const detected = await detectBrowsers();
-  // Never launch an arbitrary renderer-supplied path — only one THIS
-  // process's own read-only detection just found on disk.
-  if (!detected.some((b) => b.installed && b.path === path)) return false;
-  const webOrigin = new URL(ENDPOINTS.authBase).origin;
-  try {
-    await launchBrowser(path, `${webOrigin}/login`);
-    return true;
-  } catch {
-    return false;
-  }
 });
 
 ipcMain.on("task:intent", (_e, intent: { taskId: string; action: string }) => {
@@ -983,7 +867,6 @@ app.on("window-all-closed", () => {
 function onSystemShutdown(): void {
   quitting = true;
   flushStickyState();
-  void activityAgent.flushOnQuit();
   // Best-effort only — see before-quit below for the real notify-and-wait
   // sequence. OS shutdown runs on a budget this app does not control (Windows
   // can force-terminate a slow WM_ENDSESSION responder), so this never
@@ -1022,10 +905,6 @@ app.on("before-quit", (e) => {
   // tray-quit. The atomic temp-then-rename means a SIGKILL during this call
   // still leaves a valid prior file in place.
   flushStickyState();
-  // Last chance to record the open foreground span. Fire-and-forget: blocking
-  // quit on a network call would hang the app when offline, and one lost span
-  // matters far less than an app that will not close.
-  void activityAgent.flushOnQuit();
 
   if (quitTeardownStarted) return;
   quitTeardownStarted = true;

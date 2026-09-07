@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 PresenceState = Literal["online", "idle", "offline"]
 Source = Literal["server", "web", "desktop", "extension"]
@@ -30,10 +30,10 @@ class BeaconEvent(BaseModel):
     # unbounded one would let a client turn the telemetry store into free
     # storage — or into a place to park data that outlives its own retention.
     detail: dict[str, str] | None = None
-    # Same purpose as AgentEvent.clientEventId below: generated once by the
-    # client when the event is first queued, preserved across a re-queue-and-
-    # retry, so a retried beacon collapses this row into a no-op (migration
-    # 0006) instead of a duplicate. Optional: absent from an older client.
+    # Generated once by the client when the event is first queued, preserved
+    # across a re-queue-and-retry, so a retried beacon collapses this row into
+    # a no-op (migration 0006) instead of a duplicate. Optional: absent from
+    # an older client.
     clientEventId: str | None = Field(default=None, max_length=64)
 
 
@@ -68,87 +68,6 @@ class Beacon(BaseModel):
 class BeaconAck(BaseModel):
     sessionId: str
     accepted: int
-
-
-class AgentEvent(BaseModel):
-    """One span reported by a paired agent (desktop sampler / browser extension).
-
-    `targetId` is the AGGREGATABLE half — an application's display name, or a
-    registrable domain — and is stored in the clear because every rollup groups
-    by it. Anything revealing (a URL path) belongs in `detail`, which is
-    encrypted per-org and only ever read one row at a time.
-    """
-
-    action: str = Field(min_length=1, max_length=64)
-    category: str = Field(default="app", max_length=32)
-    occurredAt: str | None = Field(default=None, max_length=40)
-    targetKind: str | None = Field(default=None, max_length=32)
-    targetId: str | None = Field(default=None, max_length=253)  # max DNS name length
-    durationMs: int | None = Field(default=None, ge=0, le=86_400_000)
-    detail: dict[str, str] | None = None
-    # Generated once by the client when the span is first queued, preserved
-    # across a re-queue-and-retry — never regenerated. Lets the server collapse
-    # a retried send into a no-op instead of a duplicate row (migration 0006).
-    # Optional: absent from a client too old to send one, which just means that
-    # row cannot be deduped, not that it's rejected.
-    clientEventId: str | None = Field(default=None, max_length=64)
-
-    @field_validator("detail")
-    @classmethod
-    def _bound_detail(cls, v: dict[str, str] | None) -> dict[str, str] | None:
-        """Cap every detail value.
-
-        `detail` now carries full URLs including query strings, which have no
-        natural upper bound — analytics params and encoded state can run to
-        kilobytes. Truncating at ingest keeps the encrypted blob (and the row)
-        bounded regardless of what an agent sends; the head of a URL is where the
-        signal is. A hostile or buggy agent must not be able to turn this into
-        free storage.
-        """
-        if not v:
-            return v
-        return {k[:64]: (val[:2048] if isinstance(val, str) else val) for k, val in v.items()}
-
-
-class AgentBatch(BaseModel):
-    events: list[AgentEvent] = Field(default_factory=list, max_length=200)
-
-
-class AgentTokenCreated(BaseModel):
-    """The ONLY response that ever carries the raw secret. Not recoverable.
-
-    `token` is null exactly once: a get-or-create call (device_key supplied)
-    that matched an existing, still-valid row. That row's own raw secret was
-    already shown once, at its own creation, and is genuinely gone — this
-    response is not a second chance to see it, it's confirmation that
-    provisioning has nothing new to do.
-    """
-
-    id: str
-    kind: str
-    token: str | None
-
-
-class AgentStatusPing(BaseModel):
-    """A heartbeat from a paired agent — proves the credential still works
-    without writing any activity. Must stay safe to call before consent (or
-    while paused): a write here would itself be a data trail, defeating the
-    point of a status check that exists to be checkable pre-consent."""
-
-    version: str | None = Field(default=None, max_length=32)
-    platform: str | None = Field(default=None, max_length=32)
-
-
-class AgentTokenDTO(BaseModel):
-    id: str
-    kind: str
-    label: str = ""
-    createdAt: str | None = None
-    lastUsedAt: str | None = None
-    lastSeenAt: str | None = None
-    agentVersion: str | None = None
-    platform: str | None = None
-    expiresAt: str | None = None
 
 
 # ── Read models ───────────────────────────────────────────────────────────────
@@ -201,45 +120,6 @@ class SessionPage(BaseModel):
     nextCursor: str | None = None
 
 
-class ActivitySessionEntryDTO(BaseModel):
-    """One row of `activity_sessions` — sessionizer.py's CORRELATED
-    desktop+browser record ("Chrome, showing YouTube, 15:00-15:14"), never to
-    be confused with `SessionDTO` above, which is a `user_sessions` row (one
-    per signed-in client instance — login presence, active/idle time). The two
-    tables answer different questions and this name is deliberately distinct
-    from `SessionDTO`/`ActivitySessionDTO` (the latter already exists in
-    packages/shared/src/types/domain.ts and — despite its name — also serves
-    `user_sessions`; see that file's own note on the collision) so a reader of
-    either codebase can tell them apart without opening the SQL.
-    """
-
-    id: str
-    kind: str  # 'app' | 'site' | 'app+site'
-    appName: str | None = None
-    domain: str | None = None
-    title: str | None = None
-    startedAt: str
-    endedAt: str
-    durationMs: int = 0
-    # Decrypted from detail_enc: url, siteKind, siteRef, from — the same
-    # free-form shape TimelineEntry.detail already carries, reused rather than
-    # inventing a second detail contract for a table that stores the same
-    # KIND of revealing-but-not-aggregatable context.
-    detail: dict[str, str] | None = None
-    # The activity_events rows this session was built from — anchorEventId is
-    # always the desktop app.focus row's own id, correlatedEventId (when set)
-    # is the browser site.visit row's. A frontend matching a TimelineEntry to
-    # its session by event id, rather than by timestamp, is immune to clock
-    # skew between the two sensors — see activityLabels.ts's sessionEntryFor.
-    anchorEventId: str | None = None
-    correlatedEventId: str | None = None
-
-
-class ActivitySessionEntryPage(BaseModel):
-    sessions: list[ActivitySessionEntryDTO]
-    nextCursor: str | None = None
-
-
 class DayBucket(BaseModel):
     day: str
     activeMs: int = 0
@@ -268,8 +148,6 @@ class SummaryDTO(BaseModel):
     days: list[DayBucket] = Field(default_factory=list)
     bySurface: list[NamedCount] = Field(default_factory=list)
     byAction: list[NamedCount] = Field(default_factory=list)
-    topApps: list[NamedCount] = Field(default_factory=list)
-    topSites: list[NamedCount] = Field(default_factory=list)
     # 7 x 24 grid of active ms, Monday-first, in the rollup timezone.
     hourly: list[list[int]] = Field(default_factory=list)
 
@@ -299,5 +177,3 @@ class ExportRow(BaseModel):
     firstSeenAt: str | None = None
     lastSeenAt: str | None = None
     topSurface: str | None = None
-    topApp: str | None = None
-    topSite: str | None = None

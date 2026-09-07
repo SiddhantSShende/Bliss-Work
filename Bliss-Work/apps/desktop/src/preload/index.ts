@@ -9,7 +9,7 @@ import type { ServerEvent, ClientFrame, ControlFrame, PinResult, WsEventMeta } f
  */
 /** Mirrors PlatformConfig's MeetingWindowStatus (packages/app/src/platform.ts)
  *  — duplicated rather than imported, same as every other inline shape in
- *  this file (see `activity.state()`'s return type below), so this preload
+ *  this file (see `checkForUpdates()`'s return type below), so this preload
  *  carries no build dependency on @taskboard/app. */
 interface MeetingWindowStatus {
   callId: string;
@@ -261,49 +261,6 @@ const api = {
   },
 
   /**
-   * Desktop activity agent — CONSENT AND PAIRING ONLY.
-   *
-   * Note what is absent: there is no way to read a sample, no way to read the
-   * pairing secret back, and no way to start the sampler with a token the
-   * renderer supplies out of nowhere. Sampled data never enters the renderer at
-   * all; main posts it directly. This surface exists so a person can see and
-   * change what their own machine is doing, and for nothing else.
-   */
-  activity: {
-    state: (): Promise<{
-      enabled: boolean;
-      paired: boolean;
-      /** Stable per-installation id — passed to createAgentToken so
-       *  automatic provisioning can ask for "the token for THIS device"
-       *  idempotently instead of minting a new one every launch. */
-      deviceKey: string;
-      appTracking: boolean;
-      reason: string | null;
-      /** Whether window-TITLE capture works, distinct from `appTracking` —
-       *  always true on Windows/Linux; on macOS reflects the Screen Recording
-       *  grant (see main/macos-permissions.ts). */
-      titleTracking: boolean;
-      titleTrackingReason: string | null;
-    } | null> => ipcRenderer.invoke("activity:state"),
-    setEnabled: (enabled: boolean): Promise<{ enabled: boolean; paired: boolean } | null> =>
-      ipcRenderer.invoke("activity:set-enabled", enabled),
-    /** Pass the one-time secret from Settings → Connect this device (or from
-     *  automatic post-login provisioning). `null` unpairs, which also
-     *  withdraws consent. */
-    pair: (token: string | null): Promise<{ enabled: boolean; paired: boolean } | null> =>
-      ipcRenderer.invoke("activity:pair", token),
-    /** Open the OS page where Screen Recording access is granted. Resolves
-     *  false on a platform with no such page (Windows/Linux) — same
-     *  "no-op button, not a missing one" contract as `openLocationSettings`. */
-    openScreenRecordingSettings: (): Promise<boolean> =>
-      ipcRenderer.invoke("activity:open-screen-recording-settings"),
-    /** Explicit sign-out — see signOut.ts. Stops the sampler and clears
-     *  local account-binding immediately, without discarding the pairing (the
-     *  SAME person signing back in does not have to re-pair/re-consent). */
-    signedOut: (): Promise<null> => ipcRenderer.invoke("activity:signed-out"),
-  },
-
-  /**
    * "Desktop notifications" preference, mirrored from the renderer's own
    * localStorage copy (packages/app/src/lib/notificationPrefs.ts). Main reads
    * this before raising an OS popup for a message/task/call — see
@@ -315,20 +272,6 @@ const api = {
     getDesktopEnabled: (): Promise<boolean> => ipcRenderer.invoke("notifications:get-desktop-enabled"),
     setDesktopEnabled: (enabled: boolean): Promise<void> =>
       ipcRenderer.invoke("notifications:set-desktop-enabled", enabled),
-  },
-
-  /**
-   * Read-only installed-browser detection, and launching one at a BlissWork
-   * page — how this app helps provision the browser extension without ever
-   * touching the browser's own install state. See main/browser-detect.ts.
-   */
-  browsers: {
-    list: (): Promise<
-      Array<{ family: string; label: string; path: string | null; installed: boolean }>
-    > => ipcRenderer.invoke("browsers:list"),
-    /** `path` must be one `list()` just returned — main re-validates it
-     *  against its own detection before launching anything. */
-    launch: (path: string): Promise<boolean> => ipcRenderer.invoke("browsers:launch", path),
   },
 
   /** Phase 10 sender-side streaming sha256 — the renderer feeds file slices and

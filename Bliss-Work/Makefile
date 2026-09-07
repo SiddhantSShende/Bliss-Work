@@ -61,7 +61,7 @@ endef
 	dev-up dev-down dev-restart dev-logs dev-ps dev-build dev-reset-db \
 	prod-up prod-down prod-restart prod-logs prod-ps prod-build \
 	dev prod web-dev web-build web-release desktop-dev desktop-build desktop-release \
-	extension-build exec clean prune
+	exec clean prune
 
 help:
 	@echo "Task-Board targets   (service=<name> scopes to one service; empty = all)"
@@ -104,7 +104,6 @@ help:
 	@echo "  make desktop-release  - CONFIRM, then build Linux+Windows installers in the"
 	@echo "                          builder container and PUBLISH them to the live downloads"
 	@echo "                          (DESKTOP_VERSION=x.y.z overrides the auto patch bump)"
-	@echo "  make extension-build  - build the browser extension"
 	@echo ""
 	@echo "Utilities:"
 	@echo "  make exec service=X [env=prod]   - shell inside a running container"
@@ -261,9 +260,6 @@ desktop-build:
 desktop-release:
 	$(call confirm,build desktop installers and PUBLISH them to the live download feed)
 	$(PROD_COMPOSE) run --rm desktop-builder
-
-extension-build:
-	npm run build -w @taskboard/extension
 
 # ── Utilities (exec/clean are service-aware; env=prod switches stack) ────────
 exec:

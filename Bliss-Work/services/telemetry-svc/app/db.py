@@ -172,8 +172,8 @@ def session() -> AsyncSession:
 # ── RLS (Row-Level Security) GUC plumbing ─────────────────────────────────────
 # Every org-scoped transaction that touches an RLS-protected table
 # (activity_events and its partitions, user_sessions, activity_daily,
-# app_usage_daily, site_usage_daily, ingest_tokens, org_keys) MUST set the org
-# context as its FIRST statement, or the policy fails closed (0 rows). We use
+# beacon_batches, org_keys) MUST set the org context as its FIRST statement,
+# or the policy fails closed (0 rows). We use
 # `set_config(..., is_local => true)` so the setting is scoped to the current
 # transaction and auto-resets at commit/rollback — it can never leak across a
 # pooled connection's next checkout.

@@ -99,17 +99,10 @@ export const qk = {
   activityRoster: ["activity", "roster"] as const,
   activityTimeline: (userId: string) => ["activity", "timeline", userId] as const,
   activitySessions: (userId: string) => ["activity", "sessions", userId] as const,
-  /** The CORRELATED desktop+browser records (activity_sessions), distinct
-   *  from `activitySessions` above (user_sessions — login presence). See
-   *  ActivitySessionDTO's doc comment in packages/shared for the naming
-   *  collision this key name is deliberately distinct from. */
-  activitySessionEntries: (userId: string) => ["activity", "session-entries", userId] as const,
   activitySummary: (userId: string, from: string, to: string) =>
     ["activity", "summary", userId, from, to] as const,
   orgActivitySummary: (from: string, to: string) =>
     ["activity", "org", from, to] as const,
-  /** This person's paired agents (desktop app / browser extension). */
-  agentTokens: ["activity", "agents"] as const,
   // ── Active (sign-in) sessions — distinct from activitySessions above,
   // which is telemetry-svc's presence record. These are auth-svc's
   // refresh-token families: GET /auth/sessions and its admin twin.

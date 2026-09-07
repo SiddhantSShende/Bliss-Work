@@ -49,7 +49,6 @@ COPY packages/shared/package.json    packages/shared/
 COPY packages/ui/package.json        packages/ui/
 COPY apps/web/package.json           apps/web/
 COPY apps/desktop/package.json       apps/desktop/
-COPY apps/extension/package.json     apps/extension/
 # @taskboard/graph-gw is a workspace too (it imports @taskboard/shared, which
 # is what keeps its schema and the REST contract from drifting). Its manifest
 # must be present or `npm ci` cannot resolve the tree — even though the web

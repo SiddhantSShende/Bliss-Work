@@ -131,15 +131,9 @@ export type TimelinePage = z.infer<typeof TimelinePage>;
 
 /**
  * One `user_sessions` row — a signed-in CLIENT INSTANCE (login presence,
- * active/idle time, device label). Despite the name, this is NOT the
- * desktop+browser correlated "Chrome, showing YouTube" record — that is
- * `ActivitySessionEntryDTO` below, a deliberately different name for a
- * deliberately different table (`activity_sessions`, built by telemetry-svc's
- * sessionizer.py). The naming is unfortunate and predates the second table;
- * kept as-is here rather than renamed, since renaming would break every
- * existing caller (MemberSessions.tsx, ExportActivityDialog.tsx,
- * xlsxTelemetry.ts) for a cosmetic fix — flagged here so nobody reaches for
- * this type expecting a merged app+site record and gets confused fields.
+ * active/idle time, device label). Not to be confused with `ActiveSessionDTO`
+ * below (auth-svc's authenticated sign-in sessions) despite the similar
+ * name — see that type's own doc comment for the distinction.
  */
 export const ActivitySessionDTO = z.object({
   id: z.string(),
@@ -185,46 +179,6 @@ export const ActiveSessionDTO = z.object({
   approxLocation: z.string().nullable().default(null),
 });
 export type ActiveSessionDTO = z.infer<typeof ActiveSessionDTO>;
-
-/**
- * One `activity_sessions` row — the CORRELATED desktop+browser record
- * telemetry-svc's sessionizer.py builds: a desktop `app.focus` span merged
- * with the browser `site.visit` span that overlapped it, or either span
- * standing alone when only one sensor reported. This is the unified
- * activity/session model member-facing UI should read FROM, rather than
- * re-deriving the same merge client-side from raw `TimelineEntry` rows (see
- * activityLabels.ts's `collapseSwitches`, which predates this endpoint and
- * remains a client-side best-effort fallback, not the source of truth).
- *
- * See `ActivitySessionDTO` above for why this is a differently-named type
- * rather than a fix to that name.
- */
-export const ActivitySessionEntryDTO = z.object({
-  id: z.string(),
-  /** 'app' | 'site' | 'app+site' — which sensor(s) contributed. */
-  kind: z.string(),
-  appName: z.string().nullable().default(null),
-  domain: z.string().nullable().default(null),
-  title: z.string().nullable().default(null),
-  startedAt: z.string(),
-  endedAt: z.string(),
-  durationMs: z.number().default(0),
-  /** Decrypted server-side: url, siteKind, siteRef, from — the same shape
-   *  TimelineEntry.detail already carries. */
-  detail: z.record(z.string()).nullable().default(null),
-  /** The activity_events rows this session was built from — see
-   *  activityLabels.ts's sessionEntryFor for why matching on these rather
-   *  than on startedAt is what makes the lookup immune to clock skew. */
-  anchorEventId: z.string().nullable().default(null),
-  correlatedEventId: z.string().nullable().default(null),
-});
-export type ActivitySessionEntryDTO = z.infer<typeof ActivitySessionEntryDTO>;
-
-export const ActivitySessionEntryPage = z.object({
-  sessions: z.array(ActivitySessionEntryDTO),
-  nextCursor: z.string().nullable().default(null),
-});
-export type ActivitySessionEntryPage = z.infer<typeof ActivitySessionEntryPage>;
 
 export const DayBucket = z.object({
   day: z.string(),
@@ -288,25 +242,6 @@ export const ActivityExportRow = z.object({
   topSite: z.string().nullable().default(null),
 });
 export type ActivityExportRow = z.infer<typeof ActivityExportRow>;
-
-/** A paired activity agent — this person's desktop app or browser extension.
- *  The secret itself is never in this shape; it exists once, in the response
- *  that mints it. */
-export const AgentTokenDTO = z.object({
-  id: z.string(),
-  kind: z.string(),
-  label: z.string().default(""),
-  createdAt: z.string().nullable().default(null),
-  lastUsedAt: z.string().nullable().default(null),
-  // Distinct from lastUsedAt on purpose: lastSeenAt also moves on a plain
-  // status ping, so it can be true ("the credential still works") before the
-  // agent has ever sent real activity — see agent.py's report_status.
-  lastSeenAt: z.string().nullable().default(null),
-  agentVersion: z.string().nullable().default(null),
-  platform: z.string().nullable().default(null),
-  expiresAt: z.string().nullable().default(null),
-});
-export type AgentTokenDTO = z.infer<typeof AgentTokenDTO>;
 
 /** One organization the signed-in identity belongs to — for the org switcher.
  *  A single email/password can span multiple orgs; `active` marks the current one. */

@@ -15,8 +15,6 @@ import { Palette, MoreVertical, Check, Bell, BellOff, Info, RefreshCw, Eye, Shie
 import { toast } from "sonner";
 import { Button, PageHeader, useTheme, THEMES, themeClasses, themeName, type ThemeId } from "@taskboard/ui";
 import { Link } from "react-router-dom";
-import { DeviceActivitySettings } from "../features/DeviceActivitySettings";
-import { BrowserExtensionProvisioning } from "../features/BrowserExtensionProvisioning";
 import { BUILD_SHA } from "../lib/buildInfo";
 import { useRuntime } from "../lib/runtime";
 import { useGoBack } from "../lib/useGoBack";
@@ -97,14 +95,6 @@ export function Settings() {
               </Link>
             }
           />
-
-          {/* Desktop only — absent on web, where a browser cannot observe other
-              applications at all. */}
-          <DeviceActivitySettings />
-
-          {/* Desktop only — absent on web, where the browser IS the page
-              already and BrowserExtensionCTA (Login.tsx) covers this. */}
-          <BrowserExtensionProvisioning />
 
           <SettingRow
             icon={desktopNotifs ? <Bell size={18} /> : <BellOff size={18} />}

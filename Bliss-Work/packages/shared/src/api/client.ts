@@ -11,8 +11,6 @@ import {
   ActivityExportRow,
   ActiveSessionDTO,
   ActivitySessionPage,
-  ActivitySessionEntryPage,
-  AgentTokenDTO,
   ActivitySummaryDTO,
   AuditPage,
   AvailabilityDTO,
@@ -476,10 +474,7 @@ export class ApiClient {
       {}, TimelinePage,
     );
   }
-  /** `user_sessions` — login presence (device, active/idle time). NOT the
-   *  correlated app+site record; see `activitySessionEntries` for that, and
-   *  `ActivitySessionDTO`'s own doc comment for why the two are named
-   *  differently despite the similar method names. */
+  /** `user_sessions` — login presence (device, active/idle time). */
   activitySessions(userId: string, opts: { cursor?: string; limit?: number } = {}) {
     const q = new URLSearchParams();
     if (opts.cursor) q.set("cursor", opts.cursor);
@@ -489,21 +484,6 @@ export class ApiClient {
       this.cfg.telemetryBase,
       `/telemetry/members/${userId}/sessions${qs ? `?${qs}` : ""}`,
       {}, ActivitySessionPage,
-    );
-  }
-  /** `activity_sessions` — the CORRELATED desktop+browser record
-   *  ("Chrome, showing YouTube, 15:00-15:14" as one row) sessionizer.py
-   *  builds. This is the unified activity/session model the member timeline
-   *  reads from. See `ActivitySessionEntryDTO`'s doc comment. */
-  activitySessionEntries(userId: string, opts: { cursor?: string; limit?: number } = {}) {
-    const q = new URLSearchParams();
-    if (opts.cursor) q.set("cursor", opts.cursor);
-    if (opts.limit) q.set("limit", String(opts.limit));
-    const qs = q.toString();
-    return this.req(
-      this.cfg.telemetryBase,
-      `/telemetry/members/${userId}/activity-sessions${qs ? `?${qs}` : ""}`,
-      {}, ActivitySessionEntryPage,
     );
   }
   activitySummary(userId: string, range: { from?: string; to?: string } = {}) {
@@ -550,39 +530,6 @@ export class ApiClient {
 
   /** The org's tamper-evident audit trail, newest first. `before` is the
    *  `nextCursor` of the previous page. */
-  // ── activity agents (desktop sampler / browser extension) ───────────────────
-  /** Mint a pairing secret for one of YOUR OWN agents. The raw value is
-   *  returned exactly once and never again — losing it means minting another,
-   *  which is the correct cost for a credential that writes your activity.
-   *
-   *  `deviceKey` makes this safe to call automatically (e.g. right after
-   *  login) instead of only from an explicit "Connect" click: a repeat call
-   *  for the same device returns the existing row with `token: null` rather
-   *  than minting a second live secret. Omit it for today's manual
-   *  "Connect" buttons, which must keep minting a fresh token every time. */
-  createAgentToken(kind: "desktop" | "extension", label = "", deviceKey?: string) {
-    const q = new URLSearchParams({ kind });
-    if (label) q.set("label", label);
-    if (deviceKey) q.set("deviceKey", deviceKey);
-    return this.req(this.cfg.telemetryBase, `/telemetry/tokens?${q.toString()}`, {
-      method: "POST",
-    }, z.object({ id: z.string(), kind: z.string(), token: z.string().nullable() }));
-  }
-  listAgentTokens() {
-    return this.req(this.cfg.telemetryBase, "/telemetry/tokens", {}, z.array(AgentTokenDTO));
-  }
-  revokeAgentToken(id: string) {
-    return this.req<void>(this.cfg.telemetryBase, `/telemetry/tokens/${id}`, {
-      method: "DELETE",
-    });
-  }
-  // NOTE: reporting a status heartbeat (POST /telemetry/tokens/status) is
-  // deliberately NOT a method here. It is called with the agent's OWN
-  // X-Ingest-Token, not the signed-in member's session — this class always
-  // attaches the session bearer token via cfg.getToken() (see req() above),
-  // which is exactly what an agent must never hold. The desktop sampler and
-  // the extension background script call it with a plain fetch(), the same
-  // way they already call /telemetry/ingest/agent.
 
   // ── channel moderation ──────────────────────────────────────────────────────
   /** Members WITH roles, plus anyone blocked. A separate route from
