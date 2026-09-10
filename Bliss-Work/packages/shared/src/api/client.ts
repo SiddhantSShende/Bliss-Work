@@ -528,17 +528,33 @@ export class ApiClient {
     );
   }
 
-  /** The org's tamper-evident audit trail, newest first. `before` is the
-   *  `nextCursor` of the previous page. */
-
   // ── channel moderation ──────────────────────────────────────────────────────
   /** Members WITH roles, plus anyone blocked. A separate route from
-   *  `channelMembers()`, whose bare string[] the task dialog depends on. */
-  channelRoster(channelId: string) {
-    return this.req(
-      this.cfg.messagingBase, `/api/v1/channels/${channelId}/members/roster`,
-      {}, z.array(ChannelMemberDTO),
-    );
+   *  `channelMembers()`, whose bare string[] the task dialog depends on.
+   *
+   *  The moderation sheet renders the whole roster with no "load more" — it's
+   *  a full member-management view, not a feed — so this fetches every page
+   *  itself rather than exposing limit/offset like `openChannels()` does.
+   *  The server pages the members list and the blocked list INDEPENDENTLY
+   *  under the same limit/offset pair (see ChannelRoster's doc comment), so a
+   *  page can under-fill one side while still being full on the other; this
+   *  only stops once BOTH sides come back short of a full page. */
+  async channelRoster(channelId: string) {
+    const pageSize = 200; // mirrors the server's clampChannelPage ceiling
+    let offset = 0;
+    const all: ChannelMemberDTO[] = [];
+    for (;;) {
+      const page = await this.req(
+        this.cfg.messagingBase,
+        `/api/v1/channels/${channelId}/members/roster?limit=${pageSize}&offset=${offset}`,
+        {}, z.array(ChannelMemberDTO),
+      );
+      all.push(...page);
+      const blockedCount = page.filter((m) => m.blocked).length;
+      if (page.length - blockedCount < pageSize && blockedCount < pageSize) break;
+      offset += pageSize;
+    }
+    return all;
   }
   kickChannelMember(channelId: string, userId: string) {
     return this.req<void>(
@@ -567,6 +583,8 @@ export class ApiClient {
     );
   }
 
+  /** The org's tamper-evident audit trail, newest first. `before` is the
+   *  `nextCursor` of the previous page. */
   auditLog(opts: { before?: string; limit?: number; action?: string; targetId?: string } = {}) {
     const q = new URLSearchParams();
     if (opts.before) q.set("before", String(opts.before));

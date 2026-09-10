@@ -671,6 +671,12 @@ export function ChatThread({
         </div>
       ) : (
         <Composer
+          // Keyed on threadId: ChatThread is never remounted on a chat switch
+          // (DMView/ChannelView are unkeyed — see this component's own
+          // threadId doc comment), so without this a draft typed for one
+          // conversation would still be sitting in the box — and get sent —
+          // after switching to a different one.
+          key={threadId}
           onSend={onSend}
           onType={onType}
           onAttach={onAttach}

@@ -32,7 +32,17 @@ export const resolvers = {
       // user reference in this operation, so asking for people the page already
       // referenced costs nothing extra.
       const found = await ctx.loaders.usersById.loadMany(args.ids);
-      return found.filter((u): u is z.infer<typeof UserDTO> => u !== null && !(u instanceof Error));
+      // loadMany never rejects — a batch failure (the upstream call inside
+      // usersById's loader throwing) comes back as an Error entry per affected
+      // key instead of a rejected promise. Re-throwing it here, rather than
+      // filtering it out the way `null` (a real, resolved absence) is below,
+      // is what keeps "auth-svc is down" visibly distinct from "no such
+      // users" — silently defaulting to an empty/partial list is exactly the
+      // ambiguity upstream.ts's own doc comment says this gateway must never
+      // produce.
+      const firstError = found.find((u): u is Error => u instanceof Error);
+      if (firstError) throw firstError;
+      return found.filter((u): u is z.infer<typeof UserDTO> => u !== null);
     },
 
     async inboxPeers(

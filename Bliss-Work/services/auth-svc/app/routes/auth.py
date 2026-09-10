@@ -567,7 +567,7 @@ async def switch_org(
     dependencies=[Depends(enforce_origin)],
 )
 async def leave_org(
-    org_id: str, principal: Principal = Depends(get_principal)
+    request: Request, org_id: str, principal: Principal = Depends(get_principal)
 ) -> Response:
     """Leave one of the caller's own organizations — the counterpart to
     `/orgs/{org_id}/switch`, and like it, valid for any org the identity belongs
@@ -590,7 +590,10 @@ async def leave_org(
             raise HTTPException(
                 status.HTTP_403_FORBIDDEN, "cannot leave organizations"
             )
-        left_user_id = await leave_org_tx(conn, iid, org_id)
+        ip, user_agent, request_id = request_context(request)
+        left_user_id = await leave_org_tx(
+            conn, iid, org_id, ip=ip, user_agent=user_agent, request_id=request_id
+        )
     log.info("org_left", user_id=left_user_id, org_id=org_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

@@ -14,7 +14,7 @@ import os
 
 from .logging_setup import log
 
-_SERVICE_NAME = "task-svc"
+_SERVICE_NAME = "sticky-svc"
 
 
 def setup_tracing(app=None) -> None:

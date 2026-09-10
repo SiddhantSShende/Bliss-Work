@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Button } from "@taskboard/ui";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
+import { errorText } from "../lib/errorText";
 
 /**
  * Org-admin toggle for mandatory MFA. Turning it on does NOT lock anyone out
@@ -30,7 +31,7 @@ export function MfaPolicySection() {
           : "Two-factor authentication is no longer required",
       );
     },
-    onError: (e) => toast.error("Couldn't update the policy", { description: String(e) }),
+    onError: (e) => toast.error("Couldn't update the policy", { description: errorText(e) }),
   });
 
   if (isLoading || !data) return null;

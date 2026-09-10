@@ -72,12 +72,12 @@ def IMAGES = [
     'messaging-svc': [
         context   : '.',
         dockerfile: 'services/messaging-svc/Dockerfile',
-        paths     : ['services/messaging-svc/', 'services/shared/kafkaauth/']
+        paths     : ['services/messaging-svc/', 'services/shared/kafkaauth/', 'services/shared/internalauth/', 'services/shared/jwtauth/']
     ],
     'notification-svc': [
         context   : '.',
         dockerfile: 'services/notification-svc/Dockerfile',
-        paths     : ['services/notification-svc/', 'services/shared/kafkaauth/']
+        paths     : ['services/notification-svc/', 'services/shared/kafkaauth/', 'services/shared/jwtauth/']
     ],
     // Durable record of which task notes belong on which desktop.
     'sticky-svc': [
@@ -97,7 +97,7 @@ def IMAGES = [
     'ws-gateway': [
         context   : '.',
         dockerfile: 'services/ws-gateway/Dockerfile',
-        paths     : ['services/ws-gateway/', 'services/shared/kafkaauth/']
+        paths     : ['services/ws-gateway/', 'services/shared/kafkaauth/', 'services/shared/backoff/', 'services/shared/internalauth/']
     ],
     // Cross-region replication (docs/CROSS-REGION.md). Built here so CI keeps
     // the image current, but NOT part of docker-compose.prod.yml's default
@@ -106,9 +106,9 @@ def IMAGES = [
     // relevant commit costs nothing and means it isn't stale the day it is
     // needed.
     'region-bridge': [
-        context   : 'services/region-bridge',
+        context   : '.',
         dockerfile: 'services/region-bridge/Dockerfile',
-        paths     : ['services/region-bridge/']
+        paths     : ['services/region-bridge/', 'services/shared/backoff/', 'services/shared/kafkaauth/']
     ],
     // Careful: the compose SERVICE is called `caddy`, but the IMAGE is
     // `caddy-waf`. The name here must match the image, not the service.
@@ -619,6 +619,21 @@ pipeline {
                 ]) {
                     script {
                         changedImages.each { image ->
+                            sh """
+                                set -e
+                                curl -fsSL -u "\${REGISTRY_USER}:\${REGISTRY_PASS}" \
+                                    ${env.REGISTRY_SCHEME}://${env.REGISTRY}/v2/${env.NAMESPACE}/${image}/tags/list \
+                                | grep -q '"${env.IMAGE_TAG}"'
+
+                                echo "Found in registry: ${image}:${env.IMAGE_TAG}"
+                            """
+                        }
+
+                        // Unchanged images were pushed too (Push Images, above) — just
+                        // the :<sha>/:b<number> tags, not :latest. A silent push
+                        // failure for one of them is otherwise only discovered at
+                        // deploy, when deploy-prod.sh's "compose pull" can't find it.
+                        unchangedImages.each { image ->
                             sh """
                                 set -e
                                 curl -fsSL -u "\${REGISTRY_USER}:\${REGISTRY_PASS}" \

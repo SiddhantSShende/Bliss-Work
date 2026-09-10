@@ -93,25 +93,13 @@ func (s *Store) DeliverInboundMail(ctx context.Context, in InboundMailInput) (st
 		}
 
 		preview := mailPreview(in.Subject, in.BodyText)
-		for _, uid := range locals {
-			if _, err := tx.Exec(ctx, `
-				INSERT INTO mail_deliveries (mail_id, owner_user_id, org_id, folder)
-				VALUES ($1, $2, $3, 'INBOX')
-				ON CONFLICT (mail_id, owner_user_id) DO NOTHING`,
-				mailID, uid, in.OrgID); err != nil {
-				return err
-			}
-			// peer_user_id stays NULL: the sender has no account here, so there
-			// is no person in the directory for the People sidebar to file this
-			// under. The row still appears in the "All" feed, which is where an
-			// external mail belongs.
-			if err := s.upsertMailInboxItem(ctx, tx, mailInboxItem{
-				orgID: in.OrgID, ownerUserID: uid, mailID: mailID,
-				peerUserID: nil, preview: preview, statusBadge: nil,
-				lastEventAt: in.SentAt, incUnread: 1,
-			}); err != nil {
-				return err
-			}
+		// peer_user_id stays NULL: the sender has no account here, so there is
+		// no person in the directory for the People sidebar to file this under.
+		// The row still appears in the "All" feed, which is where an external
+		// mail belongs.
+		if err := s.deliverMailToOwners(ctx, tx, in.OrgID, mailID, locals,
+			nil, preview, nil, in.SentAt, 1); err != nil {
+			return err
 		}
 		delivered = len(locals)
 

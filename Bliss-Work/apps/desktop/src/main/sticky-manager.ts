@@ -271,7 +271,11 @@ export class StickyManager {
       ];
     }
     // New pin — enforce the on-screen cap (count tasks that already float).
-    const floatingCount = selectFloatingTasks(this.tasks, getPinned(), -1).length;
+    // Same set autopinActionable/reconcile count against — see visiblePinned's
+    // doc: counting the raw pinned set would let notes hidden this run keep
+    // occupying slots under the cap, so a manual pin could be refused with
+    // "limit" even though fewer than MAX_WIDGETS notes are actually on screen.
+    const floatingCount = selectFloatingTasks(this.tasks, this.visiblePinned(), -1).length;
     if (!canAcceptNewPin(floatingCount, MAX_WIDGETS)) {
       return { ok: false, reason: "limit", pinned: getPinned() };
     }

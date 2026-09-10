@@ -68,6 +68,8 @@ async def list_app_credentials(principal: Principal = PrincipalDep) -> list[AppC
 async def put_app_credentials(
     vendor: str, body: AppCredentialIn, principal: Principal = PrincipalDep
 ) -> AppCredentialOut:
+    if "org_admin" not in principal.roles:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="org_admin role required")
     _require_vendor(vendor)
 
     client_id = body.clientId.strip()
@@ -124,6 +126,8 @@ async def put_app_credentials(
 
 @router.delete("/integrations/app-credentials/{vendor}")
 async def delete_app_credentials(vendor: str, principal: Principal = PrincipalDep) -> Response:
+    if "org_admin" not in principal.roles:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="org_admin role required")
     _require_vendor(vendor)
     async with session() as db:
         await set_org_context(db, principal.org_id)

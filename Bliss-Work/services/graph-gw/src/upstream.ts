@@ -163,69 +163,84 @@ export class Upstream {
     const stopTimer = this.opts.metrics?.upstreamDuration.startTimer({ service });
 
     // A stalled connection must not pin the resolver — and with it the whole
-    // query — open until the client gives up.
+    // query — open until the client gives up. The deadline has to cover the
+    // BODY read too, not just headers: fetch() resolves as soon as headers
+    // arrive, so a timer cleared right after it would let a backend that
+    // stalls or trickles the body hang the resolver indefinitely. It stays
+    // armed until every body-reading branch below (success, non-ok error
+    // envelope, malformed JSON) has finished.
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.cfg.upstreamTimeoutMs);
-    let res: Response;
     try {
-      res = await this.fetchImpl(`${base}${path}`, {
-        method: "GET",
-        headers: {
-          accept: "application/json",
-          authorization: caller.authorization,
-          // The inbound trace headers and x-request-id, then the live trace
-          // context on top — see the tracing note at the top of this file.
-          ...caller.forwarded,
-          ...traceHeaders(),
-        },
-        signal: controller.signal,
-      });
-    } catch (cause) {
-      breaker.recordFailure();
-      stopTimer?.();
-      const timedOut = controller.signal.aborted;
-      this.opts.metrics?.upstreamCalls.inc({
-        service,
-        outcome: timedOut ? "timeout" : "unreachable",
-      });
-      this.opts.log?.warn("upstream_failed", {
-        service,
-        path,
-        reason: timedOut ? "timeout" : "unreachable",
-        error: String(cause),
-      });
-      throw upstreamError(
-        timedOut ? "gateway_timeout" : "service_unavailable",
-        timedOut ? `${service} timed out` : `${service} is unreachable`,
-        service,
-      );
+      let res: Response;
+      try {
+        res = await this.fetchImpl(`${base}${path}`, {
+          method: "GET",
+          headers: {
+            accept: "application/json",
+            authorization: caller.authorization,
+            // The inbound trace headers and x-request-id, then the live trace
+            // context on top — see the tracing note at the top of this file.
+            ...caller.forwarded,
+            ...traceHeaders(),
+          },
+          signal: controller.signal,
+        });
+      } catch (cause) {
+        breaker.recordFailure();
+        stopTimer?.();
+        const timedOut = controller.signal.aborted;
+        this.opts.metrics?.upstreamCalls.inc({
+          service,
+          outcome: timedOut ? "timeout" : "unreachable",
+        });
+        this.opts.log?.warn("upstream_failed", {
+          service,
+          path,
+          reason: timedOut ? "timeout" : "unreachable",
+          error: String(cause),
+        });
+        throw upstreamError(
+          timedOut ? "gateway_timeout" : "service_unavailable",
+          timedOut ? `${service} timed out` : `${service} is unreachable`,
+          service,
+        );
+      }
+
+      if (!res.ok) {
+        // 4xx is the caller's fault and says nothing about the service's health,
+        // so it must not push the breaker toward open. Only 5xx counts.
+        if (res.status >= 500) breaker.recordFailure();
+        else breaker.recordSuccess();
+        stopTimer?.();
+        this.opts.metrics?.upstreamCalls.inc({ service, outcome: `http_${res.status}` });
+        this.opts.log?.warn("upstream_status", { service, path, status: res.status });
+        throw upstreamError(httpStatusToCode(res.status), await errorMessage(res, service), service);
+      }
+
+      breaker.recordSuccess();
+      try {
+        const body = (await res.json()) as T;
+        stopTimer?.();
+        this.opts.metrics?.upstreamCalls.inc({ service, outcome: "ok" });
+        return body;
+      } catch (cause) {
+        // The deadline can also fire while the body is still streaming in —
+        // aborting a Response mid-read rejects res.json() the same way an
+        // aborted fetch() rejects above, so it gets the same classification.
+        const timedOut = controller.signal.aborted;
+        breaker.recordFailure();
+        stopTimer?.();
+        this.opts.metrics?.upstreamCalls.inc({ service, outcome: timedOut ? "timeout" : "malformed" });
+        if (timedOut) {
+          this.opts.log?.warn("upstream_failed", { service, path, reason: "timeout", error: String(cause) });
+          throw upstreamError("gateway_timeout", `${service} timed out`, service);
+        }
+        this.opts.log?.error("upstream_malformed_json", { service, path });
+        throw upstreamError("internal_error", `${service} returned malformed JSON`, service);
+      }
     } finally {
       clearTimeout(timer);
-    }
-
-    if (!res.ok) {
-      // 4xx is the caller's fault and says nothing about the service's health,
-      // so it must not push the breaker toward open. Only 5xx counts.
-      if (res.status >= 500) breaker.recordFailure();
-      else breaker.recordSuccess();
-      stopTimer?.();
-      this.opts.metrics?.upstreamCalls.inc({ service, outcome: `http_${res.status}` });
-      this.opts.log?.warn("upstream_status", { service, path, status: res.status });
-      throw upstreamError(httpStatusToCode(res.status), await errorMessage(res, service), service);
-    }
-
-    breaker.recordSuccess();
-    try {
-      const body = (await res.json()) as T;
-      stopTimer?.();
-      this.opts.metrics?.upstreamCalls.inc({ service, outcome: "ok" });
-      return body;
-    } catch {
-      breaker.recordFailure();
-      stopTimer?.();
-      this.opts.metrics?.upstreamCalls.inc({ service, outcome: "malformed" });
-      this.opts.log?.error("upstream_malformed_json", { service, path });
-      throw upstreamError("internal_error", `${service} returned malformed JSON`, service);
     }
   }
 }

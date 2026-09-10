@@ -9,7 +9,7 @@ export const SITE = {
   company: "AEIV Global Private Limited",
   /** Hosted web app — opened by the "Operate with Browser" CTA. */
   webApp: "https://communication.rnrtechs.com",
-  year: 2026,
+  year: new Date().getFullYear(),
 } as const;
 
 export interface NavLink {

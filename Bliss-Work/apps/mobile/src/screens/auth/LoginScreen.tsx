@@ -9,13 +9,14 @@ import { syncRefreshTokenFromJar } from '../../services/authCookie';
 import { Button } from '../../components/Button';
 import { TextField } from '../../components/TextField';
 import { CaptchaField } from '../../components/CaptchaField';
-import { colors } from '../../constants/theme';
 import type { AuthStackParamList } from '../../navigation/types';
+import { useThemeColors } from '../../theme/ThemeProvider';
 import { AuthScreenLayout } from './AuthScreenLayout';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Login'>;
 
 export function LoginScreen({ navigation }: Props) {
+  const colors = useThemeColors();
   const { api } = useRuntime();
   const setSession = useSession((s) => s.setSession);
   const [busy, setBusy] = useState(false);

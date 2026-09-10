@@ -8,7 +8,7 @@
 #
 # Tokens expire in 900s, so re-run this immediately before a run and keep runs
 # comfortably under 15 minutes.
-set -uo pipefail
+set -Eeuo pipefail
 
 AUTH="${AUTH_BASE:-http://127.0.0.1:8001}"
 ORIGIN="${ORIGIN:-http://localhost:5173}"
@@ -17,6 +17,11 @@ USERS="${1:-users-ws.json}"
 OUT="${2:-tokens.json}"
 
 tmp=$(mktemp -d)
+# Created up front, not just appended to on success: if EVERY login fails,
+# nothing ever appends to it, and reading a nonexistent file below would
+# crash the python3 step outright — zero successes is a valid, if alarming,
+# outcome, not a script bug.
+touch "$tmp/tokens"
 python3 -c "import json,sys;[print(e) for e in json.load(open('$USERS'))]" > "$tmp/emails"
 total=$(wc -l < "$tmp/emails")
 echo "minting ${total} tokens ..." >&2
@@ -28,7 +33,12 @@ nl -ba "$tmp/emails" | xargs -P 20 -n 2 sh -c '
     -H "X-Forwarded-For: 198.51.$((i / 250)).$((i % 250 + 1))" \
     -d "{\"email\":\"${email}\",\"password\":\"'"$PASSWORD"'\"}" \
     | sed -n "s/.*\"accessToken\":\"\([^\"]*\)\".*/\1/p")
-  [ -n "$tok" ] && echo "$tok" >> "'"$tmp"'/tokens"
+  # `|| true`: a failed login for ONE account (bad/expired credentials, a
+  # rate limit, a transient 5xx) must not read as this subshell failing —
+  # xargs would then exit non-zero the moment ANY of potentially hundreds of
+  # accounts fails, and with pipefail that takes the whole script down before
+  # tokens.json is ever written, discarding every token minted so far.
+  [ -n "$tok" ] && echo "$tok" >> "'"$tmp"'/tokens" || true
 ' 2>/dev/null
 
 python3 - "$tmp/tokens" "$OUT" <<'PY'

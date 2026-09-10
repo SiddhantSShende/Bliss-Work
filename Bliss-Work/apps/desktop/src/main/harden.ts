@@ -1,5 +1,5 @@
 import { shell, type BrowserWindow, type WebContents } from "electron";
-import { resolve } from "node:path";
+import { resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { safeExternalUrl } from "../shared/external-url";
 import { applyContentProtection, watchCaptureKeys } from "./screenshot-guard";
@@ -77,11 +77,26 @@ function isOwnContent(url: string): boolean {
     } catch {
       return false;
     }
-    return resolve(path).startsWith(resolve(RENDERER_DIR));
+    // A bare startsWith on the resolved strings would also pass a sibling
+    // directory that merely shares this prefix (e.g. a hypothetical
+    // "renderer-something/") — require the match to land exactly on RENDERER_DIR
+    // itself or on a real path-separator boundary under it.
+    const base = resolve(RENDERER_DIR);
+    const target = resolve(path);
+    return target === base || target.startsWith(base + sep);
   }
 
   const devUrl = process.env.ELECTRON_RENDERER_URL;
-  if (devUrl && url.startsWith(devUrl)) return true;
+  if (devUrl) {
+    // Compare origins, not a string prefix: a bare startsWith would let
+    // http://localhost:51730 pass for a dev server on http://localhost:5173,
+    // the same class of bug the file: branch above was hardened against.
+    try {
+      if (parsed.origin === new URL(devUrl).origin) return true;
+    } catch {
+      // malformed ELECTRON_RENDERER_URL — fall through to reject.
+    }
+  }
   return false;
 }
 

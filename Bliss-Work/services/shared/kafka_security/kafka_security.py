@@ -114,13 +114,3 @@ def kafka_security_kwargs() -> dict[str, Any]:
         # network with its own transport security, a mistake anywhere else.
         kwargs.update(_sasl_kwargs())
     return kwargs
-
-
-def validate_kafka_security() -> str:
-    """Check the configuration at startup and return the protocol in use.
-
-    Call this before building any client, so a deployment mistake stops the
-    process instead of surfacing later as an unexplained connection failure.
-    """
-    kafka_security_kwargs()
-    return _protocol()

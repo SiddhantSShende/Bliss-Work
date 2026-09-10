@@ -81,7 +81,9 @@ let wsRestartTimer: NodeJS.Timeout | null = null;
 // notifier.userIdFromToken, which is explicit that this is not authentication.
 let sessionUserId: string | null = null;
 const sticky = new StickyManager();
-const chatSticky = new ChatStickyManager();
+const chatSticky = new ChatStickyManager((threadId) => {
+  wsProc?.postMessage({ type: "sticky-chat-unsubscribe", threadId });
+});
 const meetingInvite = new MeetingInviteManager();
 const meetingWindows = new MeetingWindowManager();
 // So the main window's status pill (see the meeting-window:status/closed
@@ -504,6 +506,36 @@ function isChatStickyBootstrap(v: unknown): v is ChatStickyBootstrap {
   );
 }
 
+/** Runtime validation for the sticky-chat:send IPC payload — same reasoning
+ *  as isChatStickyBootstrap: a renderer (or a compromised one) must not be
+ *  able to drive an outbound message send with a malformed object. threadId
+ *  and clientMsgId are ids and must be non-empty; body just needs to be a
+ *  real string (an empty message is the composer's call, not this guard's). */
+function isChatStickySend(v: unknown): v is { threadId: string; body: string; clientMsgId: string } {
+  if (!v || typeof v !== "object") return false;
+  const b = v as Record<string, unknown>;
+  return (
+    typeof b.threadId === "string" &&
+    b.threadId.length > 0 &&
+    typeof b.body === "string" &&
+    typeof b.clientMsgId === "string" &&
+    b.clientMsgId.length > 0
+  );
+}
+
+/** Runtime validation for the task:intent IPC payload — same reasoning as
+ *  isChatStickyBootstrap: this is forwarded straight into ws-process.ts's
+ *  `api.taskAction(taskId, action)`, so a malformed object must not reach it. */
+function isTaskIntent(v: unknown): v is { taskId: string; action: "acknowledge" | "complete" | "ignore" | "leave" } {
+  if (!v || typeof v !== "object") return false;
+  const b = v as Record<string, unknown>;
+  return (
+    typeof b.taskId === "string" &&
+    b.taskId.length > 0 &&
+    (b.action === "acknowledge" || b.action === "complete" || b.action === "ignore" || b.action === "leave")
+  );
+}
+
 // ── IPC from the main renderer ────────────────────────────────────────────────
 // Open a URL in the user's DEFAULT browser — used for handoffs like the
 // WhatsApp forward link and map links, which have no business opening inside
@@ -611,7 +643,11 @@ ipcMain.handle("notifications:set-desktop-enabled", (e, enabled: unknown) => {
   notificationPrefs.setDesktopEnabled(enabled === true);
 });
 
-ipcMain.on("task:intent", (_e, intent: { taskId: string; action: string }) => {
+ipcMain.on("task:intent", (_e, intent: unknown) => {
+  if (!isTaskIntent(intent)) {
+    console.error("[sticky] task:intent ignored — invalid payload");
+    return;
+  }
   wsProc?.postMessage({ type: "intent", ...intent });
 });
 // Pin an acknowledged task to the desktop as a locked sticky note. Returns the
@@ -721,7 +757,8 @@ ipcMain.on("sticky:pin-chat", (_e, boot: unknown) => {
   // sticky pipeline (it filters before posting back).
   wsProc?.postMessage({ type: "sticky-chat-subscribe", threadId: boot.threadId });
 });
-ipcMain.on("sticky:unpin-chat", (_e, threadId: string) => {
+ipcMain.on("sticky:unpin-chat", (_e, threadId: unknown) => {
+  if (typeof threadId !== "string" || !threadId) return;
   chatSticky.unpin(threadId);
   wsProc?.postMessage({ type: "sticky-chat-unsubscribe", threadId });
 });
@@ -737,13 +774,15 @@ ipcMain.on("sticky-chat:ready", (_e, threadId: unknown) => {
 });
 
 // IPC originating from a sticky-chat window itself.
-ipcMain.on(
-  "sticky-chat:send",
-  (_e, p: { threadId: string; body: string; clientMsgId: string }) => {
-    wsProc?.postMessage({ type: "send-dm", ...p });
-  },
-);
-ipcMain.on("sticky-chat:unpin", (_e, threadId: string) => {
+ipcMain.on("sticky-chat:send", (_e, p: unknown) => {
+  if (!isChatStickySend(p)) {
+    console.error("[sticky] sticky-chat:send ignored — invalid payload");
+    return;
+  }
+  wsProc?.postMessage({ type: "send-dm", ...p });
+});
+ipcMain.on("sticky-chat:unpin", (_e, threadId: unknown) => {
+  if (typeof threadId !== "string" || !threadId) return;
   chatSticky.unpin(threadId);
   wsProc?.postMessage({ type: "sticky-chat-unsubscribe", threadId });
 });

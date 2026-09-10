@@ -344,10 +344,12 @@ server-side rate limits and audit log once IPC actions hit the API.
 
 ## 7. Cross-cutting controls & verification
 
-- **Supply chain (Tampering/Disclosure of the build):** CI runs CodeQL
-  (`.github/workflows/codeql.yml`), Semgrep + gitleaks + SBOM/syft
-  (`.github/workflows/security-extra.yml`), and Trivy/grype/govulncheck/pip-audit
-  (`.github/workflows/ci.yml`). See [`COMPLIANCE.md`](./COMPLIANCE.md) for the
+- **Supply chain (Tampering/Disclosure of the build):** CI runs CodeQL, manual
+  `workflow_dispatch` only pending a paid GitHub Code Security licence
+  (`.github/workflows/codeql.yml`), Semgrep + gitleaks + SBOM/syft on every
+  push/PR (`.github/workflows/security-extra.yml`), and
+  Trivy/govulncheck/pip-audit (`.github/workflows/ci.yml`). See
+  [`COMPLIANCE.md`](./COMPLIANCE.md) §5 for the
   evidence matrix.
 - **Cross-org isolation proof:** `scripts/security-authz.ts` asserts the
   IDOR/RLS claims above, and is one entry in a broader CI coverage table (not

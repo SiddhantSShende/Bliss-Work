@@ -1,5 +1,3 @@
-import { NavLink } from "react-router-dom";
-import { motion } from "framer-motion";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileEdit, Loader2, Paperclip, Trash2 } from "lucide-react";
 import { EmptyState } from "@taskboard/ui";
@@ -9,6 +7,7 @@ import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { errorText } from "../lib/errorText";
 import { listTime, splitMailPreview } from "../lib/mailView";
+import { MailListRow } from "./MailListRow";
 
 /**
  * The Drafts folder's message column.
@@ -106,72 +105,55 @@ function DraftRow({
         : `${draft.to[0]} + ${draft.to.length - 1} more`;
 
   return (
-    <NavLink
-      to={{ pathname: `/app/mail/compose/${draft.mailId}`, search }}
-      className={({ isActive }) =>
-        `group relative block rounded-xl px-3 py-3 transition-colors ${
-          isActive
-            ? "bg-accent-soft ring-1 ring-accent/20"
-            : "after:absolute after:inset-x-3 after:bottom-0 after:h-px after:bg-border/45 after:transition-opacity hover:bg-surface-2/70 hover:after:opacity-0"
-        }`
-      }
-    >
-      <motion.div
-        layout
-        initial={{ opacity: 0, y: 4 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.14 }}
-        className="flex items-start gap-3"
-      >
-        {/* Where the feed rows put the unread dot. Kept empty so the drafts
-            column lines up with every other folder rather than sitting 8px to
-            the left of them. */}
-        <span aria-hidden className="mt-3.5 h-2 w-2 shrink-0" />
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-2 text-muted">
-          <FileEdit size={16} />
-        </div>
+    <MailListRow to={{ pathname: `/app/mail/compose/${draft.mailId}`, search }}>
+      {/* Where the feed rows put the unread dot. Kept empty so the drafts
+          column lines up with every other folder rather than sitting 8px to
+          the left of them. */}
+      <span aria-hidden className="mt-3.5 h-2 w-2 shrink-0" />
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-2 text-muted">
+        <FileEdit size={16} />
+      </div>
 
-        <div className="min-w-0 flex-1">
-          <div className="flex items-baseline justify-between gap-2">
-            <span
-              className={`truncate text-sm font-medium ${
-                draft.to.length === 0 ? "italic text-muted" : "text-fg/90"
-              }`}
-              title={draft.to.join(", ")}
-            >
-              {addressed}
-            </span>
-            <span className="shrink-0 text-[11px] tabular-nums text-muted">
-              {listTime(draft.updatedAt)}
-            </span>
-          </div>
-
-          <div className="mt-0.5 truncate text-[13px] text-fg/80">{subject || "(no subject)"}</div>
-          {snippet && <div className="mt-0.5 truncate text-xs text-muted">{snippet}</div>}
-
-          {draft.attachmentCount > 0 && (
-            <div className="mt-1.5 inline-flex items-center gap-1 text-[10px] text-muted/80">
-              <Paperclip size={10} />
-              {draft.attachmentCount} {draft.attachmentCount === 1 ? "file" : "files"}
-            </div>
-          )}
-        </div>
-
-        <div className="flex shrink-0 items-center gap-0.5 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
-          <button
-            onClick={(e) => {
-              // The row is a link; the button inside it is not a navigation.
-              e.preventDefault();
-              onDiscard();
-            }}
-            title="Discard this draft — it has not been sent to anyone"
-            aria-label="Discard draft"
-            className="inline-flex items-center gap-1 rounded-lg p-1.5 text-[11px] font-medium text-muted transition-colors hover:bg-surface hover:text-danger"
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline justify-between gap-2">
+          <span
+            className={`truncate text-sm font-medium ${
+              draft.to.length === 0 ? "italic text-muted" : "text-fg/90"
+            }`}
+            title={draft.to.join(", ")}
           >
-            <Trash2 size={14} />
-          </button>
+            {addressed}
+          </span>
+          <span className="shrink-0 text-[11px] tabular-nums text-muted">
+            {listTime(draft.updatedAt)}
+          </span>
         </div>
-      </motion.div>
-    </NavLink>
+
+        <div className="mt-0.5 truncate text-[13px] text-fg/80">{subject || "(no subject)"}</div>
+        {snippet && <div className="mt-0.5 truncate text-xs text-muted">{snippet}</div>}
+
+        {draft.attachmentCount > 0 && (
+          <div className="mt-1.5 inline-flex items-center gap-1 text-[10px] text-muted/80">
+            <Paperclip size={10} />
+            {draft.attachmentCount} {draft.attachmentCount === 1 ? "file" : "files"}
+          </div>
+        )}
+      </div>
+
+      <div className="flex shrink-0 items-center gap-0.5 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
+        <button
+          onClick={(e) => {
+            // The row is a link; the button inside it is not a navigation.
+            e.preventDefault();
+            onDiscard();
+          }}
+          title="Discard this draft — it has not been sent to anyone"
+          aria-label="Discard draft"
+          className="inline-flex items-center gap-1 rounded-lg p-1.5 text-[11px] font-medium text-muted transition-colors hover:bg-surface hover:text-danger"
+        >
+          <Trash2 size={14} />
+        </button>
+      </div>
+    </MailListRow>
   );
 }

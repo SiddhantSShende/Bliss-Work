@@ -103,29 +103,24 @@ async def open_or_touch(
     The caller owns the transaction and has already set the org RLS context.
     """
     sid = session_id or str(uuid6.uuid7())
-    updated = await db.execute(
-        text(
-            """
-            UPDATE user_sessions
-               SET last_seen_at = GREATEST(last_seen_at, :at),
-                   active_ms    = active_ms + :active,
-                   idle_ms      = idle_ms + :idle
-             WHERE id = :id AND org_id = :org AND user_id = :uid AND ended_at IS NULL
-            """
-        ),
-        {"id": sid, "org": org_id, "uid": user_id, "at": at, "active": active_ms, "idle": idle_ms},
-    )
+    touch_params = {"id": sid, "org": org_id, "uid": user_id, "at": at, "active": active_ms, "idle": idle_ms}
+    updated = await db.execute(_TOUCH_SESSION, touch_params)
     if updated.rowcount:
         return sid
 
-    # No OPEN row. Two different situations, and they must not be conflated:
+    # No OPEN row. Three different situations, and they must not be conflated:
     #
-    #   * the very first beat of a new client        -> insert with this id
-    #   * a client whose session the sweeper closed  -> the id is TAKEN by a
-    #     closed row, so the insert conflicts and does nothing. Reusing the id
-    #     would silently drop every further beat that client sends; reviving the
-    #     closed row would erase the gap, which is the very fact the record
-    #     exists to show. So it gets a NEW session, and the ack hands the id back
+    #   * the very first beat of a new client          -> insert with this id
+    #   * a concurrent beat for the SAME not-yet-created session_id won the
+    #     insert race below, between our UPDATE (above) finding nothing and
+    #     our INSERT running -> our INSERT conflicts, but the winner's row is
+    #     open, so the retried touch (below) lands on it and adopts it.
+    #   * a client whose session the sweeper closed    -> the id is TAKEN by a
+    #     closed row, so the insert conflicts AND the retried touch matches
+    #     nothing (ended_at is already set). Reusing the id would silently
+    #     drop every further beat that client sends; reviving the closed row
+    #     would erase the gap, which is the very fact the record exists to
+    #     show. So it gets a NEW session, and the ack hands the id back
     #     for the client to adopt.
     c = cryptor()
     ip_enc = await c.encrypt(db, org_id, ip)
@@ -140,9 +135,29 @@ async def open_or_touch(
     if inserted.rowcount:
         return sid
 
+    # Someone else's INSERT won the id we chose. Retry the touch against
+    # whatever is there now: if it's the concurrent-beat case, their row is
+    # open and this lands on it (no new session minted, no beat dropped); if
+    # it's the sweeper-closed case, ended_at is already set, this matches
+    # nothing, and we fall through to mint a new session exactly as before.
+    retried = await db.execute(_TOUCH_SESSION, touch_params)
+    if retried.rowcount:
+        return sid
+
     sid = str(uuid6.uuid7())
     await db.execute(_INSERT_SESSION, {**params, "id": sid})
     return sid
+
+
+_TOUCH_SESSION = text(
+    """
+    UPDATE user_sessions
+       SET last_seen_at = GREATEST(last_seen_at, :at),
+           active_ms    = active_ms + :active,
+           idle_ms      = idle_ms + :idle
+     WHERE id = :id AND org_id = :org AND user_id = :uid AND ended_at IS NULL
+    """
+)
 
 
 _INSERT_SESSION = text(

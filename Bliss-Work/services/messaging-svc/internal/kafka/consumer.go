@@ -88,6 +88,15 @@ func (c *AuthConsumer) Run(ctx context.Context) {
 				return
 			}
 			c.log.Error("auth consumer read failed", "err", err)
+			// Same 1s backoff every other consumer in this codebase uses on a
+			// FetchMessage error (see ws-gateway/internal/fanout/fanout.go's
+			// Consumer.Run) — without it, a Kafka outage turns this into a
+			// tight busy-loop that also floods the logs for its duration.
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(time.Second):
+			}
 			continue
 		}
 		msgCtx, span := startConsumeSpan(ctx, m)

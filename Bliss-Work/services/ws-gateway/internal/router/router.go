@@ -22,7 +22,6 @@ import (
 	"encoding/json"
 	"log/slog"
 	"sync"
-	"time"
 
 	"github.com/task-board/ws-gateway/internal/contract"
 	"github.com/task-board/ws-gateway/internal/metrics"
@@ -100,9 +99,13 @@ func (r *Router) Route(ctx context.Context, raw []byte) {
 	// still written into every member's outbox, which is O(N²) in roster size.
 	// Both fan-out modes need this, which is why it lives in contract.
 	payload := contract.DeliveryPayload(raw)
+	// The outbox may store a smaller reference instead (message.created only —
+	// see contract.TryCompact); pushAll below always sends the full `payload`
+	// to sockets, never the outbox copy — a socket has no reconstruction step.
+	outboxPayload := contract.TryCompact(&ev, payload)
 
 	// 1. Durability. One pipelined write for the whole recipient list.
-	err := r.store.AppendOutboxMulti(ctx, recipients, epochMs(ev.OccurredAt), payload)
+	err := r.store.AppendOutboxMulti(ctx, recipients, contract.EpochMs(ev.OccurredAt), outboxPayload)
 	result := metrics.Result(err)
 	for range recipients {
 		metrics.FanoutOutboxWritesTotal.WithLabelValues(result).Inc()
@@ -218,20 +221,4 @@ func countRouted(nodesByUser map[string][]string, recipients []string) int {
 		}
 	}
 	return n
-}
-
-// epochMs converts an ISO-8601 UTC timestamp to epoch milliseconds. On parse
-// failure it falls back to the current time so the event still has a sane
-// replay score. Mirrors the broadcast consumer's helper — both paths must score
-// the outbox identically or a dual-run would order replay differently depending
-// on which path wrote the entry.
-func epochMs(occurredAt string) int64 {
-	if occurredAt == "" {
-		return time.Now().UTC().UnixMilli()
-	}
-	t, err := time.Parse(time.RFC3339Nano, occurredAt)
-	if err != nil {
-		return time.Now().UTC().UnixMilli()
-	}
-	return t.UTC().UnixMilli()
 }

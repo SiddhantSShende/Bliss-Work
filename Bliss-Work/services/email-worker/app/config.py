@@ -121,6 +121,21 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("WEB_ORIGIN", "web_origin"),
     )
 
+    # How many messages from one getmany() batch RelayConsumer processes at
+    # once. Bounded, not unbounded: without a cap, one message with a slow
+    # SMTP retry chain (Mailer.send retries internally for up to ~100s) or a
+    # slow provider send would otherwise share the SAME cap with every other
+    # in-flight message, so a single burst of slow sends can't starve the
+    # process's DB pool or the services it calls (auth-svc, messaging-svc,
+    # integrations-svc) the way an unbounded asyncio.gather over the whole
+    # 100-message batch would. Only RelayConsumer uses this — EmailWorker
+    # (invite/reset/verify) stays single-message-at-a-time on purpose: its
+    # _claim reclaim logic is documented as relying on that (see worker.py).
+    relay_max_concurrency: int = Field(
+        default=16,
+        validation_alias=AliasChoices("RELAY_MAX_CONCURRENCY", "relay_max_concurrency"),
+    )
+
     # SMTP. Defaults target Mailpit (local dev catcher, no auth/TLS). Set
     # SMTP_USERNAME/SMTP_PASSWORD (+ a real host/port) to deliver to real inboxes.
     smtp_host: str = Field(

@@ -4,8 +4,6 @@ only, never from x-org-id / x-user-id headers.
 """
 from __future__ import annotations
 
-import base64
-import time
 from dataclasses import dataclass
 
 import httpx
@@ -16,7 +14,8 @@ from fastapi import HTTPException, Header, Request, status
 
 from .config import settings
 from .logging_setup import log
-from resilience import CircuitBreaker, CircuitOpenError, retry_async
+from jwks_auth import JwksCache
+from resilience import CircuitOpenError
 
 _JWKS_TTL = 300  # cache JWKS ~5 minutes
 
@@ -26,7 +25,11 @@ _JWKS_TTL = 300  # cache JWKS ~5 minutes
 # instead of every request blocking on the timeout (cascade).
 _JWKS_TIMEOUT = 3.0
 _JWKS_ATTEMPTS = 3
-_jwks_breaker = CircuitBreaker(fail_max=5, reset_timeout=30.0, name="jwks")
+# Minimum gap between refreshes forced by a cache miss (unknown/absent kid).
+# `kid` is unauthenticated caller-chosen input verified BEFORE the rate
+# limiter runs (see PrincipalMiddleware in app/middleware.py), so without this
+# a flood of bogus kids is a flood of JWKS fetches against auth-svc.
+_KID_MISS_COOLDOWN = 10.0
 
 
 def _current_request_id() -> str | None:
@@ -47,85 +50,43 @@ class Principal:
     plan: str = "free"
 
 
-class _JwksCache:
-    def __init__(self) -> None:
-        self._keys: dict[str, Ed25519PublicKey] = {}
-        self._fetched_at: float = 0.0
+_jwks_cache = JwksCache(
+    settings.jwks_url,
+    cache_ttl=_JWKS_TTL,
+    timeout=_JWKS_TIMEOUT,
+    attempts=_JWKS_ATTEMPTS,
+    kid_miss_cooldown=_KID_MISS_COOLDOWN,
+    breaker_name="jwks",
+    request_id_fn=_current_request_id,
+    on_refresh=lambda count: log.info("jwks_refreshed", count=count),
+    on_retry=lambda attempt, exc, delay: log.warning(
+        "jwks_fetch_retry", attempt=attempt, delay_s=round(delay, 3), error=str(exc)
+    ),
+)
 
-    async def _refresh(self) -> None:
-        data = await self._fetch_jwks()
-        keys: dict[str, Ed25519PublicKey] = {}
-        for jwk in data.get("keys", []):
-            if jwk.get("kty") != "OKP" or jwk.get("crv") != "Ed25519":
-                continue
-            kid = jwk.get("kid")
-            x = jwk.get("x")
-            if not kid or not x:
-                continue
-            raw = base64.urlsafe_b64decode(x + "=" * (-len(x) % 4))
-            keys[kid] = Ed25519PublicKey.from_public_bytes(raw)
-        self._keys = keys
-        self._fetched_at = time.monotonic()
-        log.info("jwks_refreshed", count=len(keys))
 
-    async def _fetch_jwks(self) -> dict:
-        """Fetch the JWKS document with a bounded per-attempt timeout, retries
-        on transient failures (backoff+jitter) and a circuit breaker.
-
-        Breaker-open -> 503 immediately (fail fast) instead of blocking on the
-        per-attempt timeout for every inbound request.
-        """
-        request_id = _current_request_id()
-        headers = {"X-Request-Id": request_id} if request_id else None
-
-        async def _attempt() -> dict:
-            async with httpx.AsyncClient(timeout=_JWKS_TIMEOUT) as client:
-                resp = await client.get(settings.jwks_url, headers=headers)
-                resp.raise_for_status()
-                return resp.json()
-
-        def _on_retry(attempt: int, exc: BaseException, delay: float) -> None:
-            log.warning("jwks_fetch_retry", attempt=attempt, delay_s=round(delay, 3),
-                        error=str(exc))
-
-        try:
-            return await retry_async(
-                _attempt,
-                attempts=_JWKS_ATTEMPTS,
-                breaker=_jwks_breaker,
-                on_retry=_on_retry,
-            )
-        except CircuitOpenError as exc:
-            log.warning("jwks_circuit_open", error=str(exc))
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="auth keys unavailable",
-            ) from exc
-        except httpx.HTTPError as exc:
-            log.warning("jwks_fetch_failed", error=str(exc))
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="auth keys unavailable",
-            ) from exc
-
-    async def get_key(self, kid: str | None) -> Ed25519PublicKey:
-        if not self._keys or (time.monotonic() - self._fetched_at) > _JWKS_TTL:
-            await self._refresh()
-        if kid and kid in self._keys:
-            return self._keys[kid]
-        # kid unknown — force a refresh once (key rotation).
-        await self._refresh()
-        if kid and kid in self._keys:
-            return self._keys[kid]
-        # A token that NAMES an unknown kid is rejected (matches auth-svc
-        # auth_dep strictness) — only a token with NO kid falls back to the sole
-        # key, for legacy/kid-less tokens.
-        if kid is None and len(self._keys) == 1:
-            return next(iter(self._keys.values()))
+async def get_key(kid: str | None) -> Ed25519PublicKey:
+    """Resolve ``kid`` via the shared cache; a token that NAMES an unknown kid
+    is rejected (matches auth-svc auth_dep strictness) — only a token with NO
+    kid falls back to the sole active key, for legacy/kid-less tokens.
+    """
+    try:
+        key = await _jwks_cache.get_key(kid)
+    except CircuitOpenError as exc:
+        log.warning("jwks_circuit_open", error=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="auth keys unavailable",
+        ) from exc
+    except httpx.HTTPError as exc:
+        log.warning("jwks_fetch_failed", error=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="auth keys unavailable",
+        ) from exc
+    if key is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="unknown signing key")
-
-
-jwks_cache = _JwksCache()
+    return key
 
 
 async def verify_bearer(authorization: str | None) -> Principal:
@@ -145,7 +106,7 @@ async def verify_bearer(authorization: str | None) -> Principal:
     except jwt.PyJWTError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="malformed token")
 
-    key = await jwks_cache.get_key(header.get("kid"))
+    key = await get_key(header.get("kid"))
 
     try:
         claims = jwt.decode(
@@ -157,7 +118,11 @@ async def verify_bearer(authorization: str | None) -> Principal:
             options={"require": ["sub", "exp", "iat"]},
         )
     except jwt.PyJWTError as exc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"invalid token: {exc}")
+        # Log the real reason server-side; the client gets a generic detail —
+        # matches task-svc/sticky-svc's verify_bearer, which doesn't leak
+        # PyJWT's internal exception text into the response.
+        log.info("jwt_verify_failed", error=str(exc))
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid token")
 
     sub = claims.get("sub")
     org_id = claims.get("org_id")

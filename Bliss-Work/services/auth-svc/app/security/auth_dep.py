@@ -1,20 +1,17 @@
 """Bearer-token verification against the JWKS (security keystone)."""
 from __future__ import annotations
 
-import asyncio
-import base64
-import time
 from dataclasses import dataclass
 
 import httpx
 import jwt
 import structlog
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from fastapi import Depends, Header, HTTPException, Request, status
 
 from ..config import settings
 from ..logging_config import log
-from resilience import CircuitBreaker, CircuitOpenError, retry_async
+from jwks_auth import JwksCache
+from resilience import CircuitOpenError
 
 _JWKS_CACHE_TTL = 300  # ~5 minutes
 
@@ -23,14 +20,10 @@ _JWKS_CACHE_TTL = 300  # ~5 minutes
 # can't pin a request for the full original 5s on every attempt.
 _JWKS_TIMEOUT = 3.0
 _JWKS_ATTEMPTS = 3
-# After this many consecutive transient failures the breaker opens and every
-# get_key() fails fast for the cooldown instead of each request blocking on the
-# per-attempt timeout (the cascade we're guarding against).
-_jwks_breaker = CircuitBreaker(fail_max=5, reset_timeout=30.0, name="jwks")
 
 # Minimum gap between refreshes forced by an UNKNOWN kid. `kid` is an
 # unauthenticated caller-chosen string, so without this a flood of random kids
-# is a flood of JWKS fetches. See _JwksCache.get_key.
+# is a flood of JWKS fetches. See jwks_auth.JwksCache.get_key.
 _KID_MISS_COOLDOWN = 10.0
 
 
@@ -48,114 +41,45 @@ class Principal:
     username: str
 
 
-class _JwksCache:
-    def __init__(self) -> None:
-        self._keys: dict[str, Ed25519PublicKey] = {}
-        self._fetched_at: float = 0.0
-        # When an unknown-kid miss last forced a refresh. See get_key.
-        self._last_kid_miss_refresh: float = -_KID_MISS_COOLDOWN
-        # Serializes refreshes so a cache expiry under concurrent load triggers a
-        # SINGLE fetch, not one per in-flight request (thundering herd on the
-        # JWKS endpoint).
-        self._lock = asyncio.Lock()
-
-    async def _refresh(self) -> None:
-        data = await self._fetch_jwks()
-        keys: dict[str, Ed25519PublicKey] = {}
-        for jwk in data.get("keys", []):
-            if jwk.get("kty") != "OKP" or jwk.get("crv") != "Ed25519":
-                continue
-            x = jwk["x"]
-            raw = base64.urlsafe_b64decode(x + "=" * (-len(x) % 4))
-            keys[jwk["kid"]] = Ed25519PublicKey.from_public_bytes(raw)
-        self._keys = keys
-        self._fetched_at = time.monotonic()
-
-    async def _fetch_jwks(self) -> dict:
-        """Fetch the JWKS document with a bounded per-attempt timeout, retries
-        on transient failures (backoff+jitter) and a circuit breaker.
-
-        When the breaker is OPEN we raise a 503 immediately instead of letting
-        the caller block on the per-attempt timeout — that fail-fast is the
-        whole point: a down JWKS endpoint degrades to fast 503s, not a pile of
-        requests each waiting out the timeout (the cascade).
-        """
-        request_id = _current_request_id()
-        headers = {"X-Request-Id": request_id} if request_id else None
-
-        async def _attempt() -> dict:
-            async with httpx.AsyncClient(timeout=_JWKS_TIMEOUT) as client:
-                resp = await client.get(settings.jwks_url, headers=headers)
-                resp.raise_for_status()
-                return resp.json()
-
-        def _on_retry(attempt: int, exc: BaseException, delay: float) -> None:
-            log.warning("jwks_fetch_retry", attempt=attempt, delay_s=round(delay, 3),
-                        error=str(exc))
-
-        try:
-            return await retry_async(
-                _attempt,
-                attempts=_JWKS_ATTEMPTS,
-                breaker=_jwks_breaker,
-                on_retry=_on_retry,
-            )
-        except CircuitOpenError as exc:
-            log.warning("jwks_circuit_open", error=str(exc))
-            raise HTTPException(
-                status.HTTP_503_SERVICE_UNAVAILABLE, "auth keys unavailable"
-            ) from exc
-        except (httpx.HTTPError,) as exc:
-            log.warning("jwks_fetch_failed", error=str(exc))
-            raise HTTPException(
-                status.HTTP_503_SERVICE_UNAVAILABLE, "auth keys unavailable"
-            ) from exc
-
-    async def _refresh_if_stale(self) -> None:
-        async with self._lock:
-            # Double-check inside the lock: a coroutine that waited may now find
-            # the cache already refreshed by the one that held the lock.
-            now = time.monotonic()
-            if self._keys and (now - self._fetched_at) <= _JWKS_CACHE_TTL:
-                return
-            await self._refresh()
-
-    async def get_key(self, kid: str) -> Ed25519PublicKey | None:
-        now = time.monotonic()
-        if not self._keys or (now - self._fetched_at) > _JWKS_CACHE_TTL:
-            await self._refresh_if_stale()
-        key = self._keys.get(kid)
-        if key is None:
-            # kid not present. Legitimately this means a key rotation we have
-            # not seen yet, and one forced refresh is the right answer.
-            #
-            # It is also attacker-reachable: a `kid` is an unauthenticated,
-            # caller-chosen string, so a flood of random kids would otherwise
-            # be a flood of JWKS refetches — an amplifier pointed at our own
-            # keystore, and now reachable BEFORE the global rate limiter
-            # because PrincipalMiddleware verifies ahead of it. So a forced
-            # refresh is allowed at most once per _KID_MISS_COOLDOWN across the
-            # process; outside that window an unknown kid is simply unknown.
-            #
-            # This costs a rotation nothing: publish the new key before minting
-            # tokens with it (the overlapping-JWKS procedure in
-            # docs/KEY-ROTATION.md), and the TTL refresh above picks it up.
-            # Worst case a token minted under a brand-new kid is rejected for
-            # up to the cooldown, and the client retries.
-            if (now - self._last_kid_miss_refresh) >= _KID_MISS_COOLDOWN:
-                async with self._lock:
-                    # Re-check inside the lock so concurrent callers that queued
-                    # behind one refresh do not each trigger another.
-                    if kid not in self._keys and (
-                        time.monotonic() - self._last_kid_miss_refresh
-                    ) >= _KID_MISS_COOLDOWN:
-                        self._last_kid_miss_refresh = time.monotonic()
-                        await self._refresh()
-                key = self._keys.get(kid)
-        return key
+# kid rotation is documented in docs/KEY-ROTATION.md: publish the new key
+# before minting tokens with it, and the TTL refresh above picks it up. Worst
+# case a token minted under a brand-new kid is rejected for up to
+# _KID_MISS_COOLDOWN, and the client retries.
+_jwks_cache = JwksCache(
+    settings.jwks_url,
+    cache_ttl=_JWKS_CACHE_TTL,
+    timeout=_JWKS_TIMEOUT,
+    attempts=_JWKS_ATTEMPTS,
+    kid_miss_cooldown=_KID_MISS_COOLDOWN,
+    breaker_name="jwks",
+    request_id_fn=_current_request_id,
+    on_retry=lambda attempt, exc, delay: log.warning(
+        "jwks_fetch_retry", attempt=attempt, delay_s=round(delay, 3), error=str(exc)
+    ),
+)
 
 
-_jwks_cache = _JwksCache()
+async def _get_jwks_key(kid: str):
+    """Fetch ``kid`` from the shared cache, mapping a fetch failure to a 503.
+
+    When the breaker is OPEN (or the fetch itself fails) we raise 503
+    immediately instead of letting the caller block on the per-attempt
+    timeout — that fail-fast is the whole point: a down JWKS endpoint
+    degrades to fast 503s, not a pile of requests each waiting out the
+    timeout (the cascade).
+    """
+    try:
+        return await _jwks_cache.get_key(kid)
+    except CircuitOpenError as exc:
+        log.warning("jwks_circuit_open", error=str(exc))
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "auth keys unavailable"
+        ) from exc
+    except httpx.HTTPError as exc:
+        log.warning("jwks_fetch_failed", error=str(exc))
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "auth keys unavailable"
+        ) from exc
 
 
 async def verify_bearer(authorization: str | None) -> Principal:
@@ -177,7 +101,7 @@ async def verify_bearer(authorization: str | None) -> Principal:
         kid = header.get("kid")
         if not kid:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "missing kid")
-        key = await _jwks_cache.get_key(kid)
+        key = await _get_jwks_key(kid)
         if key is None:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "unknown signing key")
         claims = jwt.decode(

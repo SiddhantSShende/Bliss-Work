@@ -19,7 +19,7 @@
 # on a directly-reachable port the client controls that value entirely. It is
 # safe in production only because Caddy appends the real address last. Do not
 # rely on this trick against anything but a dev stack you own.
-set -uo pipefail
+set -Eeuo pipefail
 
 AUTH="${AUTH_BASE:-http://127.0.0.1:8001}"
 ORIGIN="${ORIGIN:-http://localhost:5173}"
@@ -29,6 +29,11 @@ OUT="${OUT:-users.json}"
 
 stamp=$(date +%s)
 tmp=$(mktemp -d)
+# Created up front, not just appended to on success: if EVERY account fails
+# (e.g. auth-svc unreachable), nothing ever appends to it, and reading a
+# nonexistent file below would crash the python3 step outright — zero
+# successes is a valid, if alarming, outcome, not a script bug.
+touch "$tmp/emails"
 
 echo "provisioning ${COUNT} accounts against ${AUTH} ..." >&2
 

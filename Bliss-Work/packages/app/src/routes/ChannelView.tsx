@@ -207,7 +207,17 @@ export function ChannelView() {
 
   const canModerate = canModerateChannel(channel, me);
 
+  // mutationKey scopes each of this view's mutations to the current
+  // channelId. ChannelView never unmounts on a channel switch (same route
+  // component, new channelId prop), so without a differing mutationKey a
+  // still-pending mutation's onSuccess/onError gets silently rebound to the
+  // NEW channel's closures when the observer re-renders mid-request — e.g. a
+  // slow "hide" in channel A that resolves after switching to B would
+  // invalidate B's messages instead of A's. A differing mutationKey makes
+  // react-query detach the observer instead of rebinding (see
+  // useOptimisticSend.ts for the verified mechanism and full writeup).
   const react = useMutation({
+    mutationKey: ["channelReact", channelId],
     mutationFn: ({ id, emoji, on }: { id: string; emoji: string; on: boolean }) =>
       api.setChannelReaction(id, emoji, on),
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.channelReactions(channelId) }),
@@ -232,18 +242,21 @@ export function ChannelView() {
   );
 
   const hide = useMutation({
+    mutationKey: ["channelHide", channelId],
     mutationFn: (id: string) => api.hideChannelMessage(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.channelMessages(channelId) }),
     onError: () => toast.error("Couldn't hide that message"),
   });
 
   const markUnread = useMutation({
+    mutationKey: ["channelMarkUnread", channelId],
     mutationFn: (upToSeq: number) => api.markChannelRead(channelId, upToSeq),
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.channels }),
     onError: () => toast.error("Couldn't mark that channel as unread"),
   });
 
   const clearChat = useMutation({
+    mutationKey: ["channelClear", channelId],
     mutationFn: () => api.clearChannel(channelId),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: qk.channelMessages(channelId) });
@@ -257,6 +270,7 @@ export function ChannelView() {
   });
 
   const removeForAll = useMutation({
+    mutationKey: ["channelRemoveForAll", channelId],
     mutationFn: (id: string) => api.deleteChannelMessageForAll(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.channelMessages(channelId) }),
     onError: () => toast.error("Couldn't delete that message"),
@@ -276,6 +290,7 @@ export function ChannelView() {
   );
 
   const bulkDelete = useMutation({
+    mutationKey: ["channelBulkDelete", channelId],
     mutationFn: (ids: string[]) => api.deleteChannelMessagesForAll(channelId, ids),
     onSuccess: (res) => {
       void qc.invalidateQueries({ queryKey: qk.channelMessages(channelId) });
@@ -296,6 +311,7 @@ export function ChannelView() {
   });
 
   const togglePin = useMutation({
+    mutationKey: ["channelTogglePin", channelId],
     mutationFn: ({ id, on }: { id: string; on: boolean }) => api.setChannelMessagePin(id, on),
     onSuccess: (_r, { on }) => {
       qc.invalidateQueries({ queryKey: qk.channelMessages(channelId) });
@@ -313,6 +329,7 @@ export function ChannelView() {
   // LIVE server-side; the dialog stays for a call in the diary. No title is
   // asked for — nobody is being invited, so there is nothing to label for them.
   const startCall = useMutation({
+    mutationKey: ["channelStartCall", channelId],
     mutationFn: (media: "audio" | "video") => api.scheduleChannelCall(channelId, { media }),
     onSuccess: (call) => {
       void qc.invalidateQueries({ queryKey: qk.calls });
@@ -335,6 +352,7 @@ export function ChannelView() {
   );
 
   const leave = useMutation({
+    mutationKey: ["channelLeave", channelId],
     mutationFn: () => api.leaveChannel(channelId),
     onSuccess: () => {
       toast.success(`You left #${channel?.name}`);
@@ -353,6 +371,7 @@ export function ChannelView() {
   const confirmRename = () => setRenameOpen(true);
 
   const deleteChannel = useMutation({
+    mutationKey: ["channelDelete", channelId],
     mutationFn: () => api.deleteChannel(channelId),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: qk.channels });

@@ -8,7 +8,10 @@
 -- Same ciphertext-reuse approach as seed.sql: DM bodies clone a real per-org
 -- `body_enc`, so the decrypt on the read path does genuine work.
 --
---   docker exec -i task-board-postgres-1 psql -U taskboard -d messagingdb -f -
+-- via the guarded wrapper — it confirms the target container is genuinely
+-- the dev stack before running anything, which a raw
+-- `docker exec ... psql ... -f -` copy-paste does not:
+--   bash loadtest/seed-dev-db.sh
 
 \set ON_ERROR_STOP on
 \timing on

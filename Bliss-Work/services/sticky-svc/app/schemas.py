@@ -8,7 +8,7 @@ clients join these ids against GET /api/v1/tasks/sticky for the text.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class StickyPinDTO(BaseModel):
@@ -35,10 +35,3 @@ class UndeliveredPinDTO(BaseModel):
     assigneeId: str
     openedAt: str
     deliveryAttempts: int
-
-
-class DeliveryAckRequest(BaseModel):
-    """Optional body for ack-delivery; present so the route can grow without a
-    breaking change. Empty is the normal case."""
-
-    seenAt: str | None = Field(default=None, description="Client clock, advisory only.")

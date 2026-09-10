@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { Search, Users } from "lucide-react";
+import { toast } from "sonner";
 import { Avatar, Input, EmptyState } from "@taskboard/ui";
 import type { UserDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
@@ -41,6 +42,8 @@ export function NewChatDialog({ open, onClose }: { open: boolean; onClose: () =>
       // Selects and moves to the section in one step, so a brand-new chat's id
       // never reaches the URL — see lib/selectedChat.
       openChat(conversationId);
+    } catch {
+      toast.error("Couldn't start the conversation", { description: "Please try again." });
     } finally {
       setBusy(false);
     }

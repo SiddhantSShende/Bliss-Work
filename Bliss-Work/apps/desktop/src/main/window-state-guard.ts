@@ -109,20 +109,35 @@ export function initWindowStateGuard(getWindow: () => BrowserWindow | null): voi
 
   const onBack = () => {
     const before = away;
-    away = null;
     if (!before) return;
+    // away stays set for the WHOLE settle window, not just until this event
+    // handler returns — isSystemAway() is what gates windows.ts's bounds
+    // persistence, and the compositor is still restoring windows for up to
+    // SETTLE_MS after unlock-screen/resume fires (see SETTLE_MS's own doc).
+    // Clearing it here (as this used to) let that mid-restore resize get
+    // recorded as a size the user chose — exactly what this guard exists to
+    // prevent. One narrow trade-off: a genuine second lock within this same
+    // window now reuses the pre-sleep snapshot instead of taking a fresh one
+    // (same as the deliberate lock-then-suspend case below) — acceptable
+    // next to a bug that hit on every wake, for a window this short.
     setTimeout(() => {
       const win = getWindow();
-      if (!win || win.isDestroyed()) return;
-      const action = restoreAction(before, snapshotOf(win));
-      if (action === "none") return;
-      try {
-        if (action === "restore") win.restore();
-        else win.maximize();
-        console.info(`[window] ${action}d the main window after the machine woke`);
-      } catch (err) {
-        console.warn("[window] failed to restore the main window after wake", err);
+      if (win && !win.isDestroyed()) {
+        const action = restoreAction(before, snapshotOf(win));
+        if (action !== "none") {
+          try {
+            if (action === "restore") win.restore();
+            else win.maximize();
+            console.info(`[window] ${action}d the main window after the machine woke`);
+          } catch (err) {
+            console.warn("[window] failed to restore the main window after wake", err);
+          }
+        }
       }
+      // Clear LAST, after any restore()/maximize() above — otherwise
+      // isSystemAway() would go false mid-restore-call, and windows.ts could
+      // record THIS guard's own resize as if the user had chosen it.
+      away = null;
     }, SETTLE_MS);
   };
 

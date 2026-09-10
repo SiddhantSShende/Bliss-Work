@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
-import { AlertCircle, ChevronLeft, ChevronRight, Loader2, X } from "lucide-react";
+import { AlertCircle, ChevronLeft, ChevronRight, FileIcon, Loader2, X } from "lucide-react";
 import type { MediaItem } from "../lib/chatEnvelope";
 import { canPreviewDocInApp, prettySize } from "../lib/chatEnvelope";
 import { useBlobUrl } from "../lib/useBlobUrl";
 
 /**
  * Full-screen viewer for the images, videos and previewable documents (PDF,
- * plain text — see `canPreviewDocInApp`) in one message.
+ * plain text — see `canPreviewDocInApp`) in one message. Every other type —
+ * Office documents, archives, anything else — still opens here, showing an
+ * explicit "Preview not available" message (`UnsupportedPreview`) instead of
+ * being unreachable.
  *
  * Built on its own overlay rather than the shared `Modal` because a lightbox
  * wants edge-to-edge black with no card chrome, but it reproduces the same
@@ -59,6 +62,7 @@ export function Lightbox({
   const url = urlFor(current.id);
   const isVideo = current.mime.startsWith("video/");
   const isDoc = canPreviewDocInApp(current.mime);
+  const isImage = current.mime.startsWith("image/");
 
   return (
     <div
@@ -123,7 +127,7 @@ export function Lightbox({
           />
         ) : isDoc ? (
           <DocFrame url={url} name={current.name} />
-        ) : (
+        ) : isImage ? (
           <img
             src={url}
             alt={current.name}
@@ -137,6 +141,8 @@ export function Lightbox({
                 : "max-h-full max-w-full cursor-zoom-in object-contain"
             }
           />
+        ) : (
+          <UnsupportedPreview name={current.name} />
         )}
 
         {items.length > 1 && (
@@ -152,6 +158,28 @@ export function Lightbox({
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Shown for a type this app has no in-app renderer for — Office documents,
+ * archives, and anything else outside `canPreviewDocInApp` plus images/video.
+ * There is no fallback to open or download it: the server forces
+ * `Content-Disposition: attachment` for everything outside its own inline
+ * allowlist (media/mime.go), so a link out would just be a download wearing
+ * an Open label. This replaces that dead end with an explicit reason instead
+ * of a click that silently does nothing.
+ */
+function UnsupportedPreview({ name }: { name: string }) {
+  return (
+    <div
+      className="flex max-w-xs flex-col items-center gap-2 text-center text-sm text-white/70"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <FileIcon size={28} className="text-white/50" />
+      <span className="max-w-full truncate font-medium text-white/90">{name}</span>
+      <span>Preview not available for this file type</span>
     </div>
   );
 }

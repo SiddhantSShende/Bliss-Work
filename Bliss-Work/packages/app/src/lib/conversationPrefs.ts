@@ -18,7 +18,8 @@
  * round-trip to model: the menu toggles a value and the list beside it has to
  * redraw in the same tick.
  */
-import { useMemo, useSyncExternalStore } from "react";
+import { useMemo } from "react";
+import { createLocalStore } from "./localStore";
 
 /** Which list a conversation id belongs to. Ids are UUIDs from two different
  *  tables, so they are namespaced rather than pooled. */
@@ -38,46 +39,15 @@ function keyOf(scope: ConversationScope, id: string): string {
   return `${scope}:${id}`;
 }
 
-function load(): PrefState {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return EMPTY;
-    const parsed: unknown = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") return EMPTY;
-    const o = parsed as Record<string, unknown>;
-    return { muted: strings(o.muted), shortcut: strings(o.shortcut) };
-  } catch {
-    // Unavailable (some Electron contexts) or corrupt — a preference is not
-    // worth failing a render over, so fall back to "nothing is set".
-    return EMPTY;
-  }
-}
-
 function strings(v: unknown): readonly string[] {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
 }
 
-function save(state: PrefState) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch {
-    /* Storage may be unavailable; the in-memory state still drives this session. */
-  }
-}
-
-// One snapshot object, replaced only when something actually changes, so
-// useSyncExternalStore's identity check does not loop.
-let state: PrefState = load();
-const listeners = new Set<() => void>();
-
-function subscribe(fn: () => void): () => void {
-  listeners.add(fn);
-  return () => listeners.delete(fn);
-}
-
-function snapshot(): PrefState {
-  return state;
-}
+const store = createLocalStore<PrefState>(STORAGE_KEY, EMPTY, (raw) => {
+  if (!raw || typeof raw !== "object") return EMPTY;
+  const o = raw as Record<string, unknown>;
+  return { muted: strings(o.muted), shortcut: strings(o.shortcut) };
+});
 
 /** Add or remove one conversation from one preference list. */
 export function toggleConversationPref(
@@ -85,19 +55,11 @@ export function toggleConversationPref(
   scope: ConversationScope,
   id: string,
 ): void {
+  const state = store.get();
   const key = keyOf(scope, id);
   const held = state[pref];
   const next = held.includes(key) ? held.filter((k) => k !== key) : [...held, key];
-  state = { ...state, [pref]: next };
-  save(state);
-  listeners.forEach((fn) => fn());
-}
-
-/** Test seam: drop everything, in memory and on disk. */
-export function resetConversationPrefs(): void {
-  state = EMPTY;
-  save(state);
-  listeners.forEach((fn) => fn());
+  store.set({ ...state, [pref]: next });
 }
 
 /**
@@ -107,7 +69,7 @@ export function resetConversationPrefs(): void {
  * conversation does not rebuild its callbacks on every unrelated render.
  */
 export function useConversationPrefs() {
-  const snap = useSyncExternalStore(subscribe, snapshot, snapshot);
+  const snap = store.useSnapshot();
   return useMemo(
     () => ({
       isMuted: (scope: ConversationScope, id: string) => snap.muted.includes(keyOf(scope, id)),

@@ -16,7 +16,7 @@
  * which is why exporting is a first-class action rather than a nicety.
  */
 import { utf8ByteLength } from "./textBytes";
-import { loadLocalCopy, meetingArtifactFilename, saveLocalCopy } from "./meetingArtifact";
+import { loadLocalCopy, meetingArtifactFilename, mergeById, saveLocalCopy } from "./meetingArtifact";
 
 /** One point, written by one participant. Immutable once made. */
 export interface NoteEntry {
@@ -68,17 +68,13 @@ export function isNoteEntry(v: unknown): v is NoteEntry {
  * entry arrive or in what order — which is what makes the sync-on-join cheap:
  * everyone already in the room may answer a newcomer, and the duplicates
  * collapse here instead of being coordinated away on the wire.
+ *
+ * The dedupe/sort/cap itself is the same shape lib/callChat needs — see
+ * mergeById. What is specific here is validating each entry against the
+ * notes shape before it is trusted enough to merge.
  */
 export function mergeNotes(held: NoteEntry[], incoming: NoteEntry[]): NoteEntry[] {
-  const byId = new Map(held.map((n) => [n.id, n]));
-  for (const n of incoming) {
-    if (!isNoteEntry(n)) continue;
-    if (!byId.has(n.id)) byId.set(n.id, n);
-  }
-  const all = [...byId.values()].sort((a, b) => a.at - b.at || a.id.localeCompare(b.id));
-  // Keep the NEWEST when the cap bites: the end of a meeting is the half worth
-  // having, and dropping from the front keeps the list stable for everyone.
-  return all.length > NOTES_MAX ? all.slice(all.length - NOTES_MAX) : all;
+  return mergeById(held, incoming.filter(isNoteEntry), NOTES_MAX);
 }
 
 /** The exported file: plain text, because it has to be readable by whoever it

@@ -33,11 +33,24 @@ async def _amain() -> None:
     invite_worker = EmailWorker(settings)
     relay_worker = RelayConsumer(settings)
 
+    # One handler per signal, not two: asyncio's add_signal_handler stores a
+    # SINGLE callback per signal number, so a second call for the same signal
+    # silently replaces the first rather than adding to it. Registering
+    # invite_worker.request_stop and then relay_worker.request_stop for the
+    # same sig used to mean only relay_worker ever heard SIGTERM — invite_worker
+    # (invite/password-reset/email-verification) never saw _stop set, its
+    # run() loop never exited, and asyncio.gather below hung until the
+    # orchestrator's SIGKILL grace period killed the process uncleanly: no
+    # Kafka consumer.stop(), no DB pool close, no offset commit for whatever
+    # was in flight.
+    def _request_stop() -> None:
+        invite_worker.request_stop()
+        relay_worker.request_stop()
+
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
         try:
-            loop.add_signal_handler(sig, invite_worker.request_stop)
-            loop.add_signal_handler(sig, relay_worker.request_stop)
+            loop.add_signal_handler(sig, _request_stop)
         except NotImplementedError:
             # Signal handlers are unavailable on some platforms (e.g. Windows).
             pass

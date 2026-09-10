@@ -33,9 +33,17 @@ export function TotpEnrollPanel({
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
+  // Set when the enroll-start call itself fails (as opposed to `failed`, which
+  // tracks a rejected confirm code). Without this the component has no way to
+  // recover from a transient network blip: secret/otpauthUrl stay null forever
+  // and the render below is stuck on "Preparing enrollment…" with no retry.
+  const [startError, setStartError] = useState(false);
+  // Bumped by the retry button to re-run the effect below with a fresh attempt.
+  const [startAttempt, setStartAttempt] = useState(0);
 
   useEffect(() => {
     let alive = true;
+    setStartError(false);
     api
       .mfaTotpEnrollStart(pendingToken)
       .then((r) => {
@@ -45,13 +53,18 @@ export function TotpEnrollPanel({
         return QRCode.toDataURL(r.otpauthUrl, { margin: 1, width: 220 });
       })
       .then((dataUrl) => alive && dataUrl && setQrDataUrl(dataUrl))
-      .catch(() => alive && toast.error("Couldn't start enrollment", { description: "Please try again." }));
+      .catch(() => {
+        if (!alive) return;
+        setStartError(true);
+        toast.error("Couldn't start enrollment", { description: "Please try again." });
+      });
     return () => {
       alive = false;
     };
-    // pendingToken is fixed for the lifetime of one enrollment attempt.
+    // pendingToken is fixed for the lifetime of one enrollment attempt;
+    // startAttempt exists only so the retry button below can re-run this effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [api]);
+  }, [api, startAttempt]);
 
   const confirm = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -72,6 +85,17 @@ export function TotpEnrollPanel({
       setBusy(false);
     }
   };
+
+  if (startError) {
+    return (
+      <div className="flex flex-col items-center gap-3 py-6 text-center">
+        <p className="text-sm text-muted">Couldn't start enrollment.</p>
+        <Button variant="secondary" size="sm" onClick={() => setStartAttempt((n) => n + 1)}>
+          Try again
+        </Button>
+      </div>
+    );
+  }
 
   if (!secret || !otpauthUrl) {
     return <p className="py-6 text-center text-sm text-muted">Preparing enrollment…</p>;

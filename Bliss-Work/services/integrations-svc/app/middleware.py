@@ -1,4 +1,4 @@
-"""HTTP middleware for task-svc — mirrors auth-svc/app/middleware.py.
+"""HTTP middleware for integrations-svc — mirrors auth-svc/app/middleware.py.
 
 See the docstring in auth-svc for design notes. We duplicate (instead of
 importing across services) to keep services independently deployable.

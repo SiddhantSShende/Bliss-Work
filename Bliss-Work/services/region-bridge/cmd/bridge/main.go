@@ -35,6 +35,7 @@ import (
 	"github.com/task-board/region-bridge/internal/health"
 	"github.com/task-board/region-bridge/internal/metrics"
 	"github.com/task-board/region-bridge/internal/streams"
+	kafkaauth "github.com/task-board/shared-kafkaauth"
 )
 
 func main() {
@@ -49,6 +50,14 @@ func main() {
 	log.Info("region bridge starting",
 		"region", cfg.Region, "peers", cfg.Peers, "topics", cfg.Topics,
 		"export", cfg.ExportEnabled, "import", cfg.ImportEnabled)
+
+	// Kafka connection security, resolved once and checked BEFORE any client is
+	// built — same gate messaging-svc applies before its own Kafka clients.
+	if err := kafkaauth.Validate(); err != nil {
+		log.Error("kafka security config invalid", "err", err)
+		os.Exit(1)
+	}
+	log.Info("kafka security", "protocol", kafkaauth.Protocol())
 
 	// Signals first, so a shutdown during a slow startup is honoured rather
 	// than leaving a half-connected process to be killed.
@@ -190,8 +199,9 @@ func connectNATS(cfg *config.Config, state *health.State, log *slog.Logger) (*na
 // kafkaWriter produces imported events into the local cluster.
 func kafkaWriter(cfg *config.Config) *kafka.Writer {
 	return &kafka.Writer{
-		Addr:     kafka.TCP(cfg.KafkaBrokers...),
-		Balancer: &kafka.Hash{}, // key-based, so partitioning matches the origin region's
+		Addr:      kafka.TCP(cfg.KafkaBrokers...),
+		Transport: kafkaauth.Transport(), // nil for a plaintext broker; kafka-go then uses its own default.
+		Balancer:  &kafka.Hash{},         // key-based, so partitioning matches the origin region's
 		// acks=all. A replicated event that is acknowledged and then lost is
 		// worse than one that is retried: the origin region has already moved
 		// on and nothing will re-send it.
@@ -211,6 +221,7 @@ func dlqWriter(cfg *config.Config) *kafka.Writer {
 	}
 	return &kafka.Writer{
 		Addr:                   kafka.TCP(cfg.KafkaBrokers...),
+		Transport:              kafkaauth.Transport(),
 		Topic:                  cfg.DLQTopic,
 		Balancer:               &kafka.Hash{},
 		RequiredAcks:           kafka.RequireAll,

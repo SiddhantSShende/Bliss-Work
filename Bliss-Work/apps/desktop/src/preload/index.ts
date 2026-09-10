@@ -180,10 +180,11 @@ const api = {
 
   /** Emitted when the app detects and refuses a screenshot attempt.
    *
-   *  The message is fixed; the payload says WHAT was pressed and whether main
-   *  already wrote the attempt to the activity record. The renderer reports it
-   *  itself when main did not, so a user who declined the activity agent still
-   *  leaves a server-side trace of a refused capture. */
+   *  The message is fixed; the payload says WHAT was pressed. `recorded` is
+   *  always false — main no longer records anything itself (see
+   *  screenshot-guard.ts) — so the renderer reports every attempt itself
+   *  through its own session beacon, which is what leaves the server-side
+   *  trace of a refused capture. */
   onScreenshotBlocked: (cb: (info: { chord: string; recorded: boolean }) => void) => {
     const handler = (_: unknown, info: { chord: string; recorded: boolean }) => cb(info);
     ipcRenderer.on("security:screenshot-blocked", handler);

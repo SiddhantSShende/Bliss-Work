@@ -10,6 +10,13 @@ import (
 	"time"
 )
 
+// sweepBatchLimitCap mirrors sticky-svc's own _MAX_LIMIT
+// (services/sticky-svc/app/routes/internal.py): the /internal/pins/undelivered
+// endpoint rejects any limit above this with a 422, so an operator-set
+// SWEEP_BATCH_LIMIT above it would fail every sweep tick silently instead of
+// just being capped here.
+const sweepBatchLimitCap = 500
+
 type Config struct {
 	StickyBase    string
 	InternalToken string
@@ -40,7 +47,7 @@ func Load() (*Config, error) {
 		LogLevel:      getEnv("LOG_LEVEL", "info"),
 		SweepInterval: getDuration("SWEEP_INTERVAL_S", 60*time.Second),
 		StaleAfter:    getDuration("STALE_AFTER_S", 5*time.Minute),
-		BatchLimit:    getInt("SWEEP_BATCH_LIMIT", 100),
+		BatchLimit:    min(getInt("SWEEP_BATCH_LIMIT", 100), sweepBatchLimitCap),
 		DryRun:        getEnv("DRY_RUN", "false") == "true",
 	}
 

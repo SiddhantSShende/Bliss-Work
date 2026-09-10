@@ -112,6 +112,14 @@ TITLE_LEN = 120
 # Bound how long a hung broker can block shutdown.
 _STOP_TIMEOUT = 30.0
 
+# How many of one mail's attachments _collect_attachments fetches at once. A
+# mail with several files used to fetch them one at a time — N attachments
+# meant N sequential round trips, each up to FETCH_TIMEOUT, serializing behind
+# a single message the same way the consumer loop itself used to. Bounded
+# rather than unbounded so one mail with an unusually long attachment list
+# cannot open dozens of simultaneous streams to messaging-svc.
+_ATTACHMENT_FETCH_CONCURRENCY = 6
+
 
 class RelayConsumer:
     def __init__(self, settings: Settings) -> None:
@@ -147,6 +155,9 @@ class RelayConsumer:
             fail_max=5, reset_timeout=30.0, name="auth-svc"
         )
         self._stop = asyncio.Event()
+        # Bounds how many messages this process handles at once — see
+        # _consume_loop and Settings.relay_max_concurrency.
+        self._semaphore = asyncio.Semaphore(settings.relay_max_concurrency)
 
     def request_stop(self) -> None:
         self._stop.set()
@@ -225,27 +236,49 @@ class RelayConsumer:
     async def _consume_loop(self, consumer: AIOKafkaConsumer) -> None:
         while not self._stop.is_set():
             batch = await consumer.getmany(timeout_ms=1000, max_records=100)
-            handled = False
-            ok = True
-            for _tp, messages in batch.items():
-                for msg in messages:
-                    handled = True
-                    # CONSUMER span continuing the producer's trace via the
-                    # traceparent header. No-op when tracing is disabled.
-                    ctx = extract_context(msg.headers)
-                    with _tracer.start_as_current_span(
-                        f"{msg.topic} process", context=ctx, kind=SpanKind.CONSUMER
-                    ):
-                        ok_one = await self._handle(msg.value)
-                    if not ok_one:
-                        # A transient failure below the poison threshold — do
-                        # NOT advance the offset so Kafka redelivers and retries.
-                        ok = False
-            # Commit only AFTER the batch's _mark_sent writes completed.
+            handled = bool(batch)
+            if batch:
+                # One partition's messages MUST stay in order — that is the
+                # guarantee _decide_transport relies on (every copy of one mail
+                # shares the mail id as its Kafka key, so they land on one
+                # partition in send order, and the first copy has to record its
+                # provider-transport decision before the others read it). Kafka
+                # gives no ordering guarantee ACROSS partitions though, so
+                # different partitions run concurrently — bounded by
+                # self._semaphore — instead of the whole batch queuing behind
+                # whichever message happens to be slowest. A hung SMTP retry
+                # chain on one partition no longer blocks every other partition
+                # in the batch, which previously stalled the WHOLE 100-message
+                # poll behind a single message's up-to-~100s worst case.
+                results = await asyncio.gather(
+                    *(self._handle_partition(messages) for messages in batch.values())
+                )
+                ok = all(results)
+            else:
+                ok = True
+            # Commit only AFTER every partition's _mark_sent writes completed.
             if handled and ok:
                 await consumer.commit()
             if self._stop.is_set():
                 break
+
+    async def _handle_partition(self, messages) -> bool:
+        """Process one partition's slice of a batch, strictly in order."""
+        ok = True
+        for msg in messages:
+            async with self._semaphore:
+                # CONSUMER span continuing the producer's trace via the
+                # traceparent header. No-op when tracing is disabled.
+                ctx = extract_context(msg.headers)
+                with _tracer.start_as_current_span(
+                    f"{msg.topic} process", context=ctx, kind=SpanKind.CONSUMER
+                ):
+                    ok_one = await self._handle(msg.value)
+            if not ok_one:
+                # A transient failure below the poison threshold — do NOT
+                # advance the offset so Kafka redelivers and retries.
+                ok = False
+        return ok
 
     async def _handle(self, raw: bytes) -> bool:
         """Process one event. Return True if the offset may advance, False if a
@@ -389,8 +422,18 @@ class RelayConsumer:
             return True
 
         claimed = await self._claim(event_id, mail_id)
-        if not claimed and await self._is_sent(event_id, mail_id):
-            return True
+        if not claimed:
+            # Same reasoning as _handle above: a 'sent' row means a true
+            # duplicate (done), but a still-'pending' row is not proof our
+            # own earlier attempt failed — another process may genuinely be
+            # mid-send after a rebalance. Returning False leaves the offset
+            # uncommitted so Kafka redelivers and this check runs again once
+            # the owning attempt has either committed 'sent' or been
+            # reclaimed by the reaper. Falling through here would send this
+            # external recipient's copy of the mail twice.
+            if await self._is_sent(event_id, mail_id):
+                return True
+            return False
 
         async with self._mark_inflight(str(event_id), str(mail_id)):
             sender_name = str(event.get("fromName") or "")
@@ -665,32 +708,80 @@ class RelayConsumer:
                       budget=self._settings.mail_attachment_budget_bytes)
 
         org_id = str(event.get("orgId") or "")
-        parts: list[tuple[str, str, bytes]] = []
         skipped = [att.filename for att in oversized]
-        # within_budget lets an unknown-declared-size file through without
-        # reserving any of the budget for it (its real cost isn't known yet),
-        # so fetch()'s ceiling for THAT file must come from what earlier
-        # attachments in this same mail actually consumed — not the full
-        # per-mail budget again — or several such files can each be fetched up
-        # to the full budget independently and together blow well past it.
-        remaining = self._settings.mail_attachment_budget_bytes
-        for att in wanted:
-            data = None
-            if self._http is not None and org_id:
-                data = await fetch_attachment(
+        if not wanted or self._http is None or not org_id:
+            skipped.extend(att.filename for att in wanted)
+            return [], skipped
+
+        # Known-size attachments fetch CONCURRENTLY, each capped at its own
+        # declared size (+ slack): within_budget already proved their sizes
+        # sum to at most the per-mail budget, and that proof holds regardless
+        # of fetch order, so no shared/shrinking ceiling is needed between
+        # them. This is what used to be one attachment fetched at a time —
+        # N attachments meant N sequential round trips, each blocking this
+        # message (and, before the batch was split across partitions, every
+        # other message behind it in the poll) for up to FETCH_TIMEOUT.
+        #
+        # Unknown-size attachments (the event's declared sizeBytes was
+        # missing/invalid — not the normal case, since messaging-svc always
+        # populates it from the attachments row) stay sequential, exactly as
+        # before: within_budget reserves nothing for them up front, so the
+        # only ceiling that keeps several of them from each independently
+        # claiming the whole remaining budget is the shrinking one built from
+        # what was actually fetched so far. They run AFTER the known-size
+        # batch, against what that batch actually consumed — a small,
+        # deliberate refinement over the old strict list-order accounting: a
+        # known-size file's own fetch no longer depends on where an
+        # unknown-size file happened to sit in the list.
+        known = [att for att in wanted if att.size_bytes is not None]
+        unknown = [att for att in wanted if att.size_bytes is None]
+
+        fetch_sem = asyncio.Semaphore(min(len(known), _ATTACHMENT_FETCH_CONCURRENCY) or 1)
+
+        async def _fetch_known(att: Attachment) -> bytes | None:
+            async with fetch_sem:
+                return await fetch_attachment(
                     self._http,
                     base_url=self._settings.messaging_internal_base,
                     token=self._settings.messaging_internal_token,
                     org_id=org_id,
                     mail_id=mail_id,
                     attachment=att,
-                    budget_bytes=max(remaining, 0),
+                    # size_bytes is not None here (that's the `known` split);
+                    # fetch() rejects only if declared > this ceiling, so its
+                    # own size is exactly the ceiling within_budget already
+                    # cleared it against.
+                    budget_bytes=att.size_bytes,  # type: ignore[arg-type]
                 )
+
+        known_results = (
+            await asyncio.gather(*(_fetch_known(att) for att in known)) if known else []
+        )
+        by_id: dict[str, bytes | None] = dict(zip((att.id for att in known), known_results))
+        fetched_known_bytes = sum(len(d) for d in known_results if d is not None)
+
+        remaining = max(self._settings.mail_attachment_budget_bytes - fetched_known_bytes, 0)
+        for att in unknown:
+            data = await fetch_attachment(
+                self._http,
+                base_url=self._settings.messaging_internal_base,
+                token=self._settings.messaging_internal_token,
+                org_id=org_id,
+                mail_id=mail_id,
+                attachment=att,
+                budget_bytes=remaining,
+            )
+            by_id[att.id] = data
+            if data is not None:
+                remaining -= len(data)
+
+        parts: list[tuple[str, str, bytes]] = []
+        for att in wanted:
+            data = by_id.get(att.id)
             if data is None:
                 skipped.append(att.filename)
                 continue
             parts.append((att.filename, att.mime, data))
-            remaining -= len(data)
         return parts, skipped
 
     async def _on_failure(self, event_id: str, event: dict, error: str) -> bool:
@@ -1040,7 +1131,16 @@ class RelayConsumer:
                     dsn=self._settings.email_db_dsn,
                     ssl=self._settings.email_db_ssl_context,
                     min_size=1,
-                    max_size=4,
+                    # Sized against relay_max_concurrency, not against 4 (the
+                    # single-message-at-a-time figure from before concurrent
+                    # partitions existed): up to that many messages can each
+                    # want a connection around the same instant for a claim or
+                    # mark-sent query. Each acquire is held only for one short,
+                    # indexed query — never for the SMTP/provider send in
+                    # between — so this does not mean relay_max_concurrency
+                    # connections are busy at once, only that a burst of that
+                    # size does not queue behind a too-small pool.
+                    max_size=max(4, self._settings.relay_max_concurrency // 2),
                 )
                 async with self._db.acquire() as conn:
                     await conn.execute("SELECT 1")

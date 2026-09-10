@@ -188,6 +188,12 @@ func (s *Server) Router(webOrigin string) http.Handler {
 	r.Group(func(g chi.Router) {
 		g.Use(mw.MaxBytes(smallBody))
 		g.Post("/internal/messages/delivered", s.markDelivered)
+		// ws-gateway calls this to reconstruct full message.created content
+		// from the compact {eventId, messageId} reference it may store in the
+		// Redis replay outbox instead of the full event — see
+		// docs/REDIS-REPLAY-RECORD-OPTIMIZATION.md sections H/S. Same
+		// shared-secret auth as the delivery endpoint.
+		g.Post("/internal/messages/hydrate", s.hydrateMessages)
 		// task-svc resolves channel members here when fanning out a channel-
 		// allocated task. Same shared-secret auth as the delivery endpoint.
 		g.Get("/internal/channels/{id}/members", s.internalChannelMembers)

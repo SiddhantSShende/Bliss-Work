@@ -51,11 +51,23 @@ const POSITION_KEY = "tb.mini-meeting.v1";
 
 type Point = { x: number; y: number };
 
+function isPoint(value: unknown): value is Point {
+  if (typeof value !== "object" || value === null) return false;
+  const { x, y } = value as Record<string, unknown>;
+  return typeof x === "number" && Number.isFinite(x) && typeof y === "number" && Number.isFinite(y);
+}
+
 function readPosition(): Point | null {
   if (typeof window === "undefined") return null;
   try {
     const raw = window.localStorage.getItem(POSITION_KEY);
-    return raw ? (JSON.parse(raw) as Point) : null;
+    if (!raw) return null;
+    // Corrupted, partially-cleared, or unexpectedly-shaped stored data must
+    // not reach clampToViewport's math as a fake Point — a bad x/y there
+    // produces NaN and strands the widget off-screen instead of falling
+    // back to defaultPosition().
+    const parsed: unknown = JSON.parse(raw);
+    return isPoint(parsed) ? parsed : null;
   } catch {
     return null;
   }

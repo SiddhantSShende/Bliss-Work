@@ -21,26 +21,21 @@ package sweep
 
 import "time"
 
-// Backoff ladder, indexed by how many times a pin has already been claimed by a
-// sweep. Past the end of the ladder the last value repeats until MaxNudges.
+// The nudge backoff ladder no longer lives in this package as code — it was
+// 1 minute, 5 minutes, 15 minutes, 1 hour, the last value repeating until
+// MaxNudges, deliberately starting at a minute rather than seconds (this is a
+// repair mechanism for a frame that was already lost, and the client's own
+// reconnect is faster than anything here) and ending at an hour (so a
+// genuinely unreachable client does not generate steady traffic for as long
+// as it stays unreachable).
 //
-// Deliberately starts at a minute, not seconds: this is a repair mechanism for
-// a frame that was already lost, and the client's own reconnect is faster than
-// anything here. Ending at an hour keeps a genuinely unreachable client from
-// generating steady traffic for as long as it stays unreachable.
-//
-// The CANONICAL definition — sticky-svc's own claim query hand-maintains a
-// copy of these same values in SQL (see internal.py's CASE expression) because
-// "is a nudge due" has to be decided server-side, inside the claim, where this
-// package's isDue can no longer see it (see isDue's doc comment for why this
-// package stopped recomputing that decision itself). Update the CASE
-// expression by hand if these values ever change.
-var BackoffLadder = []time.Duration{
-	1 * time.Minute,
-	5 * time.Minute,
-	15 * time.Minute,
-	1 * time.Hour,
-}
+// The CANONICAL definition of these values is now sticky-svc's own claim
+// query, which hand-maintains a copy of them in SQL (see internal.py's CASE
+// expression): "is a nudge due" has to be decided server-side, inside the
+// claim, where this package's isDue can no longer see it (see isDue's doc
+// comment below for why this package stopped recomputing that decision
+// itself). Update the CASE expression by hand if these values ever change —
+// there is nothing left in this package to keep in sync.
 
 // MaxNudges is where the watchdog gives up on a pin. Past this the client's own
 // periodic re-fetch is the remaining safety net — which is the right place for

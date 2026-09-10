@@ -39,9 +39,7 @@ export function AddPeopleDialog({
   const [busy, setBusy] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
 
-  const canSendOrganization = (me?.roles as readonly string[] | undefined)?.some(
-    (role) => role === "org_admin" || role === "owner",
-  ) ?? false;
+  const canSendOrganization = me?.roles.some((role) => role === "org_admin") ?? false;
 
   const sendLink = (ids: string[]) => {
     setBusy(true);

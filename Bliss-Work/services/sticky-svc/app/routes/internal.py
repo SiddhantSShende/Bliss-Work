@@ -14,6 +14,7 @@ from sqlalchemy import text
 from ..config import settings
 from ..db import session, set_bypass_rls
 from ..schemas import UndeliveredPinDTO
+from .pins import _iso
 
 router = APIRouter()
 
@@ -123,7 +124,7 @@ async def undelivered(
             taskId=str(r.task_id),
             orgId=str(r.org_id),
             assigneeId=str(r.assignee_id),
-            openedAt=r.opened_at.isoformat().replace("+00:00", "Z"),
+            openedAt=_iso(r.opened_at) or "",
             deliveryAttempts=r.delivery_attempts,
         )
         for r in rows

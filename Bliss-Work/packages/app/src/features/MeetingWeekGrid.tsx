@@ -17,7 +17,7 @@
 import type { CallDTO } from "@taskboard/shared";
 import { Phone, Video } from "lucide-react";
 import { timeLabel } from "../lib/meetingTime";
-import { bucketFor } from "../lib/meetingView";
+import { meetingBucketOrPast, meetingScope, meetingTitle } from "../lib/meetingView";
 import {
   dayColumnLabel,
   hourRows,
@@ -181,12 +181,12 @@ function MeetingBlock({
   nameOf: (id: string) => string;
 }) {
   const { call, topPct, heightPct, column, columns } = placed;
-  const bucket = call.status === "CANCELLED" ? "past" : bucketFor(call);
+  const bucket = meetingBucketOrPast(call);
   const Icon = call.media === "audio" ? Phone : Video;
-  const title = call.title.trim() || nameOf(call.createdBy) || "Untitled meeting";
+  const title = meetingTitle(call, nameOf);
   // The team this meeting belongs to, when it belongs to one at all — a channel
   // call has a channel, a meeting has only its own roster.
-  const scope = call.kind === "CHANNEL" ? "Channel call" : call.kind === "DIRECT" ? "Direct call" : null;
+  const scope = meetingScope(call);
   const short = heightPct < 6;
 
   return (

@@ -108,6 +108,7 @@ type Config struct {
 // a bridge that starts with half its configuration missing replicates half its
 // events, which is harder to notice than one that refuses to start.
 func Load() (*Config, error) {
+	var cfgErrs []string
 	c := &Config{
 		Region:          os.Getenv("BRIDGE_REGION"),
 		Peers:           splitList(os.Getenv("BRIDGE_PEER_REGIONS")),
@@ -121,17 +122,20 @@ func Load() (*Config, error) {
 		NATSTLSCert:     os.Getenv("NATS_TLS_CERT"),
 		NATSTLSKey:      os.Getenv("NATS_TLS_KEY"),
 		PeerAPIPrefixes: parseMap(os.Getenv("BRIDGE_PEER_API_PREFIXES")),
-		ExportEnabled:   boolOr("BRIDGE_EXPORT_ENABLED", true),
-		ImportEnabled:   boolOr("BRIDGE_IMPORT_ENABLED", true),
-		BatchSize:       intOr("BRIDGE_BATCH_SIZE", 256),
-		MaxAckPending:   intOr("BRIDGE_MAX_ACK_PENDING", 2048),
-		PublishWindow:   intOr("BRIDGE_PUBLISH_WINDOW", 512),
-		StreamMaxAge:    durOr("BRIDGE_STREAM_MAX_AGE", 24*time.Hour),
-		StreamMaxBytes:  int64(intOr("BRIDGE_STREAM_MAX_GB", 32)) << 30,
-		StreamReplicas:  intOr("BRIDGE_STREAM_REPLICAS", 3),
-		DedupeWindow:    durOr("BRIDGE_DEDUPE_WINDOW", 2*time.Hour),
-		StallAfter:      durOr("BRIDGE_STALL_AFTER", 2*time.Minute),
+		ExportEnabled:   boolOr("BRIDGE_EXPORT_ENABLED", true, &cfgErrs),
+		ImportEnabled:   boolOr("BRIDGE_IMPORT_ENABLED", true, &cfgErrs),
+		BatchSize:       intOr("BRIDGE_BATCH_SIZE", 256, &cfgErrs),
+		MaxAckPending:   intOr("BRIDGE_MAX_ACK_PENDING", 2048, &cfgErrs),
+		PublishWindow:   intOr("BRIDGE_PUBLISH_WINDOW", 512, &cfgErrs),
+		StreamMaxAge:    durOr("BRIDGE_STREAM_MAX_AGE", 24*time.Hour, &cfgErrs),
+		StreamMaxBytes:  int64(intOr("BRIDGE_STREAM_MAX_GB", 32, &cfgErrs)) << 30,
+		StreamReplicas:  intOr("BRIDGE_STREAM_REPLICAS", 3, &cfgErrs),
+		DedupeWindow:    durOr("BRIDGE_DEDUPE_WINDOW", 2*time.Hour, &cfgErrs),
+		StallAfter:      durOr("BRIDGE_STALL_AFTER", 2*time.Minute, &cfgErrs),
 		HTTPAddr:        envOr("BRIDGE_HTTP_ADDR", ":8080"),
+	}
+	if len(cfgErrs) > 0 {
+		return nil, fmt.Errorf("invalid config: %s", strings.Join(cfgErrs, "; "))
 	}
 
 	if !loop.ValidRegion(c.Region) {
@@ -290,23 +294,55 @@ func dlqTopicOr(k, def string) string {
 	return strings.TrimSpace(v)
 }
 
-func intOr(k string, def int) int {
-	if v, err := strconv.Atoi(envOr(k, "")); err == nil {
-		return v
+// intOr, boolOr and durOr all distinguish "unset" (use the default) from
+// "explicitly set but unparseable" (append to errs, use the default only so
+// construction can continue far enough to report every bad value at once —
+// Load() below still refuses to start when errs is non-empty). A silent
+// fallback here is exactly the failure mode Load's doc comment warns about:
+// an operator's BRIDGE_EXPORT_ENABLED=no typo must not be indistinguishable
+// from BRIDGE_EXPORT_ENABLED unset.
+func intOr(k string, def int, errs *[]string) int {
+	v, ok := os.LookupEnv(k)
+	if !ok || strings.TrimSpace(v) == "" {
+		return def
 	}
-	return def
+	v = strings.TrimSpace(v)
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		*errs = append(*errs, fmt.Sprintf("%s=%q is not a valid integer", k, v))
+		return def
+	}
+	return n
 }
 
-func boolOr(k string, def bool) bool {
-	if v, err := strconv.ParseBool(envOr(k, "")); err == nil {
-		return v
+func boolOr(k string, def bool, errs *[]string) bool {
+	v, ok := os.LookupEnv(k)
+	if !ok || strings.TrimSpace(v) == "" {
+		return def
 	}
-	return def
+	v = strings.TrimSpace(v)
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		*errs = append(*errs, fmt.Sprintf("%s=%q is not a valid bool", k, v))
+		return def
+	}
+	return b
 }
 
-func durOr(k string, def time.Duration) time.Duration {
-	if v, err := time.ParseDuration(envOr(k, "")); err == nil && v > 0 {
-		return v
+func durOr(k string, def time.Duration, errs *[]string) time.Duration {
+	v, ok := os.LookupEnv(k)
+	if !ok || strings.TrimSpace(v) == "" {
+		return def
 	}
-	return def
+	v = strings.TrimSpace(v)
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		*errs = append(*errs, fmt.Sprintf("%s=%q is not a valid duration", k, v))
+		return def
+	}
+	if d <= 0 {
+		*errs = append(*errs, fmt.Sprintf("%s=%q must be positive", k, v))
+		return def
+	}
+	return d
 }

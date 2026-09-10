@@ -47,6 +47,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
 import { Check, X, PinOff, Minus, Maximize2, Pin } from "lucide-react";
 import { ApiError, type StickyTaskDTO } from "@taskboard/shared";
+import { IconButton as SharedIconButton } from "@taskboard/ui";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { useSession } from "../store/session";
@@ -547,8 +548,11 @@ function FloatingNote({
   );
 }
 
-/** Small icon-only button shared by both states. `data-no-drag` so a tap
- *  inside it fires its click instead of starting a drag. */
+/** Small icon-only button shared by both states — a thin wrapper around
+ *  packages/ui's IconButton. `data-no-drag` so a tap inside it fires its
+ *  click instead of starting a drag; the sizing/shape override (h-auto w-auto
+ *  ... rounded-lg) keeps this note's compact button size instead of the
+ *  shared component's default h-9 w-9 rounded-xl. */
 function IconButton({
   children,
   onClick,
@@ -561,16 +565,15 @@ function IconButton({
   label: string;
 }) {
   return (
-    <button
-      type="button"
+    <SharedIconButton
       data-no-drag
       onClick={onClick}
       title={title}
       aria-label={label}
-      className="shrink-0 rounded-lg p-1 text-muted transition hover:bg-surface-2 hover:text-fg"
+      className="h-auto w-auto shrink-0 rounded-lg p-1 transition"
     >
       {children}
-    </button>
+    </SharedIconButton>
   );
 }
 

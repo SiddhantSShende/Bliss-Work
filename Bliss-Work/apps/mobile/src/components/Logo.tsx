@@ -1,6 +1,6 @@
 import { useId } from 'react';
 import Svg, { Circle, Defs, LinearGradient, Path, Rect, Stop } from 'react-native-svg';
-import { colors } from '../constants/theme';
+import { useThemeColors } from '../theme/ThemeProvider';
 
 /**
  * BlissWork mark: a "B" monogram with a chat bubble + three dots in the
@@ -9,6 +9,7 @@ import { colors } from '../constants/theme';
  * has no CSS custom properties to read.
  */
 export function Logo({ size = 32 }: { size?: number }) {
+  const colors = useThemeColors();
   const id = useId().replace(/:/g, '');
   return (
     <Svg width={size} height={size} viewBox="0 0 48 48" fill="none">

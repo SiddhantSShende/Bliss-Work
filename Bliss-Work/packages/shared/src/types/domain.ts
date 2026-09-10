@@ -901,8 +901,10 @@ export const ChannelDTO = z.object({
   isLocked: z.boolean().default(false),
   /** Whether the caller is currently a member. True for /channels (the
    *  caller's own channels) and false for /channels/open (the directory of
-   *  joinable channels). */
-  iAmMember: z.boolean().default(true),
+   *  joinable channels). Default false — an omitted field must not be
+   *  mistaken for "already a member" in the /channels/open directory, the
+   *  endpoint where this is most likely to be missing. */
+  iAmMember: z.boolean().default(false),
   /** Who created the channel. Written since the first channels migration and,
    *  until channel roles existed, never read back. */
   createdBy: z.string().default(""),

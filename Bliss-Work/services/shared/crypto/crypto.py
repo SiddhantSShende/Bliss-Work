@@ -288,6 +288,89 @@ class Cryptor:
         except Exception as exc:  # noqa: BLE001 — fail closed
             raise CryptoError("decrypt failed") from exc
 
+    # ── Batch decrypt (no per-item event-loop suspension) ───────────────────
+    #
+    # decrypt() awaits _dek_for_version() on every call, but on a warm cache
+    # that await never actually suspends (a dict lookup, returned immediately)
+    # — so a caller decrypting N rows in a `for` loop runs N calls back-to-back
+    # with no opportunity for the event loop to interleave any OTHER pending
+    # coroutine for the whole duration. On a single-uvicorn-worker service (the
+    # default here — see services/task-svc/app/routes/tasks_read.py, which
+    # decrypts up to 100 fields per /tasks/inbox request) that means one
+    # request's decrypt loop blocks every other in-flight request on the pod.
+    #
+    # These two methods split decrypt() into its two genuinely different parts:
+    # the DB-touching part (peek_version + warm_dek_versions, needs `conn`,
+    # already-cached after the first call per org) and the pure-CPU part
+    # (decrypt_batch_cached, no `conn`, no `await`, safe to run in exactly ONE
+    # `asyncio.to_thread` hop for a whole batch instead of one hop per item).
+    # Callers release their DB connection between the two steps — see
+    # tasks_read.py for the intended shape.
+    def peek_version(self, blob: bytes | None) -> int | None:
+        """Read the key_version embedded in a ciphertext's header without
+        decrypting it. None for a null blob. Used to know which DEK versions a
+        batch needs before warming them — see warm_dek_versions."""
+        if blob is None:
+            return None
+        if isinstance(blob, memoryview):
+            blob = bytes(blob)
+        if len(blob) < _HEADER.size + _NONCE_LEN:
+            raise CryptoError("ciphertext too short")
+        fmt, version = _HEADER.unpack(blob[: _HEADER.size])
+        if fmt != _FMT_V1:
+            raise CryptoError(f"unknown ciphertext format {fmt}")
+        return version
+
+    async def warm_dek_versions(self, conn: AsyncConnection, org_id: str, versions: set[int]) -> None:
+        """Ensure every DEK version in `versions` is in the in-process cache
+        (fetching + unwrapping from org_keys for whichever aren't). Call this
+        BEFORE releasing `conn` if you intend to call decrypt_batch_cached
+        afterward — that method never touches the database and requires every
+        version it sees to already be warm."""
+        for version in versions:
+            await self._dek_for_version(conn, org_id, version)
+
+    def decrypt_batch_cached(self, org_id: str, blobs: list[bytes | None]) -> list[str | None]:
+        """Synchronous, connection-free batch decrypt for one org. Every DEK
+        version referenced by `blobs` MUST already be warm (see
+        warm_dek_versions) — this fails closed with CryptoError on a cache miss
+        rather than reaching for the database, since the point of splitting
+        this out from decrypt() is to run with no open connection at all.
+
+        Preserves decrypt()'s exact format, key selection (per-blob embedded
+        version, so a batch spanning a DEK rotation still resolves each blob
+        against its own version), AAD, error type, and plaintext encoding —
+        this is the same per-item logic, just without the per-item `await`.
+        Designed to be called via `asyncio.to_thread` ONCE for a whole batch
+        (see class docstring above), not once per item.
+        """
+        out: list[str | None] = [None] * len(blobs)
+        now = time.monotonic()
+        for i, blob in enumerate(blobs):
+            if blob is None:
+                continue
+            if isinstance(blob, memoryview):
+                blob = bytes(blob)
+            if len(blob) < _HEADER.size + _NONCE_LEN:
+                raise CryptoError("ciphertext too short")
+            fmt, version = _HEADER.unpack(blob[: _HEADER.size])
+            if fmt != _FMT_V1:
+                raise CryptoError(f"unknown ciphertext format {fmt}")
+            hit = self._dek_cache.get((org_id, version))
+            if hit is None or hit[1] <= now:
+                raise CryptoError(
+                    f"decrypt_batch_cached: DEK for org {org_id} version {version} "
+                    "is not warm — call warm_dek_versions() first while a "
+                    "connection is still open"
+                )
+            nonce = blob[_HEADER.size : _HEADER.size + _NONCE_LEN]
+            ct = blob[_HEADER.size + _NONCE_LEN :]
+            try:
+                out[i] = AESGCM(hit[0]).decrypt(nonce, ct, org_id.encode("utf-8")).decode("utf-8")
+            except Exception as exc:  # noqa: BLE001 — fail closed
+                raise CryptoError("decrypt failed") from exc
+        return out
+
     # ── DEK management (org_keys) ────────────────────────────────────────────
     def _lock(self, org_id: str) -> asyncio.Lock:
         lk = self._locks.get(org_id)

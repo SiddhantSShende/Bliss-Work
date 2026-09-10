@@ -46,18 +46,31 @@ import (
 // limit is clamped to maxChannelPage and offset floored at zero, in the store
 // rather than only at the HTTP layer, because the ceiling has to hold for every
 // caller and not just the one that came through a URL.
+//
+// The query + row scan + DEK warm run inside one RLS-scoped tx; the decrypt
+// itself (CPU-bound, no DB access on a warm cache — see PeekVersion/
+// WarmVersions/DecryptCached in internal/crypto/crypto.go) runs AFTER that tx
+// commits and its pooled connection is released. Phase 12 found this
+// endpoint's own connections held open through the AES-GCM/JSON work on top
+// of the query — the same shape Phase 11 found and fixed for ListChannels/
+// ListConversations, now proven here too (a goroutine dump under load showed
+// 416/920 goroutines, 45.2%, blocked on pgxpool.Acquire via this function) —
+// and more exposed than either of those, since this runs against the REPLICA
+// pool (MaxConns=5, half the primary pool's 10). Not raised here either; see
+// store.go's comment on the platform-wide connection budget.
 func (s *Store) ListOpenChannels(
 	ctx context.Context, orgID, callerID string, limit, offset int,
 ) ([]ChannelDTO, error) {
 	limit = clampChannelPage(limit)
 	offset = clampOffset(offset)
-	out := []ChannelDTO{}
+	var raws []rawChannelRow
 	// Routed to the replica: this is the org-wide "browse channels I could
 	// join" directory, not the caller's own memberships, so it carries no
 	// read-after-write tie to anything the caller just did. See "Read
 	// replicas" in store.go for the rule this follows.
 	//
-	// RLS: channel listing + per-row last-message decrypt run under app.org_id.
+	// RLS: channel listing runs under app.org_id; so does the DEK warm-up
+	// below (org_keys is RLS-protected too).
 	err := s.withReplicaOrg(ctx, orgID, func(tx pgx.Tx) error {
 		// Member counts are aggregated ONCE for the whole result, not once per
 		// row — the same fix as ListChannels, and this is the more exposed of
@@ -131,21 +144,31 @@ func (s *Store) ListOpenChannels(
 		if err != nil {
 			return err
 		}
-		raws, err := scanRawChannelRows(rows)
-		if err != nil {
-			return err
+		var scanErr error
+		raws, scanErr = scanRawChannelRows(rows)
+		if scanErr != nil {
+			return scanErr
 		}
+
+		versions := map[int]struct{}{}
 		for _, rc := range raws {
-			d, derr := s.decryptChannelRow(ctx, tx, orgID, rc, false)
-			if derr != nil {
-				return derr
+			if v, ok := s.crypto.PeekVersion(rc.lastEnc); ok {
+				versions[v] = struct{}{}
 			}
-			out = append(out, d)
 		}
-		return nil
+		return s.crypto.WarmVersions(ctx, tx, orgID, versions)
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	out := make([]ChannelDTO, 0, len(raws))
+	for _, rc := range raws {
+		d, derr := decryptChannelRowCached(s.crypto, orgID, rc, false)
+		if derr != nil {
+			return nil, derr
+		}
+		out = append(out, d)
 	}
 	return out, nil
 }

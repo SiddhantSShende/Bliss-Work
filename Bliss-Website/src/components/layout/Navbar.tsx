@@ -84,6 +84,8 @@ export function Navbar() {
           <button
             onClick={() => setMenuOpen((v) => !v)}
             aria-label="Menu"
+            aria-expanded={menuOpen}
+            aria-controls="mobile-nav-menu"
             className="inline-flex h-9 w-9 items-center justify-center rounded-xl text-fg transition-colors hover:bg-surface-2 lg:hidden"
           >
             {menuOpen ? <X size={20} /> : <Menu size={20} />}
@@ -95,6 +97,7 @@ export function Navbar() {
       <AnimatePresence>
         {menuOpen && (
           <motion.nav
+            id="mobile-nav-menu"
             initial={{ opacity: 0, y: -8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}

@@ -297,9 +297,14 @@ func rowIDs(rows []row) []uuid.UUID {
 
 // Enqueue inserts an outbox row inside the provided transaction. The payload
 // must already be the full, marshaled event JSON.
-func Enqueue(ctx context.Context, tx pgx.Tx, id uuid.UUID, topic, key string, payload []byte) error {
+//
+// orgID is stored alongside the payload (not just embedded inside it) so
+// purgeOrg can delete a deleted org's not-yet-published rows directly —
+// without it, those rows outlive the org and still get published after
+// org.deleted, since nothing else ever looks inside the JSON to find them.
+func Enqueue(ctx context.Context, tx pgx.Tx, id uuid.UUID, topic, key, orgID string, payload []byte) error {
 	_, err := tx.Exec(ctx,
-		`INSERT INTO outbox (id, topic, kafka_key, payload) VALUES ($1, $2, $3, $4)`,
-		id, topic, key, payload)
+		`INSERT INTO outbox (id, topic, kafka_key, org_id, payload) VALUES ($1, $2, $3, $4, $5)`,
+		id, topic, key, orgID, payload)
 	return err
 }

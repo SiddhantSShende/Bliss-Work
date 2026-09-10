@@ -64,3 +64,8 @@ opentelemetry-instrumentation-asyncpg==0.65b0
 # task-svc, auth-svc and integrations-svc. See
 # services/shared/prune_events/prune_events.py.
 ../shared/prune_events
+
+# Hardened JWKS fetch-and-cache (single-flighted refresh + kid-miss cooldown),
+# shared with auth-svc, task-svc and integrations-svc (every Python service
+# that verifies bearer JWTs). See services/shared/jwks_auth/jwks_auth.py.
+../shared/jwks_auth

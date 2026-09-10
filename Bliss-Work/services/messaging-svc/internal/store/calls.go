@@ -57,6 +57,13 @@ var ErrCallEnded = errors.New("call has ended")
 // limitation to work around later.
 var ErrNoInviteForKind = errors.New("only meetings can be joined by link")
 
+// ErrSelfCall is returned when a direct call names the caller as their own
+// peer. Without this check, CreateDirectCall's participant INSERT writes two
+// rows sharing call_participants' (call_id, user_id) primary key, and
+// Postgres raises a duplicate-key error that has no clean 400 to map to —
+// checking here is what turns that into an ordinary validation failure.
+var ErrSelfCall = errors.New("cannot start a call with yourself")
+
 // CallDTO is a call as the API returns it.
 type CallDTO struct {
 	ID          string  `json:"id"`
@@ -229,8 +236,8 @@ func (s *Store) ScheduleMeeting(
 			if uid == callerID {
 				continue
 			}
-			// Every invitee must really be in the caller's org, resolved from
-			// user_projection exactly as AddParticipant does.
+			// Every invitee must really be in the caller's org — see
+			// requireSameOrgUser.
 			//
 			// The WITH CHECK does NOT cover this, which an earlier version of
 			// this comment claimed it did. The INSERT stamps org_id with the
@@ -241,17 +248,8 @@ func (s *Store) ScheduleMeeting(
 			// participant row, so writing it would hand an outsider the meeting
 			// without a link, which is the one thing the link path exists to
 			// keep auditable.
-			var invOrg string
-			err := tx.QueryRow(ctx,
-				`SELECT org_id FROM user_projection WHERE user_id = $1`, uid).Scan(&invOrg)
-			if errors.Is(err, pgx.ErrNoRows) {
-				return ErrForbidden
-			}
-			if err != nil {
+			if err := requireSameOrgUser(ctx, tx, orgID, uid); err != nil {
 				return err
-			}
-			if invOrg != orgID {
-				return ErrForbidden
 			}
 			// Same roster-wide block check AddParticipant runs (see
 			// participantBlockConflict): an up-front invitee list is just
@@ -305,19 +303,15 @@ func (s *Store) CreateDirectCall(
 	ctx context.Context, orgID, callerID, peerID, title, media string,
 	scheduledAt, endsAt *time.Time,
 ) (*CallDTO, error) {
+	// A caller cannot be their own peer — see ErrSelfCall. Checked before any
+	// DB work, since nothing below needs a round trip to know this.
+	if peerID == callerID {
+		return nil, ErrSelfCall
+	}
 	var out *CallDTO
 	err := s.withCaller(ctx, orgID, callerID, func(tx pgx.Tx) error {
-		var peerOrg string
-		err := tx.QueryRow(ctx,
-			`SELECT org_id FROM user_projection WHERE user_id = $1`, peerID).Scan(&peerOrg)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrForbidden
-		}
-		if err != nil {
+		if err := requireSameOrgUser(ctx, tx, orgID, peerID); err != nil {
 			return err
-		}
-		if peerOrg != orgID {
-			return ErrForbidden
 		}
 
 		// Defense in depth: the same bool_or(blocked) rule that already gates
@@ -370,6 +364,30 @@ func (s *Store) CreateDirectCall(
 
 // ── Roster ───────────────────────────────────────────────────────────────────
 
+// requireSameOrgUser fails unless userID belongs to orgID, resolved from
+// user_projection — this service's local mirror of who exists, so the check
+// needs no cross-service call on the hot path.
+//
+// Shared by every path that widens a call's roster with a same-org user —
+// ScheduleMeeting's invitee loop, CreateDirectCall, AddParticipant — which
+// used to repeat this exact lookup, one copy per call site, differing only
+// in the local variable name.
+func requireSameOrgUser(ctx context.Context, tx pgx.Tx, orgID, userID string) error {
+	var userOrg string
+	err := tx.QueryRow(ctx,
+		`SELECT org_id FROM user_projection WHERE user_id = $1`, userID).Scan(&userOrg)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrForbidden
+	}
+	if err != nil {
+		return err
+	}
+	if userOrg != orgID {
+		return ErrForbidden
+	}
+	return nil
+}
+
 // participantBlockConflict reports whether inviteeID has a block
 // relationship, in either direction, with any participant CURRENTLY active
 // (left_at IS NULL) in callID — the same bool_or(blocked) rule
@@ -384,13 +402,12 @@ func (s *Store) CreateDirectCall(
 // the check has to run against every participant already in the call, not
 // just the caller performing the add.
 //
-// A small, bounded loop rather than one join: callID's roster is a handful
-// of people (a human-triggered roster change, not a signaling frame — see
-// CallInviteAllowed's doc comment for why THAT path can never do this), and
-// reusing blockedPairTx per pair avoids duplicating its SQL or depending on
-// conversations.user_low/high ordering matching some new query's own
-// LEAST/GREATEST — orderedPair's Go-side comparison is the only place that
-// ordering is defined.
+// Batched into ONE query against the whole active roster rather than a
+// round trip per participant: callID's roster can run to hundreds for a
+// MEETING, and ScheduleMeeting calls this once per invitee, which made the
+// old per-participant loop quadratic in the invitee count. Pairs are still
+// ordered in GO, via orderedPair — see blockedAgainstAnyTx for why that
+// ordering must not be redefined in SQL.
 func participantBlockConflict(ctx context.Context, tx pgx.Tx, orgID, callID, inviteeID string) (bool, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT user_id FROM call_participants
@@ -412,16 +429,40 @@ func participantBlockConflict(ctx context.Context, tx pgx.Tx, orgID, callID, inv
 	if err := rows.Err(); err != nil {
 		return false, err
 	}
-	for _, uid := range active {
-		blocked, err := blockedPairTx(ctx, tx, orgID, inviteeID, uid)
-		if err != nil {
-			return false, err
-		}
-		if blocked {
-			return true, nil
-		}
+	if len(active) == 0 {
+		return false, nil
 	}
-	return false, nil
+	return blockedAgainstAnyTx(ctx, tx, orgID, inviteeID, active)
+}
+
+// blockedAgainstAnyTx reports whether userID has a block relationship, in
+// either direction, with ANY of peerIDs — the same bool_or(blocked) rule
+// blockedPairTx checks for a single pair, batched into one round trip so a
+// roster-wide check costs one query rather than len(peerIDs) of them.
+//
+// Pairs are ordered here, in Go, via orderedPair — the SAME function
+// blockedPairTx itself uses for its one pair — rather than reimplemented as
+// a LEAST/GREATEST in the query below. conversations.user_low/high's
+// ordering is defined in exactly one place on purpose; a second definition
+// in SQL could silently drift from it and start missing real blocks.
+func blockedAgainstAnyTx(ctx context.Context, tx pgx.Tx, orgID, userID string, peerIDs []string) (bool, error) {
+	lows := make([]string, len(peerIDs))
+	highs := make([]string, len(peerIDs))
+	for i, peer := range peerIDs {
+		lows[i], highs[i] = orderedPair(userID, peer)
+	}
+	var blocked bool
+	err := tx.QueryRow(ctx, `
+		SELECT COALESCE(bool_or(cm.blocked), false)
+		FROM unnest($2::uuid[], $3::uuid[]) AS pairs(user_low, user_high)
+		JOIN conversations c
+		  ON c.org_id = $1 AND c.user_low = pairs.user_low AND c.user_high = pairs.user_high
+		JOIN conversation_members cm ON cm.conversation_id = c.id`,
+		orgID, lows, highs).Scan(&blocked)
+	if err != nil {
+		return false, err
+	}
+	return blocked, nil
 }
 
 // AddParticipant pulls another user into an existing call.
@@ -471,20 +512,20 @@ func (s *Store) AddParticipant(
 		if !present {
 			return ErrForbidden
 		}
-		// The invitee must belong to the CALLER's org. user_projection is this
-		// service's local mirror of who exists, so this needs no cross-service
-		// call on the hot path.
-		var inviteeOrg string
-		err = tx.QueryRow(ctx,
-			`SELECT org_id FROM user_projection WHERE user_id = $1`, inviteeID).Scan(&inviteeOrg)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrForbidden
-		}
-		if err != nil {
+		// The invitee must belong to the CALLER's org — see requireSameOrgUser.
+		if err := requireSameOrgUser(ctx, tx, orgID, inviteeID); err != nil {
 			return err
 		}
-		if inviteeOrg != orgID {
-			return ErrForbidden
+		// A CHANNEL call's invite set IS the channel's membership — see
+		// CallChannel's doc comment — so this must not become a second way to
+		// widen it. AuthorizeCallAccess and requireLiveParticipantTx both
+		// re-check channel membership for the same reason; without it here,
+		// any current participant of a channel call could add an arbitrary
+		// same-org colleague who was never a member of the channel.
+		if c.kind == CallChannel && c.channelID != nil {
+			if err := requireChannelMember(ctx, tx, orgID, *c.channelID, inviteeID); err != nil {
+				return err
+			}
 		}
 		// The invitee must not have a block relationship with anyone already
 		// in the room — see participantBlockConflict's doc comment. Same

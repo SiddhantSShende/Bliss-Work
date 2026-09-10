@@ -32,6 +32,7 @@ COPY services/shared/logging_setup services/shared/logging_setup
 COPY services/shared/org_purge_tables services/shared/org_purge_tables
 COPY services/shared/client_ip services/shared/client_ip
 COPY services/shared/resilience services/shared/resilience
+COPY services/shared/jwks_auth services/shared/jwks_auth
 WORKDIR /src/services/telemetry-svc
 RUN pip install --upgrade pip && pip install -r requirements.txt
 

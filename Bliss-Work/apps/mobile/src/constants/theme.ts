@@ -1,39 +1,44 @@
 /**
- * BlissWork's visual tokens, ported from the single shared source of truth
- * (`packages/ui/src/theme.css`'s `@theme`/`:root`/`.default` blocks) into a
- * plain TS object React Native can consume — CSS custom properties don't
- * exist in RN, so this is a deliberate one-time port rather than a shared
- * import. Only the light, "default" (purple) family is ported for now,
- * matching every other brand-new-mobile-screen decision in this phase: the
- * other three selectable accent families and dark mode are a fast-follow,
- * not a v1 requirement.
- *
- * Keep this in sync BY HAND if theme.css's `.default`/`:root` values change —
- * there is no build step that could do this automatically across a CSS file
- * and a native app.
+ * BlissWork's visual tokens. The 6 selectable accent-family palettes
+ * (light + dark each) live in `./theme/themes.ts`, ported by hand from
+ * `packages/ui/src/theme.css` — CSS custom properties don't exist in RN, so
+ * that's a deliberate one-time port rather than a shared import.
  */
-export const colors = {
-  bg: '#fafafa',
-  surface: '#ffffff',
-  surface2: '#f4f4f5',
-  border: '#e4e4e7',
-  muted: '#6b7280',
-  fg: '#111827',
+/** Every palette shares this shape — declared explicitly (rather than
+ *  `typeof someRealPalette`) so each field is typed as plain `string`, not
+ *  narrowed to one palette's own literal hex values; without this, a
+ *  DIFFERENT family/mode's palette (different hex strings at every key)
+ *  would fail to satisfy a type inferred from just one example object. */
+export interface ThemeColors {
+  bg: string;
+  surface: string;
+  surface2: string;
+  border: string;
+  muted: string;
+  fg: string;
+  accent: string;
+  accentStrong: string;
+  accentFg: string;
+  accentSoft: string;
+  brandFrom: string;
+  brandTo: string;
+  success: string;
+  danger: string;
+  warning: string;
+  unread: string;
+}
 
-  accent: '#7c3aed',
-  accentStrong: '#6d28d9',
-  accentFg: '#ffffff',
-  accentSoft: '#f5f3ff',
-  brandFrom: '#c084fc',
-  brandTo: '#7c3aed',
-
-  // Semantic colors — fixed across every accent family in the web app too,
-  // so there's nothing accent-specific to track here.
-  success: '#16a34a',
-  danger: '#dc2626',
-  warning: '#d97706',
-  unread: '#2563eb',
-} as const;
+/** The default family's (Blue + Purple) light/dark palettes — used only as
+ *  the fixed fallback for contexts that can't react to the user's real
+ *  selection: ThemeProvider's initial context value (before AsyncStorage
+ *  resolves) and ErrorBoundary's fixed light palette (a class component
+ *  mounted outside ThemeProvider — see that file's own doc comment). Every
+ *  themed screen reads the user's actual family/mode via `useThemeColors()`
+ *  instead — sourced from `./theme/themes.ts`, the single table holding all
+ *  6 families, rather than duplicated here. */
+import { DEFAULT_FAMILY, paletteFor } from '../theme/themes';
+export const lightColors: ThemeColors = paletteFor(DEFAULT_FAMILY, false);
+export const darkColors: ThemeColors = paletteFor(DEFAULT_FAMILY, true);
 
 /** `rounded-2xl` is the dominant corner radius across cards/panels/buttons
  *  throughout the web app (Tailwind's `2xl` = 16px) — the one radius token
@@ -83,5 +88,5 @@ export const fontFamily = {
   bold: 'Inter-Bold',
 } as const;
 
-export const theme = { colors, radius, shadows, spacing, fontFamily };
+export const theme = { colors: lightColors, radius, shadows, spacing, fontFamily };
 export type Theme = typeof theme;

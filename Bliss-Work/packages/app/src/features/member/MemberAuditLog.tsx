@@ -1,9 +1,10 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { AlertTriangle, ScrollText } from "lucide-react";
-import { Avatar, Button, EmptyState, Spinner } from "@taskboard/ui";
+import { Avatar, EmptyState, Spinner } from "@taskboard/ui";
 import type { MemberDTO } from "@taskboard/shared";
 import { useRuntime } from "../../lib/runtime";
 import { qk } from "../../lib/queryBridge";
+import { LoadOlderFooter } from "./LoadOlderFooter";
 
 /**
  * The org's audit trail, optionally scoped to one member.
@@ -88,13 +89,11 @@ export function MemberAuditLog({ targetId, members }: { targetId?: string; membe
           </div>
         );
       })}
-      {hasNextPage && (
-        <div className="pt-2 text-center">
-          <Button variant="ghost" size="sm" loading={isFetchingNextPage} onClick={() => fetchNextPage()}>
-            Load older
-          </Button>
-        </div>
-      )}
+      <LoadOlderFooter
+        hasNextPage={hasNextPage}
+        isFetchingNextPage={isFetchingNextPage}
+        onLoadMore={() => fetchNextPage()}
+      />
     </div>
   );
 }

@@ -7,6 +7,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/task-board/messaging-svc/internal/readcache"
 )
 
 // GetMail returns one complete mail for a caller who is entitled to read it.
@@ -14,7 +16,28 @@ import (
 // Entitlement is the mail_deliveries row and nothing else: being in the org, or
 // knowing the id, is not enough. That single check covers author, To, Cc and
 // Bcc alike, and is the same rule the attachment download re-runs on every hit.
+//
+// Cache-aside, keyed per (org, mail, reader) — see readcache.MailKey for why
+// this is safe where the feed reads are not. Only a SENT or RECEIVED result is
+// cached: a DRAFT is the composer's own mutable in-progress content (autosaved
+// by SaveMailDraft) and caching it would serve stale text moments after the
+// next keystroke, so it is deliberately excluded rather than TTL'd away.
 func (s *Store) GetMail(ctx context.Context, orgID, userID, mailID string) (*MailDTO, error) {
+	key := readcache.MailKey(orgID, mailID, userID)
+	if hit, ok := readcache.GetJSON[MailDTO](ctx, s.cache, key); ok {
+		return &hit, nil
+	}
+	d, err := s.getMailUncached(ctx, orgID, userID, mailID)
+	if err != nil {
+		return nil, err
+	}
+	if d.Status != MailStatusDraft {
+		readcache.SetJSON(ctx, s.cache, key, d, readcache.MailTTL)
+	}
+	return d, nil
+}
+
+func (s *Store) getMailUncached(ctx context.Context, orgID, userID, mailID string) (*MailDTO, error) {
 	var d MailDTO
 	d.MailID = mailID
 	err := s.withOrg(ctx, orgID, func(tx pgx.Tx) error {
@@ -208,8 +231,14 @@ func (s *Store) loadMailAttachments(
 // Idempotent: read_at is only set the first time (COALESCE), so re-opening a
 // mail does not keep moving the timestamp forward, and the unread reset is a
 // no-op on a row that is already at zero.
+//
+// Invalidates this caller's cached GetMail response AFTER the commit — read_at
+// is the one field a cached mail can go stale on (see GetMail) — never before:
+// invalidating first would leave a window where a concurrent GetMail
+// repopulates the cache from the pre-commit (unread) state right before this
+// commits, and nothing would invalidate it again (see readcache.Del's doc).
 func (s *Store) MarkMailRead(ctx context.Context, orgID, userID, mailID string) error {
-	return s.withOrg(ctx, orgID, func(tx pgx.Tx) error {
+	err := s.withOrg(ctx, orgID, func(tx pgx.Tx) error {
 		ct, err := tx.Exec(ctx, `
 			UPDATE mail_deliveries
 			SET read_at = COALESCE(read_at, now())
@@ -228,6 +257,11 @@ func (s *Store) MarkMailRead(ctx context.Context, orgID, userID, mailID string) 
 			userID, mailID)
 		return err
 	})
+	if err != nil {
+		return err
+	}
+	readcache.Del(ctx, s.cache, readcache.MailKey(orgID, mailID, userID))
+	return nil
 }
 
 // requireMailReader is the attachments.scope='mail' membership rule. Same

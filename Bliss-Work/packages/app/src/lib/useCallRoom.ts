@@ -89,6 +89,23 @@ export function isGetUserMediaDenied(e: unknown): boolean {
  * database, so someone removed from a channel actually loses the room instead
  * of holding it until they hang up. If a refresh is refused, we disconnect —
  * quietly staying in a room you are no longer entitled to would be the bug.
+ *
+ * ── The refresh itself is a real, brief reconnect ────────────────────────────
+ * LiveKit has no API to hand a live connection a replacement token.
+ * prepareConnection() only pre-warms DNS/TLS ahead of Room.connect() — it
+ * no-ops once the room is already connected — and connect() itself no-ops
+ * once state is already Connected. So scheduleRefresh below disconnects and
+ * reconnects the SAME Room with the new token (LiveKit resets `engine` to
+ * undefined on disconnect and rebuilds it on the next connect(), which is
+ * what makes reusing one Room instance across that gap the supported
+ * pattern — it also means every event listener registered in `join` stays
+ * attached, so this is the one disconnect in this hook that must NOT run
+ * the normal Disconnected handler's "the call is over" cleanup; see
+ * `refreshingRef`). Camera/mic are re-published afterward if they were on —
+ * silent, since the origin already holds that permission — but a screen
+ * share cannot be resumed this way: getDisplayMedia() requires a fresh user
+ * gesture in every major browser, so that gets reported to the sharer
+ * instead of silently dropped.
  */
 export function useCallRoom(callId: string | null) {
   const { api, ws, config } = useRuntime();
@@ -154,12 +171,28 @@ export function useCallRoom(callId: string | null) {
    */
   const joining = useRef(false);
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** True while scheduleRefresh's own disconnect()+connect() cycle is in
+   *  flight on the CURRENT room. The Disconnected handler registered in
+   *  join() checks this to skip its normal "the call is over" cleanup for
+   *  that one, deliberately transient disconnect — see the module doc above. */
+  const refreshingRef = useRef(false);
   const lobbyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Unsubscribes the `call.started` listener that ends a lobby wait. */
   const lobbyOff = useRef<(() => void) | null>(null);
   /** The call we are in, and whether the server has already been told we left.
    *  Read by the unmount cleanup, which cannot close over changing values. */
   const leftRef = useRef(false);
+  /** leave() was called while a join was still awaiting its token — status
+   *  "connecting", but roomRef.current is not yet set (join() only assigns it
+   *  once the token comes back JOINED, and stays "connecting" through the
+   *  WAITING branch's decision too). There is no room yet for leave() to
+   *  disconnect, so it just records the request here; join() checks it the
+   *  moment the token resolves and, if set, reports the departure and stops
+   *  instead of entering the waiting room or connecting to the SFU — without
+   *  this a leave clicked mid-request was silently swallowed and the join
+   *  completed normally, landing the user back in the call. Reset at the
+   *  start of every join attempt. */
+  const leaveRequestedWhileConnecting = useRef(false);
   const callIdRef = useRef(callId);
   callIdRef.current = callId;
   const apiRef = useRef(api);
@@ -217,7 +250,8 @@ export function useCallRoom(callId: string | null) {
     setParticipants(rows);
   }, []);
 
-  /** Re-mint the room token before the current one lapses. */
+  /** Re-mint the room token before the current one lapses, and hand it to
+   *  LiveKit via a real reconnect — see the module doc above for why. */
   const scheduleRefresh = useCallback(
     (room: Room, id: string, expiresAt: string) => {
       if (refreshTimer.current) clearTimeout(refreshTimer.current);
@@ -226,31 +260,89 @@ export function useCallRoom(callId: string | null) {
       // cannot turn this into a tight loop against the API.
       const delay = Math.max(30_000, msLeft * 0.8);
       refreshTimer.current = setTimeout(() => {
-        api
-          .callToken(id)
-          .then((t) => {
-            // A live call cannot go back to being unstarted, so WAITING here
-            // means the room we are in is no longer one we hold a grant for.
-            // Treat it exactly like a refusal rather than assuming a token.
-            if (t.state !== "JOINED") {
-              void room.disconnect();
-              return;
-            }
-            // LiveKit accepts a replacement token on the live connection, so a
-            // refresh is invisible to the participant — no reconnect, no gap.
-            void room.localParticipant.setMetadata?.("");
-            room.prepareConnection?.(t.url, t.token);
-            scheduleRefresh(room, id, t.expiresAt);
-          })
-          .catch(() => {
+        // A stale timer from a room this hook has already left or switched
+        // away from must not act on whatever room/call is now current.
+        if (roomRef.current !== room || roomCallId.current !== id) return;
+        void (async () => {
+          let t;
+          try {
+            t = await apiRef.current.callToken(id);
+          } catch {
             // Access was withdrawn (removed from the channel, call ended, or
             // the meeting link revoked). Leaving is the correct response.
             toast.error("You no longer have access to this call");
             void room.disconnect();
-          });
+            return;
+          }
+          if (roomRef.current !== room || roomCallId.current !== id) return;
+          // A live call cannot go back to being unstarted, so WAITING here
+          // means the room we are in is no longer one we hold a grant for.
+          // Treat it exactly like a refusal rather than assuming a token.
+          if (t.state !== "JOINED") {
+            void room.disconnect();
+            return;
+          }
+          const wasMicOn = room.localParticipant.isMicrophoneEnabled;
+          const wasCamOn = room.localParticipant.isCameraEnabled;
+          const wasSharing = room.localParticipant.isScreenShareEnabled;
+          setStatus("reconnecting");
+          refreshingRef.current = true;
+          try {
+            await room.disconnect();
+            // Left, or switched calls, while disconnecting — the reconnect
+            // below is no longer wanted; leave the (now genuinely closed)
+            // room alone and let whatever left/switched handle its own state.
+            if (roomRef.current !== room || roomCallId.current !== id) {
+              refreshingRef.current = false;
+              return;
+            }
+            await room.connect(t.url, t.token);
+          } catch (e) {
+            console.error("[CALL ROOM] Refresh reconnect failed", e);
+            refreshingRef.current = false;
+            void room.disconnect();
+            return;
+          }
+          refreshingRef.current = false;
+          if (roomRef.current !== room || roomCallId.current !== id) {
+            // Left, or switched calls, while the reconnect itself was in
+            // flight — this room is no longer this hook's to keep.
+            void room.disconnect();
+            return;
+          }
+          setStatus("connected");
+          if (wasSharing) {
+            // Cannot be silently resumed — getDisplayMedia() requires a
+            // fresh user gesture in every major browser. Report it rather
+            // than leave the UI claiming a share that in fact stopped.
+            setSharing(false);
+            void apiRef.current.stopScreenShare(id).catch(() => {});
+            toast("Screen sharing stopped", {
+              description: "Reconnecting to the call ended your share — start it again if you're still presenting.",
+            });
+          }
+          if (wasMicOn) {
+            try {
+              await room.localParticipant.setMicrophoneEnabled(true);
+              setMicOn(true);
+            } catch {
+              setMicOn(false);
+            }
+          }
+          if (wasCamOn) {
+            try {
+              await room.localParticipant.setCameraEnabled(true);
+              setCamOn(true);
+            } catch {
+              setCamOn(false);
+            }
+          }
+          sync(room);
+          scheduleRefresh(room, id, t.expiresAt);
+        })();
       }, delay);
     },
-    [api],
+    [sync],
   );
 
   const join = useCallback(async () => {
@@ -285,6 +377,7 @@ export function useCallRoom(callId: string | null) {
     }
     setStatus("connecting");
     setFailStage(null);
+    leaveRequestedWhileConnecting.current = false;
     let stage: "token" | "connect" = "token";
     // The setup-duration clock starts HERE, not at room.connect(): a slow
     // token request is as much "how long did joining take" as a slow SFU
@@ -297,6 +390,23 @@ export function useCallRoom(callId: string | null) {
       console.debug("[CALL ROOM] Requesting meeting token");
       const grant = await api.callToken(callId);
       console.debug("[CALL ROOM] Token received");
+      if (leaveRequestedWhileConnecting.current) {
+        // leave() ran while this request was in flight — there was no room
+        // yet for it to disconnect (see the ref's own comment), so it just
+        // recorded the request. Honor it now, before entering the waiting
+        // room or connecting to the SFU either one: settling into either
+        // would silently land the user back in the call they just tried to
+        // leave. Same departure report leave()'s own waiting-room branch
+        // sends, since from the server's point of view this is that same
+        // case — a grant we are not going to act on.
+        leaveRequestedWhileConnecting.current = false;
+        setStatus("idle");
+        if (!leftRef.current) {
+          leftRef.current = true;
+          api.leaveCall(callId).catch(() => {});
+        }
+        return;
+      }
       // The call has not been started yet. There is no token to connect with —
       // that absence IS the waiting room, not a screen we chose to show — so
       // sit here and ask again until someone entitled to start it does.
@@ -414,6 +524,14 @@ export function useCallRoom(callId: string | null) {
           }
         })
         .on(RoomEvent.Disconnected, (reason?: DisconnectReason) => {
+          // scheduleRefresh disconnects and reconnects this SAME room
+          // deliberately, mid-call, to hand LiveKit a fresh token — see the
+          // module doc above. None of the "the call is over" cleanup below
+          // applies to that transient disconnect; scheduleRefresh manages
+          // this room's state itself while refreshingRef is set, and will
+          // reconnect (or, on failure, disconnect for real and let this
+          // handler run normally on that second, non-refresh disconnect).
+          if (refreshingRef.current) return;
           setParticipants([]);
           setSharing(false);
           setConnectedAt(undefined);
@@ -517,6 +635,11 @@ export function useCallRoom(callId: string | null) {
       // reason queryBridge gates its toasts on `live`.
       if (meta?.replayed) return;
       stopWaiting();
+      // This disconnect must run the Disconnected handler's normal cleanup
+      // even if it lands mid-refresh (scheduleRefresh's own disconnect+
+      // connect cycle) — the call is genuinely over, so there is nothing
+      // left for that reconnect to resume.
+      refreshingRef.current = false;
       void roomRef.current?.disconnect();
       // Record the departure exactly once, the same way hanging up does — the
       // call being over is not a reason for the roster to keep showing everyone
@@ -566,9 +689,20 @@ export function useCallRoom(callId: string | null) {
           const p = api.leaveCall(callId).catch(() => {});
           if (opts?.awaitServer) await p;
         }
+      } else if (status === "connecting") {
+        // A join is still awaiting its token, so there is no room yet to
+        // disconnect. Record the request — join() checks it the moment the
+        // token comes back and reports the departure itself instead of
+        // entering the waiting room or connecting to the SFU. See
+        // leaveRequestedWhileConnecting's own comment.
+        leaveRequestedWhileConnecting.current = true;
       }
       return;
     }
+    // Same reasoning as the CallEnded handler above: an explicit Leave must
+    // get the Disconnected handler's normal cleanup even if it lands
+    // mid-refresh.
+    refreshingRef.current = false;
     await room.disconnect();
     if (callId && !leftRef.current) {
       leftRef.current = true;

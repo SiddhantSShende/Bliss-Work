@@ -342,6 +342,84 @@ func (c *Cryptor) Decrypt(ctx context.Context, q Querier, orgID string, blob []b
 	return string(pt), nil
 }
 
+// ── Batch decrypt (no connection held across the CPU-bound part) ────────────
+//
+// Decrypt takes a Querier because dekForVersion needs one on a cache miss —
+// which is fine for a single call, but ListChannels/ListConversations decrypt
+// several ciphertexts per row across a full result set, and doing that inside
+// the same tx/connection that ran the SELECT holds a pooled connection for the
+// AES-GCM work too, not just the query. Under load that starves the pool
+// (MaxConns is deliberately capped — see store.go's own comment on the
+// platform-wide connection budget) well before Go's own CPU is the limit.
+//
+// The fix mirrors services/task-svc/app/... 's peek_version/warm_dek_versions/
+// decrypt_batch_cached split (Phase 5 of that service): read each blob's
+// key_version without decrypting, warm every version's DEK while the
+// connection is still open, then decrypt the whole batch with no connection
+// at all. Go has no event-loop-blocking concern Python has (each request
+// already runs on its own goroutine, scheduled across every core), so unlike
+// that Python fix this needs no extra thread-pool hop — just running the
+// decrypt loop after the tx commits is enough to stop it holding a connection.
+
+// PeekVersion reads the key_version embedded in a ciphertext's header without
+// decrypting it. ok is false for a nil/empty blob (nothing to warm for it).
+func (c *Cryptor) PeekVersion(blob []byte) (version int, ok bool) {
+	if len(blob) < headerLen+nonceLen {
+		return 0, false
+	}
+	return int(binary.BigEndian.Uint16(blob[1:headerLen])), true
+}
+
+// WarmVersions ensures every version in `versions` is in the in-process DEK
+// cache, fetching+unwrapping whichever aren't. Call this BEFORE releasing q —
+// DecryptCached never touches the database and requires every version it
+// sees to already be warm.
+func (c *Cryptor) WarmVersions(ctx context.Context, q Querier, orgID string, versions map[int]struct{}) error {
+	for v := range versions {
+		if _, err := c.dekForVersion(ctx, q, orgID, v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// DecryptCached is Decrypt without a Querier: every DEK version `blob`
+// references must already be warm (see WarmVersions), or this fails closed
+// with ErrCrypto rather than reaching for the database — the entire point of
+// splitting it out from Decrypt is to run with no open connection at all.
+// Same format, key selection, AAD and error behaviour as Decrypt.
+func (c *Cryptor) DecryptCached(orgID string, blob []byte) (string, error) {
+	if len(blob) < headerLen+nonceLen {
+		return "", cryptoErrf("ciphertext too short")
+	}
+	if blob[0] != fmtV1 {
+		return "", cryptoErrf("unknown ciphertext format %d", blob[0])
+	}
+	version := int(binary.BigEndian.Uint16(blob[1:headerLen]))
+	nonce := blob[headerLen : headerLen+nonceLen]
+	ct := blob[headerLen+nonceLen:]
+
+	now := time.Now()
+	c.mu.RLock()
+	hit, ok := c.byVer[dekKey{orgID, version}]
+	c.mu.RUnlock()
+	if !ok || !hit.expires.After(now) {
+		return "", cryptoErrf(
+			"DecryptCached: DEK for org %s version %d is not warm — call WarmVersions first while a connection is still open",
+			orgID, version)
+	}
+
+	gcm, err := newGCM(hit.dek)
+	if err != nil {
+		return "", err
+	}
+	pt, err := gcm.Open(nil, nonce, ct, []byte(orgID))
+	if err != nil {
+		return "", cryptoErrf("decrypt failed")
+	}
+	return string(pt), nil
+}
+
 // ── DEK management (org_keys) ────────────────────────────────────────────────
 
 func (c *Cryptor) orgLock(orgID string) *sync.Mutex {

@@ -17,7 +17,8 @@
  * round-trip to model: the row toggles a star and the list it is in has to
  * redraw in the same tick.
  */
-import { useMemo, useSyncExternalStore } from "react";
+import { useMemo } from "react";
+import { createLocalStore } from "./localStore";
 
 const STORAGE_KEY = "tb.mail.prefs";
 
@@ -26,55 +27,23 @@ type MailPrefState = Readonly<{ favorites: readonly string[] }>;
 
 const EMPTY: MailPrefState = { favorites: [] };
 
-function load(): MailPrefState {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return EMPTY;
-    const parsed: unknown = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") return EMPTY;
-    const favorites = (parsed as { favorites?: unknown }).favorites;
-    return {
-      favorites: Array.isArray(favorites)
-        ? favorites.filter((id): id is string => typeof id === "string")
-        : [],
-    };
-  } catch {
-    // Unavailable (some Electron contexts) or corrupt — a star is not worth
-    // failing a render over, so fall back to "nothing is starred".
-    return EMPTY;
-  }
-}
-
-function save(state: MailPrefState): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch {
-    /* Storage may be unavailable; the in-memory state still drives this session. */
-  }
-}
-
-// One snapshot object, replaced only when something actually changes, so
-// useSyncExternalStore's identity check does not loop.
-let state: MailPrefState = load();
-const listeners = new Set<() => void>();
-
-function subscribe(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
-}
-
-function snapshot(): MailPrefState {
-  return state;
-}
+const store = createLocalStore<MailPrefState>(STORAGE_KEY, EMPTY, (raw) => {
+  if (!raw || typeof raw !== "object") return EMPTY;
+  const favorites = (raw as { favorites?: unknown }).favorites;
+  return {
+    favorites: Array.isArray(favorites)
+      ? favorites.filter((id): id is string => typeof id === "string")
+      : [],
+  };
+});
 
 /** Star an unstarred mail, or unstar a starred one. */
 export function toggleMailFavorite(mailId: string): void {
+  const state = store.get();
   const favorites = state.favorites.includes(mailId)
     ? state.favorites.filter((id) => id !== mailId)
     : [...state.favorites, mailId];
-  state = { favorites };
-  save(state);
-  listeners.forEach((listener) => listener());
+  store.set({ favorites });
 }
 
 /**
@@ -84,7 +53,7 @@ export function toggleMailFavorite(mailId: string): void {
  * mail does not rebuild its callbacks on every unrelated render.
  */
 export function useMailPrefs() {
-  const snap = useSyncExternalStore(subscribe, snapshot, snapshot);
+  const snap = store.useSnapshot();
   return useMemo(
     () => ({
       isFavorite: (mailId: string) => snap.favorites.includes(mailId),

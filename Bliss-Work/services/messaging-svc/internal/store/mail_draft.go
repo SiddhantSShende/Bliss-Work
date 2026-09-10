@@ -106,18 +106,29 @@ func (s *Store) SaveMailDraft(ctx context.Context, in SaveMailDraftInput) error 
 			in.MailID, in.OrgID); err != nil {
 			return err
 		}
-		for _, r := range typed {
-			addrEnc, eerr := s.crypto.Encrypt(ctx, tx, in.OrgID, r.address)
-			if eerr != nil {
-				return eerr
+		if len(typed) > 0 {
+			kinds := make([]string, len(typed))
+			positions := make([]int32, len(typed))
+			addrEncs := make([][]byte, len(typed))
+			for i, r := range typed {
+				addrEnc, eerr := s.crypto.Encrypt(ctx, tx, in.OrgID, r.address)
+				if eerr != nil {
+					return eerr
+				}
+				kinds[i] = r.kind
+				positions[i] = int32(r.pos)
+				addrEncs[i] = addrEnc
 			}
-			// user_id stays NULL: resolving an address against the directory is
-			// a send-time decision (see resolveMailRecipients), and a draft that
-			// pre-resolved it would go stale the moment somebody joins or leaves.
+			// One round trip for the whole autosave, not one per typed address —
+			// this fires on every composer autosave tick. user_id stays NULL:
+			// resolving an address against the directory is a send-time decision
+			// (see resolveMailRecipients), and a draft that pre-resolved it would
+			// go stale the moment somebody joins or leaves.
 			if _, err := tx.Exec(ctx, `
 				INSERT INTO mail_recipients (mail_id, org_id, kind, position, address_enc, user_id)
-				VALUES ($1, $2, $3, $4, $5, NULL)`,
-				in.MailID, in.OrgID, r.kind, r.pos, addrEnc); err != nil {
+				SELECT $1, $2, u.kind, u.position, u.address_enc, NULL
+				  FROM unnest($3::text[], $4::int[], $5::bytea[]) AS u(kind, position, address_enc)`,
+				in.MailID, in.OrgID, kinds, positions, addrEncs); err != nil {
 				return err
 			}
 		}

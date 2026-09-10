@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { z } from "zod";
 import type { ApiClient } from "@taskboard/shared";
 import { useRuntime } from "./runtime";
-import { qk } from "./queryBridge";
+import { qk } from "./queryKeys";
 
 /** Only the fields a label (or avatar) needs. The gateway is asked for exactly
  *  these, which is the whole point of asking it rather than the directory.

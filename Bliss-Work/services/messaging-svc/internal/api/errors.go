@@ -117,6 +117,10 @@ func mapStoreError(err error) (int, ErrorCode, string) {
 		// request just asks for an order (chronological, across two scopes)
 		// that does not exist.
 		return http.StatusBadRequest, CodeValidationError, err.Error()
+	case errors.Is(err, store.ErrSelfCall):
+		// 400, not 403 or 500: the request is simply nonsensical — there is
+		// no peer to ring — not a permission problem or a server fault.
+		return http.StatusBadRequest, CodeValidationError, err.Error()
 	case errors.Is(err, store.ErrInviteInvalid):
 		// 404, not 403. A 403 would confirm the token names a real meeting,
 		// turning this endpoint into an oracle for guessing links; and the

@@ -7,7 +7,8 @@ import { queryRetryDelay, shouldRetryQuery } from '@taskboard/app/lib/retryPolic
 import { useSession } from '@taskboard/app/store/session';
 import type { PlatformConfig } from '@taskboard/app/platform';
 import { resolveEndpoints } from '../constants/endpoints';
-import { colors } from '../constants/theme';
+import { FORCE_PROD_BACKEND } from '../constants/localBackendOverride';
+import { ThemeProvider, useThemeColors } from '../theme/ThemeProvider';
 import { getRefreshToken, initAuthCookie, persistRefreshToken, syncRefreshTokenFromJar } from '../services/authCookie';
 
 // Same retry/staleness tuning apps/web and apps/desktop both use (see
@@ -38,27 +39,14 @@ const queryClient = new QueryClient({
 // including an ordinary `__DEV__` build on an emulator meant to hit a local
 // docker-compose stack — silently talked to the real production backend
 // (real login attempts, real MFA/captcha) unless a developer happened to
-// notice this line and flip it back. It now defaults to `false` and reads an
-// explicit, machine-local opt-in instead: create
-// `src/constants/localBackendOverride.ts` (gitignored — see
-// apps/mobile/.gitignore, the same versioned-default/gitignored-local-
-// override split ios/.xcode.env + .xcode.env.local already use) exporting
-// `export const FORCE_PROD_BACKEND = true;` ONLY on the machine doing
-// physical-device testing. No such file — the default on every other
-// checkout — resolves to `false`.
-function readForceProdBackendOverride(): boolean {
-  try {
-    // Deliberately a `require`, not a static `import`: the file is expected
-    // to be absent on every checkout except a physical-device tester's, and
-    // only `require` lets that absence be caught here instead of failing the
-    // bundle for everyone else.
-    const override = require('../constants/localBackendOverride') as { FORCE_PROD_BACKEND?: boolean };
-    return override.FORCE_PROD_BACKEND === true;
-  } catch {
-    return false;
-  }
-}
-const FORCE_PROD_BACKEND = readForceProdBackendOverride();
+// notice this line and flip it back. It now defaults to `false`, read from
+// the committed `src/constants/localBackendOverride.ts`: a physical-device
+// tester flips that file's export to `true` locally and doesn't commit the
+// change (see that file, and .gitignore's note, for why it's a committed
+// default rather than a gitignored override — Metro resolves every
+// `require`/`import` statically while building the bundle, before any code
+// runs, so a conditionally-absent module doesn't gracefully fall back to
+// `false` here, it fails the whole bundle build for every other checkout).
 const endpoints = resolveEndpoints(FORCE_PROD_BACKEND || !__DEV__, Platform.OS === 'ios' ? 'ios' : 'android');
 initAuthCookie(endpoints.authBase);
 
@@ -100,11 +88,13 @@ const config: PlatformConfig = {
 
 export function AppProviders({ children }: { children: ReactNode }) {
   return (
-    <QueryClientProvider client={queryClient}>
-      <RuntimeProvider config={config}>
-        <SessionBootstrap>{children}</SessionBootstrap>
-      </RuntimeProvider>
-    </QueryClientProvider>
+    <ThemeProvider>
+      <QueryClientProvider client={queryClient}>
+        <RuntimeProvider config={config}>
+          <SessionBootstrap>{children}</SessionBootstrap>
+        </RuntimeProvider>
+      </QueryClientProvider>
+    </ThemeProvider>
   );
 }
 
@@ -118,6 +108,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
 function SessionBootstrap({ children }: { children: ReactNode }) {
   const status = useSession((s) => s.status);
   const [ready, setReady] = useState(false);
+  const colors = useThemeColors();
 
   useEffect(() => {
     let alive = true;

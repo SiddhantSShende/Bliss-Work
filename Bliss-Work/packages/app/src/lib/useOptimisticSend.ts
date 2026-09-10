@@ -76,6 +76,21 @@ export function useOptimisticSend<TDto extends Sendable>({
   const qc = useQueryClient();
 
   return useMutation({
+    // Scopes this mutation to the conversation/channel `queryKey` names. This
+    // hook's component (DMView/ChannelView) never unmounts on navigation —
+    // it's the same component with a new conversationId prop — so the
+    // underlying MutationObserver instance persists across a conversation
+    // switch and gets new onSuccess/onError closures on every render. With
+    // NO mutationKey (or an unchanged one), MutationObserver.setOptions()
+    // rebinds those new closures onto a still-pending mutation from the
+    // conversation the user just left (see query-core's mutationObserver.ts)
+    // — a slow send in conversation A that resolves after switching to B then
+    // patches B's cache instead of A's, leaving A's optimistic row stuck on
+    // "Sending…" forever. A DIFFERING mutationKey makes setOptions() reset()
+    // the observer instead of rebinding: it detaches from the in-flight
+    // mutation without touching its options, so the orphaned mutation still
+    // resolves against the conversation it was actually sent for.
+    mutationKey: queryKey,
     mutationFn,
     onMutate: async (vars: SendVars) => {
       await qc.cancelQueries({ queryKey });

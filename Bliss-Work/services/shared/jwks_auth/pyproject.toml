@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jwks-auth"
+version = "0.1.0"
+description = "Hardened JWKS fetch-and-cache (single-flighted refresh + kid-miss cooldown), shared across this repo's Python services that verify bearer JWTs minted by auth-svc."
+requires-python = ">=3.13"
+dependencies = [
+    "httpx",
+    "cryptography",
+    # The sibling `resilience` shared package (retry/circuit-breaker) must be
+    # installed alongside this one. Not declared here since this repo's
+    # shared packages don't formally depend on each other yet — every service
+    # requirements.txt that lists jwks_auth already lists resilience too.
+]
+
+[tool.setuptools]
+py-modules = ["jwks_auth"]

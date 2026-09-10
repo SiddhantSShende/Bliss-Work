@@ -153,17 +153,15 @@ function VisualTile({
  * Clicking it opens the file — never downloads it, matching the rest of the
  * app's "view, don't save" policy for chat attachments (see Lightbox's own
  * note, and internal/api/attachments.go's server-side enforcement, which
- * ignores `?dl=1`). A type the app can render itself (`canPreviewDocInApp`)
- * opens in the same in-app Lightbox the gallery uses, exactly like the
- * identical file's row in the conversation's "Media, Links & Docs" panel
- * (ChatAssetsSheet).
- *
- * Everything else — Office documents, archives, anything outside that
- * allowlist — is NOT a link to the file any more. It used to open via
- * `target="_blank"`, but the server forces `Content-Disposition: attachment`
- * for every type outside its own inline allowlist (media/mime.go), so that
- * "Open" was actually a download wearing an Open label. There is no fallback
- * to downloading: the tile is inert and says why.
+ * ignores `?dl=1`). Every resolved attachment is clickable, and always opens
+ * the same in-app Lightbox the gallery uses, exactly like the identical
+ * file's row in the conversation's "Media, Links & Docs" panel
+ * (ChatAssetsSheet). A type the app can render itself (`canPreviewDocInApp`,
+ * plus images/video) shows the file; anything else — Office documents,
+ * archives — still opens the Lightbox, which explains it cannot be
+ * previewed. There is no fallback to downloading: nothing here is ever a
+ * link to the file, so a type outside the inline allowlist (media/mime.go)
+ * simply has no bytes to leak through a click.
  */
 function FileCard({
   item,
@@ -182,10 +180,7 @@ function FileCard({
 }) {
   const clickable = !progress && !!url;
   const previewable = canPreviewDocInApp(item.mime);
-  // Openable only when there is something to open it INTO — a type outside
-  // canPreviewDocInApp has nowhere to go (see the file doc comment above), so
-  // the tile stays inert for it even once its URL has resolved.
-  const openable = clickable && previewable;
+  const openable = clickable;
 
   const bubbleClass = `flex items-center gap-2.5 rounded-2xl px-3.5 py-2.5 text-left text-sm shadow-[0_2px_10px_-4px_rgba(40,30,90,0.25)] ${
     mine
@@ -233,11 +228,7 @@ function FileCard({
   );
 
   if (!openable) {
-    return (
-      <div className={bubbleClass} aria-label={!clickable ? undefined : `${item.name} — preview not available`}>
-        {content}
-      </div>
-    );
+    return <div className={bubbleClass}>{content}</div>;
   }
 
   return (

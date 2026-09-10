@@ -1,0 +1,129 @@
+version: 2
+# Automated dependency-update PRs across every ecosystem in the monorepo.
+# Security updates are raised by Dependabot immediately regardless of schedule.
+#
+# Lives at the TRUE repository root (/home/ubuntu/BlissWork/.github/dependabot.yml)
+# because that is the only place GitHub Actions/Dependabot ever reads config from
+# — `Bliss-Work/` is a tracked subdirectory of this repo, not the repo root, even
+# though almost everything else (services/, apps/, infra/) lives under it. Every
+# `directory`/`directories` path below is repo-root-relative per Dependabot's own
+# convention, hence the `/Bliss-Work/...` prefix throughout. `ci.yml`,
+# `deploy-prod.yml` and `deploy-site.yml` already made this same root/subdirectory
+# split correctly (see `ci.yml`'s `defaults.run.working-directory: Bliss-Work`) —
+# this file previously lived at `Bliss-Work/.github/dependabot.yml`, one directory
+# too deep for GitHub to ever discover it, so Dependabot has likely never run for
+# this repo. Moved here to fix that; paths updated to match.
+updates:
+  # ── Python services ──────────────────────────────────────────────────────────
+  - package-ecosystem: pip
+    cooldown: { default-days: 7 }
+    directory: /Bliss-Work/services/auth-svc
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+    groups:
+      python-deps: { patterns: ["*"] }
+  - package-ecosystem: pip
+    cooldown: { default-days: 7 }
+    directory: /Bliss-Work/services/task-svc
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+    groups:
+      python-deps: { patterns: ["*"] }
+  - package-ecosystem: pip
+    cooldown: { default-days: 7 }
+    directory: /Bliss-Work/services/email-worker
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+    groups:
+      python-deps: { patterns: ["*"] }
+  - package-ecosystem: pip
+    cooldown: { default-days: 7 }
+    directory: /Bliss-Work/services/integrations-svc
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+    groups:
+      python-deps: { patterns: ["*"] }
+  - package-ecosystem: pip
+    cooldown: { default-days: 7 }
+    directory: /Bliss-Work/services/sticky-svc
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+    groups:
+      python-deps: { patterns: ["*"] }
+  - package-ecosystem: pip
+    cooldown: { default-days: 7 }
+    directory: /Bliss-Work/services/telemetry-svc
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+    groups:
+      python-deps: { patterns: ["*"] }
+
+  # ── Go services ──────────────────────────────────────────────────────────────
+  - package-ecosystem: gomod
+    cooldown: { default-days: 7 }
+    directory: /Bliss-Work/services/notification-svc
+    schedule: { interval: weekly }
+    groups:
+      go-deps: { patterns: ["*"] }
+  - package-ecosystem: gomod
+    cooldown: { default-days: 7 }
+    directory: /Bliss-Work/services/messaging-svc
+    schedule: { interval: weekly }
+    groups:
+      go-deps: { patterns: ["*"] }
+  - package-ecosystem: gomod
+    cooldown: { default-days: 7 }
+    directory: /Bliss-Work/services/ws-gateway
+    schedule: { interval: weekly }
+    groups:
+      go-deps: { patterns: ["*"] }
+  - package-ecosystem: gomod
+    cooldown: { default-days: 7 }
+    directory: /Bliss-Work/services/region-bridge
+    schedule: { interval: weekly }
+    groups:
+      go-deps: { patterns: ["*"] }
+  - package-ecosystem: gomod
+    cooldown: { default-days: 7 }
+    directory: /Bliss-Work/services/sticky-relay
+    schedule: { interval: weekly }
+    groups:
+      go-deps: { patterns: ["*"] }
+
+  # ── Frontend / workspace ─────────────────────────────────────────────────────
+  - package-ecosystem: npm
+    cooldown: { default-days: 7 }
+    directory: /Bliss-Work
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 10
+    groups:
+      npm-deps: { patterns: ["*"] }
+
+  # ── Container base images ────────────────────────────────────────────────────
+  - package-ecosystem: docker
+    cooldown: { default-days: 7 }
+    directories:
+      - /Bliss-Work/services/auth-svc
+      - /Bliss-Work/services/task-svc
+      - /Bliss-Work/services/email-worker
+      - /Bliss-Work/services/notification-svc
+      - /Bliss-Work/services/messaging-svc
+      - /Bliss-Work/services/ws-gateway
+      - /Bliss-Work/services/graph-gw
+      - /Bliss-Work/services/integrations-svc
+      - /Bliss-Work/services/region-bridge
+      - /Bliss-Work/services/sticky-relay
+      - /Bliss-Work/services/sticky-svc
+      - /Bliss-Work/services/telemetry-svc
+      - /Bliss-Work/apps/web
+      - /Bliss-Work/infra/caddy
+      - /Bliss-Work/infra/postgres
+    schedule: { interval: weekly }
+
+  # ── GitHub Actions ───────────────────────────────────────────────────────────
+  # Stays at the true root: workflows live in .github/workflows/ relative to
+  # THIS file's own location (the true repo root), not Bliss-Work/.
+  - package-ecosystem: github-actions
+    cooldown: { default-days: 7 }
+    directory: /
+    schedule: { interval: weekly }

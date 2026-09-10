@@ -209,6 +209,14 @@ export class WsClient {
     }
     this.setStatus("connecting");
     let token = await this.opts.getToken();
+    // A close() can land while the getToken() await above was in flight (e.g.
+    // queryBridge's orgId-keyed effect calling close() then connect() again on
+    // an orgId change — see packages/app/src/lib/queryBridge.tsx). Without this
+    // check, this now-orphaned open() call would fall straight through to
+    // constructing and assigning a socket that close() already told to stop —
+    // nothing could ever close it again. No WebSocket has been constructed yet
+    // at this point, so returning here is enough; no teardown needed.
+    if (this.stopped) return;
     // The gateway authenticates the token at the WS HANDSHAKE and rejects an
     // expired one (401). The access token lives ~15 min; an already-open socket
     // survives expiry, but a RECONNECT after expiry (sleep/network blip/app
@@ -344,8 +352,18 @@ export class WsClient {
     if (control.success) {
       if (control.data.type === "token.refresh.required" && this.opts.refreshToken) {
         this.setStatus("reauth");
-        const token = await this.opts.refreshToken();
-        this.ws?.send(JSON.stringify({ type: "auth.renew", token }));
+        try {
+          const token = await this.opts.refreshToken();
+          this.ws?.send(JSON.stringify({ type: "auth.renew", token }));
+        } catch {
+          // Refresh failed (e.g. dead refresh cookie) — same as open()'s
+          // identical call. Unlike there, this socket is already open with no
+          // handshake left to reject it, so nothing else would ever move us
+          // out of "reauth": force it closed and let the ordinary
+          // onclose -> scheduleReconnect() -> open() path recover it, the
+          // same backstop armPongTimeout uses for a zombie connection.
+          this.ws?.close();
+        }
       }
       // Catch-up is over; everything from here is genuinely new.
       if (control.data.type === "replay.done") this.endReplay();

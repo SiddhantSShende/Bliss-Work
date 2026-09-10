@@ -111,9 +111,6 @@ export default defineConfig(({ mode }) => ({
       "/ws": { target: "ws://127.0.0.1:8090", ws: true, changeOrigin: true },
     },
   },
-  define: {
-    __WS_URL__: JSON.stringify(process.env.VITE_WS_URL ?? "ws://localhost:8080/ws"),
-  },
   build: {
     rollupOptions: {
       output: {

@@ -190,6 +190,23 @@ func parseSchedule(req scheduleCallReq) (schedule, bool) {
 	return out, true
 }
 
+// startRecordingAndReflect starts recording for a call that just went LIVE —
+// a "meet now" channel call or meeting, or a scheduled one that was just
+// explicitly started — and reflects the outcome onto c so the response the
+// caller gets back already carries recordingStatus instead of it arriving a
+// refetch later.
+//
+// Best-effort, matching startRecording's own contract: a deployment with no
+// recorder configured, or a DIRECT call, simply does nothing here. Shared by
+// every path that can move a call to LIVE, which used to repeat this same
+// four-line snippet at each one.
+func (s *Server) startRecordingAndReflect(ctx context.Context, c *store.CallDTO) {
+	if started, _ := s.startRecording(ctx, c.ID, c.OrgID, c.Kind); started {
+		st := store.RecordingInProgress
+		c.RecordingStatus = &st
+	}
+}
+
 // scheduleChannelCall serves POST /api/v1/channels/{id}/calls.
 //
 // Feature 1. The roster is the channel's membership and is never copied, so
@@ -222,10 +239,7 @@ func (s *Server) scheduleChannelCall(w http.ResponseWriter, r *http.Request) {
 	// A channel call with no time on it is live already — there is no later
 	// "start" to hang the recording off.
 	if c.Status == "LIVE" {
-		if started, _ := s.startRecording(r.Context(), c.ID, c.OrgID, c.Kind); started {
-			st := store.RecordingInProgress
-			c.RecordingStatus = &st
-		}
+		s.startRecordingAndReflect(r.Context(), c)
 	}
 	writeJSON(w, http.StatusCreated, c)
 }
@@ -283,10 +297,7 @@ func (s *Server) scheduleMeeting(w http.ResponseWriter, r *http.Request) {
 	s.notifyCall(r.Context(), c, events.TypeCallScheduled, claims.UserID)
 	// Same as a channel call: "meet now" has no start request to follow.
 	if c.Status == "LIVE" {
-		if started, _ := s.startRecording(r.Context(), c.ID, c.OrgID, c.Kind); started {
-			st := store.RecordingInProgress
-			c.RecordingStatus = &st
-		}
+		s.startRecordingAndReflect(r.Context(), c)
 	}
 	writeJSON(w, http.StatusCreated, c)
 }
@@ -766,10 +777,7 @@ func (s *Server) startCall(w http.ResponseWriter, r *http.Request) {
 	// Recording begins with the call, on a deployment that records at all. The
 	// response is written after it so `recordingStatus` on the call the starter
 	// gets back is already true rather than arriving a refetch later.
-	if started, _ := s.startRecording(r.Context(), c.ID, c.OrgID, c.Kind); started {
-		st := store.RecordingInProgress
-		c.RecordingStatus = &st
-	}
+	s.startRecordingAndReflect(r.Context(), c)
 	s.log.Info("call started", "call", callID, "by", claims.UserID, "admitted", len(admitted))
 	writeJSON(w, http.StatusOK, c)
 }

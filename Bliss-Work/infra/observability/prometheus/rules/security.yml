@@ -31,8 +31,9 @@ groups:
   - name: security.auth
     rules:
       # Credential stuffing / brute force against auth-svc. auth-svc is a Python
-      # service, so 401s are folded into the "4xx" class; we scope to the login
-      # and refresh handlers (where a 4xx almost always means a rejected
+      # service with should_group_status_codes=False (see file header), so it
+      # emits the exact status="401" label we match on below; we scope to the
+      # login and refresh handlers (where a 401 almost always means a rejected
       # credential or a replayed/expired refresh token) to keep the signal
       # clean. A sustained burst of rejected auth attempts is the brute-force
       # signature. Rate is over 5m; threshold is per-second.
@@ -112,15 +113,15 @@ groups:
   # ───────────────────────────────────────────────────────────────────────────
   - name: security.errors
     rules:
-      # 5xx error-rate spike, PER SERVICE. Works for both families: Python emits
-      # status="5xx" (class), Go emits status=~"5.." (exact). We match both with
-      # a regex so one rule covers every job. Expressed as a RATIO of 5xx to all
-      # responses so a low-traffic blip doesn't fire while a real outage on a
-      # busy service does.
+      # 5xx error-rate spike, PER SERVICE. Both families emit the exact numeric
+      # status (see file header — should_group_status_codes=False for Python,
+      # hand-rolled exact codes for Go), so a plain 5.. regex covers every job.
+      # Expressed as a RATIO of 5xx to all responses so a low-traffic blip
+      # doesn't fire while a real outage on a busy service does.
       - alert: ServiceHigh5xxErrorRate
         expr: |
           (
-            sum by (job) (rate(http_requests_total{status=~"5xx|5.."}[5m]))
+            sum by (job) (rate(http_requests_total{status=~"5.."}[5m]))
             /
             sum by (job) (rate(http_requests_total[5m]))
           ) > 0.05
@@ -138,7 +139,7 @@ groups:
       - alert: ServiceCritical5xxErrorRate
         expr: |
           (
-            sum by (job) (rate(http_requests_total{status=~"5xx|5.."}[5m]))
+            sum by (job) (rate(http_requests_total{status=~"5.."}[5m]))
             /
             sum by (job) (rate(http_requests_total[5m]))
           ) > 0.20

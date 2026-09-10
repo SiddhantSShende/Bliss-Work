@@ -34,22 +34,10 @@ func (s *Store) deliverMailInApp(
 		return err
 	}
 
-	for _, uid := range locals {
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO mail_deliveries (mail_id, owner_user_id, org_id, folder)
-			VALUES ($1, $2, $3, 'INBOX')
-			ON CONFLICT (mail_id, owner_user_id) DO NOTHING`,
-			in.MailID, uid, in.OrgID); err != nil {
-			return err
-		}
-		sender := in.UserID
-		if err := s.upsertMailInboxItem(ctx, tx, mailInboxItem{
-			orgID: in.OrgID, ownerUserID: uid, mailID: in.MailID,
-			peerUserID: &sender, preview: preview, statusBadge: nil,
-			lastEventAt: sentAt, incUnread: 1,
-		}); err != nil {
-			return err
-		}
+	sender := in.UserID
+	if err := s.deliverMailToOwners(ctx, tx, in.OrgID, in.MailID, locals,
+		&sender, preview, nil, sentAt, 1); err != nil {
+		return err
 	}
 
 	if len(locals) == 0 {
@@ -67,6 +55,53 @@ func (s *Store) deliverMailInApp(
 		SenderID:   in.UserID,
 		Members:    append([]string{in.UserID}, locals...),
 	})
+}
+
+// deliverMailToOwners writes the mailbox row and feed projection for a batch
+// of local owners in two round trips total, not two per owner.
+//
+// Every owner in one call shares the same peer, preview, status badge, event
+// time and unread increment — only owner_user_id varies across the batch
+// (deliverMailInApp's loop and DeliverInboundMail's loop both hold every
+// other field constant across their recipients) — so the preview is
+// encrypted once and both statements batch over unnest(owners) instead of
+// running the two-round-trips-per-recipient loop this replaced.
+func (s *Store) deliverMailToOwners(
+	ctx context.Context, tx pgx.Tx, orgID, mailID string, owners []string,
+	peerUserID *string, preview string, statusBadge *string, lastEventAt time.Time, incUnread int,
+) error {
+	if len(owners) == 0 {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO mail_deliveries (mail_id, owner_user_id, org_id, folder)
+		SELECT $1, u.owner_user_id, $2, 'INBOX'
+		  FROM unnest($3::uuid[]) AS u(owner_user_id)
+		ON CONFLICT (mail_id, owner_user_id) DO NOTHING`,
+		mailID, orgID, owners); err != nil {
+		return err
+	}
+	previewEnc, err := s.crypto.Encrypt(ctx, tx, orgID, preview)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `
+		INSERT INTO inbox_items
+		  (org_id, owner_user_id, item_kind, ref_id, peer_user_id, preview, preview_enc,
+		   last_event_at, unread_count, status_badge,
+		   hidden_for_owner, deleted_for_owner, updated_at)
+		SELECT $1, u.owner_user_id, 'MAIL', $2, $3, NULL, $4, $5, $6, $7, false, false, now()
+		  FROM unnest($8::uuid[]) AS u(owner_user_id)
+		ON CONFLICT (owner_user_id, item_kind, ref_id)
+		DO UPDATE SET
+		    last_event_at    = GREATEST(inbox_items.last_event_at, EXCLUDED.last_event_at),
+		    preview          = NULL,
+		    preview_enc      = EXCLUDED.preview_enc,
+		    unread_count     = inbox_items.unread_count + $6,
+		    status_badge     = COALESCE(EXCLUDED.status_badge, inbox_items.status_badge),
+		    updated_at       = now()`,
+		orgID, mailID, peerUserID, previewEnc, lastEventAt, incUnread, statusBadge, owners)
+	return err
 }
 
 // mailInboxItem is one MAIL row of the unified feed, before encryption.

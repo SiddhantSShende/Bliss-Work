@@ -56,26 +56,74 @@ func (s *Store) HideMessage(ctx context.Context, orgID, callerID, messageID stri
 	})
 }
 
+// clearConversationBatchSize bounds how many messages a single "Clear Chat"
+// batch hides, for the same reason purgeBatchSize (org_purge.go) bounds a
+// purge batch: a long-lived conversation can have millions of messages by the
+// time somebody clears it, and hiding them all was previously one unbounded
+// INSERT ... SELECT holding its lock and snapshot open for however long that
+// took.
+const clearConversationBatchSize = 2000
+
 // ClearConversation hides every message in one DM for this caller only.
+//
+// Batched into bounded slices, each committed as its own transaction — the
+// same shape purgeInBatches uses — rather than one unbounded statement over
+// the conversation's entire history.
 func (s *Store) ClearConversation(ctx context.Context, orgID, callerID, convID string) error {
-	return s.withOrg(ctx, orgID, func(tx pgx.Tx) error {
-		var member bool
-		if err := tx.QueryRow(ctx, `
+	var member bool
+	if err := s.withOrg(ctx, orgID, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `
 			SELECT EXISTS (
 				SELECT 1 FROM conversation_members
 				WHERE conversation_id = $1 AND user_id = $2
-			)`, convID, callerID).Scan(&member); err != nil {
+			)`, convID, callerID).Scan(&member)
+	}); err != nil {
+		return err
+	}
+	if !member {
+		return ErrForbidden
+	}
+
+	for {
+		var candidates, hidden int
+		err := s.withOrg(ctx, orgID, func(tx pgx.Tx) error {
+			// `batch` names the next slice of not-yet-hidden messages; `ins`
+			// hides them. Both are read in the final SELECT — a data-modifying
+			// CTE always runs to completion regardless of whether its output is
+			// read (per Postgres's own WITH-queries docs), but referencing it
+			// explicitly, the same way ReapExpiredAttachments' `gone` CTE is
+			// referenced (attachments.go), keeps that guarantee from being the
+			// only thing standing between this loop and a silent no-op.
+			//
+			// candidates, not hidden, decides whether another batch remains: a
+			// concurrent HideMessage on the same message shrinks `ins` via ON
+			// CONFLICT DO NOTHING without shrinking how many rows this batch
+			// actually considered.
+			return tx.QueryRow(ctx, `
+				WITH batch AS (
+					SELECT id FROM messages
+					WHERE conversation_id = $1
+					  AND NOT EXISTS (
+					      SELECT 1 FROM message_hides h
+					      WHERE h.message_id = messages.id AND h.user_id = $2
+					  )
+					LIMIT $4
+				), ins AS (
+					INSERT INTO message_hides (message_id, user_id, org_id)
+					SELECT id, $2, $3 FROM batch
+					ON CONFLICT (message_id, user_id) DO NOTHING
+					RETURNING 1
+				)
+				SELECT (SELECT count(*) FROM batch), (SELECT count(*) FROM ins)`,
+				convID, callerID, orgID, clearConversationBatchSize).Scan(&candidates, &hidden)
+		})
+		if err != nil {
 			return err
 		}
-		if !member {
-			return ErrForbidden
+		if candidates < clearConversationBatchSize {
+			return nil
 		}
-		_, err := tx.Exec(ctx, `
-			INSERT INTO message_hides (message_id, user_id, org_id)
-			SELECT id, $2, $3 FROM messages WHERE conversation_id = $1
-			ON CONFLICT (message_id, user_id) DO NOTHING`, convID, callerID, orgID)
-		return err
-	})
+	}
 }
 
 // DeleteMessageForAll tombstones a message for both parties. SENDER ONLY.

@@ -98,18 +98,36 @@ export const PLATFORMS: Record<PlatformId, Platform> = {
 
 export const PLATFORM_ORDER: PlatformId[] = ["windows", "mac", "linux"];
 
-/** Best-effort detection of the visitor's OS to pre-highlight a platform. */
-export function detectPlatform(): PlatformId | null {
-  if (typeof navigator === "undefined") return null;
-  const ua = (
+function platformUA(): string {
+  if (typeof navigator === "undefined") return "";
+  return (
     (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform ||
     navigator.userAgent ||
     navigator.platform ||
     ""
   ).toLowerCase();
+}
+
+/** True on iOS/Android — there is no mobile app, so callers must not treat
+ *  this like a resolved desktop platform (there's no installer that would
+ *  run on it). Checked separately from, and before, detectPlatform's own
+ *  "mac"/"linux" substring matches, which iphone/ipad/android UAs also
+ *  contain. */
+export function isMobileVisitor(): boolean {
+  const ua = platformUA();
+  return ua.includes("iphone") || ua.includes("ipad") || ua.includes("android");
+}
+
+/** Best-effort detection of the visitor's OS to pre-highlight a platform.
+ *  Returns null on mobile (see isMobileVisitor) as well as when detection is
+ *  inconclusive — both cases fall back to the platform-picker modal rather
+ *  than starting a download the visitor's device can't use. */
+export function detectPlatform(): PlatformId | null {
+  if (isMobileVisitor()) return null;
+  const ua = platformUA();
   if (ua.includes("win")) return "windows";
-  if (ua.includes("mac") || ua.includes("iphone") || ua.includes("ipad")) return "mac";
-  if (ua.includes("linux") || ua.includes("android") || ua.includes("x11")) return "linux";
+  if (ua.includes("mac")) return "mac";
+  if (ua.includes("linux") || ua.includes("x11")) return "linux";
   return null;
 }
 

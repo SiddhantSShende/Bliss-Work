@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useRef } from "react";
+import { createContext, useContext, useEffect, useMemo } from "react";
 import { ApiClient, WsClient } from "@taskboard/shared";
 import type { PlatformConfig, RtcTransport } from "../platform";
 import { useSession } from "../store/session";
@@ -29,9 +29,6 @@ export function RuntimeProvider({
   config: PlatformConfig;
   children: React.ReactNode;
 }) {
-  // Always read the freshest token from the store via a ref-less getter.
-  const tokenRef = useRef<() => string | null>(() => useSession.getState().accessToken);
-
   const runtime = useMemo<Runtime>(() => {
     const getToken = () => useSession.getState().accessToken;
 
@@ -93,9 +90,6 @@ export function RuntimeProvider({
     return { config, api, ws, rtc, rtcAvailable };
      
   }, [config]);
-
-  // keep ref in sync (used by callers that need a stable token getter)
-  tokenRef.current = () => useSession.getState().accessToken;
 
   // Refresh the access token BEFORE it expires instead of only reactively on
   // a 401 (ApiClient.req() and WsClient still do that too, as the fallback —

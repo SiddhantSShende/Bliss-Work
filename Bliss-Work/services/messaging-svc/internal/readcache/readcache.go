@@ -9,9 +9,9 @@
 // infrastructure change on the roadmap.
 //
 // ── What is cached here, and why only this ───────────────────────────────────
-// ONE thing: `user_projection` name lookups. Chosen because they are hot,
-// small, and — decisively — because they have an EXPLICIT INVALIDATION SIGNAL
-// rather than only a TTL.
+// `user_projection` name lookups, and GetMail (see MailKey). Both were chosen
+// because they are hot and — decisively — because each has an EXPLICIT
+// INVALIDATION SIGNAL rather than only a TTL.
 //
 // These rows are read on every message send (to stamp the sender's name onto
 // the event) and on every message list render, and they change only when
@@ -38,10 +38,15 @@
 // (readcache_test.go).
 //
 // ── What is deliberately NOT cached ──────────────────────────────────────────
-// The hot inbox and thread reads, which are read-after-write: a user must see
-// the message they just sent. Caching there reintroduces exactly the bug the
-// read-replica work was careful to avoid, and it is the reason there is no
-// blanket "cache all reads" switch here — every call site opts in individually.
+// The hot inbox and thread reads — GET /inbox, GET /inbox/peers, thread
+// listings — which are FEEDS: they change on every new arrival, and a stale
+// read means a message the user just sent or received looks missing. Caching
+// those reintroduces exactly the bug the read-replica work was careful to
+// avoid, and it is the reason there is no blanket "cache all reads" switch
+// here — every call site opts in individually. GetMail is not a feed (see
+// MailKey) — it is a single item whose content stops changing once sent —
+// which is what makes it a different, safe case rather than an exception to
+// this rule.
 //
 // CHANNEL ROSTERS ARE NOT CACHED, and that is a deliberate reversal. They look
 // like the ideal candidate — hot, small, tolerant of staleness — and the
@@ -82,6 +87,28 @@ import (
 // query. On timeout we treat it as a miss and go to the database, which is
 // exactly what would have happened without a cache.
 const timeout = 50 * time.Millisecond
+
+// poolSize is set explicitly rather than left at go-redis's default
+// (10 * runtime.GOMAXPROCS(0)).
+//
+// That default is fine on an unconstrained host, but this service's prod
+// container is capped at 1 CPU (docker-compose.prod.yml), and since Go 1.25
+// the runtime sets GOMAXPROCS from the container's own cgroup quota
+// automatically (this module targets go 1.26) — so the "default" pool in
+// production was quietly 10*1 = 10 connections, an accident of container
+// sizing that nobody chose, not the deliberately-reasoned figure the
+// Postgres pool in store.go is.
+//
+// Measured (scratch Redis, 1000 concurrent GetMail cache hits, prod's actual
+// accidental PoolSize=10 as the baseline): PoolSize=10 → ~36-38ms p50;
+// 100 → ~18-28ms; 150 → ~11-13ms; 200 → ~15-30ms (noisier, no longer a clear
+// win over 150). 150 sits in the middle of the measured sweet spot without
+// being close to the point (500-1000, tested separately) where over-widening
+// the pool made things WORSE — the same non-monotonic shape the Postgres pool
+// experiment showed, for the same reason: more concurrently-open connections
+// past a point costs more in scheduling/dial overhead than it buys in
+// reduced queuing.
+const poolSize = 150
 
 // UserTTL is a BACKSTOP, not the correctness mechanism — the cache is
 // invalidated explicitly when auth-svc reports a change (see the package
@@ -124,6 +151,7 @@ func New(redisURL string) (*Cache, error) {
 	opt.DialTimeout = timeout
 	opt.ReadTimeout = timeout
 	opt.WriteTimeout = timeout
+	opt.PoolSize = poolSize
 
 	if len(urls) == 1 {
 		return &Cache{rdb: redis.NewClient(opt)}, nil
@@ -144,6 +172,11 @@ func New(redisURL string) (*Cache, error) {
 		DialTimeout:  timeout,
 		ReadTimeout:  timeout,
 		WriteTimeout: timeout,
+		// Cluster PoolSize is per-node (see the field's own doc), which is
+		// the right unit here too: each shard should get the same per-
+		// connection budget a single-node deployment gets, not a fraction of
+		// it split across shards.
+		PoolSize: poolSize,
 	})}, nil
 }
 
@@ -202,6 +235,33 @@ func (c *Cache) Close() error {
 // Order is org-then-user so `--scan --pattern 'mc:up:<orgId>:*'` enumerates one
 // organisation's cached names, which is what an operator asks for.
 func UserKey(orgID, userID string) string { return "mc:up:" + orgID + ":" + userID }
+
+// MailKey is the cache key for one GetMail response, as seen by ONE reader.
+//
+// Keyed org+mail+reader, not just org+mail: GetMail's own response differs by
+// caller on two fields — Folder (SENT for the author, INBOX for a recipient of
+// the same mail) and ReadAt (each recipient has their own mail_deliveries row
+// and their own read timestamp) — so two different readers of the same mail
+// are two different cache entries, the same way UserKey's org scoping exists
+// because the answer depends on who is asking.
+//
+// This is deliberately NOT the same class of cache the package comment above
+// rules out ("the hot inbox and thread reads"). Those are FEEDS — they change
+// on every new arrival, and a stale read means a message the user just sent
+// or received appears to be missing. GetMail is a single item: once a mail
+// reaches SENT or RECEIVED its content never changes again (no edit-after-
+// send), so the only mutable field is ReadAt, and the one write that changes
+// it (MarkMailRead) invalidates this exact key immediately — see
+// store.MarkMailRead. A DRAFT is mutable (autosave) and is never cached at
+// all; see store.GetMail.
+func MailKey(orgID, mailID, userID string) string { return "mc:mail:" + orgID + ":" + mailID + ":" + userID }
+
+// MailTTL is a backstop for a lost invalidation (the same role UserTTL
+// plays), not the primary correctness mechanism — MarkMailRead deletes the
+// key explicitly. Shorter than UserTTL: unlike a display name, a missed
+// invalidation here means a mail looks unread a little longer than it should,
+// which is a more visible (if still harmless) staleness than a stale name.
+const MailTTL = 5 * time.Minute
 
 // ── Operations ───────────────────────────────────────────────────────────────
 

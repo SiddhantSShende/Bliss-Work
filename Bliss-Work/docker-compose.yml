@@ -369,7 +369,12 @@ services:
   region-bridge:
     <<: *svc-defaults
     profiles: ["crossregion"]
-    build: ./services/region-bridge
+    build:
+      # Repository root: go.mod replaces shared-backoff and shared-kafkaauth
+      # with the sibling modules services/shared/backoff and
+      # services/shared/kafkaauth.
+      context: .
+      dockerfile: services/region-bridge/Dockerfile
     ports: ["127.0.0.1:${REGION_BRIDGE_PORT:-8009}:8080"]
     environment:
       BRIDGE_REGION: ${BRIDGE_REGION:-dev-local}

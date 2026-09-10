@@ -882,8 +882,25 @@ async def register_failed_login(conn: AsyncConnection, ident) -> int:
     docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 5).
 
     `ident` is any row exposing `.id` and `.failed_login_count`.
+
+    The increment is atomic (`UPDATE ... SET failed_login_count =
+    failed_login_count + 1 ... RETURNING`) rather than read-modify-write off
+    `ident.failed_login_count`: `identity_by_bidx` reads that value without
+    `FOR UPDATE`, so under concurrent wrong-password attempts against the same
+    identity (a credential-stuffing burst), every caller would otherwise read
+    the same stale count and each write back the same incremented value,
+    letting the lockout threshold never be reached no matter how many
+    parallel guesses are made.
     """
-    new_count = int(ident.failed_login_count) + 1
+    new_count = (
+        await conn.execute(
+            text(
+                "UPDATE identities SET failed_login_count = failed_login_count + 1 "
+                "WHERE id = :id RETURNING failed_login_count"
+            ),
+            {"id": str(ident.id)},
+        )
+    ).scalar_one()
     if new_count >= settings.login_max_failed_attempts:
         await conn.execute(
             text(
@@ -893,10 +910,6 @@ async def register_failed_login(conn: AsyncConnection, ident) -> int:
             {"m": settings.lockout_minutes, "id": str(ident.id)},
         )
         return settings.lockout_minutes * 60
-    await conn.execute(
-        text("UPDATE identities SET failed_login_count = :c WHERE id = :id"),
-        {"c": new_count, "id": str(ident.id)},
-    )
     return 0
 
 

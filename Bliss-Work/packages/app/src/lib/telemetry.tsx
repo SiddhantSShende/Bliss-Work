@@ -106,6 +106,9 @@ export function TelemetryBridge() {
   const idleSinceRef = useRef<number | null>(null);
   const accrualStartRef = useRef(Date.now());
   const surfaceRef = useRef<{ name: string; since: number } | null>(null);
+  // The visibility state that was true for the period accrue() is about to
+  // classify — NOT necessarily document.visibilityState right now. See accrue().
+  const wasVisibleRef = useRef(true);
 
   useEffect(() => {
     if (!authed) return;
@@ -119,6 +122,7 @@ export function TelemetryBridge() {
     queueRef.current = queue;
     activeQueue = queue;
     queue.sessionId = getSessionId();
+    wasVisibleRef.current = document.visibilityState !== "hidden";
 
     const teardownSession = installTelemetrySession();
     const unsubscribe = onSessionIdChange((id) => {
@@ -145,8 +149,14 @@ export function TelemetryBridge() {
       // Hidden or idle time is IDLE time. Counting a backgrounded tab as active
       // is the single easiest way to make this record dishonest, and it would
       // flatter everyone equally rather than measuring anything.
-      const isIdle =
-        document.visibilityState === "hidden" || idleSinceRef.current !== null;
+      //
+      // Classify using wasVisibleRef — the visibility state that held for the
+      // period just ending — not document.visibilityState. Per spec, the
+      // latter has already flipped to the NEW value by the time a
+      // visibilitychange listener runs, so reading it here would attribute an
+      // entire just-ended hidden period to "active" the instant the tab comes
+      // back. onVisibility() updates wasVisibleRef only after this call.
+      const isIdle = !wasVisibleRef.current || idleSinceRef.current !== null;
       queue.addTime(isIdle ? 0 : elapsed, isIdle ? elapsed : 0);
     };
 
@@ -169,8 +179,13 @@ export function TelemetryBridge() {
     };
 
     const onVisibility = () => {
+      // accrue() must run BEFORE wasVisibleRef is updated: it needs to
+      // classify the period that just ended using the OLD visibility state,
+      // and document.visibilityState itself has already moved to the new one.
       accrue();
-      if (document.visibilityState === "hidden") {
+      const isHidden = document.visibilityState === "hidden";
+      wasVisibleRef.current = !isHidden;
+      if (isHidden) {
         push(stamp({ action: "blur", category: "engagement" }));
         // Flush on the way out: a tab that is hidden may never come back, and
         // whatever is buffered is the most recent thing we know.

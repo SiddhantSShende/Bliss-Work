@@ -26,7 +26,6 @@ from aiokafka import AIOKafkaConsumer
 from opentelemetry import trace
 from opentelemetry.trace import SpanKind
 from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError
 from kafka_security import kafka_security_kwargs
 
 from .config import settings
@@ -85,7 +84,7 @@ _RETRY_BACKOFF = 1.0
 
 # Events that are NOT timeline rows and keep their own transaction. Both are
 # rare; see `_handle_control` for why each one is special.
-_CONTROL_TYPES = ("user.removed", "user.deactivated", "org.deleted")
+_CONTROL_TYPES = ("org.deleted",)
 
 
 class TelemetryConsumer:
@@ -263,30 +262,28 @@ class TelemetryConsumer:
             # FIRST so the WITH CHECK on the insert passes.
             await set_bypass_rls(db)
             claimed = await _claim_many(db, [event_id for _, event_id in pending])
-            rows = [row for row, event_id in pending if event_id in claimed]
+            # A single fetch batch can legitimately carry the same event_id
+            # twice (producer retry — see the module docstring). `event_id in
+            # claimed` is set membership, so both copies would otherwise pass
+            # and both get inserted; these are server-observed rows
+            # (client_event_id=None), so activity_events' unique index doesn't
+            # catch the duplicate either. Keep only the first occurrence.
+            seen: set[str] = set()
+            rows = []
+            for row, event_id in pending:
+                if event_id in claimed and event_id not in seen:
+                    seen.add(event_id)
+                    rows.append(row)
             if rows:
                 await insert_events(db, rows)
             await db.commit()
 
     async def _handle_control(self, event: dict) -> None:
-        """The two event types that are not timeline rows.
+        """The one event type that is not a timeline row.
 
-        Both are rare and both have bespoke transactional semantics, so they
-        keep their own session rather than joining the batch — which is also
+        Kept in its own session rather than joining the batch — which is also
         what lets the batch above stay a plain list of rows.
         """
-        event_id = event.get("eventId")
-
-        # A membership ending must also end its agents. A paired desktop sampler
-        # or browser extension holds a long-lived secret that is NOT a session,
-        # so revoking the person's tokens does nothing to it — without this, a
-        # removed member's laptop keeps reporting their activity to a workspace
-        # they are no longer part of.
-        if event.get("type") in ("user.removed", "user.deactivated"):
-            if event_id:
-                await self._revoke_agent_tokens(event, str(event_id))
-            return
-
         # The whole workspace is gone. Deleting the org's rows here is the half
         # that crypto-shred cannot do: the encrypted columns are already
         # unreadable, but the ids, timestamps and counts are not encrypted and
@@ -300,25 +297,6 @@ class TelemetryConsumer:
             org_id = event.get("orgId")
             if org_id:
                 await purge_org(str(org_id))
-
-    async def _revoke_agent_tokens(self, event: dict, event_id: str) -> None:
-        user_id = _bounded(event.get("userId"))
-        if not user_id:
-            return
-        async with session() as db:
-            await set_bypass_rls(db)
-            if await _claim(db, event_id) is False:
-                return
-            result = await db.execute(
-                text(
-                    "UPDATE ingest_tokens SET revoked_at = now() "
-                    "WHERE user_id = :uid AND revoked_at IS NULL"
-                ),
-                {"uid": user_id},
-            )
-            await db.commit()
-        if result.rowcount:
-            log.info("agent_tokens_revoked", user_id=user_id, count=result.rowcount)
 
 
 def to_activity_row(event: object) -> ActivityRow | None:
@@ -431,25 +409,6 @@ async def _claim_many(db, event_ids: list[str]) -> set[str]:
         {"eids": event_ids},
     )
     return {str(row[0]) for row in result}
-
-
-async def _claim(db, event_id: str) -> bool:
-    """Insert into consumed_events; True if this process claimed the event.
-
-    Still used by the control-event handlers, which each own their transaction
-    and so can afford the rollback-on-duplicate that makes this unusable inside
-    a batch. See `_claim_many`.
-    """
-    try:
-        await db.execute(
-            text("INSERT INTO consumed_events (event_id) VALUES (:eid)"),
-            {"eid": event_id},
-        )
-        return True
-    except IntegrityError:
-        await db.rollback()
-        log.info("event_duplicate_skipped", event_id=event_id)
-        return False
 
 
 consumer = TelemetryConsumer()

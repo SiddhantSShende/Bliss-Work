@@ -27,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import uuid
 
 from aiokafka import AIOKafkaConsumer
 from kafka_security import kafka_security_kwargs
@@ -61,6 +62,12 @@ _BATCH_LINGER_MS = 250
 # batch that fails instantly would spin at full speed. Matches
 # telemetry-svc/app/consumer.py's `_RETRY_BACKOFF`.
 _RETRY_BACKOFF = 1.0
+
+# Bound on how much of a malformed id gets logged. Matches
+# telemetry-svc/app/consumer.py's `_MAX_ID_LEN` — ids arrive from another
+# service's producer, so a poison message must not also be a way to write an
+# unbounded amount of text into the logs.
+_MAX_ID_LEN = 128
 
 
 class StickyConsumer:
@@ -232,6 +239,30 @@ class StickyConsumer:
         assignee_id = event.get("assigneeId")
         if not (event_id and org_id and task_id and assignee_id):
             return
+
+        # Every one of these is bound into a `uuid`-typed column below
+        # (consumed_events.event_id; sticky_pins.org_id/assignee_id/task_id).
+        # A malformed id used to raise a DataError that `_process_batch` could
+        # only see as a transient failure, seeking back and retrying the same
+        # unparseable message forever — a poison pill. Validate up front and
+        # skip it instead, the same fix telemetry-svc/app/consumer.py applies
+        # in `_to_claimable` for its own eventId.
+        for field_name, value in (
+            ("eventId", event_id),
+            ("orgId", org_id),
+            ("taskId", task_id),
+            ("assigneeId", assignee_id),
+        ):
+            try:
+                uuid.UUID(str(value))
+            except (AttributeError, TypeError, ValueError):
+                log.warning(
+                    "sticky_event_id_not_a_uuid",
+                    field=field_name,
+                    value=str(value)[:_MAX_ID_LEN],
+                    event_id=str(event_id)[:_MAX_ID_LEN],
+                )
+                return
 
         version = event.get("statusVersion")
         version = version if isinstance(version, int) else 0

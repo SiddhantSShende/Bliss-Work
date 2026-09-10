@@ -13,7 +13,8 @@
  * that unpinning a task doesn't get silently undone the next time its data
  * refetches — auto-pin only ever fires once per task per device.
  */
-import { useMemo, useSyncExternalStore } from "react";
+import { useMemo } from "react";
+import { createLocalStore } from "./localStore";
 
 const STORAGE_KEY = "tb.assigned-task-pin.prefs";
 
@@ -28,58 +29,28 @@ function readStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((id): id is string => typeof id === "string") : [];
 }
 
-function load(): TaskPinState {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return EMPTY;
-    const parsed: unknown = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") return EMPTY;
-    const { pinned, autoPinned } = parsed as { pinned?: unknown; autoPinned?: unknown };
-    return { pinned: readStringArray(pinned), autoPinned: readStringArray(autoPinned) };
-  } catch {
-    // Unavailable or corrupt — not worth failing a render over.
-    return EMPTY;
-  }
-}
-
-function save(state: TaskPinState): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch {
-    /* Storage may be unavailable; the in-memory state still drives this session. */
-  }
-}
-
-let state: TaskPinState = load();
-const listeners = new Set<() => void>();
-
-function subscribe(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
-}
-
-function snapshot(): TaskPinState {
-  return state;
-}
+const store = createLocalStore<TaskPinState>(STORAGE_KEY, EMPTY, (raw) => {
+  if (!raw || typeof raw !== "object") return EMPTY;
+  const { pinned, autoPinned } = raw as { pinned?: unknown; autoPinned?: unknown };
+  return { pinned: readStringArray(pinned), autoPinned: readStringArray(autoPinned) };
+});
 
 /** Pin a task the first time it's seen assigned; a no-op on every later call. */
 export function autoPinAssignedTask(taskId: string): void {
+  const state = store.get();
   if (state.autoPinned.includes(taskId)) return;
-  state = { pinned: [...state.pinned, taskId], autoPinned: [...state.autoPinned, taskId] };
-  save(state);
-  listeners.forEach((listener) => listener());
+  store.set({ pinned: [...state.pinned, taskId], autoPinned: [...state.autoPinned, taskId] });
 }
 
 /** Remove a task from the pinned view. It will not be auto-pinned again. */
 export function unpinAssignedTask(taskId: string): void {
+  const state = store.get();
   if (!state.pinned.includes(taskId)) return;
-  state = { ...state, pinned: state.pinned.filter((id) => id !== taskId) };
-  save(state);
-  listeners.forEach((listener) => listener());
+  store.set({ ...state, pinned: state.pinned.filter((id) => id !== taskId) });
 }
 
 export function useAssignedTaskPin() {
-  const snap = useSyncExternalStore(subscribe, snapshot, snapshot);
+  const snap = store.useSnapshot();
   return useMemo(
     () => ({
       isPinned: (taskId: string) => snap.pinned.includes(taskId),

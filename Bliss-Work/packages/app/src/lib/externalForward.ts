@@ -10,15 +10,14 @@
  * adding a destination later means adding one entry here, not teaching every
  * caller a new string.
  *
- * This module also draws the line the product is enforcing right now: the
- * schema and this display map both already list five platforms (headroom for
- * whenever a connected-account integration exists for the others — see
- * integrations-svc's orphaned /internal/messages/send), but
- * ACTIVE_EXTERNAL_FORWARD_PLATFORMS says only one of them is an actual
- * forwarding destination a user can pick today. A menu deciding what to
- * OFFER reads that list; a badge deciding what to DISPLAY reads the full map,
+ * The schema and this display map both already list five platforms (headroom
+ * for whenever a connected-account integration exists for the others — see
+ * integrations-svc's orphaned /internal/messages/send), but only WhatsApp is
+ * an actual forwarding destination a user can pick today — hardcoded as its
+ * own anchor in MessageActions/useWhatsAppForward.ts, not driven by a generic
+ * list here. A badge deciding what to DISPLAY still reads the full map below,
  * because a message forwarded to WhatsApp last month must still render
- * correctly even after a second destination becomes active.
+ * correctly even after a second destination becomes pickable.
  */
 
 /** Matches the CHECK constraint on message_forwards.platform (and the newer
@@ -36,22 +35,6 @@ const PLATFORM_DISPLAY_NAMES: Record<ExternalForwardPlatform, string> = {
 
 function isKnownPlatform(platform: string): platform is ExternalForwardPlatform {
   return Object.prototype.hasOwnProperty.call(PLATFORM_DISPLAY_NAMES, platform);
-}
-
-/**
- * The destinations a user may actually forward TO right now.
- *
- * Deliberately a short list independent of PLATFORM_DISPLAY_NAMES's keys: the
- * schema accepting a value and the product offering it as a live menu entry
- * are different questions, and conflating them would turn adding a display
- * label (harmless) into silently exposing an unbuilt integration (not
- * harmless — see the CRITICAL RULE about not assuming schema headroom means a
- * feature is real).
- */
-export const ACTIVE_EXTERNAL_FORWARD_PLATFORMS: readonly ExternalForwardPlatform[] = ["whatsapp"];
-
-export function isActiveExternalForwardPlatform(platform: string): platform is ExternalForwardPlatform {
-  return (ACTIVE_EXTERNAL_FORWARD_PLATFORMS as readonly string[]).includes(platform);
 }
 
 /**

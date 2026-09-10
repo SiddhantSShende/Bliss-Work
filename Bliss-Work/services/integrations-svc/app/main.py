@@ -28,6 +28,7 @@ from .middleware import (
 )
 from .org_consumer import consumer as org_consumer
 from .outbox import poller
+from .providers import httpclient
 from .rate_limit import limiter, rate_limit_handler
 from .refresh_worker import worker as refresh_worker
 from .routes import router
@@ -62,6 +63,10 @@ async def lifespan(app: FastAPI):
         await org_consumer.stop()
         await refresh_worker.stop()
         await poller.stop()
+        # Every provider/OAuth call (Slack, Gmail, Microsoft, refresh_worker's
+        # token refresh) shares this one pooled client — close it once the
+        # workers that could still be using it have stopped.
+        await httpclient.aclose()
         await dispose_engine()
         shutdown_tracing(log=log)  # flush any buffered spans (no-op when disabled)
         log.info("integrations_svc_stopped")

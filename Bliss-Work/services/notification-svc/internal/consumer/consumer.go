@@ -502,7 +502,7 @@ func (c *Consumer) create(ctx context.Context, tx pgx.Tx, n notification) error 
 	if err != nil {
 		return err
 	}
-	if err := outbox.Enqueue(ctx, tx, outID, events.TopicNotification, n.recipientID, payload); err != nil {
+	if err := outbox.Enqueue(ctx, tx, outID, events.TopicNotification, n.recipientID, n.orgID, payload); err != nil {
 		return err
 	}
 
@@ -526,6 +526,17 @@ func (c *Consumer) purgeOrg(ctx context.Context, tx pgx.Tx, orgID string) error 
 	if err != nil {
 		return err
 	}
-	c.log.Warn("org purged", "orgId", orgID, "notifications", tag.RowsAffected())
+	// Unpublished outbox rows for this org must go too, or a notification
+	// enqueued just before the org was deleted still gets published to
+	// notification.events.v1 afterward — see 003_outbox_org_purge.sql. Only
+	// unpublished rows: a published one already left the outbox's job behind
+	// and is retention's concern, not purge's.
+	outboxTag, err := tx.Exec(ctx,
+		`DELETE FROM outbox WHERE org_id = $1 AND published_at IS NULL`, orgID)
+	if err != nil {
+		return err
+	}
+	c.log.Warn("org purged", "orgId", orgID,
+		"notifications", tag.RowsAffected(), "outbox", outboxTag.RowsAffected())
 	return nil
 }

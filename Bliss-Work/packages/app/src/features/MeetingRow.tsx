@@ -18,9 +18,9 @@ import { Clock, MoreHorizontal, Phone, PlayCircle, Users, Video } from "lucide-r
 import { Avatar, Badge, Button } from "@taskboard/ui";
 import type { CallDTO } from "@taskboard/shared";
 import { usePopupDismiss } from "../lib/usePopupDismiss";
-import { dayLabel, timeLabel } from "../lib/meetingTime";
+import { dayLabel, startOfDay, timeLabel } from "../lib/meetingTime";
 import { occurrenceOf } from "../lib/meetingCalendar";
-import { bucketFor, statusLabel } from "../lib/meetingView";
+import { bucketFor, meetingScope, statusLabel } from "../lib/meetingView";
 
 export function MeetingRow({
   call,
@@ -45,8 +45,7 @@ export function MeetingRow({
   const joinable = bucket === "upcoming" || bucket === "live";
   const Icon = call.media === "audio" ? Phone : Video;
   const joined = call.participants.filter((p) => p.joinedAt).length;
-  const scope =
-    call.kind === "CHANNEL" ? "Channel call" : call.kind === "DIRECT" ? "Direct call" : null;
+  const scope = meetingScope(call);
 
   const openDetail = () => nav({ pathname: `/app/meetings/${call.id}`, search });
 
@@ -89,7 +88,14 @@ export function MeetingRow({
         <div className="flex items-center gap-1 truncate text-xs text-muted">
           <Clock size={11} className="shrink-0" aria-hidden />
           {timeLabel(start)}
-          {end > start ? ` – ${timeLabel(end)}` : ""}
+          {end > start
+            ? // A meeting that runs past midnight ends on a different day than
+              // it started, and "9:40 PM – 12:10 AM" reads as a typo unless the
+              // day comes with it. Applied inline (rather than as a combined
+              // single-line helper) since this row already prints the day on
+              // its own line above.
+              ` – ${startOfDay(end) === startOfDay(start) ? timeLabel(end) : `${dayLabel(end)}, ${timeLabel(end)}`}`
+            : ""}
         </div>
       </div>
 

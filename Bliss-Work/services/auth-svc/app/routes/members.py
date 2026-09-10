@@ -80,14 +80,19 @@ async def list_members(
     dependencies=[Depends(enforce_origin)],
 )
 async def change_role(
+    request: Request,
     user_id: str,
     body: ChangeRoleRequest,
     principal: Principal = Depends(require_org_admin),
 ) -> MemberDTO:
     _reject_self(principal, user_id)
+    ip, user_agent, request_id = request_context(request)
     async with engine.begin() as conn:
         await service.set_org_guc(conn, principal.org_id)
-        member = await change_role_tx(conn, principal, user_id, body.role)
+        member = await change_role_tx(
+            conn, principal, user_id, body.role,
+            ip=ip, user_agent=user_agent, request_id=request_id,
+        )
     log.info(
         "member_role_changed",
         org_id=principal.org_id,
@@ -104,14 +109,19 @@ async def change_role(
     dependencies=[Depends(enforce_origin)],
 )
 async def deactivate_member(
+    request: Request,
     user_id: str, principal: Principal = Depends(require_org_admin)
 ) -> MemberDTO:
     """Suspend: the membership survives, every session dies, login is refused
     with a message that names the reason. Fully reversible."""
     _reject_self(principal, user_id)
+    ip, user_agent, request_id = request_context(request)
     async with engine.begin() as conn:
         await service.set_org_guc(conn, principal.org_id)
-        member = await set_status_tx(conn, principal, user_id, "suspended")
+        member = await set_status_tx(
+            conn, principal, user_id, "suspended",
+            ip=ip, user_agent=user_agent, request_id=request_id,
+        )
     log.info("member_deactivated", org_id=principal.org_id, user_id=user_id)
     return member
 
@@ -122,12 +132,17 @@ async def deactivate_member(
     dependencies=[Depends(enforce_origin)],
 )
 async def reactivate_member(
+    request: Request,
     user_id: str, principal: Principal = Depends(require_org_admin)
 ) -> MemberDTO:
     _reject_self(principal, user_id)
+    ip, user_agent, request_id = request_context(request)
     async with engine.begin() as conn:
         await service.set_org_guc(conn, principal.org_id)
-        member = await set_status_tx(conn, principal, user_id, "active")
+        member = await set_status_tx(
+            conn, principal, user_id, "active",
+            ip=ip, user_agent=user_agent, request_id=request_id,
+        )
     log.info("member_reactivated", org_id=principal.org_id, user_id=user_id)
     return member
 
@@ -138,15 +153,20 @@ async def reactivate_member(
     dependencies=[Depends(enforce_origin)],
 )
 async def remove_member(
+    request: Request,
     user_id: str, principal: Principal = Depends(require_org_admin)
 ) -> MemberDTO:
     """Remove from the workspace. A soft revoke, never a DELETE: their messages,
     tasks, channel rows and audit entries all reference this user_id, and the
     history has to keep rendering their name. Re-invitable afterwards."""
     _reject_self(principal, user_id)
+    ip, user_agent, request_id = request_context(request)
     async with engine.begin() as conn:
         await service.set_org_guc(conn, principal.org_id)
-        member = await set_status_tx(conn, principal, user_id, "removed")
+        member = await set_status_tx(
+            conn, principal, user_id, "removed",
+            ip=ip, user_agent=user_agent, request_id=request_id,
+        )
     log.info("member_removed", org_id=principal.org_id, user_id=user_id)
     return member
 

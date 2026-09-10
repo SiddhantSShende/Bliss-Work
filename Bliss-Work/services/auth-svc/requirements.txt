@@ -74,3 +74,8 @@ opentelemetry-instrumentation-asyncpg==0.65b0
 # with task-svc and integrations-svc. See
 # services/shared/kafka_lazy_producer/kafka_lazy_producer.py.
 ../shared/kafka_lazy_producer
+
+# Hardened JWKS fetch-and-cache (single-flighted refresh + kid-miss cooldown),
+# shared with task-svc and integrations-svc (every Python service that
+# verifies bearer JWTs). See services/shared/jwks_auth/jwks_auth.py.
+../shared/jwks_auth

@@ -1,10 +1,11 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Download, X, ShieldCheck, ChevronRight } from "lucide-react";
 import {
   PLATFORMS,
   PLATFORM_ORDER,
   detectPlatform,
+  isMobileVisitor,
   ALL_RELEASES_URL,
   type PlatformId,
 } from "@/config/downloads";
@@ -62,9 +63,13 @@ export function DownloadProvider({ children }: { children: React.ReactNode }) {
 
 function DownloadModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [detected, setDetected] = useState<PlatformId | null>(null);
+  const [onMobile, setOnMobile] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (open) setDetected(detectPlatform());
+    if (!open) return;
+    setDetected(detectPlatform());
+    setOnMobile(isMobileVisitor());
   }, [open]);
 
   // Close on Escape + lock body scroll while open.
@@ -79,6 +84,49 @@ function DownloadModal({ open, onClose }: { open: boolean; onClose: () => void }
       document.body.style.overflow = prev;
     };
   }, [open, onClose]);
+
+  // Focus management: aria-modal="true" below promises assistive tech that
+  // background content is inert, so keyboard focus has to actually stay
+  // confined to the dialog while it's open — otherwise Tab keeps walking the
+  // fixed Navbar and the rest of the page behind the overlay. Moves focus in
+  // on open, traps Tab/Shift+Tab at the dialog's edges, and hands focus back
+  // to whatever opened it on close.
+  useEffect(() => {
+    if (!open) return;
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+
+    const focusable = () =>
+      Array.from(
+        dialog.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((el) => el.offsetParent !== null);
+
+    (focusable()[0] ?? dialog).focus();
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      const items = focusable();
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    dialog.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      dialog.removeEventListener("keydown", onKeyDown);
+      previouslyFocused?.focus();
+    };
+  }, [open]);
 
   return (
     <AnimatePresence>
@@ -95,9 +143,11 @@ function DownloadModal({ open, onClose }: { open: boolean; onClose: () => void }
             aria-hidden
           />
           <motion.div
+            ref={dialogRef}
             role="dialog"
             aria-modal="true"
             aria-label="Download BlissWork"
+            tabIndex={-1}
             className="relative z-10 w-full max-w-2xl overflow-hidden rounded-2xl border border-border bg-surface shadow-card"
             initial={{ opacity: 0, scale: 0.96, y: 12 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -110,7 +160,11 @@ function DownloadModal({ open, onClose }: { open: boolean; onClose: () => void }
               <Logo size={36} />
               <div className="min-w-0 flex-1">
                 <h3 className="text-lg font-semibold tracking-tight text-fg">Get BlissWork</h3>
-                <p className="text-sm text-muted">Choose your platform — free to install.</p>
+                <p className="text-sm text-muted">
+                  {onMobile
+                    ? "There's no mobile app yet — the installers below are for desktop."
+                    : "Choose your platform — free to install."}
+                </p>
               </div>
               <button
                 onClick={onClose}

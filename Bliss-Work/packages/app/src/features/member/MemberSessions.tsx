@@ -1,10 +1,11 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Laptop, MonitorSmartphone } from "lucide-react";
-import { Badge, Button, EmptyState, Spinner } from "@taskboard/ui";
+import { Badge, EmptyState, Spinner } from "@taskboard/ui";
 import type { ActivitySessionDTO } from "@taskboard/shared";
 import { useRuntime } from "../../lib/runtime";
 import { qk } from "../../lib/queryBridge";
 import { formatDuration } from "./activityLabels";
+import { LoadOlderFooter } from "./LoadOlderFooter";
 
 /**
  * Sign-in sessions: device, when it started, when it ended and why.
@@ -48,18 +49,16 @@ export function MemberSessions({ userId }: { userId: string }) {
   return (
     <div className="space-y-1">
       {sessions.map((s) => <Row key={s.id} session={s} />)}
-      {hasNextPage ? (
-        <div className="pt-2 text-center">
-          <Button variant="ghost" size="sm" loading={isFetchingNextPage} onClick={() => fetchNextPage()}>
-            Load older
-          </Button>
-        </div>
-      ) : (
-        // Same visibility window as the timeline — see the note there.
+      <LoadOlderFooter
+        hasNextPage={hasNextPage}
+        isFetchingNextPage={isFetchingNextPage}
+        onLoadMore={() => fetchNextPage()}
+      >
+        {/* Same visibility window as the timeline — see the note there. */}
         <p className="pt-2 text-center text-xs text-muted">
           Showing the last 7 days. Older sessions are retained but not browsable here.
         </p>
-      )}
+      </LoadOlderFooter>
     </div>
   );
 }

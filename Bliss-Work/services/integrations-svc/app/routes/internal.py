@@ -69,24 +69,34 @@ def _require_internal(token: str | None) -> None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="unauthorized")
 
 
-async def _claim_message_send(db, message_id: str, org_id: str) -> str:
-    """Atomically claim the right to actually call the provider for `message_id`.
+async def _claim_send(db, table: str, id_column: str, entity_id: str, org_id: str) -> str:
+    """Atomically claim the right to actually call the provider for `entity_id`.
 
-    Identical shape to _claim_mail_send below (see its docstring for the full
-    rationale) — insert-first-then-resolve-the-conflict against
-    message_send_attempts' PRIMARY KEY, so two callers racing the same
-    message_id both attempt the INSERT and exactly one wins it.
+    Shared mechanics behind both _claim_message_send and _claim_mail_send
+    (see 0015_message_send_idempotency.sql / 0013_mail_send_idempotency.sql)
+    — they differ only in which table/column backs the claim, so this is the
+    one implementation both call.
 
     Returns "claimed" (this call owns the send — proceed), "sent" (a prior
     attempt already succeeded — replay that result, never call the provider
-    again) or "in_progress" (another attempt currently owns this message_id —
+    again) or "in_progress" (another attempt currently owns this entity_id —
     the caller answers 409 so the ORIGINAL requester retries later through its
     normal redelivery path, instead of a second real send racing the first).
+
+    Insert-first-then-resolve-the-conflict, not a check-then-insert: two
+    callers racing the same entity_id both attempt the INSERT, the unique
+    primary key lets exactly one of them commit it, and the loser sees
+    IntegrityError and reads back whichever row actually won — the same shape
+    task-svc's create_task uses for its own idempotency key.
+
+    `table`/`id_column` are fixed literals passed by our own call sites below
+    (never user input), so building the SQL text with them is safe
+    identifier formatting, not concatenation of untrusted values.
     """
     try:
         await db.execute(
-            text("INSERT INTO message_send_attempts (message_id, org_id) VALUES (:m, :o)"),
-            {"m": message_id, "o": org_id},
+            text(f"INSERT INTO {table} ({id_column}, org_id) VALUES (:e, :o)"),
+            {"e": entity_id, "o": org_id},
         )
         await db.commit()
         return "claimed"
@@ -97,8 +107,8 @@ async def _claim_message_send(db, message_id: str, org_id: str) -> str:
     await set_org_context(db, org_id)
     existing = (
         await db.execute(
-            text("SELECT status FROM message_send_attempts WHERE message_id = :m"),
-            {"m": message_id},
+            text(f"SELECT status FROM {table} WHERE {id_column} = :e"),
+            {"e": entity_id},
         )
     ).one_or_none()
     if existing is None:
@@ -112,49 +122,83 @@ async def _claim_message_send(db, message_id: str, org_id: str) -> str:
 
     # 'failed': a definitive prior attempt, safe to retry — but only for
     # whichever caller actually wins this transition, in case two retries of
-    # the same failed message race each other too.
+    # the same failed entity race each other too.
     reclaimed = await db.execute(
         text(
-            "UPDATE message_send_attempts SET status = 'sending', updated_at = now() "
-            "WHERE message_id = :m AND status = 'failed'"
+            f"UPDATE {table} SET status = 'sending', updated_at = now() "
+            f"WHERE {id_column} = :e AND status = 'failed'"
         ),
-        {"m": message_id},
+        {"e": entity_id},
     )
     await db.commit()
     return "claimed" if reclaimed.rowcount == 1 else "in_progress"
 
 
-async def _resolve_message_send(db, message_id: str, org_id: str, outcome: str) -> None:
+async def _resolve_send(
+    db, table: str, id_column: str, entity_id: str, org_id: str, outcome: str, log_event: str
+) -> None:
     """Record the terminal outcome ('sent' or 'failed') of a claimed attempt.
 
-    Identical shape to _resolve_mail_send below (see its docstring for the
-    full rationale, including why a persistent DB failure here re-raises
-    rather than being swallowed): retried a few times to absorb a transient
-    DB hiccup, since by the time this runs the provider call has already
-    happened — successfully or definitively not — so retrying the UPDATE
-    itself can never cause a duplicate send.
+    Shared mechanics behind both _resolve_message_send and _resolve_mail_send
+    — they differ only in which table/column backs the claim and which
+    structured-log event a persistent failure emits.
+
+    Never called for the ambiguous case — see internal_send's and
+    internal_send_mail's handling of a network fault on the provider call
+    itself, both of which leave the row 'sending' on purpose rather than
+    guessing.
+
+    By the time this runs, the provider call it follows has already happened
+    — successfully or definitively not — so retrying the UPDATE below can
+    never cause a duplicate send; it can only fail to record an outcome that
+    is already final. Retried a few times to absorb a transient DB hiccup,
+    same backoff as relay_consumer.py's _mark_sent/_read_transport on the
+    email-worker side of this same idempotency feature, since a lost write
+    here still leaves the row stranded in 'sending', which per the owning
+    migration's docstring needs a manual SQL fix, and for a 'failed' outcome
+    makes an otherwise safe-to-retry send permanently un-retryable.
+
+    Unlike _mark_sent, exhausting retries here re-raises rather than
+    swallowing: _mark_sent's caller always advances the Kafka offset
+    regardless, so swallowing there only risks a lost cache entry. Here the
+    caller's response (a replayed "sent", or a definitive 400/502) IS a claim
+    about what got persisted — swallowing would let that response go out
+    unchanged while the row silently stayed 'sending', hiding exactly the
+    failure an operator needs to see.
+
+    `table`/`id_column` are fixed literals passed by our own call sites below
+    (never user input), so building the SQL text with them is safe
+    identifier formatting, not concatenation of untrusted values.
     """
     for attempt in range(3):
         try:
             await set_org_context(db, org_id)
             await db.execute(
-                text(
-                    "UPDATE message_send_attempts SET status = :s, updated_at = now() "
-                    "WHERE message_id = :m"
-                ),
-                {"s": outcome, "m": message_id},
+                text(f"UPDATE {table} SET status = :s, updated_at = now() WHERE {id_column} = :e"),
+                {"s": outcome, "e": entity_id},
             )
             await db.commit()
             return
         except Exception as exc:  # noqa: BLE001 - retried, then re-raised below
             await db.rollback()
             if attempt == 2:
-                log.error(
-                    "message_send_resolve_failed", message_id=message_id, org=org_id,
-                    outcome=outcome, error=str(exc),
-                )
+                log.error(log_event, **{id_column: entity_id, "org": org_id,
+                                         "outcome": outcome, "error": str(exc)})
                 raise
             await asyncio.sleep(0.5 * (2**attempt))
+
+
+async def _claim_message_send(db, message_id: str, org_id: str) -> str:
+    """Claim shape for the message-send idempotency path — see _claim_send."""
+    return await _claim_send(db, "message_send_attempts", "message_id", message_id, org_id)
+
+
+async def _resolve_message_send(db, message_id: str, org_id: str, outcome: str) -> None:
+    """Resolve shape for the message-send idempotency path — see _resolve_send."""
+    await _resolve_send(
+        db, "message_send_attempts", "message_id", message_id, org_id, outcome,
+        "message_send_resolve_failed",
+    )
 
 
 @router.post("/messages/send", response_model=SendResp)
@@ -368,108 +412,16 @@ class MailSendResp(BaseModel):
 
 
 async def _claim_mail_send(db, mail_id: str, org_id: str) -> str:
-    """Atomically claim the right to actually call the provider for `mail_id`.
-
-    Returns "claimed" (this call owns the send — proceed), "sent" (a prior
-    attempt already succeeded — replay that result, never call the provider
-    again) or "in_progress" (another attempt currently owns this mail_id —
-    the caller answers 503 so the ORIGINAL requester retries later through its
-    normal redelivery path, instead of a second real send racing the first).
-
-    Insert-first-then-resolve-the-conflict, not a check-then-insert: two
-    callers racing the same mail_id both attempt the INSERT, the unique
-    primary key lets exactly one of them commit it, and the loser sees
-    IntegrityError and reads back whichever row actually won — the same shape
-    task-svc's create_task uses for its own idempotency key.
-    """
-    try:
-        await db.execute(
-            text("INSERT INTO mail_send_attempts (mail_id, org_id) VALUES (:m, :o)"),
-            {"m": mail_id, "o": org_id},
-        )
-        await db.commit()
-        return "claimed"
-    except IntegrityError:
-        await db.rollback()
-
-    # The rollback above clears the transaction-local app.org_id GUC.
-    await set_org_context(db, org_id)
-    existing = (
-        await db.execute(
-            text("SELECT status FROM mail_send_attempts WHERE mail_id = :m"),
-            {"m": mail_id},
-        )
-    ).one_or_none()
-    if existing is None:
-        # Nothing deletes these rows, so this should be unreachable — but fail
-        # closed (retry later) rather than assume either outcome.
-        return "in_progress"
-    if existing.status == "sent":
-        return "sent"
-    if existing.status != "failed":
-        return "in_progress"  # 'sending': another attempt owns this right now
-
-    # 'failed': a definitive prior attempt, safe to retry — but only for
-    # whichever caller actually wins this transition, in case two retries of
-    # the same failed mail race each other too.
-    reclaimed = await db.execute(
-        text(
-            "UPDATE mail_send_attempts SET status = 'sending', updated_at = now() "
-            "WHERE mail_id = :m AND status = 'failed'"
-        ),
-        {"m": mail_id},
-    )
-    await db.commit()
-    return "claimed" if reclaimed.rowcount == 1 else "in_progress"
+    """Claim shape for the mail-send idempotency path — see _claim_send."""
+    return await _claim_send(db, "mail_send_attempts", "mail_id", mail_id, org_id)
 
 
 async def _resolve_mail_send(db, mail_id: str, org_id: str, outcome: str) -> None:
-    """Record the terminal outcome ('sent' or 'failed') of a claimed attempt.
-
-    Never called for the ambiguous case — see internal_send_mail's handling of
-    a network fault on the provider call itself, which leaves the row
-    'sending' on purpose rather than guessing.
-
-    By the time this runs, the provider call it follows has already happened
-    — successfully or definitively not — so retrying the UPDATE below can
-    never cause a duplicate send; it can only fail to record an outcome that
-    is already final. Retries a transient DB hiccup a few times first, same
-    backoff as relay_consumer.py's _mark_sent/_read_transport on the
-    email-worker side of this same idempotency feature, since a lost write
-    here still sends the row to the same place: stranded in 'sending', which
-    per 0013_mail_send_idempotency.sql's docstring needs a manual SQL fix, and
-    for a 'failed' outcome makes an otherwise safe-to-retry mail permanently
-    un-retryable.
-
-    Unlike _mark_sent, exhausting retries here re-raises rather than
-    swallowing: _mark_sent's caller always advances the Kafka offset
-    regardless, so swallowing there only risks a lost cache entry. Here the
-    caller's response (a replayed "sent", or a definitive 400/502) IS a claim
-    about what got persisted — swallowing would let that response go out
-    unchanged while the row silently stayed 'sending', hiding exactly the
-    failure an operator needs to see.
-    """
-    for attempt in range(3):
-        try:
-            await set_org_context(db, org_id)
-            await db.execute(
-                text(
-                    "UPDATE mail_send_attempts SET status = :s, updated_at = now() "
-                    "WHERE mail_id = :m"
-                ),
-                {"s": outcome, "m": mail_id},
-            )
-            await db.commit()
-            return
-        except Exception as exc:  # noqa: BLE001 - retried, then re-raised below
-            await db.rollback()
-            if attempt == 2:
-                log.error(
-                    "mail_send_resolve_failed", mail_id=mail_id, org=org_id,
-                    outcome=outcome, error=str(exc),
-                )
-                raise
-            await asyncio.sleep(0.5 * (2**attempt))
+    """Resolve shape for the mail-send idempotency path — see _resolve_send."""
+    await _resolve_send(
+        db, "mail_send_attempts", "mail_id", mail_id, org_id, outcome,
+        "mail_send_resolve_failed",
+    )
 
 
 @router.post("/mail/send", response_model=MailSendResp)

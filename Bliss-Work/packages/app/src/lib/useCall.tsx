@@ -356,6 +356,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     setState((s) => ({ ...s, status: "connecting" }));
     void (async () => {
       const cfg = await iceConfig();
+      // The caller may have cancelled while we were fetching ICE creds —
+      // teardown() already ran and cleared incomingRef.current. Nothing was
+      // created yet, so there is nothing to clean up; just don't create a
+      // session for a call that's already gone (it would never be closed,
+      // since no further signal for this dead call is coming).
+      if (incomingRef.current !== inc) return;
       const s = newSession(inc.callId, inc.peerId, inc.media, cfg);
       try {
         await s.prepareCallee(); // mic/cam permission prompt happens here
@@ -363,6 +369,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         teardown("ended", "Camera/microphone blocked");
         return;
       }
+      // Same race, on the other side of the (often much longer) permission
+      // prompt. If the call ended while it was open, teardown() already
+      // closed this exact session via sessionRef (CallSession.acquire() stops
+      // any track that lands after close()) — but nothing stopped US from
+      // still telling the peer we accepted a call they've already left.
+      if (incomingRef.current !== inc || sessionRef.current !== s) return;
       setState((st) => ({ ...st, localStream: s.localStream }));
       rtc.sendFrame({ type: "call.accept", toUserId: inc.peerId, callId: inc.callId });
     })();
@@ -498,6 +510,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             clearRing();
             setState((s) => ({ ...s, status: "connecting" }));
             const cfg = await iceConfig();
+            // The callee's accept can race a local hangup/cancel while we
+            // were fetching ICE creds — teardown() already ran and reset
+            // callId. Nothing was created yet, so bail out rather than
+            // create an orphaned session for a call nobody is on any more
+            // (see accept()'s identical guard in this same file for the
+            // callee side of this race).
+            if (stateRef.current.callId !== f.callId) return;
             const s = newSession(f.callId, f.fromUserId, cur.media ?? "audio", cfg);
             try {
               await s.startCaller();
@@ -505,6 +524,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
               teardown("ended", "Camera/microphone blocked");
               return;
             }
+            // Same race on the far side of the permission prompt: if the
+            // call ended while it was open, teardown() already closed this
+            // exact session via sessionRef (CallSession.acquire() stops any
+            // track that lands after close()) — this just avoids
+            // re-adopting a stream into state for a call that's no longer
+            // current.
+            if (stateRef.current.callId !== f.callId || sessionRef.current !== s) return;
             setState((st) => ({ ...st, localStream: s.localStream }));
             break;
           }

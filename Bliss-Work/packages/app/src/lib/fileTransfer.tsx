@@ -25,9 +25,11 @@ import {
   useRef,
   useState,
 } from "react";
+import { toast } from "sonner";
 import { useRuntime } from "./runtime";
 import { useSession } from "../store/session";
 import { encodeFileOffer, type FileOfferEnvelope } from "./fileOffer";
+import { errorText } from "./errorText";
 import type { FileSink } from "../platform";
 import {
   startReceiverTransfer,
@@ -176,15 +178,34 @@ export function FileTransferProvider({ children }: { children: React.ReactNode }
       if (!available) return;
       const offerId = crypto.randomUUID();
       setState(offerId, { kind: "OFFERED" });
-      // Desktop streams the hash Node-side (no full-file load); web hashes in memory.
-      const sha256 = config.hashFile ? await config.hashFile(file) : await sha256File(file);
+      // Desktop streams the hash Node-side (no full-file load); web hashes in
+      // memory, so this can throw (or hang) on a very large file — caught
+      // here rather than left to reject unhandled, which previously left the
+      // transfer stuck at OFFERED forever with no error surfaced.
+      let sha256: string;
+      try {
+        sha256 = config.hashFile ? await config.hashFile(file) : await sha256File(file);
+      } catch (e) {
+        setState(offerId, { kind: "FAILED", reason: "Could not read the file" });
+        toast.error(`Couldn't send ${file.name}`, { description: errorText(e) });
+        return;
+      }
       const mime = file.type || "application/octet-stream";
-      // 1. Announce as a thread message so both peers get a bubble.
-      await api
-        .replyToThread(threadId, encodeFileOffer({ offerId, name: file.name, size: file.size, sha256, mime }), {
-          clientMsgId: crypto.randomUUID(),
-        })
-        .catch(() => {});
+      // 1. Announce as a thread message so both peers get a bubble. If this
+      // fails, the receiver never gets the accept/decline bubble the offer
+      // depends on, so the transfer must not start — surface the failure
+      // instead of silently proceeding.
+      try {
+        await api.replyToThread(
+          threadId,
+          encodeFileOffer({ offerId, name: file.name, size: file.size, sha256, mime }),
+          { clientMsgId: crypto.randomUUID() },
+        );
+      } catch (e) {
+        setState(offerId, { kind: "FAILED", reason: "Could not announce the file" });
+        toast.error(`Couldn't send ${file.name}`, { description: errorText(e) });
+        return;
+      }
       // 2. Start the sender state machine (opens the RTCPeerConnection, sends rtc.offer).
       const handle = startSenderTransfer({
         file,

@@ -146,6 +146,14 @@ type Readiness struct {
 	KafkaReachable bool
 	ImportEnabled  bool
 	Pending        uint64
+	// ImportFaulting is Export's ExportFaulting witness, mirrored for Import:
+	// whether the importer has recorded a failure (Fault()) since its last
+	// successful write (Progress()). Needed alongside Pending because Pending
+	// is refreshed only by a periodic JetStream Info() call — if THAT call
+	// itself starts failing persistently while the backlog already happens to
+	// be at 0, Pending freezes at 0 forever and would otherwise mask a
+	// completely broken import path.
+	ImportFaulting bool
 	SinceProgress  time.Duration
 	StallAfter     time.Duration
 
@@ -178,8 +186,10 @@ func Ready(r Readiness) (bool, string) {
 	//
 	// Guarded on there being work to do: an idle region legitimately makes no
 	// progress for hours, and reporting that as unhealthy would take a healthy
-	// replica out of rotation for the crime of having nothing to do.
-	if r.ImportEnabled && r.Pending > 0 && r.SinceProgress > r.StallAfter {
+	// replica out of rotation for the crime of having nothing to do. Pending
+	// is the usual witness for that; ImportFaulting is the fallback one for
+	// when Pending itself can no longer be trusted (see its own doc comment).
+	if r.ImportEnabled && (r.Pending > 0 || r.ImportFaulting) && r.SinceProgress > r.StallAfter {
 		return false, "import stalled: " + r.Pending2String()
 	}
 	// The export-side equivalent: see ExportFaulting's own doc comment for why
@@ -216,6 +226,7 @@ func (s *State) Handler(mux *http.ServeMux, metrics http.Handler) {
 			KafkaReachable:      s.kafkaReachable,
 			ImportEnabled:       s.enabled[Import],
 			Pending:             s.pending,
+			ImportFaulting:      s.lastError[Import] != "",
 			SinceProgress:       time.Since(s.lastSuccess[Import]),
 			StallAfter:          s.stallAfter,
 			ExportEnabled:       s.enabled[Export],

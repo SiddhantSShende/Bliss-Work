@@ -57,3 +57,9 @@ opentelemetry-instrumentation-asyncpg==0.65b0
 # auth-svc, task-svc, integrations-svc, sticky-svc and email-worker. See
 # services/shared/resilience/resilience.py.
 ../shared/resilience
+
+# Hardened JWKS fetch-and-cache (single-flighted refresh + kid-miss cooldown),
+# shared with auth-svc, task-svc, integrations-svc and sticky-svc (every
+# Python service that verifies bearer JWTs). See
+# services/shared/jwks_auth/jwks_auth.py.
+../shared/jwks_auth

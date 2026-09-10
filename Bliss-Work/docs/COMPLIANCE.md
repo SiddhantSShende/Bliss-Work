@@ -74,11 +74,11 @@ claim.
 
 | Control | Implementation | Evidence |
 |---|---|---|
-| SAST (semantic) | CodeQL | `.github/workflows/codeql.yml` |
-| SAST (rules) | Semgrep (`p/ci`, `p/secrets`), SARIF uploaded | `.github/workflows/security-extra.yml` (semgrep job) |
-| Secret scanning | gitleaks on every push | `.github/workflows/security-extra.yml` (gitleaks job) |
-| Dependency / image scanning | Trivy (fs), grype, govulncheck (Go), pip-audit (Py), npm-audit | `.github/workflows/ci.yml` (Security jobs) |
-| SBOM | syft SPDX SBOM artifact | `.github/workflows/security-extra.yml` (sbom job) |
+| SAST (semantic) | CodeQL — **manual (`workflow_dispatch`) only**, not on every push; automatic code-scanning upload needs a paid GitHub Code Security licence this repo doesn't have, so push/PR/schedule triggers stay off until it's purchased (see the workflow's own header comment) | `.github/workflows/codeql.yml` |
+| SAST (rules) | Semgrep (`p/ci`, `p/secrets`), SARIF uploaded, on every push/PR | `.github/workflows/security-extra.yml` (semgrep job) |
+| Secret scanning | gitleaks on every push/PR | `.github/workflows/security-extra.yml` (gitleaks job) |
+| Dependency / image scanning | Trivy filesystem scan (**blocking** on CRITICAL) + per-image scan (**surfaced, non-blocking** — base-image CVEs shouldn't gate merges), govulncheck (Go, blocking), pip-audit (Py, blocking), npm-audit (allowlist-gated, blocking) | `.github/workflows/ci.yml` (Security jobs) |
+| SBOM | syft SPDX SBOM artifact, on every push/PR | `.github/workflows/security-extra.yml` (sbom job) |
 
 ## 6. Incident response (SOC 2 CC7.4–CC7.5 / ISO A.5.24–A.5.26)
 
@@ -152,8 +152,10 @@ claim.
    seeded multi-org stack — all checks PASS.
 2. **Audit integrity:** `GET /internal/audit/verify/{org_id}` (with
    `X-Internal-Token`) returns `{ok: true}`.
-3. **CI evidence:** point the auditor at the latest green run of `ci.yml`,
-   `codeql.yml`, and `security-extra.yml`, plus the syft SBOM artifact.
+3. **CI evidence:** point the auditor at the latest green run of `ci.yml` and
+   `security-extra.yml`, plus the syft SBOM artifact. `codeql.yml` is
+   `workflow_dispatch`-only (see §5) — if no manual run exists yet, trigger
+   one before the audit rather than pointing at an empty run history.
 4. **Secrets:** confirm `keys/` and `.env*` are gitignored and the latest
    gitleaks job is clean.
 5. **Crypto config:** confirm prod sets `DATA_KEK_PROVIDER=kms` with a wired

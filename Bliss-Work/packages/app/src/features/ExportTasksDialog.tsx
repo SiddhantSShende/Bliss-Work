@@ -15,19 +15,21 @@ import { Download } from "lucide-react";
 import { Button } from "@taskboard/ui";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
+import { subtractDays, subtractMonthsClamped } from "../lib/dateRange";
 import { exportTaskRowsToXlsx } from "../lib/xlsxExport";
 import { Modal } from "./Modal";
+import { Tabs, type TabSpec } from "./Tabs";
 
 type Scope = "all" | "sent" | "received";
 type RangeKey = "week" | "month" | "year" | "all" | "custom";
 
-const SCOPES: { key: Scope; label: string }[] = [
+const SCOPES: TabSpec<Scope>[] = [
   { key: "all", label: "All my tasks" },
   { key: "sent", label: "Allocated by me" },
   { key: "received", label: "Assigned to me" },
 ];
 
-const RANGES: { key: RangeKey; label: string }[] = [
+const RANGES: TabSpec<RangeKey>[] = [
   { key: "week", label: "Past week" },
   { key: "month", label: "Past month" },
   { key: "year", label: "Past year" },
@@ -55,11 +57,9 @@ function computeRange(
     }
     return out;
   }
-  const from = new Date();
-  if (range === "week") from.setDate(from.getDate() - 7);
-  else if (range === "month") from.setMonth(from.getMonth() - 1);
-  else if (range === "year") from.setFullYear(from.getFullYear() - 1);
-  return { from: from.toISOString() };
+  if (range === "month") return { from: subtractMonthsClamped(new Date(), 1).toISOString() };
+  if (range === "year") return { from: subtractMonthsClamped(new Date(), 12).toISOString() };
+  return { from: subtractDays(new Date(), 7).toISOString() }; // range === "week"
 }
 
 export function ExportTasksDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -109,24 +109,12 @@ export function ExportTasksDialog({ open, onClose }: { open: boolean; onClose: (
       <div className="flex flex-col gap-4">
         <section>
           <div className="mb-1.5 text-sm font-medium text-fg">Which tasks</div>
-          <div className="flex flex-wrap gap-1.5">
-            {SCOPES.map((s) => (
-              <Chip key={s.key} active={scope === s.key} onClick={() => setScope(s.key)}>
-                {s.label}
-              </Chip>
-            ))}
-          </div>
+          <Tabs tabs={SCOPES} active={scope} onChange={setScope} className="flex-wrap" />
         </section>
 
         <section>
           <div className="mb-1.5 text-sm font-medium text-fg">Time range</div>
-          <div className="flex flex-wrap gap-1.5">
-            {RANGES.map((r) => (
-              <Chip key={r.key} active={range === r.key} onClick={() => setRange(r.key)}>
-                {r.label}
-              </Chip>
-            ))}
-          </div>
+          <Tabs tabs={RANGES} active={range} onChange={setRange} className="flex-wrap" />
           {range === "custom" && (
             <div className="mt-3 flex flex-wrap items-end gap-3">
               <label className="flex flex-col gap-1 text-xs text-muted">
@@ -173,27 +161,5 @@ export function ExportTasksDialog({ open, onClose }: { open: boolean; onClose: (
         </div>
       </div>
     </Modal>
-  );
-}
-
-function Chip({
-  children,
-  active,
-  onClick,
-}: {
-  children: React.ReactNode;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-full px-3 py-1.5 text-sm font-medium transition ${
-        active ? "bg-accent text-accent-fg" : "bg-surface-2 text-muted hover:text-fg"
-      }`}
-    >
-      {children}
-    </button>
   );
 }

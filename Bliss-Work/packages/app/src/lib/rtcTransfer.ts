@@ -70,6 +70,55 @@ export interface ReceiverWire {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Shared ICE-failure watchdog (sender + receiver)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Installs `pc.oniceconnectionstatechange`, debouncing it against a single
+ * timer: a transition into failed/disconnected arms a timeout, any other
+ * transition (including an oscillating failed→connected→failed sequence)
+ * clears it, and `onFail` only fires if the connection is STILL bad once
+ * ICE_FAILURE_GRACE_MS elapses. Identical for the sender and receiver — both
+ * used to hand-roll this ~20-line handler.
+ *
+ * Returns a `clear()` that cancels any pending timer; callers must invoke it
+ * from their own teardown so a stale watchdog can't fire after cleanup.
+ */
+function installIceFailureWatchdog(
+  pc: RTCPeerConnection,
+  isCancelled: () => boolean,
+  onFail: () => void,
+): () => void {
+  let watchdog: ReturnType<typeof setTimeout> | null = null;
+
+  const clear = () => {
+    if (watchdog) {
+      clearTimeout(watchdog);
+      watchdog = null;
+    }
+  };
+
+  pc.oniceconnectionstatechange = () => {
+    if (isCancelled()) return;
+    const bad =
+      pc.iceConnectionState === "failed" || pc.iceConnectionState === "disconnected";
+    // Single watchdog: clear any previous timer so an oscillating
+    // failed→connected→failed sequence doesn't queue multiple failures.
+    clear();
+    if (!bad) return;
+    watchdog = setTimeout(() => {
+      watchdog = null;
+      if (isCancelled()) return;
+      const stillBad =
+        pc.iceConnectionState === "failed" || pc.iceConnectionState === "disconnected";
+      if (stillBad) onFail();
+    }, ICE_FAILURE_GRACE_MS);
+  };
+
+  return clear;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Sender
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -92,7 +141,10 @@ export function startSenderTransfer(opts: {
   channel.bufferedAmountLowThreshold = BUFFERED_AMOUNT_LOW;
 
   let cancelled = false;
-  let watchdog: ReturnType<typeof setTimeout> | null = null;
+  // Overwritten below with installIceFailureWatchdog's real clear() once the
+  // watchdog is installed; a no-op until then so teardown() can call it
+  // unconditionally even if it runs before that assignment happens.
+  let clearIceWatchdog: () => void = () => {};
   let state: TransferState = { kind: "OFFERED" };
   // Subscriber unsubscribe handles — populated below. We tear them down in
   // teardown() on every terminal path so we don't leak the signaling fan-in
@@ -100,6 +152,8 @@ export function startSenderTransfer(opts: {
   let offAnswer: (() => void) | null = null;
   let offIce: (() => void) | null = null;
   let offUnreachable: (() => void) | null = null;
+  // push()'s backpressure wait, while pending — see teardown() below.
+  let bufferedAmountLowResolve: (() => void) | null = null;
 
   const update = (s: TransferState) => {
     state = s;
@@ -107,40 +161,31 @@ export function startSenderTransfer(opts: {
   };
 
   const teardown = () => {
-    if (watchdog) {
-      clearTimeout(watchdog);
-      watchdog = null;
-    }
+    clearIceWatchdog();
     offAnswer?.();
     offIce?.();
     offUnreachable?.();
     offAnswer = offIce = offUnreachable = null;
+    // Unstick push()'s backpressure wait, on every path that reaches here —
+    // not just cancel(). pc.close() below does not fire "bufferedamountlow"
+    // (that only fires when bufferedAmount actually drains via a completed
+    // send), so without this the promise — and the closure holding
+    // opts.file — would never settle once the channel can no longer drain on
+    // its own. push()'s loop re-checks channel.readyState after this
+    // resolves, so it unwinds instead of trying to send on a closed channel.
+    if (bufferedAmountLowResolve) {
+      channel.onbufferedamountlow = null;
+      const resolve = bufferedAmountLowResolve;
+      bufferedAmountLowResolve = null;
+      resolve();
+    }
     if (pc.connectionState !== "closed") pc.close();
   };
 
-  const onIceConn = () => {
-    if (cancelled) return;
-    const bad =
-      pc.iceConnectionState === "failed" || pc.iceConnectionState === "disconnected";
-    // Single watchdog: clear any previous timer so an oscillating
-    // failed→connected→failed sequence doesn't queue multiple failures.
-    if (watchdog) {
-      clearTimeout(watchdog);
-      watchdog = null;
-    }
-    if (!bad) return;
-    watchdog = setTimeout(() => {
-      watchdog = null;
-      if (cancelled) return;
-      const stillBad =
-        pc.iceConnectionState === "failed" || pc.iceConnectionState === "disconnected";
-      if (stillBad) {
-        update({ kind: "FAILED", reason: "Direct transfer unavailable" });
-        teardown();
-      }
-    }, ICE_FAILURE_GRACE_MS);
-  };
-  pc.oniceconnectionstatechange = onIceConn;
+  clearIceWatchdog = installIceFailureWatchdog(pc, () => cancelled, () => {
+    update({ kind: "FAILED", reason: "Direct transfer unavailable" });
+    teardown();
+  });
 
   pc.onicecandidate = (ev) => {
     if (ev.candidate) {
@@ -194,11 +239,13 @@ export function startSenderTransfer(opts: {
     let bytesDone = fromIndex * CHUNK_SIZE;
 
     const push = async () => {
-      while (!cancelled && nextIndex < chunkTotal) {
+      while (!cancelled && channel.readyState === "open" && nextIndex < chunkTotal) {
         if (channel.bufferedAmount > BUFFERED_AMOUNT_HIGH) {
           await new Promise<void>((resolve) => {
+            bufferedAmountLowResolve = resolve;
             channel.onbufferedamountlow = () => {
               channel.onbufferedamountlow = null;
+              bufferedAmountLowResolve = null;
               resolve();
             };
           });
@@ -207,12 +254,30 @@ export function startSenderTransfer(opts: {
         const offset = nextIndex * CHUNK_SIZE;
         const slice = opts.file.slice(offset, offset + CHUNK_SIZE);
         const ab = await slice.arrayBuffer();
+        // cancel()/teardown() may have run while we were awaiting the slice
+        // read (e.g. the user cancelled mid-chunk, which closes the
+        // RTCPeerConnection and hence this channel) — re-check before
+        // touching the channel so we don't call send() on a closing/closed
+        // channel and throw InvalidStateError.
+        if (cancelled || channel.readyState !== "open") break;
         // header: 1B tag (0x01) + 4B BE chunk index
         const frame = new Uint8Array(5 + ab.byteLength);
         frame[0] = 0x01;
         new DataView(frame.buffer).setUint32(1, nextIndex, false);
         frame.set(new Uint8Array(ab), 5);
-        channel.send(frame.buffer);
+        try {
+          channel.send(frame.buffer);
+        } catch {
+          // Second line of defense: a send that still throws (e.g. a race
+          // between the check above and this call) fails the transfer the
+          // same way the rest of this module does, instead of surfacing as
+          // an unhandled rejection.
+          if (!cancelled) {
+            update({ kind: "FAILED", reason: "Direct transfer unavailable" });
+            teardown();
+          }
+          return;
+        }
         bytesDone += ab.byteLength;
         const progress: TransferProgress = {
           bytesDone: Math.min(bytesDone, opts.meta.size),
@@ -224,7 +289,7 @@ export function startSenderTransfer(opts: {
         if (state.kind !== "TRANSFERRING") update({ kind: "TRANSFERRING", progress });
         nextIndex += 1;
       }
-      if (!cancelled) {
+      if (!cancelled && channel.readyState === "open") {
         channel.send(
           JSON.stringify({ type: "FIN", offerId: opts.meta.offerId, sha256: opts.meta.sha256 }),
         );
@@ -336,7 +401,10 @@ export function startReceiverTransfer(opts: {
 }): ReceiverHandle {
   const pc = new RTCPeerConnection(RTC_CONFIG);
   let cancelled = false;
-  let watchdog: ReturnType<typeof setTimeout> | null = null;
+  // Overwritten below with installIceFailureWatchdog's real clear() once the
+  // watchdog is installed; a no-op until then so teardown() can call it
+  // unconditionally even if it runs before that assignment happens.
+  let clearIceWatchdog: () => void = () => {};
   let state: TransferState = { kind: "CONNECTING" };
   // Subscribe the wire BEFORE the offer flow so we don't race the sender's
   // first ICE candidate. Populated below; torn down in teardown().
@@ -348,10 +416,7 @@ export function startReceiverTransfer(opts: {
   };
 
   const teardown = () => {
-    if (watchdog) {
-      clearTimeout(watchdog);
-      watchdog = null;
-    }
+    clearIceWatchdog();
     offIce?.();
     offIce = null;
     if (pc.connectionState !== "closed") pc.close();
@@ -363,26 +428,10 @@ export function startReceiverTransfer(opts: {
     }
   };
 
-  pc.oniceconnectionstatechange = () => {
-    if (cancelled) return;
-    const bad =
-      pc.iceConnectionState === "failed" || pc.iceConnectionState === "disconnected";
-    if (watchdog) {
-      clearTimeout(watchdog);
-      watchdog = null;
-    }
-    if (!bad) return;
-    watchdog = setTimeout(() => {
-      watchdog = null;
-      if (cancelled) return;
-      const stillBad =
-        pc.iceConnectionState === "failed" || pc.iceConnectionState === "disconnected";
-      if (stillBad) {
-        update({ kind: "FAILED", reason: "Direct transfer unavailable" });
-        teardown();
-      }
-    }, ICE_FAILURE_GRACE_MS);
-  };
+  clearIceWatchdog = installIceFailureWatchdog(pc, () => cancelled, () => {
+    update({ kind: "FAILED", reason: "Direct transfer unavailable" });
+    teardown();
+  });
 
   let chunkTotal = Math.ceil(opts.meta.size / CHUNK_SIZE);
   let bytesDone = (opts.resumeFromChunkIndex ?? 0) * CHUNK_SIZE;

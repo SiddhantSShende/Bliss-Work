@@ -3,6 +3,7 @@ import { Download, ChevronDown, Monitor, Apple } from "lucide-react";
 import { Button, cn } from "@taskboard/ui";
 import { useRuntime } from "../lib/runtime";
 import { PLATFORMS, PLATFORM_ORDER, detectPlatform, type PlatformId } from "../lib/downloads";
+import { usePopupDismiss } from "../lib/usePopupDismiss";
 
 /**
  * "Get the App" desktop-download control for the WEB app (communication.rnrtechs.com).
@@ -31,6 +32,7 @@ export function GetAppButton({
 }) {
   const { config } = useRuntime();
   const [open, setOpen] = useState(false);
+  const wrap = usePopupDismiss<HTMLDivElement>(open, () => setOpen(false));
 
   // Desktop users already have the app — never show it there.
   if (config.kind !== "web") return null;
@@ -77,7 +79,7 @@ export function GetAppButton({
 
   // compact — navbar dropdown
   return (
-    <div className={cn("relative", className)}>
+    <div ref={wrap} className={cn("relative", className)}>
       <Button
         variant="subtle"
         size="sm"
@@ -90,38 +92,37 @@ export function GetAppButton({
         <ChevronDown size={14} className={cn("transition-transform", open && "rotate-180")} />
       </Button>
       {open && (
-        <>
-          {/* click-away backdrop */}
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} aria-hidden />
-          <div
-            role="menu"
-            className="absolute right-0 z-50 mt-1.5 w-60 overflow-hidden rounded-xl border border-border bg-surface p-1 shadow-card"
-          >
-            <p className="px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted">
-              Download BlissWork
-            </p>
-            {PLATFORM_ORDER.map((id) => {
-              const p = PLATFORMS[id];
-              return (
-                <a
-                  key={id}
-                  href={p.primary.url}
-                  download
-                  onClick={() => setOpen(false)}
-                  role="menuitem"
-                  className={cn(
-                    "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-fg transition-colors hover:bg-surface-2",
-                    detected === id && "text-accent",
-                  )}
-                >
-                  <OsIcon id={id} />
-                  <span className="flex-1 font-medium">{p.name}</span>
-                  <span className="text-xs text-muted">{p.primary.ext}</span>
-                </a>
-              );
-            })}
-          </div>
-        </>
+        // usePopupDismiss handles outside clicks, Escape, and closing whatever
+        // other popup was open — see lib/usePopupDismiss for why the old
+        // click-away backdrop div is gone.
+        <div
+          role="menu"
+          className="absolute right-0 z-50 mt-1.5 w-60 overflow-hidden rounded-xl border border-border bg-surface p-1 shadow-card"
+        >
+          <p className="px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted">
+            Download BlissWork
+          </p>
+          {PLATFORM_ORDER.map((id) => {
+            const p = PLATFORMS[id];
+            return (
+              <a
+                key={id}
+                href={p.primary.url}
+                download
+                onClick={() => setOpen(false)}
+                role="menuitem"
+                className={cn(
+                  "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-fg transition-colors hover:bg-surface-2",
+                  detected === id && "text-accent",
+                )}
+              >
+                <OsIcon id={id} />
+                <span className="flex-1 font-medium">{p.name}</span>
+                <span className="text-xs text-muted">{p.primary.ext}</span>
+              </a>
+            );
+          })}
+        </div>
       )}
     </div>
   );

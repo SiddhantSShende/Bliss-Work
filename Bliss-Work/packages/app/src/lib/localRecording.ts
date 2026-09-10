@@ -22,6 +22,7 @@
  */
 
 import { downloadBlob } from "./download";
+import { meetingArtifactFilename } from "./meetingArtifact";
 
 /** The canvas the grid is drawn onto. 720p: what the tiles carry, and what a
  *  laptop can encode in real time while also being in the meeting. */
@@ -84,19 +85,12 @@ function pickMimeType(): string | undefined {
   return MIME_CANDIDATES.find((t) => MediaRecorder.isTypeSupported(t));
 }
 
-/** A filename that says which meeting, and sorts. Matches the convention the
- *  chat and notes exports already use (callChat.ts, callNotes.ts). */
+/** A filename that says which meeting, and sorts. Reuses the same
+ *  slug-plus-date convention the chat and notes exports use
+ *  (meetingArtifactFilename in meetingArtifact.ts), with "recording" as the
+ *  kind and the encoder's own extension in place of ".txt". */
 export function recordingFilename(title: string, ext: string, at = new Date()): string {
-  const slug =
-    (title || "meeting")
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, "")
-      .slice(0, 40) || "meeting";
-  const day = `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, "0")}-${String(
-    at.getDate(),
-  ).padStart(2, "0")}`;
-  return `${slug}-recording-${day}.${ext}`;
+  return meetingArtifactFilename(title, "recording", at, ext);
 }
 
 /** webm from "video/webm;codecs=…", mp4 from "video/mp4". */
@@ -272,6 +266,27 @@ export function startLocalRecording(options: {
     update(next) {
       tiles = next;
       next.forEach((t) => t.audio && mixIn(t.audio));
+
+      // Tear down anything for a track that's no longer on the roster.
+      // videoFor/mixIn (above) only ever ADD to videos/sources — without
+      // this, a long, high-turnover meeting (webinar-style) accumulates one
+      // hidden <video> element + audio-graph node per person who has EVER
+      // joined, for the life of the recording, not just who's currently in
+      // it. Track ids are minted per-publish, so an id vanishing here means
+      // the participant (or their camera/mic) left, not a rename.
+      const liveVideoIds = new Set(next.map((t) => t.video?.id).filter((id): id is string => !!id));
+      for (const [id, el] of videos) {
+        if (liveVideoIds.has(id)) continue;
+        el.srcObject = null;
+        el.remove();
+        videos.delete(id);
+      }
+      const liveAudioIds = new Set(next.map((t) => t.audio?.id).filter((id): id is string => !!id));
+      for (const [id, node] of sources) {
+        if (liveAudioIds.has(id)) continue;
+        node.disconnect();
+        sources.delete(id);
+      }
     },
     async stop() {
       if (stopped) return finished;

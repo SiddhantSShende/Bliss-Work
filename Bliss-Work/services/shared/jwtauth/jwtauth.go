@@ -58,9 +58,17 @@ func (v *Verifier) parse(ctx context.Context, raw string) (*Claims, error) {
 		jwt.WithValidate(true),
 		jwt.WithIssuer(v.issuer),
 		jwt.WithAcceptableSkew(30*time.Second),
+		jwt.WithRequiredClaim("exp"),
 	)
 	if err != nil {
 		return nil, err
+	}
+	// jwx treats a zero Unix expiration (exp: 0) the same as "no expiration
+	// set" and skips its own expiry check, so WithRequiredClaim alone (which
+	// only checks the claim's presence) is not enough: a token with an
+	// explicit exp of 0 would otherwise be accepted forever.
+	if exp := tok.Expiration(); exp.IsZero() || exp.Unix() == 0 {
+		return nil, errors.New("token missing exp claim")
 	}
 
 	c := &Claims{UserID: tok.Subject()}

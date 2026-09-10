@@ -236,6 +236,11 @@ func (s *Store) writeSentMail(
 // was autosaved into it (SaveMailDraft), and the composer can have removed an
 // addressee since: an upsert keyed on (kind, position) would leave that row
 // behind and mail somebody the sender took off the list.
+//
+// The INSERT is one round trip for the whole list, not one per recipient —
+// each address still needs its own Encrypt call (the plaintext differs per
+// row), but unnest over the four parallel arrays turns what used to be up to
+// MaxMailRecipients statements into one.
 func (s *Store) writeMailRecipients(
 	ctx context.Context, tx pgx.Tx, orgID, mailID string, recipients []resolvedAddress,
 ) error {
@@ -244,21 +249,32 @@ func (s *Store) writeMailRecipients(
 		mailID, orgID); err != nil {
 		return err
 	}
-	for _, r := range recipients {
+	if len(recipients) == 0 {
+		return nil
+	}
+	kinds := make([]string, len(recipients))
+	positions := make([]int32, len(recipients))
+	addrEncs := make([][]byte, len(recipients))
+	userIDs := make([]*string, len(recipients))
+	for i, r := range recipients {
 		addrEnc, err := s.crypto.Encrypt(ctx, tx, orgID, r.address)
 		if err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO mail_recipients (mail_id, org_id, kind, position, address_enc, user_id)
-			VALUES ($1, $2, $3, $4, $5, $6)
-			ON CONFLICT (mail_id, kind, position) DO UPDATE
-			SET address_enc = EXCLUDED.address_enc, user_id = EXCLUDED.user_id`,
-			mailID, orgID, r.kind, r.pos, addrEnc, r.userID); err != nil {
-			return err
-		}
+		kinds[i] = r.kind
+		positions[i] = int32(r.pos)
+		addrEncs[i] = addrEnc
+		userIDs[i] = r.userID
 	}
-	return nil
+	_, err := tx.Exec(ctx, `
+		INSERT INTO mail_recipients (mail_id, org_id, kind, position, address_enc, user_id)
+		SELECT $1, $2, u.kind, u.position, u.address_enc, u.user_id
+		  FROM unnest($3::text[], $4::int[], $5::bytea[], $6::uuid[])
+		       AS u(kind, position, address_enc, user_id)
+		ON CONFLICT (mail_id, kind, position) DO UPDATE
+		SET address_enc = EXCLUDED.address_enc, user_id = EXCLUDED.user_id`,
+		mailID, orgID, kinds, positions, addrEncs, userIDs)
+	return err
 }
 
 // splitMailDelivery separates the recipients into the local user ids that get an

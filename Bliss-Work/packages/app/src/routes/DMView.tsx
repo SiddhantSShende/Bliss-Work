@@ -188,7 +188,14 @@ export function DMView() {
     return map;
   }, [reactions]);
 
+  // mutationKey scopes each of this view's mutations to the current
+  // conversationId. DMView never unmounts on a conversation switch (same
+  // route component, new conversationId prop), so without a differing
+  // mutationKey a still-pending mutation's onSuccess/onError gets silently
+  // rebound to the NEW conversation's closures when the observer re-renders
+  // mid-request (see useOptimisticSend.ts for the verified mechanism).
   const react = useMutation({
+    mutationKey: ["dmReact", conversationId],
     mutationFn: ({ id, emoji, on }: { id: string; emoji: string; on: boolean }) =>
       api.setReaction(id, emoji, on),
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.reactions(conversationId) }),
@@ -203,7 +210,7 @@ export function DMView() {
   const pendingReactionsRef = useRef<Set<string>>(new Set());
   const reactToggle = useCallback(
     (id: string, emoji: string, on: boolean) => {
-      const key = `${id} ${emoji}`;
+      const key = `${id} ${emoji}`;
       if (pendingReactionsRef.current.has(key)) return;
       pendingReactionsRef.current.add(key);
       react.mutate(
@@ -215,18 +222,21 @@ export function DMView() {
   );
 
   const hide = useMutation({
+    mutationKey: ["dmHide", conversationId],
     mutationFn: (id: string) => api.hideMessage(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.messages(conversationId) }),
     onError: () => toast.error("Couldn't hide that message"),
   });
 
   const markUnread = useMutation({
+    mutationKey: ["dmMarkUnread", conversationId],
     mutationFn: (upToSeq: number) => api.read(conversationId, upToSeq),
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.conversations }),
     onError: () => toast.error("Couldn't mark that chat as unread"),
   });
 
   const removeForAll = useMutation({
+    mutationKey: ["dmRemoveForAll", conversationId],
     mutationFn: (id: string) => api.deleteMessageForAll(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.messages(conversationId) }),
     onError: () => toast.error("Couldn't delete that message"),
@@ -246,6 +256,7 @@ export function DMView() {
   );
 
   const bulkDelete = useMutation({
+    mutationKey: ["dmBulkDelete", conversationId],
     mutationFn: (ids: string[]) => api.deleteMessagesForAll(conversationId, ids),
     onSuccess: (res) => {
       void qc.invalidateQueries({ queryKey: qk.messages(conversationId) });
@@ -288,6 +299,7 @@ export function DMView() {
   });
 
   const ignore = useMutation({
+    mutationKey: ["dmIgnore", conversationId],
     mutationFn: () => api.ignoreConversation(conversationId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.conversations });
@@ -316,6 +328,7 @@ export function DMView() {
   // conversation.blocked/unblocked echo (queryBridge) reconciles both sides;
   // we also invalidate here so the actor's UI flips without waiting on it.
   const block = useMutation({
+    mutationKey: ["dmBlock", conversationId],
     mutationFn: () => {
       if (!conv) return Promise.resolve();
       return conv.blockedByMe ? api.unblockUser(conv.peerId) : api.blockUser(conv.peerId);
@@ -336,6 +349,7 @@ export function DMView() {
    * conversation, the caches that are now stale, and what the toast says.
    */
   const sendLink = useMutation({
+    mutationKey: ["dmSendLink", conversationId],
     mutationFn: (alsoTo: string[]) => {
       if (!conv) throw new Error("no conversation");
       return deliverCallLink(api, {

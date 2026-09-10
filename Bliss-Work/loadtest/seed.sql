@@ -21,8 +21,11 @@
 -- plaintext is identical across rows, which affects nothing: decryption cost is
 -- set by length and by the key lookup, not by the message content.
 --
--- Run as a superuser (RLS is FORCE'd on these tables):
---   docker exec -i task-board-postgres-1 psql -U taskboard -d messagingdb -f -
+-- Run as a superuser (RLS is FORCE'd on these tables), via the guarded
+-- wrapper — it confirms the target container is genuinely the dev stack
+-- before running anything, which a raw `docker exec ... psql ... -f -`
+-- copy-paste does not:
+--   bash loadtest/seed-dev-db.sh
 
 \set ON_ERROR_STOP on
 \timing on

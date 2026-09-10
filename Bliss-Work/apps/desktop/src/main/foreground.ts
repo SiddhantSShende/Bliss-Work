@@ -3,13 +3,11 @@
  * reading that the floating task notes need.
  *
  * ── What this is for ─────────────────────────────────────────────────────────
- * Two callers, one native dependency:
+ * The desktop task notes (app-active.ts, its one caller) need to know when
+ * the user is looking at the BARE DESKTOP, because that is when a desktop
+ * widget belongs on screen.
  *
- *   1. The activity agent records WHICH application the user is working in.
- *   2. The desktop task notes need to know when the user is looking at the BARE
- *      DESKTOP, because that is when a desktop widget belongs on screen.
- *
- * Both need the OS asked for its frontmost window — Electron reports focus
+ * That needs the OS asked for its frontmost window — Electron reports focus
  * changes for its OWN windows only, and there is no event for "some other
  * application came to the front". `get-windows` ships prebuilt helper binaries
  * that answer that question; this module owns loading it, so there is exactly

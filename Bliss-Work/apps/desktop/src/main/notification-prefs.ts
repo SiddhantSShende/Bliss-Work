@@ -37,7 +37,7 @@ function ensureLoaded(): void {
   }
 }
 
-/** Atomic temp→rename, matching activity-state.ts / sticky-state.ts. */
+/** Atomic temp→rename, matching sticky-state.ts. */
 function flush(): void {
   try {
     mkdirSync(dirname(filePath), { recursive: true });

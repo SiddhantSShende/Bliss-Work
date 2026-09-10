@@ -32,30 +32,6 @@ export function timeLabel(t: number): string {
   return new Date(t).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 }
 
-/**
- * The one line a card prints for "when": the day, the start time, and an end
- * time wherever one is known.
- *
- * `endedAt` (the ACTUAL end) wins once a call has genuinely finished; before
- * that, `endsAt` (the PLANNED end — every scheduling endpoint's own
- * durationMinutes, see calls.go's parseSchedule) is shown instead, so an
- * upcoming or live call whose organiser gave it a length says so rather than
- * only ever showing one once it is already over. Absent entirely for a call
- * with neither — "No end time" is a real, deliberate choice (ScheduleCallDialog's
- * own option), and printing anything there would be invented.
- */
-export function whenLabel(c: CallDTO): string {
-  const start = whenOf(c);
-  const line = `${dayLabel(start)}, ${timeLabel(start)}`;
-  const endIso = c.endedAt || c.endsAt;
-  if (!endIso) return line;
-  const end = new Date(endIso).getTime();
-  // A call that ran past midnight ends on a different day than it started, and
-  // "9:40 PM – 12:10 AM" reads as a typo unless the day comes with it.
-  const sameDay = startOfDay(end) === startOfDay(start);
-  return `${line} – ${sameDay ? timeLabel(end) : `${dayLabel(end)}, ${timeLabel(end)}`}`;
-}
-
 /** Consecutive runs of the same day, in the order the caller sorted them. */
 export function groupByDay(calls: CallDTO[]): { label: string; items: CallDTO[] }[] {
   return groupConsecutiveByLabel(calls, (c) => dayLabel(whenOf(c)));

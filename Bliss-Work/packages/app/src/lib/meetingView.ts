@@ -46,6 +46,31 @@ export function bucketFor(call: CallDTO): MeetingBucket {
   return "past";
 }
 
+/** `bucketFor`, except a cancelled call is always "past" rather than whatever
+ *  its LIVE/SCHEDULED status would otherwise bucket it as — cancelling a
+ *  meeting doesn't retroactively change its status, so the calendar and list
+ *  views that draw a cancelled call still need to place it with what's done. */
+export function meetingBucketOrPast(call: CallDTO): MeetingBucket {
+  return call.status === "CANCELLED" ? "past" : bucketFor(call);
+}
+
+/** The short title for a calendar chip/block: the call's own title, or —
+ *  untitled — whoever created it, or failing that a plain placeholder. Unlike
+ *  `meetingDisplayName`, this never falls back to the participant roster; the
+ *  calendar surfaces that use it have no room for a joined-names list. */
+export function meetingTitle(call: CallDTO, nameOf: (id: string) => string): string {
+  return call.title.trim() || nameOf(call.createdBy) || "Untitled meeting";
+}
+
+/** What kind of call this is, for the one-line "scope" caption under a
+ *  meeting's name — null for a plain MEETING, which has no scope worth
+ *  naming. */
+export function meetingScope(call: CallDTO): string | null {
+  if (call.kind === "CHANNEL") return "Channel call";
+  if (call.kind === "DIRECT") return "Direct call";
+  return null;
+}
+
 /** Is this a detail route (a meeting is open in the reading pane)? */
 export function isMeetingDetailPath(pathname: string): boolean {
   return /^\/app\/meetings\/[^/]+$/.test(pathname) && !pathname.endsWith("/all");

@@ -101,6 +101,15 @@ class RefreshWorker:
                 log.exception("refresh_one_unexpected_error", connection_id=conn_id)
 
     async def _refresh_one(self, conn_id: str, org_id: str, provider: str, rt_enc: bytes) -> None:
+        # Phase A — claim the row and gather what the refresh call needs, in
+        # one short transaction committed BEFORE any network call. Used to be
+        # a single transaction holding `FOR UPDATE SKIP LOCKED` open across
+        # oauth.refresh_access_token itself; a slow/unresponsive IdP then held
+        # both a row lock and a pooled connection (10 total for this service)
+        # for as long as the call took. The claim below still stops two
+        # replicas from both calling the provider for the same connection —
+        # see the UPDATE's own comment — it just no longer needs the lock to
+        # stay open past this transaction's commit to do it.
         async with session() as db:
             await set_bypass_rls(db)
 
@@ -111,35 +120,50 @@ class RefreshWorker:
             # together. Without this, both call the provider's refresh
             # endpoint concurrently; Microsoft rotates the refresh token on
             # use, so whichever call lands second gets invalid_grant and
-            # wrongly marks a healthy connection as errored. SKIP LOCKED
-            # means a replica that loses the race sees zero rows here and
-            # backs off cleanly instead of racing — same pattern outbox.py's
-            # poller already uses, scoped to ONE connection's own
-            # transaction (not the whole batch) specifically so a later
-            # connection's failure can never roll back an earlier one's
-            # already-committed refresh in the same sweep.
+            # wrongly marks a healthy connection as errored.
             #
-            # Re-reads refresh_token_enc fresh rather than trusting the
-            # `rt_enc` this was called with: that value is from _refresh_due's
-            # batch SELECT, which could already be stale by the time this
-            # transaction acquires the lock (e.g. this exact connection was
-            # already refreshed and committed by the other replica a moment
-            # earlier, in which case status would no longer be 'connected'
-            # either).
-            locked = (
+            # An UPDATE ... WHERE (refresh_claimed_at IS NULL OR ... stale)
+            # does the same job FOR UPDATE SKIP LOCKED used to: two concurrent
+            # UPDATEs on the same row serialize at the row-lock level exactly
+            # as they always have, but that lock only lives for THIS
+            # statement's duration, not for the network call after it. The
+            # second UPDATE to run — whether it arrives after the first
+            # commits, or blocks and resumes once the first commits — always
+            # re-evaluates its WHERE against the now-committed
+            # refresh_claimed_at and correctly matches zero rows, the same
+            # "loses the race, backs off cleanly" outcome SKIP LOCKED gave.
+            # The 2-minute staleness clause is only a backstop for a replica
+            # that crashes between claiming and recording an outcome — every
+            # normal exit path below clears refresh_claimed_at explicitly.
+            claimed = (
                 await db.execute(
                     text(
-                        "SELECT refresh_token_enc FROM integration_connections "
-                        "WHERE id = :id AND status = 'connected' AND refresh_token_enc IS NOT NULL "
-                        "FOR UPDATE SKIP LOCKED"
+                        """
+                        UPDATE integration_connections
+                           SET refresh_claimed_at = now()
+                         WHERE id = :id
+                           AND status = 'connected'
+                           AND refresh_token_enc IS NOT NULL
+                           AND (refresh_claimed_at IS NULL
+                                OR refresh_claimed_at < now() - interval '2 minutes')
+                        RETURNING refresh_token_enc
+                        """
                     ),
                     {"id": conn_id},
                 )
             ).first()
-            if locked is None:
+            if claimed is None:
                 log.info("refresh_skipped_locked_or_changed", connection_id=conn_id)
                 return
-            rt_enc = bytes(locked.refresh_token_enc)
+            # Re-reads refresh_token_enc fresh rather than trusting the
+            # `rt_enc` this was called with: that value is from _refresh_due's
+            # batch SELECT, which could already be stale by the time this
+            # claim succeeds (e.g. this exact connection was already refreshed
+            # and committed by the other replica a moment earlier — in which
+            # case the claim above would not have matched at all, but the
+            # possibility is exactly why the batch SELECT's own value is never
+            # trusted here).
+            rt_enc = bytes(claimed.refresh_token_enc)
 
             vendor = app_credentials.vendor_for(provider)
             creds = await app_credentials.load(db, org_id, vendor) if vendor else None
@@ -155,7 +179,7 @@ class RefreshWorker:
                 await db.execute(
                     text(
                         "UPDATE integration_connections SET status='error', "
-                        "last_error=:e, updated_at=now() WHERE id=:id"
+                        "last_error=:e, refresh_claimed_at=NULL, updated_at=now() WHERE id=:id"
                     ),
                     {
                         "e": "OAuth app credentials are no longer configured for this provider",
@@ -167,25 +191,44 @@ class RefreshWorker:
                     "refresh_skipped_no_app_credentials", connection_id=conn_id, provider=provider
                 )
                 return
-            try:
-                refresh_token = await cryptor().decrypt(db, org_id, rt_enc)
-                tokens = await oauth.refresh_access_token(cfg, refresh_token or "")
-            except oauth.OAuthError as exc:
-                # Terminal (revoked/invalid) — mark so the UI prompts a reconnect.
+            refresh_token = await cryptor().decrypt(db, org_id, rt_enc)
+            await db.commit()  # claim recorded; connection released before Phase B
+
+        # Phase B — the external call, deliberately outside any DB
+        # transaction or held connection.
+        try:
+            tokens = await oauth.refresh_access_token(cfg, refresh_token or "")
+        except oauth.OAuthError as exc:
+            # Terminal (revoked/invalid) — mark so the UI prompts a reconnect.
+            async with session() as db:
+                await set_bypass_rls(db)
                 await db.execute(
                     text(
                         "UPDATE integration_connections SET status='error', last_error=:e, "
-                        "updated_at=now() WHERE id=:id"
+                        "refresh_claimed_at=NULL, updated_at=now() WHERE id=:id"
                     ),
                     {"e": f"token refresh failed: {exc}"[:500], "id": conn_id},
                 )
                 await db.commit()
-                log.warning("refresh_failed_terminal", connection_id=conn_id, provider=provider)
-                return
-            except Exception as exc:  # noqa: BLE001 — transient; retry next sweep
-                log.warning("refresh_failed_transient", connection_id=conn_id, error=str(exc))
-                return
+            log.warning("refresh_failed_terminal", connection_id=conn_id, provider=provider)
+            return
+        except Exception as exc:  # noqa: BLE001 — transient; retry next sweep
+            # Clears the claim so the very next sweep can retry immediately,
+            # same cadence the pre-claim design had — only a crash here
+            # (never reaching this line) falls back to the staleness window.
+            async with session() as db:
+                await set_bypass_rls(db)
+                await db.execute(
+                    text("UPDATE integration_connections SET refresh_claimed_at = NULL WHERE id = :id"),
+                    {"id": conn_id},
+                )
+                await db.commit()
+            log.warning("refresh_failed_transient", connection_id=conn_id, error=str(exc))
+            return
 
+        # Phase C — record the refreshed tokens, in a fresh short transaction.
+        async with session() as db:
+            await set_bypass_rls(db)
             access_enc = await cryptor().encrypt(db, org_id, tokens.get("access_token", ""))
             new_refresh = tokens.get("refresh_token")
             new_refresh_enc = (
@@ -202,6 +245,7 @@ class RefreshWorker:
                             THEN now() + (:exp * interval '1 second') ELSE token_expires_at END,
                         status = 'connected',
                         last_error = NULL,
+                        refresh_claimed_at = NULL,
                         updated_at = now()
                      WHERE id = :id
                     """

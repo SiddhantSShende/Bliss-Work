@@ -2,6 +2,7 @@ import EmojiPicker, { EmojiStyle, Theme } from "emoji-picker-react";
 import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { Smile } from "lucide-react";
+import { useTheme } from "@taskboard/ui";
 import { usePopupDismiss } from "../lib/usePopupDismiss";
 
 /**
@@ -172,12 +173,14 @@ export function EmojiGrid({
   onPick: (emoji: string) => void;
   className?: string;
 }) {
+  const { isDark } = useTheme();
+
   return (
     <div className={className}>
       <EmojiPicker
         onEmojiClick={(emoji) => onPick(emoji.emoji)}
         emojiStyle={EmojiStyle.NATIVE}
-        theme={Theme.LIGHT}
+        theme={isDark ? Theme.DARK : Theme.LIGHT}
         width="min(350px, calc(100vw - 1rem))"
         height={420}
         previewConfig={{ showPreview: false }}

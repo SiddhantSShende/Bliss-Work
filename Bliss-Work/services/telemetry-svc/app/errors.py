@@ -1,4 +1,4 @@
-"""Global FastAPI exception handlers for task-svc — mirrors auth-svc/app/errors.py.
+"""Global FastAPI exception handlers for telemetry-svc — mirrors auth-svc/app/errors.py.
 
 See that module's docstring for design notes. We duplicate (rather than share
 across services) so each service stays independently deployable.

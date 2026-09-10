@@ -75,7 +75,9 @@ export function PinButton(props: {
       }`}
       title={pinned ? "Unpin from desktop" : "Pin to desktop"}
     >
-      {pinned ? <Pin size={16} /> : <PinOff size={16} />}
+      {/* PinOff (crossed-out) when pinned = "click to unpin", matching
+          MessageActions.tsx and StickyWidget.tsx's pin controls. */}
+      {pinned ? <PinOff size={16} /> : <Pin size={16} />}
     </button>
   );
 }

@@ -7,8 +7,9 @@ import { useSession } from '@taskboard/app/store/session';
 import { syncRefreshTokenFromJar } from '../../services/authCookie';
 import { Button } from '../../components/Button';
 import { TextField } from '../../components/TextField';
-import { colors, spacing } from '../../constants/theme';
+import { spacing } from '../../constants/theme';
 import type { AuthStackParamList } from '../../navigation/types';
+import { useThemeColors } from '../../theme/ThemeProvider';
 import { AuthScreenLayout } from './AuthScreenLayout';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'MfaChallenge'>;
@@ -28,6 +29,7 @@ type Props = NativeStackScreenProps<AuthStackParamList, 'MfaChallenge'>;
  *    form; also tracked for Phase F.
  */
 export function MfaChallengeScreen({ route }: Props) {
+  const colors = useThemeColors();
   const { pendingToken, enrollmentRequired } = route.params;
   const { api } = useRuntime();
   const setSession = useSession((s) => s.setSession);

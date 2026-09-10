@@ -66,7 +66,7 @@ groups:
 
   - name: saturation-redis
     rules:
-      # maxmemory is 400mb with policy noeviction, so hitting the ceiling fails
+      # maxmemory is 2gb with policy noeviction, so hitting the ceiling fails
       # writes loudly rather than silently evicting replay data. That is the
       # intended behaviour, but it still means clients stop getting catch-up.
       - alert: RedisMemoryHigh
@@ -76,7 +76,7 @@ groups:
         annotations:
           summary: "Redis above 75% of maxmemory"
           description: >-
-            {{ $value | humanizePercentage }} of the 400mb ceiling. The replay
+            {{ $value | humanizePercentage }} of the 2gb ceiling. The replay
             outbox is trimmed to maxReplayHard per user, so growth past this
             usually means connection count grew, not that a key is unbounded.
 

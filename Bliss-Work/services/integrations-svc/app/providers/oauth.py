@@ -24,6 +24,8 @@ import httpx
 from ..config import settings
 from resilience import CircuitBreaker, retry_async
 
+from . import httpclient
+
 
 class AppCredentialsLike(Protocol):
     """The shape `config_for` needs from a credential set.
@@ -189,22 +191,22 @@ async def exchange_code(cfg: OAuthConfig, code: str, verifier: str, redirect_uri
     ({access_token, refresh_token?, expires_in, scope, ...})."""
 
     async def _attempt() -> dict:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            r = await client.post(
-                cfg.token_endpoint,
-                data={
-                    "client_id": cfg.client_id,
-                    "client_secret": cfg.client_secret,
-                    "code": code,
-                    "redirect_uri": redirect_uri,
-                    "grant_type": "authorization_code",
-                    "code_verifier": verifier,
-                },
-                headers={"Accept": "application/json"},
-            )
-            if r.status_code == 200:
-                return r.json()
-            _raise_for_token_status(r)
+        r = await httpclient.shared().post(
+            cfg.token_endpoint,
+            data={
+                "client_id": cfg.client_id,
+                "client_secret": cfg.client_secret,
+                "code": code,
+                "redirect_uri": redirect_uri,
+                "grant_type": "authorization_code",
+                "code_verifier": verifier,
+            },
+            headers={"Accept": "application/json"},
+            timeout=_TIMEOUT,
+        )
+        if r.status_code == 200:
+            return r.json()
+        _raise_for_token_status(r)
 
     # idempotent=False: authorization codes are single-use by spec. A
     # ReadTimeout after the provider already consumed the code must not be
@@ -219,22 +221,22 @@ async def refresh_access_token(cfg: OAuthConfig, refresh_token: str) -> dict:
     OAuthError on a definitive failure (e.g. invalid_grant = revoked)."""
 
     async def _attempt() -> dict:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            r = await client.post(
-                cfg.token_endpoint,
-                data={
-                    "client_id": cfg.client_id,
-                    "client_secret": cfg.client_secret,
-                    "refresh_token": refresh_token,
-                    "grant_type": "refresh_token",
-                    # Microsoft wants scope on refresh; Google ignores it.
-                    "scope": " ".join(cfg.scopes),
-                },
-                headers={"Accept": "application/json"},
-            )
-            if r.status_code == 200:
-                return r.json()
-            _raise_for_token_status(r)
+        r = await httpclient.shared().post(
+            cfg.token_endpoint,
+            data={
+                "client_id": cfg.client_id,
+                "client_secret": cfg.client_secret,
+                "refresh_token": refresh_token,
+                "grant_type": "refresh_token",
+                # Microsoft wants scope on refresh; Google ignores it.
+                "scope": " ".join(cfg.scopes),
+            },
+            headers={"Accept": "application/json"},
+            timeout=_TIMEOUT,
+        )
+        if r.status_code == 200:
+            return r.json()
+        _raise_for_token_status(r)
 
     # idempotent=False: Microsoft rotates the refresh token on every use (and
     # Google's is single-use per exchange in effect), so a ReadTimeout after
@@ -262,12 +264,13 @@ async def fetch_identity(cfg: OAuthConfig, access_token: str) -> Identity:
     """Resolve the connected account's identity from the userinfo/Graph endpoint."""
 
     async def _attempt() -> dict:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            r = await client.get(
-                cfg.userinfo_endpoint, headers={"Authorization": f"Bearer {access_token}"}
-            )
-            r.raise_for_status()
-            return r.json()
+        r = await httpclient.shared().get(
+            cfg.userinfo_endpoint,
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=_TIMEOUT,
+        )
+        r.raise_for_status()
+        return r.json()
 
     info = await retry_async(_attempt, attempts=3, breaker=_oauth_breaker)
     account_id = info.get(cfg.identity_field) or info.get(cfg.identity_name_field) or ""

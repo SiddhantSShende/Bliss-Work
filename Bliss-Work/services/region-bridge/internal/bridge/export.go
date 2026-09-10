@@ -18,6 +18,7 @@ import (
 	"github.com/task-board/region-bridge/internal/loop"
 	"github.com/task-board/region-bridge/internal/metrics"
 	"github.com/task-board/shared-backoff"
+	kafkaauth "github.com/task-board/shared-kafkaauth"
 )
 
 // maxPublishAttempts is how many times one batch is retried before its
@@ -85,6 +86,7 @@ func (e *Exporter) Run(ctx context.Context) {
 func (e *Exporter) runTopic(ctx context.Context, topic string) {
 	r := kafka.NewReader(kafka.ReaderConfig{
 		Brokers: e.cfg.KafkaBrokers,
+		Dialer:  kafkaauth.Dialer(),
 		// A group of its own, never an application's. Sharing one would consume
 		// events away from the service that needs them — the bridge is an extra
 		// reader of the log, not a competitor for it.
@@ -167,6 +169,11 @@ func (e *Exporter) collect(ctx context.Context, r *kafka.Reader) ([]kafka.Messag
 func (e *Exporter) process(ctx context.Context, r *kafka.Reader, topic string, batch []kafka.Message) bool {
 	// classify first: skips and rejects never reach the network.
 	pending := make([]*nats.Msg, len(batch))
+	// True when a Reject landed with nowhere to set it aside. Per Config.DLQTopic's
+	// documented contract ("disables dead-lettering, which makes a poison event
+	// block its partition"), that means this batch must never be committed —
+	// see the check right after publishAll below.
+	blocked := false
 	for i, m := range batch {
 		prov := provenanceOf(m.Headers)
 		decision, reason := loop.ExportDecision(prov, e.cfg.Region)
@@ -179,7 +186,11 @@ func (e *Exporter) process(ctx context.Context, r *kafka.Reader, topic string, b
 			metrics.Rejected.WithLabelValues("export", "returned").Inc()
 			e.log.Error("event returned to its origin region — check peer stream sources",
 				"topic", topic, "origin", prov.Origin, "reason", reason)
-			e.deadLetter(ctx, m, reason)
+			if e.dlq == nil {
+				blocked = true
+			} else {
+				e.deadLetter(ctx, m, reason)
+			}
 		default:
 			pending[i] = e.natsMsg(topic, m)
 		}
@@ -187,6 +198,27 @@ func (e *Exporter) process(ctx context.Context, r *kafka.Reader, topic string, b
 
 	if !e.publishAll(ctx, topic, batch, pending) {
 		return false
+	}
+
+	if blocked {
+		// Park here instead of committing: committing would permanently drop
+		// the rejected event (it was never published, skipped, or
+		// dead-lettered), and returning would let runTopic fetch past it,
+		// which loses it exactly the same way. Nothing here will resolve on
+		// its own — this needs an operator to enable BRIDGE_DLQ_TOPIC or fix
+		// the peer stream source — so this just waits and says so loudly,
+		// mirroring import.go's terminate()/Nak() blocking the same message
+		// until it is handled. Every already-published message in this batch
+		// stays uncommitted too; a later restart safely re-publishes them
+		// (see natsMsg's dedupe header).
+		for attempt := 1; ; attempt++ {
+			e.log.Error("topic blocked: a rejected event has nowhere to be dead-lettered "+
+				"(BRIDGE_DLQ_TOPIC is disabled) — enable dead-lettering or fix the peer "+
+				"stream source to unblock", "topic", topic)
+			if !backoff.Default.Sleep(ctx.Done(), attempt) {
+				return false
+			}
+		}
 	}
 
 	// Commit only now. Every message in the batch is either on the cross-region
@@ -331,17 +363,11 @@ func (e *Exporter) natsMsg(topic string, m kafka.Message) *nats.Msg {
 	msg.Header.Set(loop.HeaderKafkaTopic, topic)
 	msg.Header.Set(loop.HeaderKafkaKey, string(m.Key))
 
-	// Dedupe key. The platform's events already carry a UUIDv7 event id and the
-	// producers are idempotent, so this is what turns the bridge's
-	// at-least-once retries into effectively-once delivery: a replayed batch
-	// republishes the same ids and the server drops them.
-	//
-	// Falls back to the Kafka coordinates, which are unique per topic and
-	// stable across a replay, when an event carries no id of its own.
-	id := headerValue(m.Headers, loop.HeaderEventID)
-	if id == "" {
-		id = fmt.Sprintf("%s-%d-%d", m.Topic, m.Partition, m.Offset)
-	}
+	// Dedupe key: the Kafka coordinates, which are unique per record and stable
+	// across a replay. This is what turns the bridge's at-least-once retries
+	// into effectively-once delivery on the far side — a replayed batch
+	// republishes the same coordinates and the server drops them.
+	id := fmt.Sprintf("%s-%d-%d", m.Topic, m.Partition, m.Offset)
 	msg.Header.Set(jetstream.MsgIDHeader, id)
 
 	// Carry the tracing context across the boundary so one request's spans join

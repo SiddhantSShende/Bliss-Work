@@ -89,6 +89,8 @@ async def send_via_connection(
 async def _send_slack(token: str, target: str, text: str) -> SendResult:
     try:
         res = await slack.post_message(token, target, text)
+    except slack.SlackRateLimited as exc:
+        raise OutboundError(str(exc), retryable=True) from exc
     except slack.SlackError as exc:
         raise OutboundError(str(exc)) from exc
     return SendResult(external_id=res.get("ts"))

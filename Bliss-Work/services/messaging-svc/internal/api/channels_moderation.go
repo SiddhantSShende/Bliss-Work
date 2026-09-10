@@ -9,13 +9,17 @@ import (
 	"github.com/task-board/messaging-svc/internal/auth"
 )
 
-// channelRoster serves GET /channels/{id}/members/roster — the member list WITH
-// roles, plus anyone blocked.
+// channelRoster serves GET /channels/{id}/members/roster?limit=&offset= — the
+// member list WITH roles, plus anyone blocked.
 //
 // A NEW endpoint rather than a change to GET /channels/{id}/members, which
 // returns a bare []string and is consumed by the task dialog to expand a channel
 // into assignee ids. Changing that response shape to add roles would break task
 // allocation for a cosmetic gain; adding a route costs nothing.
+//
+// Paged via the same ?limit=&offset= pair as GET /channels/open — see
+// pageOffsetParams. Both parameters are clamped again in the store; see
+// ChannelRoster.
 func (s *Server) channelRoster(w http.ResponseWriter, r *http.Request) {
 	claims, _ := auth.FromContext(r.Context())
 	channelID := chi.URLParam(r, "id")
@@ -23,7 +27,8 @@ func (s *Server) channelRoster(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid channel id")
 		return
 	}
-	members, err := s.store.ChannelRoster(r.Context(), claims.OrgID, channelID, claims.UserID, claims.Roles)
+	limit, offset := pageOffsetParams(r)
+	members, err := s.store.ChannelRoster(r.Context(), claims.OrgID, channelID, claims.UserID, claims.Roles, limit, offset)
 	if err != nil {
 		s.mapErr(w, err)
 		return

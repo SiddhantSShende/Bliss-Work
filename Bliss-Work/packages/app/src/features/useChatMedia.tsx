@@ -69,6 +69,12 @@ interface ChatMediaOptions {
   p2pFallback?: (file: File) => void;
 }
 
+/** Result of uploading one file in a batch — see onFiles below. Per-file, so a
+ *  failure names the file it belongs to instead of failing the whole batch. */
+type UploadOutcome =
+  | { ok: true; item: MediaItem }
+  | { ok: false; name: string; message: string };
+
 // NO `accept` filter on the picker, deliberately.
 //
 // An `accept` list does not warn or explain — it GREYS THE FILE OUT, so a user
@@ -104,6 +110,15 @@ export function useChatMedia(opts: ChatMediaOptions) {
   const stagedCount = useRef(0);
   stagedCount.current = staged.length;
 
+  // The scope onFiles is CURRENTLY running for. An upload started in one
+  // conversation can finish after the user has switched to another — the
+  // scope-reset effect below already cleared that new conversation's tray by
+  // then, so appending the late result would land it in a scope it was never
+  // authorized against. onFiles compares this against the scope it captured
+  // at call time before staging (see below).
+  const currentScope = useRef({ scope, scopeId });
+  currentScope.current = { scope, scopeId };
+
   // Attachments are authorized against (scope, scopeId) at upload time, so a
   // chip carried into another conversation would reference a scope the reader
   // is not in. Navigating away discards the tray; the uncommitted uploads lapse
@@ -116,6 +131,15 @@ export function useChatMedia(opts: ChatMediaOptions) {
     // open across a navigation would attach those files to whatever chat the
     // user landed in.
     setDropped(null);
+    // Every attachment id this scope ever rendered otherwise accumulates in
+    // seenIds forever (it's the one piece of this hook's state the reset
+    // above didn't already cover) — unbounded growth over a long session, and
+    // useAttachmentLinks kept re-requesting signed links for ids belonging to
+    // conversations no longer on screen. idsVersion has to bump too: allIds
+    // is memoized on it, not on seenIds itself (a stable ref), so clearing
+    // the set alone wouldn't make allIds/links notice.
+    seenIds.current.clear();
+    setIdsVersion((v) => v + 1);
   }, [scope, scopeId]);
 
   // ── uploading ─────────────────────────────────────────────────────────────
@@ -169,9 +193,19 @@ export function useChatMedia(opts: ChatMediaOptions) {
           return next;
         });
 
-      try {
-        const items = await Promise.all(
-          pending.map(async ({ file, key }) => {
+      // Each file uploads independently: one failing must not discard the
+      // others. Every branch below resolves rather than rejects — the failure
+      // is caught right where the file name is still in scope — which is what
+      // makes this safe to await with Promise.all instead of needing to zip a
+      // Promise.allSettled result back up against `pending` by index. A batch
+      // of ten photos where nine succeeded and one hit a transient error now
+      // still stages those nine; before, any single rejection failed the
+      // whole Promise.all, discarding uploads that had already landed
+      // server-side (left to silently lapse after 24h, per the header doc)
+      // while telling the user nothing had sent.
+      const outcomes = await Promise.all(
+        pending.map(async ({ file, key }): Promise<UploadOutcome> => {
+          try {
             // Best-effort poster; never allowed to block or fail the send.
             const { thumb, dimensions } = await makeThumbnail(file);
 
@@ -219,19 +253,45 @@ export function useChatMedia(opts: ChatMediaOptions) {
               height: dimensions.height,
               durationMs: dimensions.durationMs,
             };
-            return item;
-          }),
-        );
+            return { ok: true, item };
+          } catch (err) {
+            clearUpload(key);
+            return {
+              ok: false,
+              name: file.name,
+              message: err instanceof Error ? err.message : "Upload failed",
+            };
+          }
+        }),
+      );
 
-        // Into the tray, NOT down the wire. flushStaged (below) is the only
-        // thing that sends, and it only runs when the user presses Send.
-        setStaged((prev) => [...prev, ...items]);
-      } catch (err) {
-        pending.forEach(({ key }) => clearUpload(key));
-        const message = err instanceof Error ? err.message : "Upload failed";
-        toast.error(message.includes("quota") || message.includes("limit")
-          ? message
-          : `Couldn't send attachment: ${message}`);
+      const succeeded = outcomes.filter((o): o is UploadOutcome & { ok: true } => o.ok);
+      const failures = outcomes.filter((o): o is UploadOutcome & { ok: false } => !o.ok);
+
+      // If the user has since switched to a different conversation, the
+      // scope-reset effect already cleared ITS tray — appending here would
+      // land these items in a scope they were never authorized against.
+      // Drop them instead: they were never staged or sent, so (per this
+      // file's header doc) the uncommitted upload simply lapses in 24h,
+      // same as any other attach the user never sent.
+      const stillInScope =
+        currentScope.current.scope === scope && currentScope.current.scopeId === scopeId;
+
+      // Into the tray, NOT down the wire. flushStaged (below) is the only
+      // thing that sends, and it only runs when the user presses Send.
+      if (stillInScope && succeeded.length > 0) {
+        setStaged((prev) => [...prev, ...succeeded.map((o) => o.item)]);
+      }
+
+      // Failures are never silent, even when some files in the same batch
+      // succeeded — the user needs to know which one(s) didn't make it.
+      if (failures.length > 0) {
+        const names = failures.map((f) => f.name).join(", ");
+        toast.error(
+          failures.length === 1
+            ? `Couldn't attach ${names}: ${failures[0]?.message ?? "Upload failed"}`
+            : `Couldn't attach ${failures.length} files: ${names}`,
+        );
       }
     },
     [api, scope, scopeId, p2pFallback, ft.available],

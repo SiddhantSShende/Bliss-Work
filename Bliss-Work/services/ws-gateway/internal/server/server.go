@@ -22,6 +22,7 @@ import (
 	"github.com/task-board/ws-gateway/internal/auth"
 	"github.com/task-board/ws-gateway/internal/delivery"
 	"github.com/task-board/ws-gateway/internal/hub"
+	"github.com/task-board/ws-gateway/internal/hydrate"
 	// Aliased: this package's request middleware is itself called `metrics`
 	// (see metrics.go), so the bare package name would collide with it.
 	wsmetrics "github.com/task-board/ws-gateway/internal/metrics"
@@ -44,6 +45,7 @@ type Server struct {
 	hub        *hub.Hub
 	store      *store.Store
 	dispatcher *delivery.Dispatcher
+	hydrator   *hydrate.Hydrator
 	signal     *signal.Dispatcher
 	presence   *presence.Broadcaster
 	nodeID     string
@@ -64,20 +66,21 @@ type Config struct {
 	WSGatewayInternalToken string
 }
 
-// New constructs a Server. dispatcher / sig may be nil in tests; in production
-// they are driven by cmd/ws-gateway/main.go.
+// New constructs a Server. dispatcher / hyd / sig may be nil in tests; in
+// production they are driven by cmd/ws-gateway/main.go.
 func New(
 	cfg Config,
 	v *auth.Verifier,
 	h *hub.Hub,
 	st *store.Store,
 	d *delivery.Dispatcher,
+	hyd *hydrate.Hydrator,
 	sig *signal.Dispatcher,
 	pres *presence.Broadcaster,
 	nodeID string,
 	log *slog.Logger,
 ) *Server {
-	return &Server{cfg: cfg, verifier: v, hub: h, store: st, dispatcher: d, signal: sig, presence: pres, nodeID: nodeID, log: log}
+	return &Server{cfg: cfg, verifier: v, hub: h, store: st, dispatcher: d, hydrator: hyd, signal: sig, presence: pres, nodeID: nodeID, log: log}
 }
 
 // Handler returns the root HTTP mux. Order of wrappers (outermost first):

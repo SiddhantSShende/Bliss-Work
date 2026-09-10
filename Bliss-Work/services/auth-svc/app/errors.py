@@ -74,12 +74,17 @@ async def _validation_exception_handler(
 ) -> JSONResponse:
     rid = _request_id(request)
     # exc.errors() is a list of dicts with loc/msg/type — that's what the
-    # frontend can render field-level inline errors from.
+    # frontend can render field-level inline errors from. Each dict also
+    # carries an "input" key holding the raw submitted value verbatim, which
+    # would otherwise echo a too-short/too-long password (or any other
+    # sensitive field) straight back into the response body. No consumer
+    # reads "input", so it's dropped for every field rather than echoed.
+    fields = [{k: v for k, v in error.items() if k != "input"} for error in exc.errors()]
     body = _error_body(
         "validation_error",
         "request validation failed",
         rid,
-        {"fields": exc.errors()},
+        {"fields": fields},
     )
     response = JSONResponse(status_code=422, content=body)
     response.headers["X-Request-Id"] = rid

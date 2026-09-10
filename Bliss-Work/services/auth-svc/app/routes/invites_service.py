@@ -52,6 +52,10 @@ async def create_invite_tx(
     conn: AsyncConnection,
     body: CreateInviteRequest,
     principal: Principal,
+    *,
+    ip: str | None = None,
+    user_agent: str | None = None,
+    request_id: str | None = None,
 ) -> str:
     """Mint an invite token, persist the invite, emit invite.created. Returns id.
 
@@ -156,7 +160,13 @@ async def create_invite_tx(
         actor_id=principal.user_id,
         action="invite.created",
         target=invite_id,
-        meta={"email": str(body.email), "role": body.role},
+        meta=session_events.context_meta(
+            ip=ip,
+            user_agent=user_agent,
+            request_id=request_id,
+            email=str(body.email),
+            role=body.role,
+        ),
     )
     return invite_id
 

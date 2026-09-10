@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/task-board/messaging-svc/internal/auth"
+	mw "github.com/task-board/messaging-svc/internal/middleware"
 	"github.com/task-board/messaging-svc/internal/store"
 )
 
@@ -78,9 +79,19 @@ func (s *Server) deleteChannel(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid channel id")
 		return
 	}
-	if err := s.store.DeleteChannel(r.Context(), claims.OrgID, channelID, claims.UserID, claims.Roles); err != nil {
+	unreferencedSHAs, err := s.store.DeleteChannel(r.Context(), claims.OrgID, channelID, claims.UserID, claims.Roles)
+	if err != nil {
 		s.mapErr(w, err)
 		return
+	}
+	for _, sha := range unreferencedSHAs {
+		if rerr := s.blobs.Remove(claims.OrgID, sha); rerr != nil {
+			// The rows are already gone, so the content is unreachable either way
+			// and the channel deletion succeeded. Logged rather than surfaced —
+			// see removeDraftAttachment's identical reasoning in mail.go.
+			s.log.Error("channel attachment blob unlink failed", "channel_id", channelID,
+				"sha256", sha, "err", rerr, "request_id", mw.RequestIDFromContext(r.Context()))
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

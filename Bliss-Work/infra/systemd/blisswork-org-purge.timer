@@ -2,7 +2,7 @@
 Description=Daily BlissWork organization purge
 
 [Timer]
-# 05:00 — LAST of the nightly jobs, after the 02:30 backup, the 03:00 attachment
+# 05:00 — LAST of the nightly jobs, after the 02:30 backup, the 04:00 attachment
 # GC and the 04:30 telemetry prune. This is the most destructive job in the
 # system: it erases an organization across seven databases and a blob volume.
 # The backup ordering is load-bearing — the most recent dump must predate the

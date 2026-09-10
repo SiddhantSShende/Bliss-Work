@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://blisswork.app/sitemap.xml
+Sitemap: https://blisswork.rnrtechs.com/sitemap.xml

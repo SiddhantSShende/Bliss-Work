@@ -155,7 +155,12 @@ services:
       - jetstream_data_3:/data/jetstream
 
   region-bridge:
-    build: ./services/region-bridge
+    build:
+      # Repository root: go.mod replaces shared-backoff and shared-kafkaauth
+      # with the sibling modules services/shared/backoff and
+      # services/shared/kafkaauth.
+      context: .
+      dockerfile: services/region-bridge/Dockerfile
     restart: unless-stopped
     networks: [taskboard]
     env_file:

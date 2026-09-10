@@ -1,10 +1,9 @@
-import { NavLink } from "react-router-dom";
-import { motion } from "framer-motion";
 import { ListTodo, Mail, MessageCircle, X, Trash2, Flag, Check, Undo2, Star } from "lucide-react";
 import { Avatar, Badge } from "@taskboard/ui";
 import type { InboxItemDTO } from "@taskboard/shared";
 import { listTime, splitMailPreview } from "../lib/mailView";
 import { useUserLabels } from "../lib/userLabel";
+import { MailListRow } from "./MailListRow";
 
 /**
  * Single row in Mail's message column. Branches on item_kind:
@@ -108,168 +107,147 @@ export function MailRow({
       : item.preview || "(no preview)";
 
   return (
-    <NavLink
-      to={{ pathname, search }}
-      className={({ isActive }) =>
-        // Rows are separated by a hairline rather than by gaps, the way a mail
-        // list is — but the line is drawn by the row itself (an `after` rule)
-        // so it can disappear under the hover and selection fills without
-        // leaving a seam across them.
-        `group relative block rounded-xl px-3 py-3 transition-colors ${
-          isActive
-            ? "bg-accent-soft ring-1 ring-accent/20"
-            : "after:absolute after:inset-x-3 after:bottom-0 after:h-px after:bg-border/45 after:transition-opacity hover:bg-surface-2/70 hover:after:opacity-0"
-        }`
-      }
-    >
-      <motion.div
-        layout
-        initial={{ opacity: 0, y: 4 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.14 }}
-        className="flex items-start gap-3"
-      >
-        {/* Unread gutter. Always occupies its width so nothing shifts sideways
-            when a row is read. */}
-        <span
-          aria-hidden
-          className={`mt-3.5 h-2 w-2 shrink-0 rounded-full ${isUnread ? "bg-unread" : "bg-transparent"}`}
-        />
-        {isTask ? (
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">
-            <ListTodo size={16} />
-          </div>
-        ) : isMail && !item.peerUserId ? (
-          // No account, so no initials worth deriving — the envelope says
-          // "this came from outside" more clearly than a generated monogram.
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-2 text-muted">
-            <Mail size={16} />
-          </div>
-        ) : (
-          <Avatar name={peerName} />
+    <MailListRow to={{ pathname, search }}>
+      {/* Unread gutter. Always occupies its width so nothing shifts sideways
+          when a row is read. */}
+      <span
+        aria-hidden
+        className={`mt-3.5 h-2 w-2 shrink-0 rounded-full ${isUnread ? "bg-unread" : "bg-transparent"}`}
+      />
+      {isTask ? (
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">
+          <ListTodo size={16} />
+        </div>
+      ) : isMail && !item.peerUserId ? (
+        // No account, so no initials worth deriving — the envelope says
+        // "this came from outside" more clearly than a generated monogram.
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-2 text-muted">
+          <Mail size={16} />
+        </div>
+      ) : (
+        <Avatar name={peerName} />
+      )}
+
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline justify-between gap-2">
+          <span
+            className={`truncate text-sm ${isUnread ? "font-semibold text-fg" : "font-medium text-fg/90"}`}
+            title={isTask ? undefined : peerEmail}
+          >
+            {isTask ? "Task" : peerName}
+          </span>
+          <span className="shrink-0 text-[11px] tabular-nums text-muted">
+            {listTime(item.lastEventAt)}
+          </span>
+        </div>
+
+        <div
+          className={`mt-0.5 truncate text-[13px] ${isUnread ? "font-semibold text-fg" : "text-fg/80"}`}
+        >
+          {headline}
+        </div>
+
+        {mail?.snippet && (
+          <div className="mt-0.5 truncate text-xs text-muted">{mail.snippet}</div>
         )}
 
-        <div className="min-w-0 flex-1">
-          <div className="flex items-baseline justify-between gap-2">
-            <span
-              className={`truncate text-sm ${isUnread ? "font-semibold text-fg" : "font-medium text-fg/90"}`}
-              title={isTask ? undefined : peerEmail}
-            >
-              {isTask ? "Task" : peerName}
-            </span>
-            <span className="shrink-0 text-[11px] tabular-nums text-muted">
-              {listTime(item.lastEventAt)}
-            </span>
+        {(item.statusBadge || (!isMail && !isTask) || item.unreadCount > 1) && (
+          <div className="mt-1.5 flex items-center gap-1.5">
+            {item.statusBadge && (
+              <Badge tone={statusTone(item.statusBadge)}>{item.statusBadge.toLowerCase()}</Badge>
+            )}
+            {!isMail && !isTask && (
+              <span className="inline-flex items-center gap-1 text-[10px] text-muted/80">
+                <MessageCircle size={10} /> thread
+              </span>
+            )}
+            {item.unreadCount > 1 && (
+              <span className="rounded-full bg-accent px-1.5 text-[10px] font-semibold text-accent-fg">
+                {item.unreadCount > 9 ? "9+" : item.unreadCount} new
+              </span>
+            )}
           </div>
+        )}
+      </div>
 
-          <div
-            className={`mt-0.5 truncate text-[13px] ${isUnread ? "font-semibold text-fg" : "text-fg/80"}`}
-          >
-            {headline}
-          </div>
-
-          {mail?.snippet && (
-            <div className="mt-0.5 truncate text-xs text-muted">{mail.snippet}</div>
-          )}
-
-          {(item.statusBadge || (!isMail && !isTask) || item.unreadCount > 1) && (
-            <div className="mt-1.5 flex items-center gap-1.5">
-              {item.statusBadge && (
-                <Badge tone={statusTone(item.statusBadge)}>{item.statusBadge.toLowerCase()}</Badge>
-              )}
-              {!isMail && !isTask && (
-                <span className="inline-flex items-center gap-1 text-[10px] text-muted/80">
-                  <MessageCircle size={10} /> thread
-                </span>
-              )}
-              {item.unreadCount > 1 && (
-                <span className="rounded-full bg-accent px-1.5 text-[10px] font-semibold text-accent-fg">
-                  {item.unreadCount > 9 ? "9+" : item.unreadCount} new
-                </span>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Row actions. Kept out of the way until the row is pointed at — on a
-            list this dense a permanent column of glyphs reads as clutter — but
-            never hidden from the keyboard or from touch, which has no hover. */}
-        <div className="flex shrink-0 items-center gap-0.5 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
-          {onToggleFavorite && isMail && (
-            <Quick
-              icon={<Star size={14} fill={favorite ? "currentColor" : "none"} />}
-              title={favorite ? "Remove from Favorites" : "Add to Favorites"}
-              label={favorite ? "Remove from Favorites" : "Add to Favorites"}
-              hideLabel
-              tone={favorite ? "accent" : "muted"}
-              onClick={(e) => { e.preventDefault(); onToggleFavorite(item.refId); }}
-            />
-          )}
-          {/* TASK actions mirror the assignee state machine: SENT → Acknowledge,
-              ACKNOWLEDGED → Complete. Ignore is valid only from SENT. */}
-          {isTask && item.statusBadge === "SENT" && onAcknowledge && (
-            <Quick
-              icon={<Check size={14} />}
-              title="Acknowledge — accept this task"
-              label="Acknowledge"
-              tone="accent"
-              disabled={acknowledgePending}
-              onClick={(e) => { e.preventDefault(); onAcknowledge(item.refId); }}
-            />
-          )}
-          {isTask && item.statusBadge === "ACKNOWLEDGED" && onComplete && (
-            <Quick
-              icon={<Flag size={14} />}
-              title="Mark complete"
-              label="Complete"
-              tone="success"
-              disabled={completePending}
-              onClick={(e) => { e.preventDefault(); onComplete(item.refId); }}
-            />
-          )}
-          {onRestore && isMail && (
-            <Quick
-              icon={<Undo2 size={14} />}
-              title="Restore — puts this mail back in the folder it came from"
-              label="Restore"
-              tone="accent"
-              disabled={restorePending}
-              onClick={(e) => { e.preventDefault(); onRestore(item.refId); }}
-            />
-          )}
-          {onIgnore && (!isTask || item.statusBadge === "SENT") && (
-            <Quick
-              icon={isMail ? <Trash2 size={14} /> : <X size={14} />}
-              title={
-                isMail
-                  ? "Delete — removes your copy only; nobody else's is affected"
-                  : isTask
-                    ? "Ignore — remove from your mailbox"
-                    : "Ignore — hides for both"
-              }
-              label={isMail ? "Delete" : "Ignore"}
-              hideLabel={!isTask}
-              tone="danger"
-              disabled={ignorePending}
-              onClick={(e) => { e.preventDefault(); onIgnore(item.itemKind, item.refId); }}
-            />
-          )}
-          {/* Sender-side delete of one's own MESSAGE. Threads only: it posts to
-              /messages/{id}/dismiss, and a mail's refId is not a message id. */}
-          {onDismiss && !isTask && !isMail && (
-            <Quick
-              icon={<Trash2 size={14} />}
-              title="Delete from your mailbox"
-              label="Delete from your mailbox"
-              hideLabel
-              tone="muted"
-              disabled={dismissPending}
-              onClick={(e) => { e.preventDefault(); onDismiss(item.refId); }}
-            />
-          )}
-        </div>
-      </motion.div>
-    </NavLink>
+      {/* Row actions. Kept out of the way until the row is pointed at — on a
+          list this dense a permanent column of glyphs reads as clutter — but
+          never hidden from the keyboard or from touch, which has no hover. */}
+      <div className="flex shrink-0 items-center gap-0.5 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
+        {onToggleFavorite && isMail && (
+          <Quick
+            icon={<Star size={14} fill={favorite ? "currentColor" : "none"} />}
+            title={favorite ? "Remove from Favorites" : "Add to Favorites"}
+            label={favorite ? "Remove from Favorites" : "Add to Favorites"}
+            hideLabel
+            tone={favorite ? "accent" : "muted"}
+            onClick={(e) => { e.preventDefault(); onToggleFavorite(item.refId); }}
+          />
+        )}
+        {/* TASK actions mirror the assignee state machine: SENT → Acknowledge,
+            ACKNOWLEDGED → Complete. Ignore is valid only from SENT. */}
+        {isTask && item.statusBadge === "SENT" && onAcknowledge && (
+          <Quick
+            icon={<Check size={14} />}
+            title="Acknowledge — accept this task"
+            label="Acknowledge"
+            tone="accent"
+            disabled={acknowledgePending}
+            onClick={(e) => { e.preventDefault(); onAcknowledge(item.refId); }}
+          />
+        )}
+        {isTask && item.statusBadge === "ACKNOWLEDGED" && onComplete && (
+          <Quick
+            icon={<Flag size={14} />}
+            title="Mark complete"
+            label="Complete"
+            tone="success"
+            disabled={completePending}
+            onClick={(e) => { e.preventDefault(); onComplete(item.refId); }}
+          />
+        )}
+        {onRestore && isMail && (
+          <Quick
+            icon={<Undo2 size={14} />}
+            title="Restore — puts this mail back in the folder it came from"
+            label="Restore"
+            tone="accent"
+            disabled={restorePending}
+            onClick={(e) => { e.preventDefault(); onRestore(item.refId); }}
+          />
+        )}
+        {onIgnore && (!isTask || item.statusBadge === "SENT") && (
+          <Quick
+            icon={isMail ? <Trash2 size={14} /> : <X size={14} />}
+            title={
+              isMail
+                ? "Delete — removes your copy only; nobody else's is affected"
+                : isTask
+                  ? "Ignore — remove from your mailbox"
+                  : "Ignore — hides for both"
+            }
+            label={isMail ? "Delete" : "Ignore"}
+            hideLabel={!isTask}
+            tone="danger"
+            disabled={ignorePending}
+            onClick={(e) => { e.preventDefault(); onIgnore(item.itemKind, item.refId); }}
+          />
+        )}
+        {/* Sender-side delete of one's own MESSAGE. Threads only: it posts to
+            /messages/{id}/dismiss, and a mail's refId is not a message id. */}
+        {onDismiss && !isTask && !isMail && (
+          <Quick
+            icon={<Trash2 size={14} />}
+            title="Delete from your mailbox"
+            label="Delete from your mailbox"
+            hideLabel
+            tone="muted"
+            disabled={dismissPending}
+            onClick={(e) => { e.preventDefault(); onDismiss(item.refId); }}
+          />
+        )}
+      </div>
+    </MailListRow>
   );
 }
 

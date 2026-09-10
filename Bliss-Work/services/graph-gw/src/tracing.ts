@@ -56,7 +56,7 @@ export async function startTracing(
     diag.setLogger(otelDiagLogger(log), DiagLogLevel.ERROR);
 
     const sdk = new NodeSDK({
-      resource: new resources.Resource({
+      resource: resources.resourceFromAttributes({
         [semconv.SEMRESATTRS_SERVICE_NAME]: SERVICE_NAME,
         [semconv.SEMRESATTRS_SERVICE_VERSION]: env.IMAGE_TAG ?? "dev",
       }),

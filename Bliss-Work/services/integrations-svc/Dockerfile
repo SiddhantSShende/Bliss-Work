@@ -40,6 +40,7 @@ COPY services/shared/org_purge_tables services/shared/org_purge_tables
 COPY services/shared/client_ip services/shared/client_ip
 COPY services/shared/resilience services/shared/resilience
 COPY services/shared/kafka_lazy_producer services/shared/kafka_lazy_producer
+COPY services/shared/jwks_auth services/shared/jwks_auth
 WORKDIR /src/services/integrations-svc
 RUN pip install --upgrade pip && pip install -r requirements.txt
 

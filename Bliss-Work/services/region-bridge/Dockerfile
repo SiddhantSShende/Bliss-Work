@@ -2,11 +2,32 @@
 FROM golang:1.26-alpine@sha256:3ad57304ad93bbec8548a0437ad9e06a455660655d9af011d58b993f6f615648 AS build
 WORKDIR /src
 
-# Cache module downloads.
-COPY go.mod go.sum ./
+# ── BUILD CONTEXT IS THE REPOSITORY ROOT, not services/region-bridge ───────
+# go.mod points its github.com/task-board/shared-backoff and
+# github.com/task-board/shared-kafkaauth requirements at the sibling modules
+# services/shared/backoff and services/shared/kafkaauth (the same Kafka
+# SASL/TLS config used by messaging-svc, notification-svc and sticky-relay)
+# via `replace ... => ../shared/...` directives, so the build needs both:
+#
+#     docker build -f services/region-bridge/Dockerfile .
+#
+# .dockerignore at the repo root keeps that context to roughly source size.
+
+# Cache dependencies: manifests first, so this layer is reused until a
+# dependency actually changes.
+COPY services/region-bridge/go.mod services/region-bridge/go.sum services/region-bridge/
+COPY services/shared/backoff/go.mod services/shared/backoff/
+COPY services/shared/kafkaauth/go.mod services/shared/kafkaauth/
+WORKDIR /src/services/region-bridge
 RUN go mod download
 
-COPY . .
+# Build.
+WORKDIR /src
+COPY services/region-bridge services/region-bridge
+COPY services/shared/backoff services/shared/backoff
+COPY services/shared/kafkaauth services/shared/kafkaauth
+WORKDIR /src/services/region-bridge
+
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/region-bridge ./cmd/bridge
 
 # ── final stage ───────────────────────────────────────────────────────────────

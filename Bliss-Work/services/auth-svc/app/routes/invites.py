@@ -18,12 +18,16 @@ from ..schemas import (
     InviteVerifyResponse,
     SessionDTO,
 )
+from ..net import request_context
 from ..security.auth_dep import Principal, require_org_admin
 from ..security.origin import enforce_origin
 from .cookies import set_refresh_cookie
 from ..config import settings
-from ..routing.decision import Route, RouteDecision
+from ..routing import directory
+from ..routing.decision import Route, route_for, RouteDecision
+from ..routing.events import KEY_INVITE, invite_key
 from ..routing.redirect import SiteEndpoints, enforce
+from . import session_events
 from .invites_service import (
     InviteAtAnotherSite,
     accept_invite_tx,
@@ -42,6 +46,7 @@ router = APIRouter(prefix="/auth/invites", tags=["invites"])
     dependencies=[Depends(enforce_origin)],
 )
 async def create_invite(
+    request: Request,
     body: CreateInviteRequest,
     principal: Principal = Depends(require_org_admin),
 ) -> CreateInviteResponse:
@@ -56,7 +61,10 @@ async def create_invite(
         # case that guard exists for — without it, a just-demoted/removed
         # admin could invite themself straight back in as org_admin.
         await require_live_admin(conn, principal)
-        invite_id = await create_invite_tx(conn, body, principal)
+        ip, user_agent, request_id = request_context(request)
+        invite_id = await create_invite_tx(
+            conn, body, principal, ip=ip, user_agent=user_agent, request_id=request_id
+        )
     log.info("invite_created", invite_id=invite_id, org_id=principal.org_id)
     return CreateInviteResponse(id=invite_id)
 
@@ -102,6 +110,7 @@ async def list_invites(
     dependencies=[Depends(enforce_origin)],
 )
 async def revoke_invite(
+    request: Request,
     invite_id: str,
     response: Response,
     principal: Principal = Depends(require_org_admin),
@@ -125,26 +134,53 @@ async def revoke_invite(
         )
         if result.rowcount == 0:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "invite not found")
+        ip, user_agent, request_id = request_context(request)
         await service.write_audit(
             conn,
             org_id=principal.org_id,
             actor_id=principal.user_id,
             action="invite.revoked",
             target=invite_id,
+            meta=session_events.context_meta(
+                ip=ip, user_agent=user_agent, request_id=request_id
+            ),
         )
     response.status_code = status.HTTP_204_NO_CONTENT
     return response
 
 
 @router.get("/verify", response_model=InviteVerifyResponse)
-async def verify_invite(token: str = Query(...)) -> InviteVerifyResponse:
+async def verify_invite(
+    request: Request, token: str = Query(...)
+) -> InviteVerifyResponse | RedirectResponse:
     token_hash = service.sha256_bytes(token)
     now = datetime.now(timezone.utc)
     async with engine.connect() as conn:
+        # Same cross-site check accept_invite_tx makes before its local lookup:
+        # the local `invites` table is not authoritative for an invite minted
+        # at another site (org data is never replicated — docs/CROSS-REGION.md
+        # §9). Without this, a browser routed to a non-home site for a
+        # perfectly valid invite got `row is None` below and this endpoint
+        # reported it as permanently invalid/expired, even though POST
+        # /accept would have redirected correctly had the user been allowed to
+        # submit.
+        await service.set_bypass_rls(conn)
+        entry = await directory.lookup(conn, KEY_INVITE, invite_key(token_hash))
+        decision = route_for(entry, settings.site_id, now=now)
+        if decision.route is Route.REDIRECT:
+            redirect = enforce(
+                decision,
+                request,
+                SiteEndpoints(settings.site_endpoint_map),
+                key_kind="this invite",
+            )
+            assert redirect is not None  # a REDIRECT decision always yields one
+            log.info("invite_verify_redirected", home_site=decision.home_site)
+            return redirect
+
         # Pre-org-context: the invite (and its org name) is looked up by token
         # hash before the org is known. invites + orgs are both RLS, so this
         # unauthenticated lookup runs under bypass.
-        await service.set_bypass_rls(conn)
         row = (
             await conn.execute(
                 text(

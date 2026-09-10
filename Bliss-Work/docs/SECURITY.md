@@ -14,7 +14,7 @@ covers the security architecture, data protection, and compliance mapping.
 | **Data at rest** | **AES-256-GCM column encryption, per-org DEK** (envelope) for PII + message bodies + task content; per-org keys enable crypto-shredding | auth/messaging/task |
 | Data in transit | TLS at the edge (Caddy / cert-manager), Postgres `sslmode`, Redis auth, internal network isolation (k8s NetworkPolicy) | infra |
 | Application | per-endpoint rate limits, OWASP security headers (HSTS/CSP/X-Frame-Options), strict input validation, request-body size caps, panic recovery, canonical error envelopes | all services |
-| Supply chain | CI SAST (CodeQL, Semgrep), secret scanning (gitleaks), dependency + container scanning (Trivy/grype, govulncheck, pip-audit, npm-audit), SBOM (syft) | `.github/workflows` |
+| Supply chain | CI SAST (CodeQL — manual dispatch only, pending a paid Code Security licence; Semgrep on every push), secret scanning (gitleaks), dependency + container scanning (Trivy, govulncheck, pip-audit, npm-audit), SBOM (syft) | `.github/workflows` |
 | Observability | structured request-id logs, OTEL traces, Prometheus metrics, tamper-evident audit log | all services |
 
 **Session model.** Access tokens are short-lived (`JWT_ACCESS_TTL_SECONDS`,
@@ -74,7 +74,7 @@ route the admin into enrollment.
 | Access control (CC6.1) | JWT authz + RLS per org; least-privilege per-service DB roles |
 | Encryption (CC6.7) | TLS in transit; AES-256-GCM at rest with KMS-managed keys |
 | Change management (CC8.1) | CI (lint/test/SAST/scan) gating; PR review |
-| Vulnerability mgmt (CC7.1) | CodeQL/Semgrep/Trivy/grype/govulncheck/pip-audit/npm-audit + SBOM |
+| Vulnerability mgmt (CC7.1) | CodeQL (manual dispatch)/Semgrep/Trivy/govulncheck/pip-audit/npm-audit + SBOM |
 | Audit logging (CC7.2) | tamper-evident (hash-chained) `audit_log`; security events to the log pipeline |
 | Incident response (CC7.4) | runbooks below; alerting on the security-event stream |
 | Secrets management | KMS / Vault / sealed-secrets; rotation procedures in `OPERATIONS.md` |

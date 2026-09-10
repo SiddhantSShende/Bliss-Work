@@ -20,8 +20,7 @@ import { Container, Section, Eyebrow, Button, button, Card } from "@/components/
 import { Reveal, RevealGroup, RevealItem } from "@/components/Reveal";
 import { PageHero } from "@/components/layout/PageHero";
 import { useDownload } from "@/components/download/DownloadProvider";
-
-const SECURITY_EMAIL = "siddhant.shende@consultrnr.com";
+import { CONTACT_EMAIL } from "@/components/legal/LegalDoc";
 
 interface Item {
   icon: ComponentType<LucideProps>;
@@ -172,7 +171,7 @@ export default function Security() {
               </p>
               <div className="mt-7">
                 <a
-                  href={`mailto:${SECURITY_EMAIL}?subject=Security%20report`}
+                  href={`mailto:${CONTACT_EMAIL}?subject=Security%20report`}
                   className={button({ size: "lg", variant: "primary" })}
                 >
                   <Bug size={16} />
@@ -182,10 +181,10 @@ export default function Security() {
               <p className="mt-4 text-sm text-muted">
                 Or email{" "}
                 <a
-                  href={`mailto:${SECURITY_EMAIL}`}
+                  href={`mailto:${CONTACT_EMAIL}`}
                   className="font-medium text-accent underline decoration-accent/30 underline-offset-2 transition-colors hover:decoration-accent"
                 >
-                  {SECURITY_EMAIL}
+                  {CONTACT_EMAIL}
                 </a>
                 .
               </p>

@@ -36,6 +36,17 @@ func (s *Store) CreateChannel(ctx context.Context, orgID, creatorID, name string
 			return err
 		}
 
+		// Every member id the caller is asking to seed the channel with must
+		// actually belong to this org — see verifyMembersInOrg's doc comment for
+		// why. creatorID is deliberately NOT included in this check: it is the
+		// caller's own JWT-verified identity, not "provided" input, and a
+		// brand-new account can call this before its own user_projection row has
+		// been projected from user.created (see cachedUserNames' comment on the
+		// same gap).
+		if err := verifyMembersInOrg(ctx, tx, orgID, memberIDs); err != nil {
+			return err
+		}
+
 		_, err = tx.Exec(ctx,
 			`INSERT INTO channels (id, org_id, name, is_locked, created_by) VALUES ($1, $2, $3, $4, $5)`,
 			chanID, orgID, name, isLocked, creatorID)
@@ -96,8 +107,15 @@ func (s *Store) RenameChannel(ctx context.Context, orgID, channelID, callerID st
 }
 
 // DeleteChannel permanently removes a channel and all of its messages.
-func (s *Store) DeleteChannel(ctx context.Context, orgID, channelID, callerID string, roles []string) error {
-	return s.withOrg(ctx, orgID, func(tx pgx.Tx) error {
+// Returns the sha256 of every attachment blob that is no longer referenced
+// by any other row in the org, so the caller can unlink each from blob
+// storage (fs/S3) — the same row-then-blob pattern RemoveDraftAttachment
+// uses. Without this, a deleted channel's attachment rows vanish but their
+// blob bytes never do: ReapExpiredAttachments only reclaims a blob whose row
+// still exists with an expired timestamp, so once the row is gone here, the
+// content is orphaned on disk/in the bucket for good.
+func (s *Store) DeleteChannel(ctx context.Context, orgID, channelID, callerID string, roles []string) (unreferencedSHAs []string, err error) {
+	err = s.withOrg(ctx, orgID, func(tx pgx.Tx) error {
 		if err := requireChannelManager(ctx, tx, orgID, channelID, callerID, roles); err != nil {
 			return err
 		}
@@ -107,6 +125,41 @@ func (s *Store) DeleteChannel(ctx context.Context, orgID, channelID, callerID st
 		if _, err := tx.Exec(ctx, `DELETE FROM message_hides WHERE message_id IN (SELECT id FROM channel_messages WHERE channel_id = $1)`, channelID); err != nil {
 			return err
 		}
+		// Attachments scoped to this channel (attachments.go: ScopeChannel rows
+		// have scope_id = the channel id).
+		rows, qerr := tx.Query(ctx,
+			`DELETE FROM attachments WHERE scope = $2 AND scope_id = $1 RETURNING sha256`, channelID, ScopeChannel)
+		if qerr != nil {
+			return qerr
+		}
+		seen := map[string]bool{}
+		var shas []string
+		for rows.Next() {
+			var sha string
+			if serr := rows.Scan(&sha); serr != nil {
+				rows.Close()
+				return serr
+			}
+			if !seen[sha] {
+				seen[sha] = true
+				shas = append(shas, sha)
+			}
+		}
+		rows.Close()
+		if rerr := rows.Err(); rerr != nil {
+			return rerr
+		}
+		for _, sha := range shas {
+			var stillReferenced bool
+			if cerr := tx.QueryRow(ctx,
+				`SELECT EXISTS (SELECT 1 FROM attachments WHERE org_id = $1 AND sha256 = $2)`,
+				orgID, sha).Scan(&stillReferenced); cerr != nil {
+				return cerr
+			}
+			if !stillReferenced {
+				unreferencedSHAs = append(unreferencedSHAs, sha)
+			}
+		}
 		for _, table := range []string{"channel_member_history", "channel_blocks", "channel_members", "channel_messages"} {
 			if _, err := tx.Exec(ctx, `DELETE FROM `+table+` WHERE channel_id = $1`, channelID); err != nil {
 				return err
@@ -115,6 +168,7 @@ func (s *Store) DeleteChannel(ctx context.Context, orgID, channelID, callerID st
 		_, err := tx.Exec(ctx, `DELETE FROM channels WHERE id = $1 AND org_id = $2`, channelID, orgID)
 		return err
 	})
+	return unreferencedSHAs, err
 }
 
 // AddChannelMembers adds members to a channel; caller must be a channel
@@ -142,6 +196,14 @@ func (s *Store) AddChannelMembers(ctx context.Context, orgID, channelID, callerI
 		ids := dedupeMembers("", memberIDs)
 		if len(ids) == 0 {
 			return tx.Commit(ctx)
+		}
+
+		// Every provided user id must actually belong to this org before being
+		// trusted as a member — see verifyMembersInOrg's doc comment. Rejects the
+		// whole request rather than silently dropping the bad id, the same
+		// all-or-nothing rule the blocked-user check below applies.
+		if err := verifyMembersInOrg(ctx, tx, orgID, ids); err != nil {
+			return err
 		}
 
 		// The channel's name, for the "You were added to #general" notification the
@@ -287,7 +349,12 @@ func (s *Store) SendChannelMessage(ctx context.Context, orgID, channelID, sender
 			return ErrForbidden
 		}
 
-		// Idempotency: return the existing message if this client_msg_id was seen.
+		// Idempotency fast path: return the existing message if this
+		// client_msg_id was already seen. This SELECT is an optimisation, not
+		// the correctness mechanism — see the INSERT below, which is what
+		// actually closes the race two genuinely concurrent sends of the same
+		// (channel, sender, client_msg_id) could otherwise hit: both could pass
+		// this SELECT before either one's INSERT had committed.
 		var existingID string
 		var existingSeq int64
 		err = tx.QueryRow(ctx,
@@ -342,12 +409,41 @@ func (s *Store) SendChannelMessage(ctx context.Context, orgID, channelID, sender
 		if replyToID != "" {
 			replyToArg = &replyToID
 		}
-		_, err = tx.Exec(ctx,
+		// INSERT ... ON CONFLICT DO NOTHING, not a bare INSERT: the SELECT above
+		// already handles the common case (an ordinary retried send), but it
+		// cannot close the window where two concurrent sends of the same
+		// (channel, sender, client_msg_id) both pass it before either commits.
+		// The UNIQUE constraint is the real backstop, and letting Postgres
+		// resolve the conflict here is what keeps the loser's response an
+		// idempotent 2xx instead of a raw 500: unique violations (23505) are
+		// deliberately excluded from RetryOnSerializationFailure (retry.go) and
+		// have no case in mapStoreError (api/errors.go), so an unguarded
+		// constraint violation would have reached the caller unmapped.
+		tag, err := tx.Exec(ctx,
 			`INSERT INTO channel_messages (id, org_id, channel_id, seq, sender_id, body, body_enc, client_msg_id, kind, reply_to_id)
-			 VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8, $9)`,
+			 VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8, $9)
+			 ON CONFLICT (channel_id, sender_id, client_msg_id) DO NOTHING`,
 			msgID, orgID, channelID, seq, senderID, bodyEnc, clientMsgID, channelAppendOpts{kind: kind}.kindArg(), replyToArg)
 		if err != nil {
 			return err
+		}
+		if tag.RowsAffected() == 0 {
+			// Lost the race: some other transaction's insert of this exact
+			// (channel, sender, client_msg_id) won. Their row — not msgID/seq
+			// above, which are simply discarded — is the idempotent answer; the
+			// unused seq value is the same kind of harmless gap a deleted
+			// message already leaves in the sequence.
+			if err := tx.QueryRow(ctx,
+				`SELECT id, seq FROM channel_messages
+				 WHERE channel_id = $1 AND sender_id = $2 AND client_msg_id = $3`,
+				channelID, senderID, clientMsgID).Scan(&existingID, &existingSeq); err != nil {
+				return err
+			}
+			if cerr := tx.Commit(ctx); cerr != nil {
+				return cerr
+			}
+			out = &ChannelSendResult{MessageID: existingID, Seq: existingSeq}
+			return nil
 		}
 
 		members, err := channelMemberIDs(ctx, tx, channelID)
@@ -436,6 +532,49 @@ func requireChannelMember(ctx context.Context, tx pgx.Tx, orgID, channelID, user
 		return err
 	}
 	if !exists {
+		return ErrForbidden
+	}
+	return nil
+}
+
+// verifyMembersInOrg returns ErrForbidden unless every one of userIDs belongs
+// to orgID, per user_projection — the org directory, and the same
+// authoritative source resolveMailRecipients (mail.go) and the peer/invitee
+// org checks in calls.go already scope their own lookups against (`WHERE
+// org_id = $1`).
+//
+// ── Why this check exists ────────────────────────────────────────────────────
+// channel_members.user_id carries no foreign key, and the table's RLS policy
+// only checks the ROW's own org_id — never that user_id actually belongs to
+// it. Without this, a channel manager could add any real user id, including
+// one from a completely different org, as a member. That is not just a
+// data-integrity gap: channelMemberIDs' comment above explains that
+// ws-gateway fans a channel's messages out purely off the event's `members`
+// list, so a cross-org id slipped in here is a cross-tenant message leak, not
+// merely a bad row.
+//
+// One round trip for the whole list, same reasoning as resolveMailRecipients:
+// checking membership one id at a time would turn a bulk add into one query
+// per person.
+func verifyMembersInOrg(ctx context.Context, tx pgx.Tx, orgID string, userIDs []string) error {
+	unique := make(map[string]struct{}, len(userIDs))
+	for _, id := range userIDs {
+		unique[id] = struct{}{}
+	}
+	if len(unique) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(unique))
+	for id := range unique {
+		ids = append(ids, id)
+	}
+	var n int
+	if err := tx.QueryRow(ctx,
+		`SELECT count(*) FROM user_projection WHERE org_id = $1 AND user_id = ANY($2)`,
+		orgID, ids).Scan(&n); err != nil {
+		return err
+	}
+	if n != len(ids) {
 		return ErrForbidden
 	}
 	return nil

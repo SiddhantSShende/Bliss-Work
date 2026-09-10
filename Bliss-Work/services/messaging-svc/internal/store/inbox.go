@@ -10,6 +10,15 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// MaxInboxPeers bounds the People sidebar's aggregate query. The sidebar is
+// one row per distinct counterparty, not per event, so this is generous
+// relative to any real inbox — it exists to bound the GROUP BY/ORDER BY scan
+// for the pathological account (a broadcast bot, an org-wide alias) that has
+// accumulated more distinct counterparties than any sidebar would show
+// without scrolling anyway, the same reasoning MaxMailDrafts applies to the
+// Drafts folder.
+const MaxInboxPeers = 500
+
 // InboxItemDTO is one unified-inbox row returned by GET /inbox.
 type InboxItemDTO struct {
 	OwnerUserID     string  `json:"ownerUserId"`
@@ -172,7 +181,9 @@ func (s *Store) ListInbox(
 	}
 
 	items := make([]InboxItemDTO, 0, limit+1)
-	// RLS: keyset read + per-row decrypt run under app.org_id.
+	var raws []rawInbox
+	// RLS: keyset read runs under app.org_id. Decrypt happens AFTER this
+	// transaction returns (see below) — it no longer runs on this tx.
 	rerr := s.withOrg(ctx, orgID, func(tx pgx.Tx) error {
 		// Plus one to detect whether another page exists.
 		rows, err := tx.Query(ctx, `
@@ -204,7 +215,6 @@ func (s *Store) ListInbox(
 		if err != nil {
 			return err
 		}
-		var raws []rawInbox
 		for rows.Next() {
 			var r rawInbox
 			if err := rows.Scan(
@@ -218,40 +228,45 @@ func (s *Store) ListInbox(
 			raws = append(raws, r)
 		}
 		rows.Close()
-		if err := rows.Err(); err != nil {
-			return err
-		}
-		for _, r := range raws {
-			it := r.it
-			// preview_enc is the source of truth for rows written post-encryption;
-			// fall back to the legacy plaintext column for un-backfilled rows.
-			if r.previewEnc != nil {
-				dec, derr := s.crypto.Decrypt(ctx, tx, orgID, r.previewEnc)
-				if derr != nil {
-					return derr
-				}
-				it.Preview = dec
-			} else if r.previewPln != nil {
-				it.Preview = *r.previewPln
-			}
-			// RFC3339Nano, not the millisecond-truncated format used for
-			// display-only timestamps elsewhere in this package: this value
-			// becomes the next page's cursor below, and last_event_at is a
-			// microsecond-precision timestamptz. On a busy inbox — this
-			// package's own docs call it the busiest service in the platform —
-			// two rows landing in the same millisecond is routine, and a
-			// cursor truncated to millisecond precision silently drops
-			// whichever one falls strictly between the truncated cursor and
-			// the true boundary row's timestamp: it matches neither page's
-			// WHERE clause. decodeInboxCursor already parses with
-			// RFC3339Nano; only the encode side was still truncating.
-			it.LastEventAt = r.lastAt.UTC().Format(time.RFC3339Nano)
-			items = append(items, it)
-		}
-		return nil
+		return rows.Err()
 	})
 	if rerr != nil {
 		return nil, rerr
+	}
+
+	// Decrypted OUTSIDE the read's transaction, which has already released its
+	// pool connection above. crypto.Decrypt only reaches for Postgres on a DEK
+	// cache miss (the rare case) — deferredOrgQuerier opens its own short,
+	// properly org-scoped transaction for that one lookup rather than the
+	// whole page's decrypt loop holding a connection it mostly does not need.
+	// See crypto_querier.go.
+	dq := deferredOrgQuerier{store: s, orgID: orgID}
+	for _, r := range raws {
+		it := r.it
+		// preview_enc is the source of truth for rows written post-encryption;
+		// fall back to the legacy plaintext column for un-backfilled rows.
+		if r.previewEnc != nil {
+			dec, derr := s.crypto.Decrypt(ctx, dq, orgID, r.previewEnc)
+			if derr != nil {
+				return nil, derr
+			}
+			it.Preview = dec
+		} else if r.previewPln != nil {
+			it.Preview = *r.previewPln
+		}
+		// RFC3339Nano, not the millisecond-truncated format used for
+		// display-only timestamps elsewhere in this package: this value
+		// becomes the next page's cursor below, and last_event_at is a
+		// microsecond-precision timestamptz. On a busy inbox — this
+		// package's own docs call it the busiest service in the platform —
+		// two rows landing in the same millisecond is routine, and a
+		// cursor truncated to millisecond precision silently drops
+		// whichever one falls strictly between the truncated cursor and
+		// the true boundary row's timestamp: it matches neither page's
+		// WHERE clause. decodeInboxCursor already parses with
+		// RFC3339Nano; only the encode side was still truncating.
+		it.LastEventAt = r.lastAt.UTC().Format(time.RFC3339Nano)
+		items = append(items, it)
 	}
 
 	var nextCursor *string
@@ -297,8 +312,9 @@ func (s *Store) ListInboxPeers(
 			  AND i.peer_user_id IS NOT NULL
 			  AND ($3::text[] IS NULL OR i.item_kind = ANY($3::text[]))
 			GROUP BY i.peer_user_id, up.username, up.display_name
-			ORDER BY last_event_at DESC`,
-			ownerUserID, orgID, kindArg,
+			ORDER BY last_event_at DESC
+			LIMIT $4`,
+			ownerUserID, orgID, kindArg, MaxInboxPeers,
 		)
 		if err != nil {
 			return err

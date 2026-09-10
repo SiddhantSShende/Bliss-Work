@@ -37,6 +37,17 @@ export function useMarkPeerRead(api: ApiClient, peerId: string | undefined, item
   // same unread we already handled".
   const markedRef = useRef<Map<string, string>>(new Map());
 
+  // items.length alone misses new activity on a row already in the list — a
+  // reply on a THREAD that's already open bumps its unreadCount/lastEventAt
+  // without changing the array's length, so an effect keyed on length alone
+  // would never re-fire and the mark-read call would never go out until the
+  // view is closed and reopened. This signature changes whenever any of this
+  // peer's rows' lastEventAt does, which is exactly what should re-trigger it.
+  const unreadSignature = items
+    .filter((it) => it.peerUserId === peerId)
+    .map((it) => `${it.refId}:${it.lastEventAt}`)
+    .join(",");
+
   useEffect(() => {
     if (!peerId) return;
     // Optimistic: zero this peer's unread count in the People-list cache.
@@ -84,5 +95,5 @@ export function useMarkPeerRead(api: ApiClient, peerId: string | undefined, item
       });
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [peerId, items.length]);
+  }, [peerId, unreadSignature]);
 }

@@ -73,6 +73,14 @@ function MailThreadContent({ threadId, me }: { threadId: string; me: UserDTO }) 
   // "Sending…" bubble in the cache forever, with no error shown and no way
   // to retry short of navigating away and back.
   const sendMut = useMutation({
+    // Scoped to this thread's queryKey, mirroring useOptimisticSend
+    // (DMView/ChannelView): MailThreadContent is never remounted when the
+    // URL's threadId param changes, so without a differing mutationKey,
+    // TanStack Query's MutationObserver.setOptions() would rebind a still-
+    // pending send's onSuccess/onError closures onto whichever thread is
+    // open when it resolves — reconciling thread A's send against thread B's
+    // cache instead of A's.
+    mutationKey: qk.threadMessages(threadId),
     mutationFn: ({ body, clientMsgId }: { body: string; clientMsgId: string }) =>
       api.replyToThread(threadId, body, { clientMsgId }),
     onMutate: ({ body, clientMsgId }) => {
@@ -207,6 +215,11 @@ function MailThreadContent({ threadId, me }: { threadId: string; me: UserDTO }) 
       />
 
       <Composer
+        // Keyed on threadId: MailThread is not remounted on a URL param
+        // change (see ThreadView's own comment), so without this a draft
+        // typed for one thread would still be sitting in the box — and get
+        // sent — after navigating to a different one.
+        key={threadId}
         // flushStaged, not sendMut.mutate: Send must emit the attachment tray
         // as well as the text, and must tolerate an empty text.
         onSend={(text) => media.flushStaged(text)}

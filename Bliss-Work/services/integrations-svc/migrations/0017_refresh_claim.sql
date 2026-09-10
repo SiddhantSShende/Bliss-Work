@@ -1,0 +1,27 @@
+-- refresh_worker used to claim a connection with `FOR UPDATE SKIP LOCKED` and
+-- hold that row lock (and its pooled DB connection) open across the real
+-- network call to the provider's token endpoint -- a slow/unresponsive IdP
+-- held a connection out of this service's tight 10-connection pool for the
+-- duration of the call, and held a lock on the row for as long, blocking any
+-- other statement that needed to touch it (e.g. a user disconnecting the
+-- integration mid-refresh).
+--
+-- refresh_claimed_at replaces the held lock with a claim marker set and
+-- committed in one short transaction, released before the network call, and
+-- cleared in a second short transaction once the outcome (success, terminal
+-- failure, or transient failure) is known. Two replicas racing to claim the
+-- same row still can't both proceed -- see app/refresh_worker.py's claim
+-- UPDATE and its own comment on why the ordinary row-level lock an UPDATE
+-- takes for its own (short) duration is enough, the same way it already was
+-- for the FOR UPDATE SKIP LOCKED version, just without holding it open across
+-- I/O this service doesn't control the latency of.
+--
+-- The 2-minute staleness fallback (in the claim UPDATE's WHERE clause, not
+-- this migration) exists for the one case an explicit clear can't cover: the
+-- process crashing between claiming and recording an outcome. It is
+-- comfortably larger than oauth.refresh_access_token's own bounded
+-- timeout+retry budget, so it never fires against a genuinely in-flight
+-- refresh -- same reasoning as the abandonment windows already used
+-- elsewhere in this platform's Kafka consumers and outbox pollers.
+ALTER TABLE integration_connections
+    ADD COLUMN IF NOT EXISTS refresh_claimed_at timestamptz;

@@ -25,7 +25,7 @@
  * text node — never markup. See lib/roomMessages.
  */
 import { truncateToUtf8Bytes, utf8ByteLength } from "./textBytes";
-import { loadLocalCopy, meetingArtifactFilename, saveLocalCopy } from "./meetingArtifact";
+import { loadLocalCopy, meetingArtifactFilename, mergeById, saveLocalCopy } from "./meetingArtifact";
 
 /** One message, from one participant. Immutable once sent. */
 export interface ChatEntry {
@@ -89,22 +89,13 @@ export function isChatEntry(v: unknown): v is ChatEntry {
  * arrive or in what order. That is what makes both the catch-up and RECONNECT
  * safe: a client that drops and rejoins is re-sent the thread and the
  * duplicates collapse here rather than appearing twice in the panel.
+ *
+ * The dedupe/sort/cap itself is the same shape lib/callNotes needs — see
+ * mergeById. What is specific here is validating each entry against the
+ * chat shape before it is trusted enough to merge.
  */
 export function mergeChat(held: ChatEntry[], incoming: readonly ChatEntry[]): ChatEntry[] {
-  const byId = new Map(held.map((c) => [c.id, c]));
-  let changed = false;
-  for (const c of incoming) {
-    if (!isChatEntry(c)) continue;
-    if (byId.has(c.id)) continue;
-    byId.set(c.id, c);
-    changed = true;
-  }
-  // Same list, same object — so a sync that told us nothing new cannot cause a
-  // re-render, or scroll a panel somebody is reading.
-  if (!changed) return held;
-  const all = [...byId.values()].sort((a, b) => a.at - b.at || a.id.localeCompare(b.id));
-  // Keep the NEWEST when the cap bites, as the notes do.
-  return all.length > CHAT_MAX ? all.slice(all.length - CHAT_MAX) : all;
+  return mergeById(held, incoming.filter(isChatEntry), CHAT_MAX);
 }
 
 /**

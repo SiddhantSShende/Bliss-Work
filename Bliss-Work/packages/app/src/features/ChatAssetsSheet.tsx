@@ -200,14 +200,15 @@ function DocList({
         const { item, messageId, senderName, at } = asset;
         const url = urlFor(item.id);
         const previewable = canPreviewDocInApp(item.mime);
-        // Openable only once resolved AND of a type the app can actually
-        // render — a type outside canPreviewDocInApp has nowhere in-app to
-        // open into (see MediaBubble's FileCard, which carries the full
-        // reasoning for why this can no longer fall back to a link: the
-        // server forces Content-Disposition: attachment for everything
-        // outside its own inline allowlist, so that link was a download
-        // wearing an Open label).
-        const openable = !!url && previewable;
+        // Openable once resolved, regardless of type — a type outside
+        // canPreviewDocInApp has no in-app renderer (see MediaBubble's
+        // FileCard, which carries the full reasoning for why this can never
+        // fall back to a link: the server forces Content-Disposition:
+        // attachment for everything outside its own inline allowlist, so
+        // that link was a download wearing an Open label), but the shared
+        // Lightbox still opens for it and says so explicitly instead of the
+        // row doing nothing.
+        const openable = !!url;
         const rowClass = `flex items-center gap-3 rounded-xl px-2 py-2 text-left transition-colors hover:bg-surface-2 ${
           url ? "" : "pointer-events-none opacity-50"
         }`;
@@ -232,8 +233,9 @@ function DocList({
           </>
         );
 
-        // A type the app can preview itself opens in-app, in the same
-        // Lightbox the chat bubble and the Media tab use.
+        // Every resolved file opens in-app, in the same Lightbox the chat
+        // bubble and the Media tab use — a type the app can't render itself
+        // still opens it, showing why instead of doing nothing.
         if (openable) {
           return (
             <li key={`${messageId}:${item.id}`}>
@@ -249,16 +251,11 @@ function DocList({
           );
         }
 
-        // Not yet resolved, or resolved but not a previewable type: inert
-        // either way — never a link, so there is nothing here to download.
+        // Not yet resolved: inert until it is — never a link, so there is
+        // nothing here to download.
         return (
           <li key={`${messageId}:${item.id}`}>
-            <div
-              className={rowClass}
-              aria-label={url ? `${item.name} — preview not available` : undefined}
-            >
-              {row}
-            </div>
+            <div className={rowClass}>{row}</div>
           </li>
         );
       })}

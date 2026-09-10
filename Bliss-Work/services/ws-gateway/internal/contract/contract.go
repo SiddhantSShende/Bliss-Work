@@ -13,6 +13,7 @@ var FanoutTopics = []string{
 // raw JSON bytes are forwarded verbatim to clients.
 type Event struct {
 	Type       string `json:"type"`
+	EventID    string `json:"eventId"`
 	OccurredAt string `json:"occurredAt"`
 
 	// Messaging

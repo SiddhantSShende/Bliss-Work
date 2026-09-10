@@ -51,6 +51,13 @@ export class ChatStickyManager {
    *  re-pin) can re-push it without the caller re-supplying it. */
   private boots = new Map<string, ChatStickyBootstrap>();
 
+  /** @param onEvicted Called when the MAX_CHAT_WIDGETS quota force-closes the
+   *   oldest widget in `pin()`, so the caller can mirror what it does on an
+   *   explicit `unpin()` — namely tell ws-process to stop matching this
+   *   thread in pinnedThreads (see index.ts's paired unpin+postMessage
+   *   call sites). Without this, an evicted thread stays subscribed forever. */
+  constructor(private readonly onEvicted?: (threadId: string) => void) {}
+
   pinnedIds(): string[] {
     return [...this.widgets.keys()];
   }
@@ -90,6 +97,7 @@ export class ChatStickyManager {
         if (!firstWin.isDestroyed()) firstWin.close();
         this.widgets.delete(firstKey);
         this.boots.delete(firstKey);
+        this.onEvicted?.(firstKey);
       }
     }
     const w = this.createWindow(boot.threadId);
@@ -119,14 +127,22 @@ export class ChatStickyManager {
   }
 
   /** Main window focused: drop chat notes to normal z-order so they don't cover
-   *  the app. Paired with raiseZOrder on blur. (Matches StickyManager so the
-   *  whole sticky surface moves together.) */
+   *  the app. Called alongside raiseZOrder on blur — see index.ts's wiring,
+   *  which is where the two names come from (task-note stickies use the
+   *  same focus/blur pattern; chat stickies never actually raise, see
+   *  raiseZOrder below), kept as a matched pair here so the call sites read
+   *  the same regardless of which sticky surface they're driving. */
   lowerZOrder(): void {
     dropAlwaysOnTop(this.widgets.values());
   }
 
-  /** Main window blurred: float chat notes back over the desktop at the lightest
-   *  always-on-top level so they stay visible on the main screen. */
+  /** Main window blurred. Despite the name (kept for symmetry with
+   *  lowerZOrder/index.ts's focus/blur wiring — see that comment), chat
+   *  notes do NOT float above other apps on blur: they are deliberately
+   *  always-behind, unchanged from how this feature originally shipped (see
+   *  index.ts's own note by the focus/blur handlers). This is a no-op today;
+   *  if that design is ever revisited, this is where `w.setAlwaysOnTop(true,
+   *  "floating")` would go. */
   raiseZOrder(): void {
     dropAlwaysOnTop(this.widgets.values());
   }

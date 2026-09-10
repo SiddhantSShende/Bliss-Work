@@ -29,17 +29,27 @@ const maxReplayDefault = 200
 // generated thousands of events. It bounds gateway memory and the per-connect
 // stream so a stale cursor can't force an unbounded batch on every reconnect.
 // Older events beyond this are backfilled via the REST message/task endpoints.
-const maxReplayHard = 2000
+//
+// Was 2000. Lowered per docs/REDIS-REPLAY-RECORD-OPTIMIZATION.md's Phase D/M
+// analysis: the cursor-based path this constant governs is only reachable by
+// a socket reconnecting within an already-running client process (a fresh
+// app launch always resets to the separate, unaffected cursorless
+// maxReplayDefault path — see WsClient.ts's highWaterMs), which narrows who
+// is actually exposed to the lower cap. At 40K users this keeps outbox
+// memory at ~51% of the 2 GiB ceiling (vs. >100% at the old cap), with real
+// headroom toward the platform's actual 1B-DAU target.
+const maxReplayHard = 100
 
 func (s *Store) outboxKey(userID string) string { return "outbox:user:" + s.tag(userID) }
 
 // AppendOutbox adds a raw event to a user's replay ZSET, scored by occurredAt
 // epoch-milliseconds, trims the key to the deepest replay any client can ask
-// for, and refreshes the 7-day TTL.
+// for, and refreshes the outboxTTL (see its own doc for why it's 1 day, not
+// the 7 it started as).
 //
 // The trim is not an optimisation, it is the only thing bounding this key.
-// Expire below is refreshed on every append, which makes the TTL seven days of
-// INACTIVITY rather than a rolling seven-day window — so an active user's key
+// Expire below is refreshed on every append, which makes the TTL a window of
+// INACTIVITY rather than a rolling one — so an active user's key
 // was previously bounded by nothing at all, and one message into an N-member
 // channel is stored N times, once per recipient. Redis is also the source of
 // truth for replay, so it is the thing that dies first when this grows.
@@ -94,12 +104,12 @@ func (s *Store) AppendOutboxMulti(
 //
 // ── Why the lower bound is INCLUSIVE, and why that is not an off-by-one ──────
 //
-// The score is `occurredAt` truncated to MILLISECONDS (see fanout.epochMs and
-// router.epochMs), and the client's cursor is `Date.parse(occurredAt)` — also
-// milliseconds, because that is the only precision a JS Date carries. So the
-// cursor cannot distinguish two events that share a millisecond, and a busy
-// user has those constantly: a channel message and its notification, two sends
-// into the same room, a reaction landing beside a read receipt.
+// The score is `occurredAt` truncated to MILLISECONDS (see contract.EpochMs),
+// and the client's cursor is `Date.parse(occurredAt)` — also milliseconds,
+// because that is the only precision a JS Date carries. So the cursor cannot
+// distinguish two events that share a millisecond, and a busy user has those
+// constantly: a channel message and its notification, two sends into the
+// same room, a reaction landing beside a read receipt.
 //
 // With an exclusive bound (`(lastSeenSeq`) that ambiguity was silent data loss.
 // A client that received event A at time T advanced its high-water mark to T;

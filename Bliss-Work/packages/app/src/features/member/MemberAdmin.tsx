@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ShieldCheck, ShieldOff, UserMinus, UserPlus } from "lucide-react";
-import { Badge, Button, Spinner } from "@taskboard/ui";
+import { AlertTriangle, ShieldCheck, ShieldOff, UserMinus, UserPlus } from "lucide-react";
+import { Badge, Button, EmptyState, Spinner } from "@taskboard/ui";
 import { ApiError, type ActiveSessionDTO, type MemberDTO, type Role } from "@taskboard/shared";
 import { useRuntime } from "../../lib/runtime";
 import { qk } from "../../lib/queryBridge";
@@ -195,7 +195,7 @@ function MemberSessionsSection({ memberId }: { memberId: string }) {
   const [confirmSession, setConfirmSession] = useState<ActiveSessionDTO | null>(null);
   const [revokingId, setRevokingId] = useState<string | null>(null);
 
-  const { data: sessions, isLoading } = useQuery({
+  const { data: sessions, isLoading, isError } = useQuery({
     queryKey: qk.memberActiveSessions(memberId),
     queryFn: () => api.listMemberSessions(memberId),
   });
@@ -231,6 +231,12 @@ function MemberSessionsSection({ memberId }: { memberId: string }) {
         <div className="flex justify-center p-4">
           <Spinner />
         </div>
+      ) : isError ? (
+        <EmptyState
+          icon={<AlertTriangle size={22} />}
+          title="Sessions could not be loaded"
+          hint="Check your connection and try again."
+        />
       ) : !sessions || sessions.length === 0 ? (
         <p className="text-sm text-muted">No active sessions.</p>
       ) : (

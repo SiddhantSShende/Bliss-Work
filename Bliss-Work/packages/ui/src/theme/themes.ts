@@ -13,7 +13,7 @@
  *     `:root`/`.dark` in theme.css already IS Blue); the other families each
  *     layer their own class on top, exactly like "Blue" would if it had one.
  *
- * Only the five LIGHT ids are offered in Settings — see THEMES vs.
+ * Only the six LIGHT ids are offered in Settings — see THEMES vs.
  * DARK_THEMES below. The dark ids exist only to be reached via
  * ThemeProvider's toggle (Profile → Dark Mode), never picked directly: a
  * dark id selected directly would have no "which light theme was this dark
@@ -26,8 +26,8 @@
  * ThemeProvider derives its light↔dark pairing from the two arrays' order.
  */
 export type ThemeId =
-  | "default"
-  | "default-dark"
+  | "bluePurple"
+  | "bluePurple-dark"
   | "blue"
   | "blue-dark"
   | "rose"
@@ -35,7 +35,9 @@ export type ThemeId =
   | "purple"
   | "purple-dark"
   | "teal"
-  | "teal-dark";
+  | "teal-dark"
+  | "lime"
+  | "lime-dark";
 
 export interface ThemeDef {
   id: ThemeId;
@@ -46,25 +48,30 @@ export interface ThemeDef {
 /** The non-"dark" class each family layers on top of the light/dark axis.
  *  Blue has none — see the module doc comment above. */
 const FAMILY_CLASSES: Partial<Record<ThemeId, string>> = {
-  default: "default",
+  bluePurple: "bluePurple",
   rose: "rose",
   purple: "purple",
   teal: "teal",
+  lime: "lime",
 };
 
-/** Every family's light class-set. Family order here is menu order — Default
- *  first, since it's the app's fallback for anyone with no saved preference
- *  (see DEFAULT_THEME below). Default's own CSS block (`.default`/
- *  `.dark.default` in theme.css) carries BlissWork's original/current
- *  branding — the palette every user saw before the other colour families
- *  existed, preserved under its own id so it stays stable even if another
- *  family's values are tweaked later. */
+/** Every family's light class-set, in Settings' menu order (matches the
+ *  order the accent themes are specified in the product spec). "Blue +
+ *  Purple" is listed last here but is still the app's DEFAULT — see
+ *  DEFAULT_THEME below, which looks it up by id rather than array position,
+ *  so menu order and fallback selection are independent of each other.
+ *  Blue + Purple's own CSS block (`.bluePurple`/`.dark.bluePurple` in
+ *  theme.css) blends the Blue and Purple families' hues into one accent and
+ *  gradient — BlissWork's current signature look — kept under its own id so
+ *  it stays stable even if the standalone Purple family's values are tweaked
+ *  later. */
 const FAMILIES: readonly { id: Exclude<ThemeId, `${string}-dark`>; name: string }[] = [
-  { id: "default", name: "Default" },
+  { id: "purple", name: "Purple" },
   { id: "rose", name: "Red / Rose" },
   { id: "blue", name: "Blue" },
-  { id: "purple", name: "Purple" },
   { id: "teal", name: "Cyan / Teal" },
+  { id: "lime", name: "Lime" },
+  { id: "bluePurple", name: "Blue + Purple" },
 ];
 
 function classesFor(family: string, dark: boolean): readonly string[] {
@@ -88,11 +95,12 @@ const DARK_THEMES: readonly ThemeDef[] = FAMILIES.map(({ id, name }) => ({
   classes: classesFor(id, true),
 }));
 
-/** The default theme for anyone with no saved preference (first-ever visit,
- *  or storage unavailable) — see readStoredTheme in ThemeProvider.tsx. Looked
- *  up by id rather than a positional THEMES[n] index so this stays correct if
- *  FAMILIES is ever reordered. */
-const DEFAULT_THEME: ThemeDef = THEMES.find((t) => t.id === "default")!;
+/** The theme anyone with no saved preference gets — a brand-new visitor, a
+ *  new browser/device/session, or storage that failed to read — see
+ *  ThemeProvider.tsx's `readStoredTheme`. Looked up by id rather than a
+ *  positional THEMES[n] index so this stays correct if FAMILIES is ever
+ *  reordered. */
+const DEFAULT_THEME: ThemeDef = THEMES.find((t) => t.id === "bluePurple")!;
 
 const ALL_THEMES: readonly ThemeDef[] = [...THEMES, ...DARK_THEMES];
 const ALL_THEME_IDS: readonly ThemeId[] = ALL_THEMES.map((t) => t.id);
@@ -130,8 +138,11 @@ export function darkCounterpart(id: ThemeId): ThemeId {
   return isThemeId(counterpart) ? counterpart : DEFAULT_THEME.id;
 }
 
-/** The DEFAULT theme's own light/dark pair — what a first-ever visit (no
- *  stored preference, no OS preference match) resolves to. */
+/** The DEFAULT theme's own light/dark pair. `defaultThemeFor(false)` — Light
+ *  + Blue/Purple — is what anyone with no stored preference gets; the OS/
+ *  browser's own dark-mode setting is deliberately NOT consulted here (see
+ *  ThemeProvider.tsx). `dark: true` exists only for callers, like the dark
+ *  counterpart lookup above, that need the pair's other half. */
 export function defaultThemeFor(dark: boolean): ThemeId {
   return dark ? darkCounterpart(DEFAULT_THEME.id) : DEFAULT_THEME.id;
 }

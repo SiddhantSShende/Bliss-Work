@@ -66,10 +66,15 @@ yarn-error.log
 # testing
 /coverage
 
-# Local, machine-specific dev overrides — never committed. Same
-# versioned-default/gitignored-local-override split as ios/.xcode.env vs
-# .xcode.env.local above, for the JS side (see AppProviders.tsx).
-src/constants/localBackendOverride.ts
+# NOTE: src/constants/localBackendOverride.ts is intentionally NOT ignored
+# here (unlike ios/.xcode.env.local above). Metro resolves every `require`/
+# `import` statically while building the bundle, before any code runs, so a
+# gitignored-and-therefore-usually-absent module breaks the bundle for every
+# checkout instead of gracefully resolving to a default — see
+# AppProviders.tsx's readForceProdBackendOverride for the incident that came
+# from trying that pattern here. The file ships committed with a `false`
+# default; a physical-device tester flips it locally and simply doesn't
+# commit that one-line change.
 
 # Yarn
 .yarn/*

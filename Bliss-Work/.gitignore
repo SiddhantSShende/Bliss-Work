@@ -97,11 +97,27 @@ backups/
 .ui-verify/
 
 # Load-test access tokens (loadtest/mint-tokens.sh).
-# Real signed JWTs with a 900-second lifetime, regenerated before every run.
-# Committing them put ~250KB of expired credentials and the whole seeded
-# org/user id set in git, and left the working tree permanently dirty — which
-# is why `git status` could no longer be used to see what a change touched.
+# Real signed JWTs, regenerated before every run. Committing them put
+# ~250KB of expired credentials and the whole seeded org/user id set in
+# git, and left the working tree permanently dirty — which is why
+# `git status` could no longer be used to see what a change touched.
+#
+# Matches every per-phase pool variant too (tokens_p12.json,
+# tokens_p13_full.json, ...), not just the literal tokens.json — the exact-
+# filename-only version of this rule is what let Phase 13's own
+# tokens_p13*.json sit trackable-but-gitignored-in-name-only until this was
+# caught; same class of gap as the smoke.json leak below, one path over.
 loadtest/tokens.json
+loadtest/tokens_*.json
+
+# k6 run output (loadtest/step.sh, loadtest/ws-step.sh). Same class of leak as
+# tokens.json above, through a sibling path: k6 summaries embed the request
+# headers/bodies of a real run, which is driven by real signed JWTs from
+# users.json/tokens.json — one such file (loadtest/results/smoke.json) was
+# committed this way before being caught and removed (Phase 10 SecOps pass).
+# Everything under here is regenerable by re-running the load test.
+loadtest/results/
+loadtest/results_phase*/
 
 # chat-drop fixture bundle (regenerable; never commit)
 #   npx vite build --config scripts/fixtures/chat-drop/vite.config.ts

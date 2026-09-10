@@ -19,6 +19,8 @@ import httpx
 
 from resilience import CircuitBreaker, retry_async
 
+from . import httpclient
+
 _GRAPH = "https://graph.microsoft.com/v1.0"
 _TIMEOUT = 15.0
 _ms_breaker = CircuitBreaker(fail_max=5, reset_timeout=30.0, name="microsoft")
@@ -65,6 +67,14 @@ def _raise_for_status(r: httpx.Response) -> None:
     if r.status_code in (429, 503, 504):
         raise MicrosoftRateLimited(msg, delay)
 
+    if r.status_code >= 500:
+        # Let a plain httpx.HTTPStatusError propagate instead of MicrosoftError
+        # so resilience.is_transient() recognizes it: retry_async actually
+        # retries a transient 5xx, and CircuitBreaker.on_failure() fires instead
+        # of on_success() falsely resetting the breaker mid-outage. Mirrors
+        # providers/oauth.py's _raise_for_token_status.
+        r.raise_for_status()
+
     raise MicrosoftError(f"{r.status_code}: {msg}")
 
 
@@ -82,10 +92,9 @@ async def _request(
     headers = {"Authorization": f"Bearer {token}", **(extra_headers or {})}
 
     async def _attempt() -> dict:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            r = await client.request(method, full, headers=headers, **kw)
-            _raise_for_status(r)
-            return r.json() if r.content else {}
+        r = await httpclient.shared().request(method, full, headers=headers, timeout=_TIMEOUT, **kw)
+        _raise_for_status(r)
+        return r.json() if r.content else {}
 
     return await retry_async(_attempt, attempts=3, breaker=_ms_breaker, idempotent=idempotent)
 

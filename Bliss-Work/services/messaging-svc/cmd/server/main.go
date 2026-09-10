@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -227,9 +228,23 @@ func main() {
 	}
 	log.Info("kafka security", "protocol", kafkaauth.Protocol())
 
-	// Background workers.
+	// Background workers. Each is tracked on wg so shutdown can wait for them
+	// to actually stop touching st (the DB pool) before st.Close() runs via
+	// the defer above — st.Close() fires the instant main() returns, and
+	// without this a worker mid-query/mid-commit races its own store's
+	// connection pool being torn out from under it. Same shape as
+	// region-bridge's cmd/bridge/main.go, which already does this correctly.
+	var wg sync.WaitGroup
+	trackedGo := func(fn func(context.Context)) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			fn(rootCtx)
+		}()
+	}
+
 	poller := kafka.NewOutboxPoller(st, cfg.KafkaBrokers, log)
-	go poller.Run(rootCtx)
+	trackedGo(poller.Run)
 
 	// Standing quarantine backlog, read at SCRAPE time rather than tracked in a
 	// counter, so a process restart does not reset it to zero and report "all
@@ -256,12 +271,12 @@ func main() {
 	))
 
 	consumer := kafka.NewAuthConsumer(st, blobs, cfg.KafkaBrokers, log)
-	go consumer.Run(rootCtx)
+	trackedGo(consumer.Run)
 
 	// Phase 2: project task.events.v1 into inbox_items so the unified inbox
 	// is a single-DB read. Separate consumer group + separate dedup table.
 	taskProjector := kafka.NewTaskProjectionConsumer(st, cfg.KafkaBrokers, log)
-	go taskProjector.Run(rootCtx)
+	trackedGo(taskProjector.Run)
 
 	// The SFU that carries group call media. Optional: with none configured,
 	// lk reports itself unconfigured and call-token requests answer 503 rather
@@ -331,7 +346,7 @@ func main() {
 	// Runs in EVERY replica on purpose — the sweep claims rows with FOR UPDATE
 	// SKIP LOCKED, so duplicating the timer buys availability without
 	// duplicating the work. See api.RunCallSweeper.
-	go apiSrv.RunCallSweeper(rootCtx)
+	trackedGo(apiSrv.RunCallSweeper)
 
 	// Wrap the root handler so every request is a server span and incoming W3C
 	// tracecontext headers are extracted. When tracing is disabled the global
@@ -357,4 +372,18 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(shutdownCtx)
+
+	// Stop taking HTTP traffic first (above), then let the background workers
+	// finish whatever they're mid-doing against st before the deferred
+	// st.Close() runs. Bounded by the same shutdownCtx rather than a second
+	// timeout budget — an orchestrator that asked us to stop will SIGKILL
+	// shortly regardless, so hanging here past that only delays the rollout.
+	workersDone := make(chan struct{})
+	go func() { wg.Wait(); close(workersDone) }()
+	select {
+	case <-workersDone:
+		log.Info("workers stopped cleanly")
+	case <-shutdownCtx.Done():
+		log.Warn("workers did not stop in time; exiting anyway")
+	}
 }

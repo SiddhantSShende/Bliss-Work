@@ -350,7 +350,7 @@ func (s *Server) publishNotificationRead(ctx context.Context, tx pgx.Tx, orgID, 
 	if err != nil {
 		return err
 	}
-	return outbox.Enqueue(ctx, tx, outID, events.TopicNotification, recipientID, payload)
+	return outbox.Enqueue(ctx, tx, outID, events.TopicNotification, recipientID, orgID, payload)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {

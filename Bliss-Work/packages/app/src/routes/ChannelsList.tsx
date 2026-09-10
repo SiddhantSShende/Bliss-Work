@@ -14,6 +14,7 @@ import { usePopupDismiss } from "../lib/usePopupDismiss";
 import { listPreview, withSenderLabel } from "../lib/chatEnvelope";
 import { useJoinChannel } from "../lib/useJoinChannel";
 import { LeaveChannelDialog } from "../features/LeaveChannelDialog";
+import { Tabs, type TabSpec } from "../features/Tabs";
 import { useSession } from "../store/session";
 
 /**
@@ -116,6 +117,11 @@ export function ChannelsList() {
     setLeaveTarget(c);
   };
 
+  const tabs: TabSpec<Tab>[] = [
+    { key: "mine", label: "My channels", icon: <Hash size={13} /> },
+    { key: "browse", label: "Browse", icon: <Compass size={13} /> },
+  ];
+
   return (
     <>
       <ListHeader
@@ -130,13 +136,8 @@ export function ChannelsList() {
           </button>
         }
       />
-      <div className="flex gap-1 px-2 pb-1">
-        <TabButton active={tab === "mine"} onClick={() => setTab("mine")}>
-          <Hash size={13} /> My channels
-        </TabButton>
-        <TabButton active={tab === "browse"} onClick={() => setTab("browse")}>
-          <Compass size={13} /> Browse
-        </TabButton>
+      <div className="px-2 pb-1">
+        <Tabs tabs={tabs} active={tab} onChange={setTab} size="sm" />
       </div>
       {tab === "mine" && (
         <div className="space-y-2 border-b border-border/60 px-3 py-2">
@@ -464,29 +465,5 @@ function OpenChannelRow({
         <LogIn size={13} /> Join
       </Button>
     </div>
-  );
-}
-
-function TabButton({
-  children,
-  active,
-  onClick,
-}: {
-  children: React.ReactNode;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-[11px] font-medium transition ${
-        active
-          ? "bg-accent text-accent-fg"
-          : "bg-surface-2 text-muted hover:text-fg"
-      }`}
-    >
-      {children}
-    </button>
   );
 }

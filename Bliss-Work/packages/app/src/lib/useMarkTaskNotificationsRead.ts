@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ApiClient, NotificationDTO } from "@taskboard/shared";
 import { qk } from "./queryBridge";
 
@@ -16,13 +16,30 @@ export function useMarkTaskNotificationsRead(api: ApiClient, tasks: { taskId: st
   const qc = useQueryClient();
   const markedRef = useRef<Set<string>>(new Set());
 
+  // Same query AppShell already runs for the bell — TanStack dedupes the
+  // underlying request (see useAvailability's identical reasoning in
+  // TasksList.tsx), so this is a subscription to the existing cache entry,
+  // not an extra fetch. A plain qc.getQueryData() snapshot (the previous
+  // approach) never re-ran this effect when a NEW notification arrived for a
+  // task already in `tasks`: nothing here re-rendered on a cache update it
+  // wasn't subscribed to, so the bell stayed lit until the view was closed
+  // and reopened.
+  const { data: notifications = [] } = useQuery({
+    queryKey: qk.notifications,
+    queryFn: () => api.notifications(),
+  });
+  const taskIds = new Set(tasks.map((t) => t.taskId));
+  const unreadForTasks = notifications.filter((n) => n.taskId && taskIds.has(n.taskId) && !n.read);
+  // Changes whenever the SET of relevant unread ids does — not just when
+  // `tasks` does — so a new notification landing on an already-visible task
+  // re-triggers this, not only a change to which tasks are visible.
+  const unreadSignature = unreadForTasks
+    .map((n) => n.id)
+    .sort()
+    .join(",");
+
   useEffect(() => {
-    if (tasks.length === 0) return;
-    const taskIds = new Set(tasks.map((t) => t.taskId));
-    const current = qc.getQueryData<NotificationDTO[]>(qk.notifications) ?? [];
-    const unread = current.filter(
-      (n) => n.taskId && taskIds.has(n.taskId) && !n.read && !markedRef.current.has(n.id),
-    );
+    const unread = unreadForTasks.filter((n) => !markedRef.current.has(n.id));
     if (unread.length === 0) return;
 
     unread.forEach((n) => markedRef.current.add(n.id));
@@ -38,5 +55,5 @@ export function useMarkTaskNotificationsRead(api: ApiClient, tasks: { taskId: st
       ),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tasks.length]);
+  }, [unreadSignature]);
 }

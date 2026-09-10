@@ -9,7 +9,7 @@ const ThemeCtx = createContext<{
   setTheme: (theme: ThemeId) => void;
   toggle: () => void;
 }>({
-  theme: "default",
+  theme: defaultThemeFor(false),
   isDark: false,
   setTheme: () => {},
   toggle: () => {},
@@ -17,25 +17,21 @@ const ThemeCtx = createContext<{
 
 const THEME_KEY = "tb-theme";
 
-function systemTheme(): ThemeId {
-  return defaultThemeFor(
-    typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches,
-  );
-}
-
 /** Read the persisted theme, validating the stored value instead of trusting a
- *  bare `as ThemeId` cast (a tampered/corrupted entry would otherwise pass),
- *  and tolerating storage being unavailable (private mode / disabled cookies).
- *  A value from BEFORE this theme system existed (e.g. the old "light" /
- *  "graphite-lime") is no longer a valid id either, and falls through the
- *  same way — a graceful migration to the retained default family rather
- *  than a special case. */
+ *  bare `as ThemeId` cast (a tampered/corrupted entry would otherwise pass).
+ *  No stored value — a brand-new visitor, a new browser/device/session, or
+ *  storage that's unavailable (private mode / disabled cookies) — resolves to
+ *  the fixed Light + Blue/Purple default, never the OS/browser's dark-mode
+ *  preference. A value from BEFORE this theme system existed (e.g. the old
+ *  "light" / "graphite-lime", or the retired "default" id) is no longer a
+ *  valid id either, and falls through the same way — a graceful migration to
+ *  the current default family rather than a special case. */
 function readStoredTheme(): ThemeId {
   try {
     const v = localStorage.getItem(THEME_KEY);
-    return v && isThemeId(v) ? v : systemTheme();
+    return v && isThemeId(v) ? v : defaultThemeFor(false);
   } catch {
-    return systemTheme();
+    return defaultThemeFor(false);
   }
 }
 
@@ -53,11 +49,13 @@ export function ThemeProvider({
 }: {
   children: React.ReactNode;
   /**
-   * True while the current screen must show the default BlissWork theme
-   * regardless of what's stored — e.g. the caller's Login/Signup pages. This
-   * provider has no notion of routes itself (it lives in a route-agnostic
-   * package); the caller decides when to pass this, from wherever it does
-   * know the current route.
+   * True while the current screen must always show the fixed Light + Blue/
+   * Purple default regardless of what's stored — e.g. the caller's
+   * Login/Signup pages, which must read as on-brand BlissWork before anyone
+   * has signed in, not whatever a previous session on this device (or a
+   * different account) last picked. This provider has no notion of routes
+   * itself (it lives in a route-agnostic package); the caller decides when to
+   * pass this, from wherever it does know the current route.
    *
    * The stored/selected theme keeps being tracked normally underneath —
    * `setTheme`/`toggle` still work exactly as before, and `theme`/`isDark`
@@ -70,51 +68,23 @@ export function ThemeProvider({
   forceDefault?: boolean;
 }) {
   const [theme, setThemeState] = useState<ThemeId>(readStoredTheme);
-  // Tracked independently of `theme` so a forced-default screen still
-  // follows the OS/browser's light/dark preference live (STEP 5 of the task
-  // this shipped with: a forced screen may still support dark mode, it just
-  // never shows the user's chosen accent family) — `theme` itself only
-  // updates from a system-preference change when nothing has been
-  // explicitly stored (see the listener below), which forceDefault must not
-  // depend on.
-  const [systemDark, setSystemDark] = useState<boolean>(
-    () => typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches,
-  );
 
   useEffect(() => {
     const root = document.documentElement;
-    const effective = forceDefault ? defaultThemeFor(systemDark) : theme;
+    const effective = forceDefault ? defaultThemeFor(false) : theme;
     root.classList.remove(...ALL_THEME_CLASSES);
     root.classList.add(...themeClasses(effective));
-  }, [theme, forceDefault, systemDark]);
-
-  useEffect(() => {
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const onSystemThemeChange = (event: MediaQueryListEvent) => {
-      setSystemDark(event.matches);
-      // Auto-follow system for the REAL selection only when the user has
-      // never made an explicit choice — unchanged from before. A
-      // forced-default screen still benefits from `systemDark` above
-      // regardless of whether a real theme is stored underneath.
-      try {
-        if (localStorage.getItem(THEME_KEY)) return;
-      } catch {
-        // Follow the system when storage is unavailable.
-      }
-      setThemeState(defaultThemeFor(event.matches));
-    };
-    media.addEventListener?.("change", onSystemThemeChange);
-    return () => media.removeEventListener?.("change", onSystemThemeChange);
-  }, []);
+  }, [theme, forceDefault]);
 
   const setTheme = (next: ThemeId) => {
     persistTheme(next);
     setThemeState(next);
   };
 
-  /** Profile → Dark Mode: flips the CURRENT family's own light↔dark pair,
-   *  never a generic default — Purple Light → Purple Dark → (toggled again)
-   *  → Purple Light again, exactly whichever family was selected. */
+  /** Profile → Dark Mode / Settings → Theme: flips the CURRENT family's own
+   *  light↔dark pair, never a generic default — Purple Light → Purple Dark →
+   *  (toggled again) → Purple Light again, exactly whichever family was
+   *  selected. */
   const toggle = () => {
     setThemeState((current) => {
       const next = darkCounterpart(current);

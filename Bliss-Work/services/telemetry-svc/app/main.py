@@ -71,9 +71,17 @@ app.add_middleware(SlowAPIMiddleware)
 # SlowAPI (added above, therefore INNER, therefore running after this) can
 # bucket by user instead of falling through to IP for every caller.
 app.add_middleware(PrincipalMiddleware)
+# Registered (therefore wrapped) BEFORE RequestIDMiddleware and
+# SecurityHeadersMiddleware: Starlette's add_middleware makes the LAST
+# registration the OUTERMOST layer, so those two must be added after this one
+# to stay outside it. BodySizeLimitMiddleware.dispatch() returns its 413
+# directly without calling call_next(), so anything registered before it
+# (SlowAPI, Principal — unchanged, still skipped for an oversized body) never
+# runs; anything registered after it still wraps the short-circuited response
+# and gets to stamp X-Request-Id / the security headers on it.
+app.add_middleware(BodySizeLimitMiddleware)
 app.add_middleware(RequestIDMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
-app.add_middleware(BodySizeLimitMiddleware)
 
 _cors_origin_regex = (
     r"^(app://.*|file://.*|null)$"

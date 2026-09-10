@@ -369,7 +369,7 @@ services:
     command: >-
       -n --log-file=stdout --no-cli --no-tlsv1 --no-tlsv1_1
       --listening-port=3478 --min-port=30000 --max-port=49999
-      --realm=${DOMAIN} --use-auth-secret --static-auth-secret=${TURN_SECRET}
+      --realm=${DOMAIN} --use-auth-secret --static-auth-secret=${TURN_SECRET:?TURN_SECRET must be set in .env.prod (coturn and ws-gateway mint HMAC credentials from it)}
       --fingerprint --no-multicast-peers
       --denied-peer-ip=127.0.0.0-127.255.255.255
       --denied-peer-ip=10.0.0.0-10.255.255.255
@@ -572,6 +572,8 @@ services:
       NOTIFICATION_DB_PASSWORD: ${NOTIFICATION_DB_PASSWORD}
       EMAIL_DB_PASSWORD: ${EMAIL_DB_PASSWORD}
       TELEMETRY_DB_PASSWORD: ${TELEMETRY_DB_PASSWORD}
+      INTEGRATIONS_DB_PASSWORD: ${INTEGRATIONS_DB_PASSWORD}
+      STICKY_DB_PASSWORD: ${STICKY_DB_PASSWORD}
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro

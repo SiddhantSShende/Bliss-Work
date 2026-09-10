@@ -331,7 +331,7 @@ Daily at **05:00 UTC**, `Persistent=true`.
 **This is the most destructive job on the host.** It erases an organization
 across seven databases and the blob volume. Two properties are load-bearing:
 
-- **It runs last.** After the 02:30 backup, the 03:00 attachment GC and the
+- **It runs last.** After the 02:30 backup, the 04:00 attachment GC and the
   04:30 telemetry prune. The backup ordering is the point — if a deletion was
   requested in error and nobody cancelled it in time, the most recent dump
   predates the loss rather than faithfully recording it.

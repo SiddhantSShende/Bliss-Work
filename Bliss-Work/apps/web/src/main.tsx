@@ -65,21 +65,6 @@ const config: PlatformConfig = {
   graphBase: env.VITE_GRAPH_BASE,
   wsUrl: env.VITE_WS_URL ?? "ws://localhost:8090/ws",
   router: "browser",
-  // Deliberately absent from REQUIRED_ENV, same reasoning as graphBase: no
-  // stable extension id is pinned yet (see PlatformConfig's own doc comment
-  // on chromeExtensionId), so a build without it just keeps today's manual
-  // "paste a code" extension-connect flow instead of the automatic one.
-  chromeExtensionId: env.VITE_EXTENSION_ID,
-  // Same reasoning again: no store listing exists for any of these yet (see
-  // extensionInstallUrls' own doc comment) — each is simply absent until this
-  // deployment has somewhere real to publish the extension.
-  extensionInstallUrls: {
-    chrome: env.VITE_EXTENSION_INSTALL_URL_CHROME,
-    edge: env.VITE_EXTENSION_INSTALL_URL_EDGE,
-    brave: env.VITE_EXTENSION_INSTALL_URL_BRAVE,
-    firefox: env.VITE_EXTENSION_INSTALL_URL_FIREFOX,
-    safari: env.VITE_EXTENSION_INSTALL_URL_SAFARI,
-  },
 };
 
 createRoot(document.getElementById("root")!).render(

@@ -17,6 +17,7 @@ import (
 	"github.com/task-board/ws-gateway/internal/blocklist"
 	"github.com/task-board/ws-gateway/internal/config"
 	"github.com/task-board/ws-gateway/internal/delivery"
+	"github.com/task-board/ws-gateway/internal/hydrate"
 	"github.com/task-board/ws-gateway/internal/fanout"
 	"github.com/task-board/ws-gateway/internal/hub"
 	"github.com/task-board/ws-gateway/internal/presence"
@@ -226,6 +227,13 @@ func main() {
 	dispatcher := delivery.New(cfg.MessagingBaseInternal, cfg.MessagingInternalToken, log)
 	safego.Go(log, "ws-gateway.delivery-dispatcher", func() { dispatcher.Run(rootCtx) })
 
+	// Replay hydrator: reconstructs full message.created content from the
+	// compact {eventId, messageId} reference the outbox may store instead of
+	// the full event (see internal/contract.TryCompact and
+	// docs/REDIS-REPLAY-RECORD-OPTIMIZATION.md). Same messaging-svc internal
+	// endpoint config the delivery-ack dispatcher above already uses.
+	hydrator := hydrate.New(cfg.MessagingBaseInternal, cfg.MessagingInternalToken, log)
+
 	// Blocked-pair check for call.invite (P0-A). Same messaging-svc internal
 	// endpoint config the delivery-ack dispatcher above already uses — no new
 	// configuration surface, just a second small client against it.
@@ -247,7 +255,7 @@ func main() {
 		MaxConnections:         cfg.MaxConnections,
 		MaxConnsPerUser:        cfg.MaxConnsPerUser,
 		WSGatewayInternalToken: cfg.WSGatewayInternalToken,
-	}, verifier, h, st, dispatcher, signalDispatcher, presenceBroadcaster, nodeID, log)
+	}, verifier, h, st, dispatcher, hydrator, signalDispatcher, presenceBroadcaster, nodeID, log)
 
 	// Wrap the root handler with otelhttp so every request becomes a server span
 	// and incoming W3C tracecontext is extracted. The /ws route HIJACKS the

@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Activity, ShieldCheck } from "lucide-react";
-import { Badge, Button, EmptyState, Spinner } from "@taskboard/ui";
+import { Badge, EmptyState, Spinner } from "@taskboard/ui";
 import type { TimelineEntry } from "@taskboard/shared";
 import { useRuntime } from "../../lib/runtime";
 import { qk } from "../../lib/queryBridge";
 import { Tabs, type TabSpec } from "../Tabs";
 import { actionLabel, dayHeading, formatDuration, sourceLabel } from "./activityLabels";
+import { LoadOlderFooter } from "./LoadOlderFooter";
 
 type Filter = "all" | "auth" | "engagement" | "navigation" | "security";
 
@@ -72,21 +73,20 @@ export function MemberTimeline({ userId }: { userId: string }) {
               </ol>
             </section>
           ))}
-          {hasNextPage ? (
-            <div className="pt-1 text-center">
-              <Button variant="ghost" size="sm" loading={isFetchingNextPage} onClick={() => fetchNextPage()}>
-                Load older
-              </Button>
-            </div>
-          ) : (
-            // The server floors this query at the visibility window, so paging
-            // simply runs out rather than reaching the end of the record. Say
-            // which of the two happened — a list that just stops looks like
-            // everything older is gone, and it is not.
+          <LoadOlderFooter
+            hasNextPage={hasNextPage}
+            isFetchingNextPage={isFetchingNextPage}
+            onLoadMore={() => fetchNextPage()}
+            className="pt-1 text-center"
+          >
+            {/* The server floors this query at the visibility window, so paging
+                simply runs out rather than reaching the end of the record. Say
+                which of the two happened — a list that just stops looks like
+                everything older is gone, and it is not. */}
             <p className="pt-2 text-center text-xs text-muted">
               Showing the last 7 days. Older activity is retained but not browsable here.
             </p>
-          )}
+          </LoadOlderFooter>
         </div>
       )}
     </div>

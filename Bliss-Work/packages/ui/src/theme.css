@@ -124,14 +124,14 @@
 }
 
 /* ── Named colour themes ──────────────────────────────────────────────────
-   Five theme families selectable from Settings → Theme (light ids only —
-   see themes.ts). "Blue" is the app's original palette (the bare
-   `:root`/`.dark` above) and needs no extra class; every other family,
-   including "Default" below, layers its own class on top of the light/dark
-   axis, so the dark variant still gets the `.dark` treatment everywhere else
-   in this file (brand-mesh, shadows) and just gets re-coloured. Every value
-   below comes straight off the theme's reference swatch — see themes.ts for
-   the class wiring and Settings' theme menu for where these are picked.
+   Six theme families selectable from Settings → Theme (light ids only — see
+   themes.ts). "Blue" is the app's original palette (the bare `:root`/`.dark`
+   above) and needs no extra class; every other family, including "Blue +
+   Purple" below, layers its own class on top of the light/dark axis, so the
+   dark variant still gets the `.dark` treatment everywhere else in this file
+   (brand-mesh, shadows) and just gets re-coloured. Every value below comes
+   straight off the theme's reference swatch — see themes.ts for the class
+   wiring and Settings' theme menu for where these are picked.
 
    success/danger/warning (and --color-unread, above) are deliberately NOT
    overridden per family: they're semantic (a task overdue is red regardless
@@ -141,62 +141,63 @@
    steps as Blue's base ramp, chroma capped to what's in-gamut for that hue —
    so Analytics visibly follows the selected theme. */
 
-/* Default — BlissWork's current/original branding: the soft white surface
-   with lavender-purple accents every user already sees today, kept as its
-   own family (rather than an alias of `.purple`) so it stays visually stable
-   as the app's fallback even if Purple's own values are tweaked later. Values
-   below are reused verbatim from `.purple`/`.dark.purple`, not invented. */
-.default {
+/* Blue + Purple — BlissWork's DEFAULT theme (see themes.ts's DEFAULT_THEME):
+   a genuine blend of the standalone Blue and Purple families rather than an
+   alias of either one — accent sits in the indigo/violet band between them,
+   and the brand gradient runs blue→purple, kept as its own family (not tied
+   to Purple's own values) so it stays visually stable even if Purple's
+   values are tweaked later. */
+.bluePurple {
   /* --color-bg/--color-surface-2/--color-border/--glass-bg/--glass-shadow are
      shared neutrals now — see @theme/:root above — so they are not
      redeclared per family here. Only the accent/brand tokens below vary. */
   --color-surface: #ffffff;
   --color-muted: #71717a;
   --color-fg: #18181b;
-  --color-accent: #7c3aed;
-  --color-accent-strong: #6d28d9;
+  --color-accent: #6366f1;
+  --color-accent-strong: #4f46e5;
   --color-accent-fg: #ffffff;
-  --color-accent-soft: #f5f3ff;
-  --color-brand-from: #c084fc;
-  --color-brand-to: #7c3aed;
-
-  --color-chart-ink: oklch(0.58 0.22 293);
-  --color-chart-context: oklch(0.72 0.02 293);
-  --color-chart-grid: oklch(0.93 0.01 293);
-  --color-heat-0: oklch(0.965 0.012 293);
-  --color-heat-1: oklch(0.9 0.051 293);
-  --color-heat-2: oklch(0.82 0.096 293);
-  --color-heat-3: oklch(0.72 0.155 293);
-  --color-heat-4: oklch(0.63 0.19 293);
-  --color-heat-5: oklch(0.52 0.22 293);
-}
-
-.dark.default {
-  --color-bg: #0d0717;
-  --color-surface: #181024;
-  --color-surface-2: #21172f;
-  --color-border: #3b245a;
-  --color-muted: #a1a1aa;
-  --color-fg: #fafafa;
-  --color-accent: #a855f7;
-  --color-accent-strong: #c084fc;
-  --color-accent-fg: #0d0717;
-  --color-accent-soft: #3b0764;
-  --color-brand-from: #c084fc;
+  --color-accent-soft: #eef2ff;
+  --color-brand-from: #3b82f6;
   --color-brand-to: #a855f7;
 
-  --color-chart-ink: oklch(0.66 0.216 304);
-  --color-chart-context: oklch(0.5 0.02 304);
-  --color-chart-grid: oklch(0.3 0.01 304);
-  --color-heat-0: oklch(0.24 0.012 304);
-  --color-heat-1: oklch(0.32 0.06 304);
-  --color-heat-2: oklch(0.42 0.11 304);
-  --color-heat-3: oklch(0.52 0.16 304);
-  --color-heat-4: oklch(0.62 0.19 304);
-  --color-heat-5: oklch(0.74 0.16 304);
+  --color-chart-ink: oklch(0.58 0.22 289);
+  --color-chart-context: oklch(0.72 0.02 289);
+  --color-chart-grid: oklch(0.93 0.01 289);
+  --color-heat-0: oklch(0.965 0.012 289);
+  --color-heat-1: oklch(0.9 0.051 289);
+  --color-heat-2: oklch(0.82 0.096 289);
+  --color-heat-3: oklch(0.72 0.155 289);
+  --color-heat-4: oklch(0.63 0.19 289);
+  --color-heat-5: oklch(0.52 0.22 289);
+}
 
-  --glass-bg: rgba(24, 16, 36, 0.6);
-  --glass-border: rgba(168, 85, 247, 0.1);
+.dark.bluePurple {
+  --color-bg: #0a0a1f;
+  --color-surface: #14132a;
+  --color-surface-2: #1c1a38;
+  --color-border: #2e2a5c;
+  --color-muted: #a1a1aa;
+  --color-fg: #f8fafc;
+  --color-accent: #818cf8;
+  --color-accent-strong: #a5b4fc;
+  --color-accent-fg: #0a0a1f;
+  --color-accent-soft: #312e81;
+  --color-brand-from: #60a5fa;
+  --color-brand-to: #c084fc;
+
+  --color-chart-ink: oklch(0.66 0.216 296);
+  --color-chart-context: oklch(0.5 0.02 296);
+  --color-chart-grid: oklch(0.3 0.01 296);
+  --color-heat-0: oklch(0.24 0.012 296);
+  --color-heat-1: oklch(0.32 0.06 296);
+  --color-heat-2: oklch(0.42 0.11 296);
+  --color-heat-3: oklch(0.52 0.16 296);
+  --color-heat-4: oklch(0.62 0.19 296);
+  --color-heat-5: oklch(0.74 0.16 296);
+
+  --glass-bg: rgba(20, 19, 42, 0.6);
+  --glass-border: rgba(129, 140, 248, 0.12);
   --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
 }
 
@@ -373,6 +374,60 @@
 
   --glass-bg: rgba(11, 32, 36, 0.6);
   --glass-border: rgba(6, 182, 212, 0.1);
+  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.lime {
+  /* --color-bg/--color-surface-2/--color-border/--glass-* are shared
+     neutrals now — see @theme/:root above — so they are not redeclared
+     per family here. Only the accent/brand tokens below vary. */
+  --color-surface: #ffffff;
+  --color-muted: #71717a;
+  --color-fg: #18181b;
+  --color-accent: #65a30d;
+  --color-accent-strong: #4d7c0f;
+  --color-accent-fg: #ffffff;
+  --color-accent-soft: #f7fee7;
+  --color-brand-from: #a3e635;
+  --color-brand-to: #65a30d;
+
+  --color-chart-ink: oklch(0.58 0.16 130);
+  --color-chart-context: oklch(0.72 0.02 130);
+  --color-chart-grid: oklch(0.93 0.01 130);
+  --color-heat-0: oklch(0.965 0.02 130);
+  --color-heat-1: oklch(0.9 0.08 130);
+  --color-heat-2: oklch(0.82 0.13 130);
+  --color-heat-3: oklch(0.72 0.16 130);
+  --color-heat-4: oklch(0.63 0.17 130);
+  --color-heat-5: oklch(0.52 0.17 130);
+}
+
+.dark.lime {
+  --color-bg: #080f04;
+  --color-surface: #101f13;
+  --color-surface-2: #16281a;
+  --color-border: #2c4a1f;
+  --color-muted: #a1a1aa;
+  --color-fg: #f7fee7;
+  --color-accent: #84cc16;
+  --color-accent-strong: #a3e635;
+  --color-accent-fg: #080f04;
+  --color-accent-soft: #1a2e05;
+  --color-brand-from: #bef264;
+  --color-brand-to: #65a30d;
+
+  --color-chart-ink: oklch(0.66 0.16 133);
+  --color-chart-context: oklch(0.5 0.02 133);
+  --color-chart-grid: oklch(0.3 0.01 133);
+  --color-heat-0: oklch(0.24 0.02 133);
+  --color-heat-1: oklch(0.32 0.07 133);
+  --color-heat-2: oklch(0.42 0.12 133);
+  --color-heat-3: oklch(0.52 0.15 133);
+  --color-heat-4: oklch(0.62 0.16 133);
+  --color-heat-5: oklch(0.74 0.17 133);
+
+  --glass-bg: rgba(16, 31, 19, 0.6);
+  --glass-border: rgba(132, 204, 22, 0.12);
   --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
 }
 

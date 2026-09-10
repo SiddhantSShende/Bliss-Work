@@ -54,14 +54,20 @@ func scanRawChannelRows(rows pgx.Rows) ([]rawChannelRow, error) {
 	return out, rows.Err()
 }
 
-// decryptChannelRow resolves the last-message preview (body_enc is the source of
-// truth; legacy plaintext is the fallback) and stamps the ISO timestamp. q must
-// be the RLS-scoped tx so the org_keys lookup is visible. iAmMember is set by
-// the caller (true for ListChannels, false for ListOpenChannels).
-func (s *Store) decryptChannelRow(ctx context.Context, q crypto.Querier, orgID string, rc rawChannelRow, iAmMember bool) (ChannelDTO, error) {
+// decryptChannelRowCached resolves the last-message preview (body_enc is the
+// source of truth; legacy plaintext is the fallback) and stamps the ISO
+// timestamp. Every DEK version the batch needs must already be warm (see
+// Cryptor.WarmVersions), and this never touches the database — see the "Batch
+// decrypt" section of internal/crypto/crypto.go for why. iAmMember is set by
+// the caller (true for ListChannels, false for ListOpenChannels). Used by
+// both since Phase 12 — the connection-hold problem Phase 11 fixed for
+// ListChannels turned out to affect ListOpenChannels too (proven, not
+// assumed — see ListOpenChannels' own comment), so both now decrypt after
+// their transaction commits rather than during it.
+func decryptChannelRowCached(cr *crypto.Cryptor, orgID string, rc rawChannelRow, iAmMember bool) (ChannelDTO, error) {
 	d := rc.d
 	if rc.lastEnc != nil {
-		dec, derr := s.crypto.Decrypt(ctx, q, orgID, rc.lastEnc)
+		dec, derr := cr.DecryptCached(orgID, rc.lastEnc)
 		if derr != nil {
 			return ChannelDTO{}, derr
 		}
@@ -86,9 +92,20 @@ func (s *Store) decryptChannelRow(ctx context.Context, q crypto.Querier, orgID s
 // ListChannels returns the channels the caller is a member of, with member count
 // and last-message preview, ordered by most recent activity. IsLocked is
 // surfaced so the UI can show a 🔒 next to invite-only channels.
+//
+// The query + row scan + DEK warm run inside one RLS-scoped tx; the decrypt
+// itself (CPU-bound, no DB access on a warm cache — see PeekVersion/
+// WarmVersions/DecryptCached) runs AFTER that tx commits and its pooled
+// connection is released. Phase 11 found ~260 goroutines piled up waiting on
+// pgxpool.Acquire under load: this endpoint's own connections were held open
+// through the AES-GCM/JSON work on top of the query, well past what the query
+// itself needed, against a pool deliberately capped at 10 (see store.go's
+// comment on the platform-wide connection budget) — not raised here.
 func (s *Store) ListChannels(ctx context.Context, orgID, callerID string) ([]ChannelDTO, error) {
-	out := []ChannelDTO{}
-	// RLS: channel listing + per-row last-message decrypt run under app.org_id.
+	var raws []rawChannelRow
+	// RLS: channel listing runs under app.org_id; so does the DEK warm-up
+	// below (org_keys is RLS-protected too), which is why it stays inside
+	// this same closure even though the query itself is already done.
 	err := s.withOrg(ctx, orgID, func(tx pgx.Tx) error {
 		// The member count is aggregated ONCE for the whole result, not once per
 		// row. It used to be a correlated subquery in the select list —
@@ -164,21 +181,31 @@ func (s *Store) ListChannels(ctx context.Context, orgID, callerID string) ([]Cha
 		if err != nil {
 			return err
 		}
-		raws, err := scanRawChannelRows(rows)
-		if err != nil {
-			return err
+		var scanErr error
+		raws, scanErr = scanRawChannelRows(rows)
+		if scanErr != nil {
+			return scanErr
 		}
+
+		versions := map[int]struct{}{}
 		for _, rc := range raws {
-			d, derr := s.decryptChannelRow(ctx, tx, orgID, rc, true)
-			if derr != nil {
-				return derr
+			if v, ok := s.crypto.PeekVersion(rc.lastEnc); ok {
+				versions[v] = struct{}{}
 			}
-			out = append(out, d)
 		}
-		return nil
+		return s.crypto.WarmVersions(ctx, tx, orgID, versions)
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	out := make([]ChannelDTO, 0, len(raws))
+	for _, rc := range raws {
+		d, derr := decryptChannelRowCached(s.crypto, orgID, rc, true)
+		if derr != nil {
+			return nil, derr
+		}
+		out = append(out, d)
 	}
 	return out, nil
 }

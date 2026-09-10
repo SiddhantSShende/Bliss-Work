@@ -28,6 +28,7 @@ export {
   themeName,
   isThemeId,
   defaultThemeFor,
+  darkCounterpart,
   ALL_THEME_CLASSES,
   type ThemeId,
   type ThemeDef,

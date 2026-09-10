@@ -14,7 +14,7 @@
  */
 import type { CallDTO } from "@taskboard/shared";
 import { timeLabel } from "../lib/meetingTime";
-import { bucketFor } from "../lib/meetingView";
+import { meetingBucketOrPast, meetingTitle } from "../lib/meetingView";
 import { isSameDay, occurrenceOf, occursOn, startOfMonth } from "../lib/meetingCalendar";
 
 /** Meetings listed in a cell before the rest become "+N more". Enough to see a
@@ -127,8 +127,8 @@ function DayCell({
 
       <div className="space-y-0.5">
         {shown.map((call) => {
-          const bucket = call.status === "CANCELLED" ? "past" : bucketFor(call);
-          const title = call.title.trim() || nameOf(call.createdBy) || "Untitled meeting";
+          const bucket = meetingBucketOrPast(call);
+          const title = meetingTitle(call, nameOf);
           return (
             <button
               key={call.id}

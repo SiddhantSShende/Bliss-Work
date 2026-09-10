@@ -11,9 +11,9 @@
  * they sync across devices.
  */
 import { useEffect, useState } from "react";
-import { Palette, MoreVertical, Check, Bell, BellOff, Info, RefreshCw, Eye, ShieldCheck, MonitorSmartphone } from "lucide-react";
+import { Palette, MoreVertical, Check, Bell, BellOff, Info, RefreshCw, Eye, ShieldCheck, MonitorSmartphone, Sun, Moon } from "lucide-react";
 import { toast } from "sonner";
-import { Button, PageHeader, useTheme, THEMES, themeClasses, themeName, type ThemeId } from "@taskboard/ui";
+import { Button, PageHeader, useTheme, THEMES, themeClasses, themeName, darkCounterpart, type ThemeId } from "@taskboard/ui";
 import { Link } from "react-router-dom";
 import { BUILD_SHA } from "../lib/buildInfo";
 import { useRuntime } from "../lib/runtime";
@@ -118,14 +118,20 @@ export function Settings() {
   );
 }
 
-/** 3-dot menu next to "Theme": pick one of the app's named themes. Each row's
- *  swatch is a live miniature rendered with that theme's own CSS classes, so
- *  it reads straight off theme.css instead of a colour list duplicated here. */
+/** 3-dot menu next to "Theme": pick Light/Dark appearance and one of the
+ *  app's six named accent themes. Each row's swatch is a live miniature
+ *  rendered with that theme's own CSS classes, so it reads straight off
+ *  theme.css instead of a colour list duplicated here. */
 function ThemeMenu() {
-  const { theme, setTheme } = useTheme();
+  const { theme, isDark, toggle, setTheme } = useTheme();
   const [open, setOpen] = useState(false);
   const close = () => setOpen(false);
   const wrap = usePopupDismiss<HTMLDivElement>(open, close);
+  // THEMES only lists each family's light id (see themes.ts), so comparing
+  // `theme` straight against `opt.id` would leave every row unchecked while
+  // in Dark mode. Reduce `theme` to its light-mode id first — the family the
+  // active theme belongs to, independent of which mode it's currently in.
+  const activeFamily = isDark ? darkCounterpart(theme) : theme;
 
   return (
     <div ref={wrap} className="relative">
@@ -146,21 +152,28 @@ function ThemeMenu() {
           aria-label="Theme"
           className="absolute right-0 z-[1000] mt-1.5 w-72 rounded-xl border border-border bg-surface p-1.5 shadow-card"
         >
+          <div className="flex gap-1 p-1">
+            <AppearanceOption icon={<Sun size={14} />} label="Light" active={!isDark} onClick={() => isDark && toggle()} />
+            <AppearanceOption icon={<Moon size={14} />} label="Dark" active={isDark} onClick={() => !isDark && toggle()} />
+          </div>
+          <div className="my-1 h-px bg-border/60" />
           {THEMES.map((opt) => (
             <button
               key={opt.id}
               type="button"
               role="menuitemradio"
-              aria-checked={opt.id === theme}
+              aria-checked={opt.id === activeFamily}
               onClick={() => {
-                setTheme(opt.id);
+                // Preserve the current Light/Dark choice — picking an accent
+                // here must not silently flip appearance back to Light.
+                setTheme(isDark ? darkCounterpart(opt.id) : opt.id);
                 close();
               }}
               className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-surface-2"
             >
               <ThemeSwatch themeId={opt.id} />
               <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg">{opt.name}</span>
-              {opt.id === theme && <Check size={16} className="shrink-0 text-accent" />}
+              {opt.id === activeFamily && <Check size={16} className="shrink-0 text-accent" />}
             </button>
           ))}
         </div>
@@ -169,9 +182,42 @@ function ThemeMenu() {
   );
 }
 
+/** Light/Dark segmented control — reuses ThemeProvider's own `toggle` (same
+ *  one Profile → Dark Mode calls) rather than a second appearance concept, so
+ *  the two entry points can never disagree about what "dark" means. */
+function AppearanceOption({
+  icon,
+  label,
+  active,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitemradio"
+      aria-checked={active}
+      onClick={onClick}
+      className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-medium transition-colors ${
+        active ? "bg-accent text-accent-fg" : "text-muted hover:bg-surface-2 hover:text-fg"
+      }`}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
 /** Miniature bg/sidebar/surface/accent preview for one theme, independent of
  *  whichever theme is currently active on <html> — it carries its own theme
- *  classes so the CSS variables it reads resolve to that theme's palette. */
+ *  classes so the CSS variables it reads resolve to that theme's palette.
+ *  The accent swatch is the family's brand-from→brand-to gradient rather
+ *  than a flat dot, so a blended family like Blue + Purple reads correctly
+ *  as a mix rather than a single flat colour. */
 function ThemeSwatch({ themeId }: { themeId: ThemeId }) {
   return (
     <span
@@ -180,7 +226,10 @@ function ThemeSwatch({ themeId }: { themeId: ThemeId }) {
     >
       <span className="h-full w-3 shrink-0" style={{ background: "var(--color-surface-2)" }} />
       <span className="flex flex-1 items-end justify-end p-1" style={{ background: "var(--color-surface)" }}>
-        <span className="h-2 w-2 rounded-full" style={{ background: "var(--color-accent)" }} />
+        <span
+          className="h-2 w-2 rounded-full"
+          style={{ background: "linear-gradient(135deg, var(--color-brand-from), var(--color-brand-to))" }}
+        />
       </span>
     </span>
   );

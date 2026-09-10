@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import text
 
@@ -66,37 +68,51 @@ async def _sticky_list(
             )
         ).all()
 
-        # Decrypt per row under the row's org_id (transparent at-rest encryption).
-        out: list[StickyTaskDTO] = []
+        # Collect every ciphertext this response needs (title, description,
+        # review per row) and warm the DEK version(s) they reference while the
+        # connection is still open — the only DB-touching step of decryption,
+        # and a no-op on the (normal) case of an already-warm per-org cache.
+        ciphertexts: list[bytes | None] = []
         for r in rows:
-            org = str(r.org_id)
-            review = (
-                await cryptor().decrypt(db, org, r.review_enc)
-                if r.review_enc is not None
-                else None
+            ciphertexts.extend([r.title_enc, r.description_enc, r.review_enc])
+        org = principal.org_id  # every row is org-scoped identically by the WHERE clause above
+        versions = {v for v in (cryptor().peek_version(b) for b in ciphertexts) if v is not None}
+        await cryptor().warm_dek_versions(db, org, versions)
+    # Connection released here (exited `async with`) BEFORE the CPU-bound
+    # decrypt runs. Previously this loop ran up to 100 sequential
+    # `await cryptor().decrypt()` calls inside the connection scope; on a warm
+    # cache those never actually suspend, so they blocked this process's
+    # single asyncio event loop — and held a scarce DB-pool connection idle —
+    # for the whole loop. One bounded `asyncio.to_thread` call replaces both:
+    # see crypto.py's decrypt_batch_cached for why this preserves exact
+    # decrypt() semantics (format, key selection, AAD, error type, encoding).
+    plaintexts = await asyncio.to_thread(cryptor().decrypt_batch_cached, org, ciphertexts)
+
+    out: list[StickyTaskDTO] = []
+    for i, r in enumerate(rows):
+        title, description, review = plaintexts[3 * i], plaintexts[3 * i + 1], plaintexts[3 * i + 2]
+        out.append(
+            StickyTaskDTO(
+                taskId=str(r.id),
+                orgId=str(r.org_id),
+                title=title or "",
+                description=description or "",
+                senderId=str(r.sender_id),
+                senderUsername=r.sender_username,
+                senderDisplayName=r.sender_display_name,
+                myStatus=r.status,
+                actions=actions_for(r.status),
+                statusVersion=r.status_version,
+                assignedAt=iso(r.assigned_at),
+                acknowledgedAt=iso(r.acknowledged_at),
+                completedAt=iso(r.completed_at),
+                ignoredAt=iso(r.ignored_at),
+                leftAt=iso(r.left_at),
+                reviewedAt=iso(r.reviewed_at),
+                review=review,
+                reviewRating=r.review_rating,
             )
-            out.append(
-                StickyTaskDTO(
-                    taskId=str(r.id),
-                    orgId=org,
-                    title=await cryptor().decrypt(db, org, r.title_enc) or "",
-                    description=await cryptor().decrypt(db, org, r.description_enc) or "",
-                    senderId=str(r.sender_id),
-                    senderUsername=r.sender_username,
-                    senderDisplayName=r.sender_display_name,
-                    myStatus=r.status,
-                    actions=actions_for(r.status),
-                    statusVersion=r.status_version,
-                    assignedAt=iso(r.assigned_at),
-                    acknowledgedAt=iso(r.acknowledged_at),
-                    completedAt=iso(r.completed_at),
-                    ignoredAt=iso(r.ignored_at),
-                    leftAt=iso(r.left_at),
-                    reviewedAt=iso(r.reviewed_at),
-                    review=review,
-                    reviewRating=r.review_rating,
-                )
-            )
+        )
     return out
 
 

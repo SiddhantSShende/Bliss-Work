@@ -97,7 +97,13 @@ function StateLine({ state }: { state: TransferState }) {
     );
   }
   if (state.kind === "TRANSFERRING") {
-    const pct = Math.min(100, Math.floor((state.progress.bytesDone / state.progress.bytesTotal) * 100));
+    // A 0-byte file has nothing to transfer — bytesTotal === 0 would divide
+    // to NaN and render "NaN%" with an invalid `width: NaN%` bar. Treat it as
+    // fully transferred instead of computing a ratio.
+    const pct =
+      state.progress.bytesTotal === 0
+        ? 100
+        : Math.min(100, Math.floor((state.progress.bytesDone / state.progress.bytesTotal) * 100));
     return (
       <div className="space-y-1">
         <div className="h-1.5 w-full overflow-hidden rounded-full bg-black/15">

@@ -28,6 +28,36 @@ export function localDay(d: Date): string {
 }
 
 /**
+ * Subtract N whole days from a date via `Date#setDate`, in local time — not
+ * by subtracting `days * 86_400_000` milliseconds, which silently drifts by
+ * an hour across a DST transition (a local calendar day isn't always exactly
+ * 24h). Every fixed-day named range (7d/30d/90d/week) is this same
+ * computation; it lives here once so it can't drift between screens.
+ */
+export function subtractDays(date: Date, days: number): Date {
+  const result = new Date(date);
+  result.setDate(result.getDate() - days);
+  return result;
+}
+
+/**
+ * Subtract whole months from a date without `Date#setMonth`'s day-rollover:
+ * called on a month-end date, `setMonth`/`setFullYear` can overflow into the
+ * following month when the target month is shorter (e.g. May 31 minus one
+ * month naively lands on May 1, not April 30 — April has only 30 days).
+ * Clamp the day to the target month's last valid day instead.
+ */
+export function subtractMonthsClamped(date: Date, months: number): Date {
+  const originalDay = date.getDate();
+  const result = new Date(date);
+  result.setDate(1); // park on a day that exists in every month while the month shifts
+  result.setMonth(result.getMonth() - months);
+  const daysInTargetMonth = new Date(result.getFullYear(), result.getMonth() + 1, 0).getDate();
+  result.setDate(Math.min(originalDay, daysInTargetMonth));
+  return result;
+}
+
+/**
  * The inverse of `localDay()`: turn a server-reported `YYYY-MM-DD` day bucket
  * back into a Date, anchored to LOCAL midnight rather than UTC midnight.
  *
@@ -60,7 +90,5 @@ export function computeRange(
     };
   }
   const days = range === "7d" ? 6 : range === "30d" ? 29 : 89;
-  const from = new Date(today);
-  from.setDate(from.getDate() - days);
-  return { from: localDay(from), to: localDay(today) };
+  return { from: localDay(subtractDays(today, days)), to: localDay(today) };
 }

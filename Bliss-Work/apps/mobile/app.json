@@ -1,12 +1,17 @@
 {
-  "name": "BlissWorkMobile",
-  "displayName": "BlissWorkMobile",
-  "extra": {
-    "eas": {
-      "projectId": "d93cbbcf-ef6c-48cc-8b6b-bc990373ebe2"
+  "expo": {
+    "name": "BlissWorkMobile",
+    "slug": "blissworkmobile",
+    "extra": {
+      "eas": {
+        "projectId": "d93cbbcf-ef6c-48cc-8b6b-bc990373ebe2"
+      }
+    },
+    "android": {
+      "package": "com.mayank2109.blissworkmobile"
+    },
+    "ios": {
+      "bundleIdentifier": "com.mayank2109.blissworkmobile"
     }
-  },
-  "android": {
-    "package": "com.mayank2109.blissworkmobile"
   }
 }

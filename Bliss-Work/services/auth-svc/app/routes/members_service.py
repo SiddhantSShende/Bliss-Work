@@ -24,6 +24,7 @@ from .. import service
 from crypto import cryptor
 from ..events.outbox import TOPIC_AUTH, build_event, enqueue_event
 from ..schemas import MemberDTO
+from . import session_events
 from .invites_service import iso_z
 
 
@@ -195,7 +196,16 @@ async def load_members_for_org(
     ]
 
 
-async def change_role_tx(conn: AsyncConnection, principal, user_id: str, role: str) -> MemberDTO:
+async def change_role_tx(
+    conn: AsyncConnection,
+    principal,
+    user_id: str,
+    role: str,
+    *,
+    ip: str | None = None,
+    user_agent: str | None = None,
+    request_id: str | None = None,
+) -> MemberDTO:
     await _lock_org_admins(conn, principal.org_id)
     await require_live_admin(conn, principal)
     member = await load_member(conn, principal.org_id, user_id)
@@ -234,13 +244,16 @@ async def change_role_tx(conn: AsyncConnection, principal, user_id: str, role: s
     await _emit(
         conn, principal.org_id, principal.user_id, "user.role_changed", user_id, roles=[role]
     )
+    meta = session_events.context_meta(ip=ip, user_agent=user_agent, request_id=request_id)
+    meta["from"] = sorted(current)
+    meta["to"] = role
     await service.write_audit(
         conn,
         org_id=principal.org_id,
         actor_id=principal.user_id,
         action="member.role_changed",
         target=user_id,
-        meta={"from": sorted(current), "to": role},
+        meta=meta,
     )
     return await load_member(conn, principal.org_id, user_id)
 
@@ -296,7 +309,14 @@ async def _apply_status(
 
 
 async def set_status_tx(
-    conn: AsyncConnection, principal, user_id: str, new_status: str
+    conn: AsyncConnection,
+    principal,
+    user_id: str,
+    new_status: str,
+    *,
+    ip: str | None = None,
+    user_agent: str | None = None,
+    request_id: str | None = None,
 ) -> MemberDTO:
     """Suspend, reactivate, or remove. All three are the same shape: flip
     `users.status`, kill every live session, emit, audit."""
@@ -322,19 +342,30 @@ async def set_status_tx(
         "active": ("user.reactivated", "member.reactivated"),
     }[new_status]
     await _emit(conn, principal.org_id, principal.user_id, event, user_id)
+    meta = session_events.context_meta(ip=ip, user_agent=user_agent, request_id=request_id)
+    meta["from"] = member.status
+    meta["to"] = new_status
     await service.write_audit(
         conn,
         org_id=principal.org_id,
         actor_id=principal.user_id,
         action=action,
         target=user_id,
-        meta={"from": member.status, "to": new_status},
+        meta=meta,
     )
     await _note_if_orphaned(conn, principal.org_id, principal.user_id)
     return await load_member(conn, principal.org_id, user_id)
 
 
-async def leave_org_tx(conn: AsyncConnection, identity_id: str, org_id: str) -> str:
+async def leave_org_tx(
+    conn: AsyncConnection,
+    identity_id: str,
+    org_id: str,
+    *,
+    ip: str | None = None,
+    user_agent: str | None = None,
+    request_id: str | None = None,
+) -> str:
     """Give up the caller's OWN membership in `org_id`, returning the users row
     that was left. The self-service twin of `set_status_tx(..., "removed")`.
 
@@ -382,13 +413,16 @@ async def leave_org_tx(conn: AsyncConnection, identity_id: str, org_id: str) -> 
     # this IS a removal, and a second event type would mean teaching each one to
     # treat the two identically.
     await _emit(conn, org_id, user_id, "user.removed", user_id)
+    meta = session_events.context_meta(ip=ip, user_agent=user_agent, request_id=request_id)
+    meta["from"] = "active"
+    meta["to"] = "removed"
     await service.write_audit(
         conn,
         org_id=org_id,
         actor_id=user_id,
         action="member.left",
         target=user_id,
-        meta={"from": "active", "to": "removed"},
+        meta=meta,
     )
     await _note_if_orphaned(conn, org_id, user_id)
     return user_id

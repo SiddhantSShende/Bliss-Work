@@ -141,7 +141,7 @@ func (c *Consumer) handle(ctx context.Context, raw []byte) {
 		return
 	}
 
-	score := epochMs(ev.OccurredAt)
+	score := contract.EpochMs(ev.OccurredAt)
 	metrics.FanoutRecipientsTotal.Add(float64(len(recipients)))
 
 	// Recipients are resolved; the routing metadata has done its job. Strip it
@@ -149,9 +149,14 @@ func (c *Consumer) handle(ctx context.Context, raw []byte) {
 	// this is precisely the multiplication that made channel fan-out quadratic
 	// in roster size. See contract.DeliveryPayload.
 	payload := contract.DeliveryPayload(raw)
+	// The outbox may store a smaller reference instead (message.created only —
+	// see contract.TryCompact); LIVE delivery below always uses the full
+	// `payload`, never the outbox copy, since a socket has no reconstruction
+	// step.
+	outboxPayload := contract.TryCompact(&ev, payload)
 
 	for _, uid := range recipients {
-		err := c.store.AppendOutbox(ctx, uid, score, payload)
+		err := c.store.AppendOutbox(ctx, uid, score, outboxPayload)
 		metrics.FanoutOutboxWritesTotal.WithLabelValues(metrics.Result(err)).Inc()
 		if err != nil {
 			c.log.Error("append outbox failed", "user", uid, "err", err)
@@ -171,17 +176,4 @@ func (c *Consumer) handle(ctx context.Context, raw []byte) {
 		}
 		c.log.Debug("fanout: delivered", "type", ev.Type, "user", uid, "live", live)
 	}
-}
-
-// epochMs converts an ISO-8601 UTC timestamp to epoch milliseconds. On parse
-// failure it falls back to the current time so the event still has a sane score.
-func epochMs(occurredAt string) int64 {
-	if occurredAt == "" {
-		return time.Now().UTC().UnixMilli()
-	}
-	t, err := time.Parse(time.RFC3339Nano, occurredAt)
-	if err != nil {
-		return time.Now().UTC().UnixMilli()
-	}
-	return t.UTC().UnixMilli()
 }

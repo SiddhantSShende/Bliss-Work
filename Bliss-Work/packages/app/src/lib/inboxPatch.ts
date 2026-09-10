@@ -63,18 +63,30 @@ export function patchInboxOnMessage(qc: QueryClient, e: MessageCreated, meId: st
       deletedForOwner: false,
     };
 
-    // Replace or prepend, keeping the rest of page 1 (drop the worst row).
+    // Remove the thread's existing row wherever it currently lives (any page,
+    // not just page 0), then prepend the fresh one — this is correct no matter
+    // which page the row was on before.
     const filtered = flat.filter(
       (it) => !(it.itemKind === "THREAD" && it.refId === threadId),
     );
-    const pageOne = [next, ...filtered].slice(0, page0.items.length);
-    return {
-      ...prev,
-      pages: [
-        { ...page0, items: pageOne },
-        ...prev.pages.slice(1),
-      ],
-    };
+    const reordered = [next, ...filtered];
+
+    // Re-chunk back into pages of their ORIGINAL sizes so pagination
+    // boundaries (and the pageParams cursors that index them) stay valid —
+    // only the content shifts. This also reproduces the old "drop the worst
+    // row" behavior for a genuinely new thread (reordered can be one longer
+    // than flat), but now the dropped row is always the true last item across
+    // every loaded page, never a still-visible one, and the hoisted thread is
+    // never left behind on its old page.
+    let cursor = 0;
+    const pages = prev.pages.map((p) => {
+      const size = p.items.length;
+      const items = reordered.slice(cursor, cursor + size);
+      cursor += size;
+      return { ...p, items };
+    });
+
+    return { ...prev, pages };
   });
 }
 

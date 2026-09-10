@@ -67,7 +67,7 @@ export function buildTranscript(
 }
 
 /** `blisswork-general-2026-08-20.txt`. */
-export function transcriptFilename(title: string, now: Date): string {
+function transcriptFilename(title: string, now: Date): string {
   const slug =
     title
       .toLowerCase()

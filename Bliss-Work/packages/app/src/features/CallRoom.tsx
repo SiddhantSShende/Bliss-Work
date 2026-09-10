@@ -706,8 +706,10 @@ export function CallRoom({
   const exportChat = () => {
     const nameOf = (id: string) =>
       participants.find((p) => p.identity === id)?.name ?? id;
+    // Same privacy filter as the on-screen panel (visibleChat, below) — the
+    // exported transcript must not contain anything the viewer isn't party to.
     downloadBlob(
-      new Blob([chatToText(title, chat, nameOf)], { type: "text/plain;charset=utf-8" }),
+      new Blob([chatToText(title, visibleChat, nameOf)], { type: "text/plain;charset=utf-8" }),
       chatFilename(title),
     );
   };

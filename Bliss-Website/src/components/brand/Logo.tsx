@@ -1,6 +1,18 @@
 import { useId } from "react";
 import { cn } from "@/lib/cn";
 
+/**
+ * ⚠️ KEEP IN SYNC with Bliss-Work/packages/ui/src/components/Logo.tsx — same
+ * viewBox, path data, and gradient defs (only the `cn` import path differs).
+ * Same git repo (not separate repos, no submodules), but Bliss-Website is a
+ * standalone deployable with its own package.json/lockfile, intentionally not
+ * part of Bliss-Work's npm workspace (see vite.config.ts), and that package's
+ * index.ts also pulls in an unrelated design system (Button, Card, charts,
+ * ThemeProvider, …) — too much coupling to import just for a logo. Any change
+ * here must be mirrored there, or vice versa — grep for `Logo.tsx` in the
+ * other tree before editing.
+ */
+
 /** BlissWork mark: a "B" monogram with a chat bubble + three dots in the lower lobe. */
 export function Logo({ size = 32, className }: { size?: number; className?: string }) {
   const id = useId().replace(/:/g, "");

@@ -122,11 +122,26 @@ func isBlocked(ctx context.Context, tx pgx.Tx, channelID, userID string) (bool, 
 	return blocked, err
 }
 
-// ChannelRoster lists the members of a channel with their roles, plus anyone
-// blocked from it. Callers must be a member, or an org_admin.
+// ChannelRoster lists one page of the channel's members with their roles,
+// plus one page of anyone blocked from it. Callers must be a member, or an
+// org_admin.
+//
+// PAGED via limit/offset — clampChannelPage/clampOffset, the same convention
+// ListOpenChannels uses (channels_membership.go) — applied INDEPENDENTLY to
+// the members list and the blocked list: they are two different populations
+// sharing one response for UI convenience, not one ordered sequence, so
+// there is no single cursor that means the same thing for both. Before this,
+// neither query had a LIMIT at all — inconsistent with every other listing in
+// this package, and an org-wide channel or a heavily-moderated one could
+// return an unbounded number of rows in one response. limit/offset are
+// clamped again here, not only at the HTTP layer, because the ceiling has to
+// hold for every caller and not just the one that came through a URL — same
+// rule ListOpenChannels' doc comment gives.
 func (s *Store) ChannelRoster(
-	ctx context.Context, orgID, channelID, callerID string, claimRoles []string,
+	ctx context.Context, orgID, channelID, callerID string, claimRoles []string, limit, offset int,
 ) ([]ChannelMember, error) {
+	limit = clampChannelPage(limit)
+	offset = clampOffset(offset)
 	var out []ChannelMember
 	err := RetryOnSerializationFailure(ctx, 3, func(ctx context.Context) error {
 		tx, err := s.pool.Begin(ctx)
@@ -149,8 +164,9 @@ func (s *Store) ChannelRoster(
 		rows, err := tx.Query(ctx,
 			`SELECT user_id, role, joined_at FROM channel_members
 			  WHERE channel_id = $1 ORDER BY
-			    CASE role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, joined_at`,
-			channelID)
+			    CASE role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, joined_at
+			  LIMIT $2 OFFSET $3`,
+			channelID, limit, offset)
 		if err != nil {
 			return err
 		}
@@ -172,8 +188,13 @@ func (s *Store) ChannelRoster(
 
 		// Blocked users are listed too — they are not members, but an admin looking
 		// at the roster needs to see who has been barred in order to unblock them.
+		// Ordered explicitly (created_at, user_id) so paging is stable rather than
+		// left to whatever order the planner happens to scan rows in.
 		brows, err := tx.Query(ctx,
-			`SELECT user_id FROM channel_blocks WHERE channel_id = $1`, channelID)
+			`SELECT user_id FROM channel_blocks WHERE channel_id = $1
+			  ORDER BY created_at, user_id
+			  LIMIT $2 OFFSET $3`,
+			channelID, limit, offset)
 		if err != nil {
 			return err
 		}

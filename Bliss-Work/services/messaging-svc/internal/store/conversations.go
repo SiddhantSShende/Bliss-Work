@@ -237,14 +237,29 @@ func (s *Store) Unblock(ctx context.Context, orgID, callerID, peerID string) err
 
 // ── Reads ─────────────────────────────────────────────────────────────────────
 
+// rawConv holds one conversation-list row's columns before the last-message
+// preview is decrypted — see ListConversations.
+type rawConv struct {
+	d            ConversationDTO
+	lastMsg      *string
+	lastEnc      []byte
+	lastAt       *time.Time
+	cleared      bool
+	lastSenderID *string
+}
+
 // ListConversations returns the caller's visible conversations, newest activity first.
 //
 // RLS: runs inside withOrg so app.org_id is set for both the SELECT and the
-// per-row Decrypt (org_keys is RLS-protected too). Rows are buffered raw and
-// decrypted AFTER the cursor is closed — issuing the Decrypt query on the tx
-// while rows.Next() is still iterating would error with "conn busy".
+// DEK warm-up below (org_keys is RLS-protected too). Rows are buffered raw
+// and decrypted AFTER the tx commits and its pooled connection is released —
+// Phase 11 found this endpoint holding a connection through the per-row
+// AES-GCM/JSON work on top of the query, well past what the query itself
+// needed, against a pool deliberately capped at 10 (see store.go's comment
+// on the platform-wide connection budget, not raised here). See
+// PeekVersion/WarmVersions/DecryptCached in internal/crypto/crypto.go.
 func (s *Store) ListConversations(ctx context.Context, orgID, callerID string) ([]ConversationDTO, error) {
-	out := []ConversationDTO{}
+	var raws []rawConv
 	err := s.withOrg(ctx, orgID, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT
@@ -311,17 +326,8 @@ func (s *Store) ListConversations(ctx context.Context, orgID, callerID string) (
 			return err
 		}
 
-		// Buffer raw rows so the cursor is fully drained before we run any
-		// Decrypt query on the same tx.
-		type rawConv struct {
-			d            ConversationDTO
-			lastMsg      *string
-			lastEnc      []byte
-			lastAt       *time.Time
-			cleared      bool
-			lastSenderID *string
-		}
-		var raws []rawConv
+		// Buffer raw rows so the cursor is fully drained before the DEK warm-up
+		// query below runs on the same tx.
 		for rows.Next() {
 			var rc rawConv
 			if err := rows.Scan(&rc.d.ID, &rc.d.PeerID, &rc.d.PeerUsername, &rc.d.PeerDisplayName,
@@ -337,32 +343,40 @@ func (s *Store) ListConversations(ctx context.Context, orgID, callerID string) (
 			return err
 		}
 
+		versions := map[int]struct{}{}
 		for _, rc := range raws {
-			d := rc.d
-			d.Cleared = rc.cleared
-			if rc.lastSenderID != nil {
-				d.LastMessageSenderID = *rc.lastSenderID
+			if v, ok := s.crypto.PeekVersion(rc.lastEnc); ok {
+				versions[v] = struct{}{}
 			}
-			// Decrypt the single last-message preview; legacy plaintext is fallback.
-			if rc.lastEnc != nil {
-				dec, derr := s.crypto.Decrypt(ctx, tx, orgID, rc.lastEnc)
-				if derr != nil {
-					return derr
-				}
-				d.LastMessage = &dec
-			} else {
-				d.LastMessage = rc.lastMsg
-			}
-			if rc.lastAt != nil {
-				iso := rc.lastAt.UTC().Format("2006-01-02T15:04:05.000Z")
-				d.LastMessageAt = &iso
-			}
-			out = append(out, d)
 		}
-		return nil
+		return s.crypto.WarmVersions(ctx, tx, orgID, versions)
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	out := make([]ConversationDTO, 0, len(raws))
+	for _, rc := range raws {
+		d := rc.d
+		d.Cleared = rc.cleared
+		if rc.lastSenderID != nil {
+			d.LastMessageSenderID = *rc.lastSenderID
+		}
+		// Decrypt the single last-message preview; legacy plaintext is fallback.
+		if rc.lastEnc != nil {
+			dec, derr := s.crypto.DecryptCached(orgID, rc.lastEnc)
+			if derr != nil {
+				return nil, derr
+			}
+			d.LastMessage = &dec
+		} else {
+			d.LastMessage = rc.lastMsg
+		}
+		if rc.lastAt != nil {
+			iso := rc.lastAt.UTC().Format("2006-01-02T15:04:05.000Z")
+			d.LastMessageAt = &iso
+		}
+		out = append(out, d)
 	}
 	return out, nil
 }

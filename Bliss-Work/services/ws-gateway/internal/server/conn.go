@@ -568,6 +568,13 @@ func (s *Server) onHello(ctx context.Context, conn *hub.Conn, sess *session, las
 		s.log.Error("replay failed", "user", sess.claims.Load().UserID, "err", err)
 		return
 	}
+	// Some entries may be compact {eventId, messageId} references rather than
+	// full events (message.created only — see contract.TryCompact). Resolve
+	// them to full JSON here, server-side, so the client never sees the
+	// compact form — its wire contract is unchanged either way.
+	if s.hydrator != nil {
+		events = s.hydrator.Hydrate(ctx, events)
+	}
 	for _, raw := range events {
 		if !deliverCtx(ctx, conn, raw) {
 			return

@@ -118,9 +118,9 @@ jobs:
       # (which fails hard on the same conditions); this repo cannot fix a missing
       # or placeholder .dmg, so a content change to the marketing site must not
       # be held hostage to one. Read the annotation — it is not noise.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         if: env.VPS_HOST != ''
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         if: env.VPS_HOST != ''
         with:
           node-version: 20

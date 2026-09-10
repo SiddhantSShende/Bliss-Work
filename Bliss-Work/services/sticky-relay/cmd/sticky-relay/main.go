@@ -7,8 +7,9 @@
 // was ever confirmed delivered; this service turns "open, and nobody ever
 // confirmed seeing it" into a nudge telling that user's clients to re-fetch.
 //
-// It holds no database and no state. Every decision is in internal/sweep, which
-// is pure and table-tested; this file is the loop, the wiring and the shutdown.
+// It holds no database and no state. Every decision is in internal/sweep,
+// kept pure and covered by table tests (sweep_test.go); this file is the
+// loop, the wiring and the shutdown.
 //
 // Runs as a SINGLE replica, unlike the request-serving services. There is no
 // throughput reason for a second sweeper, and while the claim in sticky-svc
@@ -24,6 +25,7 @@ import (
 	"syscall"
 	"time"
 
+	kafkaauth "github.com/task-board/shared-kafkaauth"
 	"github.com/task-board/sticky-relay/internal/config"
 	"github.com/task-board/sticky-relay/internal/emit"
 	"github.com/task-board/sticky-relay/internal/pins"
@@ -31,12 +33,28 @@ import (
 )
 
 func main() {
-	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	cfg, err := config.Load()
+
+	level := slog.LevelInfo
+	if err == nil {
+		if lvlErr := level.UnmarshalText([]byte(cfg.LogLevel)); lvlErr != nil {
+			level = slog.LevelInfo
+		}
+	}
+	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
 	slog.SetDefault(log)
 
-	cfg, err := config.Load()
 	if err != nil {
 		log.Error("config error", "error", err)
+		os.Exit(1)
+	}
+
+	// Kafka connection security, resolved once and checked BEFORE any client is
+	// built — same gate the other Kafka-producing services apply before their
+	// own Kafka clients. A protocol that names SASL with no credentials must
+	// fail loudly here, not silently degrade to an unauthenticated transport.
+	if err := kafkaauth.Validate(); err != nil {
+		log.Error("kafka security config invalid", "error", err)
 		os.Exit(1)
 	}
 

@@ -1,11 +1,12 @@
 """Shared body of every `org.deleted` consumer: delete one org's rows from a
 fixed list of that service's own tables.
 
-Three services (integrations-svc, telemetry-svc, task-svc) each react to
-auth-svc's org-deletion job by wiping their own org-scoped tables, and until
-now each carried its own copy of the same loop — bypass RLS, `DELETE FROM
-{table} WHERE org_id = :org` per table, log what was actually removed. Only
-the table list differs per service, so that is the one thing callers supply.
+Four services (integrations-svc, telemetry-svc, task-svc, sticky-svc) each
+react to auth-svc's org-deletion job by wiping their own org-scoped tables,
+and until now each carried its own copy of the same loop — bypass RLS,
+`DELETE FROM {table} WHERE org_id = :org` per table, log what was actually
+removed. Only the table list differs per service, so that is the one thing
+callers supply.
 """
 
 from __future__ import annotations

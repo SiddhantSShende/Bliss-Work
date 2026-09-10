@@ -91,7 +91,12 @@ export const PLATFORMS: Record<PlatformId, Platform> = {
 
 export const PLATFORM_ORDER: PlatformId[] = ["windows", "mac", "linux"];
 
-/** Best-effort detection of the visitor's OS to pre-highlight a platform. */
+/** Best-effort detection of the visitor's OS to pre-highlight a platform.
+ *  Returns null on iOS/Android too (checked first, before the "mac"/"linux"
+ *  substring matches those UAs also contain) — there is no mobile app, so
+ *  mislabeling an iPhone/Android visitor's "Detected" badge as mac/linux
+ *  would be wrong, not just imprecise. Mirrors Bliss-Website's copy of this
+ *  function — see this file's "KEEP IN SYNC" header comment. */
 export function detectPlatform(): PlatformId | null {
   if (typeof navigator === "undefined") return null;
   const ua = (
@@ -100,8 +105,9 @@ export function detectPlatform(): PlatformId | null {
     navigator.platform ||
     ""
   ).toLowerCase();
+  if (ua.includes("iphone") || ua.includes("ipad") || ua.includes("android")) return null;
   if (ua.includes("win")) return "windows";
-  if (ua.includes("mac") || ua.includes("iphone") || ua.includes("ipad")) return "mac";
-  if (ua.includes("linux") || ua.includes("android") || ua.includes("x11")) return "linux";
+  if (ua.includes("mac")) return "mac";
+  if (ua.includes("linux") || ua.includes("x11")) return "linux";
   return null;
 }

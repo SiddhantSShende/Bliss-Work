@@ -269,8 +269,12 @@ export class CallSession {
   }
 
   /** Run a signaling step after all earlier ones finish, and never on a closed
-   *  session. One step throwing must not wedge the queue for the rest. */
-  private enqueue(fn: () => Promise<void>): Promise<void> {
+   *  session. One step throwing must not wedge the queue for the rest.
+   *  Returns `undefined` (instead of running `fn`) if the session had already
+   *  closed by the time its turn came up — callers whose own return type
+   *  cannot naturally carry that (setCam, startShare) translate it back into
+   *  their own "did nothing" result. */
+  private enqueue<T>(fn: () => Promise<T>): Promise<T | undefined> {
     const next = this.ops.then(() => (this.closed ? undefined : fn()));
     this.ops = next.catch(() => undefined);
     return next;
@@ -376,29 +380,37 @@ export class CallSession {
    * instead of a still frame of whatever the camera saw last.
    */
   async setCam(on?: boolean): Promise<boolean> {
-    if (!this.local) return false;
-    const want = on ?? !this.camWanted;
-    let track = this.local.getVideoTracks()[0];
-    if (want && !track) {
-      const extra = await navigator.mediaDevices.getUserMedia({ video: true });
-      // Same race as acquire(): the call can end while this permission prompt
-      // is still open. A track landing after close() has nothing left to stop
-      // it, so it must be stopped here instead of added to the (torn-down) call.
-      if (this.closed) {
-        extra.getTracks().forEach((t) => t.stop());
-        return false;
+    // Queued like every other signaling step (see enqueue): without this, two
+    // rapid toggles both see "no track yet" and both call getUserMedia(),
+    // leaving two live camera captures running until close() stops them.
+    const result = await this.enqueue(async () => {
+      if (!this.local) return false;
+      const want = on ?? !this.camWanted;
+      let track = this.local.getVideoTracks()[0];
+      if (want && !track) {
+        const extra = await navigator.mediaDevices.getUserMedia({ video: true });
+        // Same race as acquire(): the call can end while this permission prompt
+        // is still open. A track landing after close() has nothing left to stop
+        // it, so it must be stopped here instead of added to the (torn-down) call.
+        if (this.closed) {
+          extra.getTracks().forEach((t) => t.stop());
+          return false;
+        }
+        track = extra.getVideoTracks()[0];
+        if (!track) return false;
+        this.local.addTrack(track);
       }
-      track = extra.getVideoTracks()[0];
-      if (!track) return false;
-      this.local.addTrack(track);
-    }
-    if (track) track.enabled = want;
-    this.camWanted = want;
-    // A live share owns the sender; the camera takes its place again when the
-    // share stops (see stopShare).
-    if (!this.screen) await this.videoTx?.sender.replaceTrack(want ? (track ?? null) : null);
-    this.announce();
-    return want;
+      if (track) track.enabled = want;
+      this.camWanted = want;
+      // A live share owns the sender; the camera takes its place again when the
+      // share stops (see stopShare).
+      if (!this.screen) await this.videoTx?.sender.replaceTrack(want ? (track ?? null) : null);
+      this.announce();
+      return want;
+    });
+    // undefined means the session closed before this step's turn came up —
+    // there is nothing to report on, so "camera is off" is the honest answer.
+    return result ?? false;
   }
 
   /**
@@ -410,44 +422,59 @@ export class CallSession {
    * POST /calls/{id}/share without translating it.
    */
   async startShare(): Promise<string> {
-    if (!this.videoTx) throw new Error("call has no video slot");
-    const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
-    // Same race as acquire(): the call (or the share) can end while the
-    // picker is still open. A stream landing after close() has nothing left
-    // to stop it, so it must be stopped here rather than wired into the
-    // (torn-down) call.
-    if (this.closed) {
-      stream.getTracks().forEach((t) => t.stop());
-      throw new Error("call ended");
-    }
-    const track = stream.getVideoTracks()[0];
-    if (!track) {
-      stream.getTracks().forEach((t) => t.stop());
-      throw new Error("no screen track");
-    }
-    this.screen?.getTracks().forEach((t) => t.stop());
-    this.screen = stream;
-    await this.videoTx.sender.replaceTrack(track);
-    // Chrome's own "Stop sharing" bar is not our button, but it ends the share
-    // all the same. Without this the app would keep claiming to share a screen
-    // that stopped, and would never put the camera back.
-    track.addEventListener("ended", () => {
-      void this.stopShare().then(() => this.o.onShareEnded?.());
+    // Queued like every other signaling step (see enqueue and setCam above):
+    // without this, a share started the instant setCam is also mid-flight
+    // could interleave their replaceTrack() calls on the same sender.
+    const result = await this.enqueue(async () => {
+      if (!this.videoTx) throw new Error("call has no video slot");
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+      // Same race as acquire(): the call (or the share) can end while the
+      // picker is still open. A stream landing after close() has nothing left
+      // to stop it, so it must be stopped here rather than wired into the
+      // (torn-down) call.
+      if (this.closed) {
+        stream.getTracks().forEach((t) => t.stop());
+        throw new Error("call ended");
+      }
+      const track = stream.getVideoTracks()[0];
+      if (!track) {
+        stream.getTracks().forEach((t) => t.stop());
+        throw new Error("no screen track");
+      }
+      this.screen?.getTracks().forEach((t) => t.stop());
+      this.screen = stream;
+      await this.videoTx.sender.replaceTrack(track);
+      // Chrome's own "Stop sharing" bar is not our button, but it ends the share
+      // all the same. Without this the app would keep claiming to share a screen
+      // that stopped, and would never put the camera back.
+      track.addEventListener("ended", () => {
+        void this.stopShare().then(() => this.o.onShareEnded?.());
+      });
+      this.announce();
+      const settings = track.getSettings() as MediaTrackSettings & { displaySurface?: string };
+      return settings.displaySurface ?? "monitor";
     });
-    this.announce();
-    const settings = track.getSettings() as MediaTrackSettings & { displaySurface?: string };
-    return settings.displaySurface ?? "monitor";
+    // undefined means the session closed before this step's turn came up.
+    if (result === undefined) throw new Error("call ended");
+    return result;
   }
 
   /** Stop sharing and give the video slot back to the camera, if the user had
-   *  it on. Safe to call when nothing is being shared. */
+   *  it on. Safe to call when nothing is being shared.
+   *
+   *  Queued like every other signaling step (see enqueue and setCam/startShare
+   *  above): without this, a camera toggle and a share stop racing each other —
+   *  including the browser's own "Stop sharing" UI firing mid-toggle — could
+   *  interleave their replaceTrack() calls on the same sender. */
   async stopShare(): Promise<void> {
-    if (!this.screen) return;
-    this.screen.getTracks().forEach((t) => t.stop());
-    this.screen = undefined;
-    const cam = this.local?.getVideoTracks()[0] ?? null;
-    await this.videoTx?.sender.replaceTrack(this.camWanted ? cam : null);
-    this.announce();
+    await this.enqueue(async () => {
+      if (!this.screen) return;
+      this.screen.getTracks().forEach((t) => t.stop());
+      this.screen = undefined;
+      const cam = this.local?.getVideoTracks()[0] ?? null;
+      await this.videoTx?.sender.replaceTrack(this.camWanted ? cam : null);
+      this.announce();
+    });
   }
 
   close(reason = "ended"): void {
