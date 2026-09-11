@@ -75,6 +75,33 @@ for m in "${manifests[@]}"; do
   printf '  ✓ %-40s %s\n' "$(basename "$m")" "$(grep '^version:' "$m")"
 done
 
+# ── Refuse a downgrade ───────────────────────────────────────────────────────
+# scripts/next-desktop-version.mjs derives "the next version" purely by
+# scanning whatever latest*.yml files are CURRENTLY in $DEST — so if that
+# directory's history is ever lost (wrong path, a wiped disk, a stray `rm`),
+# the very next publish silently resets to 0.1.1 and overwrites a much newer
+# live version. electron-updater then refuses to offer that "update" to
+# anyone already running the higher version, permanently freezing them until
+# a manual reinstall. That happened for real on 2026-09-08 — check the new
+# version against what's actually live before touching anything.
+extract_version() {
+  grep '^version:' "$1" | head -1 | sed -E "s/version:[[:space:]]*['\"]?([0-9]+\.[0-9]+\.[0-9]+).*/\1/"
+}
+for m in "${manifests[@]}"; do
+  name=$(basename "$m")
+  live="$DEST/$name"
+  [ -f "$live" ] || continue
+  new_ver=$(extract_version "$m")
+  live_ver=$(extract_version "$live")
+  [ -n "$new_ver" ] && [ -n "$live_ver" ] || continue
+  highest=$(printf '%s\n%s\n' "$new_ver" "$live_ver" | sort -V | tail -1)
+  if [ "$highest" = "$live_ver" ] && [ "$new_ver" != "$live_ver" ]; then
+    echo "  ✗ $name would downgrade the live feed $live_ver -> $new_ver — refusing to publish" >&2
+    echo "    If this is intentional, pass DESKTOP_VERSION explicitly above $live_ver." >&2
+    exit 1
+  fi
+done
+
 if [ "$DRY" = "--dry-run" ]; then
   echo "dry run — nothing copied."
   exit 0

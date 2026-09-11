@@ -387,7 +387,16 @@ jobs:
             Bliss-Work/apps/desktop/release/*.blockmap
             Bliss-Work/apps/desktop/release/latest*.yml
           if-no-files-found: ignore
-          retention-days: 14
+          # Purely a hand-off to the "Sign Windows, checksum & deploy" job
+          # later in this SAME run — nothing downloads it after that. These
+          # installers are ~100-300MB each across 3 platforms, and 14 days of
+          # them piling up across every push is what silently exhausted the
+          # account's Actions storage quota (confirmed: "Artifact storage
+          # quota has been hit" on 2026-09-02's run, ~31GB retained across
+          # ~250 old artifacts) and made every "Upload installers" step fail,
+          # taking the whole release down with it regardless of whether the
+          # build itself succeeded.
+          retention-days: 1
 
   # ───────────────────────────────────────────────────────────────────────────
   # Sign Windows (SSL.com eSigner — cross-platform, runs here on Linux), repair
@@ -544,6 +553,29 @@ jobs:
           chmod 600 ~/.ssh/id_deploy
           ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
           SSH_CMD="ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=yes"
+
+          # Refuse a downgrade. scripts/next-desktop-version.mjs (the "Resolve
+          # version" job above) derives the version purely by scanning
+          # whatever latest*.yml is CURRENTLY live on $VPS_PATH — so if that
+          # directory's history is ever lost between that job and this one, or
+          # was already lost before this run started, this step would happily
+          # overwrite a much newer live version with a lower one. electron-
+          # updater then refuses to offer that "update" to anyone already
+          # running the higher version, permanently freezing them until a
+          # manual reinstall — this happened for real on 2026-09-08. Same
+          # guard as scripts/publish-desktop.sh, for this path's own rsync.
+          NEW_VERSION="${{ needs.version.outputs.version }}"
+          LIVE_VERSION=$($SSH_CMD "$VPS_USER@$VPS_HOST" \
+            "grep '^version:' $VPS_PATH/latest.yml 2>/dev/null | head -1" \
+            | sed -E "s/version:[[:space:]]*['\"]?([0-9]+\.[0-9]+\.[0-9]+).*/\1/" || true)
+          if [ -n "$LIVE_VERSION" ]; then
+            HIGHEST=$(printf '%s\n%s\n' "$NEW_VERSION" "$LIVE_VERSION" | sort -V | tail -1)
+            if [ "$HIGHEST" = "$LIVE_VERSION" ] && [ "$NEW_VERSION" != "$LIVE_VERSION" ]; then
+              echo "::error::refusing to deploy $NEW_VERSION — live feed is already at $LIVE_VERSION"
+              exit 1
+            fi
+          fi
+
           # Installers first, manifests LAST. An app that polls mid-rsync then
           # reads the OLD manifest, which points at files that still exist —
           # rather than a new manifest pointing at a half-uploaded binary, which
@@ -657,4 +689,8 @@ jobs:
           name: blisswork-installers-signed
           path: installers/*
           if-no-files-found: warn
-          retention-days: 14
+          # Kept a few days (not 14) for manual recovery if "Deploy to VPS"
+          # above fails — see scripts/publish-desktop.sh's own header on that
+          # path — without letting it pile up and re-exhaust the account's
+          # Actions storage quota the way the per-OS artifact above did.
+          retention-days: 3
