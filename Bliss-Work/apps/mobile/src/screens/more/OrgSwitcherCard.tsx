@@ -13,8 +13,9 @@ import { radius, spacing, type ThemeColors } from '../../constants/theme';
 import { useThemeColors } from '../../theme/ThemeProvider';
 
 /**
- * The workspace switcher — a card on WorkspaceScreen that opens a search +
- * list + Done sheet, built on the shared `Modal` primitive. Real,
+ * The workspace switcher — a card on the More tab's landing screen
+ * (MoreMenuScreen) that opens a search + list + Done sheet, built on the
+ * shared `Modal` primitive. Real,
  * functional org switching (api.myOrgs()/api.switchOrg(), same as web's
  * OrgSwitcher) — no separate "Team" entity in the domain (confirmed against
  * packages/shared/src/types/domain.ts), only Organizations.

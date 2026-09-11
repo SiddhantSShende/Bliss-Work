@@ -50,6 +50,16 @@ if ! command -v apt-get >/dev/null 2>&1; then
 fi
 
 SSH_PORT="${SSH_PORT:-22}"
+# The `taskboard` compose bridge's subnet — NOT pinned in docker-compose.prod.yml
+# (as of this writing), so Docker auto-assigns it and it CAN change across a
+# network recreation (`docker compose down`/`up`, a prune, a daemon restart).
+# Verify before every run of this script: `docker network inspect
+# task-board-prod_taskboard --format '{{json .IPAM.Config}}'`. If this value is
+# stale, the three `ufw allow from ${TASKBOARD_BRIDGE_SUBNET}` rules below
+# silently stop matching real traffic — Caddy's /livekit route then 502s with
+# "dial tcp ...: i/o timeout" even though LiveKit itself is healthy, which is
+# exactly what happened in production before this variable existed.
+TASKBOARD_BRIDGE_SUBNET="${TASKBOARD_BRIDGE_SUBNET:-172.22.0.0/16}"
 log() { printf '\n\033[1;36m[harden]\033[0m %s\n' "$*"; }
 
 # ── 1. Firewall (ufw) ────────────────────────────────────────────────────────
@@ -87,20 +97,24 @@ ufw allow 30000:49999/udp comment 'TURN relay range (coturn)'
 # block UDP outright (corporate proxies, some hotel and airline wifi).
 ufw allow 50000:50200/udp comment 'SFU media range (livekit)'
 ufw allow 7881/tcp comment 'SFU media TCP fallback (livekit)'
-# DELIBERATELY NOT OPENED: 7880, LiveKit's signaling/HTTP port. Host networking
-# makes it listen on every interface, but the public door to it is the
-# TLS-terminated /livekit route through Caddy. Opening 7880 here would publish
-# an unencrypted second entrance to the same service.
+# NOT opened PUBLICLY: 7880, LiveKit's signaling/HTTP port. Host networking
+# makes it listen on every interface, but the intended public door to it is the
+# TLS-terminated /livekit route through Caddy — opening 7880 to `Anywhere` would
+# publish an unencrypted second entrance to the same service. Caddy itself,
+# however, reaches LiveKit as a plain host-to-host connection (it is not a
+# published Docker port — see the "Docker vs ufw" note above), so it DOES need
+# an explicit allow, scoped to the compose bridge only, below.
 #
-# LiveKit's and coturn's Prometheus metrics ports (also host-networked, same
-# reasoning as 7880 above) — but these have no public entrance at all, not even
-# through Caddy, so unlike 7880 they are scoped to the compose bridge subnet
-# rather than left closed. Only the `prometheus` container, on that bridge,
-# needs to reach them. Subnet must match the `taskboard` network's actual
-# range (`docker network inspect task-board-prod_taskboard`) — 172.18.0.0/16
-# on this host; re-check it if the bridge is ever recreated with a different one.
-ufw allow from 172.18.0.0/16 to any port 7882 proto tcp comment 'LiveKit Prometheus metrics from compose bridge'
-ufw allow from 172.18.0.0/16 to any port 9641 proto tcp comment 'coturn Prometheus metrics from compose bridge'
+# LiveKit's and coturn's Prometheus metrics ports are the same shape: no public
+# entrance at all, not even through Caddy, but the `prometheus` container (also
+# on the bridge) needs to reach them directly.
+#
+# All three are scoped to the bridge subnet, not left closed and not opened to
+# `Anywhere` — see the TASKBOARD_BRIDGE_SUBNET comment above for why that value
+# can silently go stale and how to re-check it.
+ufw allow from "${TASKBOARD_BRIDGE_SUBNET}" to any port 7880 proto tcp comment 'SFU signaling from compose bridge (livekit)'
+ufw allow from "${TASKBOARD_BRIDGE_SUBNET}" to any port 7882 proto tcp comment 'LiveKit Prometheus metrics from compose bridge'
+ufw allow from "${TASKBOARD_BRIDGE_SUBNET}" to any port 9641 proto tcp comment 'coturn Prometheus metrics from compose bridge'
 # `ufw --force enable` is idempotent: re-running just reloads the ruleset.
 ufw --force enable
 ufw reload

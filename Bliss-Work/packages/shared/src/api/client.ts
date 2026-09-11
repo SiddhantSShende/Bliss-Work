@@ -855,6 +855,19 @@ export class ApiClient {
   conversations() {
     return this.req(this.cfg.messagingBase, "/api/v1/conversations", {}, z.array(ConversationDTO));
   }
+  /** Sidebar badge totals (conversations/channels/inbox-peers unread) in one
+   *  call — the lightweight alternative to fetching all three full lists just
+   *  to sum their unread fields. Same underlying counts as summing
+   *  conversations()/channels()/inboxPeers() yourself, computed server-side.
+   *  See docs/API-LAZY-LOADING-AUDIT.md D1/S3. */
+  unreadCounts() {
+    return this.req(
+      this.cfg.messagingBase,
+      "/api/v1/unread-counts",
+      {},
+      z.object({ conversations: z.number(), channels: z.number(), inboxPeers: z.number() }),
+    );
+  }
   /**
    * Open the 1:1 conversation with `peerId` without sending anything, returning
    * its id. Idempotent — an existing conversation is returned as-is.
@@ -2076,6 +2089,19 @@ export class ApiClient {
   // ── notifications ───────────────────────────────────────────────────────────────
   notifications() {
     return this.req(this.cfg.notificationBase, "/api/v1/notifications", {}, z.array(NotificationDTO));
+  }
+  /** The notification bell's badge count — every unread notification, not
+   *  just the (up to 200) most recent ones handleList/notifications() caps
+   *  at, so this is actually MORE accurate than summing that list's !read
+   *  rows for a caller with a deep backlog. See
+   *  docs/API-LAZY-LOADING-AUDIT.md D1/S3. */
+  notificationsUnreadCount() {
+    return this.req(
+      this.cfg.notificationBase,
+      "/api/v1/notifications/unread-count",
+      {},
+      z.object({ unreadCount: z.number() }),
+    );
   }
   markNotificationRead(id: string) {
     return this.req<void>(this.cfg.notificationBase, `/api/v1/notifications/${id}/read`, {

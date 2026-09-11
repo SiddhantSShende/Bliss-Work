@@ -80,6 +80,15 @@ export const qk = {
    *  from the call rows) and a different lifetime. */
   onCall: ["onCall"] as const,
   notifications: ["notifications"] as const,
+  /** The bell badge count alone — see api.notificationsUnreadCount(). Separate
+   *  key from `notifications` (the full list) so the badge and the opened
+   *  panel are independent cache entries with independent lifetimes. */
+  notificationsUnreadCount: ["notifications", "unreadCount"] as const,
+  /** Sidebar badge totals (conversations/channels/inboxPeers unread) in one
+   *  entry — see api.unreadCounts(). Independent of `conversations`/
+   *  `channels`/`inboxPeers` (the full lists each section's own list pane
+   *  fetches on open) for the same reason as notificationsUnreadCount above. */
+  unreadCounts: ["unreadCounts"] as const,
   channels: ["channels"] as const,
   openChannels: ["channels", "open"] as const,
   channelMessages: (id: string) => ["channelMessages", id] as const,

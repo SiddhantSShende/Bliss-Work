@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
-import { Paperclip, SendHorizontal, Smile } from 'lucide-react-native';
-import { Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { MapPin, Paperclip, SendHorizontal, Smile } from 'lucide-react-native';
 import { radius, spacing, type ThemeColors } from '../constants/theme';
 import { useThemeColors } from '../theme/ThemeProvider';
 import { EmojiPicker } from './EmojiPicker';
@@ -11,19 +11,33 @@ interface ComposerProps {
   onSend: () => void;
   sending?: boolean;
   /** Gates the attachment button on whether this platform actually has a
-   *  file-transfer transport — mirrors `useRuntime().rtcAvailable`, which
-   *  already gates the identical button on web (see runtime.tsx: "rtcAvailable
-   *  gates the file-transfer UI so the attach button only appears where a
-   *  transport actually exists"). Mobile has none yet, so this renders false
-   *  today; the button lights up for free once one is wired up. */
+   *  way to deliver files — HTTP upload via `useChatAttachments`, wired up
+   *  from `ChatConversationScreen`. */
   attachAvailable: boolean;
   onAttach?: () => void;
+  /** True while a pick/upload or a location fix is in flight — disables both
+   *  buttons so a second tap can't fire a duplicate send mid-upload. */
+  attachBusy?: boolean;
+  /** Present only where one-time location sharing is wired up (mirrors
+   *  `onAttach`'s and web Composer's callback-gating: a surface that can't
+   *  deliver the affordance never shows a button that does nothing). */
+  onShareLocation?: () => void;
 }
 
-/** Bottom message input bar: attachment (gated), emoji, text input, purple
- *  send button. The parent screen wraps this in a `KeyboardAvoidingView` so
- *  it stays pinned above the keyboard, same pattern `AuthScreenLayout` uses. */
-export function Composer({ value, onChangeText, onSend, sending, attachAvailable, onAttach }: ComposerProps) {
+/** Bottom message input bar: attachment (gated), location (gated), emoji,
+ *  text input, purple send button. The parent screen wraps this in a
+ *  `KeyboardAvoidingView` so it stays pinned above the keyboard, same pattern
+ *  `AuthScreenLayout` uses. */
+export function Composer({
+  value,
+  onChangeText,
+  onSend,
+  sending,
+  attachAvailable,
+  onAttach,
+  attachBusy,
+  onShareLocation,
+}: ComposerProps) {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [showEmoji, setShowEmoji] = useState(false);
@@ -35,11 +49,24 @@ export function Composer({ value, onChangeText, onSend, sending, attachAvailable
         <EmojiPicker onSelect={(emoji) => onChangeText(value + emoji)} />
       ) : null}
       <View style={styles.bar}>
-        {attachAvailable ? (
-          <Pressable onPress={onAttach} style={styles.iconButton} hitSlop={8}>
-            <Paperclip size={20} color={colors.muted} />
-          </Pressable>
-        ) : null}
+        {attachBusy ? (
+          <View style={styles.iconButton}>
+            <ActivityIndicator size="small" color={colors.muted} />
+          </View>
+        ) : (
+          <>
+            {attachAvailable ? (
+              <Pressable onPress={onAttach} style={styles.iconButton} hitSlop={8}>
+                <Paperclip size={20} color={colors.muted} />
+              </Pressable>
+            ) : null}
+            {onShareLocation ? (
+              <Pressable onPress={onShareLocation} style={styles.iconButton} hitSlop={8}>
+                <MapPin size={20} color={colors.muted} />
+              </Pressable>
+            ) : null}
+          </>
+        )}
         <Pressable onPress={() => setShowEmoji((s) => !s)} style={styles.iconButton} hitSlop={8}>
           <Smile size={20} color={showEmoji ? colors.accent : colors.muted} />
         </Pressable>

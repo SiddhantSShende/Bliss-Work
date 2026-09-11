@@ -28,6 +28,7 @@ import (
 	wsmetrics "github.com/task-board/ws-gateway/internal/metrics"
 	"github.com/task-board/ws-gateway/internal/presence"
 	"github.com/task-board/ws-gateway/internal/push"
+	"github.com/task-board/ws-gateway/internal/safego"
 	"github.com/task-board/ws-gateway/internal/signal"
 	"github.com/task-board/ws-gateway/internal/store"
 )
@@ -50,6 +51,17 @@ type Server struct {
 	presence   *presence.Broadcaster
 	nodeID     string
 	log        *slog.Logger
+	// rootCtx is the process's own lifecycle context (cancelled on
+	// SIGINT/SIGTERM — see cmd/ws-gateway/main.go), used as the parent for a
+	// websocket connection's context once it has been detached from the
+	// originating HTTP request (see handleWS). It is NOT the shutdown
+	// mechanism for open connections — hub.CloseAll() (called before
+	// httpServer.Shutdown in main.go) already force-closes every connection
+	// directly via hub.Conn.Done, independent of this context. rootCtx is
+	// wired in anyway so a connection's context reflects the server's actual
+	// lifecycle rather than an unrelated one, and so any future code that
+	// reasonably expects ctx.Done() to fire on shutdown is not surprised.
+	rootCtx context.Context
 }
 
 // Config holds server dependencies.
@@ -67,7 +79,9 @@ type Config struct {
 }
 
 // New constructs a Server. dispatcher / hyd / sig may be nil in tests; in
-// production they are driven by cmd/ws-gateway/main.go.
+// production they are driven by cmd/ws-gateway/main.go. rootCtx is the
+// process's lifecycle context (see the Server.rootCtx field doc) — pass
+// context.Background() in tests that don't exercise shutdown.
 func New(
 	cfg Config,
 	v *auth.Verifier,
@@ -79,8 +93,9 @@ func New(
 	pres *presence.Broadcaster,
 	nodeID string,
 	log *slog.Logger,
+	rootCtx context.Context,
 ) *Server {
-	return &Server{cfg: cfg, verifier: v, hub: h, store: st, dispatcher: d, hydrator: hyd, signal: sig, presence: pres, nodeID: nodeID, log: log}
+	return &Server{cfg: cfg, verifier: v, hub: h, store: st, dispatcher: d, hydrator: hyd, signal: sig, presence: pres, nodeID: nodeID, log: log, rootCtx: rootCtx}
 }
 
 // Handler returns the root HTTP mux. Order of wrappers (outermost first):
@@ -358,7 +373,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+	c, err := websocket.Accept(newSmallBufHijacker(w, smallBufHijackSize), r, &websocket.AcceptOptions{
 		// Origin checks already enforced for browsers via JWT; allow Electron.
 		InsecureSkipVerify: true,
 	})
@@ -367,5 +382,23 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.serveConn(r.Context(), c, claims)
+	// Detach the websocket's lifecycle from this HTTP handler goroutine. Once
+	// Accept succeeds, net/http has already fully relinquished the connection
+	// (see net/http's own post-handler check: `if c.hijacked() { ... return }`
+	// runs the same way whether ServeHTTP returns now or hours from now), so
+	// nothing about the hijack itself depends on handleWS staying parked.
+	//
+	// Deliberately NOT r.Context(): net/http's documented contract cancels it
+	// the instant ServeHTTP returns, which happens immediately below — using
+	// it here would tear the just-established socket down within moments of
+	// connecting. s.rootCtx is the server's own process-lifecycle context
+	// instead, which nothing about a single request's completion touches.
+	//
+	// Letting handleWS return here — rather than continuing to block inside
+	// serveConn as before — is what allows this goroutine's stack (and the
+	// *http.Request/Header/net-http-internal object graph reachable only
+	// through it) to be reclaimed instead of staying parked for the
+	// connection's entire life; readLoop now runs on a freshly spawned
+	// goroutine instead.
+	safego.Go(s.log, "server.serveConn", func() { s.serveConn(s.rootCtx, c, claims) })
 }

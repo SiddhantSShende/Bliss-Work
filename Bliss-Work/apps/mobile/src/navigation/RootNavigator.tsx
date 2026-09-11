@@ -9,11 +9,11 @@ import type { AppTabParamList } from './types';
 
 /**
  * `blisswork://tasks`, `blisswork://chats`, `blisswork://assign-task`,
- * `blisswork://new-chat` — React Navigation resolves these against whichever
- * navigator is currently mounted below, cold/warm/foreground alike, so a
- * link opened while signed out (AuthNavigator has none of these routes)
- * gracefully no-ops instead of crashing, same as an unauthenticated app-icon
- * Quick Action tap (see navigationRef.ts).
+ * `blisswork://new-chat`, `blisswork://channels` — React Navigation resolves
+ * these against whichever navigator is currently mounted below, cold/warm/
+ * foreground alike, so a link opened while signed out (AuthNavigator has
+ * none of these routes) gracefully no-ops instead of crashing, same as an
+ * unauthenticated app-icon Quick Action tap (see navigationRef.ts).
  */
 const linking: LinkingOptions<AppTabParamList> = {
   prefixes: ['blisswork://'],
@@ -21,6 +21,7 @@ const linking: LinkingOptions<AppTabParamList> = {
     screens: {
       Tasks: { screens: { TasksList: 'tasks', AssignTask: 'assign-task' } },
       Chats: { screens: { ChatsList: 'chats', NewChat: 'new-chat' } },
+      More: { screens: { Channels: 'channels' } },
     },
   },
 };

@@ -27,29 +27,44 @@ export type TasksStackParamList = {
 
 export type MeetingsStackParamList = {
   MeetingsList: undefined;
-  ScheduleMeeting: undefined;
+  /** `inviteeId`/`inviteeName` are set when reached from a chat header's
+   *  "Schedule Call" (see ChatConversationScreen's CallOptionsMenu) to
+   *  preset the peer as an invitee; absent when reached from the Meetings
+   *  tab's own "+" button. */
+  ScheduleMeeting: { inviteeId?: string; inviteeName?: string } | undefined;
 };
 
 export type MoreStackParamList = {
-  /** The More tab's own landing screen: Profile / Settings / Dark Theme /
-   *  Sign out — the account menu, not a feature grid (see Workspace below
-   *  for where Mail/Channels/Members/Org moved). */
+  /** The More tab's own landing screen: workspace switcher card + Mail/
+   *  Channels/Members/Org + Settings — mirrors the reference "More" screen. */
   MoreMenu: undefined;
+  /** The account hub (reference's "Profile" screen) — My Profile/
+   *  Notifications/Theme/Privacy & Security/Help & Support/About/Sign out.
+   *  Reached from MoreMenu's header avatar/gear, not the tab bar itself. */
+  Account: undefined;
+  /** "My Profile": the actual edit form (name, photo). */
   Profile: undefined;
+  /** "Privacy & Security": 2FA, active sessions, activity log. */
   Settings: undefined;
   MfaSettings: undefined;
   ActiveSessions: undefined;
   MyActivity: undefined;
-  /** Mail/Channels/Members/Org's entry point, now that Home (which used to
-   *  grid all of these) is gone — reached from Chats' header icon via a
-   *  cross-tab jump into this stack, not from the More tab itself. */
-  Workspace: undefined;
+  About: undefined;
   Members: undefined;
   Org: undefined;
   Mail: undefined;
   MailDetail: { mailId: string };
   Channels: undefined;
+  /** Creates a new channel, unless `addToChannelId` is set — then it's the
+   *  same member-search picker in "Add Members to an existing channel" mode
+   *  (ChannelMembersScreen's "Add Members" button), reusing one screen
+   *  instead of building a second near-identical picker. */
+  CreateChannel: { addToChannelId?: string; addToChannelName?: string } | undefined;
+  ChannelDetail: { channelId: string; channelName: string };
   ChannelConversation: { channelId: string; channelName: string };
+  ChannelMembers: { channelId: string; channelName: string };
+  ChannelFiles: { channelId: string; channelName: string };
+  ChannelSettings: { channelId: string; channelName: string };
 };
 
 /** The signed-in bottom-tab shell: Chats, Tasks, Meetings, More — no Home

@@ -54,8 +54,12 @@ function handleEvent(e: ServerEvent, qc: QueryClient) {
     case EventType.MessageDelivered:
     case EventType.MessageDeleted:
     case EventType.MessageDismissed:
-    case EventType.MessageReaction:
       invalidate(qk.messages(e.conversationId));
+      break;
+    // Reactions live in their own cache (qk.reactions), not qk.messages — see
+    // that key's own doc — so a reaction event only needs to clear this.
+    case EventType.MessageReaction:
+      invalidate(qk.reactions(e.conversationId));
       break;
     case EventType.ConversationIgnored:
     case EventType.ConversationBlocked:
@@ -64,9 +68,11 @@ function handleEvent(e: ServerEvent, qc: QueryClient) {
       break;
     case EventType.ChannelMessageCreated:
     case EventType.ChannelMessageDeleted:
-    case EventType.ChannelMessageReaction:
       invalidate(qk.channelMessages(e.channelId));
       invalidate(qk.channels);
+      break;
+    case EventType.ChannelMessageReaction:
+      invalidate(qk.channelReactions(e.channelId));
       break;
     case EventType.NotificationCreated:
       invalidate(qk.notifications);

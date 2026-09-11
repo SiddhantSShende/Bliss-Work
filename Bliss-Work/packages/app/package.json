@@ -12,6 +12,8 @@
     "./lib/retryPolicy": "./src/lib/retryPolicy.ts",
     "./lib/matchUser": "./src/lib/matchUser.ts",
     "./lib/userLabel": "./src/lib/userLabel.ts",
+    "./lib/mapsLink": "./src/lib/mapsLink.ts",
+    "./lib/useAttachmentLinks": "./src/lib/useAttachmentLinks.ts",
     "./store/session": "./src/store/session.ts",
     "./features/member/activityLabels": "./src/features/member/activityLabels.ts"
   },

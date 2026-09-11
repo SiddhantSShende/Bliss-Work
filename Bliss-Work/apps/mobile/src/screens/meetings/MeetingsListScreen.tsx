@@ -26,13 +26,30 @@ function formatWhen(iso: string | null | undefined): string {
   });
 }
 
+function sameDay(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+/** 14 real calendar days starting today — a plain Date-math strip, no
+ *  date-picker library needed for a fixed-width selector like this. */
+function dateStrip(): Date[] {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Array.from({ length: 14 }, (_, i) => {
+    const d = new Date(today);
+    d.setDate(today.getDate() + i);
+    return d;
+  });
+}
+
 /**
- * Meetings tab: upcoming/past lists over real call data. "Join" opens the
- * call's real web room (`/call/:callId`, the same route CallWindow.tsx
- * serves on web) in the device browser — mobile has no WebRTC transport of
- * its own (`rtcAvailable` is false there; see runtime.tsx), and building one
- * is out of scope for a presentation-layer redesign, so this keeps meetings
- * fully joinable without faking an in-app call screen.
+ * Meetings tab: a day strip (client-side filter over the real upcoming-call
+ * list — there's no server-side date-range query on mobile, so this filters
+ * what's already fetched, same data `myCalls()` always returned) plus
+ * Upcoming/Past lists over real call data. "Join" opens the call's real web
+ * room (`/call/:callId`, the same route CallWindow.tsx serves on web) in the
+ * device browser — mobile has no WebRTC transport of its own (`rtcAvailable`
+ * is false there; see runtime.tsx).
  */
 export function MeetingsListScreen({ navigation }: Props) {
   const colors = useThemeColors();
@@ -41,12 +58,20 @@ export function MeetingsListScreen({ navigation }: Props) {
   const { config } = useRuntime();
   const { upcoming, history } = useMeetings();
   const [tab, setTab] = useState<'upcoming' | 'past'>('upcoming');
+  const strip = useMemo(dateStrip, []);
+  const [selectedDate, setSelectedDate] = useState<Date>(strip[0]!);
 
-  const data = tab === 'upcoming' ? upcoming.data ?? [] : history.data?.items ?? [];
+  const upcomingForDay = useMemo(
+    () => (upcoming.data ?? []).filter((c) => c.scheduledAt && sameDay(new Date(c.scheduledAt), selectedDate)),
+    [upcoming.data, selectedDate],
+  );
+
+  const data = tab === 'upcoming' ? upcomingForDay : history.data?.items ?? [];
   const refreshing = tab === 'upcoming' ? upcoming.isRefetching : history.isRefetching;
   const onRefresh = () => void (tab === 'upcoming' ? upcoming.refetch() : history.refetch());
 
   const join = (call: CallDTO) => void Linking.openURL(`${config.webBaseUrl}/call/${call.id}`);
+  const isToday = sameDay(selectedDate, strip[0]!);
 
   return (
     <View style={[styles.flex, { paddingTop: insets.top }]}>
@@ -68,6 +93,27 @@ export function MeetingsListScreen({ navigation }: Props) {
         ))}
       </View>
 
+      {tab === 'upcoming' ? (
+        <FlatList
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          data={strip}
+          keyExtractor={(d) => d.toISOString()}
+          contentContainerStyle={styles.strip}
+          renderItem={({ item }) => {
+            const active = sameDay(item, selectedDate);
+            return (
+              <Pressable onPress={() => setSelectedDate(item)} style={[styles.dayCell, active && styles.dayCellActive]}>
+                <Text style={[styles.dayName, active && styles.dayTextActive]}>
+                  {item.toLocaleDateString(undefined, { weekday: 'short' })}
+                </Text>
+                <Text style={[styles.dayNumber, active && styles.dayTextActive]}>{item.getDate()}</Text>
+              </Pressable>
+            );
+          }}
+        />
+      ) : null}
+
       <FlatList
         data={data}
         keyExtractor={(c) => c.id}
@@ -75,7 +121,11 @@ export function MeetingsListScreen({ navigation }: Props) {
         refreshing={refreshing}
         onRefresh={onRefresh}
         ListEmptyComponent={
-          <EmptyState icon={Video} title="No meetings" subtitle="Scheduled and past meetings appear here." />
+          <EmptyState
+            icon={Video}
+            title={tab === 'upcoming' ? (isToday ? 'No meetings today' : 'No meetings this day') : 'No meetings'}
+            subtitle={tab === 'upcoming' ? 'Enjoy your day!' : 'Past meetings appear here.'}
+          />
         }
         renderItem={({ item }) => (
           <Card style={styles.card}>
@@ -129,7 +179,19 @@ function createStyles(colors: ThemeColors) {
     tabText: { fontSize: 14, fontWeight: '600', color: colors.muted },
     tabTextActive: { color: colors.accent },
     tabUnderline: { height: 2, backgroundColor: colors.accent, borderRadius: radius.pill, marginTop: spacing.xs },
-    list: { padding: spacing.lg, gap: spacing.sm },
+    strip: { paddingHorizontal: spacing.lg, paddingVertical: spacing.md, gap: spacing.sm },
+    dayCell: {
+      width: 48,
+      alignItems: 'center',
+      paddingVertical: spacing.sm,
+      borderRadius: radius.card,
+      backgroundColor: colors.surface2,
+    },
+    dayCellActive: { backgroundColor: colors.accent },
+    dayName: { fontSize: 11, fontWeight: '600', color: colors.muted },
+    dayNumber: { fontSize: 15, fontWeight: '700', color: colors.fg, marginTop: 2 },
+    dayTextActive: { color: colors.accentFg },
+    list: { padding: spacing.lg, paddingTop: spacing.sm, gap: spacing.sm },
     card: {
       flexDirection: 'row',
       alignItems: 'center',

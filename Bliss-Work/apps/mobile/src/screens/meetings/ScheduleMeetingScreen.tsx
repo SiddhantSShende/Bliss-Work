@@ -30,7 +30,8 @@ function tomorrowNineAm(): string {
   return d.toISOString();
 }
 
-export function ScheduleMeetingScreen({ navigation }: Props) {
+export function ScheduleMeetingScreen({ route, navigation }: Props) {
+  const { inviteeId, inviteeName } = route.params ?? {};
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
@@ -42,7 +43,13 @@ export function ScheduleMeetingScreen({ navigation }: Props) {
   const submit = async () => {
     const opt = START_OPTIONS[startIndex]!;
     const scheduledAt = opt.minutesFromNow === null ? tomorrowNineAm() : new Date(Date.now() + opt.minutesFromNow * 60_000).toISOString();
-    await schedule.mutateAsync({ title: title.trim() || undefined, media, scheduledAt, durationMinutes: 60 });
+    await schedule.mutateAsync({
+      title: title.trim() || undefined,
+      media,
+      scheduledAt,
+      durationMinutes: 60,
+      inviteeIds: inviteeId ? [inviteeId] : undefined,
+    });
     navigation.goBack();
   };
 
@@ -60,6 +67,7 @@ export function ScheduleMeetingScreen({ navigation }: Props) {
       </View>
 
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        {inviteeName ? <Text style={styles.inviteeNote}>With {inviteeName}</Text> : null}
         <TextField label="Title" value={title} onChangeText={setTitle} placeholder="Team sync" />
 
         <View style={styles.field}>
@@ -109,6 +117,7 @@ function createStyles(colors: ThemeColors) {
     },
     headerTitle: { fontSize: 16, fontWeight: '700', color: colors.fg },
     content: { padding: spacing.lg, gap: spacing.lg },
+    inviteeNote: { fontSize: 13, fontWeight: '600', color: colors.accent, marginBottom: -spacing.sm },
     field: { gap: spacing.xs },
     fieldLabel: { fontSize: 13, fontWeight: '600', color: colors.muted },
     mediaRow: { flexDirection: 'row', gap: spacing.sm },

@@ -65,6 +65,10 @@ func (s *Server) Router() http.Handler {
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(s.verifier.Middleware)
 		r.Get("/notifications", s.handleList)
+		// The sidebar badge count — lightweight alternative to fetching the
+		// full (up to 200) notification list just to count unread ones. See
+		// docs/API-LAZY-LOADING-AUDIT.md D1/S3.
+		r.Get("/notifications/unread-count", s.handleUnreadCount)
 		r.Post("/notifications/read-all", s.handleReadAll)
 		r.Post("/notifications/{id}/read", s.handleRead)
 	})
@@ -192,6 +196,37 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, out)
+}
+
+// unreadCountDTO is the response shape for handleUnreadCount.
+type unreadCountDTO struct {
+	UnreadCount int64 `json:"unreadCount"`
+}
+
+// handleUnreadCount serves GET /api/v1/notifications/unread-count. Unlike
+// handleList (capped at the 200 most recent rows), this counts every unread
+// notification the caller owns — a small, deliberate accuracy improvement
+// over summing the capped list client-side, not just a lighter version of
+// the same answer.
+func (s *Server) handleUnreadCount(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.FromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	var count int64
+	err := s.pool.QueryRow(r.Context(),
+		`SELECT count(*) FROM notifications
+		  WHERE recipient_id = $1 AND org_id = $2 AND read_at IS NULL`,
+		claims.UserID, claims.OrgID).Scan(&count)
+	if err != nil {
+		s.log.Error("unread count query failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, unreadCountDTO{UnreadCount: count})
 }
 
 func (s *Server) handleRead(w http.ResponseWriter, r *http.Request) {

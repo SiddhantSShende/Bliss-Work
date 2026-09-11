@@ -1,77 +1,146 @@
 import { useMemo, useState } from 'react';
-import { CheckSquare } from 'lucide-react-native';
+import { CheckSquare, ChevronRight, Plus } from 'lucide-react-native';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { StickyTaskDTO } from '@taskboard/shared';
+import type { AssigneeStatus, SentTaskDTO, StickyTaskDTO } from '@taskboard/shared';
 import { useTasks } from '../../hooks/useTasks';
 import { Card } from '../../components/Card';
 import { EmptyState } from '../../components/EmptyState';
-import { radius, spacing, type ThemeColors } from '../../constants/theme';
+import { Chip } from '../../components/Chip';
+import { Tabs } from '../../components/Tab';
+import { spacing, type ThemeColors } from '../../constants/theme';
 import type { TasksStackParamList } from '../../navigation/types';
 import { useThemeColors } from '../../theme/ThemeProvider';
 
 type Props = NativeStackScreenProps<TasksStackParamList, 'TasksList'>;
 
-type Bucket = 'mine' | 'available' | 'completed';
-const BUCKETS: { key: Bucket; label: string }[] = [
-  { key: 'available', label: 'Available' },
-  { key: 'mine', label: 'In progress' },
-  { key: 'completed', label: 'Completed' },
-];
+type MainTab = 'mine' | 'assigned' | 'all';
+type StatusFilter = 'all' | AssigneeStatus;
 
-function bucketOf(status: StickyTaskDTO['myStatus']): Bucket | null {
-  if (status === 'SENT') return 'available';
-  if (status === 'ACKNOWLEDGED') return 'mine';
-  if (status === 'COMPLETED') return 'completed';
-  return null; // IGNORED/LEFT — not shown in any bucket, same as web's Tasks.tsx
+const STATUS_LABEL: Record<AssigneeStatus, string> = {
+  SENT: 'Awaiting response',
+  ACKNOWLEDGED: 'In progress',
+  COMPLETED: 'Completed',
+  IGNORED: 'Ignored',
+  LEFT: 'Left',
+};
+
+interface Row {
+  key: string;
+  title: string;
+  subtitle: string;
+  kind: 'sent' | 'assigned';
+  assignedTask?: StickyTaskDTO;
 }
 
-/** Tasks tab: buckets (Available/In progress/Completed) over my assignments,
- *  card-per-task, tap through to accept/complete/ignore. */
+function sentRow(t: SentTaskDTO): Row {
+  const done = t.assignees.filter((a) => a.status === 'COMPLETED').length;
+  return { key: `sent:${t.taskId}`, title: t.title, subtitle: `${done} of ${t.assignees.length} completed`, kind: 'sent' };
+}
+
+function assignedRow(t: StickyTaskDTO): Row {
+  return {
+    key: `assigned:${t.taskId}`,
+    title: t.title,
+    subtitle: `From ${t.senderDisplayName || t.senderUsername} · ${STATUS_LABEL[t.myStatus]}`,
+    kind: 'assigned',
+    assignedTask: t,
+  };
+}
+
+/**
+ * Tasks — "My Tasks" (sent, `SentTaskDTO[]`, real per-assignee completion
+ * counts) / "Assigned to Me" (`StickyTaskDTO[]`, with real status filter
+ * chips) / "All" (both, merged). No Priority or Due Date anywhere: neither
+ * field exists on either DTO (confirmed against packages/shared/src/types/
+ * domain.ts) — showing them would mean fabricating data, so this shows what
+ * the API actually has: title, sender/assignee progress, status.
+ *
+ * "My Tasks" rows aren't tappable — there is no sender-perspective task
+ * detail endpoint (`taskDetail()` returns the CALLER's own assignee view;
+ * sending a task the caller isn't also assigned to has no detail screen to
+ * open today). That's a real API gap, not something to paper over with a
+ * screen that would 404.
+ */
 export function TasksListScreen({ navigation }: Props) {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
-  const { assigned } = useTasks();
-  const [bucket, setBucket] = useState<Bucket>('available');
+  const { assigned, sent } = useTasks();
+  const [tab, setTab] = useState<MainTab>('assigned');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
 
-  const tasks = useMemo(
-    () => (assigned.data ?? []).filter((t) => bucketOf(t.myStatus) === bucket),
-    [assigned.data, bucket],
+  const assignedRows = useMemo(
+    () =>
+      (assigned.data ?? [])
+        .filter((t) => statusFilter === 'all' || t.myStatus === statusFilter)
+        .map(assignedRow),
+    [assigned.data, statusFilter],
   );
+  const sentRows = useMemo(() => (sent.data ?? []).map(sentRow), [sent.data]);
+
+  const rows = tab === 'mine' ? sentRows : tab === 'assigned' ? assignedRows : [...sentRows, ...assignedRows];
+  const isLoading = tab === 'mine' ? sent.isLoading : assigned.isLoading;
+  const isRefetching = tab === 'mine' ? sent.isRefetching : assigned.isRefetching;
+  const refetch = tab === 'mine' ? sent.refetch : assigned.refetch;
 
   return (
     <View style={[styles.flex, { paddingTop: insets.top }]}>
-      <Text style={styles.header}>Tasks</Text>
-
-      <View style={styles.tabs}>
-        {BUCKETS.map((b) => (
-          <Pressable key={b.key} onPress={() => setBucket(b.key)} style={styles.tab}>
-            <Text style={[styles.tabText, bucket === b.key && styles.tabTextActive]}>{b.label}</Text>
-            {bucket === b.key ? <View style={styles.tabUnderline} /> : null}
-          </Pressable>
-        ))}
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Tasks</Text>
+        <Pressable onPress={() => navigation.navigate('AssignTask')} style={styles.addButton} hitSlop={8}>
+          <Plus size={20} color={colors.accentFg} />
+        </Pressable>
       </View>
 
+      <View style={styles.tabsWrap}>
+        <Tabs
+          tabs={[
+            { key: 'mine', label: 'My Tasks' },
+            { key: 'assigned', label: 'Assigned to Me' },
+            { key: 'all', label: 'All' },
+          ]}
+          active={tab}
+          onChange={setTab}
+        />
+      </View>
+
+      {tab === 'assigned' ? (
+        <View style={styles.chipsRow}>
+          {(['all', 'SENT', 'ACKNOWLEDGED', 'COMPLETED'] as StatusFilter[]).map((s) => (
+            <Chip
+              key={s}
+              label={s === 'all' ? 'All' : STATUS_LABEL[s]}
+              active={statusFilter === s}
+              onPress={() => setStatusFilter(s)}
+            />
+          ))}
+        </View>
+      ) : null}
+
       <FlatList
-        data={tasks}
-        keyExtractor={(t) => t.taskId}
+        data={rows}
+        keyExtractor={(r) => r.key}
         contentContainerStyle={styles.list}
-        refreshing={assigned.isRefetching}
-        onRefresh={() => void assigned.refetch()}
-        ListEmptyComponent={
-          <EmptyState icon={CheckSquare} title="Nothing here" subtitle="Tasks in this bucket will show up here." />
-        }
+        refreshing={isRefetching}
+        onRefresh={() => void refetch()}
+        ListEmptyComponent={!isLoading ? <EmptyState icon={CheckSquare} title="Nothing here" /> : null}
         renderItem={({ item }) => (
-          <Pressable onPress={() => navigation.navigate('TaskDetail', { taskId: item.taskId })}>
+          <Pressable
+            disabled={item.kind !== 'assigned'}
+            onPress={() => item.assignedTask && navigation.navigate('TaskDetail', { taskId: item.assignedTask.taskId })}
+          >
             <Card style={styles.card}>
-              <Text style={styles.title} numberOfLines={2}>
-                {item.title}
-              </Text>
-              <Text style={styles.sender} numberOfLines={1}>
-                From {item.senderDisplayName || item.senderUsername}
-              </Text>
+              <View style={styles.cardText}>
+                <Text style={styles.title} numberOfLines={2}>
+                  {item.title}
+                </Text>
+                <Text style={styles.subtitle} numberOfLines={1}>
+                  {item.subtitle}
+                </Text>
+              </View>
+              {item.kind === 'assigned' ? <ChevronRight size={18} color={colors.muted} /> : null}
             </Card>
           </Pressable>
         )}
@@ -84,52 +153,29 @@ function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
     flex: { flex: 1, backgroundColor: colors.bg },
     header: {
-      fontSize: 22,
-      fontWeight: '700',
-      color: colors.fg,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
       paddingHorizontal: spacing.lg,
       paddingTop: spacing.sm,
-      paddingBottom: spacing.md,
-    },
-    tabs: {
-      flexDirection: 'row',
-      paddingHorizontal: spacing.lg,
-      gap: spacing.lg,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.border,
-    },
-    tab: {
       paddingBottom: spacing.sm,
     },
-    tabText: {
-      fontSize: 14,
-      fontWeight: '600',
-      color: colors.muted,
-    },
-    tabTextActive: {
-      color: colors.accent,
-    },
-    tabUnderline: {
-      height: 2,
+    headerTitle: { fontSize: 22, fontWeight: '700', color: colors.fg },
+    addButton: {
+      width: 34,
+      height: 34,
+      borderRadius: 17,
       backgroundColor: colors.accent,
-      borderRadius: radius.pill,
-      marginTop: spacing.xs,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
-    list: {
-      padding: spacing.lg,
-      gap: spacing.sm,
-    },
-    card: {
-      gap: 4,
-    },
-    title: {
-      fontSize: 15,
-      fontWeight: '600',
-      color: colors.fg,
-    },
-    sender: {
-      fontSize: 12,
-      color: colors.muted,
-    },
+    tabsWrap: { paddingHorizontal: spacing.lg },
+    chipsRow: { flexDirection: 'row', gap: spacing.sm, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm },
+    list: { padding: spacing.lg, paddingTop: spacing.sm, gap: spacing.sm },
+    card: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    cardText: { flex: 1, gap: 4 },
+    title: { fontSize: 15, fontWeight: '600', color: colors.fg },
+    subtitle: { fontSize: 12, color: colors.muted },
   });
 }
+

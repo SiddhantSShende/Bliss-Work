@@ -255,7 +255,7 @@ func main() {
 		MaxConnections:         cfg.MaxConnections,
 		MaxConnsPerUser:        cfg.MaxConnsPerUser,
 		WSGatewayInternalToken: cfg.WSGatewayInternalToken,
-	}, verifier, h, st, dispatcher, hydrator, signalDispatcher, presenceBroadcaster, nodeID, log)
+	}, verifier, h, st, dispatcher, hydrator, signalDispatcher, presenceBroadcaster, nodeID, log, rootCtx)
 
 	// Wrap the root handler with otelhttp so every request becomes a server span
 	// and incoming W3C tracecontext is extracted. The /ws route HIJACKS the

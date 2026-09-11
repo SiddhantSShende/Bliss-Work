@@ -11,7 +11,7 @@ import type { AppTabParamList } from './types';
  */
 export const navigationRef = createNavigationContainerRef<AppTabParamList>();
 
-export type QuickActionTarget = 'tasks' | 'chats' | 'assign-task' | 'new-chat';
+export type QuickActionTarget = 'tasks' | 'chats' | 'assign-task' | 'new-chat' | 'channels';
 
 /**
  * Routes a Quick Action id to the same screens `blisswork://<id>` resolves
@@ -41,6 +41,9 @@ export function navigateToQuickAction(target: QuickActionTarget) {
       return;
     case 'new-chat':
       navigationRef.navigate('Chats', { screen: 'NewChat' });
+      return;
+    case 'channels':
+      navigationRef.navigate('More', { screen: 'Channels' });
       return;
   }
 }

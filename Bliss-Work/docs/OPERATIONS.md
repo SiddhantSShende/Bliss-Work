@@ -383,9 +383,20 @@ host-published for DB admin access and gated separately; see below.
 optional if you run calls, and they fail in a way that does not look like a
 firewall problem: with the UDP range closed, a call **connects, shows every
 participant, and carries no audio or video**. The TCP port is the fallback for
-clients on networks that block UDP outright. LiveKit's signaling port (7880) is
-deliberately *not* opened — its only public door is the TLS-terminated
-`/livekit` route through Caddy.
+clients on networks that block UDP outright.
+
+LiveKit's signaling port (7880) is **not opened publicly** — its intended
+public door is the TLS-terminated `/livekit` route through Caddy. It IS opened
+to the `taskboard` compose bridge subnet only, because Caddy reaches
+host-networked LiveKit as a plain host-to-host connection (not a published
+Docker port), which ufw's default-deny would otherwise drop. LiveKit's and
+coturn's Prometheus metrics ports (7882, 9641) are scoped the same way, for the
+`prometheus` container. All three use `harden-host.sh`'s
+`TASKBOARD_BRIDGE_SUBNET` variable, which must match the `taskboard` network's
+actual subnet (`docker network inspect task-board-prod_taskboard`) — that
+subnet is not currently pinned in `docker-compose.prod.yml`, so it can change
+across a network recreation, and the variable must be re-checked (and the live
+ufw rules reconciled) if it ever does.
 
 ### Direct Postgres access (5432)
 

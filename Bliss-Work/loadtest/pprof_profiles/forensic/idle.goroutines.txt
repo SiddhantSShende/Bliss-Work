@@ -1,0 +1,1795 @@
+goroutine 163 [running]:
+runtime/pprof.writeGoroutineStacks({0x11b9f20, 0x1b0346e32780})
+	runtime/pprof/pprof.go:819 +0x6b
+runtime/pprof.writeGoroutine({0x11b9f20?, 0x1b0346e32780?}, 0x1b0347255768?)
+	runtime/pprof/pprof.go:782 +0x25
+runtime/pprof.(*Profile).WriteTo(0x1ac0b30?, {0x11b9f20?, 0x1b0346e32780?}, 0xc?)
+	runtime/pprof/pprof.go:408 +0x149
+net/http/pprof.handler.ServeHTTP({0x1b0346d1a7f1, 0x9}, {0x11c2558, 0x1b0346e32780}, 0x1b0346e30280)
+	net/http/pprof/pprof.go:273 +0x52a
+net/http/pprof.Index({0x11c2558, 0x1b0346e32780}, 0x1b0346e30280?)
+	net/http/pprof/pprof.go:397 +0xda
+net/http.HandlerFunc.ServeHTTP(0x1ae3880?, {0x11c2558?, 0x1b0346e32780?}, 0x1b0347255b08?)
+	net/http/server.go:2286 +0x29
+net/http.(*ServeMux).ServeHTTP(0x1b0346da0000?, {0x11c2558, 0x1b0346e32780}, 0x1b0346e30280)
+	net/http/server.go:2828 +0x1c7
+net/http.(*ServeMux).ServeHTTP(0x48a0f9?, {0x11c2558, 0x1b0346e32780}, 0x1b0346e30280)
+	net/http/server.go:2828 +0x1c7
+net/http.serverHandler.ServeHTTP({0x1b0346dbe100?}, {0x11c2558?, 0x1b0346e32780?}, 0x1?)
+	net/http/server.go:3311 +0x8e
+net/http.(*conn).serve(0x1b0346ea41b0, {0x11c43c0, 0x1b0346fc4240})
+	net/http/server.go:2073 +0x650
+created by net/http.(*Server).Serve in goroutine 23
+	net/http/server.go:3464 +0x485
+
+goroutine 1 [chan receive]:
+main.main()
+	github.com/task-board/ws-gateway/cmd/ws-gateway/main.go:290 +0x1a2b
+
+goroutine 23 [IO wait]:
+internal/poll.runtime_pollWait(0x7d17e5465c00, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b0346e7ba80?, 0x9004244d7?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Accept(0x1b0346e7ba80)
+	internal/poll/fd_unix.go:613 +0x28c
+net.(*netFD).accept(0x1b0346e7ba80)
+	net/fd_unix.go:150 +0x29
+net.(*TCPListener).accept(0x1b0346f255c0)
+	net/tcpsock_posix.go:159 +0x1b
+net.(*TCPListener).Accept(0x1b0346f255c0)
+	net/tcpsock.go:387 +0x30
+net/http.(*Server).Serve(0x1b0346cd6600, {0x11c28f0, 0x1b0346f255c0})
+	net/http/server.go:3434 +0x30c
+net/http.(*Server).ListenAndServe(0x1b0346cd6600)
+	net/http/server.go:3360 +0x72
+net/http.ListenAndServe(...)
+	net/http/server.go:3675
+github.com/task-board/ws-gateway/internal/server.init.1.func2()
+	github.com/task-board/ws-gateway/internal/server/zztemp_pprof.go:41 +0x68
+created by github.com/task-board/ws-gateway/internal/server.init.1 in goroutine 1
+	github.com/task-board/ws-gateway/internal/server/zztemp_pprof.go:40 +0xa5
+
+goroutine 53 [syscall]:
+os/signal.signal_recv()
+	runtime/sigqueue.go:152 +0x98
+os/signal.loop()
+	os/signal/signal_unix.go:23 +0x13
+created by os/signal.Notify.func1.1 in goroutine 1
+	os/signal/signal.go:152 +0x1f
+
+goroutine 39 [select]:
+os/signal.NotifyContext.func1()
+	os/signal/signal.go:292 +0x7c
+created by os/signal.NotifyContext in goroutine 1
+	os/signal/signal.go:291 +0x158
+
+goroutine 25 [select]:
+github.com/lestrrat-go/httprc.runFetchWorker({0x11c45f0, 0x1b0346dbe040}, 0x1b0346dc81c0, {0x0, 0x0})
+	github.com/lestrrat-go/httprc@v1.0.6/fetcher.go:135 +0xd1
+created by github.com/lestrrat-go/httprc.NewFetcher in goroutine 1
+	github.com/lestrrat-go/httprc@v1.0.6/fetcher.go:75 +0x1c5
+
+goroutine 26 [select]:
+github.com/lestrrat-go/httprc.runFetchWorker({0x11c45f0, 0x1b0346dbe040}, 0x1b0346dc81c0, {0x0, 0x0})
+	github.com/lestrrat-go/httprc@v1.0.6/fetcher.go:135 +0xd1
+created by github.com/lestrrat-go/httprc.NewFetcher in goroutine 1
+	github.com/lestrrat-go/httprc@v1.0.6/fetcher.go:75 +0x1c5
+
+goroutine 27 [select]:
+github.com/lestrrat-go/httprc.runFetchWorker({0x11c45f0, 0x1b0346dbe040}, 0x1b0346dc81c0, {0x0, 0x0})
+	github.com/lestrrat-go/httprc@v1.0.6/fetcher.go:135 +0xd1
+created by github.com/lestrrat-go/httprc.NewFetcher in goroutine 1
+	github.com/lestrrat-go/httprc@v1.0.6/fetcher.go:75 +0x1c5
+
+goroutine 28 [select]:
+github.com/lestrrat-go/httprc.(*queue).refreshLoop(0x1b0346dc6200, {0x11c45f0, 0x1b0346dbe040}, {0x0, 0x0})
+	github.com/lestrrat-go/httprc@v1.0.6/queue.go:284 +0x1be
+created by github.com/lestrrat-go/httprc.newQueue in goroutine 1
+	github.com/lestrrat-go/httprc@v1.0.6/queue.go:159 +0x185
+
+goroutine 29 [sync.Cond.Wait]:
+sync.runtime_notifyListWait(0x1b0346dbe190, 0x0)
+	runtime/sema.go:617 +0x1b3
+sync.(*Cond).Wait(0x0?)
+	sync/cond.go:71 +0x73
+github.com/lestrrat-go/httprc.(*queue).fetchLoop(0x1b0346dc6200, {0x11c45f0, 0x1b0346dbe040}, {0x0, 0x0})
+	github.com/lestrrat-go/httprc@v1.0.6/queue.go:244 +0x68
+created by github.com/lestrrat-go/httprc.(*queue).refreshLoop in goroutine 28
+	github.com/lestrrat-go/httprc@v1.0.6/queue.go:280 +0xf1
+
+goroutine 43 [select]:
+github.com/segmentio/kafka-go.(*ConsumerGroup).nextGeneration.(*Generation).heartbeatLoop.func6({0x11c49b8, 0x1b0346e7a180})
+	github.com/segmentio/kafka-go@v0.4.48/consumergroup.go:477 +0x1ae
+github.com/segmentio/kafka-go.(*Generation).Start.func1()
+	github.com/segmentio/kafka-go@v0.4.48/consumergroup.go:396 +0x2b
+created by github.com/segmentio/kafka-go.(*Generation).Start in goroutine 30
+	github.com/segmentio/kafka-go@v0.4.48/consumergroup.go:395 +0x13c
+
+goroutine 30 [select]:
+github.com/segmentio/kafka-go.(*ConsumerGroup).nextGeneration(0x1b0346de8120, {0x0, 0x0})
+	github.com/segmentio/kafka-go@v0.4.48/consumergroup.go:865 +0x10e6
+github.com/segmentio/kafka-go.(*ConsumerGroup).run(0x1b0346de8120)
+	github.com/segmentio/kafka-go@v0.4.48/consumergroup.go:723 +0x45
+github.com/segmentio/kafka-go.NewConsumerGroup.func1()
+	github.com/segmentio/kafka-go@v0.4.48/consumergroup.go:661 +0x1c
+created by github.com/segmentio/kafka-go.NewConsumerGroup in goroutine 1
+	github.com/segmentio/kafka-go@v0.4.48/consumergroup.go:660 +0x18d
+
+goroutine 44 [IO wait]:
+internal/poll.runtime_pollWait(0x7d179e7a1600, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b034729c680?, 0x1b0347326000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b034729c680, {0x1b0347326000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b034729c680, {0x1b0347326000?, 0x1b0347169850?, 0x1b03471698b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b0347008228, {0x1b0347326000?, 0xc2a1176e52627f4c?, 0x1b03471698f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b034731e3f0)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b034731e3f0, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b034731e4f0?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b034731e3c0, 0x1b034731e4f0, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b034731e3c0, {0x2b3e1fe8e?, 0x1ae32e0?, 0xe0?, 0x2a4fb3700?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b0347169eb8, {0x11c43f8, 0x1b0346f9c320}, 0x3a9, 0x1b034731e3c0)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b0347169eb8, {0x11c43f8, 0x1b0346f9c320}, 0x8e41960cdd52aad1?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0346f9c320?}, {{0x116de82?, 0x1b0346d4efd0?}, 0x88501b?}, 0x1b0346dfa000?, 0x1b0346de8120?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 31
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 45 [IO wait]:
+internal/poll.runtime_pollWait(0x7d17e542fe00, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b0346dc6000?, 0x1b0346fe1000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b0346dc6000, {0x1b0346fe1000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b0346dc6000, {0x1b0346fe1000?, 0x1b0346fcd850?, 0x1b0346fcd8b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b03471ac000, {0x1b0346fe1000?, 0xc2a1176e544b15de?, 0x1b0346fcd8f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b03471b0030)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b03471b0030, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b03471b0130?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b03471b0000, 0x1b03471b0130, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b03471b0000, {0x2b5ca95ff?, 0x1ae32e0?, 0xe0?, 0x2a6e3d6f5?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b0346fcdeb8, {0x11c43f8, 0x1b0346f9c320}, 0x3ba, 0x1b03471b0000)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b0346fcdeb8, {0x11c43f8, 0x1b0346f9c320}, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0346f9c320?}, {{0x116de82?, 0x0?}, 0x0?}, 0x0?, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 31
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 31 [select]:
+github.com/segmentio/kafka-go.(*ConsumerGroup).Next(0x1b0346de8120, {0x11c43f8, 0x1b0346d9a500})
+	github.com/segmentio/kafka-go@v0.4.48/consumergroup.go:702 +0xce
+github.com/segmentio/kafka-go.(*Reader).run(0x1b0346dfa000, 0x1b0346de8120)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:305 +0x1b6
+created by github.com/segmentio/kafka-go.NewReader in goroutine 1
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:744 +0x833
+
+goroutine 32 [select]:
+github.com/segmentio/kafka-go.(*Reader).FetchMessage(0x1b0346dfa000, {0x11c45f0, 0x1b0346dbe040})
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:828 +0x309
+github.com/task-board/ws-gateway/internal/fanout.(*Consumer).Run(0x1b0346d9c200, {0x11c45f0, 0x1b0346dbe040})
+	github.com/task-board/ws-gateway/internal/fanout/fanout.go:86 +0x17c
+main.main.func3()
+	github.com/task-board/ws-gateway/cmd/ws-gateway/main.go:193 +0x1f
+github.com/task-board/ws-gateway/internal/safego.Go.func1()
+	github.com/task-board/ws-gateway/internal/safego/safego.go:32 +0x5c
+created by github.com/task-board/ws-gateway/internal/safego.Go in goroutine 1
+	github.com/task-board/ws-gateway/internal/safego/safego.go:30 +0x8f
+
+goroutine 81 [select]:
+github.com/segmentio/kafka-go.(*ConsumerGroup).nextGeneration(0x1b0346de8240, {0x0, 0x0})
+	github.com/segmentio/kafka-go@v0.4.48/consumergroup.go:865 +0x10e6
+github.com/segmentio/kafka-go.(*ConsumerGroup).run(0x1b0346de8240)
+	github.com/segmentio/kafka-go@v0.4.48/consumergroup.go:723 +0x45
+github.com/segmentio/kafka-go.NewConsumerGroup.func1()
+	github.com/segmentio/kafka-go@v0.4.48/consumergroup.go:661 +0x1c
+created by github.com/segmentio/kafka-go.NewConsumerGroup in goroutine 1
+	github.com/segmentio/kafka-go@v0.4.48/consumergroup.go:660 +0x18d
+
+goroutine 82 [select]:
+github.com/segmentio/kafka-go.(*ConsumerGroup).Next(0x1b0346de8240, {0x11c43f8, 0x1b0346d9a550})
+	github.com/segmentio/kafka-go@v0.4.48/consumergroup.go:702 +0xce
+github.com/segmentio/kafka-go.(*Reader).run(0x1b0346dfa1c0, 0x1b0346de8240)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:305 +0x1b6
+created by github.com/segmentio/kafka-go.NewReader in goroutine 1
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:744 +0x833
+
+goroutine 83 [select]:
+github.com/segmentio/kafka-go.(*Reader).FetchMessage(0x1b0346dfa1c0, {0x11c45f0, 0x1b0346dbe040})
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:828 +0x309
+github.com/task-board/ws-gateway/internal/revoke.(*Consumer).Run(0x1b0346da4318, {0x11c45f0, 0x1b0346dbe040})
+	github.com/task-board/ws-gateway/internal/revoke/consumer.go:84 +0x145
+main.main.func4()
+	github.com/task-board/ws-gateway/cmd/ws-gateway/main.go:222 +0x1f
+github.com/task-board/ws-gateway/internal/safego.Go.func1()
+	github.com/task-board/ws-gateway/internal/safego/safego.go:32 +0x5c
+created by github.com/task-board/ws-gateway/internal/safego.Go in goroutine 1
+	github.com/task-board/ws-gateway/internal/safego/safego.go:30 +0x8f
+
+goroutine 84 [select]:
+github.com/task-board/ws-gateway/internal/delivery.(*Dispatcher).Run(0x1b0346d98d90, {0x11c45f0, 0x1b0346dbe040})
+	github.com/task-board/ws-gateway/internal/delivery/delivery.go:112 +0xdd
+main.main.func5()
+	github.com/task-board/ws-gateway/cmd/ws-gateway/main.go:228 +0x1f
+github.com/task-board/ws-gateway/internal/safego.Go.func1()
+	github.com/task-board/ws-gateway/internal/safego/safego.go:32 +0x5c
+created by github.com/task-board/ws-gateway/internal/safego.Go in goroutine 1
+	github.com/task-board/ws-gateway/internal/safego/safego.go:30 +0x8f
+
+goroutine 89 [IO wait]:
+internal/poll.runtime_pollWait(0x7d17e5465200, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b0346dc6300?, 0x9004244d7?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Accept(0x1b0346dc6300)
+	internal/poll/fd_unix.go:613 +0x28c
+net.(*netFD).accept(0x1b0346dc6300)
+	net/fd_unix.go:150 +0x29
+net.(*TCPListener).accept(0x1b0346dbe500)
+	net/tcpsock_posix.go:159 +0x1b
+net.(*TCPListener).Accept(0x1b0346dbe500)
+	net/tcpsock.go:387 +0x30
+net/http.(*Server).Serve(0x1b0346dea300, {0x11c28f0, 0x1b0346dbe500})
+	net/http/server.go:3434 +0x30c
+net/http.(*Server).ListenAndServe(0x1b0346dea300)
+	net/http/server.go:3360 +0x72
+main.main.func7()
+	github.com/task-board/ws-gateway/cmd/ws-gateway/main.go:284 +0xc9
+created by main.main in goroutine 1
+	github.com/task-board/ws-gateway/cmd/ws-gateway/main.go:282 +0x1a0e
+
+goroutine 71 [select]:
+github.com/segmentio/kafka-go.(*ConsumerGroup).nextGeneration.(*Generation).heartbeatLoop.func6({0x11c49b8, 0x1b034703c000})
+	github.com/segmentio/kafka-go@v0.4.48/consumergroup.go:477 +0x1ae
+github.com/segmentio/kafka-go.(*Generation).Start.func1()
+	github.com/segmentio/kafka-go@v0.4.48/consumergroup.go:396 +0x2b
+created by github.com/segmentio/kafka-go.(*Generation).Start in goroutine 81
+	github.com/segmentio/kafka-go@v0.4.48/consumergroup.go:395 +0x13c
+
+goroutine 46 [IO wait]:
+internal/poll.runtime_pollWait(0x7d179e7a2000, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b03470da180?, 0x1b0347484000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b03470da180, {0x1b0347484000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b03470da180, {0x1b0347484000?, 0x1b0346fd5850?, 0x1b0346fd58b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b03470b6070, {0x1b0347484000?, 0xc2a1176e544bde23?, 0x1b0346fd58f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b03470b14d0)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b03470b14d0, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b03470b15d0?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b03470b14a0, 0x1b03470b15d0, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b03470b14a0, {0x2b5cb5270?, 0x1ae32e0?, 0xe0?, 0x2a6e49212?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b0346fd5eb8, {0x11c43f8, 0x1b0346f9c320}, 0x428, 0x1b03470b14a0)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b0346fd5eb8, {0x11c43f8, 0x1b0346f9c320}, 0x1b03470dc0a0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0346f9c320?}, {{0x116de82?, 0x1b03470dc0f0?}, 0x47196fd0?}, 0x5d43db?, 0x1b0347196fa8?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 31
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 47 [IO wait]:
+internal/poll.runtime_pollWait(0x7d17e542f600, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b03470b2280?, 0x1b0347228000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b03470b2280, {0x1b0347228000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b03470b2280, {0x1b0347228000?, 0x1b03470ed850?, 0x1b03470ed8b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b0347202020, {0x1b0347228000?, 0xc2a1176e537f4782?, 0x1b03470ed8f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b03472423f0)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b03472423f0, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b03472424f0?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b03472423c0, 0x1b03472424f0, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b03472423c0, {0x2b4fec750?, 0x1ae32e0?, 0xe0?, 0x2a6180472?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b03470edeb8, {0x11c43f8, 0x1b0346f9c320}, 0x5, 0x1b03472423c0)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b03470edeb8, {0x11c43f8, 0x1b0346f9c320}, 0x1b0347006008?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0346f9c320?}, {{0x1168b16?, 0xf906c0?}, 0x11b1f30?}, 0xf906c0?, 0x1b0346dac770?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 31
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 48 [IO wait]:
+internal/poll.runtime_pollWait(0x7d179e7a0600, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b03470b2380?, 0x1b03470aa000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b03470b2380, {0x1b03470aa000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b03470b2380, {0x1b03470aa000?, 0x1b0347103850?, 0x1b03471038b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b0347202038, {0x1b03470aa000?, 0xc2a1176e532c7c15?, 0x1b03471038f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b03472427b0)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b03472427b0, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b03472428b0?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b0347242780, 0x1b03472428b0, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b0347242780, {0x2b4abfc3b?, 0x1ae32e0?, 0xe0?, 0x2a5c53917?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b0347103eb8, {0x11c43f8, 0x1b0346f9c320}, 0x0, 0x1b0347242780)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b0347103eb8, {0x11c43f8, 0x1b0346f9c320}, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0346f9c320?}, {{0x11710ca?, 0x0?}, 0x0?}, 0x0?, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 31
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 113 [IO wait]:
+internal/poll.runtime_pollWait(0x7d179e7a1200, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b0347126380?, 0x1b03471d2000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b0347126380, {0x1b03471d2000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b0347126380, {0x1b03471d2000?, 0x1b0346fd3850?, 0x1b0346fd38b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b03471ac068, {0x1b03471d2000?, 0xc2a1176e5232d963?, 0x1b0346fd38f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b03471b12f0)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b03471b12f0, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b03471b13f0?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b03471b12c0, 0x1b03471b13f0, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b03471b12c0, {0x2b3b2583f?, 0x1ae32e0?, 0xe0?, 0x2a4cb7441?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b0346fd3eb8, {0x11c43f8, 0x1b0346f9c320}, 0x39c, 0x1b03471b12c0)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b0346fd3eb8, {0x11c43f8, 0x1b0346f9c320}, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0346f9c320?}, {{0x116de82?, 0x0?}, 0x0?}, 0x0?, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 31
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 114 [IO wait]:
+internal/poll.runtime_pollWait(0x7d179e92aa00, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b0346dc6080?, 0x1b0346df1000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b0346dc6080, {0x1b0346df1000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b0346dc6080, {0x1b0346df1000?, 0x1b0346fef850?, 0x1b0346fef8b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b03471ac018, {0x1b0346df1000?, 0xc2a1176e532d5064?, 0x1b0346fef8f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b03471b07b0)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b03471b07b0, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b03471b08b0?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b03471b0780, 0x1b03471b08b0, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b03471b0780, {0x2b4acd008?, 0x1ae32e0?, 0xe0?, 0x2a5c609c4?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b0346fefeb8, {0x11c43f8, 0x1b0346f9c320}, 0x42c, 0x1b03471b0780)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b0346fefeb8, {0x11c43f8, 0x1b0346f9c320}, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0346f9c320?}, {{0x116de82?, 0x0?}, 0x0?}, 0x0?, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 31
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 115 [IO wait]:
+internal/poll.runtime_pollWait(0x7d179e866000, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b0347126500?, 0x1b034740a000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b0347126500, {0x1b034740a000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b0347126500, {0x1b034740a000?, 0x1b0346fed850?, 0x1b0346fed8b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b034730c078, {0x1b034740a000?, 0xc2a1176e5371bd64?, 0x1b0346fed8f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b03471152f0)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b03471152f0, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b03471153f0?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b03471152c0, 0x1b03471153f0, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b03471152c0, {0x2b4f13d67?, 0x1ae32e0?, 0xe0?, 0x2a60a7e3f?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b0346fedeb8, {0x11c43f8, 0x1b0346f9c320}, 0x9, 0x1b03471152c0)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b0346fedeb8, {0x11c43f8, 0x1b0346f9c320}, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0346f9c320?}, {{0x1168b16?, 0x0?}, 0x0?}, 0x0?, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 31
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 116 [IO wait]:
+internal/poll.runtime_pollWait(0x7d17e5430800, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b0347222080?, 0x1b0347156000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b0347222080, {0x1b0347156000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b0347222080, {0x1b0347156000?, 0x1b03470e7850?, 0x1b03470e78b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b03470b6020, {0x1b0347156000?, 0xc2a1176e536fe451?, 0x1b03470e78f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b03470b07b0)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b03470b07b0, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b03470b08b0?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b03470b0780, 0x1b03470b08b0, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b03470b0780, {0x2b4ef63af?, 0x1ae32e0?, 0xe0?, 0x2a6089ab9?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b03470e7eb8, {0x11c43f8, 0x1b0346f9c320}, 0x4, 0x1b03470b0780)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b03470e7eb8, {0x11c43f8, 0x1b0346f9c320}, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0346f9c320?}, {{0x1168b16?, 0x0?}, 0x0?}, 0x0?, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 31
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 117 [IO wait]:
+internal/poll.runtime_pollWait(0x7d17e5431400, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b0346e7a200?, 0x1b03470f5000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b0346e7a200, {0x1b03470f5000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b0346e7a200, {0x1b03470f5000?, 0x1b0346fcb850?, 0x1b0346fcb8b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b03471ac010, {0x1b03470f5000?, 0xc2a1176e537ed180?, 0x1b0346fcb8f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b03471b03f0)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b03471b03f0, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b03471b04f0?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b03471b03c0, 0x1b03471b04f0, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b03471b03c0, {0x2b4fe513a?, 0x1ae32e0?, 0xe0?, 0x2a6178844?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b0346fcbeb8, {0x11c43f8, 0x1b0346f9c320}, 0x0, 0x1b03471b03c0)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b0346fcbeb8, {0x11c43f8, 0x1b0346f9c320}, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0346f9c320?}, {{0x11710ca?, 0x0?}, 0x0?}, 0x0?, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 31
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 118 [IO wait]:
+internal/poll.runtime_pollWait(0x7d179e92a600, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b03470b2100?, 0x1b03470af000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b03470b2100, {0x1b03470af000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b03470b2100, {0x1b03470af000?, 0x1b03470ff850?, 0x1b03470ff8b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b03471ac038, {0x1b03470af000?, 0xc2a1176e544b8a3b?, 0x1b03470ff8f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b03471b1c50)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b03471b1c50, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b03471b1d50?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b03471b1c20, 0x1b03471b1d50, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b03471b1c20, {0x2b5cb0a86?, 0x1ae32e0?, 0xe0?, 0x2a6e44b5e?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b03470ffeb8, {0x11c43f8, 0x1b0346f9c320}, 0x3f3, 0x1b03471b1c20)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b03470ffeb8, {0x11c43f8, 0x1b0346f9c320}, 0x1b03470907b8?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0346f9c320?}, {{0x116de82?, 0x1b0347090768?}, 0x470907d0?}, 0x5d43db?, 0x1b0346f97540?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 31
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 119 [IO wait]:
+internal/poll.runtime_pollWait(0x7d17e542f800, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b034703cd00?, 0x1b034732a000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b034703cd00, {0x1b034732a000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b034703cd00, {0x1b034732a000?, 0x1b03470eb850?, 0x1b03470eb8b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b0347008238, {0x1b034732a000?, 0xc2a1176e544a28e9?, 0x1b03470eb8f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b034731e7b0)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b034731e7b0, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b034731e8b0?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b034731e780, 0x1b034731e8b0, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b034731e780, {0x2b5c9a8e2?, 0x1ae32e0?, 0xe0?, 0x2a6e2e7da?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b03470ebeb8, {0x11c43f8, 0x1b0346f9c320}, 0x3, 0x1b034731e780)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b03470ebeb8, {0x11c43f8, 0x1b0346f9c320}, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0346f9c320?}, {{0x1168b16?, 0x0?}, 0x470957d0?}, 0x5d43db?, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 31
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 120 [IO wait]:
+internal/poll.runtime_pollWait(0x7d17e542fa00, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b0346e7a100?, 0x1b0346dff000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b0346e7a100, {0x1b0346dff000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b0346e7a100, {0x1b0346dff000?, 0x1b0346ff3850?, 0x1b0346ff38b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b03471ac020, {0x1b0346dff000?, 0xc2a1176e5371e2f3?, 0x1b0346ff38f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b03471b0b70)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b03471b0b70, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b03471b0c70?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b03471b0b40, 0x1b03471b0c70, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b03471b0b40, {0x2b4f162fb?, 0x1ae32e0?, 0xe0?, 0x2a60a9ef1?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b0346ff3eb8, {0x11c43f8, 0x1b0346f9c320}, 0x4, 0x1b03471b0b40)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b0346ff3eb8, {0x11c43f8, 0x1b0346f9c320}, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0346f9c320?}, {{0x1168b16?, 0x0?}, 0x0?}, 0x0?, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 31
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 121 [IO wait]:
+internal/poll.runtime_pollWait(0x7d179e7a0800, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b0347126300?, 0x1b0347328000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b0347126300, {0x1b0347328000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b0347126300, {0x1b0347328000?, 0x1b034716d850?, 0x1b034716d8b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b0347008230, {0x1b0347328000?, 0xc2a1176e5448acff?, 0x1b034716d8f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b034731e5d0)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b034731e5d0, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b034731e6d0?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b034731e5a0, 0x1b034731e6d0, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b034731e5a0, {0x2b5c82bd3?, 0x1ae32e0?, 0xe0?, 0x2a6e157b1?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b034716deb8, {0x11c43f8, 0x1b0346f9c320}, 0x41a, 0x1b034731e5a0)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b034716deb8, {0x11c43f8, 0x1b0346f9c320}, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0346f9c320?}, {{0x116de82?, 0x0?}, 0x0?}, 0x0?, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 31
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 122 [IO wait]:
+internal/poll.runtime_pollWait(0x7d179e866200, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b0347222800?, 0x1b03473a0000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b0347222800, {0x1b03473a0000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b0347222800, {0x1b03473a0000?, 0x1b0347167850?, 0x1b03471678b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b0346d82138, {0x1b03473a0000?, 0xc2a1176e52629e19?, 0x1b03471678f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b034704d6b0)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b034704d6b0, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b034704d7b0?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b034704d680, 0x1b034704d7b0, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b034704d680, {0x2b3e21ebe?, 0x1ae32e0?, 0xe0?, 0x2a4fb6270?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b0347167eb8, {0x11c43f8, 0x1b0346f9c320}, 0x6, 0x1b034704d680)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b0347167eb8, {0x11c43f8, 0x1b0346f9c320}, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0346f9c320?}, {{0x1168b16?, 0x0?}, 0x0?}, 0x0?, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 31
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 123 [IO wait]:
+internal/poll.runtime_pollWait(0x7d17e5465a00, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b034729c380?, 0x1b03472a4000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b034729c380, {0x1b03472a4000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b034729c380, {0x1b03472a4000?, 0x1b0346fe9850?, 0x1b0346fe98b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b0347284070, {0x1b03472a4000?, 0xc2a1176e5231d5cb?, 0x1b0346fe98f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b0346ff96b0)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b0346ff96b0, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b0346ff97b0?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b0346ff9680, 0x1b0346ff97b0, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b0346ff9680, {0x2b3b1536c?, 0x1ae32e0?, 0xe0?, 0x2a4ca487c?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b0346fe9eb8, {0x11c43f8, 0x1b0346f9c320}, 0x0, 0x1b0346ff9680)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b0346fe9eb8, {0x11c43f8, 0x1b0346f9c320}, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0346f9c320?}, {{0x11710ca?, 0x0?}, 0x0?}, 0x0?, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 31
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 124 [IO wait]:
+internal/poll.runtime_pollWait(0x7d179e7a0200, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b0347126200?, 0x1b034740c000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b0347126200, {0x1b034740c000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b0347126200, {0x1b034740c000?, 0x1b0346feb850?, 0x1b0346feb8b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b034730c080, {0x1b034740c000?, 0xc2a1176e52336661?, 0x1b0346feb8f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b03471154d0)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b03471154d0, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b03471155d0?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b03471154a0, 0x1b03471155d0, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b03471154a0, {0x2b3b2e6c0?, 0x1ae32e0?, 0xe0?, 0x2a4cc234c?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b0346febeb8, {0x11c43f8, 0x1b0346f9c320}, 0x0, 0x1b03471154a0)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b0346febeb8, {0x11c43f8, 0x1b0346f9c320}, 0x1b0346d53e58?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0346f9c320?}, {{0x11710ca?, 0x1b0346d53e70?}, 0x46d53fd0?}, 0x73db77?, 0x1b0346f97540?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 31
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 125 [IO wait]:
+internal/poll.runtime_pollWait(0x7d179e92a800, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b0347126180?, 0x1b0347480000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b0347126180, {0x1b0347480000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b0347126180, {0x1b0347480000?, 0x1b0346fe5850?, 0x1b0346fe58b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b03470b6060, {0x1b0347480000?, 0xc2a1176e5263196b?, 0x1b0346fe58f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b03470b1110)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b03470b1110, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b03470b1210?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b03470b10e0, 0x1b03470b1210, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b03470b10e0, {0x2b3e299b6?, 0x1ae32e0?, 0xe0?, 0x2a4fbe0ce?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b0346fe5eb8, {0x11c43f8, 0x1b0346f9c320}, 0x0, 0x1b03470b10e0)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b0346fe5eb8, {0x11c43f8, 0x1b0346f9c320}, 0x1b0346f9c730?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0346f9c320?}, {{0x11710ca?, 0x1b0346f9c780?}, 0x46d4cfd0?}, 0x5d43db?, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 31
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 126 [IO wait]:
+internal/poll.runtime_pollWait(0x7d179e7a1e00, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b03470b2080?, 0x1b034721d000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b03470b2080, {0x1b034721d000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b03470b2080, {0x1b034721d000?, 0x1b0347165850?, 0x1b03471658b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b03471ac028, {0x1b034721d000?, 0xc2a1176e52fe9c8a?, 0x1b03471658f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b03471b1a70)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b03471b1a70, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b03471b1b70?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b03471b1a40, 0x1b03471b1b70, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b03471b1a40, {0x2b47e1bf4?, 0x1ae32e0?, 0xe0?, 0x2a5975222?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b0347165eb8, {0x11c43f8, 0x1b0346f9c320}, 0x0, 0x1b03471b1a40)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b0347165eb8, {0x11c43f8, 0x1b0346f9c320}, 0x1b03470dc000?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0346f9c320?}, {{0x11710ca?, 0x1b03470dc050?}, 0x46d4e7d0?}, 0x5d43db?, 0x1b0346de8120?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 31
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 127 [IO wait]:
+internal/poll.runtime_pollWait(0x7d17e5465400, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b03470da200?, 0x1b0347078000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b03470da200, {0x1b0347078000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b03470da200, {0x1b0347078000?, 0x1b034716b850?, 0x1b034716b8b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b0346cdc008, {0x1b0347078000?, 0xc2a1176e537fbd44?, 0x1b034716b8f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b0347162990)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b0347162990, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b0347162a90?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b0347162960, 0x1b0347162a90, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b0347162960, {0x2b4ff3d0d?, 0x1ae32e0?, 0xe0?, 0x2a61872d6?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b034716beb8, {0x11c43f8, 0x1b0346f9c320}, 0x3df, 0x1b0347162960)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b034716beb8, {0x11c43f8, 0x1b0346f9c320}, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0346f9c320?}, {{0x116de82?, 0x0?}, 0x0?}, 0x0?, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 31
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 128 [IO wait]:
+internal/poll.runtime_pollWait(0x7d179e7a1000, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b034729c900?, 0x1b034741b000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b034729c900, {0x1b034741b000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b034729c900, {0x1b034741b000?, 0x1b0346ebb850?, 0x1b0346ebb8b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b034730c0a0, {0x1b034741b000?, 0xc2a1176e544a8ae7?, 0x1b0346ebb8f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b03471156b0)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b03471156b0, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b03471157b0?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b0347115680, 0x1b03471157b0, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b0347115680, {0x2b5ca0a4f?, 0x1ae32e0?, 0xe0?, 0x2a6e344a1?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b0346ebbeb8, {0x11c43f8, 0x1b0346f9c320}, 0x411, 0x1b0347115680)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b0346ebbeb8, {0x11c43f8, 0x1b0346f9c320}, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0346f9c320?}, {{0x116de82?, 0x0?}, 0x0?}, 0x0?, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 31
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 129 [IO wait]:
+internal/poll.runtime_pollWait(0x7d17e5430600, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b0346dc6880?, 0x1b0347342000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b0346dc6880, {0x1b0347342000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b0346dc6880, {0x1b0347342000?, 0x1b0346ebd850?, 0x1b0346ebd8b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b0347008250, {0x1b0347342000?, 0xc2a1176e544ae7b5?, 0x1b0346ebd8f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b034731ef30)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b034731ef30, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b034731f030?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b034731ef00, 0x1b034731f030, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b034731ef00, {0x2b5ca673d?, 0x1ae32e0?, 0xe0?, 0x2a6e3a0f9?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b0346ebdeb8, {0x11c43f8, 0x1b0346f9c320}, 0x8, 0x1b034731ef00)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b0346ebdeb8, {0x11c43f8, 0x1b0346f9c320}, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0346f9c320?}, {{0x1168b16?, 0x0?}, 0x0?}, 0x0?, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 31
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 130 [IO wait]:
+internal/poll.runtime_pollWait(0x7d17e542fc00, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b0346dc6a00?, 0x1b03471e0000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b0346dc6a00, {0x1b03471e0000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b0346dc6a00, {0x1b03471e0000?, 0x1b0347171850?, 0x1b03471718b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b03471ac080, {0x1b03471e0000?, 0xc2a1176e537545a2?, 0x1b03471718f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b03471b1890)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b03471b1890, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b03471b1990?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b03471b1860, 0x1b03471b1990, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b03471b1860, {0x2b4f4c5de?, 0x1ae32e0?, 0xe0?, 0x2a60e0724?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b0347171eb8, {0x11c43f8, 0x1b0346f9c320}, 0x0, 0x1b03471b1860)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b0347171eb8, {0x11c43f8, 0x1b0346f9c320}, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0346f9c320?}, {{0x11710ca?, 0x0?}, 0x0?}, 0x0?, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 31
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 131 [IO wait]:
+internal/poll.runtime_pollWait(0x7d179e92a400, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b0346dc6100?, 0x1b0346de2000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b0346dc6100, {0x1b0346de2000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b0346dc6100, {0x1b0346de2000?, 0x1b0347173850?, 0x1b03471738b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b0347202018, {0x1b0346de2000?, 0xc2a1176e53727fe1?, 0x1b03471738f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b0347242030)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b0347242030, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b0347242130?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b0347242000, 0x1b0347242130, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b0347242000, {0x2b4f2000e?, 0x1ae32e0?, 0xe0?, 0x2a60b423a?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b0347173eb8, {0x11c43f8, 0x1b0346f9c320}, 0x3d1, 0x1b0347242000)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b0347173eb8, {0x11c43f8, 0x1b0346f9c320}, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0346f9c320?}, {{0x116de82?, 0x0?}, 0x0?}, 0x0?, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 31
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 132 [IO wait]:
+internal/poll.runtime_pollWait(0x7d179e929e00, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b03470da100?, 0x1b03473c0000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b03470da100, {0x1b03473c0000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b03470da100, {0x1b03473c0000?, 0x1b0347179850?, 0x1b03471798b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b0346d82180, {0x1b03473c0000?, 0xc2a1176e53729738?, 0x1b03471798f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b034704d890)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b034704d890, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b034704d990?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b034704d860, 0x1b034704d990, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b034704d860, {0x2b4f217ba?, 0x1ae32e0?, 0xe0?, 0x2a60b5cfc?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b0347179eb8, {0x11c43f8, 0x1b0346f9c320}, 0x9, 0x1b034704d860)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b0347179eb8, {0x11c43f8, 0x1b0346f9c320}, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0346f9c320?}, {{0x1168b16?, 0x0?}, 0x0?}, 0x0?, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 31
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 133 [IO wait]:
+internal/poll.runtime_pollWait(0x7d179e92a000, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b034703cd80?, 0x1b034750b000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b034703cd80, {0x1b034750b000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b034703cd80, {0x1b034750b000?, 0x1b0347175850?, 0x1b03471758b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b0346cdc178, {0x1b034750b000?, 0xc2a1176e5370c56e?, 0x1b03471758f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b03471627b0)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b03471627b0, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b03471628b0?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b0347162780, 0x1b03471628b0, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b0347162780, {0x2b4f0456e?, 0x1ae32e0?, 0xe0?, 0x2a6098682?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b0347175eb8, {0x11c43f8, 0x1b0346f9c320}, 0xa, 0x1b0347162780)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b0347175eb8, {0x11c43f8, 0x1b0346f9c320}, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0346f9c320?}, {{0x1168b16?, 0x0?}, 0x0?}, 0x0?, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 31
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 134 [IO wait]:
+internal/poll.runtime_pollWait(0x7d17e5430400, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b034703c600?, 0x1b0346ff6000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b034703c600, {0x1b0346ff6000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b034703c600, {0x1b0346ff6000?, 0x1b0346ff1850?, 0x1b0346ff18b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b0347008150, {0x1b0346ff6000?, 0xc2a1176e5378ba12?, 0x1b0346ff18f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b034731f4d0)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b034731f4d0, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b034731f5d0?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b034731f4a0, 0x1b034731f5d0, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b034731f4a0, {0x2b4f839ca?, 0x1ae32e0?, 0xe0?, 0x2a6117430?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b0346ff1eb8, {0x11c43f8, 0x1b0346f9c320}, 0x4, 0x1b034731f4a0)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b0346ff1eb8, {0x11c43f8, 0x1b0346f9c320}, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0346f9c320?}, {{0x1168b16?, 0x0?}, 0x0?}, 0x0?, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 31
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 135 [IO wait]:
+internal/poll.runtime_pollWait(0x7d179e7a0a00, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b0347222780?, 0x1b03472ba000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b0347222780, {0x1b03472ba000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b0347222780, {0x1b03472ba000?, 0x1b0346fe7850?, 0x1b0346fe78b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b03472840c0, {0x1b03472ba000?, 0xc2a1176e5233bb9d?, 0x1b0346fe78f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b03472b63f0)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b03472b63f0, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b03472b64f0?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b03472b63c0, 0x1b03472b64f0, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b03472b63c0, {0x2b3b33b5c?, 0x1ae32e0?, 0xe0?, 0x2a4cc79dc?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b0346fe7eb8, {0x11c43f8, 0x1b0346f9c320}, 0x0, 0x1b03472b63c0)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b0346fe7eb8, {0x11c43f8, 0x1b0346f9c320}, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0346f9c320?}, {{0x11710ca?, 0x0?}, 0x0?}, 0x0?, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 31
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 136 [IO wait]:
+internal/poll.runtime_pollWait(0x7d179e7a1800, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b0346dc6980?, 0x1b0347509000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b0346dc6980, {0x1b0347509000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b0346dc6980, {0x1b0347509000?, 0x1b0346fd1850?, 0x1b0346fd18b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b0346cdc170, {0x1b0347509000?, 0xc2a1176e52635e4c?, 0x1b0346fd18f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b03471625d0)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b03471625d0, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b03471626d0?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b03471625a0, 0x1b03471626d0, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b03471625a0, {0x2b3e2de8b?, 0x1ae32e0?, 0xe0?, 0x2a4fc20fd?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b0346fd1eb8, {0x11c43f8, 0x1b0346f9c320}, 0x0, 0x1b03471625a0)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b0346fd1eb8, {0x11c43f8, 0x1b0346f9c320}, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0346f9c320?}, {{0x11710ca?, 0x0?}, 0x0?}, 0x0?, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 31
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 72 [IO wait]:
+internal/poll.runtime_pollWait(0x7d179e866400, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b03470da000?, 0x1b03470e2000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b03470da000, {0x1b03470e2000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b03470da000, {0x1b03470e2000?, 0x1b03470a1850?, 0x1b03470a18b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b03470b6058, {0x1b03470e2000?, 0xc2a1176e53bc8419?, 0x1b03470a18f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b03470b0f30)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b03470b0f30, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b03470b1030?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b03470b0f00, 0x1b03470b1030, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b03470b0f00, {0x2b53c0408?, 0x1ae32e0?, 0xe0?, 0x2a65544d6?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b03470a1eb8, {0x11c43f8, 0x1b0347002050}, 0xe91, 0x1b03470b0f00)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b03470a1eb8, {0x11c43f8, 0x1b0347002050}, 0x1c6a3c64afb8c8fa?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0347002050?}, {{0x1165d19?, 0x1b03471967d0?}, 0x88501b?}, 0x1b0346dfa1c0?, 0x1b0346de8240?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 82
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 73 [IO wait]:
+internal/poll.runtime_pollWait(0x7d179e92ac00, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b034729c580?, 0x1b0347482000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b034729c580, {0x1b0347482000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b034729c580, {0x1b0347482000?, 0x1b0346e83850?, 0x1b0346e838b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b03470b6068, {0x1b0347482000?, 0xc2a1176e54aba8d9?, 0x1b0346e838f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b03470b12f0)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b03470b12f0, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b03470b13f0?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b03470b12c0, 0x1b03470b13f0, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b03470b12c0, {0x2b62b27b2?, 0x1ae32e0?, 0xe0?, 0x2a7445002?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b0346e83eb8, {0x11c43f8, 0x1b0347002050}, 0xb83, 0x1b03470b12c0)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b0346e83eb8, {0x11c43f8, 0x1b0347002050}, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0347002050?}, {{0x1165d19?, 0x0?}, 0x0?}, 0x0?, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 82
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 74 [IO wait]:
+internal/poll.runtime_pollWait(0x7d179e865e00, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b0347126580?, 0x1b034741d000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b0347126580, {0x1b034741d000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b0347126580, {0x1b034741d000?, 0x1b0346ddf850?, 0x1b0346ddf8b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b034730c098, {0x1b034741d000?, 0xc2a1176e52dc97b3?, 0x1b0346ddf8f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b03470b0210)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b03470b0210, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b03470b0310?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b03470b01e0, 0x1b03470b0310, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b03470b01e0, {0x2b45c15ab?, 0x1ae32e0?, 0xe0?, 0x2a57536ad?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b0346ddfeb8, {0x11c43f8, 0x1b0347002050}, 0x797, 0x1b03470b01e0)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b0346ddfeb8, {0x11c43f8, 0x1b0347002050}, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0347002050?}, {{0x1165d19?, 0x0?}, 0x0?}, 0x0?, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 82
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 75 [IO wait]:
+internal/poll.runtime_pollWait(0x7d179e92a200, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b034703cc00?, 0x1b03471b2000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b034703cc00, {0x1b03471b2000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b034703cc00, {0x1b03471b2000?, 0x1b0346de1850?, 0x1b0346de18b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b03471ac008, {0x1b03471b2000?, 0xc2a1176e5261efae?, 0x1b0346de18f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b03471b0210)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b03471b0210, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b03471b0310?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b03471b01e0, 0x1b03471b0310, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b03471b01e0, {0x2b3e16f4f?, 0x1ae32e0?, 0xe0?, 0x2a4faa7c1?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b0346de1eb8, {0x11c43f8, 0x1b0347002050}, 0xf7d, 0x1b03471b01e0)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b0346de1eb8, {0x11c43f8, 0x1b0347002050}, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0347002050?}, {{0x1165d19?, 0x0?}, 0x0?}, 0x0?, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 82
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 76 [IO wait]:
+internal/poll.runtime_pollWait(0x7d179e7a0e00, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b034703cc80?, 0x1b0347324000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b034703cc80, {0x1b0347324000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b034703cc80, {0x1b0347324000?, 0x1b0346ddb850?, 0x1b0346ddb8b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b03470081f0, {0x1b0347324000?, 0xc2a1176e5232c6ee?, 0x1b0346ddb8f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b034731e210)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b034731e210, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b034731e310?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b034731e1e0, 0x1b034731e310, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b034731e1e0, {0x2b3b2460b?, 0x1ae32e0?, 0xe0?, 0x2a4cb7487?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b0346ddbeb8, {0x11c43f8, 0x1b0347002050}, 0x7a4, 0x1b034731e1e0)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b0346ddbeb8, {0x11c43f8, 0x1b0347002050}, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0347002050?}, {{0x1165d19?, 0x0?}, 0x0?}, 0x0?, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 82
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 77 [IO wait]:
+internal/poll.runtime_pollWait(0x7d17e5430200, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b0346dc6400?, 0x1b0346dc2000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b0346dc6400, {0x1b0346dc2000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b0346dc6400, {0x1b0346dc2000?, 0x1b0346ddd850?, 0x1b0346ddd8b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b034730c030, {0x1b0346dc2000?, 0xc2a1176e532ab924?, 0x1b0346ddd8f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b03472b6d50)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b03472b6d50, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b03472b6e50?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b03472b6d20, 0x1b03472b6e50, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b03472b6d20, {0x2b4aa371a?, 0x1ae32e0?, 0xe0?, 0x2a5c35217?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b0346dddeb8, {0x11c43f8, 0x1b0347002050}, 0xf7d, 0x1b03472b6d20)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b0346dddeb8, {0x11c43f8, 0x1b0347002050}, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0347002050?}, {{0x1165d19?, 0x0?}, 0x0?}, 0x0?, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 82
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 78 [IO wait]:
+internal/poll.runtime_pollWait(0x7d179e866800, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b034729c780?, 0x1b03472b4000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b034729c780, {0x1b03472b4000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b034729c780, {0x1b03472b4000?, 0x1b0346ebf850?, 0x1b0346ebf8b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b03472840a8, {0x1b03472b4000?, 0xc2a1176e544ba05e?, 0x1b0346ebf8f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b03472b6030)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b03472b6030, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b03472b6130?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b03472b6000, 0x1b03472b6130, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b03472b6000, {0x2b5cb2052?, 0x1ae32e0?, 0xe0?, 0x2a6e45d10?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b0346ebfeb8, {0x11c43f8, 0x1b0347002050}, 0xe27, 0x1b03472b6000)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b0346ebfeb8, {0x11c43f8, 0x1b0347002050}, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0347002050?}, {{0x1165d19?, 0x0?}, 0x0?}, 0x0?, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 82
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 79 [IO wait]:
+internal/poll.runtime_pollWait(0x7d179e866a00, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b0347126400?, 0x1b03472b8000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b0347126400, {0x1b03472b8000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b0347126400, {0x1b03472b8000?, 0x1b0346ec1850?, 0x1b0346ec18b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b03472840b0, {0x1b03472b8000?, 0xc2a1176e5454a11a?, 0x1b0346ec18f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b03472b6210)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b03472b6210, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b03472b6310?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b03472b61e0, 0x1b03472b6310, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b03472b61e0, {0x2b5d420e3?, 0x1ae32e0?, 0xe0?, 0x2a6ed5bb7?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b0346ec1eb8, {0x11c43f8, 0x1b0347002050}, 0xae5, 0x1b03472b61e0)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b0346ec1eb8, {0x11c43f8, 0x1b0347002050}, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0347002050?}, {{0x1165d19?, 0x0?}, 0x0?}, 0x0?, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 82
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 80 [IO wait]:
+internal/poll.runtime_pollWait(0x7d179e7a1c00, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b0346dc6900?, 0x1b034741a000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b0346dc6900, {0x1b034741a000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b0346dc6900, {0x1b034741a000?, 0x1b0346ec7850?, 0x1b0346ec78b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b034730c090, {0x1b034741a000?, 0xc2a1176e534bf6f4?, 0x1b0346ec78f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b03470b0030)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b03470b0030, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b03470b0130?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b03470b0000, 0x1b03470b0130, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b03470b0000, {0x2b4cb7698?, 0x1ae32e0?, 0xe0?, 0x2a5e4b270?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b0346ec7eb8, {0x11c43f8, 0x1b0347002050}, 0xc47, 0x1b03470b0000)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b0346ec7eb8, {0x11c43f8, 0x1b0347002050}, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0347002050?}, {{0x1165d19?, 0x0?}, 0x0?}, 0x0?, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 82
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 145 [IO wait]:
+internal/poll.runtime_pollWait(0x7d179e866600, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b0347126480?, 0x1b0347408000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b0347126480, {0x1b0347408000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b0347126480, {0x1b0347408000?, 0x1b0346ec9850?, 0x1b0346ec98b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b034730c070, {0x1b0347408000?, 0xc2a1176e53cc1f69?, 0x1b0346ec98f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b0347115110)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b0347115110, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b0347115210?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b03471150e0, 0x1b0347115210, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b03471150e0, {0x2b54b9f67?, 0x1ae32e0?, 0xe0?, 0x2a664d851?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b0346ec9eb8, {0x11c43f8, 0x1b0347002050}, 0xc0c, 0x1b03471150e0)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b0346ec9eb8, {0x11c43f8, 0x1b0347002050}, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0347002050?}, {{0x1165d19?, 0x0?}, 0x0?}, 0x0?, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 82
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 146 [IO wait]:
+internal/poll.runtime_pollWait(0x7d179e7a1a00, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b0346e7a300?, 0x1b0346fac000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b0346e7a300, {0x1b0346fac000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b0346e7a300, {0x1b0346fac000?, 0x1b0346ec3850?, 0x1b0346ec38b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b0346d82088, {0x1b0346fac000?, 0xc2a1176e52fda4f5?, 0x1b0346ec38f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b03471145d0)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b03471145d0, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b03471146d0?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b03471145a0, 0x1b03471146d0, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b03471145a0, {0x2b47d24b9?, 0x1ae32e0?, 0xe0?, 0x2a596591b?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b0346ec3eb8, {0x11c43f8, 0x1b0347002050}, 0xb0a, 0x1b03471145a0)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b0346ec3eb8, {0x11c43f8, 0x1b0347002050}, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0347002050?}, {{0x1165d19?, 0x0?}, 0x0?}, 0x0?, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 82
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 147 [IO wait]:
+internal/poll.runtime_pollWait(0x7d17e5430c00, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b034729c880?, 0x1b034732e000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b034729c880, {0x1b034732e000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b034729c880, {0x1b034732e000?, 0x1b0346ec5850?, 0x1b0346ec58b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b0347008240, {0x1b034732e000?, 0xc2a1176e5d4e31bb?, 0x1b0346ec58f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b034731e990)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b034731e990, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b034731ea90?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b034731e960, 0x1b034731ea90, 0x43)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b034731e960, {0x2becdb038?, 0x1ae32e0?, 0xe0?, 0x2afe6cbcc?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b0346ec5eb8, {0x11c43f8, 0x1b0347002050}, 0x11ac, 0x1b034731e960)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b0346ec5eb8, {0x11c43f8, 0x1b0347002050}, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0347002050?}, {{0x1165d19?, 0x0?}, 0x0?}, 0x0?, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 82
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 148 [select]:
+github.com/segmentio/kafka-go.(*Reader).commitLoopInterval(0x1b0346dfa1c0, {0x11c49b8, 0x1b034703c000}, 0x1b034703c000)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:248 +0x19f
+github.com/segmentio/kafka-go.(*Reader).commitLoop(0x0?, {0x11c49b8?, 0x1b034703c000?}, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:283 +0x167
+github.com/segmentio/kafka-go.(*Reader).run.func3({0x11c49b8?, 0x1b034703c000?})
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:335 +0x2e
+github.com/segmentio/kafka-go.(*Generation).Start.func1()
+	github.com/segmentio/kafka-go@v0.4.48/consumergroup.go:396 +0x2b
+created by github.com/segmentio/kafka-go.(*Generation).Start in goroutine 82
+	github.com/segmentio/kafka-go@v0.4.48/consumergroup.go:395 +0x13c
+
+goroutine 149 [select]:
+github.com/segmentio/kafka-go.(*Reader).run.func4({0x11c49b8?, 0x1b034703c000?})
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:339 +0x8a
+github.com/segmentio/kafka-go.(*Generation).Start.func1()
+	github.com/segmentio/kafka-go@v0.4.48/consumergroup.go:396 +0x2b
+created by github.com/segmentio/kafka-go.(*Generation).Start in goroutine 82
+	github.com/segmentio/kafka-go@v0.4.48/consumergroup.go:395 +0x13c
+
+goroutine 137 [IO wait]:
+internal/poll.runtime_pollWait(0x7d17e5430e00, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b0346e7a280?, 0x1b034719a000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b0346e7a280, {0x1b034719a000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b0346e7a280, {0x1b034719a000?, 0x1b0347107850?, 0x1b03471078b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b0346cdc118, {0x1b034719a000?, 0xc2a1176e536b7cd2?, 0x1b03471078f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b0347162b70)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b0347162b70, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b0347162c70?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b0347162b40, 0x1b0347162c70, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b0347162b40, {0x2b4eafc71?, 0x1ae32e0?, 0xe0?, 0x2a60435fb?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b0347107eb8, {0x11c43f8, 0x1b0346f9c320}, 0x0, 0x1b0347162b40)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b0347107eb8, {0x11c43f8, 0x1b0346f9c320}, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0346f9c320?}, {{0x11710ca?, 0x0?}, 0x0?}, 0x0?, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 31
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 138 [IO wait]:
+internal/poll.runtime_pollWait(0x7d17e5431200, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b0346e7a500?, 0x1b03472d4000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b0346e7a500, {0x1b03472d4000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b0346e7a500, {0x1b03472d4000?, 0x1b034716f850?, 0x1b034716f8b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b03472840f0, {0x1b03472d4000?, 0xc2a1176e5262f6c0?, 0x1b034716f8f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b03472b6b70)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b03472b6b70, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b03472b6c70?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b03472b6b40, 0x1b03472b6c70, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b03472b6b40, {0x2b3e276de?, 0x1ae32e0?, 0xe0?, 0x2a4fbb914?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b034716feb8, {0x11c43f8, 0x1b0346f9c320}, 0x41a, 0x1b03472b6b40)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b034716feb8, {0x11c43f8, 0x1b0346f9c320}, 0x1b0346f9c820?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0346f9c320?}, {{0x116de82?, 0x1b0346f9c870?}, 0x46d4ffd0?}, 0x5d43db?, 0x1b0346de8240?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 31
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 139 [IO wait]:
+internal/poll.runtime_pollWait(0x7d17e5431000, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b03470da280?, 0x1b0346fae000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b03470da280, {0x1b0346fae000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b03470da280, {0x1b0346fae000?, 0x1b034717b850?, 0x1b034717b8b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b0346d82120, {0x1b0346fae000?, 0xc2a1176e53bb6baa?, 0x1b034717b8f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b0347114f30)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b0347114f30, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b0347115030?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b0347114f00, 0x1b0347115030, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b0347114f00, {0x2b53aeb85?, 0x1ae32e0?, 0xe0?, 0x2a65423ed?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b034717beb8, {0x11c43f8, 0x1b0346f9c320}, 0xc, 0x1b0347114f00)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b034717beb8, {0x11c43f8, 0x1b0346f9c320}, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0346f9c320?}, {{0x1168b16?, 0x1b0346dac040?}, 0x46d4f7d0?}, 0x5d43db?, 0x1b0346d4f7a8?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 31
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 140 [IO wait]:
+internal/poll.runtime_pollWait(0x7d17e5430000, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b0346dc6380?, 0x1b0347221000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b0346dc6380, {0x1b0347221000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b0346dc6380, {0x1b0347221000?, 0x1b0346fc7850?, 0x1b0346fc78b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b03471ac040, {0x1b0347221000?, 0xc2a1176e534b9c7f?, 0x1b0346fc78f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b034704c3f0)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b034704c3f0, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b034704c4f0?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b034704c3c0, 0x1b034704c4f0, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b034704c3c0, {0x2b4cb1c5c?, 0x1ae32e0?, 0xe0?, 0x2a5e4564a?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b0346fc7eb8, {0x11c43f8, 0x1b0346f9c320}, 0x0, 0x1b034704c3c0)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b0346fc7eb8, {0x11c43f8, 0x1b0346f9c320}, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0346f9c320?}, {{0x11710ca?, 0x0?}, 0x0?}, 0x0?, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 31
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 141 [IO wait]:
+internal/poll.runtime_pollWait(0x7d179e7a1400, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b034729c700?, 0x1b03472b2000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b034729c700, {0x1b03472b2000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b034729c700, {0x1b03472b2000?, 0x1b0346fc9850?, 0x1b0346fc98b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b03472840a0, {0x1b03472b2000?, 0xc2a1176e52620252?, 0x1b0346fc98f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b0346ff9c50)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b0346ff9c50, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b0346ff9d50?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b0346ff9c20, 0x1b0346ff9d50, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b0346ff9c20, {0x2b3e181c9?, 0x1ae32e0?, 0xe0?, 0x2a4fab707?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b0346fc9eb8, {0x11c43f8, 0x1b0346f9c320}, 0x6, 0x1b0346ff9c20)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b0346fc9eb8, {0x11c43f8, 0x1b0346f9c320}, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0346f9c320?}, {{0x1168b16?, 0x0?}, 0x0?}, 0x0?, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 31
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 142 [IO wait]:
+internal/poll.runtime_pollWait(0x7d179e7a0400, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b034729c600?, 0x1b03472bc000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b034729c600, {0x1b03472bc000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b034729c600, {0x1b03472bc000?, 0x1b0346fcf850?, 0x1b0346fcf8b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b03472840c8, {0x1b03472bc000?, 0xc2a1176e526213e9?, 0x1b0346fcf8f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b03472b65d0)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b03472b65d0, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b03472b66d0?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b03472b65a0, 0x1b03472b66d0, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b03472b65a0, {0x2b3e1944d?, 0x1ae32e0?, 0xe0?, 0x2a4fad6fb?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b0346fcfeb8, {0x11c43f8, 0x1b0346f9c320}, 0x0, 0x1b03472b65a0)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b0346fcfeb8, {0x11c43f8, 0x1b0346f9c320}, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0346f9c320?}, {{0x11710ca?, 0x0?}, 0x0?}, 0x0?, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 31
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 143 [IO wait]:
+internal/poll.runtime_pollWait(0x7d179e7a0c00, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x1b034729c480?, 0x1b03472ac000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x1b034729c480, {0x1b03472ac000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x2ae
+net.(*netFD).Read(0x1b034729c480, {0x1b03472ac000?, 0x1b034710b850?, 0x1b034710b8b0?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x1b0347284090, {0x1b03472ac000?, 0xc2a1176e5263090a?, 0x1b034710b8f8?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0x1b0346ff9a70)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0x1b0346ff9a70, 0x8)
+	bufio/bufio.go:152 +0x53
+github.com/segmentio/kafka-go.(*Conn).peekResponseSizeAndID(0x1b0346ff9b70?)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1307 +0x25
+github.com/segmentio/kafka-go.(*Conn).waitResponse(0x1b0346ff9a40, 0x1b0346ff9b70, 0x42)
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:1397 +0x8e
+github.com/segmentio/kafka-go.(*Conn).ReadBatchWith(0x1b0346ff9a40, {0x2b3e28976?, 0x1ae32e0?, 0xe0?, 0x2a4fbcf80?})
+	github.com/segmentio/kafka-go@v0.4.48/conn.go:843 +0x6a5
+github.com/segmentio/kafka-go.(*reader).read(0x1b034710beb8, {0x11c43f8, 0x1b0346f9c320}, 0x3e2, 0x1b0346ff9a40)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1497 +0xe5
+github.com/segmentio/kafka-go.(*reader).run(0x1b034710beb8, {0x11c43f8, 0x1b0346f9c320}, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1327 +0x89d
+github.com/segmentio/kafka-go.(*Reader).start.func1({0x11c43f8?, 0x1b0346f9c320?}, {{0x116de82?, 0x0?}, 0x0?}, 0x0?, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1219 +0x1dd
+created by github.com/segmentio/kafka-go.(*Reader).start in goroutine 31
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:1195 +0x158
+
+goroutine 144 [select]:
+github.com/segmentio/kafka-go.(*Reader).commitLoopInterval(0x1b0346dfa000, {0x11c49b8, 0x1b0346e7a180}, 0x1b0346e7a180)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:248 +0x19f
+github.com/segmentio/kafka-go.(*Reader).commitLoop(0x0?, {0x11c49b8?, 0x1b0346e7a180?}, 0x0?)
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:283 +0x167
+github.com/segmentio/kafka-go.(*Reader).run.func3({0x11c49b8?, 0x1b0346e7a180?})
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:335 +0x2e
+github.com/segmentio/kafka-go.(*Generation).Start.func1()
+	github.com/segmentio/kafka-go@v0.4.48/consumergroup.go:396 +0x2b
+created by github.com/segmentio/kafka-go.(*Generation).Start in goroutine 31
+	github.com/segmentio/kafka-go@v0.4.48/consumergroup.go:395 +0x13c
+
+goroutine 161 [select]:
+github.com/segmentio/kafka-go.(*Reader).run.func4({0x11c49b8?, 0x1b0346e7a180?})
+	github.com/segmentio/kafka-go@v0.4.48/reader.go:339 +0x8a
+github.com/segmentio/kafka-go.(*Generation).Start.func1()
+	github.com/segmentio/kafka-go@v0.4.48/consumergroup.go:396 +0x2b
+created by github.com/segmentio/kafka-go.(*Generation).Start in goroutine 31
+	github.com/segmentio/kafka-go@v0.4.48/consumergroup.go:395 +0x13c
+
+goroutine 164 [runnable]:
+net/http.(*connReader).startBackgroundRead.gowrap2()
+	net/http/server.go:698
+runtime.goexit({})
+	runtime/asm_amd64.s:1771 +0x1
+created by net/http.(*connReader).startBackgroundRead in goroutine 163
+	net/http/server.go:698 +0xb6

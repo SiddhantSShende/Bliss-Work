@@ -12,7 +12,7 @@
  * own card, badged, so they know why nobody is allocating to them.
  */
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
 import { Eye, EyeOff, Search, UserCheck } from "lucide-react";
@@ -23,7 +23,7 @@ import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
 import { matchUser, rankUsers } from "../lib/matchUser";
 import { type AvailablePerson, useAvailability } from "../lib/useAvailability";
-import { useOnCall, type UserStatus } from "../lib/usePresence";
+import { useOnCall, usePresence, type UserStatus } from "../lib/usePresence";
 
 export function AvailablePeople({ onAssign }: { onAssign: (u: UserDTO) => void }) {
   const { api } = useRuntime();
@@ -33,12 +33,10 @@ export function AvailablePeople({ onAssign }: { onAssign: (u: UserDTO) => void }
   const [showHidden, setShowHidden] = useState(false);
   const { roster, hidden, hiddenBusy, hiddenSelf, canManage, isLoading } = useAvailability();
 
-  const { data: online = [] } = useQuery({
-    queryKey: qk.presence,
-    queryFn: () => api.presence(),
-    refetchInterval: 20_000,
-  });
-  const onlineSet = new Set(online);
+  // Scoped to this roster (not org-wide) — see usePresence's own doc comment
+  // for why the org-wide GET /presence this used to call was replaced
+  // everywhere else but here.
+  const onlineSet = usePresence(roster.map((p) => p.user.id));
   // Who is mid-call. This screen exists to answer "who can take work right
   // now", so somebody sitting in a meeting showing as plain Available is the
   // wrong answer to the only question it is asked.

@@ -11,6 +11,13 @@ export const qk = {
   me: ['me'] as const,
   conversations: ['conversations'] as const,
   messages: (conversationId: string) => ['messages', conversationId] as const,
+  /** Prefix only — `useReactions` appends its own per-page cursor
+   *  (`[...qk.reactions(id), pageParam]`) so one invalidate here (e.g. from a
+   *  WS reaction event) clears every loaded page's tally in one call, via
+   *  React Query's default prefix matching. Kept off `qk.messages` itself:
+   *  reactions are per-viewer and change far more often than the messages
+   *  they're attached to (mirrors web's packages/app/src/lib/queryKeys.ts). */
+  reactions: (conversationId: string) => ['reactions', conversationId] as const,
   directory: ['directory'] as const,
   myOrgs: ['myOrgs'] as const,
   notifications: ['notifications'] as const,
@@ -20,7 +27,11 @@ export const qk = {
   myCalls: ['myCalls'] as const,
   callHistory: ['callHistory'] as const,
   channels: ['channels'] as const,
+  openChannels: ['openChannels'] as const,
   channelMessages: (channelId: string) => ['channelMessages', channelId] as const,
+  /** Channel twin of `qk.reactions` — same prefix-invalidation contract. */
+  channelReactions: (channelId: string) => ['channelReactions', channelId] as const,
+  channelRoster: (channelId: string) => ['channelRoster', channelId] as const,
   mailInbox: ['mailInbox'] as const,
   mailDetail: (mailId: string) => ['mailDetail', mailId] as const,
   presence: ['presence'] as const,

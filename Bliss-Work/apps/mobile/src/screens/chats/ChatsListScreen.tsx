@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Bell, LayoutGrid, MessageCircle, MoreVertical, Plus } from 'lucide-react-native';
+import { Bell, Menu, MessageCircle, MoreVertical, Plus } from 'lucide-react-native';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -32,10 +32,10 @@ type Tab = 'all' | 'unread' | 'mentions';
  * so it's a best-effort client filter over `lastMessage` text containing
  * "@" — not a fabricated backend capability.
  *
- * The header carries two icons that used to live on the removed Home
- * screen: a Workspace grid (Mail/Channels/Members/Org — see
- * more/WorkspaceScreen.tsx, reached via a cross-tab jump into More) and the
- * notification bell (NotificationsSheet, moved here verbatim).
+ * The header's hamburger jumps to the More tab (Mail/Channels/Members/Org
+ * now live directly on its landing screen — see MoreMenuScreen); the bell
+ * (NotificationsSheet, moved here from the removed Home screen) stays local
+ * since it's specific to this screen, not a cross-tab destination.
  */
 export function ChatsListScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
@@ -70,16 +70,16 @@ export function ChatsListScreen({ navigation }: Props) {
     <View style={[styles.flex, { paddingTop: insets.top }]}>
       <View style={styles.header}>
         <View style={styles.brand}>
+          <Pressable
+            onPress={() => navigation.getParent<BottomTabNavigationProp<AppTabParamList>>()?.navigate('More', { screen: 'MoreMenu' })}
+            hitSlop={8}
+          >
+            <Menu size={22} color={colors.fg} />
+          </Pressable>
           <Logo size={22} />
           <Text style={styles.headerTitle}>Chats</Text>
         </View>
         <View style={styles.headerActions}>
-          <Pressable
-            onPress={() => navigation.getParent<BottomTabNavigationProp<AppTabParamList>>()?.navigate('More', { screen: 'Workspace' })}
-            hitSlop={8}
-          >
-            <LayoutGrid size={22} color={colors.fg} />
-          </Pressable>
           <Pressable onPress={() => setNotificationsOpen(true)} hitSlop={8} style={styles.bell}>
             <Bell size={22} color={colors.fg} />
             {notificationsUnread > 0 ? (

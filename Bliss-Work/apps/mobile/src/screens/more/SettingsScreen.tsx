@@ -1,38 +1,27 @@
-import { useMemo, useState, type ReactNode } from 'react';
-import { ArrowLeft, Eye, Info, Moon, Palette, ShieldCheck, Sun } from 'lucide-react-native';
+import { useMemo, type ReactNode } from 'react';
+import { ArrowLeft, Eye, ShieldCheck } from 'lucide-react-native';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Card } from '../../components/Card';
 import { radius, spacing, type ThemeColors } from '../../constants/theme';
-import { useAppTheme } from '../../theme/ThemeProvider';
-import { familyName } from '../../theme/themes';
+import { useThemeColors } from '../../theme/ThemeProvider';
 import type { MoreStackParamList } from '../../navigation/types';
-import { ThemePickerModal } from './ThemePickerModal';
-// Metro/TS resolve JSON imports statically at build time (resolveJsonModule
-// in the base RN tsconfig) — the same real, already-existing version string
-// apps/mobile ships under, not a hardcoded/fake one.
-import pkg from '../../../package.json';
 
 type Props = NativeStackScreenProps<MoreStackParamList, 'Settings'>;
 
 /**
- * Settings — mirrors packages/app/src/routes/Settings.tsx (web) one setting
- * at a time: Theme, Two-factor authentication, Active sessions, Your
- * activity, About. "Desktop notifications" is deliberately NOT reproduced
- * here — it gates `window.Notification` toast popups
- * (packages/app/src/lib/callNotify.ts) and an Electron-only OS mirror
- * (PlatformConfig.notificationPrefs); neither exists on this platform, and
- * this app has no push/local-notification system of its own for a toggle to
- * control, so a mobile copy of that switch would flip nothing real. Sign out
- * lives in More (the account menu), same split as web (ProfileMenu vs. this
- * page).
+ * Privacy & Security — mirrors the security-relevant slice of
+ * packages/app/src/routes/Settings.tsx (web): two-factor authentication,
+ * active sessions, activity log. Theme and About moved to the account hub
+ * (AccountScreen) to match the reference's split between "More" (workspace/
+ * comms) and "Profile" (account); this screen keeps only what the reference
+ * calls "Privacy & Security".
  */
 export function SettingsScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
-  const { colors, isDark, family } = useAppTheme();
+  const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const [themePickerOpen, setThemePickerOpen] = useState(false);
 
   return (
     <View style={[styles.flex, { paddingTop: insets.top }]}>
@@ -40,23 +29,11 @@ export function SettingsScreen({ navigation }: Props) {
         <Pressable onPress={() => navigation.goBack()} hitSlop={8}>
           <ArrowLeft size={22} color={colors.fg} />
         </Pressable>
-        <Text style={styles.headerTitle}>Settings</Text>
+        <Text style={styles.headerTitle}>Privacy & Security</Text>
         <View style={{ width: 22 }} />
       </View>
 
       <View style={styles.content}>
-        <SettingRow
-          colors={colors}
-          icon={<Palette size={18} color={colors.muted} />}
-          title="Theme"
-          description={`${familyName(family)} · ${isDark ? 'Dark' : 'Light'}`}
-          action={
-            <Pressable onPress={() => setThemePickerOpen(true)} style={styles.linkBtn}>
-              {isDark ? <Moon size={14} color={colors.fg} /> : <Sun size={14} color={colors.fg} />}
-            </Pressable>
-          }
-        />
-
         <SettingRow
           colors={colors}
           icon={<ShieldCheck size={18} color={colors.muted} />}
@@ -71,7 +48,7 @@ export function SettingsScreen({ navigation }: Props) {
 
         <SettingRow
           colors={colors}
-          icon={<Info size={18} color={colors.muted} />}
+          icon={<ShieldCheck size={18} color={colors.muted} />}
           title="Active sessions"
           description="See every device signed in to your account."
           action={
@@ -92,11 +69,7 @@ export function SettingsScreen({ navigation }: Props) {
             </Pressable>
           }
         />
-
-        <SettingRow colors={colors} icon={<Info size={18} color={colors.muted} />} title="About" description={`BlissWork ${pkg.version} · mobile`} />
       </View>
-
-      <ThemePickerModal visible={themePickerOpen} onClose={() => setThemePickerOpen(false)} />
     </View>
   );
 }

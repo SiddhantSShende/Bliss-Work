@@ -3,11 +3,9 @@ import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { MailWarning, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
-import type { NotificationDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { qk, WsEventBridge } from "../lib/queryBridge";
-import { useInboxPeers } from "../lib/useInboxPeers";
 import { listSectionOf, railSectionOf } from "../lib/section";
 import { useSelectedChat } from "../lib/selectedChat";
 import { TelemetryBridge } from "../lib/telemetry";
@@ -29,49 +27,46 @@ export function AppShell() {
   const [notifOpen, setNotifOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
+  // Per-section alert counts for the left rail, from two lightweight
+  // server-computed endpoints instead of the full conversations/channels/
+  // inbox-peers/notifications lists — see docs/API-LAZY-LOADING-AUDIT.md
+  // D1/S3. Each section's own list pane (ChatsList/ChannelsList/MailFolders
+  // below) still fetches its full data itself, the first time that section
+  // is actually opened; before this change AppShell primed that same cache
+  // entry eagerly on every mount, which this deliberately no longer does —
+  // the first-open of a section now costs a real fetch instead of a cache
+  // hit, in exchange for every OTHER mount (every section never opened this
+  // session) no longer paying for the full lists at all.
+  //
+  // Both queries are invalidated by the same WS events that used to keep the
+  // full-list-based badges live (queryBridge's message.created/
+  // channel.message.created/notification.created handlers already invalidate
+  // qk.conversations/qk.channels/qk.notifications; those handlers now also
+  // invalidate these two keys — see queryBridge.tsx), so real-time badge
+  // updates are unchanged.
+  const { data: unreadCounts } = useQuery({
+    queryKey: qk.unreadCounts,
+    queryFn: () => api.unreadCounts(),
+  });
+  const { data: notifUnread } = useQuery({
+    queryKey: qk.notificationsUnreadCount,
+    queryFn: () => api.notificationsUnreadCount(),
+  });
+  const unread = notifUnread?.unreadCount ?? 0;
+
+  // The bell's own list — unlike the badge count above, this genuinely only
+  // needs to exist once the panel is actually opened.
   const { data: notifications = [] } = useQuery({
     queryKey: qk.notifications,
     queryFn: () => api.notifications(),
+    enabled: notifOpen,
   });
-  const unread = notifications.filter((n: NotificationDTO) => !n.read).length;
-
-  // Per-section alert counts for the left rail. Mail shows the summed unread
-  // across counterparties; Tasks surfaces unread task notifications so a new
-  // ack/complete/ignore/left is visible without opening the bell.
-  //
-  // Mail kinds only (see INBOX_KINDS): the badge has to count what the mailbox
-  // actually lists, or it points at rows the user cannot find there. Tasks
-  // already have their own badge beside it, so counting them here would also
-  // be counting them twice.
-  const { data: inboxPeers = [] } = useInboxPeers();
-  const inboxUnread = inboxPeers.reduce((sum, p) => sum + (p.unreadCount || 0), 0);
-
-  // Chats/Channels: same server-computed per-row `unread` ChatsList/ChannelsList
-  // already render (each row's own count comes from the reading user's own
-  // last_read_seq cursor, so it is inherently scoped to that user alone), just
-  // summed for the rail icon. Same queryKey/queryFn as those two list panes on
-  // purpose — React Query dedupes by key, so mounting both there and here costs
-  // one fetch, not two, and both read off the SAME live cache entry, which is
-  // what queryBridge already invalidates on every message.created/
-  // channel.message.created event. That invalidation is what makes this badge
-  // update in real time with no polling and no new WS wiring: it was already
-  // firing for the per-row badges, this just reads the same data one level up.
-  const { data: conversations = [] } = useQuery({
-    queryKey: qk.conversations,
-    queryFn: () => api.conversations(),
-  });
-  const chatsUnread = conversations.reduce((sum, c) => sum + (c.unread || 0), 0);
-  const { data: channels = [] } = useQuery({
-    queryKey: qk.channels,
-    queryFn: () => api.channels(),
-  });
-  const channelsUnread = channels.reduce((sum, c) => sum + (c.unread || 0), 0);
 
   const railBadges: Record<string, number> = {
-    mail: inboxUnread,
+    mail: unreadCounts?.inboxPeers ?? 0,
     tasks: unread,
-    chats: chatsUnread,
-    channels: channelsUnread,
+    chats: unreadCounts?.conversations ?? 0,
+    channels: unreadCounts?.channels ?? 0,
   };
 
   // mail/chats/tasks/channels drive the contextual list pane; utility pages

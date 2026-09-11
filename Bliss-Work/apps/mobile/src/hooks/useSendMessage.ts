@@ -19,6 +19,12 @@ import { qk } from './queryKeys';
  * differs (mutation `isError` state, rendered inline by the screen, matching
  * how HomeScreen already surfaces errors rather than a toast).
  */
+interface SendMessageInput {
+  body: string;
+  /** Set when composing from a message's "Reply" action. */
+  replyToId?: string;
+}
+
 export function useSendMessage(conversationId: string) {
   const { api } = useRuntime();
   const me = useSession((s) => s.user)!;
@@ -27,8 +33,12 @@ export function useSendMessage(conversationId: string) {
 
   return useMutation({
     mutationKey: queryKey,
-    mutationFn: (body: string) => api.reply(conversationId, body),
-    onMutate: async (body: string) => {
+    mutationFn: (input: string | SendMessageInput) => {
+      const { body, replyToId } = typeof input === 'string' ? { body: input, replyToId: undefined } : input;
+      return api.reply(conversationId, body, undefined, replyToId);
+    },
+    onMutate: async (input: string | SendMessageInput) => {
+      const body = typeof input === 'string' ? input : input.body;
       await qc.cancelQueries({ queryKey });
       const tempId = `temp:${uuid()}`;
       const optimistic: MessageDTO = {
@@ -39,6 +49,7 @@ export function useSendMessage(conversationId: string) {
         body,
         createdAt: new Date().toISOString(),
         status: 'PENDING',
+        replyToId: typeof input === 'string' ? undefined : input.replyToId,
       };
       qc.setQueryData(queryKey, (data: { pages: MessageDTO[][]; pageParams: unknown[] } | undefined) => {
         if (!data) return { pages: [[optimistic]], pageParams: [undefined] };

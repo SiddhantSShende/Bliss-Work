@@ -352,6 +352,7 @@ function handleMessageEvent(e: ServerEvent, ctx: EventHandlerContext) {
       );
       // conversation list refreshes (revive + reorder + unread)
       invalidate(qk.conversations);
+      invalidate(qk.unreadCounts);
       // People sidebar + open per-person feed (all-feed already patched).
       refreshInboxSidebars(invalidate);
       break;
@@ -384,10 +385,12 @@ function handleMessageEvent(e: ServerEvent, ctx: EventHandlerContext) {
         );
       }
       invalidate(qk.conversations);
+      invalidate(qk.unreadCounts);
       break;
     }
     case EventType.MessageRead: {
       invalidate(qk.conversations);
+      invalidate(qk.unreadCounts);
       if (me) patchThreadOnRead(qc, e, me);
       break;
     }
@@ -436,6 +439,7 @@ function handleChannelEvent(e: ServerEvent, ctx: EventHandlerContext) {
       if (e.userId !== me) break;
       // The channel is new to my sidebar; nothing in cache has it yet.
       invalidate(qk.channels);
+      invalidate(qk.unreadCounts);
       // It also just left the "channels I could join" directory.
       invalidate(qk.openChannels);
       // `actorId === userId` is an open-channel self-join: I clicked Join,
@@ -472,6 +476,7 @@ function handleChannelEvent(e: ServerEvent, ctx: EventHandlerContext) {
         }
       }
       invalidate(qk.channels);
+      invalidate(qk.unreadCounts);
       invalidate(qk.openChannels);
       break;
     }
@@ -481,6 +486,7 @@ function handleChannelEvent(e: ServerEvent, ctx: EventHandlerContext) {
       // myRole rides ChannelDTO, so the channel list has to refetch for the
       // moderation controls to appear or disappear.
       invalidate(qk.channels);
+      invalidate(qk.unreadCounts);
       invalidate(qk.openChannels);
       break;
     }
@@ -529,6 +535,7 @@ function handleChannelEvent(e: ServerEvent, ctx: EventHandlerContext) {
         ),
       );
       invalidate(qk.channels);
+      invalidate(qk.unreadCounts);
       break;
     }
     case EventType.ChannelMessageDeleted: {
@@ -605,6 +612,7 @@ function handleTaskEvent(e: ServerEvent, ctx: EventHandlerContext) {
       }
       invalidate(qk.sent);
       invalidate(qk.notifications);
+      invalidate(qk.notificationsUnreadCount);
       // A status change moves this assignee into or out of the Available
       // roster (see the note on TaskAssigned — push reaches only the two
       // parties; everyone else converges on the poll).
@@ -627,6 +635,7 @@ function handleTaskEvent(e: ServerEvent, ctx: EventHandlerContext) {
       }
       invalidate(qk.sent);
       invalidate(qk.notifications);
+      invalidate(qk.notificationsUnreadCount);
       // A status change moves this assignee into or out of the Available
       // roster (see the note on TaskAssigned — push reaches only the two
       // parties; everyone else converges on the poll).
@@ -650,6 +659,7 @@ function handleTaskEvent(e: ServerEvent, ctx: EventHandlerContext) {
       }
       invalidate(qk.sent);
       invalidate(qk.notifications);
+      invalidate(qk.notificationsUnreadCount);
       // A status change moves this assignee into or out of the Available
       // roster (see the note on TaskAssigned — push reaches only the two
       // parties; everyone else converges on the poll).
@@ -675,7 +685,10 @@ function handleNotificationEvent(e: ServerEvent, ctx: EventHandlerContext) {
   const { invalidate, me } = ctx;
   switch (e.type) {
     case EventType.NotificationCreated: {
-      if (e.recipientId === me) invalidate(qk.notifications);
+      if (e.recipientId === me) {
+        invalidate(qk.notifications);
+        invalidate(qk.notificationsUnreadCount);
+      }
       break;
     }
     case EventType.StickyRefresh: {
@@ -758,6 +771,7 @@ function handlePresenceEvent(e: ServerEvent, ctx: EventHandlerContext) {
 function refreshInboxSidebars(invalidate: CoalescedInvalidator) {
   invalidate(qk.inboxPeers);
   invalidate(["inboxPeerFeed"]);
+  invalidate(qk.unreadCounts);
 }
 
 /**

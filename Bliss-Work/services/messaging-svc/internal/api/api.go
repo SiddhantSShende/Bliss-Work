@@ -289,6 +289,10 @@ func (s *Server) Router(webOrigin string) http.Handler {
 			// navigate to an empty thread instead of sending a fake greeting.
 			r.Post("/conversations", s.openConversation)
 			r.Get("/conversations", s.listConversations)
+			// Sidebar badge counts — the lightweight alternative to fetching
+			// the full conversations/channels/inbox-peers lists just to sum
+			// their unread fields. See docs/API-LAZY-LOADING-AUDIT.md D1/S3.
+			r.Get("/unread-counts", s.unreadCounts)
 			r.Post("/conversations/{id}/reply", s.reply)
 			r.Post("/conversations/{id}/ignore", s.ignore)
 			r.Post("/conversations/{id}/clear", s.clearConversation)
@@ -827,6 +831,19 @@ func (s *Server) listConversations(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, convs)
+}
+
+// unreadCounts serves GET /api/v1/unread-counts — the sidebar badge totals
+// (conversations/channels/inbox-peers) in one round trip, without the
+// caller having to fetch and sum the full lists.
+func (s *Server) unreadCounts(w http.ResponseWriter, r *http.Request) {
+	claims, _ := auth.FromContext(r.Context())
+	counts, err := s.store.UnreadCounts(r.Context(), claims.OrgID, claims.UserID)
+	if err != nil {
+		s.mapErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, counts)
 }
 
 // listMessages serves GET /api/v1/conversations/{id}/messages?beforeSeq=&limit=.

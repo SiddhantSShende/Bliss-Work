@@ -1,0 +1,4 @@
+VmHWM:	   27064 kB
+VmRSS:	   27064 kB
+VmData:	   85072 kB
+VmStk:	     132 kB
