@@ -8,8 +8,8 @@
  *
  * `VITE_BUILD_SHA` is injected by the `web-builder` service in
  * docker-compose.prod.yml, which reads it from `IMAGE_TAG` — the deployed commit
- * SHA that scripts/deploy-prod.sh exports. A local `npm run dev` or a hand-run
- * `docker compose up` has neither, and correctly reports "dev".
+ * SHA that the Makefile's `prod-deploy` target exports. A local `npm run dev`
+ * or a hand-run `docker compose up` has neither, and correctly reports "dev".
  */
 
 // `import.meta.env` is Vite's build-time env (statically replaced). packages/app

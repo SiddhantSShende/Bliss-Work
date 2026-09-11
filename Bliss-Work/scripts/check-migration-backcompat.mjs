@@ -9,10 +9,10 @@
  * Every service in this repo runs its own SQL migrations at process boot
  * (Python services via run_migrations(), messaging-svc via Store.Migrate in
  * Go — both glob migrations/*.sql and apply new files in filename order).
- * Prod runs six HTTP services at 2 replicas behind Caddy, and deploy-prod.sh
- * does a health-gated IN-PLACE restart — so during every rollout, old code and
- * new code run concurrently against the POST-migration schema for a real
- * window. A migration that does DROP COLUMN, DROP TABLE, RENAME COLUMN/TABLE,
+ * Prod runs six HTTP services at 2 replicas behind Caddy, and `make
+ * prod-deploy` does a health-gated IN-PLACE restart — so during every
+ * rollout, old code and new code run concurrently against the POST-migration
+ * schema for a real window. A migration that does DROP COLUMN, DROP TABLE, RENAME COLUMN/TABLE,
  * or narrows a column's type breaks the old replica the instant it lands,
  * before the new code that stops needing the old shape is even fully rolled
  * out. Today that's caught only by a human writing "this is additive" in a

@@ -135,7 +135,7 @@ fail:
 ```bash
 TELEMETRY_DB_PASSWORD='…' bash scripts/create-telemetry-db.sh   # idempotent
 # then set TELEMETRY_DATABASE_URL in .env.prod to match, and:
-bash scripts/deploy-prod.sh
+make prod-deploy
 
 sudo cp infra/systemd/blisswork-telemetry-*.{service,timer} /etc/systemd/system/
 sudo systemctl daemon-reload

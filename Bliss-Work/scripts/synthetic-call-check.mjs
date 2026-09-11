@@ -76,8 +76,9 @@
  *     — see those files' pushgateway service for the container-side port
  *     (still its native 9091; only the host mapping moved).
  *
- * Meant to be run FROM THE HOST (like smoke-web.mjs — see
- * scripts/deploy-prod.sh's smoke_test()), not from inside a container.
+ * Meant to be run FROM THE HOST (like smoke-web.mjs — see the Makefile's
+ * deploy_smoke_test in the "Production DEPLOYMENT" section), not from inside
+ * a container.
  *
  * Exit 0 = PASS, 1 = FAIL. Pushes its result to Pushgateway on either outcome
  * (see pushResult) but a push failure never changes the exit code — the

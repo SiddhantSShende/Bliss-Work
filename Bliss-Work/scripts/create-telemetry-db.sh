@@ -104,7 +104,7 @@ fi
 echo
 echo "telemetrydb is ready. Next:"
 echo "  1. TELEMETRY_DATABASE_URL in .env.prod must use telemetry_user with this password."
-echo "  2. bash scripts/deploy-prod.sh   (telemetry-svc runs its own migrations on boot)"
+echo "  2. make prod-deploy   (telemetry-svc runs its own migrations on boot)"
 echo "  3. sudo cp infra/systemd/blisswork-telemetry-*.{service,timer} /etc/systemd/system/"
 echo "     sudo systemctl daemon-reload"
 echo "     sudo systemctl enable --now blisswork-telemetry-rollup.timer blisswork-telemetry-prune.timer"

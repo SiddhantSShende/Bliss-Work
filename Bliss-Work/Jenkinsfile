@@ -279,7 +279,7 @@ pipeline {
         //
         // We use the short git SHA (like "43da7d0") because:
         //   - docker-compose.prod.yml expects ${IMAGE_TAG}
-        //   - deploy-prod.sh sets it the same way
+        //   - `make prod-deploy` sets it the same way
         //   - .deploy/last-good stores it for rollback
         // Using BUILD_NUMBER instead would break all three.
         // ---------------------------------------------------------------------
@@ -551,7 +551,7 @@ pipeline {
 
                     // Unchanged images were not rebuilt, so there is no fresh local
                     // image to tag. Re-tag the most recent existing :latest under
-                    // this build's tags instead, so deploy-prod.sh's unconditional
+                    // this build's tags instead, so prod-deploy's unconditional
                     // "compose pull" of every service can still find every tag.
                     unchangedImages.each { image ->
                         sh """
@@ -632,7 +632,7 @@ pipeline {
                         // Unchanged images were pushed too (Push Images, above) — just
                         // the :<sha>/:b<number> tags, not :latest. A silent push
                         // failure for one of them is otherwise only discovered at
-                        // deploy, when deploy-prod.sh's "compose pull" can't find it.
+                        // deploy, when prod-deploy's "compose pull" can't find it.
                         unchangedImages.each { image ->
                             sh """
                                 set -e
@@ -651,10 +651,18 @@ pipeline {
         // ---------------------------------------------------------------------
         // Deploy. Off by default.
         //
-        // Passing REGISTRY tells deploy-prod.sh to PULL images instead of
-        // building them. The script then rolls the services, waits for all the
+        // Passing REGISTRY tells `make prod-deploy` to PULL images instead of
+        // building them. It then rolls the services, waits for all the
         // healthchecks, opens the site in a real browser to check it works, and
         // rolls back automatically if anything fails.
+        //
+        // IMAGE_TAG/REGISTRY/NAMESPACE are passed as explicit `make VAR=value`
+        // arguments, not just shell-exported: the Makefile's top-level
+        // `IMAGE_TAG := $(shell cat .deploy/last-good ...)` would otherwise
+        // silently win over a merely-exported IMAGE_TAG (plain `:=` overrides
+        // an inherited environment variable — only a command-line assignment
+        // reliably beats it), deploying the last release again instead of
+        // this one.
         //
         // The production host must already have run `docker login` for REGISTRY.
         // ---------------------------------------------------------------------
@@ -674,10 +682,10 @@ pipeline {
 
                         ssh -T -i "${SSH_KEY}" -o StrictHostKeyChecking=yes \
                             "${SSH_USER}@${PROD_HOST}" \
-                            "IMAGE_TAG='${IMAGE_TAG}' \
+                            "make -C '${PROD_REPO_DIR}' prod-deploy \
+                             IMAGE_TAG='${IMAGE_TAG}' \
                              REGISTRY='${REGISTRY}' \
-                             NAMESPACE='${NAMESPACE}' \
-                             bash '${PROD_REPO_DIR}/scripts/deploy-prod.sh'"
+                             NAMESPACE='${NAMESPACE}'"
                     '''
                 }
             }

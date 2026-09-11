@@ -82,8 +82,9 @@ done
 # package-lock.json needs the same treatment: set-desktop-version.mjs writes the
 # bump into BOTH files (npm keeps the workspace version mirrored in the lock),
 # so restoring only package.json left the tree dirty with a lock claiming a
-# version its package.json doesn't have — which then trips deploy-prod.sh's
-# clean-tree guard on the next deploy, for a change nobody made on purpose.
+# version its package.json doesn't have — which then trips `make prod-deploy`'s
+# clean-tree guard (prod-guard, in the Makefile) on the next deploy, for a
+# change nobody made on purpose.
 PKG=apps/desktop/package.json
 LOCK=package-lock.json
 PKG_SNAPSHOT="$(mktemp)"

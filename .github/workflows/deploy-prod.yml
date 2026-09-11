@@ -6,15 +6,17 @@ name: Deploy Production
 # Bliss-Website/ as siblings. This file used to sit in
 # Bliss-Work/.github/workflows/ — one directory too deep — so it had never
 # fired even once. It needs no `working-directory:` fix beyond that: it never
-# checks out the repo locally, it only SSHes into the VPS and runs whatever is
-# already on disk at $VPS_REPO_DIR/scripts/deploy-prod.sh.
+# checks out the repo locally, it only SSHes into the VPS and runs `make
+# prod-deploy` against whatever is already on disk at $VPS_REPO_DIR.
 #
 # Auto-deploys the web app + backend to the production VPS after CI passes on
 # `Prod-Sid`. Push to Prod-Sid → CI runs → this fires → the site is live.
 #
-# All the logic lives in `scripts/deploy-prod.sh`, in the repo, so a deploy is
-# reviewable in a PR and reproducible by hand when GitHub is down. This workflow
-# only carries the SSH key and calls it.
+# All the logic lives in the Makefile's `prod-deploy` target (and the targets
+# it's built from — prod-guard, prod-fetch, prod-health, prod-smoke,
+# prod-rollback, prod-prune), in the repo, so a deploy is reviewable in a PR
+# and reproducible by hand when GitHub is down. This workflow only carries the
+# SSH key and calls it.
 #
 # `workflow_run` rather than a job inside ci.yml: this keeps the deploy out of
 # the PR checks entirely (workflow_run never fires for pull_request events) and
@@ -82,11 +84,11 @@ jobs:
       - name: Deploy
         if: env.VPS_HOST != ''
         run: |
-          # -T: no pty, so the script's output streams into the job log verbatim.
-          # The remote script does its own locking, guarding and rollback.
+          # -T: no pty, so `make`'s output streams into the job log verbatim.
+          # prod-deploy does its own locking, guarding and rollback.
           ssh -T -i ~/.ssh/id_deploy -o StrictHostKeyChecking=yes \
             "$VPS_USER@$VPS_HOST" \
-            "bash '$VPS_REPO_DIR/scripts/deploy-prod.sh'"
+            "make -C '$VPS_REPO_DIR' prod-deploy"
 
       - name: Scrub the key
         if: always()

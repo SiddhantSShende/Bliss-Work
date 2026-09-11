@@ -35,7 +35,7 @@ bin/
 .env.prod
 *.local
 
-# deploy state written on the prod host by scripts/deploy-prod.sh
+# deploy state written on the prod host by `make prod-deploy` (Makefile)
 # (last-good image tag, used for rollback — per-host, never shared)
 .deploy/
 

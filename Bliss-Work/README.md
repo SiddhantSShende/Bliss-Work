@@ -79,7 +79,7 @@ blocked by one being red.
 
 ```bash
 # Web app + services. Rebuilds the browser bundle and rolls the services.
-bash scripts/deploy-prod.sh
+make prod-deploy
 
 # Desktop app: Linux (AppImage + deb) AND Windows (.exe, built under Wine).
 # Publishes straight into the live /downloads feed that electron-updater polls.
@@ -130,7 +130,8 @@ and publish with `bash scripts/publish-desktop.sh <dir>`.
 packages/{shared,ui,app}          apps/{web,desktop}
 services/{auth-svc,email-worker,task-svc,notification-svc,messaging-svc,integrations-svc,telemetry-svc,ws-gateway,graph-gw}
 infra/{postgres,kafka,nginx,caddy}
-scripts/   (seed.ts, gen-keys.ts, wait-for.sh, deploy-prod.sh, security-authz.ts)
+scripts/   (seed.ts, gen-keys.ts, wait-for.sh, smoke-web.mjs, security-authz.ts)
+Makefile   (make prod-deploy — production deployment, see `make help`)
 ```
 
 Every source file is kept under 250 lines.

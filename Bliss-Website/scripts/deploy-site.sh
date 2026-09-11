@@ -4,8 +4,9 @@
 #
 # This is the deploy runbook as code. `.github/workflows/deploy-site.yml` is a
 # thin caller that SSHes in and runs this — mirroring the convention in the
-# Bliss-Work repo (scripts/deploy-prod.sh), so a deploy is reviewable in a PR and
-# reproducible by hand when GitHub is down.
+# Bliss-Work repo (its production deploy runbook lives in the Makefile's
+# `prod-deploy` target), so a deploy is reviewable in a PR and reproducible by
+# hand when GitHub is down.
 #
 #   bash scripts/deploy-site.sh
 #

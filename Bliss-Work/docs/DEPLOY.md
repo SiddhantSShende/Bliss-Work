@@ -29,7 +29,8 @@ only `deploy-prod.yml` additionally waits on CI.
  │deploy-prod   │     ▼       blisswork.rnrtechs.com
  │.yml          │  rsync → /downloads/
  │ssh → VPS     │  ↳ installers + latest*.yml
- │deploy-prod.sh│  ↳ electron-updater feed
+ │make          │  ↳ electron-updater feed
+ │prod-deploy   │
  └──────┬───────┘       │
         ▼               ▼
  web app + 7 services   installed apps self-update
@@ -49,10 +50,14 @@ never discovered at all and the gate could never fire; see the comment in
 ## Web app + backend
 
 `.github/workflows/deploy-prod.yml` carries the SSH key and nothing else. All the
-logic is in **`scripts/deploy-prod.sh`**, in the repo, so a deploy is reviewable
-in a PR and reproducible by hand when GitHub is down.
+logic is in the **Makefile's `prod-deploy` target** (and the smaller targets it's
+built from — `prod-guard`, `prod-fetch`, `prod-health`, `prod-smoke`,
+`prod-rollback`, `prod-prune`), in the repo, so a deploy is reviewable in a PR
+and reproducible by hand when GitHub is down. There used to be a separate
+`scripts/deploy-prod.sh` for this; its entire behavior now lives in the
+Makefile instead — see `make help` for every target and override.
 
-What the script does, in order:
+What `make prod-deploy` does, in order:
 
 1. **Guards.** Refuses to run unless the checkout is on `Prod-Sid` with a clean tree.
 2. **Fast-forwards** to `origin/Prod-Sid` (never `reset --hard`, never a merge commit).
@@ -89,8 +94,8 @@ production's docker build context. There is no separate deploy checkout, because
 a second clone would spawn a second compose project with its own volumes.
 
 So a deploy that blindly synced to `origin/Prod-Sid` would either destroy uncommitted
-work or ship something nobody reviewed. The script fails closed instead. If you
-see
+work or ship something nobody reviewed. `prod-guard` (and `prod-deploy`, which
+runs it first) fails closed instead. If you see
 
 ```
 ✗ Refusing to deploy: the working tree has 65 uncommitted change(s)
@@ -107,16 +112,19 @@ tree and production.
 
 ```bash
 # Normal deploy, by hand
-bash scripts/deploy-prod.sh
+make prod-deploy
 
 # Deploy the current (possibly dirty, possibly non-Prod-Sid) tree — you own this
-DEPLOY_ALLOW_DIRTY=1 bash scripts/deploy-prod.sh
+DEPLOY_ALLOW_DIRTY=1 make prod-deploy
 
-# Roll back to a specific previous release without rebuilding
+# Redeploy the last known-good version right now (does not touch git state —
+# only prod-deploy's own automatic, failure-triggered rollback does that)
+make prod-rollback
+
+# Roll back to a SPECIFIC older release instead of the last-known-good one
 docker images 'task-board/auth-svc'          # find the tag you want
-IMAGE_TAG=<sha> docker compose -f docker-compose.prod.yml up -d
-IMAGE_TAG=<sha> docker compose -f docker-compose.prod.yml run --rm web-builder
-docker compose -f docker-compose.prod.yml up -d --force-recreate nginx
+IMAGE_TAG=<sha> make prod-deploy-core
+IMAGE_TAG=<sha> make prod-deploy-web
 ```
 
 Confirm what is actually live from **Settings → About** in the app, which shows
@@ -158,7 +166,7 @@ returns its running image tag alongside the liveness check, e.g.:
 each app service's `environment:` block. That override matters: without it, a
 container would instead inherit the *static* `IMAGE_TAG=latest` that
 `.env.prod` supplies via `env_file`, which does not track what is actually
-running. `scripts/deploy-prod.sh` exports the real commit SHA before calling
+running. `make prod-deploy` exports the real commit SHA before calling
 `compose up`, so on a healthy deploy `version` matches `git rev-parse
 --short HEAD` for that commit.
 
@@ -322,7 +330,7 @@ Verify before relying on it:
 
 ```bash
 # From your laptop, with the private key
-ssh -i /path/to/key ubuntu@$VPS_HOST 'bash /home/ubuntu/BlissWork/Bliss-Work/scripts/deploy-prod.sh'
+ssh -i /path/to/key ubuntu@$VPS_HOST 'make -C /home/ubuntu/BlissWork/Bliss-Work prod-deploy'
 ```
 
 Then run **deploy-prod** once from the Actions tab via *Run workflow* — manual
@@ -350,7 +358,7 @@ ends with the tail of each unhealthy service's output — start there.
    A mismatch means the manifest was not regenerated after signing.
 
 **`Cannot fast-forward to origin/Prod-Sid`.** The host has commits `origin/Prod-Sid`
-does not. Someone committed on the box. Resolve by hand — the script will not
+does not. Someone committed on the box. Resolve by hand — `prod-deploy` will not
 rewrite history under a live build context.
 
 ## Notes for the next deploy
@@ -374,9 +382,9 @@ graceful failure. Two consequences:
 - `ws-gateway` and `email-worker` must move together. `email-worker` reads that
   key directly to decide whether an unread message becomes an email; deploying
   it alone would make every recipient look offline and mail out notifications
-  for messages people had already read. `scripts/deploy-prod.sh` does a single
-  `compose up -d`, so this is already satisfied — but do not hand-restart one of
-  the two on its own.
+  for messages people had already read. `make prod-deploy`'s core-services step
+  does a single `compose up -d`, so this is already satisfied — but do not
+  hand-restart one of the two on its own.
 - Presence is empty for the first ~20 seconds after the gateway restarts, then
   rebuilds from client polls and reconnect snapshots. Expected, and the same
   behaviour any gateway restart has always had.

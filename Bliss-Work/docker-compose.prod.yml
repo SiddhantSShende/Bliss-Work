@@ -156,7 +156,7 @@ services:
     environment:
       npm_config_update_notifier: "false"
       # Stamped into the bundle so you can tell WHICH commit is live from the
-      # browser. scripts/deploy-prod.sh exports IMAGE_TAG as the deployed commit
+      # browser. `make prod-deploy` exports IMAGE_TAG as the deployed commit
       # SHA; without it (a hand-run `docker compose up`) the build says "dev".
       # Vite only exposes VITE_-prefixed vars to client code.
       VITE_BUILD_SHA: "${IMAGE_TAG:-dev}"
@@ -277,7 +277,7 @@ services:
     # leaves this host: published to a shared registry, a fixed tag lets every
     # WAF or Caddyfile change overwrite the same manifest, so there is nothing to
     # roll back TO and two hosts can disagree about what `:2.11` means. It is now
-    # tagged like every other built image, and scripts/deploy-prod.sh tracks it.
+    # tagged like every other built image, and `make prod-deploy` tracks it.
     build: ./infra/caddy
     image: ${REGISTRY_PREFIX:-task-board}/caddy-waf:${IMAGE_TAG:-latest}
     restart: unless-stopped

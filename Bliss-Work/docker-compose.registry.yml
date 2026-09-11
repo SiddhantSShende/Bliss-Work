@@ -3,8 +3,9 @@
 #
 #     docker compose -f docker-compose.prod.yml -f docker-compose.registry.yml …
 #
-# scripts/deploy-prod.sh adds this file automatically whenever REGISTRY is set,
-# so a normal deploy never names it by hand.
+# The Makefile's `prod-deploy` target (DEPLOY_COMPOSE_ARGS) adds this file
+# automatically whenever REGISTRY is set, so a normal deploy never names it by
+# hand.
 #
 # WHAT IT CHANGES, and nothing else:
 #
