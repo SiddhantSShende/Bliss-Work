@@ -24,6 +24,12 @@ import {
 import type { PlatformConfig } from "../platform";
 import { useSession } from "../store/session";
 import { qk } from "./queryKeys";
+// Re-exported for back-compat: every existing web import site pulls `qk`
+// from here (queryBridge used to define it locally). queryKeys.ts is the
+// canonical, platform-neutral source now (apps/mobile imports it directly,
+// since it cannot depend on this file's React Router import) — this keeps
+// both without migrating every web call site.
+export { qk };
 import {
   patchInboxOnIgnored,
   patchInboxOnMessage,
