@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Forward } from "lucide-react";
 import { externalForwardProvenanceText, externalPlatformDisplayName } from "../lib/externalForward";
 import { SystemPill } from "./SystemPill";
@@ -56,14 +57,15 @@ export function ForwardBadge({
   mine: boolean;
   platform?: string;
 }) {
+  const { t } = useTranslation("chatList");
   return (
     <SystemPill
       icon={<Forward size={12} className="text-accent" />}
       at={at}
       title={
         platform
-          ? `BlissWork opened ${externalPlatformDisplayName(platform)} with the message prefilled. Whether it was sent isn't something we can observe.`
-          : "BlissWork opened WhatsApp with the message prefilled. Whether it was sent isn't something we can observe."
+          ? t("forwardBadge.titleWithPlatform", { brand: "BlissWork", platform: externalPlatformDisplayName(platform) })
+          : t("forwardBadge.titleWhatsapp", { brand: "BlissWork" })
       }
     >
       {platform ? (
@@ -74,7 +76,7 @@ export function ForwardBadge({
       ) : (
         body
       )}
-      {!mine && <span className="text-warning">· not confirmed</span>}
+      {!mine && <span className="text-warning">{t("forwardBadge.notConfirmed")}</span>}
     </SystemPill>
   );
 }

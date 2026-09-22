@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { Star } from "lucide-react";
 import { Button, Textarea } from "@taskboard/ui";
 import { useRuntime } from "../lib/runtime";
@@ -29,6 +30,7 @@ export function CreateReviewDialog({
   existingText?: string | null;
   existingRating?: number | null;
 }) {
+  const { t } = useTranslation("tasks");
   const { api } = useRuntime();
   const qc = useQueryClient();
   const [text, setText] = useState("");
@@ -48,30 +50,30 @@ export function CreateReviewDialog({
       api.reviewTask(taskId, assigneeId, { text: text.trim(), rating: rating ?? undefined }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: qk.sent });
-      toast.success("Review saved");
+      toast.success(t("createReviewDialog.saved"));
       onClose();
     },
-    onError: (e) => toast.error("Couldn't save review", { description: String(e) }),
+    onError: (e) => toast.error(t("createReviewDialog.couldNotSave"), { description: String(e) }),
   });
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!text.trim()) return toast.error("Write a short review first");
+    if (!text.trim()) return toast.error(t("createReviewDialog.writeFirst"));
     save.mutate();
   };
 
   return (
-    <Modal open={open} onClose={onClose} title={`Review ${assigneeName}'s work`}>
+    <Modal open={open} onClose={onClose} title={t("createReviewDialog.title", { name: assigneeName })}>
       <form onSubmit={submit} className="flex flex-col gap-4">
         <div>
-          <div className="mb-1.5 text-sm font-medium text-fg">Rating (optional)</div>
+          <div className="mb-1.5 text-sm font-medium text-fg">{t("createReviewDialog.ratingOptional")}</div>
           <div className="flex items-center gap-1">
             {[1, 2, 3, 4, 5].map((n) => (
               <button
                 key={n}
                 type="button"
                 onClick={() => setRating((r) => (r === n ? null : n))}
-                title={`${n} star${n === 1 ? "" : "s"}`}
+                title={t("createReviewDialog.starCount", { count: n })}
                 className="rounded p-0.5 text-muted transition hover:text-amber-400"
               >
                 <Star
@@ -86,29 +88,29 @@ export function CreateReviewDialog({
                 onClick={() => setRating(null)}
                 className="ml-2 text-xs text-muted hover:text-fg"
               >
-                Clear
+                {t("createReviewDialog.clear")}
               </button>
             )}
           </div>
         </div>
 
         <div>
-          <div className="mb-1.5 text-sm font-medium text-fg">Feedback</div>
+          <div className="mb-1.5 text-sm font-medium text-fg">{t("createReviewDialog.feedback")}</div>
           <Textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
             maxLength={4000}
             required
-            placeholder="How did they do?"
+            placeholder={t("createReviewDialog.feedbackPlaceholder")}
           />
         </div>
 
         <div className="mt-1 flex justify-end gap-2">
           <Button type="button" variant="ghost" onClick={onClose}>
-            Cancel
+            {t("createReviewDialog.cancel")}
           </Button>
           <Button type="submit" loading={save.isPending}>
-            {save.isPending ? "Saving…" : "Save review"}
+            {save.isPending ? t("createReviewDialog.saving") : t("createReviewDialog.saveReview")}
           </Button>
         </div>
       </form>

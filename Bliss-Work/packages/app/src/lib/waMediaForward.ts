@@ -27,6 +27,7 @@
  * fallback is downloading them for the user to attach by hand in WhatsApp —
  * never a claim that they reached WhatsApp automatically.
  */
+import i18n from "../i18n";
 
 /** The outcomes a caller renders. Never thrown — every failure mode the two
  *  network calls (mint a link, fetch the bytes) or the Share API can produce
@@ -81,7 +82,10 @@ export async function handoffMediaFiles(
       if (err instanceof DOMException && err.name === "AbortError") {
         return { kind: "share-cancelled" };
       }
-      return { kind: "error", message: err instanceof Error ? err.message : "Share failed" };
+      return {
+        kind: "error",
+        message: err instanceof Error ? err.message : i18n.t("chatThread:whatsAppForward.shareFailedGeneric"),
+      };
     }
   }
 

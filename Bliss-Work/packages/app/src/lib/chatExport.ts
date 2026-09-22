@@ -13,6 +13,7 @@
  */
 import { readablePrefix } from "./chatEnvelope";
 import { downloadBlob } from "./download";
+import i18n from "../i18n";
 
 interface TranscriptMessage {
   body: string;
@@ -46,10 +47,12 @@ function stamp(d: Date): string {
 
 function lineFor(m: TranscriptMessage, meId: string): string {
   const when = m.at ? stamp(new Date(m.at)) : "—";
-  const who = m.senderId === meId ? "You" : (m.senderName ?? "Unknown");
+  const who = m.senderId === meId ? i18n.t("chatThread:shared.you") : (m.senderName ?? i18n.t("chatThread:export.unknownSender"));
   // readablePrefix, so an attachment reads "🖼️ photo.jpg · 2.0 MB" rather than
   // the envelope's JSON — the same text every other non-rendering surface shows.
-  const body = m.deletedForAll ? "(deleted)" : readablePrefix(m.body) || "(no text)";
+  const body = m.deletedForAll
+    ? i18n.t("chatThread:export.deletedMessage")
+    : readablePrefix(m.body) || i18n.t("chatThread:export.noText");
   return `[${when}] ${who}: ${body}`;
 }
 
@@ -58,9 +61,9 @@ export function buildTranscript(
   { title, meId, now }: TranscriptOptions,
 ): string {
   const header = [
-    `BlissWork conversation transcript`,
+    i18n.t("chatThread:export.header", { brand: "BlissWork" }),
     title,
-    `Exported ${stamp(now)} · ${messages.length} message${messages.length === 1 ? "" : "s"} loaded`,
+    i18n.t("chatThread:export.exportedSummary", { timestamp: stamp(now), count: messages.length }),
     "",
   ];
   return [...header, ...messages.map((m) => lineFor(m, meId))].join("\n") + "\n";

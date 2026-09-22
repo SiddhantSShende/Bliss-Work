@@ -3,6 +3,7 @@ import { useParams, NavLink } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { Plus, ListTodo, Download, PinOff } from "lucide-react";
 import { Button, GlassCard, EmptyState, IconButton } from "@taskboard/ui";
 import type { StickyTaskDTO, TaskAction, UserDTO } from "@taskboard/shared";
@@ -19,22 +20,12 @@ import { StickyWidget } from "../features/StickyWidget";
 const verb: Record<TaskAction, "acknowledge" | "complete" | "ignore" | "leave"> = {
   ACKNOWLEDGE: "acknowledge", COMPLETE: "complete", IGNORE: "ignore", LEAVE: "leave",
 };
-const TITLES: Record<string, string> = {
-  mine: "My tasks", allocated: "Allocated to me", available: "Available",
-  completed: "Completed", left: "Left", ignored: "Ignored",
-};
 // Bucket switcher shown only on phones (the TasksList side pane is hidden < md).
 // Keep this order in lockstep with CATS in TasksList.
-const BUCKETS = [
-  { view: "allocated", label: "Allocated" },
-  { view: "available", label: "Available" },
-  { view: "mine", label: "My tasks" },
-  { view: "completed", label: "Completed" },
-  { view: "left", label: "Left" },
-  { view: "ignored", label: "Ignored" },
-] as const;
+const BUCKET_VIEWS = ["allocated", "available", "mine", "completed", "left", "ignored"] as const;
 
 export function Tasks() {
+  const { t } = useTranslation("tasks");
   const { view = "allocated" } = useParams();
   const [createOpen, setCreateOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
@@ -49,33 +40,50 @@ export function Tasks() {
     setCreateOpen(true);
   };
 
+  const titleByView: Record<string, string> = {
+    mine: t("tasksPage.titles.mine"),
+    allocated: t("tasksPage.titles.allocated"),
+    available: t("tasksPage.titles.available"),
+    completed: t("tasksPage.titles.completed"),
+    left: t("tasksPage.titles.left"),
+    ignored: t("tasksPage.titles.ignored"),
+  };
+  const bucketLabel: Record<(typeof BUCKET_VIEWS)[number], string> = {
+    allocated: t("tasksPage.buckets.allocated"),
+    available: t("tasksPage.buckets.available"),
+    mine: t("tasksPage.buckets.mine"),
+    completed: t("tasksPage.buckets.completed"),
+    left: t("tasksPage.buckets.left"),
+    ignored: t("tasksPage.buckets.ignored"),
+  };
+
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center justify-between border-b border-border/60 px-4 py-3 sm:px-5">
-        <h1 className="text-base font-semibold tracking-tight text-fg">{TITLES[view] ?? "Tasks"}</h1>
+        <h1 className="text-base font-semibold tracking-tight text-fg">{titleByView[view] ?? t("tasksPage.titles.default")}</h1>
         <div className="flex items-center gap-2">
           {/* Export emits task rows — nothing to export from a people roster. */}
           {view !== "available" && (
-            <Button variant="ghost" size="sm" onClick={() => setExportOpen(true)} title="Export tasks to Excel">
-              <Download size={15} /> Export
+            <Button variant="ghost" size="sm" onClick={() => setExportOpen(true)} title={t("tasksPage.export.title")}>
+              <Download size={15} /> {t("tasksPage.export.button")}
             </Button>
           )}
-          <Button size="sm" onClick={() => openCreate()}><Plus size={15} /> New task</Button>
+          <Button size="sm" onClick={() => openCreate()}><Plus size={15} /> {t("tasksPage.newTask")}</Button>
         </div>
       </header>
       <ExportTasksDialog open={exportOpen} onClose={() => setExportOpen(false)} />
       <div className="flex gap-2 overflow-x-auto border-b border-border/60 px-3 py-2 md:hidden">
-        {BUCKETS.map((b) => (
+        {BUCKET_VIEWS.map((bucketView) => (
           <NavLink
-            key={b.view}
-            to={`/app/tasks/${b.view}`}
+            key={bucketView}
+            to={`/app/tasks/${bucketView}`}
             className={({ isActive }) =>
               `shrink-0 rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
                 isActive ? "bg-accent text-accent-fg" : "bg-surface-2 text-muted hover:text-fg"
               }`
             }
           >
-            {b.label}
+            {bucketLabel[bucketView]}
           </NavLink>
         ))}
       </div>
@@ -90,6 +98,7 @@ export function Tasks() {
 }
 
 function AssignedBucket({ view }: { view: string }) {
+  const { t } = useTranslation("tasks");
   const { api, config } = useRuntime();
   const qc = useQueryClient();
   const { data: all = [] } = useQuery({ queryKey: qk.assigned, queryFn: () => api.taskAssigned() });
@@ -208,15 +217,21 @@ function AssignedBucket({ view }: { view: string }) {
       if (snapshots?.sticky !== undefined) qc.setQueryData(qk.sticky, snapshots.sticky);
       if (snapshots?.assigned !== undefined) qc.setQueryData(qk.assigned, snapshots.assigned);
       if (snapshots?.inbox !== undefined) qc.setQueryData(qk.inbox, snapshots.inbox);
-      toast.error(`Couldn't ${vars.action.toLowerCase()} the task`, {
+      const actionVerbLabel: Record<TaskAction, string> = {
+        ACKNOWLEDGE: t("tasksPage.actionVerbs.acknowledge"),
+        COMPLETE: t("tasksPage.actionVerbs.complete"),
+        IGNORE: t("tasksPage.actionVerbs.ignore"),
+        LEAVE: t("tasksPage.actionVerbs.leave"),
+      };
+      toast.error(t("tasksPage.toasts.actionFailed", { verb: actionVerbLabel[vars.action] }), {
         description: String(err),
       });
     },
     onSuccess: (_data, vars) => {
       if (vars.action === "COMPLETE") {
-        toast.success("Task completed — the sender has been notified.");
+        toast.success(t("tasksPage.toasts.completed"));
       } else if (vars.action === "LEAVE") {
-        toast.success("You left the task — the sender has been notified.");
+        toast.success(t("tasksPage.toasts.left"));
       }
     },
     // Server reconciliation: refresh every mirror surface so the WS echo
@@ -238,22 +253,28 @@ function AssignedBucket({ view }: { view: string }) {
   });
 
   if (tasks.length === 0)
-    return <EmptyState icon={<ListTodo size={24} />} title="Nothing here" hint="Tasks appear here as they arrive." />;
+    return (
+      <EmptyState
+        icon={<ListTodo size={24} />}
+        title={t("tasksPage.empty.title")}
+        hint={t("tasksPage.empty.hint")}
+      />
+    );
 
   return (
     <>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <AnimatePresence initial={false}>
-          {tasks.map((t) => {
+          {tasks.map((task) => {
           // The lock tracks exactly what floats: pinned AND still acknowledged.
           // Keeps the in-app card in lockstep with the desktop note and avoids a
           // dead/locked card for a non-acknowledged status. Pinning itself is
           // automatic, so the card shows no pin control.
-          const floatable = pinnedIds.includes(t.taskId) && t.myStatus === "ACKNOWLEDGED";
-          const desktopPinned = isDesktop && isPinned(t.taskId);
+          const floatable = pinnedIds.includes(task.taskId) && task.myStatus === "ACKNOWLEDGED";
+          const desktopPinned = isDesktop && isPinned(task.taskId);
           return (
             <motion.div
-              key={t.taskId}
+              key={task.taskId}
               layout
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
@@ -263,17 +284,17 @@ function AssignedBucket({ view }: { view: string }) {
               {desktopPinned && (
                 <IconButton
                   className="absolute right-2 top-2 z-10 bg-surface/90 shadow-soft"
-                  title="Unpin"
-                  aria-label="Unpin"
-                  onClick={() => unpinAssignedTask(t.taskId)}
+                  title={t("tasksPage.unpin")}
+                  aria-label={t("tasksPage.unpin")}
+                  onClick={() => unpinAssignedTask(task.taskId)}
                 >
                   <PinOff size={15} />
                 </IconButton>
               )}
               <StickyWidget
-                task={t}
-                onAction={(a) => act.mutate({ taskId: t.taskId, action: a })}
-                busy={act.isPending && act.variables?.taskId === t.taskId}
+                task={task}
+                onAction={(a) => act.mutate({ taskId: task.taskId, action: a })}
+                busy={act.isPending && act.variables?.taskId === task.taskId}
                 locked={floatable}
               />
             </motion.div>
@@ -284,11 +305,11 @@ function AssignedBucket({ view }: { view: string }) {
       {isTerminalView(view) && pageCount > 1 && (
         <div className="mt-5 flex items-center justify-center gap-3 text-xs text-muted">
           <Button variant="ghost" size="sm" disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>
-            Previous
+            {t("tasksPage.pagination.previous")}
           </Button>
-          <span>Page {currentPage} of {pageCount}</span>
+          <span>{t("tasksPage.pagination.pageOf", { current: currentPage, total: pageCount })}</span>
           <Button variant="ghost" size="sm" disabled={currentPage === pageCount} onClick={() => setPage(currentPage + 1)}>
-            Next
+            {t("tasksPage.pagination.next")}
           </Button>
         </div>
       )}

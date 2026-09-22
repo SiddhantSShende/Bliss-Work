@@ -12,6 +12,7 @@ import {
   ImageIcon,
 } from "lucide-react";
 import type { AttachmentDTO, MailAttachmentDTO } from "@taskboard/shared";
+import { useTranslation } from "react-i18next";
 import { useAttachmentLinks } from "../lib/useAttachmentLinks";
 import { toast } from "sonner";
 import { useRuntime } from "../lib/runtime";
@@ -56,6 +57,7 @@ export type MailAttachmentsState = ReturnType<typeof useMailAttachments>;
  *                file the sender does not know they are about to send.
  */
 export function useMailAttachments(mailId: string | undefined, initial?: MailAttachmentDTO[]) {
+  const { t } = useTranslation("mail");
   const { api } = useRuntime();
   const [files, setFiles] = useState<MailAttachment[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -118,7 +120,9 @@ export function useMailAttachments(mailId: string | undefined, initial?: MailAtt
         // Kept in the tray as a failed row rather than removed: a file that
         // vanishes silently is one the user believes they attached.
         patch(key, { error: errorText(e) });
-        toast.error(`Could not attach ${file.name}`, { description: errorText(e) });
+        toast.error(t("attachments.couldNotAttachToast", { filename: file.name }), {
+          description: errorText(e),
+        });
         return;
       }
       controllers.current.delete(key);
@@ -146,7 +150,7 @@ export function useMailAttachments(mailId: string | undefined, initial?: MailAtt
         // oversized file simply cannot be attached rather than starting an
         // upload the server will refuse.
         if (file.size > MEDIA_MAX_BYTES) {
-          toast.error(`${file.name} is larger than ${prettySize(MEDIA_MAX_BYTES)}.`);
+          toast.error(t("attachments.tooLargeToast", { filename: file.name, maxSize: prettySize(MEDIA_MAX_BYTES) }));
           continue;
         }
         void upload(file);
@@ -173,7 +177,7 @@ export function useMailAttachments(mailId: string | undefined, initial?: MailAtt
         void api
           .removeDraftAttachment(mailId, removedId)
           .catch((e) => {
-            toast.error("Could not remove that file", { description: errorText(e) });
+            toast.error(t("attachments.couldNotRemoveToast"), { description: errorText(e) });
           })
           .finally(() => {
             setPendingRemovals((prev) => {
@@ -217,11 +221,12 @@ export function MailAttachmentTray({
   files,
   remove,
 }: Pick<MailAttachmentsState, "files" | "remove">) {
+  const { t } = useTranslation("mail");
   if (files.length === 0) return null;
   return (
     <div className="flex flex-col gap-1.5">
       <span className="text-[13px] font-medium text-fg/80">
-        Attachments ({files.length})
+        {t("attachments.heading", { count: files.length })}
       </span>
       <ul className="flex flex-col gap-1">
         {files.map((f) => (
@@ -239,13 +244,13 @@ export function MailAttachmentTray({
             <span className="min-w-0 flex-1">
               <span className="block truncate text-fg">{f.filename}</span>
               <span className={`block truncate ${f.error ? "text-danger" : "text-muted"}`}>
-                {f.error ?? (f.id ? formatBytes(f.sizeBytes) : `Uploading… ${f.progress}%`)}
+                {f.error ?? (f.id ? formatBytes(f.sizeBytes) : t("attachments.tray.uploading", { progress: f.progress }))}
               </span>
             </span>
             <button
               type="button"
               onClick={() => remove(f.key)}
-              aria-label={`Remove ${f.filename}`}
+              aria-label={t("attachments.tray.remove", { filename: f.filename })}
               className="shrink-0 rounded-lg p-1 text-muted hover:bg-surface-2 hover:text-danger"
             >
               <X size={13} />
@@ -289,6 +294,7 @@ function toMediaItem(a: MailAttachmentDTO): MediaItem {
  * and keeps the `target="_blank"` anchor exactly as before.
  */
 export function MailAttachmentCards({ attachments }: { attachments: MailAttachmentDTO[] }) {
+  const { t } = useTranslation("mail");
   const { config } = useRuntime();
   const ids = useMemo(() => attachments.map((a) => a.id), [attachments]);
   const links = useAttachmentLinks(ids);
@@ -300,7 +306,7 @@ export function MailAttachmentCards({ attachments }: { attachments: MailAttachme
   return (
     <section className="mt-6 border-t border-border/60 pt-4">
       <h3 className="mb-2 flex items-center gap-1.5 text-[13px] font-medium text-fg/80">
-        <Paperclip size={14} /> Attachments ({attachments.length})
+        <Paperclip size={14} /> {t("attachments.heading", { count: attachments.length })}
       </h3>
       <ul className="grid gap-2 sm:grid-cols-2">
         {attachments.map((a) => {
@@ -323,39 +329,39 @@ export function MailAttachmentCards({ attachments }: { attachments: MailAttachme
                 <button
                   type="button"
                   onClick={() => setPreview(a)}
-                  title={`Preview ${a.filename}`}
-                  aria-label={`Preview ${a.filename}`}
+                  title={t("attachments.previewFile", { filename: a.filename })}
+                  aria-label={t("attachments.previewFile", { filename: a.filename })}
                   className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 font-medium text-accent hover:bg-accent-soft"
                 >
-                  <Eye size={14} /> Preview
+                  <Eye size={14} /> {t("attachments.preview")}
                 </button>
               ) : url && config.openAttachment ? (
                 <button
                   type="button"
                   onClick={() => void openNatively(a.filename, url)}
-                  title={`Open ${a.filename}`}
-                  aria-label={`Open ${a.filename}`}
+                  title={t("attachments.openFile", { filename: a.filename })}
+                  aria-label={t("attachments.openFile", { filename: a.filename })}
                   className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 font-medium text-accent hover:bg-accent-soft"
                 >
-                  <ExternalLink size={14} /> Open
+                  <ExternalLink size={14} /> {t("attachments.open")}
                 </button>
               ) : url ? (
                 <a
                   href={url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  title={`Open ${a.filename}`}
-                  aria-label={`Open ${a.filename}`}
+                  title={t("attachments.openFile", { filename: a.filename })}
+                  aria-label={t("attachments.openFile", { filename: a.filename })}
                   className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 font-medium text-accent hover:bg-accent-soft"
                 >
-                  <ExternalLink size={14} /> Open
+                  <ExternalLink size={14} /> {t("attachments.open")}
                 </a>
               ) : (
                 // Links are minted in one batched, short-lived request; a
                 // missing one means the mint is still in flight or access was
                 // denied, and neither is a broken download button.
                 <span className="shrink-0 text-muted">
-                  {links.isLoading ? "Preparing…" : "Unavailable"}
+                  {links.isLoading ? t("attachments.preparing") : t("attachments.unavailable")}
                 </span>
               )}
             </li>

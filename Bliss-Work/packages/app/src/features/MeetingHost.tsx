@@ -12,6 +12,7 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { Video, X } from "lucide-react";
 import { Button } from "@taskboard/ui";
 import { useRuntime } from "../lib/runtime";
@@ -23,6 +24,7 @@ import { CallRoom } from "./CallRoomLazy";
 import { IncomingMeetingNotice } from "./IncomingMeetingNotice";
 
 export function MeetingHost() {
+  const { t } = useTranslation("meetings");
   const { call, enter, exit, autoJoinMedia } = useMeetingSession();
   const { api } = useRuntime();
 
@@ -47,10 +49,10 @@ export function MeetingHost() {
           // error and no room. Surfacing it is not optional here: this is
           // the ONLY feedback the person clicking that toast action gets.
           if (request !== requestNumber) return;
-          toast.error(e instanceof Error ? e.message : "Couldn't open that meeting");
+          toast.error(e instanceof Error ? e.message : t("host.openFailed"));
         });
     });
-  }, [api, enter]);
+  }, [api, enter, t]);
 
   return (
     <>
@@ -77,6 +79,7 @@ export function MeetingHost() {
  * offer is not made.
  */
 function RejoinPrompt() {
+  const { t } = useTranslation("meetings");
   const callId = useResumableMeeting();
   const { api } = useRuntime();
   const { enter } = useMeetingSession();
@@ -107,7 +110,7 @@ function RejoinPrompt() {
   return (
     <div
       role="alertdialog"
-      aria-label="Rejoin the meeting you were in"
+      aria-label={t("host.rejoin.ariaLabel")}
       className="fixed bottom-4 left-1/2 z-[150] w-[min(24rem,calc(100vw-2rem))] -translate-x-1/2 rounded-2xl bg-surface p-4 shadow-widget ring-1 ring-border"
     >
       <div className="flex items-start gap-3">
@@ -116,17 +119,17 @@ function RejoinPrompt() {
         </div>
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-semibold text-fg">
-            {call.title || "Meeting"}
+            {call.title || t("host.rejoin.untitled")}
           </div>
           <p className="mt-0.5 text-xs text-muted">
-            You were in this meeting before the page reloaded.
+            {t("host.rejoin.description")}
           </p>
         </div>
         <button
           type="button"
           onClick={() => setDismissed(true)}
-          title="Not now"
-          aria-label="Not now"
+          title={t("host.rejoin.notNow")}
+          aria-label={t("host.rejoin.notNow")}
           className="shrink-0 rounded-lg p-1 text-muted transition-colors hover:bg-surface-2 hover:text-fg"
         >
           <X size={15} />
@@ -134,7 +137,7 @@ function RejoinPrompt() {
       </div>
       <div className="mt-3 flex justify-end gap-2">
         <Button variant="ghost" size="sm" onClick={() => setDismissed(true)}>
-          Not now
+          {t("host.rejoin.notNow")}
         </Button>
         <Button
           size="sm"
@@ -145,7 +148,7 @@ function RejoinPrompt() {
             enter(call, () => closeMeetingTab(() => undefined));
           }}
         >
-          Rejoin
+          {t("host.rejoin.rejoinButton")}
         </Button>
       </div>
     </div>

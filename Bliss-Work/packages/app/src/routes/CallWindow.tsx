@@ -46,6 +46,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { AlertCircle } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Button, EmptyState } from "@taskboard/ui";
 import { useConnectEventBridge, useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
@@ -54,6 +55,7 @@ import { MeetingSessionContext } from "../lib/MeetingSession";
 import { CallRoom } from "../features/CallRoomLazy";
 
 export function CallWindow() {
+  const { t } = useTranslation("calls");
   const { callId = "" } = useParams();
   const [params] = useSearchParams();
   const { api } = useRuntime();
@@ -114,11 +116,14 @@ export function CallWindow() {
   useEffect(() => {
     if (!call) return;
     const previous = document.title;
-    document.title = `${call.title || "Meeting"} · BlissWork`;
+    document.title = t("window.tabTitle", {
+      title: call.title || t("window.untitledMeeting"),
+      brand: "BlissWork",
+    });
     return () => {
       document.title = previous;
     };
-  }, [call]);
+  }, [call, t]);
 
   const retry = () => {
     setRetrying(true);
@@ -128,7 +133,7 @@ export function CallWindow() {
   if (isLoading) {
     return (
       <div className="flex h-full items-center justify-center bg-surface text-sm text-muted">
-        Loading meeting…
+        {t("window.loading")}
       </div>
     );
   }
@@ -141,15 +146,15 @@ export function CallWindow() {
       <div className="flex h-full flex-col items-center justify-center gap-4 bg-surface p-6">
         <EmptyState
           icon={<AlertCircle size={24} />}
-          title="Unable to load this meeting."
-          hint="Check your connection and try again."
+          title={t("window.loadError.title")}
+          hint={t("window.loadError.hint")}
         />
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="sm" onClick={close}>
-            Return to Meetings
+            {t("window.loadError.returnToMeetings")}
           </Button>
           <Button size="sm" onClick={retry} disabled={retrying}>
-            {retrying ? "Retrying…" : "Retry"}
+            {retrying ? t("window.loadError.retrying") : t("window.loadError.retry")}
           </Button>
         </div>
       </div>
@@ -167,11 +172,11 @@ export function CallWindow() {
       <div className="flex h-full flex-col items-center justify-center gap-4 bg-surface p-6">
         <EmptyState
           icon={<AlertCircle size={24} />}
-          title="This meeting isn't available"
-          hint="It may have ended, or you may no longer be on its roster."
+          title={t("window.unavailable.title")}
+          hint={t("window.unavailable.hint")}
         />
         <Button variant="ghost" size="sm" onClick={close}>
-          Close
+          {t("window.unavailable.close")}
         </Button>
       </div>
     );

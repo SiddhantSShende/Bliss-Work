@@ -115,6 +115,13 @@ class Settings(BaseSettings):
     redis_url: str = ""
     slowapi_storage_uri: str = ""
 
+    # Server-side-only credential for the dynamic UI-translation endpoints
+    # (routes/i18n.py) — Cloud Translation Basic (v2), API-key auth. Never sent
+    # to, or readable by, any client. Empty disables translation: /i18n/languages
+    # returns no languages and the app stays on its bundled English catalog,
+    # which is the only locale it ever ships client-side.
+    google_translate_api_key: str = ""
+
     # Refresh-cookie security. `secure` MUST be True in production so the cookie
     # is only sent over TLS; driven by env (COOKIE_SECURE) so a prod deploy flips
     # it without a code change instead of relying on someone remembering to edit

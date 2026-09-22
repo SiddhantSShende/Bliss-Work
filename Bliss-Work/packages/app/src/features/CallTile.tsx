@@ -12,6 +12,7 @@
  */
 import { useEffect, useRef } from "react";
 import { Hand, MicOff, Monitor, Pin, PinOff, ScreenShare } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@taskboard/ui";
 import type { RoomParticipant } from "../lib/useCallRoom";
 
@@ -54,6 +55,7 @@ export function CallTile({
    *  unpin control). */
   onTogglePin?: () => void;
 }) {
+  const { t } = useTranslation("callRoom");
   const videoRef = useRef<HTMLVideoElement>(null);
   // A shared screen wins the tile: it is what the room is looking at, and it is
   // the one picture that is useless cropped, so it is letterboxed rather than
@@ -109,7 +111,7 @@ export function CallTile({
       {selfSharePreview ? (
         <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-black px-2 text-center text-white">
           <Monitor size={size === "strip" ? 18 : 28} className="text-red-400" />
-          <span className={cn("font-medium", NAME_TEXT[size])}>You're presenting your screen</span>
+          <span className={cn("font-medium", NAME_TEXT[size])}>{t("tile.presentingScreen")}</span>
         </div>
       ) : p.camOn || p.sharing ? (
         <video
@@ -150,8 +152,8 @@ export function CallTile({
         <button
           type="button"
           onClick={onTogglePin}
-          title={pinned ? `Unpin ${p.name}` : `Pin ${p.name}`}
-          aria-label={pinned ? `Unpin ${p.name}` : `Pin ${p.name}`}
+          title={pinned ? t("tile.unpin", { name: p.name }) : t("tile.pin", { name: p.name })}
+          aria-label={pinned ? t("tile.unpin", { name: p.name }) : t("tile.pin", { name: p.name })}
           aria-pressed={pinned}
           className={cn(
             "absolute right-1.5 top-1.5 rounded-lg bg-black/55 p-1.5 text-white opacity-0 transition",
@@ -166,7 +168,7 @@ export function CallTile({
 
       {handRaised && (
         <span
-          title={`${p.name} has their hand up`}
+          title={t("tile.handRaisedTitle", { name: p.name })}
           className="absolute left-1.5 top-1.5 flex items-center gap-1 rounded-lg bg-amber-400 px-1.5 py-1 text-[10px] font-semibold text-amber-950"
         >
           <Hand size={12} />
@@ -176,7 +178,7 @@ export function CallTile({
       <div className="absolute inset-x-0 bottom-0 flex items-center gap-1.5 bg-gradient-to-t from-black/60 to-transparent px-2 py-1.5">
         <span className={cn("truncate font-medium text-white", NAME_TEXT[size])}>
           {p.name}
-          {p.isLocal && " (you)"}
+          {p.isLocal && t("tile.youSuffix")}
         </span>
         {p.sharing && <ScreenShare size={12} className="shrink-0 text-red-400" />}
         {!p.micOn && <MicOff size={12} className="shrink-0 text-red-400" />}
@@ -192,15 +194,16 @@ export function CallTile({
  *  tile's own pin toggle is already "Unpin {name}" — two controls with one
  *  accessible name is a screen reader reading the same button twice. */
 export function UnpinButton({ name, onClick }: { name: string; onClick: () => void }) {
+  const { t } = useTranslation("callRoom");
   return (
     <button
       type="button"
       onClick={onClick}
-      title={`Unpin ${name} from the main view`}
-      aria-label="Unpin the main view"
+      title={t("tile.unpinStageTitle", { name })}
+      aria-label={t("tile.unpinStageAriaLabel")}
       className="absolute right-2 top-2 z-10 flex items-center gap-1.5 rounded-lg bg-black/55 px-2 py-1.5 text-[11px] font-medium text-white transition hover:bg-black/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
     >
-      <PinOff size={13} /> Unpin
+      <PinOff size={13} /> {t("tile.unpinStageButton")}
     </button>
   );
 }

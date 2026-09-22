@@ -13,6 +13,7 @@
  */
 import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@taskboard/ui";
 import type { RoomParticipant } from "../lib/useCallRoom";
 import { CallTile } from "./CallTile";
@@ -46,6 +47,7 @@ export function CallMembers({
   /** "grid" fills the room; "sidebar" is the column beside a pinned stage. */
   layout?: "grid" | "sidebar";
 }) {
+  const { t } = useTranslation("calls");
   const perPage = layout === "sidebar" ? SIDEBAR_PER_PAGE : MEMBERS_PER_PAGE;
   const [page, setPage] = useState(0);
   const pages = pageCount(participants.length, perPage);
@@ -115,15 +117,15 @@ export function CallMembers({
 
       {pages > 1 && (
         <nav
-          aria-label="Member pages"
+          aria-label={t("members.pagesAriaLabel")}
           className="flex shrink-0 items-center justify-center gap-1.5 text-xs text-muted"
         >
           <button
             type="button"
             onClick={() => setPage(current - 1)}
             disabled={current === 0}
-            title="Previous members"
-            aria-label="Previous members"
+            title={t("members.previous")}
+            aria-label={t("members.previous")}
             className="rounded-lg p-1 transition-colors hover:bg-surface-2 hover:text-fg disabled:opacity-40"
           >
             <ChevronLeft size={14} />
@@ -134,7 +136,7 @@ export function CallMembers({
               type="button"
               onClick={() => setPage(i)}
               aria-current={i === current ? "page" : undefined}
-              aria-label={`Members page ${i + 1} of ${pages}`}
+              aria-label={t("members.pageAriaLabel", { page: i + 1, pages })}
               className={cn(
                 "min-w-6 rounded-md px-1.5 py-0.5 font-medium transition-colors",
                 i === current ? "bg-accent text-accent-fg" : "bg-surface-2 hover:text-fg",
@@ -147,8 +149,8 @@ export function CallMembers({
             type="button"
             onClick={() => setPage(current + 1)}
             disabled={current === pages - 1}
-            title="More members"
-            aria-label="More members"
+            title={t("members.more")}
+            aria-label={t("members.more")}
             className="rounded-lg p-1 transition-colors hover:bg-surface-2 hover:text-fg disabled:opacity-40"
           >
             <ChevronRight size={14} />

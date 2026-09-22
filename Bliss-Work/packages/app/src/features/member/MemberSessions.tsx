@@ -1,5 +1,7 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Laptop, MonitorSmartphone } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { Badge, EmptyState, Spinner } from "@taskboard/ui";
 import type { ActivitySessionDTO } from "@taskboard/shared";
 import { useRuntime } from "../../lib/runtime";
@@ -19,12 +21,14 @@ import { LoadOlderFooter } from "./LoadOlderFooter";
  * Nothing currently closes a session for a suspend, removal, role change, or
  * org switch, so those reasons never appear here.
  */
-const END_REASON: Record<string, string> = {
-  disconnect: "Closed the app",
-  timeout: "Went quiet",
-};
+function endReasonLabel(reason: string | null | undefined, t: TFunction): string {
+  if (reason === "disconnect") return t("members:sessions.endReason.disconnect");
+  if (reason === "timeout") return t("members:sessions.endReason.timeout");
+  return reason ?? "";
+}
 
 export function MemberSessions({ userId }: { userId: string }) {
+  const { t } = useTranslation("members");
   const { api } = useRuntime();
 
   const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery({
@@ -41,8 +45,8 @@ export function MemberSessions({ userId }: { userId: string }) {
     return (
       <EmptyState
         icon={<MonitorSmartphone size={22} />}
-        title="No sessions recorded"
-        hint="Sessions appear here once they sign in from a device."
+        title={t("members:sessions.empty.title")}
+        hint={t("members:sessions.empty.hint")}
       />
     );
 
@@ -56,7 +60,7 @@ export function MemberSessions({ userId }: { userId: string }) {
       >
         {/* Same visibility window as the timeline — see the note there. */}
         <p className="pt-2 text-center text-xs text-muted">
-          Showing the last 7 days. Older sessions are retained but not browsable here.
+          {t("members:sessions.retentionNote")}
         </p>
       </LoadOlderFooter>
     </div>
@@ -64,6 +68,7 @@ export function MemberSessions({ userId }: { userId: string }) {
 }
 
 function Row({ session: s }: { session: ActivitySessionDTO }) {
+  const { t, i18n } = useTranslation("members");
   const live = !s.endedAt;
   const start = new Date(s.startedAt);
   const end = s.endedAt ? new Date(s.endedAt) : null;
@@ -76,26 +81,30 @@ function Row({ session: s }: { session: ActivitySessionDTO }) {
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-medium text-fg">{s.deviceLabel}</span>
           {live ? (
-            <Badge tone="success">Active now</Badge>
+            <Badge tone="success">{t("members:sessions.activeNow")}</Badge>
           ) : (
-            <Badge tone="neutral">{END_REASON[s.endReason ?? ""] ?? s.endReason}</Badge>
+            <Badge tone="neutral">{endReasonLabel(s.endReason, t)}</Badge>
           )}
         </div>
         <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted">
           <span>
-            {start.toLocaleString(undefined, {
+            {start.toLocaleString(i18n.language, {
               day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
             })}
-            {end && ` – ${end.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`}
+            {end && ` – ${end.toLocaleTimeString(i18n.language, { hour: "2-digit", minute: "2-digit" })}`}
           </span>
-          {formatDuration(span) && <span>{formatDuration(span)} total</span>}
+          {formatDuration(span) && <span>{t("members:sessions.durations.total", { duration: formatDuration(span) })}</span>}
           {/* Active vs idle is the distinction that makes this useful: a tab
               left open all night is a long session and almost no active time. */}
-          {formatDuration(s.activeMs) && <span>{formatDuration(s.activeMs)} active</span>}
-          {formatDuration(s.idleMs) && <span>{formatDuration(s.idleMs)} idle</span>}
+          {formatDuration(s.activeMs) && (
+            <span>{t("members:sessions.durations.active", { duration: formatDuration(s.activeMs) })}</span>
+          )}
+          {formatDuration(s.idleMs) && (
+            <span>{t("members:sessions.durations.idle", { duration: formatDuration(s.idleMs) })}</span>
+          )}
           {/* A /24, never the full address — enough to notice a sign-in from
               somewhere new without storing something identifying in the clear. */}
-          {s.ipPrefix && <span title="Approximate network">{s.ipPrefix}</span>}
+          {s.ipPrefix && <span title={t("members:sessions.approximateNetworkTooltip")}>{s.ipPrefix}</span>}
         </div>
       </div>
     </div>

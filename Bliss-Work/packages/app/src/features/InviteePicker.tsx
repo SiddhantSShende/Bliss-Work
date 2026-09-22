@@ -1,4 +1,5 @@
 import { Check, Search } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Avatar } from "@taskboard/ui";
 import { usePeopleSearch } from "../lib/usePeopleCandidates";
 
@@ -25,6 +26,7 @@ export function InviteePicker({
    *  be offering a seat that is already taken. */
   exclude?: Set<string>;
 }) {
+  const { t } = useTranslation("org");
   const { q, setQ, candidates } = usePeopleSearch(exclude);
 
   return (
@@ -37,15 +39,15 @@ export function InviteePicker({
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Search your organisation…"
-          aria-label="Search your organisation"
+          placeholder={t("org:inviteePicker.searchPlaceholder")}
+          aria-label={t("org:inviteePicker.searchAriaLabel")}
           className="w-full rounded-lg border border-border bg-surface-2 py-2 pl-9 pr-3 text-sm text-fg outline-none focus:border-accent"
         />
       </div>
       <div className="max-h-40 overflow-auto rounded-lg border border-border p-1">
         {candidates.length === 0 ? (
           <p className="px-2 py-3 text-sm text-muted">
-            {q ? "No matches." : "No one else to invite."}
+            {q ? t("org:inviteePicker.empty.noMatches") : t("org:inviteePicker.empty.noneToInvite")}
           </p>
         ) : (
           candidates.map((u) => {

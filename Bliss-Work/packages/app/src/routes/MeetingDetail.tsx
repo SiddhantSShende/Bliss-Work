@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { AlertCircle, Disc, Hash, PlayCircle, ScreenShare, Video } from "lucide-react";
 import { Avatar, Badge, Button, Spinner } from "@taskboard/ui";
 import type { CallDTO } from "@taskboard/shared";
@@ -42,6 +44,7 @@ import { MeetingChatPanel, MeetingNotesPanel } from "../features/MeetingTranscri
 type Panel = "overview" | "chat" | "notes";
 
 export function MeetingDetail() {
+  const { t, i18n } = useTranslation("meetings");
   const { callId = "" } = useParams();
   const { api, config } = useRuntime();
   const qc = useQueryClient();
@@ -64,7 +67,7 @@ export function MeetingDetail() {
   if (isLoading) {
     return (
       <div className="flex h-full items-center justify-center gap-2 text-sm text-muted">
-        <Spinner /> Loading…
+        <Spinner /> {t("detail.loading")}
       </div>
     );
   }
@@ -72,9 +75,9 @@ export function MeetingDetail() {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
         <AlertCircle size={24} className="text-muted" />
-        <div className="text-sm font-medium text-fg">Couldn't open this meeting.</div>
+        <div className="text-sm font-medium text-fg">{t("detail.error.title")}</div>
         <Button size="sm" variant="secondary" onClick={() => void refetch()}>
-          Retry
+          {t("detail.error.retry")}
         </Button>
       </div>
     );
@@ -97,9 +100,9 @@ export function MeetingDetail() {
   };
 
   const TABS: readonly TabSpec<Panel>[] = [
-    { key: "overview", label: "Overview" },
-    { key: "chat", label: "Chat" },
-    { key: "notes", label: "Notes" },
+    { key: "overview", label: t("detail.tabs.overview") },
+    { key: "chat", label: t("detail.tabs.chat") },
+    { key: "notes", label: t("detail.tabs.notes") },
   ];
 
   return (
@@ -109,12 +112,12 @@ export function MeetingDetail() {
           <div className="min-w-0">
             <h2 className="truncate text-base font-semibold tracking-tight text-fg">{name}</h2>
             <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted">
-              <span>{KIND_LABEL[call.kind]}</span>
+              <span>{t(KIND_LABEL_KEY[call.kind])}</span>
               <span aria-hidden>·</span>
               <span>{dayLabel(whenOf(call))}</span>
               {/* The title is shown above; when there ISN'T one the heading is
                   already the people, so this does not repeat them. */}
-              {call.title.trim() === "" && <span className="italic">no title set</span>}
+              {call.title.trim() === "" && <span className="italic">{t("detail.noTitleSet")}</span>}
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -122,7 +125,7 @@ export function MeetingDetail() {
             {joinable && (
               <Button size="sm" onClick={open}>
                 <Video size={15} />
-                {bucket === "live" ? "Join" : "Open"}
+                {bucket === "live" ? t("detail.join") : t("detail.open")}
               </Button>
             )}
           </div>
@@ -144,17 +147,18 @@ export function MeetingDetail() {
   );
 }
 
-const KIND_LABEL: Record<CallDTO["kind"], string> = {
-  MEETING: "Meeting",
-  CHANNEL: "Channel call",
-  DIRECT: "Call",
+const KIND_LABEL_KEY: Record<CallDTO["kind"], string> = {
+  MEETING: "detail.kindLabel.meeting",
+  CHANNEL: "detail.kindLabel.channelCall",
+  DIRECT: "detail.kindLabel.call",
 };
 
 function MeetingStatusBadge({ call }: { call: CallDTO }) {
+  const { t } = useTranslation("meetings");
   if (call.status === "LIVE") {
     return (
       <Badge tone="success">
-        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-success" /> Live
+        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-success" /> {t("detail.live")}
       </Badge>
     );
   }
@@ -180,22 +184,23 @@ function MeetingOverview({
   nameOf: (id: string) => string;
   avatarUrlOf: (id: string) => string | null | undefined;
 }) {
+  const { t, i18n } = useTranslation("meetings");
   const start = whenOf(call);
   const joined = call.participants.filter((p) => p.joinedAt);
 
   return (
     <div className="space-y-6">
       <section>
-        <SectionTitle>When</SectionTitle>
+        <SectionTitle>{t("detail.overview.when.sectionTitle")}</SectionTitle>
         <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
-          <Fact label="Date" value={new Date(start).toLocaleDateString(undefined, {
+          <Fact label={t("detail.overview.when.date")} value={new Date(start).toLocaleDateString(i18n.language, {
             weekday: "short", day: "numeric", month: "short", year: "numeric",
           })} />
-          <Fact label="Start" value={call.startedAt ? timeLabel(new Date(call.startedAt).getTime()) : timeLabel(start)} />
+          <Fact label={t("detail.overview.when.start")} value={call.startedAt ? timeLabel(new Date(call.startedAt).getTime()) : timeLabel(start)} />
           {/* An end only once there IS one. A live meeting has not ended, and a
               scheduled one's planned end is a plan — shown as such. */}
           <Fact
-            label={call.endedAt ? "End" : "Scheduled end"}
+            label={call.endedAt ? t("detail.overview.when.end") : t("detail.overview.when.scheduledEnd")}
             value={
               call.endedAt
                 ? timeLabel(new Date(call.endedAt).getTime())
@@ -205,7 +210,7 @@ function MeetingOverview({
             }
           />
           <Fact
-            label={call.status === "LIVE" ? "Running for" : "Duration"}
+            label={call.status === "LIVE" ? t("detail.overview.when.runningFor") : t("detail.overview.when.duration")}
             value={durationLabel(durationMsOf(call))}
           />
         </dl>
@@ -213,10 +218,10 @@ function MeetingOverview({
 
       <section>
         <SectionTitle>
-          People · {joined.length} of {call.participants.length} joined
+          {t("detail.overview.people.sectionTitle", { joined: joined.length, total: call.participants.length })}
         </SectionTitle>
         {call.participants.length === 0 ? (
-          <p className="text-sm text-muted">No roster was recorded for this meeting.</p>
+          <p className="text-sm text-muted">{t("detail.overview.people.empty")}</p>
         ) : (
           <ul className="space-y-1.5">
             {call.participants.map((p) => (
@@ -225,10 +230,10 @@ function MeetingOverview({
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">
                     <span className="truncate text-sm font-medium text-fg">{nameOf(p.userId)}</span>
-                    {p.role === "HOST" && <Badge tone="accent">Host</Badge>}
-                    {p.external && <Badge tone="warning">External</Badge>}
+                    {p.role === "HOST" && <Badge tone="accent">{t("detail.overview.people.host")}</Badge>}
+                    {p.external && <Badge tone="warning">{t("detail.overview.people.external")}</Badge>}
                   </div>
-                  <p className="text-xs text-muted">{attendanceOf(p, call)}</p>
+                  <p className="text-xs text-muted">{attendanceOf(p, call, t)}</p>
                 </div>
               </li>
             ))}
@@ -237,25 +242,25 @@ function MeetingOverview({
       </section>
 
       <section>
-        <SectionTitle>Meeting</SectionTitle>
+        <SectionTitle>{t("detail.overview.meeting.sectionTitle")}</SectionTitle>
         <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
-          <Fact label="Organised by" value={nameOf(call.createdBy)} />
+          <Fact label={t("detail.overview.meeting.organisedBy")} value={nameOf(call.createdBy)} />
           {call.startedBy && call.startedBy !== call.createdBy && (
-            <Fact label="Opened by" value={nameOf(call.startedBy)} />
+            <Fact label={t("detail.overview.meeting.openedBy")} value={nameOf(call.startedBy)} />
           )}
-          <Fact label="Media" value={call.media === "audio" ? "Audio only" : "Video"} />
+          <Fact label={t("detail.overview.meeting.media")} value={call.media === "audio" ? t("detail.overview.meeting.audioOnly") : t("detail.overview.meeting.video")} />
           <Fact
-            label="Recording"
+            label={t("detail.overview.meeting.recording")}
             value={
               call.recordingStatus === "READY"
-                ? "Available"
+                ? t("detail.overview.meeting.recordingAvailable")
                 : call.recordingStatus === "RECORDING"
-                  ? "In progress"
-                  : "Not recorded"
+                  ? t("detail.overview.meeting.recordingInProgress")
+                  : t("detail.overview.meeting.recordingNotRecorded")
             }
             icon={call.recordingStatus ? <Disc size={13} /> : undefined}
           />
-          {call.channelId && <Fact label="Channel call" value="Roster is the channel" icon={<Hash size={13} />} />}
+          {call.channelId && <Fact label={t("detail.overview.meeting.channelCall")} value={t("detail.overview.meeting.channelCallValue")} icon={<Hash size={13} />} />}
         </dl>
         {call.recordingStatus === "READY" && <RecordingLink callId={call.id} />}
         {call.recordingStatus === "RECORDING" && (
@@ -264,7 +269,7 @@ function MeetingOverview({
           // themselves, or find out afterwards.
           <p className="mt-3 flex items-center gap-1.5 text-xs font-medium text-danger">
             <Disc size={13} className="shrink-0 animate-pulse" />
-            This call is being recorded
+            {t("detail.overview.meeting.beingRecorded")}
           </p>
         )}
         {/* Handing out the join link — hosts of a live or scheduled meeting
@@ -276,8 +281,8 @@ function MeetingOverview({
           <p className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-fg">
             <ScreenShare size={13} />
             {call.activeShares.length === 1
-              ? `${nameOf(call.activeShares[0].userId)} is sharing their screen`
-              : `${call.activeShares.length} people are sharing`}
+              ? t("detail.overview.meeting.sharingOne", { name: nameOf(call.activeShares[0].userId) })
+              : t("detail.overview.meeting.sharingMany", { count: call.activeShares.length })}
           </p>
         )}
       </section>
@@ -288,13 +293,22 @@ function MeetingOverview({
 /** What this person actually did about the meeting, in one line. Three real
  *  states, not two: in the room, been and gone, and never turned up — plus the
  *  lobby, which is "here, but the call has not been opened". */
-function attendanceOf(p: CallDTO["participants"][number], call: CallDTO): string {
+function attendanceOf(p: CallDTO["participants"][number], call: CallDTO, t: TFunction): string {
   if (p.joinedAt && p.leftAt) {
-    return `Joined ${timeLabel(new Date(p.joinedAt).getTime())} · left ${timeLabel(new Date(p.leftAt).getTime())}`;
+    return t("detail.overview.people.attendance.joinedAndLeft", {
+      joinedAt: timeLabel(new Date(p.joinedAt).getTime()),
+      leftAt: timeLabel(new Date(p.leftAt).getTime()),
+    });
   }
-  if (p.joinedAt) return `Joined ${timeLabel(new Date(p.joinedAt).getTime())}`;
-  if (p.waitingSince) return "Waiting to be let in";
-  return call.status === "SCHEDULED" ? "Invited" : "Did not join";
+  if (p.joinedAt) {
+    return t("detail.overview.people.attendance.joined", {
+      joinedAt: timeLabel(new Date(p.joinedAt).getTime()),
+    });
+  }
+  if (p.waitingSince) return t("detail.overview.people.attendance.waiting");
+  return call.status === "SCHEDULED"
+    ? t("detail.overview.people.attendance.invited")
+    : t("detail.overview.people.attendance.didNotJoin");
 }
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
@@ -323,12 +337,13 @@ function Fact({ label, value, icon }: { label: string; value: string; icon?: Rea
  * ApiClient.callRecording.
  */
 function RecordingLink({ callId }: { callId: string }) {
+  const { t } = useTranslation("meetings");
   const { api } = useRuntime();
   const { data, isLoading } = useQuery({
     queryKey: qk.callRecording(callId),
     queryFn: () => api.callRecording(callId),
   });
-  if (isLoading) return <p className="mt-3 text-xs text-muted">Preparing playback…</p>;
+  if (isLoading) return <p className="mt-3 text-xs text-muted">{t("detail.recording.preparing")}</p>;
   if (!data?.url) return null;
   return (
     <a
@@ -337,7 +352,7 @@ function RecordingLink({ callId }: { callId: string }) {
       rel="noreferrer"
       className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-surface-2 px-2.5 py-1.5 text-xs font-semibold text-fg transition-colors hover:bg-accent-soft hover:text-accent"
     >
-      <PlayCircle size={14} /> Watch the recording
+      <PlayCircle size={14} /> {t("detail.recording.watch")}
     </a>
   );
 }

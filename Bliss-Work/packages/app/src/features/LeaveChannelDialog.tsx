@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import type { ChannelDTO } from "@taskboard/shared";
 import { ConfirmDialog } from "./ConfirmDialog";
 
@@ -17,17 +18,18 @@ export function LeaveChannelDialog({
   busy: boolean;
   onConfirm: () => void;
 }) {
+  const { t } = useTranslation("chatList");
   return (
     <ConfirmDialog
       open={open}
       onClose={onClose}
-      title={channel ? `Leave #${channel.name}?` : "Leave channel?"}
+      title={channel ? t("leaveChannel.titleNamed", { channel: channel.name }) : t("leaveChannel.titleGeneric")}
       message={
         channel?.isLocked
-          ? "This is a locked channel. A member will need to re-invite you to come back."
-          : "You can re-join from the Browse tab whenever you want."
+          ? t("leaveChannel.messageLocked")
+          : t("leaveChannel.messageOpen")
       }
-      confirmLabel="Leave channel"
+      confirmLabel={t("leaveChannel.confirmLabel")}
       danger
       busy={busy}
       onConfirm={onConfirm}

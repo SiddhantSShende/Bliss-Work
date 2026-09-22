@@ -16,7 +16,6 @@ const parent = (process as unknown as { parentPort: NodeJS.EventEmitter & { post
 let token: string | null = null;
 let api: ApiClient | null = null;
 let ws: WsClient | null = null;
-let stickyTasks: StickyTaskDTO[] = [];
 const pendingToken: ((t: string) => void)[] = [];
 // Phase 8: pinned-chat fan-out. Set of threadIds whose MessageCreated events
 // should be forwarded to the main process so it can route them to the
@@ -120,7 +119,6 @@ const stickyRefreshGate = createRefreshGate<StickyRead>();
 
 /** Hand a read to main, and tell sticky-svc these reached a screen. */
 function publishSticky({ tasks, openPins }: StickyRead) {
-  stickyTasks = tasks;
   send({ type: "sticky", tasks, openPins: openPins ?? undefined });
 
   // Tell sticky-svc these reached a screen, so the delivery watchdog stops

@@ -32,6 +32,7 @@ import {
   Video,
   VideoOff,
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { SidebarButton } from "./SidebarButton";
 
 export function CallSidebar({
@@ -102,34 +103,35 @@ export function CallSidebar({
   onMinimize?: () => void;
   onEnd: () => void;
 }) {
+  const { t } = useTranslation("calls");
   return (
     <nav
-      aria-label="Meeting controls"
+      aria-label={t("sidebar.controlsAriaLabel")}
       className="glass relative z-20 flex min-h-0 w-20 shrink-0 flex-col items-center gap-1 overflow-y-auto overscroll-contain rounded-r-3xl py-4 [scrollbar-color:var(--color-border)_transparent] [scrollbar-width:thin]"
     >
       <SidebarButton
         icon={micOn ? <Mic size={20} /> : <MicOff size={20} />}
-        label={micOn ? "Mute" : "Muted"}
+        label={micOn ? t("sidebar.mute") : t("sidebar.muted")}
         onClick={onToggleMic}
         active={!micOn}
         activeClassName="text-danger ring-1 ring-danger/50"
       />
       <SidebarButton
         icon={camOn ? <Video size={20} /> : <VideoOff size={20} />}
-        label="Camera"
+        label={t("sidebar.camera")}
         onClick={onToggleCam}
         active={!camOn}
         activeClassName="text-danger ring-1 ring-danger/50"
       />
       <SidebarButton
         icon={<ScreenShare size={20} />}
-        label="Share"
+        label={t("sidebar.share")}
         onClick={onToggleShare}
         active={sharing}
       />
       <SidebarButton
         icon={<Hand size={20} />}
-        label="Raise"
+        label={t("sidebar.raise")}
         onClick={onToggleHand}
         active={handRaised}
         disabled={!canRaiseHand}
@@ -137,29 +139,29 @@ export function CallSidebar({
       />
       <SidebarButton
         icon={<Users size={20} />}
-        label="People"
+        label={t("sidebar.people")}
         onClick={onToggleParticipants}
         active={participantsActive}
       />
       <SidebarButton
         icon={<UserPlus size={20} />}
-        label="Add"
+        label={t("sidebar.add")}
         onClick={onAddPeople}
         disabled={!canAddPeople}
-        title={canAddPeople ? "Add people" : addPeopleTitle}
+        title={canAddPeople ? t("sidebar.addPeople") : addPeopleTitle}
       />
       {/* Chats — the reference design's example of the active treatment every
           toggle above and below also uses: a cyan glow, not a one-off. */}
       <SidebarButton
         icon={<MessageSquare size={20} />}
-        label="Chats"
+        label={t("sidebar.chats")}
         onClick={onToggleChat}
         active={chatActive}
         badge={unreadChat}
       />
       <SidebarButton
         icon={<NotebookPen size={20} />}
-        label="Notes"
+        label={t("sidebar.notes")}
         onClick={onToggleNotes}
         active={notesActive}
       />
@@ -168,11 +170,11 @@ export function CallSidebar({
       {isHost && (
         <SidebarButton
           icon={<Disc size={20} className={recording ? "fill-current" : undefined} />}
-          label="Record"
+          label={t("sidebar.record")}
           onClick={onToggleRecording}
           active={recording}
           disabled={!recordingSupported}
-          title={recordingSupported ? undefined : "This browser can't record meetings"}
+          title={recordingSupported ? undefined : t("sidebar.recordUnsupported")}
           activeClassName="bg-danger/15 text-danger ring-1 ring-danger [filter:drop-shadow(0_0_6px_var(--color-danger))]"
         />
       )}
@@ -186,35 +188,35 @@ export function CallSidebar({
           first-class icons now instead of a popover. */}
       <SidebarButton
         icon={<Link2 size={20} />}
-        label="Copy Link"
+        label={t("sidebar.copyLink")}
         onClick={onCopyInviteLink}
         disabled={!canInviteLink || mintingInviteLink}
-        title={canInviteLink ? "Copy invite link" : inviteLinkTitle}
+        title={canInviteLink ? t("sidebar.copyInviteLink") : inviteLinkTitle}
       />
       {pipSupported && (
         <SidebarButton
           icon={<PictureInPicture2 size={20} />}
-          label={pipActive ? "Exit PiP" : "PiP"}
+          label={pipActive ? t("sidebar.exitPip") : t("sidebar.pip")}
           onClick={onTogglePip}
           active={pipActive}
-          title={pipActive ? "Exit picture-in-picture" : "Picture-in-picture"}
+          title={pipActive ? t("sidebar.exitPictureInPicture") : t("sidebar.pictureInPicture")}
         />
       )}
       {onMinimize && (
         <SidebarButton
           icon={<Minimize2 size={20} />}
-          label="Minimize"
+          label={t("sidebar.minimize")}
           onClick={onMinimize}
-          title="Minimise"
+          title={t("sidebar.minimise")}
         />
       )}
 
       <div className="mt-auto pt-2">
         <SidebarButton
           icon={<PhoneOff size={20} />}
-          label="End"
+          label={t("sidebar.end")}
           onClick={onEnd}
-          title="End call"
+          title={t("sidebar.endCall")}
           className="bg-danger text-white hover:bg-danger hover:brightness-90 hover:text-white"
         />
       </div>

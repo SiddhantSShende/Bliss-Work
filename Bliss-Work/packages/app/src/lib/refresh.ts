@@ -2,6 +2,7 @@ import { toast } from "sonner";
 import { SessionDTO } from "@taskboard/shared"; // value import: it's a Zod schema
 import { useSession } from "../store/session";
 import { broadcastSession, getRecentSession } from "./authChannel";
+import i18n from "../i18n";
 
 /**
  * Session refresh, deduped at THREE levels so a rotating refresh token is never
@@ -177,8 +178,11 @@ async function performRefresh(
           // happened. Fires exactly once per session-death: `sessionDead`
           // short-circuits every later call before it reaches here again.
           // Same wording as MfaChallenge.tsx's own "session expired" screen,
-          // so the message is consistent regardless of which path found it.
-          toast.error("Session expired", { description: "Please sign in again." });
+          // so the message is consistent regardless of which path found it —
+          // reuses that screen's own catalog keys rather than duplicating them.
+          toast.error(i18n.t("auth:mfaChallenge.sessionExpired.title"), {
+            description: i18n.t("auth:mfaChallenge.sessionExpired.subtitle"),
+          });
         }
       }
       return null;

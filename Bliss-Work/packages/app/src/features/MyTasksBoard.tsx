@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { ListTodo, Star, MessageSquarePlus } from "lucide-react";
 import { Avatar, Badge, Button, GlassCard, EmptyState, Spinner } from "@taskboard/ui";
 import { useRuntime } from "../lib/runtime";
@@ -21,12 +22,14 @@ import { MiniTaskCalendar } from "./MiniTaskCalendar";
 /** Tasks fetched per request — the server's maximum page. */
 const PAGE_SIZE = 100;
 
-/** Format an ISO instant to the viewer's local date + time (or "" when absent). */
-function fmtTs(iso?: string | null): string {
+/** Format an ISO instant to the viewer's local date + time (or "" when absent).
+ *  `lang` is the in-app selected locale (i18n.language) so this follows the
+ *  language switcher rather than only the browser's own locale. */
+function fmtTs(iso?: string | null, lang?: string): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleString(undefined, {
+  return d.toLocaleString(lang, {
     month: "short",
     day: "numeric",
     hour: "2-digit",
@@ -46,6 +49,7 @@ function toggled<T>(set: ReadonlySet<T>, value: T): Set<T> {
 }
 
 export function MyTasksBoard() {
+  const { t } = useTranslation("tasks");
   const { api } = useRuntime();
   // A child of qk.sent: the realtime bridge's invalidate(qk.sent) prefix-matches
   // it, while TasksList/Search keep their own plain-array qk.sent cache.
@@ -71,25 +75,31 @@ export function MyTasksBoard() {
   if (!sent.data)
     return sent.isError ? (
       <div className="m-2 flex flex-col items-center gap-3 rounded-xl border border-border/60 p-6 text-center">
-        <div className="text-sm font-medium text-fg">Couldn't load your tasks.</div>
+        <div className="text-sm font-medium text-fg">{t("myTasksBoard.loadError.title")}</div>
         <Button size="sm" variant="secondary" onClick={() => void sent.refetch()}>
-          Retry
+          {t("myTasksBoard.loadError.retry")}
         </Button>
       </div>
     ) : (
       <div className="flex items-center gap-2 p-4 text-sm text-muted">
-        <Spinner /> Loading your tasks…
+        <Spinner /> {t("myTasksBoard.loading")}
       </div>
     );
   if (tasks.length === 0)
-    return <EmptyState icon={<ListTodo size={24} />} title="You haven't sent any tasks" hint="Create one with “New task”." />;
+    return (
+      <EmptyState
+        icon={<ListTodo size={24} />}
+        title={t("myTasksBoard.empty.title")}
+        hint={t("myTasksBoard.empty.hint")}
+      />
+    );
 
   return (
     <>
       <div className="grid items-start gap-4 lg:grid-cols-[15rem_minmax(0,1fr)]">
         <div className="flex flex-col gap-4">
           <GlassCard className="p-3">
-            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Status</div>
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">{t("myTasksBoard.filters.statusHeading")}</div>
             <div className="flex flex-wrap gap-1.5">
               {STATUS_FILTERS.map((s) => {
                 const on = filter.statuses.has(s);
@@ -110,7 +120,7 @@ export function MyTasksBoard() {
             </div>
           </GlassCard>
           <GlassCard className="p-3">
-            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">People</div>
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">{t("myTasksBoard.filters.peopleHeading")}</div>
             <div className="flex max-h-64 flex-col gap-0.5 overflow-auto">
               {people.map((p) => {
                 const on = filter.personIds.has(p.id);
@@ -145,15 +155,15 @@ export function MyTasksBoard() {
           {isFiltering(filter) && (
             <div>
               <Button variant="ghost" size="sm" onClick={() => setFilter(NO_SENT_FILTER)}>
-                Clear filters
+                {t("myTasksBoard.filters.clear")}
               </Button>
             </div>
           )}
           {visible.length === 0 ? (
             <EmptyState
               icon={<ListTodo size={24} />}
-              title="No tasks match these filters"
-              hint={sent.hasNextPage ? "Older tasks aren't loaded yet — load more below." : undefined}
+              title={t("myTasksBoard.noMatch.title")}
+              hint={sent.hasNextPage ? t("myTasksBoard.noMatch.hint") : undefined}
             />
           ) : (
             <div className="grid gap-3">
@@ -177,7 +187,7 @@ export function MyTasksBoard() {
           {sent.hasNextPage && (
             <div className="flex justify-center">
               <Button variant="secondary" size="sm" disabled={sent.isFetchingNextPage} onClick={() => void sent.fetchNextPage()}>
-                {sent.isFetchingNextPage ? "Loading…" : "Load older tasks"}
+                {sent.isFetchingNextPage ? t("myTasksBoard.loadingMore") : t("myTasksBoard.loadMore")}
               </Button>
             </div>
           )}
@@ -200,13 +210,14 @@ export function MyTasksBoard() {
 
 /** One assignee's status + full timeline + the review the allocator left. */
 function AssigneeTimeline({ assignee: a, onReview }: { assignee: SentAssignee; onReview: () => void }) {
+  const { t, i18n } = useTranslation("tasks");
   const milestones = [
-    { label: "Allocated", at: a.assignedAt },
-    { label: "Acknowledged", at: a.acknowledgedAt },
-    { label: "Ignored", at: a.ignoredAt },
-    { label: "Completed", at: a.completedAt },
-    { label: "Left", at: a.leftAt },
-    { label: "Reviewed", at: a.reviewedAt },
+    { label: t("myTasksBoard.milestones.allocated"), at: a.assignedAt },
+    { label: t("myTasksBoard.milestones.acknowledged"), at: a.acknowledgedAt },
+    { label: t("myTasksBoard.milestones.ignored"), at: a.ignoredAt },
+    { label: t("myTasksBoard.milestones.completed"), at: a.completedAt },
+    { label: t("myTasksBoard.milestones.left"), at: a.leftAt },
+    { label: t("myTasksBoard.milestones.reviewed"), at: a.reviewedAt },
   ].filter((m) => m.at);
 
   return (
@@ -218,7 +229,7 @@ function AssigneeTimeline({ assignee: a, onReview }: { assignee: SentAssignee; o
         </span>
         {a.status === "COMPLETED" && (
           <Button variant="ghost" size="sm" onClick={onReview}>
-            <MessageSquarePlus size={14} /> {a.review ? "Edit review" : "Write review"}
+            <MessageSquarePlus size={14} /> {a.review ? t("myTasksBoard.review.edit") : t("myTasksBoard.review.write")}
           </Button>
         )}
       </div>
@@ -226,7 +237,7 @@ function AssigneeTimeline({ assignee: a, onReview }: { assignee: SentAssignee; o
         <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted">
           {milestones.map((m) => (
             <span key={m.label}>
-              <span className="text-fg/70">{m.label}</span> {fmtTs(m.at)}
+              <span className="text-fg/70">{m.label}</span> {fmtTs(m.at, i18n.language)}
             </span>
           ))}
         </div>

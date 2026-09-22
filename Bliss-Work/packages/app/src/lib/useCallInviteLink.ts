@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { useRuntime } from "./runtime";
 import { meetingJoinUrl } from "./meetingDeepLink";
 
@@ -15,6 +16,7 @@ import { meetingJoinUrl } from "./meetingDeepLink";
  * each of them — `copyLink` reports success/failure and nothing more.
  */
 export function useCallInviteLink(callId: string) {
+  const { t } = useTranslation("meetings");
   const { api, config } = useRuntime();
   const [link, setLink] = useState<string | null>(null);
 
@@ -23,7 +25,7 @@ export function useCallInviteLink(callId: string) {
       const invite = await api.createCallInvite(callId);
       return meetingJoinUrl(config.webBaseUrl, invite.token);
     },
-    onError: () => toast.error("Couldn't create an invite link"),
+    onError: () => toast.error(t("inviteLink.couldNotCreate")),
   });
 
   const copyLink = async (): Promise<boolean> => {
@@ -36,7 +38,7 @@ export function useCallInviteLink(callId: string) {
     } catch {
       // Insecure origins and older WebViews have no clipboard API. The link is
       // on screen by now, so there is something to select rather than nothing.
-      toast("Copy failed", { description: "Select the link and copy it manually." });
+      toast(t("inviteLink.copyFailed"), { description: t("inviteLink.copyManually") });
       return false;
     }
   };

@@ -9,6 +9,13 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
 import { afterEach, vi } from "vitest";
 
+// Normally a side effect of importing App.tsx (via LanguageProvider) at the
+// real app's entry point. Tests render route/feature components directly,
+// without ever mounting <App>, so without this i18next stays uninitialized
+// and useTranslation()'s t() falls back to returning the raw key instead of
+// the English string.
+import "../i18n";
+
 // Unmount between tests. Without this the previous test's tree is still in the
 // document and queries match the wrong element — which shows up as a confusing
 // "found multiple elements" much later, in an unrelated test.

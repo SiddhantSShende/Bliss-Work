@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Loader2, RefreshCw } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Input } from "@taskboard/ui";
 import { useRuntime } from "../lib/runtime";
 import { Field } from "../routes/Onboarding";
@@ -53,14 +54,15 @@ export function useCaptcha(enabled = true) {
 export type CaptchaState = ReturnType<typeof useCaptcha>;
 
 export function CaptchaField({ captcha }: { captcha: CaptchaState }) {
+  const { t } = useTranslation("auth");
   return (
-    <Field label="Security check">
+    <Field label={t("captcha.securityCheckLabel")}>
       <div className="flex items-center gap-2">
         <div className="flex h-[52px] w-[160px] shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-surface-2">
           {captcha.imageUrl ? (
             <img
               src={captcha.imageUrl}
-              alt="CAPTCHA challenge — enter the characters shown"
+              alt={t("captcha.imageAlt")}
               className="h-full w-full object-cover"
             />
           ) : (
@@ -72,8 +74,8 @@ export function CaptchaField({ captcha }: { captcha: CaptchaState }) {
           onClick={() => void captcha.refresh()}
           disabled={captcha.loading}
           className="shrink-0 rounded-lg p-2.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg disabled:opacity-50"
-          title="Get a new CAPTCHA"
-          aria-label="Get a new CAPTCHA"
+          title={t("captcha.getNewCaptcha")}
+          aria-label={t("captcha.getNewCaptcha")}
         >
           <RefreshCw size={16} className={captcha.loading ? "animate-spin" : undefined} />
         </button>
@@ -81,13 +83,13 @@ export function CaptchaField({ captcha }: { captcha: CaptchaState }) {
       <Input
         value={captcha.value}
         onChange={(e) => captcha.setValue(e.target.value)}
-        placeholder="Enter the characters shown above"
+        placeholder={t("captcha.answerPlaceholder")}
         maxLength={32}
         autoComplete="off"
         autoCapitalize="off"
         autoCorrect="off"
         spellCheck={false}
-        aria-label="CAPTCHA answer"
+        aria-label={t("captcha.answerAriaLabel")}
         required
       />
     </Field>

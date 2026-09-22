@@ -129,8 +129,8 @@ if (!app.requestSingleInstanceLock()) {
     // "geolocation" joins "media" here: sharing your location in chat goes
     // through navigator.geolocation, and Electron's default DENY meant every
     // attempt failed with PERMISSION_DENIED before it could even reach a
-    // location provider. Still a closed allowlist — notifications, MIDI, USB,
-    // clipboard-read and the rest stay denied.
+    // location provider. Still a closed allowlist — MIDI, USB, clipboard-read
+    // and the rest stay denied.
     //
     // Granting is necessary but not sufficient: Chromium's NETWORK locator
     // needs a Google API key that Electron does not ship, so on a machine with
@@ -146,7 +146,25 @@ if (!app.requestSingleInstanceLock()) {
     // a real always-on-top OS window with no second BrowserWindow and no
     // second call connection — see lib/useMeetingPiP. Denied by default like
     // everything else here, so without this the request would just fail.
-    const allowed = new Set(["media", "geolocation", "picture-in-picture"]);
+    //
+    // "notifications" is what makes an incoming 1:1 call (lib/callNotify.ts's
+    // notifyIncomingCall, via window.Notification — NOT notifier.ts, which is
+    // main-process/native and unaffected either way) visible with the main
+    // window hidden in the tray. Direct calls have no desktop-level
+    // always-on-top popup of their own the way a scheduled meeting does (see
+    // meeting-invite-manager.ts) — CallUI's ring is an in-page overlay in the
+    // main window's renderer, which keeps running (and keeps hearing
+    // call.invite over the rtc:frame IPC — see the "rtc-frame" case below)
+    // once the window is hidden, but a hidden window's own UI is exactly as
+    // invisible as its React state. Without this permission,
+    // requestPermission() (primeCallNotifications) can never resolve past
+    // "denied" and notifyIncomingCall's own guard silently no-ops every time
+    // — a call rings with nothing on screen to show for it whenever the
+    // window isn't in front of the user. Safe to grant for the same reason
+    // "media" is: this app only ever loads its own origin, so there is no
+    // untrusted page that could abuse it, and it is the ONLY caller of
+    // window.Notification in the renderer (grep before adding a second one).
+    const allowed = new Set(["media", "geolocation", "picture-in-picture", "notifications"]);
     session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => cb(allowed.has(permission)));
     session.defaultSession.setPermissionCheckHandler((_wc, permission) => allowed.has(permission));
 

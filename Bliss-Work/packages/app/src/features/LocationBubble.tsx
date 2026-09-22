@@ -1,4 +1,5 @@
 import { ExternalLink, MapPin } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { useStaticMap } from "../lib/useStaticMap";
 import { formatCoords, mapsLink } from "../lib/mapsLink";
 import type { LocationEnvelope } from "../lib/chatEnvelope";
@@ -19,9 +20,10 @@ export function LocationBubble({
   env: LocationEnvelope;
   mine: boolean;
 }) {
+  const { t } = useTranslation("chatMedia");
   const { url } = useStaticMap(env.lat, env.lng);
   const href = mapsLink(env.lat, env.lng, env.label);
-  const title = env.label || "Shared location";
+  const title = env.label || t("location.sharedLocation");
 
   return (
     <div
@@ -37,11 +39,11 @@ export function LocationBubble({
           target="_blank"
           rel="noopener noreferrer"
           className="relative block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-          aria-label={`Open ${title} in Maps`}
+          aria-label={t("location.openInMapsAriaLabel", { title })}
         >
           <img
             src={url}
-            alt={`Map showing ${title}`}
+            alt={t("location.mapAlt", { title })}
             width={480}
             height={240}
             className="block h-auto w-full object-cover"
@@ -69,7 +71,7 @@ export function LocationBubble({
           <div className={`truncate text-xs ${mine ? "text-accent-fg/70" : "text-muted"}`}>
             {formatCoords(env.lat, env.lng)}
             {env.accuracy !== undefined && env.accuracy > 0
-              ? ` · ±${Math.round(env.accuracy)} m`
+              ? t("location.accuracySuffix", { accuracy: Math.round(env.accuracy) })
               : ""}
           </div>
         </div>
@@ -77,12 +79,12 @@ export function LocationBubble({
           href={href}
           target="_blank"
           rel="noopener noreferrer"
-          title="Open in Maps"
+          title={t("location.openInMapsTitle")}
           className={`inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[12px] font-medium transition-colors ${
             mine ? "bg-accent-fg/15 hover:bg-accent-fg/25" : "border border-border text-fg hover:bg-surface-2"
           }`}
         >
-          <ExternalLink size={13} /> Open
+          <ExternalLink size={13} /> {t("location.open")}
         </a>
       </div>
     </div>

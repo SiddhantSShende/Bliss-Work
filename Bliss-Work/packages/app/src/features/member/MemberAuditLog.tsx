@@ -1,5 +1,7 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { AlertTriangle, ScrollText } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { Avatar, EmptyState, Spinner } from "@taskboard/ui";
 import type { MemberDTO } from "@taskboard/shared";
 import { useRuntime } from "../../lib/runtime";
@@ -14,26 +16,16 @@ import { LoadOlderFooter } from "./LoadOlderFooter";
  * `password.reset_completed` rows were only ever visible from psql. This is that
  * read path.
  */
-const LABELS: Record<string, string> = {
-  "org.created": "created the workspace",
-  "user.profile_updated": "updated their profile",
-  "invite.created": "invited someone",
-  "invite.accepted": "accepted an invite",
-  "invite.revoked": "revoked an invite",
-  "password.reset_requested": "requested a password reset",
-  "password.reset_completed": "completed a password reset",
-  "email.verified": "verified their email",
-  "member.role_changed": "changed a role",
-  "member.deactivated": "suspended a member",
-  "member.reactivated": "reactivated a member",
-  "member.removed": "removed a member",
-};
+function auditActionLabel(action: string, t: TFunction): string {
+  return t(`members:auditLog.labels.${action}`, action);
+}
 
 /** `members` must be the FULL roster (including suspended/removed people),
  *  not the active-only directory — an actor or target who has since been
  *  suspended or removed must still resolve to their real name here rather
  *  than falling back to "System". */
 export function MemberAuditLog({ targetId, members }: { targetId?: string; members: MemberDTO[] }) {
+  const { t, i18n } = useTranslation("members");
   const { api } = useRuntime();
   const byId = new Map(members.map((m) => [m.id, m]));
 
@@ -54,18 +46,20 @@ export function MemberAuditLog({ targetId, members }: { targetId?: string; membe
     return (
       <EmptyState
         icon={<AlertTriangle size={22} />}
-        title="Audit log could not be loaded"
-        hint="Check your connection and try again."
+        title={t("members:auditLog.error.title")}
+        hint={t("members:auditLog.error.hint")}
       />
     );
   if (entries.length === 0)
     return (
       <EmptyState
         icon={<ScrollText size={22} />}
-        title="Nothing recorded yet"
-        hint={targetId ? "Admin actions on this member will show up here." : "Admin actions across the workspace show up here."}
+        title={t("members:auditLog.empty.title")}
+        hint={targetId ? t("members:auditLog.empty.hintScoped") : t("members:auditLog.empty.hintAll")}
       />
     );
+
+  const systemActor = t("members:auditLog.systemActor");
 
   return (
     <div className="space-y-1">
@@ -74,15 +68,15 @@ export function MemberAuditLog({ targetId, members }: { targetId?: string; membe
         const target = e.target ? byId.get(e.target) : undefined;
         return (
           <div key={e.id} className="flex items-start gap-3 rounded-xl p-2.5 hover:bg-surface-2">
-            <Avatar name={actor?.displayName ?? "System"} size="sm" />
+            <Avatar name={actor?.displayName ?? systemActor} size="sm" />
             <div className="min-w-0 flex-1">
               <div className="text-sm text-fg">
-                <span className="font-medium">{actor?.displayName ?? "System"}</span>{" "}
-                {LABELS[e.action] ?? e.action}
+                <span className="font-medium">{actor?.displayName ?? systemActor}</span>{" "}
+                {auditActionLabel(e.action, t)}
                 {target && !targetId && <span className="font-medium"> · {target.displayName}</span>}
               </div>
               <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
-                <span>{new Date(e.at).toLocaleString()}</span>
+                <span>{new Date(e.at).toLocaleString(i18n.language)}</span>
                 {renderMeta(e.meta)}
               </div>
             </div>

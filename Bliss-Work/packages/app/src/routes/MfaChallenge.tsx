@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { Button, Input } from "@taskboard/ui";
 import { toast } from "sonner";
 import { ApiError, type SessionDTO } from "@taskboard/shared";
@@ -31,6 +32,7 @@ interface ChallengeState {
  * /login.
  */
 export function MfaChallenge() {
+  const { t } = useTranslation("auth");
   const { api } = useRuntime();
   const nav = useNavigate();
   const qc = useQueryClient();
@@ -52,9 +54,9 @@ export function MfaChallenge() {
 
   if (!state?.pendingToken) {
     return (
-      <AuthLayout title="Session expired" subtitle="Please sign in again.">
+      <AuthLayout title={t("mfaChallenge.sessionExpired.title")} subtitle={t("mfaChallenge.sessionExpired.subtitle")}>
         <Button size="lg" className="w-full" onClick={() => nav("/login")}>
-          Back to sign in
+          {t("mfaChallenge.sessionExpired.backToSignIn")}
         </Button>
       </AuthLayout>
     );
@@ -65,7 +67,7 @@ export function MfaChallenge() {
   // adopting it, exactly like Settings does for an ordinary enrollment.
   if (pendingBackupCodes && pendingSession) {
     return (
-      <AuthLayout title="Save your backup codes" subtitle="You're almost done.">
+      <AuthLayout title={t("mfaChallenge.backupCodes.title")} subtitle={t("mfaChallenge.backupCodes.subtitle")}>
         <BackupCodesView codes={pendingBackupCodes} onDone={() => adopt(pendingSession)} />
       </AuthLayout>
     );
@@ -74,8 +76,8 @@ export function MfaChallenge() {
   if (state.enrollmentRequired) {
     return (
       <AuthLayout
-        title="Set up two-factor authentication"
-        subtitle="Your workspace requires this before you can continue."
+        title={t("mfaChallenge.enrollment.title")}
+        subtitle={t("mfaChallenge.enrollment.subtitle")}
       >
         <TotpEnrollPanel
           pendingToken={state.pendingToken}
@@ -104,6 +106,7 @@ function ChallengeForm({
   methods: ("totp" | "webauthn")[];
   onSuccess: (session: SessionDTO) => void;
 }) {
+  const { t } = useTranslation("auth");
   const { api } = useRuntime();
   const [useBackupCode, setUseBackupCode] = useState(false);
   const [code, setCode] = useState("");
@@ -120,9 +123,11 @@ function ChallengeForm({
       onSuccess(session);
     } catch (err) {
       if (err instanceof ApiError && err.status === 429) {
-        toast.error("Too many attempts", { description: "Wait a minute before trying again." });
+        toast.error(t("mfaChallenge.errors.tooManyAttemptsTitle"), {
+          description: t("mfaChallenge.errors.tooManyAttemptsDescription"),
+        });
       } else {
-        toast.error(useBackupCode ? "Incorrect backup code" : "Incorrect code");
+        toast.error(useBackupCode ? t("mfaChallenge.errors.incorrectBackupCode") : t("mfaChallenge.errors.incorrectCode"));
       }
     } finally {
       setBusy(false);
@@ -137,7 +142,7 @@ function ChallengeForm({
       const session = await api.mfaChallengeVerify({ pendingToken, webauthnCredential: credential });
       onSuccess(session);
     } catch {
-      toast.error("Couldn't verify passkey", { description: "Please try again." });
+      toast.error(t("mfaChallenge.errors.passkeyFailedTitle"), { description: t("mfaChallenge.errors.passkeyFailedDescription") });
     } finally {
       setPasskeyBusy(false);
     }
@@ -145,11 +150,11 @@ function ChallengeForm({
 
   return (
     <AuthLayout
-      title="Two-factor authentication"
-      subtitle={useBackupCode ? "Enter one of your backup codes." : "Enter the code from your authenticator app."}
+      title={t("mfaChallenge.challenge.title")}
+      subtitle={useBackupCode ? t("mfaChallenge.challenge.backupCodeSubtitle") : t("mfaChallenge.challenge.authenticatorSubtitle")}
     >
       <form onSubmit={submit} className="flex flex-col gap-4">
-        <Field label={useBackupCode ? "Backup code" : "Authentication code"}>
+        <Field label={useBackupCode ? t("mfaChallenge.challenge.backupCodeLabel") : t("mfaChallenge.challenge.authCodeLabel")}>
           <Input
             inputMode={useBackupCode ? "text" : "numeric"}
             autoComplete="one-time-code"
@@ -162,7 +167,7 @@ function ChallengeForm({
           />
         </Field>
         <Button type="submit" loading={busy} size="lg" disabled={code.length < 4} className="w-full">
-          {busy ? "Verifying…" : "Verify"}
+          {busy ? t("mfaChallenge.challenge.verifying") : t("mfaChallenge.challenge.verify")}
         </Button>
         <div className="flex flex-col items-center gap-2 text-sm">
           {methods.includes("webauthn") && webauthnSupported() && (
@@ -172,7 +177,7 @@ function ChallengeForm({
               disabled={passkeyBusy}
               className="font-medium text-accent hover:underline disabled:opacity-60"
             >
-              {passkeyBusy ? "Waiting for passkey…" : "Use a passkey instead"}
+              {passkeyBusy ? t("mfaChallenge.challenge.waitingForPasskey") : t("mfaChallenge.challenge.usePasskeyInstead")}
             </button>
           )}
           <button
@@ -183,7 +188,7 @@ function ChallengeForm({
             }}
             className="font-medium text-accent hover:underline"
           >
-            {useBackupCode ? "Use an authentication code instead" : "Use a backup code instead"}
+            {useBackupCode ? t("mfaChallenge.challenge.useAuthCodeInstead") : t("mfaChallenge.challenge.useBackupCodeInstead")}
           </button>
         </div>
       </form>

@@ -28,6 +28,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { AlertCircle, CalendarPlus, ChevronLeft, ChevronRight } from "lucide-react";
 import { Button, Spinner } from "@taskboard/ui";
 import type { CallDTO } from "@taskboard/shared";
@@ -58,6 +59,7 @@ import { MeetingMonthGrid } from "../features/MeetingMonthGrid";
 import { MeetingList } from "./MeetingList";
 
 export function MeetingsCalendar() {
+  const { t } = useTranslation("meetings");
   const [params, setParams] = useSearchParams();
   const nav = useNavigate();
   const { api, config } = useRuntime();
@@ -131,15 +133,15 @@ export function MeetingsCalendar() {
         <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
           <div className="min-w-0">
             <h1 className="truncate text-lg font-semibold tracking-tight text-fg">
-              Meetings Calendar
+              {t("calendar.title")}
             </h1>
             <p className="mt-0.5 text-sm text-muted">
-              View and manage all your meetings in one place.
+              {t("calendar.subtitle")}
             </p>
           </div>
           <Button size="sm" onClick={() => setScheduleOpen(true)}>
             <CalendarPlus size={15} />
-            New Meeting
+            {t("calendar.newMeeting")}
           </Button>
         </div>
 
@@ -149,18 +151,18 @@ export function MeetingsCalendar() {
             onClick={() => setView({ anchor: startOfDay(Date.now()) })}
             className="rounded-lg border border-border bg-surface px-2.5 py-1.5 text-sm font-medium text-fg transition-colors hover:bg-surface-2"
           >
-            Today
+            {t("calendar.today")}
           </button>
           <div className="flex items-center rounded-lg border border-border bg-surface">
             <StepButton
-              label={scale === "week" ? "Previous week" : "Previous month"}
+              label={scale === "week" ? t("calendar.previousWeek") : t("calendar.previousMonth")}
               onClick={() => setView({ anchor: shiftAnchor(anchor, scale, -1) })}
             >
               <ChevronLeft size={16} />
             </StepButton>
             <span className="h-5 w-px bg-border" aria-hidden />
             <StepButton
-              label={scale === "week" ? "Next week" : "Next month"}
+              label={scale === "week" ? t("calendar.nextWeek") : t("calendar.nextMonth")}
               onClick={() => setView({ anchor: shiftAnchor(anchor, scale, 1) })}
             >
               <ChevronRight size={16} />
@@ -184,7 +186,7 @@ export function MeetingsCalendar() {
                       : "text-muted hover:text-fg"
                   }`}
                 >
-                  {s.label}
+                  {t(`calendar.scale.${s.key}`)}
                 </button>
               ))}
             </div>
@@ -205,7 +207,7 @@ export function MeetingsCalendar() {
         <section className="flex h-[24rem] flex-col overflow-hidden rounded-xl border border-border/70 bg-surface sm:h-[28rem] xl:h-[32rem]">
           {grid.isLoading ? (
             <div className="flex flex-1 items-center justify-center gap-2 text-sm text-muted">
-              <Spinner /> Loading your calendar…
+              <Spinner /> {t("calendar.loading")}
             </div>
           ) : grid.isError ? (
             // z.array(CallDTO) fails its ENTIRE parse if one row is malformed,
@@ -213,9 +215,9 @@ export function MeetingsCalendar() {
             // case that must never look like a free calendar.
             <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
               <AlertCircle size={22} className="text-muted" />
-              <div className="text-sm font-medium text-fg">Couldn't load your calendar.</div>
+              <div className="text-sm font-medium text-fg">{t("calendar.error.title")}</div>
               <Button size="sm" variant="secondary" onClick={() => void grid.refetch()}>
-                Retry
+                {t("calendar.error.retry")}
               </Button>
             </div>
           ) : scale === "week" ? (

@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, Download, MessageSquare, Users } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { Avatar, Badge, Button, EmptyState, Spinner } from "@taskboard/ui";
 import type { MemberDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
@@ -22,6 +24,7 @@ type TabKey = "overview" | "timeline" | "analytics" | "sessions" | "admin" | "se
 /** One member's profile. Admins additionally get the lifecycle controls and the
  *  audit trail; everyone else sees the overview only. */
 export function MemberDetail() {
+  const { t, i18n } = useTranslation("members");
   const { userId = "" } = useParams();
   const { api } = useRuntime();
   const nav = useNavigate();
@@ -110,7 +113,11 @@ export function MemberDetail() {
   if (!member)
     return (
       <div className="flex h-full items-center justify-center">
-        <EmptyState icon={<Users size={24} />} title="Member not found" hint="Pick another teammate on the left." />
+        <EmptyState
+          icon={<Users size={24} />}
+          title={t("members:detail.notFound.title")}
+          hint={t("members:detail.notFound.hint")}
+        />
       </div>
     );
 
@@ -119,15 +126,20 @@ export function MemberDetail() {
   // `resolve_subject`; hiding the tab here is convenience, not the control.
   const canSeeActivity = isAdmin || isSelf;
   const tabs: TabSpec<TabKey>[] = [
-    { key: "overview", label: "Overview" },
+    { key: "overview", label: t("members:detail.tabs.overview") },
     ...(canSeeActivity
       ? ([
-          { key: "timeline", label: "Activity" },
-          { key: "analytics", label: "Analytics" },
-          { key: "sessions", label: "Sessions" },
+          { key: "timeline", label: t("members:detail.tabs.activity") },
+          { key: "analytics", label: t("members:detail.tabs.analytics") },
+          { key: "sessions", label: t("members:detail.tabs.sessions") },
         ] as TabSpec<TabKey>[])
       : []),
-    ...(isAdmin ? ([{ key: "admin", label: "Admin" }, { key: "security", label: "Security" }] as TabSpec<TabKey>[]) : []),
+    ...(isAdmin
+      ? ([
+          { key: "admin", label: t("members:detail.tabs.admin") },
+          { key: "security", label: t("members:detail.tabs.security") },
+        ] as TabSpec<TabKey>[])
+      : []),
   ];
   /**
    * What to show on the Last seen row, or null to omit it entirely.
@@ -141,11 +153,11 @@ export function MemberDetail() {
    *     matches hiding admins' status in the members list.
    */
   const lastSeen: string | null = isSelf
-    ? "Now"
+    ? t("members:detail.lastSeen.now")
     : isAdmin
       ? (() => {
           const seen = activity.find((a) => a.userId === member.id)?.lastSeenAt;
-          return seen ? relativeTime(seen) : "No recent activity";
+          return seen ? relativeTime(seen) : t("members:detail.lastSeen.noRecentActivity");
         })()
       : null;
 
@@ -157,8 +169,8 @@ export function MemberDetail() {
             only back control there left keyboard users with no way out. */}
         <button
           onClick={() => nav("/app/members")}
-          title="Back to members"
-          aria-label="Back to members"
+          title={t("members:detail.backButton")}
+          aria-label={t("members:detail.backButton")}
           className="-ml-1 shrink-0 rounded-lg p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg"
         >
           <ChevronLeft size={20} />
@@ -168,9 +180,13 @@ export function MemberDetail() {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="truncate font-semibold text-fg">{member.displayName}</span>
-            {member.roles.includes("org_admin") && <Badge tone="accent">Admin</Badge>}
+            {member.roles.includes("org_admin") && (
+              <Badge tone="accent">{t("members:detail.roleLabel.admin")}</Badge>
+            )}
             {member.status !== "active" && (
-              <Badge tone={member.status === "suspended" ? "warning" : "danger"}>{member.status}</Badge>
+              <Badge tone={member.status === "suspended" ? "warning" : "danger"}>
+                {statusLabel(member.status, t)}
+              </Badge>
             )}
           </div>
           <div className="truncate text-sm text-muted">@{member.username}</div>
@@ -180,9 +196,9 @@ export function MemberDetail() {
             size="sm"
             variant="ghost"
             onClick={() => setExportOpen(true)}
-            title="Export this member's activity"
+            title={t("members:detail.exportTooltip")}
           >
-            <Download size={15} /> Export
+            <Download size={15} /> {t("members:detail.exportButton")}
           </Button>
         )}
         {!isSelf && member.status === "active" && (
@@ -193,7 +209,7 @@ export function MemberDetail() {
             onClick={() => void openDm(userId, conversations.find((c) => c.peerId === userId)?.id)}
             className="hidden sm:inline-flex"
           >
-            <MessageSquare size={15} /> Message
+            <MessageSquare size={15} /> {t("members:detail.messageButton")}
           </Button>
         )}
       </header>
@@ -203,14 +219,24 @@ export function MemberDetail() {
 
         {tab === "overview" && (
           <dl className="grid max-w-lg grid-cols-[9rem_1fr] gap-x-4 gap-y-3 text-sm">
-            <Row label="Email" value={member.email} />
-            <Row label="Username" value={`@${member.username}`} />
-            <Row label="Role" value={member.roles.includes("org_admin") ? "Admin" : "Member"} />
-            <Row label="Status" value={member.status} />
-            {lastSeen && <Row label="Last seen" value={lastSeen} />}
-            <Row label="Email verified" value={member.emailVerified ? "Yes" : "Not yet"} />
-            {member.createdAt && <Row label="Joined" value={new Date(member.createdAt).toLocaleDateString()} />}
-            {member.removedAt && <Row label="Removed" value={new Date(member.removedAt).toLocaleString()} />}
+            <Row label={t("members:detail.fields.email")} value={member.email} />
+            <Row label={t("members:detail.fields.username")} value={`@${member.username}`} />
+            <Row
+              label={t("members:detail.fields.role")}
+              value={member.roles.includes("org_admin") ? t("members:detail.roleLabel.admin") : t("members:detail.roleLabel.member")}
+            />
+            <Row label={t("members:detail.fields.status")} value={statusLabel(member.status, t)} />
+            {lastSeen && <Row label={t("members:detail.fields.lastSeen")} value={lastSeen} />}
+            <Row
+              label={t("members:detail.fields.emailVerified")}
+              value={member.emailVerified ? t("members:detail.emailVerified.yes") : t("members:detail.emailVerified.no")}
+            />
+            {member.createdAt && (
+              <Row label={t("members:detail.fields.joined")} value={new Date(member.createdAt).toLocaleDateString(i18n.language)} />
+            )}
+            {member.removedAt && (
+              <Row label={t("members:detail.fields.removed")} value={new Date(member.removedAt).toLocaleString(i18n.language)} />
+            )}
           </dl>
         )}
 
@@ -218,7 +244,7 @@ export function MemberDetail() {
           <div className="space-y-4">
             {isSelf && (
               <p className="rounded-xl bg-accent-soft px-4 py-3 text-sm text-accent">
-                This is your own activity record. Your workspace admins can see it too.
+                {t("members:detail.selfActivityBanner")}
               </p>
             )}
             <MemberTimeline userId={isSelf ? "me" : member.id} />
@@ -258,4 +284,15 @@ function Row({ label, value }: { label: string; value: string }) {
       <dd className="truncate text-fg">{value}</dd>
     </>
   );
+}
+
+function statusLabel(status: MemberDTO["status"], t: TFunction): string {
+  switch (status) {
+    case "active":
+      return t("members:status.active");
+    case "suspended":
+      return t("members:status.suspended");
+    case "removed":
+      return t("members:status.removed");
+  }
 }

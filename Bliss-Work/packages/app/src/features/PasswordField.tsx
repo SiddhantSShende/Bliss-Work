@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Check, Eye, EyeOff, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Input } from "@taskboard/ui";
-import { checkPassword, passwordStrength } from "../lib/password";
+import { checkPassword, passwordStrength, STRENGTH_LABEL_KEYS } from "../lib/password";
 
 const BAR = ["bg-danger", "bg-danger", "bg-warning", "bg-accent", "bg-success"];
 
@@ -15,9 +16,11 @@ export function PasswordField({
   onChange: (v: string) => void;
   show?: boolean;
 }) {
+  const { t } = useTranslation("account");
   const [reveal, setReveal] = useState(false);
   const check = checkPassword(value);
-  const { score, label } = passwordStrength(value);
+  const { score } = passwordStrength(value);
+  const label = t(`account:passwordField.strength.${STRENGTH_LABEL_KEYS[score]}`);
 
   return (
     <div className="flex flex-col gap-2">
@@ -36,7 +39,7 @@ export function PasswordField({
           type="button"
           onClick={() => setReveal((r) => !r)}
           className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted hover:text-fg"
-          title={reveal ? "Hide password" : "Show password"}
+          title={reveal ? t("account:passwordField.hidePassword") : t("account:passwordField.showPassword")}
         >
           {reveal ? <EyeOff size={16} /> : <Eye size={16} />}
         </button>
@@ -60,10 +63,10 @@ export function PasswordField({
 
           {showRequirements && (
             <ul className="flex flex-col gap-0.5 text-[12px]">
-              <Req ok={check.minLen}>At least 10 characters</Req>
-              <Req ok={check.letter}>One letter</Req>
-              <Req ok={check.digit}>One number</Req>
-              <Req ok={check.special}>One special character (!@#$…)</Req>
+              <Req ok={check.minLen}>{t("account:passwordField.requirements.minLength")}</Req>
+              <Req ok={check.letter}>{t("account:passwordField.requirements.letter")}</Req>
+              <Req ok={check.digit}>{t("account:passwordField.requirements.digit")}</Req>
+              <Req ok={check.special}>{t("account:passwordField.requirements.special")}</Req>
             </ul>
           )}
         </>

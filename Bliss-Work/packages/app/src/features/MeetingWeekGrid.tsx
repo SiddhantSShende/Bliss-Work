@@ -14,6 +14,7 @@
  * cancelled ones the muted one, which are states rather than branding — the
  * same rule the meeting badges already follow.
  */
+import { useTranslation } from "react-i18next";
 import type { CallDTO } from "@taskboard/shared";
 import { Phone, Video } from "lucide-react";
 import { timeLabel } from "../lib/meetingTime";
@@ -47,6 +48,7 @@ export function MeetingWeekGrid({
   onOpen: (call: CallDTO) => void;
   nameOf: (id: string) => string;
 }) {
+  const { i18n } = useTranslation("meetings");
   const hours = hourRows(win);
   const bodyHeight = `${hours.length * HOUR_HEIGHT_REM}rem`;
 
@@ -76,7 +78,7 @@ export function MeetingWeekGrid({
                       the hour below it, which is what makes a block starting at
                       10:00 line up with the "10 AM" it is next to. */}
                   <span className="absolute -top-2 right-2 text-[11px] font-medium text-muted">
-                    {hourLabel(h)}
+                    {hourLabel(h, i18n.language)}
                   </span>
                 </div>
               ))}
@@ -100,9 +102,9 @@ export function MeetingWeekGrid({
   );
 }
 
-function hourLabel(hour: number): string {
+function hourLabel(hour: number, locale: string): string {
   // Through Intl so a 24-hour locale gets "13:00" rather than a forced "1 PM".
-  return new Date(2000, 0, 1, hour).toLocaleTimeString(undefined, { hour: "numeric" });
+  return new Date(2000, 0, 1, hour).toLocaleTimeString(locale, { hour: "numeric" });
 }
 
 function DayHeading({ day, today }: { day: number; today: boolean }) {

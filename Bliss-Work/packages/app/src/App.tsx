@@ -5,6 +5,7 @@ import { Toaster } from "sonner";
 import { ThemeProvider } from "@taskboard/ui";
 import type { PlatformConfig } from "./platform";
 import { RuntimeProvider } from "./lib/runtime";
+import { LanguageProvider } from "./i18n/LanguageProvider";
 import { queryRetryDelay, shouldRetryQuery } from "./lib/retryPolicy";
 import { FileTransferProvider } from "./lib/fileTransfer";
 import { useSession } from "./store/session";
@@ -16,6 +17,7 @@ import { withLoadTimeout } from "./lib/withLoadTimeout";
 import { reloadForStaleChunk } from "./lib/chunkReloadRecovery";
 import { legacyInboxTarget } from "./lib/mailView";
 import { SelectedChatProvider, useSelectedChat } from "./lib/selectedChat";
+import { useTranslation } from "react-i18next";
 import { MessageSquare, Hash, Users } from "lucide-react";
 import { EmptyState } from "@taskboard/ui";
 import { ErrorBoundary, RouteErrorBoundary } from "./features/ErrorBoundary";
@@ -187,6 +189,11 @@ export function App({ config }: { config: PlatformConfig }) {
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <RuntimeProvider config={config}>
+          {/* Unlike ThemeProvider below, this has no per-route forced value
+              (nothing forces Login/Onboarding to a fixed language the way
+              they force the default theme), so it wraps here rather than
+              waiting for <Router>. */}
+          <LanguageProvider>
           <FileTransferProvider>
             <Router>
               {/* ThemeProvider lives HERE, inside <Router>, rather than
@@ -355,6 +362,7 @@ export function App({ config }: { config: PlatformConfig }) {
               </ThemedTree>
             </Router>
             </FileTransferProvider>
+            </LanguageProvider>
             <Toaster position="bottom-right" richColors closeButton />
             {/* Renders nothing; turns a main-process screenshot detection into
                 a toast. Inert on web. Must sit inside RuntimeProvider (it reads
@@ -404,6 +412,7 @@ function SessionBootstrap({
   config: PlatformConfig;
   children: React.ReactNode;
 }) {
+  const { t } = useTranslation("common");
   const status = useSession((s) => s.status);
   const [ready, setReady] = useState(false);
 
@@ -434,7 +443,7 @@ function SessionBootstrap({
   if (!ready || status === "loading")
     return (
       <div className="flex h-full items-center justify-center text-[var(--color-muted)]">
-        Loading…
+        {t("loading")}
       </div>
     );
   return <>{children}</>;
@@ -493,30 +502,37 @@ function ChatDeepLink() {
 }
 
 function ChatsEmpty() {
+  const { t } = useTranslation("chatList");
   const user = useSession((s) => s.user);
   return (
     <div className="flex h-full items-center justify-center">
       <EmptyState
         icon={<MessageSquare size={26} />}
-        title={`Welcome${user ? `, ${user.displayName.split(" ")[0]}` : ""} 👋`}
-        hint="Select a chat on the left, or tap + to start a new conversation."
+        title={
+          user
+            ? t("chatsEmpty.welcomeWithName", { name: user.displayName.split(" ")[0] })
+            : t("chatsEmpty.welcome")
+        }
+        hint={t("chatsEmpty.hint")}
       />
     </div>
   );
 }
 
 function ChannelsEmpty() {
+  const { t } = useTranslation("chatList");
   return (
     <div className="flex h-full items-center justify-center">
-      <EmptyState icon={<Hash size={26} />} title="Channels" hint="Pick a channel on the left, or tap + to create one." />
+      <EmptyState icon={<Hash size={26} />} title={t("channelsEmpty.title")} hint={t("channelsEmpty.hint")} />
     </div>
   );
 }
 
 function MembersEmpty() {
+  const { t } = useTranslation("members");
   return (
     <div className="flex h-full items-center justify-center">
-      <EmptyState icon={<Users size={26} />} title="Members" hint="Pick a teammate on the left to see their profile, or tap the chat icon to message them." />
+      <EmptyState icon={<Users size={26} />} title={t("membersEmpty.title")} hint={t("membersEmpty.hint")} />
     </div>
   );
 }

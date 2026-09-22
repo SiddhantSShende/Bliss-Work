@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Pin, PinOff } from "lucide-react";
 import { useRuntime } from "../lib/runtime";
 
@@ -26,6 +27,7 @@ export function PinButton(props: {
   peerUserId: string;
   peerUsername: string;
 }) {
+  const { t } = useTranslation("chatList");
   const { config } = useRuntime();
   const host = config.chatSticky;
   const [pinned, setPinned] = useState(false);
@@ -73,7 +75,7 @@ export function PinButton(props: {
           ? "bg-accent-soft text-accent"
           : "text-muted hover:bg-surface-2 hover:text-fg"
       }`}
-      title={pinned ? "Unpin from desktop" : "Pin to desktop"}
+      title={pinned ? t("pinButton.unpin") : t("pinButton.pin")}
     >
       {/* PinOff (crossed-out) when pinned = "click to unpin", matching
           MessageActions.tsx and StickyWidget.tsx's pin controls. */}

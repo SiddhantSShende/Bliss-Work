@@ -1,4 +1,5 @@
 import { AlertCircle, FileIcon, Loader2, Play } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { canPreviewDocInApp, prettySize, type MediaItem } from "../lib/chatEnvelope";
 
 /**
@@ -102,6 +103,7 @@ function VisualTile({
   progress?: UploadProgress;
   onOpen: () => void;
 }) {
+  const { t } = useTranslation("chatMedia");
   const isVideo = item.mime.startsWith("video/");
   // Reserve the right box before the image loads so the thread doesn't jump.
   // Falls back to 4:3 when the sender's client couldn't measure the source.
@@ -116,7 +118,7 @@ function VisualTile({
     <button
       type="button"
       onClick={onOpen}
-      aria-label={`Open ${item.name}`}
+      aria-label={t("mediaBubble.openFile", { name: item.name })}
       style={style}
       className="group relative w-full overflow-hidden rounded-xl bg-surface-2 ring-1 ring-border/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
     >
@@ -188,6 +190,7 @@ function FileCard({
   opensOutside?: boolean;
   onOpen: () => void;
 }) {
+  const { t } = useTranslation("chatMedia");
   const clickable = !progress && !!url;
   const previewable = canPreviewDocInApp(item.mime);
   const openable = clickable;
@@ -213,11 +216,11 @@ function FileCard({
           {progress?.error ? (
             <span className="text-danger">{progress.error}</span>
           ) : progress?.ratio !== undefined ? (
-            `Uploading… ${Math.round(progress.ratio * 100)}%`
+            t("mediaBubble.uploading", { percent: Math.round(progress.ratio * 100) })
           ) : !url && isResolved ? (
-            "Not available to you"
+            t("mediaBubble.notAvailable")
           ) : clickable && !previewable && !opensOutside ? (
-            "Preview isn't available for this file type"
+            t("mediaBubble.previewUnavailable")
           ) : (
             prettySize(item.size)
           )}
@@ -245,7 +248,7 @@ function FileCard({
     <button
       type="button"
       onClick={onOpen}
-      aria-label={`Open ${item.name}`}
+      aria-label={t("mediaBubble.openFile", { name: item.name })}
       className={`${bubbleClass} w-full`}
     >
       {content}
@@ -264,10 +267,11 @@ function Skeleton() {
  * conversation the recipient is not a member of.
  */
 function Unavailable() {
+  const { t } = useTranslation("chatMedia");
   return (
     <div className="flex h-full w-full flex-col items-center justify-center gap-1 p-2 text-center text-muted">
       <AlertCircle size={18} />
-      <span className="text-[11px] leading-tight">Not available to you</span>
+      <span className="text-[11px] leading-tight">{t("mediaBubble.notAvailable")}</span>
     </div>
   );
 }

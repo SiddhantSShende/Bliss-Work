@@ -14,6 +14,7 @@
  */
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { Clock, MoreHorizontal, Phone, PlayCircle, Users, Video } from "lucide-react";
 import { Avatar, Badge, Button } from "@taskboard/ui";
 import type { CallDTO } from "@taskboard/shared";
@@ -37,6 +38,7 @@ export function MeetingRow({
   organiserAvatar: string | null | undefined;
   onOpenRoom?: (call: CallDTO) => void;
 }) {
+  const { t } = useTranslation("meetings");
   const nav = useNavigate();
   const { start, end } = occurrenceOf(call);
   const bucket = bucketFor(call);
@@ -69,7 +71,7 @@ export function MeetingRow({
             <span className="truncate text-sm font-semibold text-fg">{name}</span>
             {bucket === "live" ? (
               <Badge tone="success" className="shrink-0">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-success" /> Live
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-success" /> {t("row.live")}
               </Badge>
             ) : (
               call.status === "CANCELLED" && (
@@ -102,14 +104,14 @@ export function MeetingRow({
       <div className="hidden w-36 shrink-0 items-center gap-2 lg:flex">
         <Avatar name={organiser} src={organiserAvatar} size="sm" />
         <span className="min-w-0">
-          <span className="block text-[10px] uppercase tracking-wide text-muted">Organiser</span>
+          <span className="block text-[10px] uppercase tracking-wide text-muted">{t("row.organiser")}</span>
           <span className="block truncate text-xs font-medium text-fg">{organiser}</span>
         </span>
       </div>
 
       <div
         className="hidden w-16 shrink-0 items-center gap-1 text-xs text-muted md:flex"
-        title={`${call.participants.length} invited · ${joined} joined`}
+        title={t("row.inviteJoinTitle", { invited: call.participants.length, joined })}
       >
         <Users size={13} className="shrink-0" aria-hidden />
         {call.participants.length}
@@ -118,7 +120,7 @@ export function MeetingRow({
       <div className="flex shrink-0 items-center gap-1.5">
         {joinable && onOpenRoom ? (
           <Button size="sm" onClick={() => onOpenRoom(call)}>
-            {bucket === "live" ? "Join" : "Open"}
+            {bucket === "live" ? t("row.join") : t("row.open")}
           </Button>
         ) : (
           // A finished meeting has nothing to join. Where there is a recording
@@ -127,10 +129,10 @@ export function MeetingRow({
           <Button size="sm" variant="secondary" onClick={openDetail}>
             {call.recordingStatus === "READY" ? (
               <>
-                <PlayCircle size={14} /> <span className="hidden sm:inline">Recording</span>
+                <PlayCircle size={14} /> <span className="hidden sm:inline">{t("row.recording")}</span>
               </>
             ) : (
-              "Details"
+              t("row.details")
             )}
           </Button>
         )}
@@ -153,6 +155,7 @@ function RowMenu({
   onOpenRoom?: (call: CallDTO) => void;
   onOpenDetail: () => void;
 }) {
+  const { t } = useTranslation("meetings");
   const [open, setOpen] = useState(false);
   const wrap = usePopupDismiss<HTMLDivElement>(open, () => setOpen(false));
 
@@ -168,7 +171,7 @@ function RowMenu({
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={`Actions for ${call.title.trim() || "this meeting"}`}
+        aria-label={t("row.menu.actionsFor", { title: call.title.trim() || t("row.menu.untitledMeeting") })}
         className="rounded-lg p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg"
       >
         <MoreHorizontal size={16} />
@@ -178,15 +181,15 @@ function RowMenu({
           role="menu"
           className="absolute right-0 z-40 mt-1 w-48 overflow-hidden rounded-xl border border-border bg-surface p-1 shadow-card"
         >
-          <MenuRow label="View details" onClick={pick(onOpenDetail)} />
+          <MenuRow label={t("row.menu.viewDetails")} onClick={pick(onOpenDetail)} />
           {joinable && onOpenRoom && (
             <MenuRow
-              label={call.status === "LIVE" ? "Join meeting" : "Open the room"}
+              label={call.status === "LIVE" ? t("row.menu.joinMeeting") : t("row.menu.openRoom")}
               onClick={pick(() => onOpenRoom(call))}
             />
           )}
           {call.recordingStatus === "READY" && (
-            <MenuRow label="Watch the recording" onClick={pick(onOpenDetail)} />
+            <MenuRow label={t("row.menu.watchRecording")} onClick={pick(onOpenDetail)} />
           )}
         </div>
       )}

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Mic, MicOff, PhoneOff } from "lucide-react";
 import { useRuntime } from "../lib/runtime";
 import { useCallDuration } from "../lib/callTimer";
@@ -15,6 +16,7 @@ import type { MeetingWindowStatus } from "../platform";
  * told us a meeting is running elsewhere.
  */
 export function MeetingWindowStatusBar() {
+  const { t } = useTranslation("meetings");
   const { config } = useRuntime();
   const [status, setStatus] = useState<MeetingWindowStatus | null>(null);
 
@@ -39,15 +41,15 @@ export function MeetingWindowStatusBar() {
       <span className="max-w-[12rem] truncate text-sm font-medium text-fg">{status.title}</span>
       {duration && <span className="text-xs text-muted">{duration}</span>}
       {status.micOn ? (
-        <Mic size={14} className="text-fg" aria-label="Microphone on" />
+        <Mic size={14} className="text-fg" aria-label={t("statusBar.micOn")} />
       ) : (
-        <MicOff size={14} className="text-muted" aria-label="Microphone off" />
+        <MicOff size={14} className="text-muted" aria-label={t("statusBar.micOff")} />
       )}
       <button
         type="button"
         onClick={() => config.hangUpMeetingWindow?.(status.callId)}
-        title="Leave meeting"
-        aria-label="Leave meeting"
+        title={t("statusBar.leaveMeeting")}
+        aria-label={t("statusBar.leaveMeeting")}
         className="flex h-7 w-7 items-center justify-center rounded-full bg-danger text-white transition-colors hover:brightness-110"
       >
         <PhoneOff size={13} />

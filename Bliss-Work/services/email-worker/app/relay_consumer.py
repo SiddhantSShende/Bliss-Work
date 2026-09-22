@@ -10,11 +10,12 @@ assignment and offset commit are independent). For every relayable event:
      returns no rows and we skip; if a 'pending' row exists (prior worker
      crashed mid-flight), the reaper retries it later.
   3. Lookup recipient e-mail + username via auth-svc's internal API.
-  4. Give the user a grace window to see it live, then check presence: wait
-     until event.occurredAt is offline_threshold_seconds old, and relay only if
-     there is still no fresh entry in presence:u:<userId>. The window is measured
-     from event.occurredAt (NOT now()), so an event this consumer reaches late
-     (a rebalance, a backlog) has already used it up and goes out without waiting.
+  4. Offline gate: check presence FIRST. Already online → done, no email, no
+     wait. Offline → wait out a grace window (event.occurredAt until it is
+     offline_threshold_seconds old, measured from occurredAt NOT now(), so an
+     event this consumer reaches late — a rebalance, a backlog — has already
+     used it up), then check presence again before deciding to send: a
+     reconnect during the wait still skips the email.
   5. Render + send via the existing aiosmtplib Mailer.
   6. UPDATE email_consumed.state='sent', sent_at=now().
 
@@ -30,7 +31,7 @@ from __future__ import annotations
 import asyncio
 import json
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import asyncpg
 import httpx
@@ -127,6 +128,34 @@ _ATTACHMENT_FETCH_CONCURRENCY = 6
 # poison_max_failures, so this only ever bounds a transient outage.
 _RETRY_BACKOFF = 2.0
 
+# ── Reaper abandonment window ───────────────────────────────────────────────
+#
+# _reap_once reclaims a 'pending' row once it has gone this long without a
+# _touch_claim refresh (see below). It must be a genuine upper bound on how
+# long a SINGLE phase between two touches can legitimately take, in ANY
+# replica — this consumer runs with several replicas sharing one
+# email_consumed table, and every replica's reaper sweeps every replica's
+# rows (there is no per-row owner-replica column, only the relay/email_worker
+# `owner`). A window shorter than a real phase's worst case means replica B
+# can delete replica A's still-in-progress claim: the row disappears, A's
+# later _mark_sent silently updates zero rows, and a subsequent redelivery
+# finds no claim at all and sends the message a second time. This is exactly
+# what happened when the window was a flat 30s while the notification path's
+# grace wait alone could reach offline_threshold_seconds (60s default,
+# operator-configurable higher) and Mailer.send()'s own retry budget could
+# reach ~108s (_MAX_ATTEMPTS=5 attempts x up to a 20s socket timeout, plus
+# 0.5+1+2+4=7.5s of backoff between them — see mailer.py).
+#
+# _REAP_SEND_BUDGET_SECONDS covers the send-side phase(s): _lookup_user
+# (x2) + Mailer.send() on the notification path, or attachment collection /
+# provider_send / Mailer.send() on the mail.outbound path (each phase is
+# individually bounded well under this by its own timeout — see
+# _touch_claim's call sites for where each phase's clock resets). Rounded up
+# generously past the ~108s Mailer figure rather than pinned to it exactly,
+# so a small change to Mailer's own constants doesn't silently reopen this
+# race — this is deliberately a loose, easy-to-verify bound, not a tight one.
+_REAP_SEND_BUDGET_SECONDS = 180.0
+
 
 class RelayConsumer:
     def __init__(self, settings: Settings) -> None:
@@ -147,12 +176,15 @@ class RelayConsumer:
         # routed to the DLQ so they can't loop forever.
         self._failures: dict[str, int] = {}
         # (event_id, recipient_key) pairs this process is actively working on
-        # right now — claimed and not yet marked sent. Mailer.send() retries
-        # internally (up to ~100s across 5 attempts), so a row can legitimately
-        # stay 'pending' far longer than the reaper's 30s abandonment window;
-        # this set is how _reaper_loop tells "still being retried in this
-        # process" apart from "actually abandoned" instead of guessing from
-        # elapsed time alone. See _mark_inflight and _reaper_loop.
+        # right now — claimed and not yet marked sent. This is a same-process
+        # fast path only: it lets THIS process's own reaper sweep skip its own
+        # active rows without a DB round trip. It is NOT what makes a
+        # different replica's reaper safe — that replica's _inflight set
+        # knows nothing about this process's work. Cross-replica safety comes
+        # from _reap_once's abandonment window itself being sized to cover
+        # the real worst case (see _REAP_SEND_BUDGET_SECONDS) and from
+        # _touch_claim resetting a row's clock at each phase boundary. See
+        # _mark_inflight and _reaper_loop.
         self._inflight: set[tuple[str, str]] = set()
         # Circuit breaker for the auth-svc internal user-lookup. Once auth-svc
         # has been failing, the breaker opens and lookups fail fast for a
@@ -370,20 +402,36 @@ class RelayConsumer:
             return False
 
         async with self._mark_inflight(str(event_id), str(recipient_id)):
-            # Offline gate. The user gets a grace window to see the event live
-            # before it becomes an email: wait out whatever is left of it, THEN
-            # check presence. event.occurredAt is the canonical "when did this
-            # happen on the bus" timestamp — measuring from it rather than from
-            # now() means an event this consumer only reaches late (a rebalance, a
-            # backlog) has already used up its window and goes out without waiting.
-            #
-            # This used to SKIP any event younger than the window and mark it sent
-            # for good. Events are consumed within milliseconds of occurring, so
-            # nearly every one was skipped: offline notification email went out
-            # only when the consumer happened to be a minute behind.
+            # Presence gate, checked FIRST. A recipient already online right
+            # now needs neither an email nor the wait below — the in-app copy
+            # is what they'll see. This used to be checked only AFTER the
+            # wait, so EVERY event on this (the highest-volume) topic paid up
+            # to offline_threshold_seconds before this partition's next batch
+            # could even be picked up — online recipients included, throttling
+            # live in-app delivery on unrelated events behind it for no
+            # reason: nothing about an online recipient can change during a
+            # wait that exists only to give an OFFLINE one a chance to
+            # reconnect.
+            if not await self._should_relay(recipient_id):
+                # Online: mark sent (=skipped, no rewind) so a later replay
+                # doesn't try again. The result is the same to the user.
+                await self._mark_sent(event_id, recipient_id)
+                self._failures.pop(str(event_id), None)
+                return True
+
+            # Offline right now: give them a grace window to reconnect and see
+            # the event live before it becomes an email. event.occurredAt is
+            # the canonical "when did this happen on the bus" timestamp —
+            # measuring from it rather than from now() means an event this
+            # consumer only reaches late (a rebalance, a backlog) has already
+            # used up its window and skips straight to the final check below
+            # with wait=0.
             #
             # Waiting here is safe against the reaper because this pair is in
-            # _inflight (see _mark_inflight), which the reaper never reclaims.
+            # _inflight for THIS process (see _mark_inflight) and, for every
+            # process, because the wait itself is bounded by
+            # offline_threshold_seconds — _reap_once's window covers at least
+            # that. See _REAP_SEND_BUDGET_SECONDS.
             wait = self._grace_remaining(event.get("occurredAt", ""))
             if wait > 0:
                 await self._sleep_or_stop(wait)
@@ -392,9 +440,17 @@ class RelayConsumer:
                     # redelivery after the restart can send it.
                     await self._release_claim(str(event_id), str(recipient_id))
                     return False
+                # The wait is the only thing that can leave this claim
+                # 'pending' for anywhere near the reaper's abandonment window.
+                # Refresh it here so _reap_once measures the send phase that
+                # follows from THIS point, not from the original claim —
+                # keeping the window's job to covering one phase at a time
+                # instead of their sum.
+                await self._touch_claim(str(event_id), str(recipient_id))
+
+            # Final check: they may have reconnected during the wait. Still
+            # offline (or the window was already used up above) → send.
             if not await self._should_relay(recipient_id):
-                # Online (they saw it live): mark sent (=skipped, no rewind) so a
-                # later replay doesn't try again. The result is the same to the user.
                 await self._mark_sent(event_id, recipient_id)
                 self._failures.pop(str(event_id), None)
                 return True
@@ -495,6 +551,13 @@ class RelayConsumer:
                 skipped_files=skipped,
             )
 
+            # Attachment collection is the one open-ended phase on this path
+            # (no fixed cap on attachment count, unlike the bounded calls
+            # below) — refresh here so the reaper's window only has to cover
+            # what's left (provider send, then maybe the SMTP send), not the
+            # whole claim-to-sent span. See _touch_claim / _REAP_SEND_BUDGET_SECONDS.
+            await self._touch_claim(event_id, str(mail_id))
+
             # Through the author's own mailbox when they have one — see
             # provider_mail for why that is worth preferring.
             try:
@@ -533,6 +596,11 @@ class RelayConsumer:
             # TRANSPORT_RELAY, or a PROVIDER decision that didn't cover THIS
             # copy's own envelope (a local org member's copy) — either way
             # this specific copy still needs its own real send over SMTP.
+            # Refresh again: _decide_transport's own provider_send attempt
+            # (when it ran) is now behind us, so the reaper's window only
+            # needs to cover the SMTP send below, not that plus everything
+            # before it.
+            await self._touch_claim(event_id, str(mail_id))
             try:
                 await self._mailer.send(
                     to=envelope,
@@ -862,6 +930,35 @@ class RelayConsumer:
         except Exception as exc:  # noqa: BLE001
             _log.warning("relay_release_claim_failed", event_id=event_id, error=str(exc))
 
+    async def _touch_claim(self, event_id: str, recipient_key: str) -> None:
+        """Refresh this claim's consumed_at to now(), resetting the reaper's
+        abandonment clock (see _reap_once / _REAP_SEND_BUDGET_SECONDS) at a
+        phase boundary — called right after a phase whose worst case is
+        already accounted for ends, and before the next one that needs its
+        own budget begins.
+
+        Best-effort and never touches a 'sent' row (same guard as
+        _release_claim). A failure here only shrinks this row's safety margin
+        for the current reaper sweep — it never changes whether the send
+        itself succeeds, and the next sweep (30s later) gets another chance
+        to see a fresher write if this process makes any further progress on
+        the row before then.
+        """
+        if self._db is None:
+            return
+        try:
+            async with self._db.acquire() as conn:
+                await conn.execute(
+                    """
+                    UPDATE email_consumed SET consumed_at = now()
+                    WHERE event_id = $1 AND recipient_id = $2
+                          AND state = 'pending' AND owner = 'relay'
+                    """,
+                    event_id, recipient_key,
+                )
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("relay_touch_claim_failed", event_id=event_id, error=str(exc))
+
     async def _on_failure(self, event_id: str, event: dict, error: str) -> bool:
         """Count consecutive failures; route poison messages to the DLQ.
 
@@ -926,7 +1023,10 @@ class RelayConsumer:
         return max(0.0, min(threshold, threshold - age))
 
     async def _should_relay(self, recipient_id: str) -> bool:
-        """True when the recipient is offline now — called AFTER the grace window."""
+        """True when the recipient is offline right now. Called twice by
+        _handle: once immediately (skip the wait entirely if already online),
+        and again after the grace window (catch a reconnect that happened
+        during the wait)."""
         assert self._presence is not None
         return not await self._presence.is_online(recipient_id)
 
@@ -1134,17 +1234,10 @@ class RelayConsumer:
         return False  # unreachable, satisfies type checkers
 
     async def _reaper_loop(self) -> None:
-        """Re-process rows still 'pending' older than 30s AND not still being
-        actively retried by this process (worker crashed, or a redelivery
-        landed on a different consumer instance).
-
-        Excluding _inflight matters: Mailer.send() retries internally for up
-        to ~100s across 5 attempts, so an ordinary in-progress retry can leave
-        a row 'pending' well past 30s. Without the _inflight check, this loop
-        used to flip such a row to 'sent' out from under the still-running
-        send; if that send then failed for real, the redelivery it should
-        have triggered was instead skipped as an already-sent duplicate —
-        silently and permanently losing the message. See _mark_inflight.
+        """Every 30s, release 'pending' rows that have gone unabandoned long
+        enough to no longer plausibly be real in-progress work — see
+        _reap_once for the abandonment window itself and _mark_inflight for
+        the same-process fast path that sits alongside it.
 
         Reaper-driven retries don't try to re-send the email themselves —
         that would require persisting the full event payload. Instead the
@@ -1162,6 +1255,20 @@ class RelayConsumer:
                 continue
             await self._reap_once()
 
+    def _reap_after_seconds(self) -> float:
+        """The abandonment window itself: a row is a reap candidate once
+        consumed_at is at least this old. Must cover the longest SINGLE
+        phase a legitimate claim can sit in between _touch_claim refreshes
+        (see _REAP_SEND_BUDGET_SECONDS) — including the notification path's
+        wait, which is bounded by offline_threshold_seconds and is only
+        refreshed at its END, not its start. offline_threshold_seconds is
+        operator-configurable (OFFLINE_THRESHOLD_SECONDS), so this is read
+        from live settings rather than baked in as a constant: a deployment
+        that raises it must not silently reopen the cross-replica reap race
+        this exists to close.
+        """
+        return max(float(self._settings.offline_threshold_seconds), _REAP_SEND_BUDGET_SECONDS)
+
     async def _reap_once(self) -> None:
         """One sweep: reclaim rows past the abandonment window, skipping any
         this process is still actively retrying. Split out from _reaper_loop
@@ -1169,6 +1276,7 @@ class RelayConsumer:
         waiting on the loop's real 30s timer.
         """
         assert self._db is not None
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=self._reap_after_seconds())
         try:
             async with self._db.acquire() as conn:
                 # owner = 'relay': this sweep must never touch EmailWorker's
@@ -1178,8 +1286,9 @@ class RelayConsumer:
                     """
                     SELECT event_id, recipient_id FROM email_consumed
                     WHERE state = 'pending' AND owner = 'relay'
-                          AND consumed_at < now() - interval '30 seconds'
+                          AND consumed_at < $1
                     """,
+                    cutoff,
                 )
                 stale = [
                     (r["event_id"], r["recipient_id"]) for r in candidates

@@ -1,0 +1,34 @@
+{
+  "card": {
+    "from": "from {{name}}",
+    "collapseToPill": "Collapse to a pill",
+    "unpinNoteTitle": "Unpin (the task stays)",
+    "unpin": "Unpin",
+    "dismissIgnore": "Dismiss (ignore)",
+    "acknowledge": "Acknowledge",
+    "ignore": "Ignore",
+    "complete": "Complete",
+    "leave": "Leave",
+    "untitledTask": "Untitled task",
+    "expand": "Expand",
+    "expandLabel": "Expand sticky note",
+    "dismiss": "Dismiss",
+    "dismissLabel": "Dismiss sticky note",
+    "collapse": "Collapse",
+    "collapseLabel": "Collapse sticky note",
+    "ignoreTitle": "Ignore — the sender will be notified",
+    "acknowledgeTitle": "Acknowledge — keep this note on screen until you complete it",
+    "unpinFromDesktopTitle": "Unpin from the desktop — the task stays in your Tasks list"
+  },
+  "overlay": {
+    "ariaLabel": "Floating sticky notes"
+  },
+  "toasts": {
+    "acknowledgeFailed": "Couldn't acknowledge",
+    "ignoreFailed": "Couldn't ignore",
+    "taskIgnored": "Task ignored — the sender has been notified.",
+    "noteUnpinned": "Note unpinned",
+    "noteUnpinnedDescription": "It's still in your Tasks list — complete it from there.",
+    "desktopFull": "Desktop is full — complete or unpin a note first (max 5 pinned)."
+  }
+}

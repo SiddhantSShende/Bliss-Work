@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQueryClient, type QueryKey } from "@tanstack/react-query";
 import { MESSAGE_PAGE_SIZE } from "@taskboard/shared";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 
 /** The shape both MessageDTO and ChannelMessageDTO share for paging purposes. */
 interface Paged {
@@ -36,6 +37,7 @@ export function useOlderMessages<T extends Paged>(
    */
   onWindow?: (beforeSeq: number, limit: number) => void,
 ) {
+  const { t } = useTranslation("chatThread");
   const qc = useQueryClient();
   const [loadingOlder, setLoadingOlder] = useState(false);
   // Assume there IS more until a short page proves otherwise. Guessing the
@@ -72,7 +74,7 @@ export function useOlderMessages<T extends Paged>(
         onWindow?.(oldest, MESSAGE_PAGE_SIZE);
       }
     } catch {
-      toast.error("Couldn't load earlier messages");
+      toast.error(t("shared.loadOlderMessagesFailed"));
     } finally {
       inFlight.current = false;
       setLoadingOlder(false);

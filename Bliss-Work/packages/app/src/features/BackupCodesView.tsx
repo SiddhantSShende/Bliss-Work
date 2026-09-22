@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button } from "@taskboard/ui";
 import { Check, Copy } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 /**
  * Shown exactly once, right after enrollment or a regeneration — the server
@@ -10,6 +11,7 @@ import { Check, Copy } from "lucide-react";
  * re-enrolling).
  */
 export function BackupCodesView({ codes, onDone }: { codes: string[]; onDone: () => void }) {
+  const { t } = useTranslation("account");
   const [copied, setCopied] = useState(false);
   const [ack, setAck] = useState(false);
 
@@ -25,10 +27,7 @@ export function BackupCodesView({ codes, onDone }: { codes: string[]; onDone: ()
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-sm text-muted">
-        Save these backup codes somewhere safe. Each one lets you sign in ONE time if you lose access to
-        your authenticator — they will not be shown again.
-      </p>
+      <p className="text-sm text-muted">{t("account:backupCodesView.description")}</p>
       <div className="grid grid-cols-2 gap-2 rounded-lg bg-surface-2 p-4 font-mono text-sm">
         {codes.map((code) => (
           <span key={code} className="select-all text-fg">
@@ -38,7 +37,7 @@ export function BackupCodesView({ codes, onDone }: { codes: string[]; onDone: ()
       </div>
       <Button variant="subtle" size="sm" onClick={copyAll} className="self-start">
         {copied ? <Check size={14} /> : <Copy size={14} />}
-        {copied ? "Copied" : "Copy all"}
+        {copied ? t("account:backupCodesView.copied") : t("account:backupCodesView.copyAll")}
       </Button>
       <label className="flex items-start gap-2 text-sm text-fg">
         <input
@@ -47,10 +46,10 @@ export function BackupCodesView({ codes, onDone }: { codes: string[]; onDone: ()
           onChange={(e) => setAck(e.target.checked)}
           className="mt-0.5"
         />
-        I've saved these codes somewhere safe.
+        {t("account:backupCodesView.acknowledgeLabel")}
       </label>
       <Button size="lg" disabled={!ack} onClick={onDone} className="w-full">
-        Done
+        {t("account:backupCodesView.done")}
       </Button>
     </div>
   );

@@ -29,6 +29,7 @@ from .rate_limit import SensitiveRateLimitMiddleware, limiter, rate_limit_handle
 from .routes import auth as auth_routes
 from .routes import captcha as captcha_routes
 from .routes import email_verify as email_verify_routes
+from .routes import i18n_service as i18n_routes
 from .routes import internal as internal_routes
 from .routes import invites as invite_routes
 from .routes import jwks as jwks_routes
@@ -167,3 +168,4 @@ app.include_router(mfa_webauthn_routes.router)
 app.include_router(mfa_challenge_routes.router)
 app.include_router(sessions_routes.router)
 app.include_router(internal_routes.router)
+app.include_router(i18n_routes.router)

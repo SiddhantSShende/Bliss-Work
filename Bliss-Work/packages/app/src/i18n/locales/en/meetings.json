@@ -1,0 +1,235 @@
+{
+  "layout": {
+    "backToCalendar": "Back to calendar"
+  },
+  "list": {
+    "loading": "Loading…",
+    "error": {
+      "title": "Couldn't load your meetings.",
+      "retry": "Retry"
+    },
+    "empty": {
+      "upcomingTitle": "Nothing scheduled",
+      "liveTitle": "Nothing live right now",
+      "pastTitle": "No past meetings",
+      "startHint": "Start a meeting now, or put one in the calendar.",
+      "pastHint": "Meetings you've been part of will be listed here once they end."
+    },
+    "loadMore": "Load more",
+    "allLoaded": "That's everything.",
+    "bucket": {
+      "upcoming": "Upcoming",
+      "live": "Live",
+      "past": "Past"
+    }
+  },
+  "calendar": {
+    "title": "Meetings Calendar",
+    "subtitle": "View and manage all your meetings in one place.",
+    "newMeeting": "New Meeting",
+    "today": "Today",
+    "previousWeek": "Previous week",
+    "previousMonth": "Previous month",
+    "nextWeek": "Next week",
+    "nextMonth": "Next month",
+    "scale": {
+      "week": "Week",
+      "month": "Month"
+    },
+    "loading": "Loading your calendar…",
+    "error": {
+      "title": "Couldn't load your calendar.",
+      "retry": "Retry"
+    }
+  },
+  "detail": {
+    "loading": "Loading…",
+    "error": {
+      "title": "Couldn't open this meeting.",
+      "retry": "Retry"
+    },
+    "kindLabel": {
+      "meeting": "Meeting",
+      "channelCall": "Channel call",
+      "call": "Call"
+    },
+    "noTitleSet": "no title set",
+    "join": "Join",
+    "open": "Open",
+    "tabs": {
+      "overview": "Overview",
+      "chat": "Chat",
+      "notes": "Notes"
+    },
+    "live": "Live",
+    "overview": {
+      "when": {
+        "sectionTitle": "When",
+        "date": "Date",
+        "start": "Start",
+        "end": "End",
+        "scheduledEnd": "Scheduled end",
+        "runningFor": "Running for",
+        "duration": "Duration"
+      },
+      "people": {
+        "sectionTitle": "People · {{joined}} of {{total}} joined",
+        "empty": "No roster was recorded for this meeting.",
+        "host": "Host",
+        "external": "External",
+        "attendance": {
+          "joinedAndLeft": "Joined {{joinedAt}} · left {{leftAt}}",
+          "joined": "Joined {{joinedAt}}",
+          "waiting": "Waiting to be let in",
+          "invited": "Invited",
+          "didNotJoin": "Did not join"
+        }
+      },
+      "meeting": {
+        "sectionTitle": "Meeting",
+        "organisedBy": "Organised by",
+        "openedBy": "Opened by",
+        "media": "Media",
+        "audioOnly": "Audio only",
+        "video": "Video",
+        "recording": "Recording",
+        "recordingAvailable": "Available",
+        "recordingInProgress": "In progress",
+        "recordingNotRecorded": "Not recorded",
+        "channelCall": "Channel call",
+        "channelCallValue": "Roster is the channel",
+        "beingRecorded": "This call is being recorded",
+        "sharingOne": "{{name}} is sharing their screen",
+        "sharingMany": "{{count}} people are sharing"
+      }
+    },
+    "recording": {
+      "preparing": "Preparing playback…",
+      "watch": "Watch the recording"
+    }
+  },
+  "row": {
+    "live": "Live",
+    "inviteJoinTitle": "{{invited}} invited · {{joined}} joined",
+    "organiser": "Organiser",
+    "join": "Join",
+    "open": "Open",
+    "recording": "Recording",
+    "details": "Details",
+    "menu": {
+      "actionsFor": "Actions for {{title}}",
+      "untitledMeeting": "this meeting",
+      "viewDetails": "View details",
+      "joinMeeting": "Join meeting",
+      "openRoom": "Open the room",
+      "watchRecording": "Watch the recording"
+    }
+  },
+  "monthGrid": {
+    "openThisWeek": "Open this week",
+    "more": "+{{count}} more"
+  },
+  "newMeeting": {
+    "title": "New Meeting",
+    "close": "Close",
+    "titleLabel": "Meeting Title",
+    "titlePlaceholder": "Enter meeting title",
+    "startTimeLabel": "Start Time",
+    "endTimeLabel": "End Time",
+    "errors": {
+      "titleRequired": "Meeting title is required.",
+      "startRequired": "Start date and time are required.",
+      "startInPast": "Start time can't be in the past.",
+      "endRequired": "End date and time are required.",
+      "endBeforeStart": "End time must be later than the start time."
+    },
+    "cancel": "Cancel",
+    "starting": "Starting…",
+    "schedule": "Schedule",
+    "startNow": "Start Now",
+    "scheduleError": "Couldn't schedule that meeting"
+  },
+  "schedule": {
+    "error": "Couldn't schedule that call",
+    "titleChannel": "Start a channel call",
+    "titleDirect": "Schedule a call",
+    "descriptionChannel": "Everyone in this channel can join. There is no invite link — channel membership is the invitation.",
+    "descriptionDirect": "{{peerName}} will be able to join at the time you pick. Whoever schedules it opens it.",
+    "titleLabel": "Title",
+    "placeholderChannel": "Design sync",
+    "placeholderDirect": "Weekly review",
+    "typeLabel": "Type",
+    "video": "Video",
+    "audio": "Audio",
+    "whenLabel": "When",
+    "whenRequired": "— required",
+    "whenOptional": "— leave empty to start now",
+    "lengthLabel": "Length",
+    "lengthHint": "— the call ends automatically when it runs out",
+    "durations": {
+      "m15": "15m",
+      "m30": "30m",
+      "h1": "1h",
+      "h2": "2h",
+      "noEnd": "No end time"
+    },
+    "cancel": "Cancel",
+    "submitSchedule": "Schedule",
+    "submitStartNow": "Start now",
+    "untitled": "Untitled",
+    "startedNow": "Started now",
+    "endsAt": " — ends {{time}}",
+    "done": "Done",
+    "joinNow": "Join now"
+  },
+  "filterMenu": {
+    "trigger": "Filter",
+    "ariaLabel": "Filter meetings",
+    "typeHeading": "Type",
+    "onlyMine": "Only ones I organise",
+    "clear": "Clear filters"
+  },
+  "handoff": {
+    "title": "Join Meeting",
+    "subtitle": "You can join this meeting using the desktop app or continue directly in your browser.",
+    "notOpened": "Didn't open automatically.",
+    "openingApp": "Opening the {{brand}} desktop app…",
+    "continueInBrowser": "Continue in Browser"
+  },
+  "inviteLink": {
+    "label": "Invite link",
+    "copy": "Copy meeting link",
+    "couldNotCreate": "Couldn't create an invite link",
+    "copyFailed": "Copy failed",
+    "copyManually": "Select the link and copy it manually."
+  },
+  "host": {
+    "openFailed": "Couldn't open that meeting",
+    "rejoin": {
+      "ariaLabel": "Rejoin the meeting you were in",
+      "untitled": "Meeting",
+      "description": "You were in this meeting before the page reloaded.",
+      "notNow": "Not now",
+      "rejoinButton": "Rejoin"
+    }
+  },
+  "transcript": {
+    "chat": {
+      "emptyTitle": "No chat in this meeting",
+      "emptyHint": "Messages sent to everyone in the room are kept here. Private messages are delivered to one person only and are never stored."
+    },
+    "notes": {
+      "emptyTitle": "No notes were taken",
+      "emptyHint": "Points written in the meeting's Notes panel are kept here."
+    },
+    "loading": "Loading…",
+    "error": "Couldn't load this.",
+    "retry": "Retry",
+    "loadMore": "Load more"
+  },
+  "statusBar": {
+    "micOn": "Microphone on",
+    "micOff": "Microphone off",
+    "leaveMeeting": "Leave meeting"
+  }
+}

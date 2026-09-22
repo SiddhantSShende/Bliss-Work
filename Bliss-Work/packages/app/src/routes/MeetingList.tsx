@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { AlertCircle, Calendar } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Button, EmptyState, Spinner } from "@taskboard/ui";
 import type { CallDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
@@ -13,6 +14,7 @@ import {
   MEETING_BUCKETS,
   NO_MEETING_FILTER,
   bucketFor,
+  bucketLabel,
   bucketOf,
   matchesFilter,
   meetingDisplayName,
@@ -62,6 +64,7 @@ export function MeetingList({
    *  act (a tab, or the in-app overlay), not something a list row can decide. */
   onOpenRoom?: (call: CallDTO) => void;
 }) {
+  const { t } = useTranslation("meetings");
   const [params, setParams] = useSearchParams();
   const bucket = bucketOf(params);
   const { api } = useRuntime();
@@ -148,7 +151,7 @@ export function MeetingList({
                 on ? "bg-accent-soft text-accent" : "text-muted hover:bg-surface-2 hover:text-fg"
               }`}
             >
-              {b.label}
+              {bucketLabel(b.key)}
               {count !== null && count > 0 && (
                 <span className="ml-1.5 text-xs opacity-70">{count}</span>
               )}
@@ -160,7 +163,7 @@ export function MeetingList({
       <div className="min-h-0 flex-1">
         {q.isLoading ? (
           <div className="flex items-center gap-2 p-6 text-sm text-muted">
-            <Spinner /> Loading…
+            <Spinner /> {t("list.loading")}
           </div>
         ) : q.isError ? (
           // z.array(CallDTO) fails its ENTIRE parse if even one row is
@@ -170,9 +173,9 @@ export function MeetingList({
           // never render as the empty state.
           <div className="m-3 flex flex-col items-center gap-3 rounded-xl border border-border/60 p-6 text-center">
             <AlertCircle size={22} className="text-muted" />
-            <div className="text-sm font-medium text-fg">Couldn't load your meetings.</div>
+            <div className="text-sm font-medium text-fg">{t("list.error.title")}</div>
             <Button size="sm" variant="secondary" onClick={() => void q.refetch()}>
-              Retry
+              {t("list.error.retry")}
             </Button>
           </div>
         ) : rows.length === 0 ? (
@@ -181,15 +184,15 @@ export function MeetingList({
               icon={<Calendar size={24} />}
               title={
                 bucket === "upcoming"
-                  ? "Nothing scheduled"
+                  ? t("list.empty.upcomingTitle")
                   : bucket === "live"
-                    ? "Nothing live right now"
-                    : "No past meetings"
+                    ? t("list.empty.liveTitle")
+                    : t("list.empty.pastTitle")
               }
               hint={
                 bucket === "past"
-                  ? "Meetings you've been part of will be listed here once they end."
-                  : "Start a meeting now, or put one in the calendar."
+                  ? t("list.empty.pastHint")
+                  : t("list.empty.startHint")
               }
             />
           </div>
@@ -221,11 +224,11 @@ export function MeetingList({
                 loading={isFetchingNextPage}
                 onClick={() => void fetchNextPage()}
               >
-                Load more
+                {t("list.loadMore")}
               </Button>
             </div>
           ) : (
-            <div className="py-3 text-center text-xs text-muted">That's everything.</div>
+            <div className="py-3 text-center text-xs text-muted">{t("list.allLoaded")}</div>
           ))}
       </div>
     </div>

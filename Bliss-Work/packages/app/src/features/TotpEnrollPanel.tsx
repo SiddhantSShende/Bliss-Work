@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import { Button, Input } from "@taskboard/ui";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { ApiError, type MfaTotpEnrollConfirmResult } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 
@@ -26,6 +27,7 @@ export function TotpEnrollPanel({
   pendingToken?: string;
   onEnrolled: (result: MfaTotpEnrollConfirmResult) => void;
 }) {
+  const { t } = useTranslation("account");
   const { api } = useRuntime();
   const [secret, setSecret] = useState<string | null>(null);
   const [otpauthUrl, setOtpauthUrl] = useState<string | null>(null);
@@ -56,7 +58,9 @@ export function TotpEnrollPanel({
       .catch(() => {
         if (!alive) return;
         setStartError(true);
-        toast.error("Couldn't start enrollment", { description: "Please try again." });
+        toast.error(t("account:totpEnroll.toasts.startFailed.title"), {
+          description: t("account:totpEnroll.toasts.startFailed.description"),
+        });
       });
     return () => {
       alive = false;
@@ -77,9 +81,13 @@ export function TotpEnrollPanel({
     } catch (err) {
       setFailed(true);
       if (err instanceof ApiError && err.status === 429) {
-        toast.error("Too many attempts", { description: "Wait a minute before trying again." });
+        toast.error(t("account:totpEnroll.toasts.tooManyAttempts.title"), {
+          description: t("account:totpEnroll.toasts.tooManyAttempts.description"),
+        });
       } else {
-        toast.error("Incorrect code", { description: "Check the time on your device and try again." });
+        toast.error(t("account:totpEnroll.toasts.incorrectCode.title"), {
+          description: t("account:totpEnroll.toasts.incorrectCode.description"),
+        });
       }
     } finally {
       setBusy(false);
@@ -89,40 +97,37 @@ export function TotpEnrollPanel({
   if (startError) {
     return (
       <div className="flex flex-col items-center gap-3 py-6 text-center">
-        <p className="text-sm text-muted">Couldn't start enrollment.</p>
+        <p className="text-sm text-muted">{t("account:totpEnroll.startError.message")}</p>
         <Button variant="secondary" size="sm" onClick={() => setStartAttempt((n) => n + 1)}>
-          Try again
+          {t("account:totpEnroll.startError.retry")}
         </Button>
       </div>
     );
   }
 
   if (!secret || !otpauthUrl) {
-    return <p className="py-6 text-center text-sm text-muted">Preparing enrollment…</p>;
+    return <p className="py-6 text-center text-sm text-muted">{t("account:totpEnroll.preparing")}</p>;
   }
 
   return (
     <form onSubmit={confirm} className="flex flex-col gap-4">
-      <p className="text-sm text-muted">
-        Scan this with an authenticator app (Google Authenticator, 1Password, Authy, …), or enter the
-        setup key manually.
-      </p>
+      <p className="text-sm text-muted">{t("account:totpEnroll.instructions")}</p>
       {qrDataUrl && (
         <img
           src={qrDataUrl}
-          alt="Scan with your authenticator app"
+          alt={t("account:totpEnroll.qrAlt")}
           width={220}
           height={220}
           className="mx-auto rounded-xl border border-border"
         />
       )}
       <div className="rounded-lg bg-surface-2 p-3 text-center">
-        <div className="text-[11px] uppercase tracking-wide text-muted">Setup key</div>
+        <div className="text-[11px] uppercase tracking-wide text-muted">{t("account:totpEnroll.setupKeyLabel")}</div>
         <code className="select-all break-all text-sm font-medium text-fg">{secret}</code>
       </div>
       <div>
         <label className="mb-1.5 block text-sm font-medium text-fg" htmlFor="totp-code">
-          Enter the 6-digit code
+          {t("account:totpEnroll.codeLabel")}
         </label>
         <Input
           id="totp-code"
@@ -138,7 +143,7 @@ export function TotpEnrollPanel({
         />
       </div>
       <Button type="submit" loading={busy} size="lg" disabled={code.length < 6} className="w-full">
-        {busy ? "Verifying…" : "Confirm and enable"}
+        {busy ? t("account:totpEnroll.verifying") : t("account:totpEnroll.confirmAndEnable")}
       </Button>
     </form>
   );

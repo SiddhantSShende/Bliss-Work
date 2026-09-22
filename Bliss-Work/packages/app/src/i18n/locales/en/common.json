@@ -1,0 +1,59 @@
+{
+  "loading": "Loading…",
+  "unknownUser": "Unknown user",
+  "screenshotBlocked": "Screenshot attempt detected. Screenshots are not allowed.",
+  "date": {
+    "today": "Today",
+    "yesterday": "Yesterday",
+    "tomorrow": "Tomorrow"
+  },
+  "buttons": {
+    "dismiss": "Dismiss",
+    "view": "View",
+    "manage": "Manage"
+  },
+  "language": {
+    "changeLanguage": "Change language",
+    "switcherTitle": "Language: {{name}}",
+    "switchFailed": "Couldn't load that language. Please try again."
+  },
+  "relativeTime": {
+    "justNow": "just now",
+    "minutesAgo_one": "{{count}}m ago",
+    "minutesAgo_other": "{{count}}m ago",
+    "hoursAgo_one": "{{count}}h ago",
+    "hoursAgo_other": "{{count}}h ago",
+    "daysAgo_one": "{{count}}d ago",
+    "daysAgo_other": "{{count}}d ago"
+  },
+  "confirmDialog": {
+    "confirmDefault": "Confirm",
+    "cancel": "Cancel"
+  },
+  "modal": {
+    "close": "Close"
+  },
+  "lightbox": {
+    "close": "Close",
+    "previous": "Previous",
+    "next": "Next",
+    "loading": "Loading…",
+    "previewNotAvailable": "Preview not available for this file type",
+    "openInBrowser": "Open in browser instead",
+    "loadingPreview": "Loading preview…",
+    "itemCount": " · {{current}} of {{total}}"
+  },
+  "errorBoundary": {
+    "title": "Something went wrong.",
+    "unexpectedError": "An unexpected error occurred.",
+    "reference": "Reference: {{requestId}}",
+    "retry": "Retry",
+    "goHome": "Go home"
+  },
+  "globalError": {
+    "title": "Something went wrong"
+  },
+  "attachment": {
+    "couldNotOpen": "Could not open {{filename}}"
+  }
+}

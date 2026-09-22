@@ -1,5 +1,6 @@
 /** Formatting + grouping helpers for the chat thread. */
 import { dayLabel as _dayLabel } from "./dayLabel";
+import i18n from "../i18n";
 
 /** A run of a message body: either literal text or a URL found inside it. */
 interface MessageSegment {
@@ -86,10 +87,10 @@ export function isUrlOnly(text: string): boolean {
   return only !== undefined && only.type === "link" && only.value === text;
 }
 
-/** HH:MM for a message timestamp. */
+/** HH:MM for a message timestamp, following the in-app selected locale. */
 export function clock(iso?: string): string {
   if (!iso) return "";
-  return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return new Date(iso).toLocaleTimeString(i18n.language, { hour: "2-digit", minute: "2-digit" });
 }
 
 /** "Today" / "Yesterday" / "12 Jun" (+ year when not the current year). */

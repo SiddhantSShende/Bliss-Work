@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { Search, Users } from "lucide-react";
 import { toast } from "sonner";
 import { Avatar, Input, EmptyState } from "@taskboard/ui";
@@ -13,6 +14,7 @@ import { useSelectedChat } from "../lib/selectedChat";
 import { Modal } from "./Modal";
 
 export function NewChatDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { t } = useTranslation("chatList");
   const { api } = useRuntime();
   const qc = useQueryClient();
   const me = useSession((s) => s.user)!;
@@ -43,21 +45,21 @@ export function NewChatDialog({ open, onClose }: { open: boolean; onClose: () =>
       // never reaches the URL — see lib/selectedChat.
       openChat(conversationId);
     } catch {
-      toast.error("Couldn't start the conversation", { description: "Please try again." });
+      toast.error(t("newChat.errorToast.title"), { description: t("newChat.errorToast.description") });
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <Modal open={open} onClose={onClose} title="New chat">
+    <Modal open={open} onClose={onClose} title={t("newChat.title")}>
       <div className="relative mb-3">
         <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-        <Input className="pl-9" placeholder="Search people…" value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
+        <Input className="pl-9" placeholder={t("newChat.searchPlaceholder")} value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
       </div>
       <div className="max-h-72 overflow-auto">
         {results.length === 0 ? (
-          <EmptyState icon={<Users size={20} />} title="No people found" />
+          <EmptyState icon={<Users size={20} />} title={t("newChat.emptyTitle")} />
         ) : (
           <div className="space-y-0.5">
             {results.map((u) => (

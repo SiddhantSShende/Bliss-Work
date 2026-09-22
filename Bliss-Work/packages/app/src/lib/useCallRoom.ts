@@ -11,6 +11,7 @@ import {
   type RemoteParticipant,
 } from "livekit-client";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { EventType, type ServerEvent, type WsEventMeta } from "@taskboard/shared";
 import { useRuntime } from "./runtime";
 import { decodeRoomMessage, encodeRoomMessage, type RoomMessage } from "./roomMessages";
@@ -108,6 +109,9 @@ export function isGetUserMediaDenied(e: unknown): boolean {
  * instead of silently dropped.
  */
 export function useCallRoom(callId: string | null) {
+  // Named `tr`, not `t`: this hook already uses `t` throughout for the
+  // call-token response (see scheduleRefresh/join below).
+  const { t: tr } = useTranslation("callRoom");
   const { api, ws, config } = useRuntime();
   // Subscribe to live ServerEvents the same way WsEventBridge does (see
   // queryBridge.tsx): through config.eventSource on Electron, where the
@@ -270,7 +274,7 @@ export function useCallRoom(callId: string | null) {
           } catch {
             // Access was withdrawn (removed from the channel, call ended, or
             // the meeting link revoked). Leaving is the correct response.
-            toast.error("You no longer have access to this call");
+            toast.error(tr("errors.accessRevoked"));
             void room.disconnect();
             return;
           }
@@ -317,8 +321,8 @@ export function useCallRoom(callId: string | null) {
             // than leave the UI claiming a share that in fact stopped.
             setSharing(false);
             void apiRef.current.stopScreenShare(id).catch(() => {});
-            toast("Screen sharing stopped", {
-              description: "Reconnecting to the call ended your share — start it again if you're still presenting.",
+            toast(tr("notify.screenShareStopped"), {
+              description: tr("notify.screenShareStoppedDescription"),
             });
           }
           if (wasMicOn) {
@@ -342,7 +346,7 @@ export function useCallRoom(callId: string | null) {
         })();
       }, delay);
     },
-    [sync],
+    [sync, tr],
   );
 
   const join = useCallback(async () => {
@@ -595,8 +599,8 @@ export function useCallRoom(callId: string | null) {
       // different problem from a denied join — say which.
       const msg =
         e instanceof Error && /503|not configured/i.test(e.message)
-          ? "Group calling is not enabled on this server"
-          : "Couldn't join the call";
+          ? tr("errors.notConfigured")
+          : tr("errors.couldNotJoin");
       toast.error(msg);
     } finally {
       // Released on EVERY exit, including the lobby's early return — that path
@@ -604,7 +608,7 @@ export function useCallRoom(callId: string | null) {
       // re-enter.
       joining.current = false;
     }
-  }, [api, callId, scheduleRefresh, stopWaiting, subscribeToEvents, sync]);
+  }, [api, callId, scheduleRefresh, stopWaiting, subscribeToEvents, sync, tr]);
 
   // Keep the lobby poll pointed at the current join without making join depend
   // on itself.
@@ -649,9 +653,9 @@ export function useCallRoom(callId: string | null) {
         api.leaveCall(callId).catch(() => {});
       }
       setEnded(true);
-      toast("This meeting has ended");
+      toast(tr("notify.meetingEnded"));
     });
-  }, [api, callId, stopWaiting, subscribeToEvents]);
+  }, [api, callId, stopWaiting, subscribeToEvents, tr]);
 
   /** Start the call we are waiting for, admitting everyone else waiting on it
    *  at the same moment. Only does anything for the people the server named in
@@ -665,12 +669,12 @@ export function useCallRoom(callId: string | null) {
     try {
       await api.startCall(callId);
     } catch {
-      toast.error("Couldn't start the call");
+      toast.error(tr("errors.couldNotStart"));
       return;
     }
     stopWaiting();
     await join();
-  }, [api, callId, join, stopWaiting]);
+  }, [api, callId, join, stopWaiting, tr]);
 
   /** Our own identity in the room, or "" before we are in one. */
   const identity = participants.find((p) => p.isLocal)?.identity ?? "";
@@ -786,7 +790,7 @@ export function useCallRoom(callId: string | null) {
     } catch (e) {
       // Dismissing the picker is a normal thing to do, and not an error.
       if (!isGetUserMediaDenied(e)) {
-        toast.error("Couldn't share your screen");
+        toast.error(tr("errors.couldNotShareScreen"));
       }
       return;
     }
@@ -799,7 +803,7 @@ export function useCallRoom(callId: string | null) {
     // The API takes the browser's own spelling of what was picked, so this can
     // be forwarded as it came.
     await api.startScreenShare(callId, (settings?.displaySurface ?? "monitor") as "monitor").catch(() => {});
-  }, [api, callId, sharing, sync]);
+  }, [api, callId, sharing, sync, tr]);
 
   /**
    * Say something to the room — everyone, or named participants.

@@ -45,6 +45,7 @@ import { useLocation } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { Check, X, PinOff, Minus, Maximize2, Pin } from "lucide-react";
 import { ApiError, type StickyTaskDTO } from "@taskboard/shared";
 import { IconButton as SharedIconButton } from "@taskboard/ui";
@@ -126,6 +127,7 @@ function clampToViewport(
 }
 
 export function BrowserStickies() {
+  const { t } = useTranslation("stickies");
   const { api, config } = useRuntime();
   const qc = useQueryClient();
   const authed = useSession((s) => s.status === "authed");
@@ -174,10 +176,10 @@ export function BrowserStickies() {
     () =>
       tasks
         .filter(
-          (t) =>
-            (t.myStatus === "SENT" || t.myStatus === "ACKNOWLEDGED") &&
-            !unpinned[t.taskId] &&
-            !settledRef.current.has(t.taskId),
+          (task) =>
+            (task.myStatus === "SENT" || task.myStatus === "ACKNOWLEDGED") &&
+            !unpinned[task.taskId] &&
+            !settledRef.current.has(task.taskId),
         )
         .slice(0, 5),
     [tasks, unpinned],
@@ -193,7 +195,7 @@ export function BrowserStickies() {
   // only a live list may retire anything.
   useEffect(() => {
     if (!enabled || !isSuccess) return;
-    const liveIds = new Set(tasks.map((t) => t.taskId));
+    const liveIds = new Set(tasks.map((task) => task.taskId));
     setPositionMap((prev) => {
       const stale = Object.keys(prev).filter((k) => !liveIds.has(k));
       if (stale.length === 0) return prev;
@@ -237,15 +239,15 @@ export function BrowserStickies() {
       await qc.cancelQueries({ queryKey: qk.sticky });
       const previous = qc.getQueryData<StickyTaskDTO[]>(qk.sticky);
       qc.setQueryData<StickyTaskDTO[]>(qk.sticky, (prev) =>
-        (prev ?? []).map((t) =>
-          t.taskId === taskId ? { ...t, myStatus: "ACKNOWLEDGED" } : t,
+        (prev ?? []).map((task) =>
+          task.taskId === taskId ? { ...task, myStatus: "ACKNOWLEDGED" } : task,
         ),
       );
       return { previous };
     },
     onError: (err, _id, ctx) => {
       if (ctx?.previous) qc.setQueryData(qk.sticky, ctx.previous);
-      toast.error(err instanceof ApiError ? err.message : "Couldn't acknowledge");
+      toast.error(err instanceof ApiError ? err.message : t("toasts.acknowledgeFailed"));
     },
     onSuccess: () => refreshAllSurfaces(),
   });
@@ -260,17 +262,17 @@ export function BrowserStickies() {
       await qc.cancelQueries({ queryKey: qk.sticky });
       const previous = qc.getQueryData<StickyTaskDTO[]>(qk.sticky);
       qc.setQueryData<StickyTaskDTO[]>(qk.sticky, (prev) =>
-        (prev ?? []).filter((t) => t.taskId !== taskId),
+        (prev ?? []).filter((task) => task.taskId !== taskId),
       );
       settle(taskId);
       return { previous };
     },
     onError: (err, _id, ctx) => {
       if (ctx?.previous) qc.setQueryData(qk.sticky, ctx.previous);
-      toast.error(err instanceof ApiError ? err.message : "Couldn't ignore");
+      toast.error(err instanceof ApiError ? err.message : t("toasts.ignoreFailed"));
     },
     onSuccess: () => {
-      toast.success("Task ignored — the sender has been notified.");
+      toast.success(t("toasts.taskIgnored"));
       refreshAllSurfaces();
     },
   });
@@ -281,11 +283,11 @@ export function BrowserStickies() {
   const unpinLocally = useCallback(
     (taskId: string) => {
       setUnpinned((prev) => ({ ...prev, [taskId]: true }));
-      toast("Note unpinned", {
-        description: "It's still in your Tasks list — complete it from there.",
+      toast(t("toasts.noteUnpinned"), {
+        description: t("toasts.noteUnpinnedDescription"),
       });
     },
-    [],
+    [t],
   );
 
   // ── Force-close (safety net) ───────────────────────────────────────────
@@ -307,7 +309,7 @@ export function BrowserStickies() {
   return (
     <div
       className="pointer-events-none fixed inset-0 z-[200]"
-      aria-label="Floating sticky notes"
+      aria-label={t("overlay.ariaLabel")}
     >
       <AnimatePresence>
         {visible.map((task, i) => {
@@ -367,6 +369,7 @@ function FloatingNote({
   onUnpin,
   onHide,
 }: FloatingNoteProps) {
+  const { t } = useTranslation("stickies");
   const isSent = task.myStatus === "SENT";
   const [pos, setPos] = useState(() => clampToViewport(initialPosition, collapsed));
 
@@ -461,12 +464,12 @@ function FloatingNote({
         >
           <Pin size={14} className="shrink-0 text-accent" />
           <span className="min-w-0 flex-1 truncate text-xs font-medium text-fg">
-            {task.title || "Untitled task"}
+            {task.title || t("card.untitledTask")}
           </span>
-          <IconButton onClick={onExpand} title="Expand" label="Expand sticky note">
+          <IconButton onClick={onExpand} title={t("card.expand")} label={t("card.expandLabel")}>
             <Maximize2 size={13} />
           </IconButton>
-          <IconButton onClick={onHide} title="Dismiss" label="Dismiss sticky note">
+          <IconButton onClick={onHide} title={t("card.dismiss")} label={t("card.dismissLabel")}>
             <X size={13} />
           </IconButton>
         </div>
@@ -490,21 +493,21 @@ function FloatingNote({
           <div className="flex min-w-0 items-center gap-1.5">
             <Pin size={13} className="shrink-0 text-accent" />
             <span className="truncate text-sm font-semibold text-fg">
-              {task.title || "Untitled task"}
+              {task.title || t("card.untitledTask")}
             </span>
           </div>
           <div className="flex shrink-0 items-center gap-0.5">
-            <IconButton onClick={onCollapse} title="Collapse" label="Collapse sticky note">
+            <IconButton onClick={onCollapse} title={t("card.collapse")} label={t("card.collapseLabel")}>
               <Minus size={14} />
             </IconButton>
-            <IconButton onClick={onHide} title="Dismiss" label="Dismiss sticky note">
+            <IconButton onClick={onHide} title={t("card.dismiss")} label={t("card.dismissLabel")}>
               <X size={14} />
             </IconButton>
           </div>
         </div>
 
         {task.senderUsername && (
-          <div className="text-[11px] text-muted">from {task.senderUsername}</div>
+          <div className="text-[11px] text-muted">{t("card.from", { name: task.senderUsername })}</div>
         )}
         {task.description && (
           <p className="line-clamp-3 text-[12px] leading-snug text-fg/80">
@@ -519,17 +522,17 @@ function FloatingNote({
               onClick={onIgnore}
               disabled={busy}
               tone="danger"
-              title="Ignore — the sender will be notified"
+              title={t("card.ignoreTitle")}
             >
-              <X size={14} /> Ignore
+              <X size={14} /> {t("card.ignore")}
             </ActionButton>
             <ActionButton
               onClick={onAcknowledge}
               disabled={busy}
               tone="accent"
-              title="Acknowledge — keep this note on screen until you complete it"
+              title={t("card.acknowledgeTitle")}
             >
-              <Check size={14} /> Acknowledge
+              <Check size={14} /> {t("card.acknowledge")}
             </ActionButton>
           </div>
         ) : (
@@ -538,9 +541,9 @@ function FloatingNote({
             onClick={onUnpin}
             disabled={busy}
             tone="ghost"
-            title="Unpin from the desktop — the task stays in your Tasks list"
+            title={t("card.unpinFromDesktopTitle")}
           >
-            <PinOff size={14} /> Unpin
+            <PinOff size={14} /> {t("card.unpin")}
           </ActionButton>
         )}
       </div>

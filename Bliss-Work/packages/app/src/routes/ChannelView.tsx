@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Hash, Users, ChevronLeft, Lock } from "lucide-react";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { EmptyState } from "@taskboard/ui";
 import type {
   ChannelDTO,
@@ -38,6 +39,7 @@ import { useMeetingSession } from "../lib/MeetingSession";
 import { useActiveThread, type ActiveThread } from "../lib/activeThread";
 
 export function ChannelView() {
+  const { t } = useTranslation("chatThread");
   const { channelId = "" } = useParams();
   const { api } = useRuntime();
   const qc = useQueryClient();
@@ -221,7 +223,7 @@ export function ChannelView() {
     mutationFn: ({ id, emoji, on }: { id: string; emoji: string; on: boolean }) =>
       api.setChannelReaction(id, emoji, on),
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.channelReactions(channelId) }),
-    onError: () => toast.error("Couldn't save that reaction"),
+    onError: () => toast.error(t("channelView.errors.reactionSave")),
   });
   // Guards against a fast double-tap firing two overlapping requests for the
   // SAME (message, emoji) chip — see DMView.tsx's identical reactToggle for
@@ -245,14 +247,14 @@ export function ChannelView() {
     mutationKey: ["channelHide", channelId],
     mutationFn: (id: string) => api.hideChannelMessage(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.channelMessages(channelId) }),
-    onError: () => toast.error("Couldn't hide that message"),
+    onError: () => toast.error(t("channelView.errors.hideMessage")),
   });
 
   const markUnread = useMutation({
     mutationKey: ["channelMarkUnread", channelId],
     mutationFn: (upToSeq: number) => api.markChannelRead(channelId, upToSeq),
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.channels }),
-    onError: () => toast.error("Couldn't mark that channel as unread"),
+    onError: () => toast.error(t("channelView.errors.markUnread")),
   });
 
   const clearChat = useMutation({
@@ -264,16 +266,16 @@ export function ChannelView() {
       // this it keeps showing the pre-clear text until something unrelated
       // happens to refetch it.
       void qc.invalidateQueries({ queryKey: qk.channels });
-      toast.success("Channel messages cleared for you");
+      toast.success(t("channelView.clearMessagesToast"));
     },
-    onError: () => toast.error("Couldn't clear the channel messages"),
+    onError: () => toast.error(t("channelView.errors.clearMessages")),
   });
 
   const removeForAll = useMutation({
     mutationKey: ["channelRemoveForAll", channelId],
     mutationFn: (id: string) => api.deleteChannelMessageForAll(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.channelMessages(channelId) }),
-    onError: () => toast.error("Couldn't delete that message"),
+    onError: () => toast.error(t("channelView.errors.deleteMessage")),
   });
 
   // The selected rows, and how many of them this caller may delete for
@@ -299,15 +301,15 @@ export function ChannelView() {
       selection.exit();
       const total = res.deleted.length + res.skipped.length;
       if (res.skipped.length === 0) {
-        toast.success(`Deleted ${res.deleted.length} message${res.deleted.length === 1 ? "" : "s"}`);
+        toast.success(t("channelView.bulkDelete.deletedToast", { count: res.deleted.length }));
       } else {
-        toast.warning(`Deleted ${res.deleted.length} of ${total}`, {
-          description: `${res.skipped.length} couldn't be deleted — only their author or a channel manager can.`,
+        toast.warning(t("channelView.bulkDelete.partialToast", { deleted: res.deleted.length, total }), {
+          description: t("channelView.bulkDelete.partialDescription", { count: res.skipped.length }),
         });
       }
     },
     // Selection is deliberately KEPT on failure, so a retry is one click.
-    onError: () => toast.error("Couldn't delete those messages"),
+    onError: () => toast.error(t("channelView.errors.deleteMessages")),
   });
 
   const togglePin = useMutation({
@@ -315,9 +317,9 @@ export function ChannelView() {
     mutationFn: ({ id, on }: { id: string; on: boolean }) => api.setChannelMessagePin(id, on),
     onSuccess: (_r, { on }) => {
       qc.invalidateQueries({ queryKey: qk.channelMessages(channelId) });
-      toast.success(on ? "Pinned for everyone" : "Unpinned");
+      toast.success(on ? t("channelView.pinToggle.pinned") : t("channelView.pinToggle.unpinned"));
     },
-    onError: () => toast.error("Couldn't change the pin"),
+    onError: () => toast.error(t("channelView.errors.changePin")),
   });
 
   const [scheduleOpen, setScheduleOpen] = useState(false);
@@ -336,7 +338,7 @@ export function ChannelView() {
       void qc.invalidateQueries({ queryKey: qk.channelCalls(channelId) });
       enter(call);
     },
-    onError: () => toast.error("Couldn't start the call"),
+    onError: () => toast.error(t("channelView.errors.startCall")),
   });
   // Guard the double-tap: the menu closes on pick, but a second click before
   // the pane switches to the call would open a second live call in the channel.
@@ -355,12 +357,12 @@ export function ChannelView() {
     mutationKey: ["channelLeave", channelId],
     mutationFn: () => api.leaveChannel(channelId),
     onSuccess: () => {
-      toast.success(`You left #${channel?.name}`);
+      toast.success(t("channelView.leftChannelToast", { name: channel?.name }));
       void qc.invalidateQueries({ queryKey: qk.channels });
       void qc.invalidateQueries({ queryKey: qk.openChannels });
       nav("/app/channels");
     },
-    onError: (e) => toast.error("Couldn't leave", { description: String(e) }),
+    onError: (e) => toast.error(t("channelView.errors.leave"), { description: String(e) }),
   });
 
   const confirmLeave = () => {
@@ -376,9 +378,9 @@ export function ChannelView() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: qk.channels });
       nav("/app/channels");
-      toast.success("Channel deleted");
+      toast.success(t("channelView.deletedChannelToast"));
     },
-    onError: () => toast.error("Couldn't delete the channel"),
+    onError: () => toast.error(t("channelView.errors.deleteChannel")),
   });
 
   const confirmDelete = () => setDeleteOpen(true);
@@ -455,8 +457,8 @@ export function ChannelView() {
   // that LIST rather than render them — "You · 3h ago" above a file you shared
   // reads as it does everywhere else in the app.
   const threadForTools = useMemo(
-    () => thread.map((m) => (m.senderId === me.id ? { ...m, senderName: "You" } : m)),
-    [thread, me.id],
+    () => thread.map((m) => (m.senderId === me.id ? { ...m, senderName: t("shared.you") } : m)),
+    [thread, me.id, t],
   );
 
   // Searching narrows what the thread draws; it does not touch what is loaded,
@@ -482,7 +484,11 @@ export function ChannelView() {
   if (!channel)
     return (
       <div className="flex h-full items-center justify-center">
-        <EmptyState icon={<Hash size={24} />} title="Channel not found" hint="Pick another from the sidebar." />
+        <EmptyState
+          icon={<Hash size={24} />}
+          title={t("channelView.notFound.title")}
+          hint={t("channelView.notFound.hint")}
+        />
       </div>
     );
 
@@ -502,7 +508,7 @@ export function ChannelView() {
       meId: me.id,
       now: new Date(),
     });
-    toast.success(`Exported ${threadForTools.length} message${threadForTools.length === 1 ? "" : "s"}`);
+    toast.success(t("channelView.exportedToast", { count: threadForTools.length }));
   };
 
   return (
@@ -522,7 +528,7 @@ export function ChannelView() {
         <div className="flex min-w-0 items-center gap-2">
           <button
             onClick={() => nav("/app/channels")}
-            title="Back to channels"
+            title={t("channelView.header.backToChannels")}
             className="-ml-1 shrink-0 rounded-lg p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg md:hidden"
           >
             <ChevronLeft size={20} />
@@ -535,7 +541,7 @@ export function ChannelView() {
           <span className="truncate font-semibold text-fg">{channel.name}</span>
           {channel.isLocked && (
             <span className="shrink-0 rounded-full bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-muted">
-              locked
+              {t("channelView.header.locked")}
             </span>
           )}
         </div>
@@ -557,8 +563,8 @@ export function ChannelView() {
               to adding, removing and blocking people. */}
           <button
             onClick={() => setRosterOpen(true)}
-            title="Channel members"
-            aria-label={`${channel.memberCount} members — view and manage`}
+            title={t("channelView.header.membersTitle")}
+            aria-label={t("channelView.header.membersAriaLabel", { count: channel.memberCount })}
             className="flex items-center gap-1.5 rounded-lg px-1.5 py-1 text-sm text-muted transition-colors hover:bg-surface-2 hover:text-fg"
           >
             <Users size={15} /> {channel.memberCount}
@@ -592,7 +598,7 @@ export function ChannelView() {
           onClose={closeSearch}
           matches={shown.length}
           loaded={thread.length}
-          placeholder={`Search #${channel.name}…`}
+          placeholder={t("channelView.search.placeholder", { name: channel.name })}
         />
       )}
       <ChannelMembersSheet
@@ -609,9 +615,9 @@ export function ChannelView() {
       <ConfirmDialog
         open={clearChatOpen}
         onClose={() => setClearChatOpen(false)}
-        title="Clear channel messages?"
-        message="This will clear the loaded messages for you. Other members will still have their copies."
-        confirmLabel="Clear messages"
+        title={t("channelView.clearMessagesDialog.title")}
+        message={t("channelView.clearMessagesDialog.message")}
+        confirmLabel={t("channelView.clearMessagesDialog.confirmLabel")}
         danger
         busy={clearChat.isPending}
         onConfirm={() => clearChat.mutate(undefined, { onSuccess: () => setClearChatOpen(false) })}
@@ -626,9 +632,13 @@ export function ChannelView() {
       <ConfirmDialog
         open={deleteOpen}
         onClose={() => setDeleteOpen(false)}
-        title={channel ? `Delete #${channel.name}?` : "Delete channel?"}
-        message="This cannot be undone. The channel and its messages will be deleted."
-        confirmLabel="Delete channel"
+        title={
+          channel
+            ? t("channelView.deleteChannelDialog.titleNamed", { name: channel.name })
+            : t("channelView.deleteChannelDialog.titleFallback")
+        }
+        message={t("channelView.deleteChannelDialog.message")}
+        confirmLabel={t("channelView.deleteChannelDialog.confirmLabel")}
         danger
         busy={deleteChannel.isPending}
         onConfirm={() => deleteChannel.mutate(undefined, { onSuccess: () => setDeleteOpen(false) })}
@@ -636,13 +646,17 @@ export function ChannelView() {
       <ConfirmDialog
         open={bulkDeleteOpen}
         onClose={() => setBulkDeleteOpen(false)}
-        title={`Delete ${deletableCount} message${deletableCount === 1 ? "" : "s"}?`}
+        title={t("channelView.bulkDeleteDialog.title", { count: deletableCount })}
         message={
           deletableCount === selection.count
-            ? "This deletes them for everyone in this channel. It can't be undone."
-            : `${selection.count - deletableCount} of the ${selection.count} selected can't be deleted for everyone — only their author or a channel manager can. The other ${deletableCount} will be deleted for everyone, and that can't be undone.`
+            ? t("channelView.bulkDeleteDialog.messageAll")
+            : t("channelView.bulkDeleteDialog.messagePartial", {
+                remaining: selection.count - deletableCount,
+                total: selection.count,
+                deletable: deletableCount,
+              })
         }
-        confirmLabel="Delete"
+        confirmLabel={t("channelView.bulkDeleteDialog.confirmLabel")}
         danger
         busy={bulkDelete.isPending}
         onConfirm={() => bulkDelete.mutate(selectedMessages.map((m) => m.id))}
@@ -679,7 +693,7 @@ export function ChannelView() {
         onCancelReply={() => setReplyTo(null)}
         onReply={(id) => setReplyTo(id)}
         showSenderNames
-        placeholder={`Message #${channel.name}…`}
+        placeholder={t("channelView.composer.placeholder", { name: channel.name })}
         onForwardTo={(id) => {
           const msg = messages.find((m: ChannelMessageDTO) => m.id === id);
           setForwardTo({ ids: [id], preview: msg?.body ?? "" });
@@ -709,7 +723,7 @@ export function ChannelView() {
               onCancel={selection.exit}
               onDelete={() => {
                 if (deletableCount === 0) {
-                  toast.error("None of the selected messages can be deleted for everyone");
+                  toast.error(t("channelView.errors.noneDeletable"));
                   return;
                 }
                 setBulkDeleteOpen(true);

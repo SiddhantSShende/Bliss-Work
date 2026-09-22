@@ -1,4 +1,5 @@
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { ChevronLeft, Eye } from "lucide-react";
 import { PageHeader } from "@taskboard/ui";
 import { MemberTimeline } from "../features/member/MemberTimeline";
@@ -13,6 +14,7 @@ import { MemberTimeline } from "../features/member/MemberTimeline";
  * anyone else, and no second code path that could drift from the admin view.
  */
 export function MyActivity() {
+  const { t } = useTranslation("members");
   const nav = useNavigate();
 
   return (
@@ -22,34 +24,30 @@ export function MyActivity() {
           onClick={() => nav("/app/settings")}
           className="mb-3 inline-flex items-center gap-1 rounded-lg px-1.5 py-1 text-sm text-muted transition hover:bg-surface-2 hover:text-fg"
         >
-          <ChevronLeft size={16} /> Settings
+          <ChevronLeft size={16} /> {t("myActivity.settingsBack")}
         </button>
-        <PageHeader title="Your activity" subtitle="Everything BlissWork records about how you work." />
+        <PageHeader
+          title={t("myActivity.title")}
+          subtitle={t("myActivity.subtitle", { brand: "BlissWork" })}
+        />
       </div>
 
       <section className="space-y-2 rounded-xl border border-border/60 p-4 text-sm text-muted">
         <h3 className="flex items-center gap-2 font-semibold text-fg">
-          <Eye size={15} /> What's recorded, and who can see it
+          <Eye size={15} /> {t("myActivity.whatsRecorded")}
         </h3>
         <ul className="list-disc space-y-1 pl-5 leading-relaxed">
-          <li>When you sign in and out, and when you're online, idle or offline.</li>
-          <li>Which parts of BlissWork you use, and for how long.</li>
-          <li>
-            Messages you send and tasks you act on — the first line of a message, never the
-            whole conversation.
-          </li>
-          <li>The browser and device you sign in from, and a rough location from your IP.</li>
+          <li>{t("myActivity.bullets.signInOut")}</li>
+          <li>{t("myActivity.bullets.appUsage", { brand: "BlissWork" })}</li>
+          <li>{t("myActivity.bullets.messagesAndTasks")}</li>
+          <li>{t("myActivity.bullets.deviceAndLocation")}</li>
         </ul>
         {/* Two different windows, and conflating them would be a lie in one
             direction or the other. Seven days is what anyone can BROWSE; ninety
             is how long the detail is KEPT. Saying only "kept for 90 days" now
             reads as though all of it were on this screen; saying only "7 days"
             would imply the rest had been deleted, and it has not been. */}
-        <p className="leading-relaxed">
-          Your workspace admins can see this record. The last 7 days are shown here. Detailed
-          activity is kept for 90 days and daily totals for longer — both are used for reports and
-          are available on request, but are not browsable in the app.
-        </p>
+        <p className="leading-relaxed">{t("myActivity.retentionNote")}</p>
       </section>
 
       <MemberTimeline userId="me" />

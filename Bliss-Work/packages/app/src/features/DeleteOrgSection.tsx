@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { Trans, useTranslation } from "react-i18next";
 import { Button, Input } from "@taskboard/ui";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
@@ -19,6 +20,7 @@ import { qk } from "../lib/queryBridge";
  * grace period, and while it is pending anyone with admin can call it off.
  */
 export function DeleteOrgSection() {
+  const { t, i18n } = useTranslation("org");
   const { api } = useRuntime();
   const qc = useQueryClient();
   const [confirm, setConfirm] = useState("");
@@ -32,23 +34,23 @@ export function DeleteOrgSection() {
       // Every session in the org was just revoked server-side, so this refetch
       // is the last thing this client will successfully do. Telling the user
       // that plainly beats letting the next click fail with a bare 401.
-      toast.success("Workspace scheduled for deletion", {
-        description: "Everyone has been signed out. You can cancel until the deadline.",
+      toast.success(t("org:deleteOrgSection.toasts.scheduledTitle"), {
+        description: t("org:deleteOrgSection.toasts.scheduledDescription"),
       });
       void qc.invalidateQueries({ queryKey: qk.org });
       setConfirm("");
       setOpen(false);
     },
-    onError: (e) => toast.error("Couldn't schedule deletion", { description: String(e) }),
+    onError: (e) => toast.error(t("org:deleteOrgSection.toasts.scheduleFailedTitle"), { description: String(e) }),
   });
 
   const cancel = useMutation({
     mutationFn: () => api.cancelOrgDelete(),
     onSuccess: () => {
-      toast.success("Deletion cancelled");
+      toast.success(t("org:deleteOrgSection.toasts.cancelled"));
       void qc.invalidateQueries({ queryKey: qk.org });
     },
-    onError: (e) => toast.error("Couldn't cancel deletion", { description: String(e) }),
+    onError: (e) => toast.error(t("org:deleteOrgSection.toasts.cancelFailedTitle"), { description: String(e) }),
   });
 
   if (isLoading || !org) return null;
@@ -58,13 +60,14 @@ export function DeleteOrgSection() {
     return (
       <section className="rounded-2xl border border-danger/40 bg-danger-soft/40 p-5">
         <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-danger">
-          <AlertTriangle size={16} /> This workspace is scheduled for deletion
+          <AlertTriangle size={16} /> {t("org:deleteOrgSection.scheduled.heading")}
         </h2>
         <p className="mb-3 text-sm text-muted">
-          Everything in <strong className="text-fg">{org.name}</strong> — messages, files, tasks and
-          activity — will be permanently destroyed on{" "}
-          <strong className="text-fg">{when.toLocaleString()}</strong>. Until then this can be
-          undone.
+          <Trans
+            i18nKey="org:deleteOrgSection.scheduled.message"
+            values={{ orgName: org.name, when: when.toLocaleString(i18n.language) }}
+            components={{ bold: <strong className="text-fg" /> }}
+          />
         </p>
         <Button
           variant="subtle"
@@ -73,7 +76,7 @@ export function DeleteOrgSection() {
           onClick={() => cancel.mutate()}
         >
           {cancel.isPending ? <Loader2 size={14} className="animate-spin" /> : null}
-          Cancel deletion
+          {t("org:deleteOrgSection.scheduled.cancelButton")}
         </Button>
       </section>
     );
@@ -82,25 +85,25 @@ export function DeleteOrgSection() {
   return (
     <section className="rounded-2xl border border-danger/30 p-5">
       <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-danger">
-        <AlertTriangle size={16} /> Danger zone
+        <AlertTriangle size={16} /> {t("org:deleteOrgSection.dangerZone.heading")}
       </h2>
       {!open ? (
         <>
           <p className="mb-3 text-sm text-muted">
-            Deleting this workspace permanently destroys every message, file, task and activity
-            record in it, for everyone.
+            {t("org:deleteOrgSection.dangerZone.description")}
           </p>
           <Button variant="subtle" size="sm" onClick={() => setOpen(true)}>
-            Delete this workspace…
+            {t("org:deleteOrgSection.dangerZone.openButton")}
           </Button>
         </>
       ) : (
         <>
           <p className="mb-3 text-sm text-muted">
-            This cannot be undone once the grace period ends. Everyone is signed out immediately.
-            To confirm, type the workspace identifier{" "}
-            <code className="rounded bg-surface-2 px-1.5 py-0.5 text-xs text-fg">{org.slug}</code>{" "}
-            below.
+            <Trans
+              i18nKey="org:deleteOrgSection.confirm.instructions"
+              values={{ slug: org.slug }}
+              components={{ code: <code className="rounded bg-surface-2 px-1.5 py-0.5 text-xs text-fg" /> }}
+            />
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <Input
@@ -108,7 +111,7 @@ export function DeleteOrgSection() {
               value={confirm}
               placeholder={org.slug ?? ""}
               onChange={(e) => setConfirm(e.target.value)}
-              aria-label="Type the workspace identifier to confirm"
+              aria-label={t("org:deleteOrgSection.confirm.ariaLabel")}
             />
             {/* Checked here for feedback only — the server checks it too, and
                 that check is the one that counts. */}
@@ -119,10 +122,10 @@ export function DeleteOrgSection() {
               onClick={() => request.mutate()}
             >
               {request.isPending ? <Loader2 size={14} className="animate-spin" /> : null}
-              Delete workspace
+              {t("org:deleteOrgSection.confirm.deleteButton")}
             </Button>
             <Button variant="ghost" size="sm" onClick={() => { setOpen(false); setConfirm(""); }}>
-              Cancel
+              {t("org:deleteOrgSection.confirm.cancelButton")}
             </Button>
           </div>
         </>

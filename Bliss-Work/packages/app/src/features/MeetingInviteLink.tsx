@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Check, Copy, Link2 } from "lucide-react";
 import type { CallDTO } from "@taskboard/shared";
 import { useSession } from "../store/session";
@@ -19,6 +20,7 @@ import { useCallInviteLink } from "../lib/useCallInviteLink";
  * over can be joined, and only a HOST in the HOSTING org may widen it.
  */
 export function MeetingInviteLink({ call }: { call: CallDTO }) {
+  const { t } = useTranslation("meetings");
   const me = useSession((s) => s.user);
   const { link, isPending, copyLink } = useCallInviteLink(call.id);
   const [copied, setCopied] = useState(false);
@@ -44,14 +46,14 @@ export function MeetingInviteLink({ call }: { call: CallDTO }) {
       {link ? (
         <code className="min-w-0 truncate font-mono text-[11px] text-fg">{link}</code>
       ) : (
-        <span>Invite link</span>
+        <span>{t("inviteLink.label")}</span>
       )}
       <button
         type="button"
         onClick={() => void onCopy()}
         disabled={isPending}
-        title="Copy meeting link"
-        aria-label="Copy meeting link"
+        title={t("inviteLink.copy")}
+        aria-label={t("inviteLink.copy")}
         className="shrink-0 rounded-md p-1 transition-colors hover:bg-surface-2 hover:text-fg disabled:opacity-50"
       >
         {copied ? <Check size={13} className="text-success" /> : <Copy size={13} />}

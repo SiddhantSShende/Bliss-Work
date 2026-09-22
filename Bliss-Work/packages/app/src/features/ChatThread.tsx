@@ -1,6 +1,8 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { MessageSquare, Ban, Check, Forward, PhoneMissed, Pin, Camera } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { Avatar } from "@taskboard/ui";
 import { clock, groupMessages } from "../lib/chatFormat";
 import type { ChannelReadReceiptDTO, MessageDTO, ReactionDTO } from "@taskboard/shared";
@@ -72,14 +74,14 @@ function isSingleEmoji(body: string): boolean {
   return graphemes.length === 1 && /\p{Extended_Pictographic}/u.test(value);
 }
 
-function quoted(m: ThreadMessage, byId: Map<string, ThreadMessage>) {
+function quoted(m: ThreadMessage, byId: Map<string, ThreadMessage>, t: TFunction) {
   if (!m.replyToId) return null;
   const src = byId.get(m.replyToId);
   const text = src
     ? src.deletedForAll
-      ? "Deleted message"
+      ? t("thread.deletedMessage")
       : readablePrefix(src.body) || src.body
-    : "Original message";
+    : t("thread.originalMessage");
   return (
     <div className="mb-1 border-l-2 border-current/40 pl-2 text-xs opacity-75">
       {src?.senderName && <div className="font-medium">{src.senderName}</div>}
@@ -101,6 +103,7 @@ function quoted(m: ThreadMessage, byId: Map<string, ThreadMessage>) {
  * has no receipts and this renders nothing at all rather than "Seen by 0".
  */
 function SeenBy({ receipts }: { receipts: ChannelReadReceiptDTO[] }) {
+  const { t } = useTranslation("chatThread");
   const [open, setOpen] = useState(false);
   const wrap = usePopupDismiss<HTMLSpanElement>(open, () => setOpen(false));
   if (receipts.length === 0) return null;
@@ -112,9 +115,9 @@ function SeenBy({ receipts }: { receipts: ChannelReadReceiptDTO[] }) {
         onClick={() => setOpen((value) => !value)}
         className="ml-1 font-medium text-accent hover:underline"
         aria-expanded={open}
-        aria-label={`Seen by ${receipts.length} ${receipts.length === 1 ? "person" : "people"}`}
+        aria-label={t("thread.seenBy.ariaLabel", { count: receipts.length })}
       >
-        Seen by {receipts.length}
+        {t("thread.seenBy.count", { count: receipts.length })}
       </button>
       {open && (
         // Keep the reader list below its trigger so it does not cover the
@@ -125,13 +128,13 @@ function SeenBy({ receipts }: { receipts: ChannelReadReceiptDTO[] }) {
         // visible column, on exactly the messages it appears on.
         <span
           role="dialog"
-          aria-label="Seen by"
+          aria-label={t("thread.seenBy.label")}
           className="absolute right-0 top-full z-[1000] mt-1 max-h-48 min-w-40 overflow-y-auto rounded-lg border border-border bg-surface p-2 text-xs text-fg shadow-card"
         >
-          <span className="mb-1 block font-semibold">Seen by</span>
+          <span className="mb-1 block font-semibold">{t("thread.seenBy.label")}</span>
           {receipts.map((receipt) => (
             <span key={receipt.readerId} className="flex items-baseline justify-between gap-2 py-0.5">
-              <span className="truncate">{receipt.readerName || "Unknown"}</span>
+              <span className="truncate">{receipt.readerName || t("thread.seenBy.unknownReader")}</span>
               {receipt.readAt && (
                 <span className="shrink-0 tabular-nums text-muted">{clock(receipt.readAt)}</span>
               )}
@@ -153,7 +156,7 @@ export function ChatThread({
   peerTyping = false,
   peerName,
   showSenderNames = false,
-  placeholder = "Write a message…",
+  placeholder,
   disabled = false,
   notice,
   onForwardTo,
@@ -302,6 +305,7 @@ export function ChatThread({
    *  component has no way to know. */
   selectionToolbar?: React.ReactNode;
 }) {
+  const { t } = useTranslation("chatThread");
   const listRef = useRef<HTMLDivElement>(null);
   const forwardMedia = useWhatsAppMediaForward();
 
@@ -390,7 +394,7 @@ export function ChatThread({
               disabled={loadingOlder}
               className="rounded-full px-3 py-1 text-[11px] font-medium text-muted transition-colors hover:text-accent disabled:opacity-60"
             >
-              {loadingOlder ? "Loading earlier messages…" : "Load earlier messages"}
+              {loadingOlder ? t("thread.loadHistory.loading") : t("thread.loadHistory.load")}
             </button>
           </div>
         )}
@@ -399,7 +403,7 @@ export function ChatThread({
             <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent-soft text-accent">
               <MessageSquare size={24} />
             </div>
-            <div className="text-sm">No messages yet — say hi 👋</div>
+            <div className="text-sm">{t("shared.emptyMessages")}</div>
           </div>
         ) : (
           groupMessages(messages).map(({ msg: m, day, grouped }) => {
@@ -428,7 +432,7 @@ export function ChatThread({
                 <div key={m.id}>
                   {dayChip}
                   <SystemPill icon={<PhoneMissed size={12} className="text-danger" />} at={m.at}>
-                    {mine ? `${m.body} · no answer` : m.body}
+                    {mine ? t("shared.callMissedNoAnswer", { body: m.body }) : m.body}
                   </SystemPill>
                 </div>
               );
@@ -478,7 +482,9 @@ export function ChatThread({
                         role: "button" as const,
                         tabIndex: 0,
                         "aria-pressed": picked,
-                        "aria-label": `Select message${m.senderName ? ` from ${m.senderName}` : ""}`,
+                        "aria-label": m.senderName
+                          ? t("thread.selectMessageFrom", { name: m.senderName })
+                          : t("thread.selectMessage"),
                         onClick: () => onToggleSelect!(m.id),
                         onKeyDown: (e: React.KeyboardEvent) => {
                           if (e.key === "Enter" || e.key === " ") {
@@ -529,12 +535,12 @@ export function ChatThread({
                         is visible to everyone without opening anything. */}
                     {m.pinned && !m.deletedForAll && (
                       <div className="mb-0.5 flex items-center gap-1 px-1 text-[11px] font-medium text-accent">
-                        <Pin size={11} /> Pinned
+                        <Pin size={11} /> {t("thread.pinned")}
                       </div>
                     )}
                     {m.isForward && !m.deletedForAll && (
                       <div className="mb-0.5 flex items-center gap-1 px-1 text-[11px] italic text-muted">
-                        <Forward size={11} /> Forwarded
+                        <Forward size={11} /> {t("thread.forwarded")}
                       </div>
                     )}
                     <div className={`group flex items-center gap-1 ${mine ? "flex-row-reverse" : "flex-row"}`}>
@@ -546,7 +552,7 @@ export function ChatThread({
                           className={`inline-flex items-center gap-1.5 rounded-2xl px-3.5 py-2 text-sm italic ${mine ? "rounded-br-md" : "rounded-bl-md"
                             } bg-surface-2 text-muted ring-1 ring-border/60`}
                         >
-                          <Ban size={13} /> This message was deleted
+                          <Ban size={13} /> {t("thread.tombstone")}
                         </div>
                       ) : custom ? (
                         // pointer-events-none while selecting: a tap on a
@@ -562,7 +568,7 @@ export function ChatThread({
                               : "rounded-bl-md bg-surface text-fg ring-1 ring-border/60"
                               } ${m.pending ? "opacity-60" : ""}`) + (selecting ? " pointer-events-none select-none" : "")}
                         >
-                          {quoted(m, byId)}
+                          {quoted(m, byId, t)}
                           {renderMessageBody(m.body)}
                         </div>
                       )}
@@ -627,7 +633,7 @@ export function ChatThread({
                       />
                     )}
                     <span className="mt-0.5 flex items-center gap-1 px-1 text-[10px] text-muted/70">
-                      {m.pending ? "Sending…" : clock(m.at)}
+                      {m.pending ? t("shared.sending") : clock(m.at)}
                       {/* Sent → Delivered → Seen, spelled out, on my own
                           bubbles only — and on every kind of them, because this
                           row sits BELOW the bubble and so covers media, files
@@ -658,7 +664,7 @@ export function ChatThread({
             <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted/60 [animation-delay:-0.1s]" />
             <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted/60" />
           </span>
-          {peerName ? `${peerName} is typing…` : "Typing…"}
+          {peerName ? t("thread.typing.peer", { name: peerName }) : t("thread.typing.generic")}
         </div>
       )}
 
@@ -667,7 +673,7 @@ export function ChatThread({
       ) : disabled ? (
         <div className="flex items-center justify-center gap-2 border-t border-border/60 bg-surface-2/60 p-4 text-sm text-muted">
           <Ban size={15} className="shrink-0 text-danger" />
-          <span>{notice ?? "You can't message this conversation."}</span>
+          <span>{notice ?? t("thread.disabledNotice")}</span>
         </div>
       ) : (
         <Composer
@@ -682,7 +688,7 @@ export function ChatThread({
           onAttach={onAttach}
           onShareLocation={onShareLocation}
           onPaste={onPaste}
-          placeholder={placeholder}
+          placeholder={placeholder ?? t("thread.composerPlaceholder")}
           dragging={dragging}
           attachments={attachments}
           onRemoveAttachment={onRemoveAttachment}
@@ -692,7 +698,7 @@ export function ChatThread({
               ? {
                 who: replyTo.senderName,
                 text: replyTo.deletedForAll
-                  ? "Deleted message"
+                  ? t("thread.deletedMessage")
                   : readablePrefix(replyTo.body) || replyTo.body,
               }
               : undefined

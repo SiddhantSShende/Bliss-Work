@@ -88,23 +88,3 @@ export function idsToPrune(pinned: Iterable<string>, liveIds: Iterable<string>):
   for (const id of pinned) if (!live.has(id)) out.push(id);
   return out;
 }
-
-/**
- * Whether the "Pin to desktop" button should be offered for a task in an in-app
- * surface (the inbox / tasks card). Only when pinning is supported on this
- * platform (Electron), the task is acknowledged, and it isn't already pinned or
- * locked. On web `canPinOnPlatform` is false, so the button never shows.
- */
-export function shouldOfferPin(opts: {
-  status: AssigneeStatus;
-  canPinOnPlatform: boolean;
-  alreadyPinned: boolean;
-  locked: boolean;
-}): boolean {
-  return (
-    opts.canPinOnPlatform &&
-    !opts.alreadyPinned &&
-    !opts.locked &&
-    canPinTask(opts.status)
-  );
-}

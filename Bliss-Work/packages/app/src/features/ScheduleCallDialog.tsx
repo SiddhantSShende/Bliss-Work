@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Video, Phone, Calendar, Clock } from "lucide-react";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { Button } from "@taskboard/ui";
 import type { CallDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
@@ -37,13 +38,16 @@ type Scope =
  *
  *  "No end time" is offered deliberately for the rare call that genuinely runs
  *  until people leave — an all-day room. Those still close when the last
- *  participant disconnects; they simply have no clock on them. */
-const DURATIONS: { label: string; minutes: number }[] = [
-  { label: "15m", minutes: 15 },
-  { label: "30m", minutes: 30 },
-  { label: "1h", minutes: 60 },
-  { label: "2h", minutes: 120 },
-  { label: "No end time", minutes: 0 },
+ *  participant disconnects; they simply have no clock on them.
+ *
+ *  Keys into `schedule.durations.*`, resolved to labels inside the component
+ *  (via useMemo below) since the labels themselves are translated. */
+const DURATION_KEYS: { key: string; minutes: number }[] = [
+  { key: "m15", minutes: 15 },
+  { key: "m30", minutes: 30 },
+  { key: "h1", minutes: 60 },
+  { key: "h2", minutes: 120 },
+  { key: "noEnd", minutes: 0 },
 ];
 
 /** Matches the server's own default (defaultCallMinutes in calls.go), so the
@@ -69,6 +73,7 @@ export function ScheduleCallDialog({
   /** Fired when the call exists and should be opened immediately. */
   onStarted?: (call: CallDTO) => void;
 }) {
+  const { t, i18n } = useTranslation("meetings");
   const { api } = useRuntime();
   const qc = useQueryClient();
   const [title, setTitle] = useState("");
@@ -76,6 +81,10 @@ export function ScheduleCallDialog({
   const [when, setWhen] = useState("");
   const [minutes, setMinutes] = useState(DEFAULT_MINUTES);
   const [created, setCreated] = useState<CallDTO | null>(null);
+  const DURATIONS = useMemo(
+    () => DURATION_KEYS.map((d) => ({ label: t(`schedule.durations.${d.key}`), minutes: d.minutes })),
+    [t],
+  );
 
   const create = useMutation({
     mutationFn: async () => {
@@ -95,59 +104,59 @@ export function ScheduleCallDialog({
       // "Meet now" should not make you click twice.
       if (!when && onStarted) onStarted(call);
     },
-    onError: () => toast.error("Couldn't schedule that call"),
+    onError: () => toast.error(t("schedule.error")),
   });
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div className="w-full max-w-md rounded-2xl bg-surface p-5 shadow-xl">
         <h2 className="mb-1 text-lg font-semibold text-fg">
-          {scope.kind === "channel" ? "Start a channel call" : "Schedule a call"}
+          {scope.kind === "channel" ? t("schedule.titleChannel") : t("schedule.titleDirect")}
         </h2>
         <p className="mb-4 text-xs text-muted">
           {scope.kind === "channel"
-            ? "Everyone in this channel can join. There is no invite link — channel membership is the invitation."
-            : `${scope.peerName} will be able to join at the time you pick. Whoever schedules it opens it.`}
+            ? t("schedule.descriptionChannel")
+            : t("schedule.descriptionDirect", { peerName: scope.peerName })}
         </p>
 
         {!created ? (
           <div className="flex flex-col gap-3">
             <label className="flex flex-col gap-1">
-              <span className="text-xs font-medium text-muted">Title</span>
+              <span className="text-xs font-medium text-muted">{t("schedule.titleLabel")}</span>
               <input
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 maxLength={200}
-                placeholder={scope.kind === "channel" ? "Design sync" : "Weekly review"}
+                placeholder={scope.kind === "channel" ? t("schedule.placeholderChannel") : t("schedule.placeholderDirect")}
                 className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-fg outline-none focus:border-accent"
               />
             </label>
 
             <div className="flex flex-col gap-1">
-              <span className="text-xs font-medium text-muted">Type</span>
+              <span className="text-xs font-medium text-muted">{t("schedule.typeLabel")}</span>
               <div className="flex gap-2">
                 <Button
                   variant={media === "video" ? "primary" : "ghost"}
                   size="sm"
                   onClick={() => setMedia("video")}
                 >
-                  <Video size={14} /> Video
+                  <Video size={14} /> {t("schedule.video")}
                 </Button>
                 <Button
                   variant={media === "audio" ? "primary" : "ghost"}
                   size="sm"
                   onClick={() => setMedia("audio")}
                 >
-                  <Phone size={14} /> Audio
+                  <Phone size={14} /> {t("schedule.audio")}
                 </Button>
               </div>
             </div>
 
             <label className="flex flex-col gap-1">
               <span className="text-xs font-medium text-muted">
-                When{" "}
+                {t("schedule.whenLabel")}{" "}
                 <span className="font-normal">
-                  {scope.kind === "direct" ? "— required" : "— leave empty to start now"}
+                  {scope.kind === "direct" ? t("schedule.whenRequired") : t("schedule.whenOptional")}
                 </span>
               </span>
               <div className="relative">
@@ -166,8 +175,8 @@ export function ScheduleCallDialog({
 
             <div className="flex flex-col gap-1">
               <span className="text-xs font-medium text-muted">
-                Length{" "}
-                <span className="font-normal">— the call ends automatically when it runs out</span>
+                {t("schedule.lengthLabel")}{" "}
+                <span className="font-normal">{t("schedule.lengthHint")}</span>
               </span>
               <div className="flex flex-wrap gap-2">
                 {DURATIONS.map((d) => (
@@ -185,36 +194,36 @@ export function ScheduleCallDialog({
 
             <div className="mt-2 flex justify-end gap-2">
               <Button variant="ghost" size="sm" onClick={onClose}>
-                Cancel
+                {t("schedule.cancel")}
               </Button>
               <Button
                 size="sm"
                 onClick={() => create.mutate()}
                 disabled={create.isPending || (scope.kind === "direct" && !when)}
               >
-                {when || scope.kind === "direct" ? "Schedule" : "Start now"}
+                {when || scope.kind === "direct" ? t("schedule.submitSchedule") : t("schedule.submitStartNow")}
               </Button>
             </div>
           </div>
         ) : (
           <div className="flex flex-col gap-3">
             <div className="rounded-lg bg-surface-2 px-3 py-2 text-sm text-fg">
-              {created.title || "Untitled"}
+              {created.title || t("schedule.untitled")}
               <div className="text-xs text-muted">
                 {created.scheduledAt
-                  ? new Date(created.scheduledAt).toLocaleString()
-                  : "Started now"}
-                {created.endsAt && ` — ends ${new Date(created.endsAt).toLocaleTimeString()}`}
+                  ? new Date(created.scheduledAt).toLocaleString(i18n.language)
+                  : t("schedule.startedNow")}
+                {created.endsAt && t("schedule.endsAt", { time: new Date(created.endsAt).toLocaleTimeString(i18n.language) })}
               </div>
             </div>
 
             <div className="mt-1 flex justify-end gap-2">
               <Button variant="ghost" size="sm" onClick={onClose}>
-                Done
+                {t("schedule.done")}
               </Button>
               {onStarted && (
                 <Button size="sm" onClick={() => onStarted(created)}>
-                  Join now
+                  {t("schedule.joinNow")}
                 </Button>
               )}
             </div>

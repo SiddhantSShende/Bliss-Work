@@ -16,13 +16,13 @@
  */
 import type { CallDTO } from "@taskboard/shared";
 import { startOfDay, whenOf } from "./meetingTime";
+import i18n from "../i18n";
 
 export type CalendarScale = "week" | "month";
 
-export const CALENDAR_SCALES: readonly { key: CalendarScale; label: string }[] = [
-  { key: "week", label: "Week" },
-  { key: "month", label: "Month" },
-];
+// Labels live where they're rendered (MeetingsCalendar.tsx, via
+// t(`calendar.scale.${key}`)) — this is just the fixed key order.
+export const CALENDAR_SCALES: readonly { key: CalendarScale }[] = [{ key: "week" }, { key: "month" }];
 
 export function isCalendarScale(v: unknown): v is CalendarScale {
   return v === "week" || v === "month";
@@ -109,7 +109,7 @@ export function parseAnchor(v: string | null, now = Date.now()): number {
  *  Intl so it follows the viewer's locale rather than a fixed order. */
 export function rangeLabel(anchor: number, scale: CalendarScale): string {
   if (scale === "month") {
-    return new Date(startOfMonth(anchor)).toLocaleDateString(undefined, {
+    return new Date(startOfMonth(anchor)).toLocaleDateString(i18n.language, {
       month: "long",
       year: "numeric",
     });
@@ -119,12 +119,12 @@ export function rangeLabel(anchor: number, scale: CalendarScale): string {
   const first = new Date(start);
   const sameMonth = first.getMonth() === last.getMonth() && first.getFullYear() === last.getFullYear();
   const sameYear = first.getFullYear() === last.getFullYear();
-  const from = first.toLocaleDateString(undefined, {
+  const from = first.toLocaleDateString(i18n.language, {
     day: "numeric",
     month: sameMonth ? undefined : "short",
     year: sameYear ? undefined : "numeric",
   });
-  const to = last.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+  const to = last.toLocaleDateString(i18n.language, { day: "numeric", month: "short", year: "numeric" });
   return `${from} – ${to}`;
 }
 
@@ -132,8 +132,8 @@ export function rangeLabel(anchor: number, scale: CalendarScale): string {
 export function dayColumnLabel(t: number): { weekday: string; date: string } {
   const d = new Date(t);
   return {
-    weekday: d.toLocaleDateString(undefined, { weekday: "short" }),
-    date: d.toLocaleDateString(undefined, { day: "numeric", month: "short" }),
+    weekday: d.toLocaleDateString(i18n.language, { weekday: "short" }),
+    date: d.toLocaleDateString(i18n.language, { day: "numeric", month: "short" }),
   };
 }
 

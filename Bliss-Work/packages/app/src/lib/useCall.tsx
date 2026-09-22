@@ -6,6 +6,7 @@ import { useSession } from "../store/session";
 import { CallSession, type CallMedia } from "./callManager";
 import { isGetUserMediaDenied } from "./useCallRoom";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { createRingtone, primeRingtoneAudio } from "./ringtone";
 import { notifyIncomingCall, notifyMissedCall, primeCallNotifications } from "./callNotify";
 import { qk } from "./queryBridge";
@@ -87,6 +88,7 @@ const IDLE: CallState = {
 };
 
 export function CallProvider({ children }: { children: React.ReactNode }) {
+  const { t } = useTranslation("calls");
   const { rtc, api, config } = useRuntime();
   const qc = useQueryClient();
   const me = useSession((s) => s.user);
@@ -343,10 +345,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       ringTimer.current = setTimeout(() => {
         rtc.sendFrame({ type: "call.cancel", toUserId: peerId, callId });
         recordMissedCall(peerId, media);
-        teardown("ended", "No answer");
+        teardown("ended", t("endedReasons.noAnswer"));
       }, RING_TIMEOUT_MS);
     },
-    [me, rtc, teardown, recordMissedCall, backWithRecord],
+    [me, rtc, teardown, recordMissedCall, backWithRecord, t],
   );
 
   const accept = useCallback(() => {
@@ -366,7 +368,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       try {
         await s.prepareCallee(); // mic/cam permission prompt happens here
       } catch {
-        teardown("ended", "Camera/microphone blocked");
+        teardown("ended", t("endedReasons.mediaBlocked"));
         return;
       }
       // Same race, on the other side of the (often much longer) permission
@@ -378,7 +380,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       setState((st) => ({ ...st, localStream: s.localStream }));
       rtc.sendFrame({ type: "call.accept", toUserId: inc.peerId, callId: inc.callId });
     })();
-  }, [iceConfig, newSession, rtc, teardown]);
+  }, [iceConfig, newSession, rtc, teardown, t]);
 
   const decline = useCallback(() => {
     const inc = incomingRef.current;
@@ -413,9 +415,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       .setCam()
       .then((on) => setState((st) => ({ ...st, camOn: on })))
       .catch(() =>
-        toast("Camera unavailable", { description: "Check this app's camera permission." }),
+        toast(t("notify.cameraUnavailable"), { description: t("notify.cameraUnavailableDescription") }),
       );
-  }, []);
+  }, [t]);
 
   const toggleShare = useCallback(() => {
     const s = sessionRef.current;
@@ -435,7 +437,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         // Dismissing the picker is a normal thing to do, and not worth a toast.
         // Anything else is.
         if (!isGetUserMediaDenied(e)) {
-          toast.error("Couldn't share your screen");
+          toast.error(t("notify.couldNotShareScreen"));
         }
         return;
       }
@@ -447,7 +449,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         await api.startScreenShare(record, surface as "monitor" | "window" | "browser").catch(() => {});
       }
     })();
-  }, [api]);
+  }, [api, t]);
 
   const addPeople = useCallback(
     async (userIds: string[]) => {
@@ -497,7 +499,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             });
             clearRing();
             ringTimer.current = setTimeout(() => {
-              notifyMissedCall(stateRef.current.peerName ?? "Someone");
+              notifyMissedCall(stateRef.current.peerName ?? t("notify.unknownCaller"));
               teardown("idle");
             }, RING_TIMEOUT_MS);
             // Upgrade to the directory display name if the cache was cold —
@@ -521,7 +523,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             try {
               await s.startCaller();
             } catch {
-              teardown("ended", "Camera/microphone blocked");
+              teardown("ended", t("endedReasons.mediaBlocked"));
               return;
             }
             // Same race on the far side of the permission prompt: if the
@@ -535,17 +537,17 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             break;
           }
           case "call.decline":
-            if (f.callId === cur.callId) teardown("ended", "Call declined");
+            if (f.callId === cur.callId) teardown("ended", t("endedReasons.declined"));
             break;
           case "call.cancel":
             if (f.callId === (cur.callId ?? incomingRef.current?.callId)) {
               // Caller hung up before we picked up — a missed call on this side.
-              if (cur.status === "incoming") notifyMissedCall(cur.peerName ?? "Someone");
+              if (cur.status === "incoming") notifyMissedCall(cur.peerName ?? t("notify.unknownCaller"));
               teardown("idle");
             }
             break;
           case "call.end":
-            if (f.callId === cur.callId) teardown("ended", "Call ended");
+            if (f.callId === cur.callId) teardown("ended", t("endedReasons.callEnded"));
             break;
           case "rtc.offer":
             if (sessionRef.current && f.offerId === cur.callId) await sessionRef.current.onOffer(f.sdp);
@@ -557,13 +559,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             if (sessionRef.current && f.offerId === cur.callId) await sessionRef.current.onIce(f.candidate);
             break;
           case "rtc.peer.unreachable":
-            if (f.offerId === cur.callId) teardown("ended", "User unavailable");
+            if (f.offerId === cur.callId) teardown("ended", t("endedReasons.userUnavailable"));
             break;
         }
       })();
     });
     return off;
-  }, [rtc, iceConfig, newSession, teardown, cachedName, resolveName]);
+  }, [rtc, iceConfig, newSession, teardown, cachedName, resolveName, t]);
 
   // Ring + notify, driven by call STATUS rather than by the overlay's render so
   // every exit path (accept, decline, cancel, ring timeout, peer unreachable,
@@ -575,11 +577,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       // Every audio path refused — say so instead of ringing silently. The
       // click that dismisses this toast is itself the gesture that unblocks
       // sound for the rest of the session.
-      if (incoming) toast("Ringtone is muted by your browser", { description: "Click anywhere to allow call sounds." });
+      if (incoming) toast(t("notify.ringtoneMuted"), { description: t("notify.ringtoneMutedDescription") });
     });
     ring.start();
     // Only the callee gets a banner; the caller is already looking at the app.
-    const note = incoming ? notifyIncomingCall(state.peerName ?? "Someone", state.media ?? "audio") : undefined;
+    const note = incoming
+      ? notifyIncomingCall(state.peerName ?? t("notify.unknownCaller"), state.media ?? "audio")
+      : undefined;
     return () => {
       ring.stop();
       note?.close();

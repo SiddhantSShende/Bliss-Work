@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import { Trans, useTranslation } from "react-i18next";
 import { Mail } from "lucide-react";
 import { Button, Input } from "@taskboard/ui";
 import { ApiError } from "@taskboard/shared";
@@ -14,6 +15,7 @@ import { AuthLayout, Field } from "./Onboarding";
  * rate-limiting / malformed input (never account existence).
  */
 export function ForgotPassword() {
+  const { t } = useTranslation("auth");
   const { api } = useRuntime();
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
@@ -27,11 +29,11 @@ export function ForgotPassword() {
       setSent(true);
     } catch (err) {
       if (err instanceof ApiError && err.status === 429) {
-        toast.error("Too many requests — please wait a minute and try again.");
+        toast.error(t("forgotPassword.errors.tooManyRequests"));
       } else if (err instanceof ApiError && err.status === 422) {
-        toast.error("Please enter a valid email address.");
+        toast.error(t("forgotPassword.errors.invalidEmail"));
       } else {
-        toast.error("Something went wrong. Please try again.");
+        toast.error(t("forgotPassword.errors.generic"));
       }
     } finally {
       setBusy(false);
@@ -41,32 +43,36 @@ export function ForgotPassword() {
   if (sent)
     return (
       <AuthLayout
-        title="Check your email"
-        subtitle="If an account exists for that address, we've sent a password reset link."
+        title={t("forgotPassword.sent.title")}
+        subtitle={t("forgotPassword.sent.subtitle")}
       >
         <p className="text-sm leading-relaxed text-muted">
-          The link expires in 30 minutes. Didn't get it? Check your spam folder, or{" "}
-          <button
-            className="font-medium text-accent hover:underline"
-            onClick={() => setSent(false)}
-          >
-            try a different email
-          </button>
-          .
+          <Trans
+            i18nKey="auth:forgotPassword.sent.expiryNotice"
+            components={{
+              button: (
+                <button
+                  type="button"
+                  className="font-medium text-accent hover:underline"
+                  onClick={() => setSent(false)}
+                />
+              ),
+            }}
+          />
         </p>
         <Link
           to="/login"
           className="mt-4 block text-center text-sm font-medium text-accent hover:underline"
         >
-          Back to sign in
+          {t("forgotPassword.backToSignIn")}
         </Link>
       </AuthLayout>
     );
 
   return (
-    <AuthLayout title="Forgot your password?" subtitle="Enter your email and we'll send a reset link.">
+    <AuthLayout title={t("forgotPassword.title")} subtitle={t("forgotPassword.subtitle")}>
       <form onSubmit={submit} className="flex flex-col gap-4">
-        <Field label="Email">
+        <Field label={t("forgotPassword.emailLabel")}>
           <div className="relative">
             <Mail
               size={17}
@@ -77,7 +83,7 @@ export function ForgotPassword() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@acme.com"
+              placeholder={t("forgotPassword.emailPlaceholder")}
               className="pl-10"
               autoFocus
               required
@@ -85,10 +91,10 @@ export function ForgotPassword() {
           </div>
         </Field>
         <Button type="submit" loading={busy} size="lg" className="mt-1 w-full">
-          {busy ? "Sending…" : "Send reset link"}
+          {busy ? t("forgotPassword.sending") : t("forgotPassword.sendResetLink")}
         </Button>
         <Link to="/login" className="text-center text-sm font-medium text-accent hover:underline">
-          Back to sign in
+          {t("forgotPassword.backToSignIn")}
         </Link>
       </form>
     </AuthLayout>

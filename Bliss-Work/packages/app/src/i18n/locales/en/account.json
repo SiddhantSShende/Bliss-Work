@@ -1,0 +1,222 @@
+{
+  "profile": {
+    "header": {
+      "title": "My Profile",
+      "subtitle": "Manage how you appear to your team."
+    },
+    "photo": {
+      "changePhoto": "Change photo",
+      "addPhoto": "Add photo",
+      "changePhotoAria": "Change profile photo",
+      "addPhotoAria": "Add profile photo"
+    },
+    "form": {
+      "displayNameLabel": "Display name",
+      "displayNamePlaceholder": "Your name",
+      "emailLabel": "Email",
+      "usernameLabel": "Username",
+      "cancel": "Cancel",
+      "saveChanges": "Save changes"
+    },
+    "toasts": {
+      "profileUpdated": "Profile updated",
+      "updateFailed": "Could not update profile",
+      "photoUpdated": "Profile photo updated",
+      "photoUpdateFailed": "Could not update your photo",
+      "unsupportedFileType": {
+        "title": "Unsupported file type",
+        "description": "Please choose a JPG, PNG, or WebP image."
+      },
+      "processFailed": {
+        "title": "Couldn't process that image",
+        "description": "Please try a different photo."
+      }
+    }
+  },
+  "activeSessions": {
+    "header": {
+      "title": "Active sessions",
+      "subtitle": "Where you're signed in. Sign out any device you don't recognize."
+    },
+    "empty": {
+      "title": "No active sessions",
+      "hint": "You'll see every signed-in device here."
+    },
+    "signOutAllOthers": "Sign out of all other sessions",
+    "confirmOne": {
+      "title": "Sign out this session?",
+      "message": "<bold>{{device}}</bold> will be signed out immediately and will need to sign in again.",
+      "confirmLabel": "Sign out"
+    },
+    "confirmAllOthers": {
+      "title": "Sign out of all other sessions?",
+      "message_one": "This device stays signed in. {{count}} other session will be signed out immediately.",
+      "message_other": "This device stays signed in. {{count}} other sessions will be signed out immediately.",
+      "confirmLabel": "Sign out others"
+    },
+    "toasts": {
+      "signedOutOf": "Signed out of {{device}}",
+      "revokeFailed": {
+        "title": "Couldn't sign out that session",
+        "description": "Please try again."
+      },
+      "noOtherSessions": "No other sessions to sign out",
+      "signedOutOfOthers_one": "Signed out of {{count}} other session",
+      "signedOutOfOthers_other": "Signed out of {{count}} other sessions",
+      "revokeOthersFailed": {
+        "title": "Couldn't sign out other sessions",
+        "description": "Please try again."
+      }
+    }
+  },
+  "activeSessionsList": {
+    "thisDevice": "This device",
+    "active": "Active {{time}}",
+    "signedIn": "Signed in {{time}}",
+    "approximateNetwork": "Approximate network",
+    "signOut": "Sign out"
+  },
+  "mfaSettings": {
+    "header": {
+      "title": "Two-factor authentication",
+      "subtitle": "Add a second step to signing in — an authenticator app or a passkey."
+    },
+    "enrolled": {
+      "status": {
+        "title": "Two-factor authentication is on",
+        "description": "You'll be asked for a second factor when you sign in."
+      },
+      "addPasskey": {
+        "title": "Add a passkey",
+        "description": "Use your device's fingerprint, face, or a security key instead of a code.",
+        "action": "Add"
+      },
+      "backupCodes": {
+        "title": "Backup codes",
+        "description": "Regenerating replaces every unused code — old ones stop working immediately.",
+        "action": "Regenerate"
+      },
+      "disable": {
+        "title": "Turn off two-factor authentication",
+        "description": "Removes your authenticator app, passkeys, and backup codes.",
+        "action": "Turn off"
+      }
+    },
+    "notEnrolled": {
+      "totp": {
+        "title": "Authenticator app",
+        "description": "Google Authenticator, 1Password, Authy, or any TOTP app."
+      },
+      "passkey": {
+        "title": "Passkey",
+        "description": "Your device's fingerprint, face, or a security key."
+      },
+      "setUp": "Set up"
+    },
+    "backupCodesModal": {
+      "title": "Save your backup codes"
+    },
+    "stepUp": {
+      "titles": {
+        "disable": "Confirm it's you",
+        "regenerate": "Confirm it's you to regenerate codes",
+        "addPasskey": "Confirm it's you to add a passkey"
+      },
+      "passwordPlaceholder": "Your password",
+      "backupCodePlaceholder": "Backup code",
+      "authCodePlaceholder": "Authentication code",
+      "useAuthCodeInstead": "Use an authentication code instead",
+      "useBackupCodeInstead": "Use a backup code instead",
+      "waitingForPasskey": "Waiting for passkey…",
+      "usePasskeyInstead": "Use a passkey instead",
+      "submitLabels": {
+        "regenerate": "Regenerate backup codes",
+        "addPasskey": "Add passkey"
+      },
+      "toasts": {
+        "tooManyAttemptsTitle": "Too many attempts",
+        "verificationFailedTitle": "Verification failed",
+        "verificationFailedDescription": "Check your password and code, then try again.",
+        "passkeyVerifyFailed": {
+          "title": "Couldn't verify passkey",
+          "description": "Please try again."
+        }
+      }
+    },
+    "toasts": {
+      "refreshFailed": {
+        "title": "Couldn't refresh your account",
+        "description": "Your two-factor authentication status on this page may be out of date — refresh to see the latest."
+      },
+      "passkeyAdded": "Passkey added",
+      "addPasskeyFailed": {
+        "title": "Couldn't add passkey",
+        "description": "Please try again."
+      },
+      "mfaTurnedOff": "Two-factor authentication turned off"
+    }
+  },
+  "passwordField": {
+    "hidePassword": "Hide password",
+    "showPassword": "Show password",
+    "strength": {
+      "veryWeak": "Very weak",
+      "weak": "Weak",
+      "fair": "Fair",
+      "good": "Good",
+      "strong": "Strong"
+    },
+    "requirements": {
+      "minLength": "At least 10 characters",
+      "letter": "One letter",
+      "digit": "One number",
+      "special": "One special character (!@#$…)"
+    }
+  },
+  "backupCodesView": {
+    "description": "Save these backup codes somewhere safe. Each one lets you sign in ONE time if you lose access to your authenticator — they will not be shown again.",
+    "copied": "Copied",
+    "copyAll": "Copy all",
+    "acknowledgeLabel": "I've saved these codes somewhere safe.",
+    "done": "Done"
+  },
+  "totpEnroll": {
+    "toasts": {
+      "startFailed": {
+        "title": "Couldn't start enrollment",
+        "description": "Please try again."
+      },
+      "tooManyAttempts": {
+        "title": "Too many attempts",
+        "description": "Wait a minute before trying again."
+      },
+      "incorrectCode": {
+        "title": "Incorrect code",
+        "description": "Check the time on your device and try again."
+      }
+    },
+    "startError": {
+      "message": "Couldn't start enrollment.",
+      "retry": "Try again"
+    },
+    "preparing": "Preparing enrollment…",
+    "instructions": "Scan this with an authenticator app (Google Authenticator, 1Password, Authy, …), or enter the setup key manually.",
+    "qrAlt": "Scan with your authenticator app",
+    "setupKeyLabel": "Setup key",
+    "codeLabel": "Enter the 6-digit code",
+    "verifying": "Verifying…",
+    "confirmAndEnable": "Confirm and enable"
+  },
+  "mfaPolicy": {
+    "title": "Require two-factor authentication for admins",
+    "descriptionWithDeadline": "Non-enrolled admins are warned until {{deadline}}, then blocked at sign-in until they enroll.",
+    "descriptionNoDeadline": "Admins choose for themselves whether to enable it.",
+    "turnOff": "Turn off",
+    "turnOn": "Turn on",
+    "toasts": {
+      "enabled": "Two-factor authentication is now required for admins",
+      "disabled": "Two-factor authentication is no longer required",
+      "updateFailed": "Couldn't update the policy"
+    }
+  }
+}

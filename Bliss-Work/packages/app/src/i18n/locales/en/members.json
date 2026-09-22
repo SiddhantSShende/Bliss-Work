@@ -1,0 +1,304 @@
+{
+  "list": {
+    "title": "Members",
+    "workspaceActivity": "Workspace activity",
+    "searchPlaceholder": "Search teammates…",
+    "selfRow": {
+      "name": "{{name}} (you)",
+      "subtitle": "Your activity and sessions"
+    },
+    "empty": {
+      "title": "No teammates found"
+    },
+    "status": {
+      "online": "Online",
+      "idle": "Idle",
+      "lastSeen": "Last seen {{time}}"
+    },
+    "messageButton": "Message {{name}}"
+  },
+  "detail": {
+    "notFound": {
+      "title": "Member not found",
+      "hint": "Pick another teammate on the left."
+    },
+    "backButton": "Back to members",
+    "tabs": {
+      "overview": "Overview",
+      "activity": "Activity",
+      "analytics": "Analytics",
+      "sessions": "Sessions",
+      "admin": "Admin",
+      "security": "Security"
+    },
+    "roleLabel": {
+      "admin": "Admin",
+      "member": "Member"
+    },
+    "fields": {
+      "email": "Email",
+      "username": "Username",
+      "role": "Role",
+      "status": "Status",
+      "lastSeen": "Last seen",
+      "emailVerified": "Email verified",
+      "joined": "Joined",
+      "removed": "Removed"
+    },
+    "emailVerified": {
+      "yes": "Yes",
+      "no": "Not yet"
+    },
+    "lastSeen": {
+      "now": "Now",
+      "noRecentActivity": "No recent activity"
+    },
+    "exportButton": "Export",
+    "exportTooltip": "Export this member's activity",
+    "messageButton": "Message",
+    "selfActivityBanner": "This is your own activity record. Your workspace admins can see it too."
+  },
+  "status": {
+    "active": "Active",
+    "suspended": "Suspended",
+    "removed": "Removed"
+  },
+  "admin": {
+    "toasts": {
+      "actionFailed": "Action failed",
+      "nowAdmin": "{{name}} is now an admin",
+      "nowMember": "{{name}} is now a member",
+      "reactivated": "{{name}} can sign in again",
+      "suspended": "{{name}} is suspended",
+      "removed": "{{name}} was removed from the workspace"
+    },
+    "selfGuard": "You can't change your own role or membership. Ask another admin — that rule is what stops the last admin locking everyone, including themselves, out of the workspace.",
+    "sections": {
+      "role": {
+        "title": "Role",
+        "hint": "Admins can invite people, manage members and see the audit trail. Changing a role signs the member out of every device so their new permissions take effect immediately."
+      },
+      "access": {
+        "title": "Access",
+        "hint": "Suspending keeps everything and can be undone at any time. Removing revokes the membership — their messages, tasks and history stay exactly where they are, and they can be re-invited later."
+      },
+      "activeSessions": {
+        "title": "Active sessions",
+        "hint": "Signing out a session ends it immediately — the device will need to sign in again."
+      }
+    },
+    "actions": {
+      "demote": "Demote to member",
+      "makeAdmin": "Make admin",
+      "suspend": "Suspend",
+      "remove": "Remove",
+      "reactivate": "Reactivate"
+    },
+    "reactivateFirst": "Reactivate this member before changing their role.",
+    "confirmDialog": {
+      "removeTitle": "Remove from workspace?",
+      "suspendTitle": "Suspend member?",
+      "removeMessage": "<bold>{{name}}</bold> will lose access to this workspace immediately and disappear from the directory. Everything they wrote stays. You can invite them back at any time.",
+      "suspendMessage": "<bold>{{name}}</bold> will be signed out everywhere and won't be able to sign back in until you reactivate them. Nothing is deleted."
+    },
+    "sessions": {
+      "loadError": {
+        "title": "Sessions could not be loaded",
+        "hint": "Check your connection and try again."
+      },
+      "none": "No active sessions.",
+      "signedOutToast": "Signed out {{device}}",
+      "revokeFailedToast": {
+        "title": "Couldn't sign out that session",
+        "description": "Please try again."
+      },
+      "confirmDialog": {
+        "title": "Sign out this session?",
+        "message": "<bold>{{device}}</bold> will be signed out immediately and will need to sign in again.",
+        "confirmLabel": "Sign out"
+      }
+    }
+  },
+  "analytics": {
+    "header": {
+      "title": "Activity overview",
+      "subtitle": "Time, sessions, and focus across apps and sites."
+    },
+    "empty": {
+      "title": "No activity in this period",
+      "hint": "Charts appear once there is a day of activity to plot."
+    },
+    "kpi": {
+      "activeTime": "Active time",
+      "acrossDays_one": "across {{count}} day",
+      "acrossDays_other": "across {{count}} days",
+      "sessions": "Sessions",
+      "sessionsHint": "recorded sign-ins",
+      "avgSession": "Avg. session",
+      "avgSessionHint": "active time per session",
+      "actions": "Actions",
+      "actionsHint": "recorded events"
+    },
+    "sections": {
+      "activeTimePerDay": {
+        "title": "Active time per day",
+        "hint": "Purple is time at the keyboard; grey is time signed in but idle."
+      },
+      "highlights": {
+        "title": "Highlights",
+        "hint": "Standout moments from this period."
+      },
+      "whenTheyWork": {
+        "title": "When they work",
+        "hint": "Darker means more active time in that hour."
+      },
+      "whereTheySpendTime": {
+        "title": "Where they spend time",
+        "hint": "Sections of {{brand}}, by time."
+      },
+      "whatTheyDo": {
+        "title": "What they do",
+        "hint": "Recorded actions, by count."
+      }
+    },
+    "chart": {
+      "active": "Active",
+      "idle": "Idle"
+    },
+    "highlights": {
+      "bestDay": "Best day",
+      "peakHours": "Peak hours",
+      "noHourlyData": "No hourly data yet",
+      "idleSignedIn": "Idle, signed in"
+    }
+  },
+  "auditLog": {
+    "labels": {
+      "org": { "created": "created the workspace" },
+      "user": { "profile_updated": "updated their profile" },
+      "invite": {
+        "created": "invited someone",
+        "accepted": "accepted an invite",
+        "revoked": "revoked an invite"
+      },
+      "password": {
+        "reset_requested": "requested a password reset",
+        "reset_completed": "completed a password reset"
+      },
+      "email": { "verified": "verified their email" },
+      "member": {
+        "role_changed": "changed a role",
+        "deactivated": "suspended a member",
+        "reactivated": "reactivated a member",
+        "removed": "removed a member"
+      }
+    },
+    "error": {
+      "title": "Audit log could not be loaded",
+      "hint": "Check your connection and try again."
+    },
+    "empty": {
+      "title": "Nothing recorded yet",
+      "hintScoped": "Admin actions on this member will show up here.",
+      "hintAll": "Admin actions across the workspace show up here."
+    },
+    "systemActor": "System"
+  },
+  "sessions": {
+    "empty": {
+      "title": "No sessions recorded",
+      "hint": "Sessions appear here once they sign in from a device."
+    },
+    "activeNow": "Active now",
+    "endReason": {
+      "disconnect": "Closed the app",
+      "timeout": "Went quiet"
+    },
+    "durations": {
+      "total": "{{duration}} total",
+      "active": "{{duration}} active",
+      "idle": "{{duration}} idle"
+    },
+    "approximateNetworkTooltip": "Approximate network",
+    "retentionNote": "Showing the last 7 days. Older sessions are retained but not browsable here."
+  },
+  "timeline": {
+    "filters": {
+      "all": "Everything",
+      "engagement": "Work",
+      "navigation": "In-app",
+      "auth": "Sign-ins",
+      "security": "Security"
+    },
+    "empty": {
+      "title": "No activity recorded yet",
+      "hint": "Activity appears here as they use {{brand}}."
+    },
+    "verifiedTooltip": "Recorded by {{brand}} itself — not self-reported",
+    "retentionNote": "Showing the last 7 days. Older activity is retained but not browsable here."
+  },
+  "loadOlder": {
+    "button": "Load older"
+  },
+  "activityLabels": {
+    "actions": {
+      "login": "Signed in",
+      "logout": "Signed out",
+      "org": { "switched": "Switched workspace" },
+      "message": { "sent": "Sent a message" },
+      "channel": { "message": { "sent": "Posted in a channel" } },
+      "conversation": { "ignored": "Ignored a conversation" },
+      "user": { "blocked": "Blocked someone", "unblocked": "Unblocked someone" },
+      "task": {
+        "allocated": "Allocated a task",
+        "acknowledged": "Acknowledged a task",
+        "completed": "Completed a task",
+        "ignored": "Ignored a task",
+        "left": "Left a task",
+        "reviewed": "Reviewed a task"
+      },
+      "route": { "enter": "Opened", "dwell": "Spent time in" },
+      "focus": "Came back to {{brand}}",
+      "blur": "Switched away from {{brand}}",
+      "idle": { "start": "Went idle", "end": "Became active" },
+      "screenshot": { "attempted": "Attempted a screenshot" }
+    },
+    "surfaces": {
+      "mail": "Mail",
+      "inbox": "Inbox",
+      "chats": "Chats",
+      "channels": "Channels",
+      "tasks": "Tasks",
+      "members": "Members",
+      "integrations": "Integrations",
+      "search": "Search",
+      "settings": "Settings",
+      "profile": "Profile",
+      "org": "Organization"
+    },
+    "theApp": "the app",
+    "source": {
+      "verified": "Verified",
+      "desktop": "Desktop app",
+      "extension": "Browser extension",
+      "web": "Web app"
+    }
+  },
+  "myActivity": {
+    "settingsBack": "Settings",
+    "title": "Your activity",
+    "subtitle": "Everything {{brand}} records about how you work.",
+    "whatsRecorded": "What's recorded, and who can see it",
+    "bullets": {
+      "signInOut": "When you sign in and out, and when you're online, idle or offline.",
+      "appUsage": "Which parts of {{brand}} you use, and for how long.",
+      "messagesAndTasks": "Messages you send and tasks you act on — the first line of a message, never the whole conversation.",
+      "deviceAndLocation": "The browser and device you sign in from, and a rough location from your IP."
+    },
+    "retentionNote": "Your workspace admins can see this record. The last 7 days are shown here. Detailed activity is kept for 90 days and daily totals for longer — both are used for reports and are available on request, but are not browsable in the app."
+  },
+  "membersEmpty": {
+    "title": "Members",
+    "hint": "Pick a teammate on the left to see their profile, or tap the chat icon to message them."
+  }
+}

@@ -32,6 +32,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertCircle, Circle, Clock, Globe, Mic, MicOff, Video, VideoOff } from "lucide-react";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { Button, cn } from "@taskboard/ui";
 import { type CallDTO } from "@taskboard/shared";
 import { useSession } from "../store/session";
@@ -129,6 +130,7 @@ export function CallRoom({
    *  it was. */
   autoJoin?: "video" | "voice";
 }) {
+  const { t, i18n } = useTranslation("callRoom");
   const room = useCallRoom(call.id);
   const {
     join,
@@ -250,7 +252,7 @@ export function CallRoom({
   );
   const minimized = display.mode === "MINIMIZED";
 
-  const title = call.title || (call.kind === "CHANNEL" ? "Channel call" : "Meeting");
+  const title = call.title || (call.kind === "CHANNEL" ? t("room.defaultTitleChannel") : t("room.defaultTitleMeeting"));
   // The MEETING's own start time, not this client's own connectedAt — every
   // participant's timer must read the same number regardless of when THEY
   // joined. call.startedAt is server-authoritative and already kept fresh via
@@ -326,7 +328,7 @@ export function CallRoom({
     });
     setPreviewCamOn((on) => !on);
   };
-  const myName = participants.find((p) => p.isLocal)?.name || me?.displayName || "You";
+  const myName = participants.find((p) => p.isLocal)?.name || me?.displayName || t("room.youFallbackName");
   const handRaised = identity ? hands.has(identity) : false;
   // Only a HOST may record, and the server says so too — this gate exists so
   // nobody is shown a button that answers 403, not as the control itself.
@@ -731,18 +733,18 @@ export function CallRoom({
       setRecording(false);
       sendData({ t: "recording", on: false });
       await localRec.stop();
-      toast("Recording saved to your downloads");
+      toast(t("room.toasts.recordingSaved"));
       return;
     }
     try {
       localRec.start();
     } catch {
-      toast.error("This browser can't record meetings");
+      toast.error(t("room.toasts.recordingUnsupported"));
       return;
     }
     setRecording(true);
     sendData({ t: "recording", on: true });
-    toast("Recording started — it will save to this device");
+    toast(t("room.toasts.recordingStarted"));
   };
 
   // Mint (once) and copy a link anyone can use to join this call — shared
@@ -750,7 +752,7 @@ export function CallRoom({
   // lib/useCallInviteLink.
   const { isPending: mintingInviteLink, copyLink: copyInviteLinkUrl } = useCallInviteLink(call.id);
   const copyInviteLink = async () => {
-    if (await copyInviteLinkUrl()) toast("Invite link copied");
+    if (await copyInviteLinkUrl()) toast(t("room.toasts.inviteLinkCopied"));
   };
 
   const hangUp = async () => {
@@ -762,8 +764,8 @@ export function CallRoom({
     const scheduledAt = call.scheduledAt;
     const scheduled = scheduledAt == null ? null : new Date(scheduledAt);
     const scheduledLabel = scheduled
-      ? scheduled.toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
-      : "Ready to join";
+      ? scheduled.toLocaleString(i18n.language, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+      : t("preJoin.readyToJoinLabel");
 
     return (
       <div className="meeting-theme meeting-mesh fixed inset-0 z-[100] flex flex-col text-fg">
@@ -773,7 +775,7 @@ export function CallRoom({
             <div className="text-xs text-muted">{scheduledLabel}</div>
           </div>
           <Button variant="ghost" size="sm" onClick={() => void hangUp()}>
-            Leave
+            {t("preJoin.leave")}
           </Button>
         </header>
         <main className="flex min-h-0 flex-1 items-center justify-center p-6">
@@ -811,7 +813,7 @@ export function CallRoom({
                   <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-accent-soft text-2xl font-semibold text-accent">
                     {myName.slice(0, 2).toUpperCase()}
                   </div>
-                  <div className="text-sm">Your camera is off</div>
+                  <div className="text-sm">{t("preJoin.cameraOffPlaceholder")}</div>
                 </div>
               )}
               {previewError && (
@@ -819,26 +821,26 @@ export function CallRoom({
                   <AlertCircle className="mx-auto mb-2 text-danger" size={28} />
                   <div className="text-sm font-medium text-fg">
                     {previewError === "denied"
-                      ? "Camera and microphone are blocked"
-                      : "Couldn't access your camera or microphone"}
+                      ? t("preJoin.error.deniedTitle")
+                      : t("preJoin.error.otherTitle")}
                   </div>
                   <p className="mt-1 text-xs">
                     {previewError === "denied"
-                      ? "Check this app's camera and microphone permission, then try again."
-                      : "Make sure a camera and microphone are connected and not already in use, then try again."}
+                      ? t("preJoin.error.deniedHint")
+                      : t("preJoin.error.otherHint")}
                   </p>
                   <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
                     <Button size="sm" variant="ghost" onClick={() => setPreviewAttempt((n) => n + 1)}>
-                      Try again
+                      {t("preJoin.error.tryAgain")}
                     </Button>
                     {previewError === "denied" && config.openCameraSettings && (
                       <Button size="sm" variant="ghost" onClick={() => void config.openCameraSettings!()}>
-                        Open camera settings
+                        {t("preJoin.error.openCameraSettings")}
                       </Button>
                     )}
                     {previewError === "denied" && config.openMicrophoneSettings && (
                       <Button size="sm" variant="ghost" onClick={() => void config.openMicrophoneSettings!()}>
-                        Open microphone settings
+                        {t("preJoin.error.openMicrophoneSettings")}
                       </Button>
                     )}
                   </div>
@@ -848,8 +850,8 @@ export function CallRoom({
                 <button
                   type="button"
                   onClick={togglePreviewMic}
-                  title={previewMicOn ? "Mute microphone" : "Unmute microphone"}
-                  aria-label={previewMicOn ? "Mute microphone" : "Unmute microphone"}
+                  title={previewMicOn ? t("preJoin.muteMic") : t("preJoin.unmuteMic")}
+                  aria-label={previewMicOn ? t("preJoin.muteMic") : t("preJoin.unmuteMic")}
                   className={`flex h-10 w-10 items-center justify-center rounded-full transition-colors ${previewMicOn ? "bg-surface-2 text-fg hover:bg-border" : "bg-danger text-white hover:brightness-110"}`}
                 >
                   {previewMicOn ? <Mic size={17} /> : <MicOff size={17} />}
@@ -857,8 +859,8 @@ export function CallRoom({
                 <button
                   type="button"
                   onClick={togglePreviewCam}
-                  title={previewCamOn ? "Turn camera off" : "Turn camera on"}
-                  aria-label={previewCamOn ? "Turn camera off" : "Turn camera on"}
+                  title={previewCamOn ? t("preJoin.cameraOff") : t("preJoin.cameraOn")}
+                  aria-label={previewCamOn ? t("preJoin.cameraOff") : t("preJoin.cameraOn")}
                   className={`flex h-10 w-10 items-center justify-center rounded-full transition-colors ${previewCamOn ? "bg-surface-2 text-fg hover:bg-border" : "bg-danger text-white hover:brightness-110"}`}
                 >
                   {previewCamOn ? <Video size={17} /> : <VideoOff size={17} />}
@@ -867,11 +869,11 @@ export function CallRoom({
             </div>
             <div className="mt-5 flex flex-col items-center gap-3 text-center">
               <div>
-                <h1 className="text-xl font-semibold">Ready to join?</h1>
-                <p className="mt-1 text-sm text-muted">Check your camera and microphone before entering the meeting.</p>
+                <h1 className="text-xl font-semibold">{t("preJoin.heading")}</h1>
+                <p className="mt-1 text-sm text-muted">{t("preJoin.description")}</p>
               </div>
               <Button size="lg" onClick={() => setPreJoin(false)}>
-                Join meeting
+                {t("preJoin.joinButton")}
               </Button>
             </div>
           </div>
@@ -912,17 +914,17 @@ export function CallRoom({
           <div className="text-lg font-semibold text-fg">{title}</div>
           <p className="mt-1 text-sm text-muted">
             {canStart
-              ? "You're the first one here. Start it to let everyone else in."
-              : "This hasn't been opened yet. You'll join automatically the moment it starts."}
+              ? t("waitingRoom.canStartHint")
+              : t("waitingRoom.waitingHint")}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="sm" onClick={() => void hangUp()}>
-            Leave
+            {t("waitingRoom.leave")}
           </Button>
           {canStart && (
             <Button size="sm" onClick={startNow} disabled={starting}>
-              {starting ? "Starting…" : "Start now"}
+              {starting ? t("waitingRoom.starting") : t("waitingRoom.startNow")}
             </Button>
           )}
         </div>
@@ -955,16 +957,16 @@ export function CallRoom({
     };
     const failTitle =
       failStage === "token"
-        ? "Unable to obtain meeting credentials"
+        ? t("joinFailed.tokenTitle")
         : failStage === "disconnected"
-          ? "Disconnected from the meeting"
-          : "Unable to connect to the meeting";
+          ? t("joinFailed.disconnectedTitle")
+          : t("joinFailed.genericTitle");
     const failHint =
       failStage === "token"
-        ? "The token request didn't go through. Check your connection and try again."
+        ? t("joinFailed.tokenHint")
         : failStage === "disconnected"
-          ? "The connection to the meeting was lost and couldn't be recovered. Check your connection, then rejoin."
-          : "The connection to the meeting server didn't go through. Check your connection and try again.";
+          ? t("joinFailed.disconnectedHint")
+          : t("joinFailed.genericHint");
     return (
       <div className="meeting-theme meeting-mesh fixed inset-0 z-[100] flex flex-col items-center justify-center gap-5 p-6 text-center">
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-danger/10 text-danger">
@@ -976,10 +978,10 @@ export function CallRoom({
         </div>
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="sm" onClick={() => void hangUp()}>
-            Leave
+            {t("joinFailed.leave")}
           </Button>
           <Button size="sm" onClick={retry} disabled={retrying}>
-            {retrying ? "Retrying…" : "Retry"}
+            {retrying ? t("joinFailed.retrying") : t("joinFailed.retry")}
           </Button>
         </div>
       </div>
@@ -1000,7 +1002,7 @@ export function CallRoom({
   // invitation. The way in is to be in the channel.
   const canAddPeople = call.kind !== "CHANNEL" && (status === "connected" || status === "reconnecting");
   const addPeopleTitle =
-    call.kind === "CHANNEL" ? "Everyone in the channel is already invited" : "Add people";
+    call.kind === "CHANNEL" ? t("room.channelAlreadyInvited") : t("room.addPeopleDefaultTitle");
 
   // Only what this viewer is party to — the wire already guarantees it, and
   // this is the second lock (see lib/callChat).
@@ -1087,7 +1089,7 @@ export function CallRoom({
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-x-3 text-xs text-muted">
               <span>
-                {participants.length} Participant{participants.length === 1 ? "" : "s"} Present
+                {t("room.header.participantsPresent", { count: participants.length })}
               </span>
               {meetingDuration && (
                 <span className="flex items-center gap-1">
@@ -1098,18 +1100,18 @@ export function CallRoom({
                 // Worth stating plainly: someone outside the organisation is in
                 // the room, and that should never be something you have to infer.
                 <span className="flex items-center gap-1 text-warning">
-                  <Globe size={12} /> {externals} external
+                  <Globe size={12} /> {t("room.header.external", { count: externals })}
                 </span>
               )}
               {recording && (
                 // Shown to EVERYONE, not only whoever pressed the button. Being
                 // recorded is not something anyone should have to work out.
                 <span className="flex items-center gap-1 font-medium text-danger">
-                  <Circle size={9} className="animate-pulse fill-current" /> Recording
+                  <Circle size={9} className="animate-pulse fill-current" /> {t("room.header.recording")}
                 </span>
               )}
-              {status === "reconnecting" && <span className="text-warning">Reconnecting…</span>}
-              {status === "connecting" && <span>Connecting…</span>}
+              {status === "reconnecting" && <span className="text-warning">{t("room.header.reconnecting")}</span>}
+              {status === "connecting" && <span>{t("room.header.connecting")}</span>}
             </div>
           </header>
 
@@ -1126,7 +1128,7 @@ export function CallRoom({
               {participants.length === 0 ? (
                 <BracketFrame className="glass min-h-0 flex-1">
                   <div className="flex h-full items-center justify-center text-sm text-muted">
-                    Connecting…
+                    {t("room.stage.connectingPlaceholder")}
                   </div>
                 </BracketFrame>
               ) : stage ? (
@@ -1144,7 +1146,7 @@ export function CallRoom({
                       <span className="pointer-events-none absolute left-3 top-3 z-10 inline-flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur">
                         <Mic size={12} className="text-accent" />
                         <SpeakingWave className="text-accent" />
-                        Speaking
+                        {t("room.stage.speaking")}
                       </span>
                     )}
                     {/* `active`, not `p.speaking`: whoever is on the stage — by

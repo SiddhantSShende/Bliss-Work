@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { Eye, X } from "lucide-react";
 
 /**
@@ -18,6 +19,7 @@ import { Eye, X } from "lucide-react";
 const SEEN_KEY = "tb:activity-notice-seen";
 
 export function ActivityNotice() {
+  const { t } = useTranslation(["shell", "common"]);
   const [dismissed, setDismissed] = useState(() => {
     try {
       return localStorage.getItem(SEEN_KEY) === "1";
@@ -43,15 +45,14 @@ export function ActivityNotice() {
     <div className="mx-2 mt-2 flex items-start gap-2 rounded-xl bg-accent-soft px-3 py-2.5 text-xs leading-relaxed text-accent">
       <Eye size={14} className="mt-0.5 shrink-0" />
       <p className="min-w-0 flex-1">
-        Your activity in BlissWork is recorded so you and your workspace admins can
-        review it.{" "}
+        {t("shell:activityNotice.message", { brand: "BlissWork" })}{" "}
         <Link to="/app/settings/activity" className="font-semibold underline underline-offset-2">
-          See what's recorded
+          {t("shell:activityNotice.seeRecorded")}
         </Link>
       </p>
       <button
         onClick={dismiss}
-        aria-label="Dismiss"
+        aria-label={t("common:buttons.dismiss")}
         className="shrink-0 rounded-md p-0.5 opacity-70 transition hover:bg-accent/10 hover:opacity-100"
       >
         <X size={14} />

@@ -1,0 +1,48 @@
+{
+  "header": {
+    "title": "Settings",
+    "subtitle": "Preferences for how the app behaves on this device."
+  },
+  "theme": {
+    "title": "Theme",
+    "description": "Currently using {{theme}}.",
+    "changeTheme": "Change theme",
+    "menuLabel": "Theme",
+    "light": "Light",
+    "dark": "Dark"
+  },
+  "twoFactor": {
+    "title": "Two-factor authentication",
+    "description": "Add an authenticator app or a passkey as a second sign-in step."
+  },
+  "activeSessions": {
+    "title": "Active sessions",
+    "description": "See every device signed in to your account, and sign any of them out remotely."
+  },
+  "activity": {
+    "title": "Your activity",
+    "description": "See everything {{brand}} records about how you work — the same record your workspace admins see."
+  },
+  "desktopNotifications": {
+    "title": "Desktop notifications",
+    "onDescription": "Show toasts when new messages and tasks arrive.",
+    "offDescription": "Toasts are paused. You can still see notifications in the bell menu.",
+    "turnOn": "Turn on",
+    "turnOff": "Turn off"
+  },
+  "about": {
+    "title": "About",
+    "versionDesktop": "{{brand}} {{version}} · desktop",
+    "versionBuild": "{{brand}} · build {{sha}}",
+    "checkForUpdates": "Check for updates",
+    "checking": "Checking…",
+    "toasts": {
+      "updateDownloading": "Update to {{version}} is downloading",
+      "updateDownloadingDescription": "You'll be asked to restart when it's ready.",
+      "upToDate": "You're up to date",
+      "upToDateDescription": "Version {{version}}",
+      "updateDownloadFailed": "Update download failed",
+      "checkFailedFallback": "Couldn't check for updates"
+    }
+  }
+}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { CheckCheck, Bell, Hash } from "lucide-react";
 import { EmptyState } from "@taskboard/ui";
 import type { NotificationDTO } from "@taskboard/shared";
@@ -17,6 +18,7 @@ export function NotificationsPanel({
   onClose: () => void;
   notifications: NotificationDTO[];
 }) {
+  const { t, i18n } = useTranslation("shell");
   const { api } = useRuntime();
   const qc = useQueryClient();
   const [showRead, setShowRead] = useState(false);
@@ -94,17 +96,17 @@ export function NotificationsPanel({
   const readCount = notifications.length - unread.length;
 
   return (
-    <Sheet open={open} onClose={onClose} title="Notifications">
+    <Sheet open={open} onClose={onClose} title={t("notifications.title")}>
       {shown.length === 0 ? (
         <EmptyState
           icon={<Bell size={22} />}
-          title={showRead ? "No notifications yet" : "You're all caught up"}
+          title={showRead ? t("notifications.empty.noneYet") : t("notifications.empty.allCaughtUp")}
           hint={
             showRead
-              ? "Task updates will show up here."
+              ? t("notifications.empty.hintTaskUpdates")
               : readCount > 0
-                ? "Nothing unread. Earlier notifications are under “Show read”."
-                : "Task updates will show up here."
+                ? t("notifications.empty.hintNothingUnread")
+                : t("notifications.empty.hintTaskUpdates")
           }
         />
       ) : (
@@ -123,11 +125,11 @@ export function NotificationsPanel({
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-sm text-fg">{n.text}</p>
-                <p className="mt-0.5 text-xs text-muted">{new Date(n.createdAt).toLocaleString()}</p>
+                <p className="mt-0.5 text-xs text-muted">{new Date(n.createdAt).toLocaleString(i18n.language)}</p>
               </div>
               {!n.read && (
                 <button className="text-xs font-medium text-accent hover:underline" onClick={() => markRead(n.id)}>
-                  Mark read
+                  {t("notifications.row.markRead")}
                 </button>
               )}
             </li>
@@ -140,7 +142,7 @@ export function NotificationsPanel({
           onClick={() => setShowRead((v) => !v)}
           className="mt-3 w-full rounded-xl border border-border px-3 py-2 text-xs font-medium text-muted transition-colors hover:bg-surface-2 hover:text-fg"
         >
-          {showRead ? "Hide read" : `Show read (${readCount})`}
+          {showRead ? t("notifications.toggleHideRead") : t("notifications.toggleShowRead", { count: readCount })}
         </button>
       )}
     </Sheet>

@@ -11,6 +11,7 @@
  * older history widens it, and the count says so.
  */
 import { useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { Search, X } from "lucide-react";
 
 export function ChatSearchBar({
@@ -19,7 +20,7 @@ export function ChatSearchBar({
   onClose,
   matches,
   loaded,
-  placeholder = "Search this conversation…",
+  placeholder,
 }: {
   value: string;
   onChange: (next: string) => void;
@@ -30,6 +31,8 @@ export function ChatSearchBar({
   loaded: number;
   placeholder?: string;
 }) {
+  const { t } = useTranslation("chatList");
+  const effectivePlaceholder = placeholder ?? t("chatSearchBar.placeholder");
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Opened from a menu row, so the pointer is nowhere near this field and the
@@ -56,16 +59,16 @@ export function ChatSearchBar({
               onClose();
             }
           }}
-          placeholder={placeholder}
-          aria-label="Search this conversation"
+          placeholder={effectivePlaceholder}
+          aria-label={t("chatSearchBar.ariaLabel")}
           className={`w-full rounded-lg border border-border bg-surface-2 py-1.5 pl-9 text-sm text-fg outline-none focus:border-accent ${value ? "pr-9" : "pr-3"}`}
         />
         {value && (
           <button
             type="button"
             onClick={() => onChange("")}
-            title="Clear search"
-            aria-label="Clear search"
+            title={t("chatSearchBar.clearSearch")}
+            aria-label={t("chatSearchBar.clearSearch")}
             className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted hover:bg-surface hover:text-fg"
           >
             <X size={13} />
@@ -76,14 +79,14 @@ export function ChatSearchBar({
           "0 results" at someone who has not typed anything yet. */}
       {value.trim() && (
         <span className="shrink-0 text-xs text-muted">
-          {matches === 0 ? "No matches" : `${matches} of ${loaded} loaded`}
+          {matches === 0 ? t("chatSearchBar.noMatches") : t("chatSearchBar.matchesOfLoaded", { matches, loaded })}
         </span>
       )}
       <button
         type="button"
         onClick={onClose}
-        title="Close search"
-        aria-label="Close search"
+        title={t("chatSearchBar.closeSearch")}
+        aria-label={t("chatSearchBar.closeSearch")}
         className="shrink-0 rounded-lg p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg"
       >
         <X size={15} />

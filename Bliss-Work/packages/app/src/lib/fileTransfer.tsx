@@ -26,6 +26,7 @@ import {
   useState,
 } from "react";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { useRuntime } from "./runtime";
 import { useSession } from "../store/session";
 import { encodeFileOffer, type FileOfferEnvelope } from "./fileOffer";
@@ -68,6 +69,7 @@ interface BufferedOffer {
 }
 
 export function FileTransferProvider({ children }: { children: React.ReactNode }) {
+  const { t } = useTranslation("chatMedia");
   const { rtc, rtcAvailable, api, config } = useRuntime();
   const me = useSession((s) => s.user);
   const available = rtcAvailable && !!me;
@@ -166,12 +168,12 @@ export function FileTransferProvider({ children }: { children: React.ReactNode }
           void startReceive(pend, f.fromUserId, f.sdp);
         }
       } else if (f.type === "rtc.cancel") {
-        setState(f.offerId, { kind: "FAILED", reason: "Cancelled by peer" });
+        setState(f.offerId, { kind: "FAILED", reason: t("fileAttachment.cancelledByPeer") });
         incoming.current.delete(f.offerId);
         pendingAccepts.current.delete(f.offerId);
       }
     });
-  }, [rtc, available, startReceive, setState]);
+  }, [rtc, available, startReceive, setState, t]);
 
   const send = useCallback(
     async (file: File, threadId: string, peerUserId: string) => {
@@ -186,8 +188,8 @@ export function FileTransferProvider({ children }: { children: React.ReactNode }
       try {
         sha256 = config.hashFile ? await config.hashFile(file) : await sha256File(file);
       } catch (e) {
-        setState(offerId, { kind: "FAILED", reason: "Could not read the file" });
-        toast.error(`Couldn't send ${file.name}`, { description: errorText(e) });
+        setState(offerId, { kind: "FAILED", reason: t("fileAttachment.couldNotReadFile") });
+        toast.error(t("fileAttachment.couldNotSend", { name: file.name }), { description: errorText(e) });
         return;
       }
       const mime = file.type || "application/octet-stream";
@@ -202,8 +204,8 @@ export function FileTransferProvider({ children }: { children: React.ReactNode }
           { clientMsgId: crypto.randomUUID() },
         );
       } catch (e) {
-        setState(offerId, { kind: "FAILED", reason: "Could not announce the file" });
-        toast.error(`Couldn't send ${file.name}`, { description: errorText(e) });
+        setState(offerId, { kind: "FAILED", reason: t("fileAttachment.couldNotAnnounceFile") });
+        toast.error(t("fileAttachment.couldNotSend", { name: file.name }), { description: errorText(e) });
         return;
       }
       // 2. Start the sender state machine (opens the RTCPeerConnection, sends rtc.offer).
@@ -217,7 +219,7 @@ export function FileTransferProvider({ children }: { children: React.ReactNode }
       });
       handles.current.set(offerId, handle);
     },
-    [available, api, senderWire, setState, config],
+    [available, api, senderWire, setState, config, t],
   );
 
   const accept = useCallback(
@@ -234,11 +236,11 @@ export function FileTransferProvider({ children }: { children: React.ReactNode }
   const decline = useCallback(
     (env: FileOfferEnvelope, fromUserId: string) => {
       receiverWire.sendCancel(fromUserId, env.offerId, "receiver_declined");
-      setState(env.offerId, { kind: "FAILED", reason: "Declined" });
+      setState(env.offerId, { kind: "FAILED", reason: t("fileAttachment.declined") });
       incoming.current.delete(env.offerId);
       pendingAccepts.current.delete(env.offerId);
     },
-    [receiverWire, setState],
+    [receiverWire, setState, t],
   );
 
   const cancel = useCallback(

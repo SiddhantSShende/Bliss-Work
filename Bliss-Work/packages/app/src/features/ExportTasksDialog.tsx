@@ -11,6 +11,7 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { Download } from "lucide-react";
 import { Button } from "@taskboard/ui";
 import { useRuntime } from "../lib/runtime";
@@ -23,19 +24,8 @@ import { Tabs, type TabSpec } from "./Tabs";
 type Scope = "all" | "sent" | "received";
 type RangeKey = "week" | "month" | "year" | "all" | "custom";
 
-const SCOPES: TabSpec<Scope>[] = [
-  { key: "all", label: "All my tasks" },
-  { key: "sent", label: "Allocated by me" },
-  { key: "received", label: "Assigned to me" },
-];
-
-const RANGES: TabSpec<RangeKey>[] = [
-  { key: "week", label: "Past week" },
-  { key: "month", label: "Past month" },
-  { key: "year", label: "Past year" },
-  { key: "all", label: "All time" },
-  { key: "custom", label: "Custom range" },
-];
+const SCOPE_KEYS: Scope[] = ["all", "sent", "received"];
+const RANGE_KEYS: RangeKey[] = ["week", "month", "year", "all", "custom"];
 
 const EXPORT_ROW_CAP = 5000;
 
@@ -63,12 +53,28 @@ function computeRange(
 }
 
 export function ExportTasksDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { t } = useTranslation("tasks");
   const { api } = useRuntime();
   const qc = useQueryClient();
   const [scope, setScope] = useState<Scope>("all");
   const [range, setRange] = useState<RangeKey>("month");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+
+  const scopeLabel: Record<Scope, string> = {
+    all: t("exportTasksDialog.scopes.all"),
+    sent: t("exportTasksDialog.scopes.sent"),
+    received: t("exportTasksDialog.scopes.received"),
+  };
+  const rangeLabel: Record<RangeKey, string> = {
+    week: t("exportTasksDialog.ranges.week"),
+    month: t("exportTasksDialog.ranges.month"),
+    year: t("exportTasksDialog.ranges.year"),
+    all: t("exportTasksDialog.ranges.all"),
+    custom: t("exportTasksDialog.ranges.custom"),
+  };
+  const scopes: TabSpec<Scope>[] = SCOPE_KEYS.map((key) => ({ key, label: scopeLabel[key] }));
+  const ranges: TabSpec<RangeKey>[] = RANGE_KEYS.map((key) => ({ key, label: rangeLabel[key] }));
 
   const run = useMutation({
     mutationFn: async () => {
@@ -89,36 +95,38 @@ export function ExportTasksDialog({ open, onClose }: { open: boolean; onClose: (
     },
     onSuccess: (n) => {
       if (n === 0) {
-        toast("Nothing to export", { description: "No tasks in the selected range." });
+        toast(t("exportTasksDialog.toasts.nothingTitle"), {
+          description: t("exportTasksDialog.toasts.nothingDescription"),
+        });
         return;
       }
-      toast.success(`Exported ${n} row${n === 1 ? "" : "s"} to Excel`);
+      toast.success(t("exportTasksDialog.toasts.exported", { count: n }));
       if (n >= EXPORT_ROW_CAP)
-        toast("Export was capped", {
-          description: `Only the most recent ${EXPORT_ROW_CAP} rows were included — narrow the date range for the rest.`,
+        toast(t("exportTasksDialog.toasts.cappedTitle"), {
+          description: t("exportTasksDialog.toasts.cappedDescription", { cap: EXPORT_ROW_CAP }),
         });
       onClose();
     },
-    onError: (e) => toast.error("Export failed", { description: String(e) }),
+    onError: (e) => toast.error(t("exportTasksDialog.toasts.failedTitle"), { description: String(e) }),
   });
 
   const customIncomplete = range === "custom" && (!fromDate || !toDate);
 
   return (
-    <Modal open={open} onClose={onClose} title="Export tasks to Excel">
+    <Modal open={open} onClose={onClose} title={t("exportTasksDialog.title")}>
       <div className="flex flex-col gap-4">
         <section>
-          <div className="mb-1.5 text-sm font-medium text-fg">Which tasks</div>
-          <Tabs tabs={SCOPES} active={scope} onChange={setScope} className="flex-wrap" />
+          <div className="mb-1.5 text-sm font-medium text-fg">{t("exportTasksDialog.scopeHeading")}</div>
+          <Tabs tabs={scopes} active={scope} onChange={setScope} className="flex-wrap" />
         </section>
 
         <section>
-          <div className="mb-1.5 text-sm font-medium text-fg">Time range</div>
-          <Tabs tabs={RANGES} active={range} onChange={setRange} className="flex-wrap" />
+          <div className="mb-1.5 text-sm font-medium text-fg">{t("exportTasksDialog.rangeHeading")}</div>
+          <Tabs tabs={ranges} active={range} onChange={setRange} className="flex-wrap" />
           {range === "custom" && (
             <div className="mt-3 flex flex-wrap items-end gap-3">
               <label className="flex flex-col gap-1 text-xs text-muted">
-                From
+                {t("exportTasksDialog.from")}
                 <input
                   type="date"
                   value={fromDate}
@@ -128,7 +136,7 @@ export function ExportTasksDialog({ open, onClose }: { open: boolean; onClose: (
                 />
               </label>
               <label className="flex flex-col gap-1 text-xs text-muted">
-                To
+                {t("exportTasksDialog.to")}
                 <input
                   type="date"
                   value={toDate}
@@ -142,13 +150,12 @@ export function ExportTasksDialog({ open, onClose }: { open: boolean; onClose: (
         </section>
 
         <p className="text-[11px] text-muted">
-          Times are exported in your device's local timezone. One row per person the
-          task was allocated to.
+          {t("exportTasksDialog.footerNote")}
         </p>
 
         <div className="mt-1 flex justify-end gap-2">
           <Button type="button" variant="ghost" onClick={onClose}>
-            Cancel
+            {t("exportTasksDialog.actions.cancel")}
           </Button>
           <Button
             type="button"
@@ -156,7 +163,7 @@ export function ExportTasksDialog({ open, onClose }: { open: boolean; onClose: (
             loading={run.isPending}
             disabled={customIncomplete}
           >
-            <Download size={15} /> {run.isPending ? "Exporting…" : "Export"}
+            <Download size={15} /> {run.isPending ? t("exportTasksDialog.actions.exporting") : t("exportTasksDialog.actions.export")}
           </Button>
         </div>
       </div>

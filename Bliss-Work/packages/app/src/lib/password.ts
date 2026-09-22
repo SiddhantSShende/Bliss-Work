@@ -22,9 +22,13 @@ export function checkPassword(pw: string): PwCheck {
   return { minLen, letter, digit, special, ok: minLen && letter && digit && special };
 }
 
-/** 0–4 strength score + label, for the meter (beyond the hard requirements). */
-export function passwordStrength(pw: string): { score: number; label: string } {
-  if (!pw) return { score: 0, label: "" };
+export const STRENGTH_LABEL_KEYS = ["veryWeak", "weak", "fair", "good", "strong"] as const;
+
+/** 0–4 strength score, for the meter (beyond the hard requirements). The
+ *  caller resolves `STRENGTH_LABEL_KEYS[score]` through i18n — see
+ *  PasswordField.tsx — rather than this pure function owning any wording. */
+export function passwordStrength(pw: string): { score: number } {
+  if (!pw) return { score: 0 };
   let score = 0;
   if (pw.length >= 10) score++;
   if (pw.length >= 14) score++;
@@ -32,6 +36,5 @@ export function passwordStrength(pw: string): { score: number; label: string } {
   if (/\d/.test(pw)) score++;
   if (SPECIAL_RE.test(pw)) score++;
   score = Math.min(score, 4);
-  const label = ["Very weak", "Weak", "Fair", "Good", "Strong"][score] ?? "Very weak";
-  return { score, label };
+  return { score };
 }

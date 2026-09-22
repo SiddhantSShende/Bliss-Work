@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { useRuntime } from "./runtime";
 import { qk } from "./queryBridge";
 
@@ -46,6 +47,7 @@ import { qk } from "./queryBridge";
 const MIN_AWAY_MS = 2500;
 
 export function useWhatsAppForward() {
+  const { t } = useTranslation("chatThread");
   const { api } = useRuntime();
   const qc = useQueryClient();
 
@@ -79,17 +81,17 @@ export function useWhatsAppForward() {
         void qc.invalidateQueries({ queryKey: qk.conversations });
         void qc.invalidateQueries({ queryKey: ["messages"] });
         void qc.invalidateQueries({ queryKey: ["channelMessages"] });
-        toast.success("Forwarded through WhatsApp", {
-          description: "You picked the recipient in WhatsApp, so this chat records the handoff only.",
+        toast.success(t("whatsAppForward.forwardedToast"), {
+          description: t("whatsAppForward.forwardedDescription"),
         });
       }
       if (results.some((ok) => !ok)) {
-        toast.error("Couldn't log the forward", {
-          description: "WhatsApp still opened — it just isn't recorded in this chat.",
+        toast.error(t("whatsAppForward.logFailedToast"), {
+          description: t("whatsAppForward.logFailedDescription"),
         });
       }
     },
-    [api, qc],
+    [api, qc, t],
   );
 
   useEffect(() => {

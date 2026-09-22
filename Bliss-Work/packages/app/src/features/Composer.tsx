@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { Loader2, MapPin, Paperclip, Send, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@taskboard/ui";
 import { prettySize, type MediaItem } from "../lib/chatEnvelope";
 import { EmojiPickerButton } from "./EmojiPicker";
@@ -16,7 +17,7 @@ export function Composer({
   onShareLocation,
   onPaste,
   onType,
-  placeholder = "Write a message…",
+  placeholder,
   dragging = false,
   attachments = [],
   onRemoveAttachment,
@@ -49,6 +50,7 @@ export function Composer({
   replyPreview?: { who?: string; text: string };
   onCancelReply?: () => void;
 }) {
+  const { t } = useTranslation("composer");
   const [text, setText] = useState("");
   const taRef = useRef<HTMLTextAreaElement>(null);
 
@@ -86,7 +88,7 @@ export function Composer({
         <div className="flex items-start gap-2 rounded-xl bg-surface-2 px-3 py-2">
           <div className="min-w-0 flex-1 border-l-2 border-accent pl-2">
             <div className="text-[11px] font-medium text-accent">
-              Replying to {replyPreview.who ?? "this message"}
+              {t("replyingTo", { who: replyPreview.who ?? t("thisMessage") })}
             </div>
             <div className="line-clamp-2 break-words text-xs text-muted">{replyPreview.text}</div>
           </div>
@@ -94,8 +96,8 @@ export function Composer({
             <button
               type="button"
               onClick={onCancelReply}
-              title="Cancel reply"
-              aria-label="Cancel reply"
+              title={t("cancelReply")}
+              aria-label={t("cancelReply")}
               className="shrink-0 rounded-lg p-1 text-muted hover:bg-surface hover:text-fg"
             >
               <X size={14} />
@@ -121,8 +123,8 @@ export function Composer({
                 <button
                   type="button"
                   onClick={() => onRemoveAttachment(item.id)}
-                  title={`Remove ${item.name}`}
-                  aria-label={`Remove ${item.name}`}
+                  title={t("removeAttachment", { name: item.name })}
+                  aria-label={t("removeAttachment", { name: item.name })}
                   className="-mr-0.5 shrink-0 rounded p-0.5 text-muted hover:bg-surface-2 hover:text-danger"
                 >
                   <X size={12} />
@@ -133,7 +135,7 @@ export function Composer({
           {uploading > 0 && (
             <span className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-border px-2 py-1 text-xs text-muted">
               <Loader2 size={12} className="animate-spin" />
-              Preparing {uploading} file{uploading === 1 ? "" : "s"}…
+              {t("preparingFiles", { count: uploading })}
             </span>
           )}
         </div>
@@ -146,8 +148,8 @@ export function Composer({
               type="button"
               onClick={onAttach}
               className="flex h-11 w-11 items-center justify-center rounded-full text-muted hover:bg-surface-2 hover:text-fg"
-              title="Attach photos, videos or files"
-              aria-label="Attach a file"
+              title={t("attachTitle")}
+              aria-label={t("attachAriaLabel")}
             >
               <Paperclip size={18} />
             </button>
@@ -157,18 +159,18 @@ export function Composer({
               type="button"
               onClick={onShareLocation}
               className="flex h-11 w-11 items-center justify-center rounded-full text-muted hover:bg-surface-2 hover:text-fg"
-              title="Share your location"
-              aria-label="Share your location"
+              title={t("shareLocation")}
+              aria-label={t("shareLocation")}
             >
               <MapPin size={18} />
             </button>
           )}
           <EmojiPickerButton
-            onPick={(e) => {
+            onPick={(emoji) => {
               // Appended rather than inserted at the caret: the textarea is
               // uncontrolled from the picker's side, and reaching into its
               // selection would couple the two for no gain anyone has asked for.
-              setText((t) => t + e);
+              setText((current) => current + emoji);
               requestAnimationFrame(() => {
                 taRef.current?.focus();
                 grow();
@@ -182,10 +184,10 @@ export function Composer({
         className="max-h-[140px] min-h-[44px] min-w-0 flex-1 resize-none rounded-2xl border border-border bg-surface px-4 py-2.5 text-sm leading-relaxed text-fg placeholder:text-muted/70 focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/25"
         placeholder={
           dragging
-            ? "Drop files to attach…"
+            ? t("placeholder.dropFiles")
             : hasAttachments
-              ? "Add a message, or press Send…"
-              : placeholder
+              ? t("placeholder.addMessageOrSend")
+              : (placeholder ?? t("placeholder.default"))
         }
         value={text}
         onChange={(e) => {
@@ -206,7 +208,7 @@ export function Composer({
         size="icon"
         disabled={!text.trim() && !hasAttachments}
         className="h-11 w-11 shrink-0 rounded-full"
-        title="Send"
+        title={t("send")}
       >
         <Send size={16} />
       </Button>

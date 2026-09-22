@@ -25,6 +25,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Phone, Video, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Logo } from "@taskboard/ui";
 import {
   onIncomingMeetingAnnounced,
@@ -44,6 +45,7 @@ interface Incoming {
 const AUTO_DISMISS_MS = 12_000;
 
 export function IncomingMeetingNotice() {
+  const { t } = useTranslation(["calls", "common"]);
   const { api, config } = useRuntime();
   const [incoming, setIncoming] = useState<Incoming | null>(null);
   // EVERY callId this component has ever shown a card for, not just the one
@@ -127,8 +129,8 @@ export function IncomingMeetingNotice() {
   // moment later, instead of waiting on the extra round trip.
   useEffect(() => {
     if (!incoming || !config.showMeetingInvitePopup) return;
-    config.showMeetingInvitePopup(incoming.callId, incoming.title || "Meeting", organizer);
-  }, [incoming, organizer, config]);
+    config.showMeetingInvitePopup(incoming.callId, incoming.title || t("incomingNotice.untitledMeeting"), organizer);
+  }, [incoming, organizer, config, t]);
 
   if (!incoming || config.showMeetingInvitePopup) return null;
 
@@ -141,7 +143,7 @@ export function IncomingMeetingNotice() {
   return (
     <div
       role="alertdialog"
-      aria-label={`Incoming meeting: ${incoming.title}`}
+      aria-label={t("incomingNotice.ariaLabel", { title: incoming.title })}
       className="fixed bottom-4 right-4 z-[150] w-60 rounded-2xl bg-surface p-4 shadow-widget ring-1 ring-border"
     >
       <div className="flex flex-col items-center gap-2 text-center">
@@ -149,25 +151,35 @@ export function IncomingMeetingNotice() {
         {/* Falls back defensively even though every caller (queryBridge's
             meetingTitle) already supplies a non-empty title — this is the
             last line stopping a blank/undefined popup, not the first. */}
-        <div className="line-clamp-2 text-sm font-semibold text-fg">{incoming.title || "Meeting"}</div>
-        {organizer && <div className="text-xs text-muted">Hosted by {organizer}</div>}
+        <div className="line-clamp-2 text-sm font-semibold text-fg">
+          {incoming.title || t("incomingNotice.untitledMeeting")}
+        </div>
+        {organizer && (
+          <div className="text-xs text-muted">{t("incomingNotice.hostedBy", { organizer })}</div>
+        )}
       </div>
       <div className="mt-4 flex items-center justify-center gap-5">
         <NoticeAction
           icon={<Video size={18} />}
-          label="Video"
-          title="Join with camera on"
+          label={t("incomingNotice.video")}
+          title={t("incomingNotice.joinWithCamera")}
           tone="accent"
           onClick={() => join("video")}
         />
         <NoticeAction
           icon={<Phone size={18} />}
-          label="Voice"
-          title="Join with voice only"
+          label={t("incomingNotice.voice")}
+          title={t("incomingNotice.joinVoiceOnly")}
           tone="accent"
           onClick={() => join("voice")}
         />
-        <NoticeAction icon={<X size={18} />} label="Leave" title="Dismiss" tone="danger" onClick={dismiss} />
+        <NoticeAction
+          icon={<X size={18} />}
+          label={t("incomingNotice.leave")}
+          title={t("common:buttons.dismiss")}
+          tone="danger"
+          onClick={dismiss}
+        />
       </div>
     </div>
   );

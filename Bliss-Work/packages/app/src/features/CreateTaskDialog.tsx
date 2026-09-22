@@ -18,6 +18,7 @@
  */
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { Check, Hash, Lock, Search, Users } from "lucide-react";
 import { Avatar, Button, Input, Textarea } from "@taskboard/ui";
 import { toast } from "sonner";
@@ -39,6 +40,7 @@ export function CreateTaskDialog({
   onClose: () => void;
   preselect?: UserDTO[];
 }) {
+  const { t } = useTranslation("tasks");
   const { api } = useRuntime();
   const qc = useQueryClient();
   const [mode, setMode] = useState<Mode>("people");
@@ -70,7 +72,7 @@ export function CreateTaskDialog({
   const create = useMutation({
     mutationFn: async (): Promise<{ taskId: string; assigneeCount: number }> => {
       if (mode === "channel") {
-        if (!selectedChannel) throw new Error("Pick a channel");
+        if (!selectedChannel) throw new Error(t("createTaskDialog.errors.pickChannel"));
         // Send the channelId — task-svc resolves the membership server-side
         // and persists tasks.channel_id so a member who joins later is
         // auto-added by the ChannelMemberJoined consumer.
@@ -92,8 +94,11 @@ export function CreateTaskDialog({
       const channel = channels.find((c) => c.id === selectedChannel);
       toast.success(
         mode === "channel"
-          ? `Task sent to #${channel?.name ?? "channel"} — ${assigneeCount} member${assigneeCount === 1 ? "" : "s"}`
-          : "Task sent",
+          ? t("createTaskDialog.toasts.sentToChannel", {
+              channelName: channel?.name ?? t("createTaskDialog.toasts.genericChannelFallback"),
+              count: assigneeCount,
+            })
+          : t("createTaskDialog.toasts.sentPlain"),
       );
       qc.invalidateQueries({ queryKey: qk.sent });
       qc.invalidateQueries({ queryKey: qk.unifiedInbox });
@@ -106,7 +111,7 @@ export function CreateTaskDialog({
       setSelectedChannel("");
       onClose();
     },
-    onError: (e) => toast.error("Could not create task", { description: String(e) }),
+    onError: (e) => toast.error(t("createTaskDialog.errors.createFailed"), { description: String(e) }),
   });
 
   const togglePerson = (id: string) =>
@@ -118,45 +123,49 @@ export function CreateTaskDialog({
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim()) return toast.error("Give the task a title");
+    if (!title.trim()) return toast.error(t("createTaskDialog.errors.needTitle"));
     if (mode === "people" && selectedPeople.size === 0)
-      return toast.error("Pick at least one assignee");
-    if (mode === "channel" && !selectedChannel) return toast.error("Pick a channel");
+      return toast.error(t("createTaskDialog.errors.needAssignee"));
+    if (mode === "channel" && !selectedChannel) return toast.error(t("createTaskDialog.errors.pickChannel"));
     create.mutate();
   };
 
   return (
-    <Modal open={open} onClose={onClose} title="New task">
+    <Modal open={open} onClose={onClose} title={t("createTaskDialog.title")}>
       <form onSubmit={submit} className="flex flex-col gap-3.5">
-        <Field label="Title">
+        <Field label={t("createTaskDialog.fields.title")}>
           <Input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             required
             maxLength={200}
-            placeholder="What needs doing?"
+            placeholder={t("createTaskDialog.fields.titlePlaceholder")}
           />
         </Field>
-        <Field label="Description">
+        <Field label={t("createTaskDialog.fields.description")}>
           <Textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="Add details…"
+            placeholder={t("createTaskDialog.fields.descriptionPlaceholder")}
           />
         </Field>
 
         <div className="flex gap-1">
           <ModeTab active={mode === "people"} onClick={() => setMode("people")}>
-            <Users size={13} /> People
+            <Users size={13} /> {t("createTaskDialog.modes.people")}
           </ModeTab>
           <ModeTab active={mode === "channel"} onClick={() => setMode("channel")}>
-            <Hash size={13} /> Channel
+            <Hash size={13} /> {t("createTaskDialog.modes.channel")}
           </ModeTab>
         </div>
 
         {mode === "people" ? (
           <Field
-            label={`Assign to${selectedPeople.size ? ` (${selectedPeople.size})` : ""}`}
+            label={
+              selectedPeople.size
+                ? t("createTaskDialog.fields.assignToWithCount", { count: selectedPeople.size })
+                : t("createTaskDialog.fields.assignTo")
+            }
           >
             <div className="relative mb-2">
               <Search
@@ -165,14 +174,14 @@ export function CreateTaskDialog({
               />
               <Input
                 className="h-10 pl-9"
-                placeholder="Search people…"
+                placeholder={t("createTaskDialog.fields.searchPeoplePlaceholder")}
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
               />
             </div>
             <div className="max-h-44 overflow-auto rounded-xl border border-border p-1">
               {candidates.length === 0 && (
-                <p className="px-2 py-3 text-sm text-muted">No matches.</p>
+                <p className="px-2 py-3 text-sm text-muted">{t("createTaskDialog.fields.noMatches")}</p>
               )}
               {candidates.map((u) => {
                 const on = selectedPeople.has(u.id);
@@ -194,10 +203,10 @@ export function CreateTaskDialog({
             </div>
           </Field>
         ) : (
-          <Field label="Assign to channel">
+          <Field label={t("createTaskDialog.fields.assignToChannel")}>
             {channels.length === 0 ? (
               <p className="rounded-xl border border-border p-3 text-sm text-muted">
-                You aren't in any channels yet. Create one from the Channels sidebar.
+                {t("createTaskDialog.fields.noChannels")}
               </p>
             ) : (
               <div className="max-h-44 overflow-auto rounded-xl border border-border p-1">
@@ -219,7 +228,7 @@ export function CreateTaskDialog({
                       <span className="flex-1 truncate text-sm text-fg">
                         {c.name}
                         <span className="ml-1.5 text-xs text-muted">
-                          ({c.memberCount} member{c.memberCount === 1 ? "" : "s"})
+                          {t("createTaskDialog.fields.memberCount", { count: c.memberCount })}
                         </span>
                       </span>
                       {on && <Check size={15} className="text-accent" />}
@@ -229,17 +238,17 @@ export function CreateTaskDialog({
               </div>
             )}
             <p className="mt-1.5 text-[11px] text-muted">
-              Every member of the channel receives the task with the same Acknowledge / Ignore flow.
+              {t("createTaskDialog.fields.channelHint")}
             </p>
           </Field>
         )}
 
         <div className="mt-2 flex justify-end gap-2">
           <Button type="button" variant="ghost" onClick={onClose}>
-            Cancel
+            {t("createTaskDialog.actions.cancel")}
           </Button>
           <Button type="submit" loading={create.isPending}>
-            {create.isPending ? "Sending…" : "Send task"}
+            {create.isPending ? t("createTaskDialog.actions.sending") : t("createTaskDialog.actions.send")}
           </Button>
         </div>
       </form>

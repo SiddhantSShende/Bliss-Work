@@ -18,7 +18,7 @@ from .db import session, set_bypass_rls
 from .events import AUTH_TOPIC
 from .logging_setup import log
 from .org_purge import purge_org
-from .routes.helpers import enqueue_outbox, resolve_username
+from .routes.helpers import enqueue_outbox
 from tracing import extract_context
 
 _tracer = trace.get_tracer(__name__)
@@ -433,24 +433,31 @@ class TaskSvcConsumer:
         async with session() as db:
             # Cross-org background worker (channel.member.joined is processed for
             # whatever org the event carries): bypass RLS for this trusted
-            # transaction so the tasks read, the decrypt() reads on org_keys, the
-            # task_assignees INSERT (WITH CHECK) and resolve_username all succeed
-            # regardless of any request principal. Set FIRST.
+            # transaction so the tasks/user_projection read, the org_keys reads
+            # warm_dek_versions makes, and the task_assignees INSERT (WITH CHECK)
+            # all succeed regardless of any request principal. Set FIRST.
             await set_bypass_rls(db)
             if await _claim(db, event_id) is False:
                 return
 
             # Pull every active task this channel owns. We need (id, sender_id,
-            # title, description) to mint a task.assigned row. title/description
-            # are stored encrypted (title_enc/description_enc) and decrypted
-            # below so the Kafka event still carries plaintext (relay + messaging
-            # projection need it).
+            # title, description, sender's username) to mint a task.assigned
+            # row. title/description are stored encrypted (title_enc/
+            # description_enc) and decrypted below so the Kafka event still
+            # carries plaintext (relay + messaging projection need it).
+            # sender_username is resolved via the same LEFT JOIN
+            # routes/tasks_read.py uses, rather than a per-row lookup —
+            # user_projection.user_id is its primary key, so this can only
+            # ever match zero or one row per task and never multiplies rows.
             rows = (
                 await db.execute(
                     text(
                         """
-                        SELECT t.id, t.sender_id, t.title_enc, t.description_enc
+                        SELECT t.id, t.sender_id, t.title_enc, t.description_enc,
+                               COALESCE(up.username, '') AS sender_username
                         FROM tasks t
+                        LEFT JOIN user_projection up
+                               ON up.user_id = t.sender_id AND up.org_id = t.org_id
                         WHERE t.org_id = :org
                           AND t.channel_id = :ch
                           AND EXISTS (
@@ -475,27 +482,49 @@ class TaskSvcConsumer:
                     limit=_CHANNEL_JOIN_TASK_LIMIT,
                 )
 
-            joined_count = 0
-            for row in rows:
-                task_id = str(row.id)
-                sender_id = str(row.sender_id)
-                title = await cryptor().decrypt(db, org_id, row.title_enc) or ""
-                description = await cryptor().decrypt(db, org_id, row.description_enc) or ""
-                sender_username = await resolve_username(db, org_id, sender_id) or ""
-
-                # Skip if already an assignee — possible if a previous joiner
-                # event delivery raced or the channel admin had pre-added them.
-                existing = (
+            # Already-an-assignee check, batched into one query instead of one
+            # SELECT per task: possible if a previous joiner event delivery
+            # raced or the channel admin had pre-added them. Same semantics as
+            # the old per-row check — ANY existing row counts, not just
+            # SENT/ACKNOWLEDGED — just fewer round trips to answer it.
+            task_ids = [str(row.id) for row in rows]
+            already_assigned = {
+                str(r.task_id)
+                for r in (
                     await db.execute(
                         text(
-                            "SELECT 1 FROM task_assignees "
-                            "WHERE task_id = :tid AND assignee_id = :aid"
+                            "SELECT task_id FROM task_assignees "
+                            "WHERE task_id = ANY(:tids) AND assignee_id = :aid"
                         ),
-                        {"tid": task_id, "aid": user_id},
+                        {"tids": task_ids, "aid": user_id},
                     )
-                ).first()
-                if existing:
+                ).all()
+            }
+
+            # Batch-decrypt every title/description in one asyncio.to_thread
+            # hop instead of up to 2 * _CHANNEL_JOIN_TASK_LIMIT sequential
+            # `await cryptor().decrypt()` calls. On a warm per-org DEK cache
+            # (the normal case) decrypt()'s await never actually suspends, so
+            # that loop ran back-to-back with no opportunity for the event
+            # loop to interleave anything else this single-worker process was
+            # doing — including the HTTP API and every other Kafka batch. See
+            # crypto.py's "Batch decrypt" section and routes/tasks_read.py,
+            # which already uses this exact split for the same reason.
+            ciphertexts: list[bytes | None] = []
+            for row in rows:
+                ciphertexts.extend([row.title_enc, row.description_enc])
+            versions = {v for v in (cryptor().peek_version(b) for b in ciphertexts) if v is not None}
+            await cryptor().warm_dek_versions(db, org_id, versions)
+            plaintexts = await asyncio.to_thread(cryptor().decrypt_batch_cached, org_id, ciphertexts)
+
+            joined_count = 0
+            for i, row in enumerate(rows):
+                task_id = str(row.id)
+                if task_id in already_assigned:
                     continue
+                sender_id = str(row.sender_id)
+                title = plaintexts[2 * i] or ""
+                description = plaintexts[2 * i + 1] or ""
 
                 await db.execute(
                     text(
@@ -510,7 +539,7 @@ class TaskSvcConsumer:
                     assignee_id=user_id,
                     sender_id=sender_id,
                     status_version=0,
-                    sender_username=sender_username,
+                    sender_username=row.sender_username,
                     title=title,
                     description=description,
                 )

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { Bell, BellOff, MessageSquarePlus, MoreVertical, Pin, Plus, Search, Trash2 } from "lucide-react";
 import { Avatar, EmptyState } from "@taskboard/ui";
 import type { ConversationDTO } from "@taskboard/shared";
@@ -30,6 +31,7 @@ function ChatListMenu({
   onTogglePin: () => void;
   onDelete: () => void;
 }) {
+  const { t } = useTranslation("chatList");
   const [open, setOpen] = useState(false);
   const close = () => setOpen(false);
   const wrap = usePopupDismiss<HTMLDivElement>(open, close);
@@ -44,8 +46,8 @@ function ChatListMenu({
     <div ref={wrap} className="relative shrink-0" onClick={(event) => event.stopPropagation()}>
       <button
         type="button"
-        title="Chat options"
-        aria-label="Chat options"
+        title={t("chatsList.menu.optionsLabel")}
+        aria-label={t("chatsList.menu.optionsLabel")}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={(event) => {
@@ -64,19 +66,19 @@ function ChatListMenu({
         // way, and closes any other popup that was open.
         <div
           role="menu"
-          aria-label="Chat options"
+          aria-label={t("chatsList.menu.optionsLabel")}
           className="absolute right-0 z-[1000] mt-1.5 w-52 rounded-xl border border-border bg-surface p-1 shadow-card"
         >
-          <ChatListMenuItem icon={<Pin size={15} />} label={pinned ? "Unpin Chat" : "Pin Chat"} onClick={pick(onTogglePin)} />
+          <ChatListMenuItem icon={<Pin size={15} />} label={pinned ? t("chatsList.menu.unpin") : t("chatsList.menu.pin")} onClick={pick(onTogglePin)} />
           <ChatListMenuItem
             icon={<Trash2 size={15} />}
-            label="Delete Chat"
+            label={t("chatsList.menu.delete")}
             onClick={pick(onDelete)}
             danger
           />
           <ChatListMenuItem
             icon={muted ? <Bell size={15} /> : <BellOff size={15} />}
-            label={muted ? "Unmute Notifications" : "Mute Notifications"}
+            label={muted ? t("common.unmuteNotifications") : t("common.muteNotifications")}
             onClick={pick(onToggleMute)}
           />
         </div>
@@ -112,6 +114,7 @@ function ChatListMenuItem({
 }
 
 export function ChatsList() {
+  const { t } = useTranslation("chatList");
   const { api } = useRuntime();
   const qc = useQueryClient();
   const me = useSession((s) => s.user)!;
@@ -143,7 +146,7 @@ export function ChatsList() {
       void qc.invalidateQueries({ queryKey: qk.conversations });
       if (selectedId === conversationId) closeChat();
     },
-    onError: () => toast.error("Couldn't delete this chat"),
+    onError: () => toast.error(t("chatsList.deleteErrorToast")),
   });
 
   // Shortcuts float to the top; everything else keeps the server's order (most
@@ -171,11 +174,11 @@ export function ChatsList() {
   return (
     <>
       <ListHeader
-        title="Chats"
+        title={t("chatsList.title")}
         action={
           <button
             onClick={() => setNewOpen(true)}
-            title="New chat"
+            title={t("chatsList.newChat")}
             className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-brand-from to-brand-to text-accent-fg shadow-soft transition hover:brightness-105"
           >
             <Plus size={16} />
@@ -187,14 +190,14 @@ export function ChatsList() {
           <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
           <input
             type="search"
-            aria-label="Search chats"
-            placeholder="Search chats..."
+            aria-label={t("chatsList.searchAriaLabel")}
+            placeholder={t("chatsList.searchPlaceholder")}
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             className="h-9 w-full rounded-lg border border-border bg-surface-2 pl-9 pr-3 text-sm text-fg outline-none placeholder:text-muted focus:border-accent"
           />
         </label>
-        <div className="flex items-center" role="tablist" aria-label="Chat filters">
+        <div className="flex items-center" role="tablist" aria-label={t("chatsList.filtersAriaLabel")}>
           {(["all", "unread", "mentions"] as const).map((value) => (
             <button
               key={value}
@@ -206,7 +209,7 @@ export function ChatsList() {
                 filter === value ? "text-accent after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:rounded-full after:bg-accent" : "text-muted hover:text-fg"
               }`}
             >
-              {value}
+              {t(`chatsList.filters.${value}`)}
               {value === "unread" &&
                 conversations.filter((conversation: ConversationDTO) => conversation.unread > 0).length > 0 && (
                   <span className="ml-1.5 rounded-full bg-accent px-1.5 text-[10px] text-accent-fg">
@@ -219,9 +222,9 @@ export function ChatsList() {
       </div>
       <div className="min-h-0 flex-1 space-y-0.5 overflow-auto p-2">
         {conversations.length === 0 ? (
-          <EmptyState icon={<MessageSquarePlus size={22} />} title="No chats yet" hint="Tap + to start a conversation." />
+          <EmptyState icon={<MessageSquarePlus size={22} />} title={t("chatsList.empty.title")} hint={t("chatsList.empty.hint")} />
         ) : visibleChats.length === 0 ? (
-          <EmptyState icon={<Search size={22} />} title="No matching chats" hint="Try another search or filter." />
+          <EmptyState icon={<Search size={22} />} title={t("chatsList.emptySearch.title")} hint={t("chatsList.emptySearch.hint")} />
         ) : (
           visibleChats.map((c: ConversationDTO) => {
             const muted = prefs.isMuted("chat", c.id);
@@ -249,9 +252,9 @@ export function ChatsList() {
                     <span className="truncate font-medium text-fg">{displayNameOf(c)}</span>
                     <span className="flex shrink-0 items-center gap-1 text-[10px] text-muted">
                       {prefs.hasShortcut("chat", c.id) && (
-                        <Pin size={11} aria-label="Pinned" className="text-accent" />
+                        <Pin size={11} aria-label={t("common.pinnedLabel")} className="text-accent" />
                       )}
-                      {muted && <BellOff size={11} aria-label="Muted" />}
+                      {muted && <BellOff size={11} aria-label={t("common.mutedLabel")} />}
                       {relTime(c.lastMessageAt)}
                     </span>
                   </div>
@@ -262,9 +265,9 @@ export function ChatsList() {
                         : c.lastMessage
                           ? withSenderLabel(
                               listPreview(c.lastMessage, isOwnLastMessage),
-                              isOwnLastMessage ? "You" : undefined,
+                              isOwnLastMessage ? t("chatsList.you") : undefined,
                             )
-                          : "Start chatting"}
+                          : t("chatsList.startChatting")}
                     </span>
                     {c.unread > 0 && (
                       // A muted chat still says how much is waiting; it just
@@ -298,9 +301,9 @@ export function ChatsList() {
       <ConfirmDialog
         open={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}
-        title="Delete chat history?"
-        message="This will delete this chat history for you. The other person will keep their copy."
-        confirmLabel="Delete chat"
+        title={t("chatsList.deleteDialog.title")}
+        message={t("chatsList.deleteDialog.message")}
+        confirmLabel={t("chatsList.deleteDialog.confirmLabel")}
         danger
         busy={deleteChat.isPending}
         onConfirm={() => {

@@ -1,0 +1,279 @@
+{
+  "shared": {
+    "you": "You",
+    "emptyMessages": "No messages yet — say hi 👋",
+    "sending": "Sending…",
+    "callMissedNoAnswer": "{{body}} · no answer",
+    "messageFailedToSend": "Couldn't send that message",
+    "loadOlderMessagesFailed": "Couldn't load earlier messages"
+  },
+  "thread": {
+    "composerPlaceholder": "Write a message…",
+    "loadHistory": {
+      "loading": "Loading earlier messages…",
+      "load": "Load earlier messages"
+    },
+    "pinned": "Pinned",
+    "forwarded": "Forwarded",
+    "tombstone": "This message was deleted",
+    "deletedMessage": "Deleted message",
+    "originalMessage": "Original message",
+    "selectMessage": "Select message",
+    "selectMessageFrom": "Select message from {{name}}",
+    "seenBy": {
+      "label": "Seen by",
+      "count": "Seen by {{count}}",
+      "ariaLabel_one": "Seen by {{count}} person",
+      "ariaLabel_other": "Seen by {{count}} people",
+      "unknownReader": "Unknown"
+    },
+    "typing": {
+      "peer": "{{name}} is typing…",
+      "generic": "Typing…"
+    },
+    "disabledNotice": "You can't message this conversation."
+  },
+  "threadView": {
+    "loadOlder": {
+      "loading": "Loading older messages…",
+      "button": "Load previous 12",
+      "title": "Load previous 12 messages"
+    }
+  },
+  "dmView": {
+    "errors": {
+      "reactionSave": "Couldn't save that reaction",
+      "hideMessage": "Couldn't hide that message",
+      "markUnread": "Couldn't mark that chat as unread",
+      "deleteMessage": "Couldn't delete that message",
+      "deleteMessages": "Couldn't delete those messages",
+      "clearChat": "Couldn't clear this chat history",
+      "removeConversation": "Couldn't remove this conversation",
+      "createCallLink": "Couldn't create a call link",
+      "noneDeletable": "None of the selected messages can be deleted for everyone",
+      "updateBlock": {
+        "title": "Couldn't update block",
+        "description": "Please try again."
+      }
+    },
+    "bulkDelete": {
+      "deletedToast_one": "Deleted {{count}} message",
+      "deletedToast_other": "Deleted {{count}} messages",
+      "partialToast": "Deleted {{deleted}} of {{total}}",
+      "partialDescription": "{{count}} couldn't be deleted — only their author can."
+    },
+    "clearChatToast": "Chat cleared for you",
+    "callLink": {
+      "messageBody": "Join my call: {{link}}",
+      "failedToast": "Couldn't reach {{failed}} of {{total}}",
+      "failedDescription": "The link is posted in this chat, and everyone else has it.",
+      "sentToast": "Call link sent",
+      "sentDescription": {
+        "withOthers_one": "Also sent to {{count}} person. The call is open now — join it from Meetings whenever you're ready.",
+        "withOthers_other": "Also sent to {{count}} people. The call is open now — join it from Meetings whenever you're ready.",
+        "aloneOnly": "The call is open now — join it from Meetings whenever you're ready."
+      }
+    },
+    "notFound": {
+      "title": "Conversation not found",
+      "hint": "Pick another from the sidebar."
+    },
+    "startCall": {
+      "blockedNotice": {
+        "title": "Can't start call",
+        "unblockToCall": "Unblock this user to call them.",
+        "cannotCall": "You can't call this user."
+      },
+      "mustBeOnline": "{{name}} must be online to receive a call.",
+      "onAnotherCall": {
+        "title": "{{name}} is on another call",
+        "description": "Ringing them anyway — they may not pick up."
+      }
+    },
+    "exportedToast_one": "Exported {{count}} message",
+    "exportedToast_other": "Exported {{count}} messages",
+    "header": {
+      "backToChats": "Back to chats",
+      "status": {
+        "busy": "On a call",
+        "online": "Online",
+        "offline": "Offline"
+      },
+      "unblockTitle": "Unblock this user",
+      "blockTitle": "Block this user",
+      "unblockLabel": "Unblock",
+      "blockLabel": "Block",
+      "removeFromInboxes": "Remove from both inboxes",
+      "ignore": "Ignore"
+    },
+    "search": {
+      "placeholder": "Search your chat with {{name}}…"
+    },
+    "composer": {
+      "placeholder": "Message {{name}}…"
+    },
+    "notice": {
+      "blockedByMe": "You blocked this user. Unblock to send messages.",
+      "blockedByPeer": "You have been blocked."
+    },
+    "clearChatDialog": {
+      "title": "Clear chat history?",
+      "message": "This will delete this chat history for you. The other person will keep their copy.",
+      "confirmLabel": "Clear chat"
+    },
+    "bulkDeleteDialog": {
+      "title_one": "Delete {{count}} message?",
+      "title_other": "Delete {{count}} messages?",
+      "messageAll": "This deletes them for everyone in this chat. It can't be undone.",
+      "messagePartial": "{{remaining}} of the {{total}} selected can't be deleted for everyone — only their author can. The other {{deletable}} will be deleted for everyone, and that can't be undone.",
+      "confirmLabel": "Delete"
+    }
+  },
+  "channelView": {
+    "errors": {
+      "reactionSave": "Couldn't save that reaction",
+      "hideMessage": "Couldn't hide that message",
+      "markUnread": "Couldn't mark that channel as unread",
+      "clearMessages": "Couldn't clear the channel messages",
+      "deleteMessage": "Couldn't delete that message",
+      "deleteMessages": "Couldn't delete those messages",
+      "changePin": "Couldn't change the pin",
+      "startCall": "Couldn't start the call",
+      "leave": "Couldn't leave",
+      "deleteChannel": "Couldn't delete the channel",
+      "noneDeletable": "None of the selected messages can be deleted for everyone"
+    },
+    "clearMessagesToast": "Channel messages cleared for you",
+    "bulkDelete": {
+      "deletedToast_one": "Deleted {{count}} message",
+      "deletedToast_other": "Deleted {{count}} messages",
+      "partialToast": "Deleted {{deleted}} of {{total}}",
+      "partialDescription": "{{count}} couldn't be deleted — only their author or a channel manager can."
+    },
+    "pinToggle": {
+      "pinned": "Pinned for everyone",
+      "unpinned": "Unpinned"
+    },
+    "leftChannelToast": "You left #{{name}}",
+    "deletedChannelToast": "Channel deleted",
+    "notFound": {
+      "title": "Channel not found",
+      "hint": "Pick another from the sidebar."
+    },
+    "exportedToast_one": "Exported {{count}} message",
+    "exportedToast_other": "Exported {{count}} messages",
+    "header": {
+      "backToChannels": "Back to channels",
+      "locked": "locked",
+      "membersTitle": "Channel members",
+      "membersAriaLabel": "{{count}} members — view and manage"
+    },
+    "search": {
+      "placeholder": "Search #{{name}}…"
+    },
+    "composer": {
+      "placeholder": "Message #{{name}}…"
+    },
+    "clearMessagesDialog": {
+      "title": "Clear channel messages?",
+      "message": "This will clear the loaded messages for you. Other members will still have their copies.",
+      "confirmLabel": "Clear messages"
+    },
+    "deleteChannelDialog": {
+      "titleNamed": "Delete #{{name}}?",
+      "titleFallback": "Delete channel?",
+      "message": "This cannot be undone. The channel and its messages will be deleted.",
+      "confirmLabel": "Delete channel"
+    },
+    "bulkDeleteDialog": {
+      "title_one": "Delete {{count}} message?",
+      "title_other": "Delete {{count}} messages?",
+      "messageAll": "This deletes them for everyone in this channel. It can't be undone.",
+      "messagePartial": "{{remaining}} of the {{total}} selected can't be deleted for everyone — only their author or a channel manager can. The other {{deletable}} will be deleted for everyone, and that can't be undone.",
+      "confirmLabel": "Delete"
+    }
+  },
+  "conversationMenu": {
+    "unavailableHint": "Not available yet — needs a server endpoint",
+    "label": {
+      "channel": "Channel options",
+      "chat": "Chat options"
+    },
+    "items": {
+      "viewProfile": "View Profile",
+      "search": "Search",
+      "media": "Media, Links & Docs",
+      "selectMessages": "Select Messages",
+      "mute": "Mute Notifications",
+      "unmute": "Unmute Notifications",
+      "more": "More",
+      "clearChat": "Clear Chat",
+      "exportChat": "Export Chat",
+      "pin": "Pin {{scope}}",
+      "unpin": "Unpin {{scope}}",
+      "rename": "Rename",
+      "delete": "Delete",
+      "leaving": "Leaving…",
+      "leave": "Leave"
+    },
+    "scope": {
+      "channel": "Channel",
+      "chat": "Chat"
+    }
+  },
+  "whatsAppForward": {
+    "forwardedToast": "Forwarded through WhatsApp",
+    "forwardedDescription": "You picked the recipient in WhatsApp, so this chat records the handoff only.",
+    "logFailedToast": "Couldn't log the forward",
+    "logFailedDescription": "WhatsApp still opened — it just isn't recorded in this chat.",
+    "shareFailedGeneric": "Share failed",
+    "mediaPrepareFailed": "Couldn't prepare the attachment for WhatsApp",
+    "mediaNoLongerAvailable": "It may no longer be available.",
+    "sharedToast": "Opened the share sheet with the attachment",
+    "sharedDescription": "Pick WhatsApp there — BlissWork can't confirm what happens after that.",
+    "downloadedToast_one": "Attachment downloaded for WhatsApp",
+    "downloadedToast_other": "{{count}} attachments downloaded for WhatsApp",
+    "downloadedDescription": "This device can't hand files to WhatsApp automatically — attach the download in WhatsApp yourself.",
+    "mediaShareFailed": "Couldn't share the attachment with WhatsApp"
+  },
+  "export": {
+    "header": "{{brand}} conversation transcript",
+    "exportedSummary_one": "Exported {{timestamp}} · {{count}} message loaded",
+    "exportedSummary_other": "Exported {{timestamp}} · {{count}} messages loaded",
+    "unknownSender": "Unknown",
+    "deletedMessage": "(deleted)",
+    "noText": "(no text)"
+  },
+  "messageActions": {
+    "react": {
+      "title": "React",
+      "ariaLabel": "React to this message"
+    },
+    "more": {
+      "title": "More",
+      "ariaLabel": "Message actions"
+    },
+    "menu": {
+      "reply": "Reply",
+      "forwardTo": "Forward to chat or channel…",
+      "forwardWhatsApp": "Forward to WhatsApp",
+      "markUnread": "Mark as unread",
+      "deleteForMe": "Delete for me",
+      "unpinForEveryone": "Unpin for everyone",
+      "pinForEveryone": "Pin for everyone",
+      "deleteForEveryone": "Delete for everyone"
+    },
+    "confirmDialog": {
+      "title": "Delete message?",
+      "deleteAllMessage": "Are you sure you want to delete this message? It will be removed for everyone in this conversation.",
+      "deleteMeMessage": "Are you sure you want to delete this message? This only removes it from your own view.",
+      "confirmLabel": "Delete"
+    },
+    "reactions": {
+      "clickToRemove": "Click to remove your reaction",
+      "clickToReact": "Click to react",
+      "andMore": "{{names}} and {{hidden}} more",
+      "tooltip": "{{who}} reacted with {{emoji}} — {{action}}"
+    }
+  }
+}

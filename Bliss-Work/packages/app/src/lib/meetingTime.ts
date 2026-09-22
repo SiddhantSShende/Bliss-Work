@@ -10,6 +10,7 @@
 import type { CallDTO } from "@taskboard/shared";
 import { dayLabel as _dayLabel, startOfDay } from "./dayLabel";
 import { groupConsecutiveByLabel } from "./groupConsecutive";
+import i18n from "../i18n";
 
 export { startOfDay };
 
@@ -29,7 +30,7 @@ export function dayLabel(t: number): string {
 }
 
 export function timeLabel(t: number): string {
-  return new Date(t).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return new Date(t).toLocaleTimeString(i18n.language, { hour: "numeric", minute: "2-digit" });
 }
 
 /** Consecutive runs of the same day, in the order the caller sorted them. */

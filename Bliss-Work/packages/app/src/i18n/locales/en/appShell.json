@@ -1,0 +1,22 @@
+{
+  "topNavbar": {
+    "openMenu": "Menu",
+    "openNavigationMenu": "Open navigation menu",
+    "searchPlaceholder": "Search people, channels, chats, tasks…",
+    "clearSearch": "Clear search",
+    "invite": "Invite",
+    "search": "Search",
+    "notifications": "Notifications"
+  },
+  "verifyEmail": {
+    "message": "Verify your email address to fully secure your account.",
+    "resendSent": "Sent ✓",
+    "resend": "Resend email",
+    "resentToast": "Verification email sent — check your inbox."
+  },
+  "mfaRequired": {
+    "messageWithDeadline": "Your workspace requires two-factor authentication for admins — enable it by {{deadline}}.",
+    "messageNoDeadline": "Your workspace requires two-factor authentication for admins.",
+    "enableNow": "Enable now"
+  }
+}

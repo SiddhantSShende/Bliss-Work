@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { X, MessageSquare, ChevronLeft, Ban } from "lucide-react";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { Avatar, Button, EmptyState } from "@taskboard/ui";
 import type { ConversationDTO, MessageDTO, ReactionDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
@@ -40,6 +41,7 @@ export function DMView() {
   // from the URL (see lib/selectedChat). Everything below is unchanged — this
   // is still one conversation's worth of state, it is just told which one by
   // the shell rather than by the router.
+  const { t } = useTranslation("chatThread");
   const { selectedId, closeChat } = useSelectedChat();
   const conversationId = selectedId ?? "";
   const { api, config } = useRuntime();
@@ -199,7 +201,7 @@ export function DMView() {
     mutationFn: ({ id, emoji, on }: { id: string; emoji: string; on: boolean }) =>
       api.setReaction(id, emoji, on),
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.reactions(conversationId) }),
-    onError: () => toast.error("Couldn't save that reaction"),
+    onError: () => toast.error(t("dmView.errors.reactionSave")),
   });
   // Guards against a fast double-tap firing two overlapping requests for the
   // SAME (message, emoji) chip: setReaction carries no idempotency key, and a
@@ -225,21 +227,21 @@ export function DMView() {
     mutationKey: ["dmHide", conversationId],
     mutationFn: (id: string) => api.hideMessage(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.messages(conversationId) }),
-    onError: () => toast.error("Couldn't hide that message"),
+    onError: () => toast.error(t("dmView.errors.hideMessage")),
   });
 
   const markUnread = useMutation({
     mutationKey: ["dmMarkUnread", conversationId],
     mutationFn: (upToSeq: number) => api.read(conversationId, upToSeq),
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.conversations }),
-    onError: () => toast.error("Couldn't mark that chat as unread"),
+    onError: () => toast.error(t("dmView.errors.markUnread")),
   });
 
   const removeForAll = useMutation({
     mutationKey: ["dmRemoveForAll", conversationId],
     mutationFn: (id: string) => api.deleteMessageForAll(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.messages(conversationId) }),
-    onError: () => toast.error("Couldn't delete that message"),
+    onError: () => toast.error(t("dmView.errors.deleteMessage")),
   });
 
   // The selected rows, and how many of them this caller may delete for
@@ -265,15 +267,15 @@ export function DMView() {
       selection.exit();
       const total = res.deleted.length + res.skipped.length;
       if (res.skipped.length === 0) {
-        toast.success(`Deleted ${res.deleted.length} message${res.deleted.length === 1 ? "" : "s"}`);
+        toast.success(t("dmView.bulkDelete.deletedToast", { count: res.deleted.length }));
       } else {
-        toast.warning(`Deleted ${res.deleted.length} of ${total}`, {
-          description: `${res.skipped.length} couldn't be deleted — only their author can.`,
+        toast.warning(t("dmView.bulkDelete.partialToast", { deleted: res.deleted.length, total }), {
+          description: t("dmView.bulkDelete.partialDescription", { count: res.skipped.length }),
         });
       }
     },
     // Selection is deliberately KEPT on failure, so a retry is one click.
-    onError: () => toast.error("Couldn't delete those messages"),
+    onError: () => toast.error(t("dmView.errors.deleteMessages")),
   });
 
   const reply = useOptimisticSend<MessageDTO>({
@@ -308,7 +310,7 @@ export function DMView() {
       // ignored conversation open on screen.
       closeChat();
     },
-    onError: () => toast.error("Couldn't remove this conversation"),
+    onError: () => toast.error(t("dmView.errors.removeConversation")),
   });
 
   // Clears the caller's own history only — unlike "Ignore" above, the
@@ -319,9 +321,9 @@ export function DMView() {
       .then(() => {
         void qc.invalidateQueries({ queryKey: qk.messages(conversationId) });
         void qc.invalidateQueries({ queryKey: qk.conversations });
-        toast.success("Chat cleared for you");
+        toast.success(t("dmView.clearChatToast"));
       })
-      .catch(() => toast.error("Couldn't clear this chat history"));
+      .catch(() => toast.error(t("dmView.errors.clearChat")));
   };
 
   // Block / unblock toggles the caller's own block on the peer. The WS
@@ -337,7 +339,9 @@ export function DMView() {
       void qc.invalidateQueries({ queryKey: qk.conversations });
     },
     onError: () =>
-      toast.error("Couldn't update block", { description: "Please try again." }),
+      toast.error(t("dmView.errors.updateBlock.title"), {
+        description: t("dmView.errors.updateBlock.description"),
+      }),
   });
 
   /**
@@ -360,26 +364,26 @@ export function DMView() {
       });
     },
     onSuccess: ({ link, failed }, alsoTo) => {
-      reply.mutate({ body: `Join my call: ${link}` });
+      reply.mutate({ body: t("dmView.callLink.messageBody", { link }) });
       void qc.invalidateQueries({ queryKey: qk.calls });
       // Messaging someone for the first time creates the conversation, so the
       // chat list is now out of date.
       if (alsoTo.length > 0) void qc.invalidateQueries({ queryKey: qk.conversations });
       setLinkOpen(false);
       if (failed > 0) {
-        toast.error(`Couldn't reach ${failed} of ${alsoTo.length}`, {
-          description: "The link is posted in this chat, and everyone else has it.",
+        toast.error(t("dmView.callLink.failedToast", { failed, total: alsoTo.length }), {
+          description: t("dmView.callLink.failedDescription"),
         });
         return;
       }
-      toast.success("Call link sent", {
+      toast.success(t("dmView.callLink.sentToast"), {
         description:
           alsoTo.length > 0
-            ? `Also sent to ${alsoTo.length} ${alsoTo.length === 1 ? "person" : "people"}. The call is open now — join it from Meetings whenever you're ready.`
-            : "The call is open now — join it from Meetings whenever you're ready.",
+            ? t("dmView.callLink.sentDescription.withOthers", { count: alsoTo.length })
+            : t("dmView.callLink.sentDescription.aloneOnly"),
       });
     },
-    onError: () => toast.error("Couldn't create a call link"),
+    onError: () => toast.error(t("dmView.errors.createCallLink")),
   });
 
   // Never render peerUsername directly — it is the email local-part. Read
@@ -428,8 +432,8 @@ export function DMView() {
   // sides, so they get the names attached here rather than in the thread, where
   // adding them would start captioning quoted replies that never had captions.
   const threadForTools = useMemo(
-    () => thread.map((m) => ({ ...m, senderName: m.senderId === me.id ? "You" : peerName })),
-    [thread, me.id, peerName],
+    () => thread.map((m) => ({ ...m, senderName: m.senderId === me.id ? t("shared.you") : peerName })),
+    [thread, me.id, peerName, t],
   );
 
   // Searching narrows what the thread draws; it does not touch what is loaded,
@@ -457,7 +461,11 @@ export function DMView() {
   if (!conv)
     return (
       <div className="flex h-full items-center justify-center">
-        <EmptyState icon={<MessageSquare size={24} />} title="Conversation not found" hint="Pick another from the sidebar." />
+        <EmptyState
+          icon={<MessageSquare size={24} />}
+          title={t("dmView.notFound.title")}
+          hint={t("dmView.notFound.hint")}
+        />
       </div>
     );
   
@@ -468,10 +476,10 @@ export function DMView() {
   /** A block in either direction rules out every entry in the call menu, not
    *  just ringing — so all four routes through it say the same thing. */
   const blockedNotice = () => {
-    toast("Can't start call", {
+    toast(t("dmView.startCall.blockedNotice.title"), {
       description: conv.blockedByMe
-        ? "Unblock this user to call them."
-        : "You can't call this user.",
+        ? t("dmView.startCall.blockedNotice.unblockToCall")
+        : t("dmView.startCall.blockedNotice.cannotCall"),
     });
   };
   const startCall = (media: "audio" | "video") => {
@@ -480,8 +488,8 @@ export function DMView() {
       return;
     }
     if (!isOnline) {
-      toast("Can't start call", {
-        description: `${peerName} must be online to receive a call.`,
+      toast(t("dmView.startCall.blockedNotice.title"), {
+        description: t("dmView.startCall.mustBeOnline", { name: peerName }),
       });
       return;
     }
@@ -489,8 +497,8 @@ export function DMView() {
     // should. Saying so first is the difference between an informed interruption
     // and a surprising one.
     if (peerStatus === "busy") {
-      toast(`${peerName} is on another call`, {
-        description: "Ringing them anyway — they may not pick up.",
+      toast(t("dmView.startCall.onAnotherCall.title", { name: peerName }), {
+        description: t("dmView.startCall.onAnotherCall.description"),
       });
     }
     call.invite(conv.peerId, peerName, media);
@@ -519,7 +527,7 @@ export function DMView() {
    *  transcript's own header says so — see lib/chatExport. */
   const exportChat = () => {
     exportChatTranscript(threadForTools, { title: peerName, meId: me.id, now: new Date() });
-    toast.success(`Exported ${threadForTools.length} message${threadForTools.length === 1 ? "" : "s"}`);
+    toast.success(t("dmView.exportedToast", { count: threadForTools.length }));
   };
 
   return (
@@ -530,7 +538,7 @@ export function DMView() {
         <div className="flex min-w-0 items-center gap-3">
           <button
             onClick={closeChat}
-            title="Back to chats"
+            title={t("dmView.header.backToChats")}
             className="-ml-1 shrink-0 rounded-lg p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg md:hidden"
           >
             <ChevronLeft size={20} />
@@ -547,7 +555,11 @@ export function DMView() {
                     : "text-muted"
               }`}
             >
-              {peerStatus === "busy" ? "On a call" : peerStatus === "online" ? "Online" : "Offline"}
+              {peerStatus === "busy"
+                ? t("dmView.header.status.busy")
+                : peerStatus === "online"
+                  ? t("dmView.header.status.online")
+                  : t("dmView.header.status.offline")}
             </div>
           </div>
         </div>
@@ -564,18 +576,18 @@ export function DMView() {
             size="sm"
             onClick={() => block.mutate()}
             disabled={block.isPending}
-            title={conv.blockedByMe ? "Unblock this user" : "Block this user"}
+            title={conv.blockedByMe ? t("dmView.header.unblockTitle") : t("dmView.header.blockTitle")}
           >
-            <Ban size={15} /> {conv.blockedByMe ? "Unblock" : "Block"}
+            <Ban size={15} /> {conv.blockedByMe ? t("dmView.header.unblockLabel") : t("dmView.header.blockLabel")}
           </Button>
           <Button
             variant="ghost"
             size="sm"
             onClick={() => ignore.mutate()}
             disabled={ignore.isPending}
-            title="Remove from both inboxes"
+            title={t("dmView.header.removeFromInboxes")}
           >
-            <X size={15} /> Ignore
+            <X size={15} /> {t("dmView.header.ignore")}
           </Button>
           <ConversationMenu
             scope="chat"
@@ -603,7 +615,7 @@ export function DMView() {
           onClose={closeSearch}
           matches={shown.length}
           loaded={thread.length}
-          placeholder={`Search your chat with ${peerName}…`}
+          placeholder={t("dmView.search.placeholder", { name: peerName })}
         />
       )}
       <ChatThread
@@ -641,7 +653,7 @@ export function DMView() {
               onCancel={selection.exit}
               onDelete={() => {
                 if (deletableCount === 0) {
-                  toast.error("None of the selected messages can be deleted for everyone");
+                  toast.error(t("dmView.errors.noneDeletable"));
                   return;
                 }
                 setBulkDeleteOpen(true);
@@ -661,13 +673,13 @@ export function DMView() {
         onType={onType}
         peerTyping={peerTyping}
         peerName={peerName}
-        placeholder={`Message ${peerName}…`}
+        placeholder={t("dmView.composer.placeholder", { name: peerName })}
         disabled={isBlocked}
         notice={
           conv.blockedByMe
-            ? "You blocked this user. Unblock to send messages."
+            ? t("dmView.notice.blockedByMe")
             : conv.blockedByPeer
-              ? "You have been blocked."
+              ? t("dmView.notice.blockedByPeer")
               : undefined
         }
         onForwardTo={(id) => {
@@ -724,9 +736,9 @@ export function DMView() {
       <ConfirmDialog
         open={clearChatOpen}
         onClose={() => setClearChatOpen(false)}
-        title="Clear chat history?"
-        message="This will delete this chat history for you. The other person will keep their copy."
-        confirmLabel="Clear chat"
+        title={t("dmView.clearChatDialog.title")}
+        message={t("dmView.clearChatDialog.message")}
+        confirmLabel={t("dmView.clearChatDialog.confirmLabel")}
         danger
         busy={false}
         onConfirm={() => {
@@ -737,13 +749,17 @@ export function DMView() {
       <ConfirmDialog
         open={bulkDeleteOpen}
         onClose={() => setBulkDeleteOpen(false)}
-        title={`Delete ${deletableCount} message${deletableCount === 1 ? "" : "s"}?`}
+        title={t("dmView.bulkDeleteDialog.title", { count: deletableCount })}
         message={
           deletableCount === selection.count
-            ? "This deletes them for everyone in this chat. It can't be undone."
-            : `${selection.count - deletableCount} of the ${selection.count} selected can't be deleted for everyone — only their author can. The other ${deletableCount} will be deleted for everyone, and that can't be undone.`
+            ? t("dmView.bulkDeleteDialog.messageAll")
+            : t("dmView.bulkDeleteDialog.messagePartial", {
+                remaining: selection.count - deletableCount,
+                total: selection.count,
+                deletable: deletableCount,
+              })
         }
-        confirmLabel="Delete"
+        confirmLabel={t("dmView.bulkDeleteDialog.confirmLabel")}
         danger
         busy={bulkDelete.isPending}
         onConfirm={() => bulkDelete.mutate(selectedMessages.map((m) => m.id))}

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { daysIn, gridRangeOf, isSameDay, rangeLabel, shiftAnchor, startOfMonth } from "../lib/meetingCalendar";
 import { startOfDay } from "../lib/dayLabel";
@@ -18,6 +19,7 @@ export function MiniTaskCalendar({
   selectedDay: number | null;
   onSelectDay: (day: number | null) => void;
 }) {
+  const { t, i18n } = useTranslation("tasks");
   const [anchor, setAnchor] = useState(() => startOfMonth(Date.now()));
   const days = daysIn(gridRangeOf(anchor, "month"));
   const month = new Date(anchor).getMonth();
@@ -26,18 +28,18 @@ export function MiniTaskCalendar({
   return (
     <div className="w-full max-w-xs">
       <div className="mb-2 flex items-center justify-between">
-        <StepButton label="Previous month" onClick={() => setAnchor(shiftAnchor(anchor, "month", -1))}>
+        <StepButton label={t("miniTaskCalendar.previousMonth")} onClick={() => setAnchor(shiftAnchor(anchor, "month", -1))}>
           <ChevronLeft size={16} />
         </StepButton>
         <span className="text-sm font-medium text-fg">{rangeLabel(anchor, "month")}</span>
-        <StepButton label="Next month" onClick={() => setAnchor(shiftAnchor(anchor, "month", 1))}>
+        <StepButton label={t("miniTaskCalendar.nextMonth")} onClick={() => setAnchor(shiftAnchor(anchor, "month", 1))}>
           <ChevronRight size={16} />
         </StepButton>
       </div>
       <div className="grid grid-cols-7 text-center text-[10px] font-medium uppercase text-muted">
         {days.slice(0, 7).map((d) => (
           <span key={d} className="py-1">
-            {new Date(d).toLocaleDateString(undefined, { weekday: "narrow" })}
+            {new Date(d).toLocaleDateString(i18n.language, { weekday: "narrow" })}
           </span>
         ))}
       </div>
@@ -54,7 +56,7 @@ export function MiniTaskCalendar({
               key={day}
               type="button"
               aria-pressed={selected}
-              aria-label={new Date(day).toLocaleDateString(undefined, { dateStyle: "full" })}
+              aria-label={new Date(day).toLocaleDateString(i18n.language, { dateStyle: "full" })}
               onClick={() => onSelectDay(selected ? null : day)}
               className={`relative mx-auto flex h-8 w-8 items-center justify-center rounded-full text-xs transition-colors ${tone} ${
                 day === today && !selected ? "ring-1 ring-accent" : ""

@@ -52,6 +52,8 @@ import {
   MfaBackupCodesResult,
   MfaMethodsResult,
   MfaTotpEnrollConfirmResult,
+  I18nCatalogDTO,
+  I18nLanguagesDTO,
   MfaTotpEnrollStartResult,
   MfaWebauthnRegisterFinishResult,
   type ThreadOrigin,
@@ -612,6 +614,19 @@ export class ApiClient {
   }
   me() {
     return this.req(this.cfg.authBase, "/auth/me", {}, UserDTO);
+  }
+  /** The locales auth-svc can currently translate the UI into — live from
+   *  Google Cloud Translation (Redis-cached server-side), never a client-side
+   *  hardcoded list. Empty when no Google credential is configured. */
+  i18nLanguages() {
+    return this.req(this.cfg.authBase, "/i18n/languages", {}, I18nLanguagesDTO);
+  }
+  /** The translated UI-string catalog for `locale`, one namespace bundle per
+   *  key — see LanguageProvider, which is the only caller. Never sends the
+   *  strings themselves; the server already holds the English source and
+   *  translates from that on demand. */
+  i18nCatalog(locale: string) {
+    return this.req(this.cfg.authBase, `/i18n/catalog?locale=${encodeURIComponent(locale)}`, {}, I18nCatalogDTO);
   }
   /** Both fields are independently optional — the Profile page saves a
    *  display-name edit and an avatar upload as two separate actions that

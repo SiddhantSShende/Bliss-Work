@@ -49,19 +49,22 @@ export interface DownloadAsset {
 export interface Platform {
   id: PlatformId;
   name: string;
-  /** e.g. "Windows 10 & 11 · 64-bit". */
-  requirement: string;
   /** Primary CTA asset (used by the one-click "Download for X"). */
   primary: DownloadAsset;
   /** All available assets (arch / format variants). */
   assets: DownloadAsset[];
 }
 
+// `name` and asset `label`s are OS/format names — Windows, macOS, Linux,
+// .dmg/.exe/.deb — conventionally kept in their original form rather than
+// translated, the same way a product name is. `requirement` (e.g. "Windows
+// 10 & 11 · 64-bit") IS a real sentence a reader parses, so it is resolved
+// through i18n instead — see `platformRequirement` below and
+// GetAppButton.tsx's only call site.
 export const PLATFORMS: Record<PlatformId, Platform> = {
   windows: {
     id: "windows",
     name: "Windows",
-    requirement: "Windows 10 & 11 · 64-bit",
     primary: { label: "Installer (.exe)", ext: ".exe", url: `${RELEASE_BASE}/BlissWork-windows-x64.exe` },
     assets: [
       { label: "Installer (.exe)", ext: ".exe", url: `${RELEASE_BASE}/BlissWork-windows-x64.exe` },
@@ -70,7 +73,6 @@ export const PLATFORMS: Record<PlatformId, Platform> = {
   mac: {
     id: "mac",
     name: "macOS",
-    requirement: "macOS 11 Big Sur or later",
     primary: { label: "Apple Silicon (.dmg)", ext: ".dmg", url: `${RELEASE_BASE}/BlissWork-mac-arm64.dmg` },
     assets: [
       { label: "Apple Silicon (.dmg)", ext: ".dmg", url: `${RELEASE_BASE}/BlissWork-mac-arm64.dmg` },
@@ -80,7 +82,6 @@ export const PLATFORMS: Record<PlatformId, Platform> = {
   linux: {
     id: "linux",
     name: "Linux",
-    requirement: "AppImage (universal) or .deb",
     primary: { label: "AppImage", ext: ".AppImage", url: `${RELEASE_BASE}/BlissWork-linux-x64.AppImage` },
     assets: [
       { label: "AppImage", ext: ".AppImage", url: `${RELEASE_BASE}/BlissWork-linux-x64.AppImage` },

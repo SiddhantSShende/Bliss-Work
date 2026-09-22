@@ -1,4 +1,5 @@
 import { Suspense, lazy } from "react";
+import { useTranslation } from "react-i18next";
 import type { CallDTO } from "@taskboard/shared";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { withLoadTimeout } from "../lib/withLoadTimeout";
@@ -68,9 +69,10 @@ const LazyCallRoom = lazy(() =>
  * it — indistinguishable from the chunk never loading at all.
  */
 function CallRoomFallback() {
+  const { t } = useTranslation("calls");
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-surface text-sm text-muted">
-      Connecting…
+      {t("roomLazy.connecting")}
     </div>
   );
 }
@@ -90,16 +92,17 @@ function CallRoomFallback() {
  * unstyled.
  */
 function CallRoomLoadError() {
+  const { t } = useTranslation("calls");
   return (
     <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-3 bg-surface p-6 text-center">
-      <div className="text-sm font-medium text-fg">Something went wrong opening the meeting room.</div>
-      <div className="max-w-xs text-xs text-muted">Reloading the page usually fixes this.</div>
+      <div className="text-sm font-medium text-fg">{t("roomLazy.error.title")}</div>
+      <div className="max-w-xs text-xs text-muted">{t("roomLazy.error.hint")}</div>
       <button
         type="button"
         onClick={() => window.location.reload()}
         className="rounded-md bg-surface-2 px-3 py-1.5 text-xs font-medium hover:bg-surface-3"
       >
-        Reload
+        {t("roomLazy.error.reload")}
       </button>
     </div>
   );

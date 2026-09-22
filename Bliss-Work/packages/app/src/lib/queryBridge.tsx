@@ -17,6 +17,7 @@ import {
 } from "@taskboard/shared";
 import { useRuntime } from "./runtime";
 import { announceIncomingMeeting, dismissIncomingMeeting } from "./MeetingSession";
+import i18n from "../i18n";
 import {
   createCoalescedInvalidator,
   type CoalescedInvalidator,
@@ -582,7 +583,10 @@ function handleTaskEvent(e: ServerEvent, ctx: EventHandlerContext) {
         // New TASK row lands in the unified inbox / People sidebar.
         invalidate(qk.unifiedInbox);
         refreshInboxSidebars(invalidate);
-        if (live) toast(`New task: ${e.title}`, { description: `from ${e.senderUsername}` });
+        if (live)
+          toast(i18n.t("tasks:liveEvents.newTask", { title: e.title }), {
+            description: i18n.t("tasks:liveEvents.newTaskFrom", { sender: e.senderUsername }),
+          });
       }
       // Availability roster: task.* events reach only the sender + assignee
       // (ws-gateway contract.RecipientsOf), so this invalidation is instant
@@ -595,7 +599,7 @@ function handleTaskEvent(e: ServerEvent, ctx: EventHandlerContext) {
     }
     case EventType.TaskAcknowledged: {
       if (e.senderId === me && live)
-        toast.success(`Task acknowledged by ${e.assigneeUsername}`);
+        toast.success(i18n.t("tasks:liveEvents.taskAcknowledgedBy", { assignee: e.assigneeUsername }));
       if (e.assigneeId === me) {
         patchStickyStatus(qc, e.taskId, "ACKNOWLEDGED", e.statusVersion);
         // Auto-pin to the desktop on acknowledge (Electron only; absent on
@@ -621,7 +625,7 @@ function handleTaskEvent(e: ServerEvent, ctx: EventHandlerContext) {
     }
     case EventType.TaskCompleted: {
       if (e.senderId === me) {
-        if (live) toast.success(`Task completed by ${e.assigneeUsername}`);
+        if (live) toast.success(i18n.t("tasks:liveEvents.taskCompletedBy", { assignee: e.assigneeUsername }));
         // Sender's inbox row needs to refresh so the row reflects the
         // completion (status badge / hidden state). Without this the
         // allocator only learns via the toast and a stale row stays put.
@@ -647,8 +651,10 @@ function handleTaskEvent(e: ServerEvent, ctx: EventHandlerContext) {
       // Allocator gets a live toast + inbox refresh for EVERY outcome (the
       // durable notification arrives separately via NotificationCreated).
       if (e.senderId === me) {
-        const verb = e.type === EventType.TaskLeft ? "left" : "ignored";
-        if (live) toast(`Task ${verb} by ${e.assigneeUsername}`);
+        if (live) {
+          const key = e.type === EventType.TaskLeft ? "liveEvents.taskLeftBy" : "liveEvents.taskIgnoredBy";
+          toast(i18n.t(`tasks:${key}`, { assignee: e.assigneeUsername }));
+        }
         invalidate(qk.unifiedInbox);
         refreshInboxSidebars(invalidate);
       }
@@ -673,7 +679,7 @@ function handleTaskEvent(e: ServerEvent, ctx: EventHandlerContext) {
       if (e.assigneeId === me) {
         invalidate(qk.assigned);
         invalidate(qk.sticky);
-        if (live) toast(`${e.reviewerUsername} reviewed your task`);
+        if (live) toast(i18n.t("tasks:liveEvents.taskReviewed", { reviewer: e.reviewerUsername }));
       }
       break;
     }
@@ -729,7 +735,7 @@ function handleMailEvent(e: ServerEvent, ctx: EventHandlerContext) {
       invalidate(["inboxPeerFeed"]);
       // Never from the reconnect replay — announcing mail that arrived
       // hours ago as if it just landed is worse than not announcing it.
-      if (live && e.senderId !== me) toast("New mail in your Inbox");
+      if (live && e.senderId !== me) toast(i18n.t("mail:liveEvents.newMailInInbox"));
       break;
     }
   }
@@ -791,8 +797,7 @@ function autoPinOnAcknowledge(
     .pinTask(taskId)
     .then((res) => {
       qc.setQueryData<string[]>(qk.taskPins, () => res.pinned);
-      if (!res.ok && res.reason === "limit")
-        toast("Desktop is full — complete or unpin a note first (max 5 pinned).");
+      if (!res.ok && res.reason === "limit") toast(i18n.t("stickies:toasts.desktopFull"));
     })
     .catch(() => invalidate(qk.taskPins));
 }

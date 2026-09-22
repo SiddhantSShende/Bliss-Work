@@ -22,7 +22,11 @@ RUN apt-get update \
 # task-svc and integrations-svc), services/shared/logging_setup (structlog ->
 # stdout JSON bootstrap, also used by every other Python service), and
 # services/shared/outbox_dlq (outbox dead-letter quarantine, also used by
-# task-svc and integrations-svc). The build needs all of these directories:
+# task-svc and integrations-svc). The final stage also copies
+# packages/app/src/i18n/locales/en — the canonical English UI-string source
+# app/routes/i18n_service.py translates from, so the client's catalog and this
+# service's never drift apart into two hand-maintained copies. The build needs
+# all of these directories:
 #
 #     docker build -f services/auth-svc/Dockerfile .
 #
@@ -62,6 +66,10 @@ WORKDIR /app
 COPY --from=build /opt/venv /opt/venv
 COPY services/auth-svc/app ./app
 COPY services/auth-svc/migrations ./migrations
+# English is the only catalog the client ships; auth-svc translates from this
+# same source on demand (app/routes/i18n_service.py) rather than keeping a
+# second, hand-synced copy of the strings.
+COPY packages/app/src/i18n/locales/en ./app/i18n_source/en
 
 RUN chown -R appuser:appuser /app
 

@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Activity, ShieldCheck } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { Badge, EmptyState, Spinner } from "@taskboard/ui";
 import type { TimelineEntry } from "@taskboard/shared";
 import { useRuntime } from "../../lib/runtime";
@@ -11,17 +13,19 @@ import { LoadOlderFooter } from "./LoadOlderFooter";
 
 type Filter = "all" | "auth" | "engagement" | "navigation" | "security";
 
-const FILTERS: TabSpec<Filter>[] = [
-  { key: "all", label: "Everything" },
-  { key: "engagement", label: "Work" },
-  { key: "navigation", label: "In-app" },
-  { key: "auth", label: "Sign-ins" },
-  // Client-enforced controls the person ran into — today, refused screen
-  // captures. Self-reported by definition: a screenshot happens in the
-  // operating system, so this is what the app SAW and refused, not proof that
-  // nothing was captured.
-  { key: "security", label: "Security" },
-];
+function filters(t: TFunction): TabSpec<Filter>[] {
+  return [
+    { key: "all", label: t("members:timeline.filters.all") },
+    { key: "engagement", label: t("members:timeline.filters.engagement") },
+    { key: "navigation", label: t("members:timeline.filters.navigation") },
+    { key: "auth", label: t("members:timeline.filters.auth") },
+    // Client-enforced controls the person ran into — today, refused screen
+    // captures. Self-reported by definition: a screenshot happens in the
+    // operating system, so this is what the app SAW and refused, not proof
+    // that nothing was captured.
+    { key: "security", label: t("members:timeline.filters.security") },
+  ];
+}
 
 /**
  * One member's activity, newest first, grouped by day.
@@ -32,6 +36,7 @@ const FILTERS: TabSpec<Filter>[] = [
  * self-view accidentally showing something the admin view does not.
  */
 export function MemberTimeline({ userId }: { userId: string }) {
+  const { t, i18n } = useTranslation("members");
   const { api } = useRuntime();
   const [filter, setFilter] = useState<Filter>("all");
 
@@ -51,19 +56,19 @@ export function MemberTimeline({ userId }: { userId: string }) {
 
   return (
     <div className="space-y-4">
-      <Tabs tabs={FILTERS} active={filter} onChange={setFilter} />
+      <Tabs tabs={filters(t)} active={filter} onChange={setFilter} />
 
       {isLoading ? (
         <div className="flex justify-center p-8"><Spinner /></div>
       ) : entries.length === 0 ? (
         <EmptyState
           icon={<Activity size={22} />}
-          title="No activity recorded yet"
-          hint="Activity appears here as they use BlissWork."
+          title={t("members:timeline.empty.title")}
+          hint={t("members:timeline.empty.hint", { brand: "BlissWork" })}
         />
       ) : (
         <div className="space-y-4">
-          {groupByDay(entries).map(([day, rows]) => (
+          {groupByDay(entries, t, i18n.language).map(([day, rows]) => (
             <section key={day}>
               <h4 className="sticky top-0 z-10 -mx-1 bg-surface/80 px-1 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted backdrop-blur">
                 {day}
@@ -84,7 +89,7 @@ export function MemberTimeline({ userId }: { userId: string }) {
                 which of the two happened — a list that just stops looks like
                 everything older is gone, and it is not. */}
             <p className="pt-2 text-center text-xs text-muted">
-              Showing the last 7 days. Older activity is retained but not browsable here.
+              {t("members:timeline.retentionNote")}
             </p>
           </LoadOlderFooter>
         </div>
@@ -94,7 +99,8 @@ export function MemberTimeline({ userId }: { userId: string }) {
 }
 
 function Row({ entry }: { entry: TimelineEntry }) {
-  const src = sourceLabel(entry.source);
+  const { t, i18n } = useTranslation("members");
+  const src = sourceLabel(entry.source, t);
   const duration = formatDuration(entry.durationMs);
   const preview = entry.detail?.preview;
 
@@ -103,21 +109,21 @@ function Row({ entry }: { entry: TimelineEntry }) {
       <time
         className="w-16 shrink-0 pt-0.5 text-xs tabular-nums text-muted"
         dateTime={entry.occurredAt}
-        title={new Date(entry.occurredAt).toLocaleString()}
+        title={new Date(entry.occurredAt).toLocaleString(i18n.language)}
       >
-        {new Date(entry.occurredAt).toLocaleTimeString(undefined, {
+        {new Date(entry.occurredAt).toLocaleTimeString(i18n.language, {
           hour: "2-digit", minute: "2-digit",
         })}
       </time>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <span className="text-sm text-fg">{actionLabel(entry)}</span>
+          <span className="text-sm text-fg">{actionLabel(entry, t)}</span>
           {duration && <Badge tone="neutral">{duration}</Badge>}
           {src.verified && (
             // Server-observed rows are derived from what the services actually
             // did. Marking them is not decoration: everything unmarked is the
             // member's own client reporting on itself.
-            <span title="Recorded by BlissWork itself — not self-reported" className="text-success">
+            <span title={t("members:timeline.verifiedTooltip", { brand: "BlissWork" })} className="text-success">
               <ShieldCheck size={13} />
             </span>
           )}
@@ -134,10 +140,10 @@ function Row({ entry }: { entry: TimelineEntry }) {
 /** Group in ONE pass, relying on the server's newest-first order rather than
  *  re-sorting — the pages already arrive ordered, and re-sorting a growing
  *  infinite list on every render is work that compounds as the user scrolls. */
-function groupByDay(entries: TimelineEntry[]): [string, TimelineEntry[]][] {
+function groupByDay(entries: TimelineEntry[], t: TFunction, lang: string): [string, TimelineEntry[]][] {
   const out: [string, TimelineEntry[]][] = [];
   for (const e of entries) {
-    const day = dayHeading(e.occurredAt);
+    const day = dayHeading(e.occurredAt, t, lang);
     const last = out[out.length - 1];
     if (last && last[0] === day) last[1].push(e);
     else out.push([day, [e]]);

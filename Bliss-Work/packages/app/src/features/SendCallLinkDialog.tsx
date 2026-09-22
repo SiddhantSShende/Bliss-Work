@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@taskboard/ui";
 import { Modal } from "./Modal";
 import { InviteePicker } from "./InviteePicker";
@@ -33,6 +34,7 @@ export function SendCallLinkDialog({
   busy?: boolean;
   onSend: (userIds: string[]) => void;
 }) {
+  const { t } = useTranslation("calls");
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const toggle = (id: string) =>
@@ -44,18 +46,17 @@ export function SendCallLinkDialog({
     });
 
   return (
-    <Modal open={open} onClose={busy ? () => {} : onClose} title="Send a call link">
+    <Modal open={open} onClose={busy ? () => {} : onClose} title={t("sendLinkDialog.title")}>
       <div className="flex flex-col gap-3">
-        <p className="text-xs text-muted">
-          The link is posted in your chat with {peerName}. Anyone you add here gets it as a direct
-          message, and holds a seat in the call under Meetings.
-        </p>
+        <p className="text-xs text-muted">{t("sendLinkDialog.description", { peerName })}</p>
 
         <div className="flex flex-col gap-1">
           <span className="text-xs font-medium text-muted">
-            Also send to{" "}
+            {t("sendLinkDialog.alsoSendTo")}{" "}
             <span className="font-normal">
-              {selected.size > 0 ? `— ${selected.size} selected` : "— optional"}
+              {selected.size > 0
+                ? t("sendLinkDialog.selectedCount", { count: selected.size })
+                : t("sendLinkDialog.optional")}
             </span>
           </span>
           <InviteePicker selected={selected} onToggle={toggle} exclude={exclude} />
@@ -63,10 +64,10 @@ export function SendCallLinkDialog({
 
         <div className="mt-1 flex justify-end gap-2">
           <Button variant="ghost" size="sm" onClick={onClose} disabled={busy}>
-            Cancel
+            {t("sendLinkDialog.cancel")}
           </Button>
           <Button size="sm" loading={busy} onClick={() => onSend([...selected])}>
-            Send link
+            {t("sendLinkDialog.sendLink")}
           </Button>
         </div>
       </div>

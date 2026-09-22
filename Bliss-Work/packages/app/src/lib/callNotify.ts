@@ -10,6 +10,7 @@
  *  unprompted one is a bad first impression anyway.
  */
 import { loadDesktopNotifs } from "./notificationPrefs";
+import i18n from "../i18n";
 
 type Supported = typeof Notification;
 
@@ -46,8 +47,8 @@ export function notifyIncomingCall(caller: string, media: "audio" | "video"): Ca
   const N = api();
   if (!N || N.permission !== "granted" || !loadDesktopNotifs()) return { close: () => {} };
   try {
-    const n = new N(`Incoming ${media === "video" ? "video" : "voice"} call`, {
-      body: `${caller} is calling you`,
+    const n = new N(i18n.t(`calls:notify.${media === "video" ? "incomingVideo" : "incomingVoice"}`), {
+      body: i18n.t("calls:notify.incomingBody", { caller }),
       // Same tag for the whole call so a re-render can never stack banners.
       tag: "blisswork-incoming-call",
       // Keep it on screen: a call is only worth announcing while it rings.
@@ -68,7 +69,10 @@ export function notifyMissedCall(caller: string): void {
   const N = api();
   if (!N || N.permission !== "granted" || !loadDesktopNotifs()) return;
   try {
-    const n = new N("Missed call", { body: `You missed a call from ${caller}`, tag: "blisswork-missed-call" });
+    const n = new N(i18n.t("calls:notify.missedTitle"), {
+      body: i18n.t("calls:notify.missedBody", { caller }),
+      tag: "blisswork-missed-call",
+    });
     n.onclick = () => {
       window.focus();
       n.close();

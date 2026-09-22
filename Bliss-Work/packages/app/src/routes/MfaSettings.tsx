@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Fingerprint, KeyRound, ShieldCheck, ShieldOff } from "lucide-react";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { Button, Input, PageHeader } from "@taskboard/ui";
 import { ApiError } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
@@ -23,6 +24,7 @@ import { createPasskey, getPasskeyAssertion, webauthnSupported } from "../lib/we
  * instead.
  */
 export function MfaSettings() {
+  const { t } = useTranslation("account");
   const { api } = useRuntime();
   const goBack = useGoBack();
   const user = useSession((s) => s.user);
@@ -89,8 +91,8 @@ export function MfaSettings() {
       // (which of the three MFA sections renders) is keyed off
       // `user.mfaEnrolled` — a stale value here can keep showing "MFA is on"
       // with working controls right after MFA was actually turned off.
-      toast.error("Couldn't refresh your account", {
-        description: "Your two-factor authentication status on this page may be out of date — refresh to see the latest.",
+      toast.error(t("account:mfaSettings.toasts.refreshFailed.title"), {
+        description: t("account:mfaSettings.toasts.refreshFailed.description"),
       });
     }
   };
@@ -101,11 +103,13 @@ export function MfaSettings() {
       const options = await api.mfaWebauthnRegisterStart();
       const credential = await createPasskey(options);
       await api.mfaWebauthnRegisterFinish({ credential });
-      toast.success("Passkey added");
+      toast.success(t("account:mfaSettings.toasts.passkeyAdded"));
       setHasPasskey(true);
       await refreshUser();
     } catch {
-      toast.error("Couldn't add passkey", { description: "Please try again." });
+      toast.error(t("account:mfaSettings.toasts.addPasskeyFailed.title"), {
+        description: t("account:mfaSettings.toasts.addPasskeyFailed.description"),
+      });
     } finally {
       setPasskeyBusy(false);
     }
@@ -116,8 +120,8 @@ export function MfaSettings() {
   return (
     <div className="flex h-full flex-col">
       <PageHeader
-        title="Two-factor authentication"
-        subtitle="Add a second step to signing in — an authenticator app or a passkey."
+        title={t("account:mfaSettings.header.title")}
+        subtitle={t("account:mfaSettings.header.subtitle")}
         onBack={goBack}
       />
       <div className="min-h-0 flex-1 overflow-auto p-6">
@@ -129,9 +133,9 @@ export function MfaSettings() {
                   <ShieldCheck size={18} />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm font-semibold text-fg">Two-factor authentication is on</div>
+                  <div className="text-sm font-semibold text-fg">{t("account:mfaSettings.enrolled.status.title")}</div>
                   <div className="mt-0.5 text-xs text-muted">
-                    You'll be asked for a second factor when you sign in.
+                    {t("account:mfaSettings.enrolled.status.description")}
                   </div>
                 </div>
               </div>
@@ -142,13 +146,13 @@ export function MfaSettings() {
                     <Fingerprint size={18} />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="text-sm font-semibold text-fg">Add a passkey</div>
+                    <div className="text-sm font-semibold text-fg">{t("account:mfaSettings.enrolled.addPasskey.title")}</div>
                     <div className="mt-0.5 text-xs text-muted">
-                      Use your device's fingerprint, face, or a security key instead of a code.
+                      {t("account:mfaSettings.enrolled.addPasskey.description")}
                     </div>
                   </div>
                   <Button variant="subtle" size="sm" onClick={() => setStepUpAction("addPasskey")}>
-                    Add
+                    {t("account:mfaSettings.enrolled.addPasskey.action")}
                   </Button>
                 </div>
               )}
@@ -158,13 +162,13 @@ export function MfaSettings() {
                   <KeyRound size={18} />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm font-semibold text-fg">Backup codes</div>
+                  <div className="text-sm font-semibold text-fg">{t("account:mfaSettings.enrolled.backupCodes.title")}</div>
                   <div className="mt-0.5 text-xs text-muted">
-                    Regenerating replaces every unused code — old ones stop working immediately.
+                    {t("account:mfaSettings.enrolled.backupCodes.description")}
                   </div>
                 </div>
                 <Button variant="subtle" size="sm" onClick={() => setStepUpAction("regenerate")}>
-                  Regenerate
+                  {t("account:mfaSettings.enrolled.backupCodes.action")}
                 </Button>
               </div>
 
@@ -173,13 +177,13 @@ export function MfaSettings() {
                   <ShieldOff size={18} />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm font-semibold text-fg">Turn off two-factor authentication</div>
+                  <div className="text-sm font-semibold text-fg">{t("account:mfaSettings.enrolled.disable.title")}</div>
                   <div className="mt-0.5 text-xs text-muted">
-                    Removes your authenticator app, passkeys, and backup codes.
+                    {t("account:mfaSettings.enrolled.disable.description")}
                   </div>
                 </div>
                 <Button variant="danger" size="sm" onClick={() => setStepUpAction("disable")}>
-                  Turn off
+                  {t("account:mfaSettings.enrolled.disable.action")}
                 </Button>
               </div>
             </>
@@ -199,13 +203,13 @@ export function MfaSettings() {
                   <ShieldCheck size={18} />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm font-semibold text-fg">Authenticator app</div>
+                  <div className="text-sm font-semibold text-fg">{t("account:mfaSettings.notEnrolled.totp.title")}</div>
                   <div className="mt-0.5 text-xs text-muted">
-                    Google Authenticator, 1Password, Authy, or any TOTP app.
+                    {t("account:mfaSettings.notEnrolled.totp.description")}
                   </div>
                 </div>
                 <Button variant="subtle" size="sm" onClick={() => setEnrolling("totp")}>
-                  Set up
+                  {t("account:mfaSettings.notEnrolled.setUp")}
                 </Button>
               </div>
               {webauthnSupported() && (
@@ -214,13 +218,13 @@ export function MfaSettings() {
                     <Fingerprint size={18} />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="text-sm font-semibold text-fg">Passkey</div>
+                    <div className="text-sm font-semibold text-fg">{t("account:mfaSettings.notEnrolled.passkey.title")}</div>
                     <div className="mt-0.5 text-xs text-muted">
-                      Your device's fingerprint, face, or a security key.
+                      {t("account:mfaSettings.notEnrolled.passkey.description")}
                     </div>
                   </div>
                   <Button variant="subtle" size="sm" loading={passkeyBusy} onClick={addPasskey}>
-                    Set up
+                    {t("account:mfaSettings.notEnrolled.setUp")}
                   </Button>
                 </div>
               )}
@@ -229,7 +233,7 @@ export function MfaSettings() {
         </div>
       </div>
 
-      <Modal open={!!newBackupCodes} onClose={() => {}} title="Save your backup codes">
+      <Modal open={!!newBackupCodes} onClose={() => {}} title={t("account:mfaSettings.backupCodesModal.title")}>
         {newBackupCodes && (
           <BackupCodesView
             codes={newBackupCodes}
@@ -273,6 +277,7 @@ function StepUpModal({
   onRegenerated: (codes: string[]) => void;
   onPasskeyAdded: () => void;
 }) {
+  const { t } = useTranslation("account");
   const { api } = useRuntime();
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
@@ -306,7 +311,7 @@ function StepUpModal({
   }) => {
     if (action === "disable") {
       await api.mfaDisable(body);
-      toast.success("Two-factor authentication turned off");
+      toast.success(t("account:mfaSettings.toasts.mfaTurnedOff"));
       onDisabled();
     } else if (action === "regenerate") {
       const result = await api.mfaRegenerateBackupCodes(body);
@@ -315,7 +320,7 @@ function StepUpModal({
       const options = await api.mfaWebauthnRegisterStart();
       const credential = await createPasskey(options);
       await api.mfaWebauthnRegisterFinish({ credential, stepUp: body });
-      toast.success("Passkey added");
+      toast.success(t("account:mfaSettings.toasts.passkeyAdded"));
       onPasskeyAdded();
     }
     reset();
@@ -329,8 +334,10 @@ function StepUpModal({
       await finishStepUp({ password, ...(useBackupCode ? { backupCode: code } : { totpCode: code }) });
     } catch (err) {
       toast.error(
-        err instanceof ApiError && err.status === 429 ? "Too many attempts" : "Verification failed",
-        { description: "Check your password and code, then try again." },
+        err instanceof ApiError && err.status === 429
+          ? t("account:mfaSettings.stepUp.toasts.tooManyAttemptsTitle")
+          : t("account:mfaSettings.stepUp.toasts.verificationFailedTitle"),
+        { description: t("account:mfaSettings.stepUp.toasts.verificationFailedDescription") },
       );
     } finally {
       setBusy(false);
@@ -349,7 +356,9 @@ function StepUpModal({
       const credential = await getPasskeyAssertion(options);
       await finishStepUp({ password, webauthnCredential: credential });
     } catch {
-      toast.error("Couldn't verify passkey", { description: "Please try again." });
+      toast.error(t("account:mfaSettings.stepUp.toasts.passkeyVerifyFailed.title"), {
+        description: t("account:mfaSettings.stepUp.toasts.passkeyVerifyFailed.description"),
+      });
     } finally {
       setPasskeyBusy(false);
     }
@@ -364,10 +373,10 @@ function StepUpModal({
       }}
       title={
         action === "disable"
-          ? "Confirm it's you"
+          ? t("account:mfaSettings.stepUp.titles.disable")
           : action === "regenerate"
-            ? "Confirm it's you to regenerate codes"
-            : "Confirm it's you to add a passkey"
+            ? t("account:mfaSettings.stepUp.titles.regenerate")
+            : t("account:mfaSettings.stepUp.titles.addPasskey")
       }
     >
       <form onSubmit={submit} className="flex flex-col gap-3">
@@ -375,7 +384,7 @@ function StepUpModal({
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          placeholder="Your password"
+          placeholder={t("account:mfaSettings.stepUp.passwordPlaceholder")}
           autoComplete="current-password"
           autoFocus
           required
@@ -384,7 +393,11 @@ function StepUpModal({
           inputMode={useBackupCode ? "text" : "numeric"}
           value={code}
           onChange={(e) => setCode(e.target.value)}
-          placeholder={useBackupCode ? "Backup code" : "Authentication code"}
+          placeholder={
+            useBackupCode
+              ? t("account:mfaSettings.stepUp.backupCodePlaceholder")
+              : t("account:mfaSettings.stepUp.authCodePlaceholder")
+          }
           required
         />
         <button
@@ -392,7 +405,9 @@ function StepUpModal({
           onClick={() => setUseBackupCode((v) => !v)}
           className="self-start text-xs font-medium text-accent hover:underline"
         >
-          {useBackupCode ? "Use an authentication code instead" : "Use a backup code instead"}
+          {useBackupCode
+            ? t("account:mfaSettings.stepUp.useAuthCodeInstead")
+            : t("account:mfaSettings.stepUp.useBackupCodeInstead")}
         </button>
         {hasPasskey && webauthnSupported() && (
           <button
@@ -401,7 +416,9 @@ function StepUpModal({
             disabled={!password || passkeyBusy}
             className="self-start text-xs font-medium text-accent hover:underline disabled:opacity-60"
           >
-            {passkeyBusy ? "Waiting for passkey…" : "Use a passkey instead"}
+            {passkeyBusy
+              ? t("account:mfaSettings.stepUp.waitingForPasskey")
+              : t("account:mfaSettings.stepUp.usePasskeyInstead")}
           </button>
         )}
         <Button
@@ -412,10 +429,10 @@ function StepUpModal({
           className="mt-1 w-full"
         >
           {action === "disable"
-            ? "Turn off two-factor authentication"
+            ? t("account:mfaSettings.enrolled.disable.title")
             : action === "regenerate"
-              ? "Regenerate backup codes"
-              : "Add passkey"}
+              ? t("account:mfaSettings.stepUp.submitLabels.regenerate")
+              : t("account:mfaSettings.stepUp.submitLabels.addPasskey")}
         </Button>
       </form>
     </Modal>

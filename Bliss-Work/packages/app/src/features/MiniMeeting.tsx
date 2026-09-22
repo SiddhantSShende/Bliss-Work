@@ -37,6 +37,7 @@ import {
   Video,
   VideoOff,
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { useCallDuration } from "../lib/callTimer";
 import type { RoomParticipant, RoomStatus } from "../lib/useCallRoom";
 import { CallTile } from "./CallTile";
@@ -129,6 +130,7 @@ export function MiniMeeting({
   onRestore: () => void;
   onLeave: () => void;
 }) {
+  const { t } = useTranslation("calls");
   const [pos, setPos] = useState<Point>(() => clampToViewport(readPosition() ?? defaultPosition()));
   const duration = useCallDuration(startedAt);
 
@@ -201,7 +203,7 @@ export function MiniMeeting({
       exit={{ opacity: 0, scale: 0.94 }}
       transition={{ type: "spring", stiffness: 380, damping: 30 }}
       role="complementary"
-      aria-label={`${title} — meeting in progress`}
+      aria-label={t("miniMeeting.ariaLabel", { title })}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerEnd}
@@ -227,7 +229,7 @@ export function MiniMeeting({
             </span>
             {connecting ? (
               <span className="text-warning">
-                {status === "reconnecting" ? "Reconnecting…" : "Connecting…"}
+                {status === "reconnecting" ? t("miniMeeting.reconnecting") : t("miniMeeting.connecting")}
               </span>
             ) : (
               <span className="tabular-nums">{duration}</span>
@@ -242,15 +244,15 @@ export function MiniMeeting({
         type="button"
         data-no-drag
         onClick={onRestore}
-        title="Back to the meeting"
-        aria-label="Back to the meeting"
+        title={t("miniMeeting.backToMeeting")}
+        aria-label={t("miniMeeting.backToMeeting")}
         className="group relative block h-28 w-full bg-surface-2"
       >
         {stage ? (
           <CallTile p={stage} size="strip" />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-[11px] text-muted">
-            {connecting ? "Connecting…" : "Nobody is speaking"}
+            {connecting ? t("miniMeeting.connecting") : t("miniMeeting.nobodySpeaking")}
           </div>
         )}
         <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-opacity group-hover:bg-black/40 group-hover:opacity-100 group-focus-visible:bg-black/40 group-focus-visible:opacity-100">
@@ -261,14 +263,14 @@ export function MiniMeeting({
       <div className="flex items-center justify-between gap-1 px-2 py-2">
         <div className="flex items-center gap-1">
           <MiniButton
-            title={micOn ? "Mute" : "Unmute"}
+            title={micOn ? t("miniMeeting.mute") : t("miniMeeting.unmute")}
             onClick={onToggleMic}
             danger={!micOn}
           >
             {micOn ? <Mic size={14} /> : <MicOff size={14} />}
           </MiniButton>
           <MiniButton
-            title={camOn ? "Turn camera off" : "Turn camera on"}
+            title={camOn ? t("miniMeeting.turnCameraOff") : t("miniMeeting.turnCameraOn")}
             onClick={onToggleCam}
             danger={!camOn}
           >
@@ -278,7 +280,7 @@ export function MiniMeeting({
               so this is a signal rather than a control. */}
           {unread > 0 && (
             <span
-              title={`${unread} new chat ${unread === 1 ? "message" : "messages"}`}
+              title={t("miniMeeting.newChatMessages", { count: unread })}
               className="inline-flex items-center gap-1 rounded-lg bg-danger/10 px-1.5 py-1 text-[10px] font-semibold text-danger"
             >
               <MessageSquare size={12} />
@@ -288,10 +290,10 @@ export function MiniMeeting({
         </div>
 
         <div className="flex items-center gap-1">
-          <MiniButton title="Back to the meeting" onClick={onRestore}>
+          <MiniButton title={t("miniMeeting.backToMeeting")} onClick={onRestore}>
             <Maximize2 size={14} />
           </MiniButton>
-          <MiniButton title="Leave the meeting" onClick={onLeave} solidDanger>
+          <MiniButton title={t("miniMeeting.leaveMeeting")} onClick={onLeave} solidDanger>
             <PhoneOff size={14} />
           </MiniButton>
         </div>

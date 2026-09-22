@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import type { AttachmentScope } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import {
@@ -92,6 +93,7 @@ type UploadOutcome =
 
 export function useChatMedia(opts: ChatMediaOptions) {
   const { scope, scopeId, meId, send, p2pFallback } = opts;
+  const { t } = useTranslation("chatMedia");
   const { api, config } = useRuntime();
   const ft = useFileTransfers();
 
@@ -154,7 +156,7 @@ export function useChatMedia(opts: ChatMediaOptions) {
       // counts against it — otherwise ten drops of one file each would build a
       // twelve-attachment message that the server then rejects on send.
       if (stagedCount.current + files.length > MEDIA_MAX_FILES) {
-        toast.error(`You can send up to ${MEDIA_MAX_FILES} files at a time.`);
+        toast.error(t("attachments.tooManyFiles", { max: MEDIA_MAX_FILES }));
         return;
       }
 
@@ -168,12 +170,14 @@ export function useChatMedia(opts: ChatMediaOptions) {
         }
         if (p2pFallback && ft.available) {
           toast.info(
-            `${file.name} is over ${prettySize(MEDIA_MAX_BYTES)} — sending peer-to-peer. ` +
-              `You both need to stay online until it finishes.`,
+            t("attachments.overSizePeerToPeer", {
+              name: file.name,
+              size: prettySize(MEDIA_MAX_BYTES),
+            }),
           );
           p2pFallback(file);
         } else {
-          toast.error(`${file.name} is larger than ${prettySize(MEDIA_MAX_BYTES)}.`);
+          toast.error(t("attachments.tooLarge", { name: file.name, size: prettySize(MEDIA_MAX_BYTES) }));
         }
       }
       if (uploadable.length === 0) return;
@@ -260,7 +264,7 @@ export function useChatMedia(opts: ChatMediaOptions) {
             return {
               ok: false,
               name: file.name,
-              message: err instanceof Error ? err.message : "Upload failed",
+              message: err instanceof Error ? err.message : t("attachments.uploadFailed"),
             };
           }
         }),
@@ -290,12 +294,15 @@ export function useChatMedia(opts: ChatMediaOptions) {
         const names = failures.map((f) => f.name).join(", ");
         toast.error(
           failures.length === 1
-            ? `Couldn't attach ${names}: ${failures[0]?.message ?? "Upload failed"}`
-            : `Couldn't attach ${failures.length} files: ${names}`,
+            ? t("attachments.attachFailedSingle", {
+                name: names,
+                message: failures[0]?.message ?? t("attachments.uploadFailed"),
+              })
+            : t("attachments.attachFailedMultiple", { count: failures.length, names }),
         );
       }
     },
-    [api, scope, scopeId, p2pFallback, ft.available],
+    [api, scope, scopeId, p2pFallback, ft.available, t],
   );
 
   /**
@@ -312,10 +319,10 @@ export function useChatMedia(opts: ChatMediaOptions) {
     (files: FileList | File[]) => {
       void onFiles(files).catch((err: unknown) => {
         console.error("[chat-media] attach failed", err);
-        toast.error("Couldn't attach that file. Please try again.");
+        toast.error(t("attachments.attachFailedGeneric"));
       });
     },
-    [onFiles],
+    [onFiles, t],
   );
 
   const onAttach = useCallback(() => fileInput.current?.click(), []);
@@ -395,7 +402,7 @@ export function useChatMedia(opts: ChatMediaOptions) {
   );
 
   const onShareLocation = useCallback(() => {
-    const pending = toast.loading("Getting your location…");
+    const pending = toast.loading(t("shareLocation.gettingLocation"));
 
     /**
      * Last resort: ask the server where this IP is.
@@ -430,14 +437,14 @@ export function useChatMedia(opts: ChatMediaOptions) {
       // the cause — the same "go fix something that isn't broken" the `precise`
       // check below already exists to avoid.
       const openSettings = deniedByPlatform ? config.openLocationSettings : undefined;
-      toast("Shared an approximate location", {
+      toast(t("shareLocation.approximateShared"), {
         description: openSettings
-          ? "Location access is off for desktop apps, so this is based on your network."
+          ? t("shareLocation.reasons.desktopAccessOff")
           : precise
-            ? "Your device couldn't get a precise fix, so this is based on your network."
-            : "This build has no precise location provider, so this is based on your network.",
+            ? t("shareLocation.reasons.noPreciseFix")
+            : t("shareLocation.reasons.noProvider"),
         ...(openSettings && {
-          action: { label: "Open settings", onClick: () => void openSettings() },
+          action: { label: t("shareLocation.openSettings"), onClick: () => void openSettings() },
         }),
       });
     };
@@ -448,7 +455,7 @@ export function useChatMedia(opts: ChatMediaOptions) {
     const hostAsksTheUser = config.kind === "web";
 
     if (typeof navigator === "undefined" || !navigator.geolocation) {
-      void fallback("Location sharing isn't available on this device.");
+      void fallback(t("shareLocation.notAvailable"));
       return;
     }
 
@@ -484,19 +491,17 @@ export function useChatMedia(opts: ChatMediaOptions) {
         // answered sat unused two lines below.
         if (err.code === err.PERMISSION_DENIED && hostAsksTheUser) {
           toast.dismiss(pending);
-          toast.error(
-            "Location permission denied. Enable it in your site settings to share your location.",
-          );
+          toast.error(t("shareLocation.permissionDenied"));
           return;
         }
         void fallback(
-          "Couldn't determine your location. Try again, or check that location services are on.",
+          t("shareLocation.determineFailed"),
           err.code === err.PERMISSION_DENIED,
         );
       },
       { enableHighAccuracy: true, timeout: 10_000, maximumAge: 60_000 },
     );
-  }, [api, config, sendLocation]);
+  }, [api, config, sendLocation, t]);
 
   // ── rendering ─────────────────────────────────────────────────────────────
 

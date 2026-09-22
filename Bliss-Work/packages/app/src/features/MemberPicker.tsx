@@ -1,4 +1,5 @@
 import { Search } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Avatar, Button, Input } from "@taskboard/ui";
 import { usePeopleSearch } from "../lib/usePeopleCandidates";
 import { useToggleSet } from "../lib/useToggleSet";
@@ -20,7 +21,7 @@ export function MemberPicker({
   onConfirm,
   onCancel,
   onOrganization,
-  confirmLabel = "Add",
+  confirmLabel,
 }: {
   exclude: Set<string>;
   busy?: boolean;
@@ -30,9 +31,11 @@ export function MemberPicker({
   onOrganization?: (userIds: string[]) => void;
   confirmLabel?: string;
 }) {
+  const { t } = useTranslation("org");
   const { q, setQ, candidates, all } = usePeopleSearch(exclude);
   const { selected, toggle, setAll, clear } = useToggleSet();
   const allSelected = candidates.length > 0 && candidates.every((u) => selected.has(u.id));
+  const confirmLabelResolved = confirmLabel ?? t("org:memberPicker.addButton");
 
   const toggleAll = () => (allSelected ? clear() : setAll(candidates.map((u) => u.id)));
 
@@ -42,7 +45,7 @@ export function MemberPicker({
         <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
         <Input
           className="h-9 pl-9"
-          placeholder="Search teammates…"
+          placeholder={t("org:memberPicker.searchPlaceholder")}
           value={q}
           onChange={(e) => setQ(e.target.value)}
           autoFocus
@@ -54,12 +57,12 @@ export function MemberPicker({
           onClick={toggleAll}
           className="text-xs font-medium text-accent hover:text-accent-strong"
         >
-          {allSelected ? "Clear all" : "Select all"}
+          {allSelected ? t("org:memberPicker.clearAll") : t("org:memberPicker.selectAll")}
         </button>
       )}
       <div className="max-h-56 space-y-0.5 overflow-auto">
         {candidates.length === 0 ? (
-          <p className="px-1 py-3 text-sm text-muted">Everyone matching is already here.</p>
+          <p className="px-1 py-3 text-sm text-muted">{t("org:memberPicker.emptyHint")}</p>
         ) : (
           candidates.map((u) => {
             const on = selected.has(u.id);
@@ -83,7 +86,7 @@ export function MemberPicker({
       </div>
       <div className="flex justify-end gap-2">
         <Button variant="ghost" size="sm" onClick={onCancel} disabled={busy}>
-          Cancel
+          {t("org:memberPicker.cancelButton")}
         </Button>
         <Button
           size="sm"
@@ -91,7 +94,7 @@ export function MemberPicker({
           disabled={selected.size === 0}
           onClick={() => onConfirm([...selected])}
         >
-          {confirmLabel} {selected.size || ""}
+          {confirmLabelResolved} {selected.size || ""}
         </Button>
         {/* Org-wide action: targets `all` (self/exclude-filtered only), never
             the search-narrowed `candidates` — a search term must not silently
@@ -104,7 +107,7 @@ export function MemberPicker({
             disabled={busy}
             onClick={() => onOrganization(all.map((u) => u.id))}
           >
-            Send organization
+            {t("org:memberPicker.sendOrganization")}
           </Button>
         )}
       </div>

@@ -5,8 +5,17 @@
  * aggregates can group on them for years. This is the only place they become
  * words, which means renaming a label never touches the data and never
  * invalidates a rollup.
+ *
+ * `t` is OPTIONAL on every export here, not required like the rest of the
+ * i18n migration's helpers. This module is also imported directly by
+ * apps/mobile (`@taskboard/app/features/member/activityLabels`), which has no
+ * i18next instance at all — passing `t` is how the web client (MemberTimeline,
+ * MemberAnalytics, MemberSessions) opts into translated labels, and omitting
+ * it — as mobile's call sites do, unchanged — keeps returning the same plain
+ * English strings this module always has, straight from the maps below.
  */
 import { type ActivitySource, type TimelineEntry } from "@taskboard/shared";
+import type { TFunction } from "i18next";
 
 /** "They are back." — the web client's own tab regaining focus. */
 const CAME_BACK = "Came back to BlissWork";
@@ -51,19 +60,24 @@ const SURFACES: Record<string, string> = {
   org: "Organization",
 };
 
-export function actionLabel(entry: TimelineEntry): string {
-  const verb = ACTIONS[entry.action] ?? entry.action;
+export function actionLabel(entry: TimelineEntry, t?: TFunction): string {
+  const fallback = ACTIONS[entry.action] ?? entry.action;
+  const verb = t
+    ? t(`members:activityLabels.actions.${entry.action}`, { defaultValue: fallback, brand: "BlissWork" })
+    : fallback;
   // Navigation and usage rows read as "Opened Tasks" — the verb alone would be
   // meaningless for them.
   if (entry.action === "route.enter" || entry.action === "route.dwell") {
-    return `${verb} ${surfaceLabel(entry.surface) ?? "the app"}`;
+    const surface = surfaceLabel(entry.surface, t) ?? (t ? t("members:activityLabels.theApp") : "the app");
+    return `${verb} ${surface}`;
   }
   return verb;
 }
 
-export function surfaceLabel(surface: string | null): string | null {
+export function surfaceLabel(surface: string | null, t?: TFunction): string | null {
   if (!surface) return null;
-  return SURFACES[surface] ?? surface;
+  const fallback = SURFACES[surface] ?? surface;
+  return t ? t(`members:activityLabels.surfaces.${surface}`, fallback) : fallback;
 }
 
 /** "2h 14m", "8m", "45s" — never "0s", which reads as broken rather than brief. */
@@ -87,28 +101,36 @@ export function formatDuration(ms: number | null | undefined): string | null {
  * because it is load-bearing the moment anyone uses this screen to make a
  * decision about a person.
  */
-export function sourceLabel(source: ActivitySource): { text: string; verified: boolean } {
+export function sourceLabel(source: ActivitySource, t?: TFunction): { text: string; verified: boolean } {
+  const tt = (key: string, fallback: string) => (t ? t(key, fallback) : fallback);
   switch (source) {
     case "server":
-      return { text: "Verified", verified: true };
+      return { text: tt("members:activityLabels.source.verified", "Verified"), verified: true };
     case "desktop":
-      return { text: "Desktop app", verified: false };
+      return { text: tt("members:activityLabels.source.desktop", "Desktop app"), verified: false };
     case "extension":
-      return { text: "Browser extension", verified: false };
+      return { text: tt("members:activityLabels.source.extension", "Browser extension"), verified: false };
     default:
-      return { text: "Web app", verified: false };
+      return { text: tt("members:activityLabels.source.web", "Web app"), verified: false };
   }
 }
 
-/** Day heading for the timeline: "Today", "Yesterday", then the date. */
-export function dayHeading(iso: string): string {
+/** Day heading for the timeline: "Today", "Yesterday", then the date.
+ *  `lang` is the in-app selected locale (`i18n.language`) for the date fall
+ *  through — omitted (as mobile's call sites do), it behaves exactly as
+ *  before and lets the platform pick a default. */
+export function dayHeading(iso: string, t?: TFunction, lang?: string): string {
   const d = new Date(iso);
   const today = new Date();
   const yesterday = new Date(today);
   yesterday.setDate(today.getDate() - 1);
-  if (d.toDateString() === today.toDateString()) return "Today";
-  if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
-  return d.toLocaleDateString(undefined, {
+  if (d.toDateString() === today.toDateString()) {
+    return t ? t("common:date.today", "Today") : "Today";
+  }
+  if (d.toDateString() === yesterday.toDateString()) {
+    return t ? t("common:date.yesterday", "Yesterday") : "Yesterday";
+  }
+  return d.toLocaleDateString(lang, {
     weekday: "long", day: "numeric", month: "long",
     ...(d.getFullYear() === today.getFullYear() ? {} : { year: "numeric" }),
   });

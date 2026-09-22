@@ -17,6 +17,7 @@
  */
 import { utf8ByteLength } from "./textBytes";
 import { loadLocalCopy, meetingArtifactFilename, mergeById, saveLocalCopy } from "./meetingArtifact";
+import i18n from "../i18n";
 
 /** One point, written by one participant. Immutable once made. */
 export interface NoteEntry {
@@ -81,7 +82,7 @@ export function mergeNotes(held: NoteEntry[], incoming: NoteEntry[]): NoteEntry[
  *  is pasted to, in whatever they open it with. */
 export function notesToText(title: string, notes: NoteEntry[]): string {
   const when = (t: number) =>
-    new Date(t).toLocaleString(undefined, {
+    new Date(t).toLocaleString(i18n.language, {
       dateStyle: "medium",
       timeStyle: "short",
     });

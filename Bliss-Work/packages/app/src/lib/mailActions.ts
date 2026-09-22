@@ -7,6 +7,7 @@
  * plain data.
  */
 import type { MailDTO, MailRecipientDTO } from "@taskboard/shared";
+import i18n from "../i18n";
 
 /** What a reply/forward hands the composer. */
 export interface MailPrefill {
@@ -121,7 +122,7 @@ export function formatMailTime(iso: string): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleString([], {
+  return d.toLocaleString(i18n.language, {
     day: "2-digit",
     month: "short",
     year: "numeric",

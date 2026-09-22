@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { BarChart3, ChevronLeft, Download } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import {
   BarChart,
   Button,
@@ -21,6 +22,7 @@ import { ACTIVITY_RANGES, computeRange, parseLocalDay, type RangeKey } from "../
 
 /** Workspace-wide activity: the whole team's shape, and a table of who did what. */
 export function OrgActivity() {
+  const { t, i18n } = useTranslation("org");
   const { api } = useRuntime();
   const nav = useNavigate();
   const me = useSession((s) => s.user)!;
@@ -45,8 +47,8 @@ export function OrgActivity() {
       <div className="flex h-full items-center justify-center">
         <EmptyState
           icon={<BarChart3 size={24} />}
-          title="Admins only"
-          hint="Your own activity is under Settings → Your activity."
+          title={t("org:orgActivity.adminsOnly.title")}
+          hint={t("org:orgActivity.adminsOnly.hint")}
         />
       </div>
     );
@@ -63,12 +65,12 @@ export function OrgActivity() {
             onClick={() => nav("/app/members")}
             className="mb-2 inline-flex items-center gap-1 rounded-lg px-1.5 py-1 text-sm text-muted transition hover:bg-surface-2 hover:text-fg"
           >
-            <ChevronLeft size={16} /> Members
+            <ChevronLeft size={16} /> {t("org:orgActivity.backToMembers")}
           </button>
-          <PageHeader title="Workspace activity" subtitle="How the team's time is spent." />
+          <PageHeader title={t("org:orgActivity.header.title")} subtitle={t("org:orgActivity.header.subtitle")} />
         </div>
         <Button variant="ghost" size="sm" onClick={() => setExportOpen(true)}>
-          <Download size={15} /> Export
+          <Download size={15} /> {t("org:orgActivity.exportButton")}
         </Button>
       </div>
 
@@ -80,44 +82,44 @@ export function OrgActivity() {
         ) : members.length === 0 ? (
           <EmptyState
             icon={<BarChart3 size={22} />}
-            title="No activity in this period"
-            hint="Charts appear once the team has been using BlissWork for a day."
+            title={t("org:orgActivity.empty.title")}
+            hint={t("org:orgActivity.empty.hint", { brand: "BlissWork" })}
           />
         ) : (
           <>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <StatTile
-                label="Team active time"
+                label={t("org:orgActivity.stats.teamActiveTime")}
                 value={formatMs(totalActive)}
                 trend={(data?.days ?? []).map((d) => d.activeMs)}
               />
-              <StatTile label="People active" value={String(members.length)} />
+              <StatTile label={t("org:orgActivity.stats.peopleActive")} value={String(members.length)} />
               <StatTile
-                label="Per person"
+                label={t("org:orgActivity.stats.perPerson")}
                 value={formatMs(members.length ? totalActive / members.length : 0)}
-                hint="average over the range"
+                hint={t("org:orgActivity.stats.perPersonHint")}
               />
               <StatTile
-                label="Sessions"
+                label={t("org:orgActivity.stats.sessions")}
                 value={String(members.reduce((n, m) => n + m.sessions, 0))}
               />
             </div>
 
             <section className="space-y-3">
-              <h4 className="text-sm font-semibold text-fg">Team active time per day</h4>
+              <h4 className="text-sm font-semibold text-fg">{t("org:orgActivity.sections.teamActiveTimePerDay")}</h4>
               <BarChart
                 data={(data?.days ?? []).map((d) => ({
-                  label: parseLocalDay(d.day).toLocaleDateString(undefined, { day: "numeric", month: "short" }),
+                  label: parseLocalDay(d.day).toLocaleDateString(i18n.language, { day: "numeric", month: "short" }),
                   value: d.activeMs,
                   context: d.idleMs,
                 }))}
-                valueLabel="Active"
-                contextLabel="Idle"
+                valueLabel={t("org:orgActivity.chart.active")}
+                contextLabel={t("org:orgActivity.chart.idle")}
               />
             </section>
 
             <section className="space-y-3">
-              <h4 className="text-sm font-semibold text-fg">Active time by member</h4>
+              <h4 className="text-sm font-semibold text-fg">{t("org:orgActivity.sections.activeTimeByMember")}</h4>
               <RankedBars
                 data={members.map((m) => ({
                   key: m.userId, label: nameOf(m.userId), value: m.totalActiveMs,
@@ -131,13 +133,13 @@ export function OrgActivity() {
                 reader and a keyboard can navigate. It is the only <table> in the
                 app, and this is the case that earns one. */}
             <section className="space-y-3">
-              <h4 className="text-sm font-semibold text-fg">All members</h4>
+              <h4 className="text-sm font-semibold text-fg">{t("org:orgActivity.sections.allMembers")}</h4>
               <div className="overflow-x-auto rounded-xl border border-border/60">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-border/60 text-left text-xs text-muted">
-                      <Th>Member</Th><Th right>Active</Th><Th right>Idle</Th>
-                      <Th right>Sessions</Th><Th right>Actions</Th>
+                      <Th>{t("org:orgActivity.table.member")}</Th><Th right>{t("org:orgActivity.table.active")}</Th><Th right>{t("org:orgActivity.table.idle")}</Th>
+                      <Th right>{t("org:orgActivity.table.sessions")}</Th><Th right>{t("org:orgActivity.table.actions")}</Th>
                     </tr>
                   </thead>
                   <tbody>

@@ -1,12 +1,17 @@
-"""The offline gate gives the user a grace window, THEN decides.
+"""The offline gate: check presence, wait only if needed, check again.
 
 It used to compare the event's age to the threshold and, for anything younger,
 mark the email 'sent' without sending it. Events reach the consumer within
 milliseconds of occurring, so nearly every one was skipped for good: offline
 notification email went out only when the consumer was already a minute behind.
 
-The window is now waited out (inside the in-flight guard, so the reaper leaves the
-claim alone), and presence is checked afterwards.
+The window is waited out (inside the in-flight guard, so the reaper leaves the
+claim alone) — but ONLY when presence, checked FIRST, says the recipient is
+offline right now. An already-online recipient used to pay the same wait
+before this fix, which throttled this (the highest-volume) topic's batch
+processing for everyone behind it regardless of whether they were even the
+one being waited for. Presence is checked again after the wait, since the
+recipient may have reconnected during it.
 
 Runs the real `_handle`; only the database, presence, mailer and clock-sleep are faked.
 """
@@ -63,6 +68,7 @@ class _Harness:
         self.sent: list[str] = []
         self.marked_sent: list[str] = []
         self.released: list[str] = []
+        self.touched: list[str] = []
         self.waits: list[float] = []
         self.on_wait = None
         c = self.c
@@ -81,6 +87,9 @@ class _Harness:
         async def _release_claim(_event_id, recipient):
             self.released.append(recipient)
 
+        async def _touch_claim(_event_id, recipient):
+            self.touched.append(recipient)
+
         async def _sleep_or_stop(seconds):
             self.waits.append(seconds)
             if self.on_wait:
@@ -90,6 +99,7 @@ class _Harness:
         c._send_for_event = _send_for_event
         c._mark_sent = _mark_sent
         c._release_claim = _release_claim
+        c._touch_claim = _touch_claim
         c._sleep_or_stop = _sleep_or_stop
 
 
@@ -130,6 +140,50 @@ async def test_a_user_who_is_online_is_never_emailed_and_the_event_is_not_retrie
     ok = await h.c._handle(_event(seconds_ago=THRESHOLD * 5))
 
     assert ok is True and h.sent == [] and h.marked_sent == ["alice"]
+
+
+async def test_an_online_recipient_skips_the_wait_entirely_even_for_a_fresh_event():
+    """The presence-ordering fix, proven where it actually matters: with an OLD
+    event wait=0 anyway (see the test above), so that case alone can't tell
+    "checked first" apart from "waited then checked and it just happened to be
+    zero". A FRESH event is the one that used to pay the full grace window
+    regardless of presence — checking first must skip it entirely here."""
+    h = _Harness(online=True)
+
+    ok = await h.c._handle(_event(seconds_ago=1))
+
+    assert ok is True
+    assert h.waits == [], "an already-online recipient must never wait"
+    assert h.sent == []
+    assert h.marked_sent == ["alice"]
+    assert h.presence.checks == 1, "one check is enough to know they're already online"
+
+
+async def test_presence_is_checked_again_after_the_wait_not_assumed_from_before():
+    h = _Harness(online=False)
+
+    await h.c._handle(_event(seconds_ago=1))
+
+    assert h.presence.checks == 2, "once up front, once more after the wait — not reused"
+
+
+async def test_the_claim_is_touched_after_a_real_wait_so_the_reaper_measures_from_there():
+    h = _Harness(online=False)
+
+    await h.c._handle(_event(seconds_ago=1))
+
+    assert h.touched == ["alice"], (
+        "resets the reaper's abandonment clock once the wait — the one phase "
+        "not otherwise covered by _REAP_SEND_BUDGET_SECONDS — is over"
+    )
+
+
+async def test_no_wait_means_no_touch_needed():
+    h = _Harness(online=False)
+
+    await h.c._handle(_event(seconds_ago=THRESHOLD * 5))  # window already used up
+
+    assert h.touched == [], "the original claim timestamp is still fresh; nothing to refresh"
 
 
 async def test_shutdown_during_the_wait_releases_the_claim_and_does_not_skip_the_email():

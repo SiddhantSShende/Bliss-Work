@@ -15,6 +15,9 @@
 import type { ActivityExportRow, ActivitySessionDTO, UserDTO } from "@taskboard/shared";
 import { fmtDurationMs, fmtLocal, hoursOf, localTimeZone } from "./xlsx/format";
 import { buildAndDownload, type SheetSpec } from "./xlsx/workbook";
+import i18n from "../i18n";
+
+const t = (key: string, vars?: Record<string, unknown>) => i18n.t(`shell:activityExport.${key}`, vars);
 
 interface Person {
   name: string;
@@ -27,18 +30,18 @@ function directoryIndex(directory: UserDTO[]): Map<string, Person> {
 
 function dailyColumns(tz: string) {
   return [
-    { header: "Member", key: "name", width: 24 },
-    { header: "Email", key: "email", width: 28 },
-    { header: "Day", key: "day", width: 12 },
-    { header: "Active", key: "active", width: 12 },
-    { header: "Active (hours)", key: "activeHours", width: 14 },
-    { header: "Idle", key: "idle", width: 12 },
-    { header: "Signed in", key: "online", width: 12 },
-    { header: "Sessions", key: "sessions", width: 10 },
-    { header: "Actions", key: "events", width: 10 },
-    { header: `First seen (${tz})`, key: "firstSeen", width: 24 },
-    { header: `Last seen (${tz})`, key: "lastSeen", width: 24 },
-    { header: "Top section", key: "topSurface", width: 16 },
+    { header: t("columns.member"), key: "name", width: 24 },
+    { header: t("columns.email"), key: "email", width: 28 },
+    { header: t("columns.day"), key: "day", width: 12 },
+    { header: t("columns.active"), key: "active", width: 12 },
+    { header: t("columns.activeHours"), key: "activeHours", width: 14 },
+    { header: t("columns.idle"), key: "idle", width: 12 },
+    { header: t("columns.signedIn"), key: "online", width: 12 },
+    { header: t("columns.sessions"), key: "sessions", width: 10 },
+    { header: t("columns.actions"), key: "events", width: 10 },
+    { header: t("columns.firstSeen", { tz }), key: "firstSeen", width: 24 },
+    { header: t("columns.lastSeen", { tz }), key: "lastSeen", width: 24 },
+    { header: t("columns.topSection"), key: "topSurface", width: 16 },
   ];
 }
 
@@ -85,17 +88,17 @@ function summarySheet(rows: ActivityExportRow[], people: Map<string, Person>): S
   }
 
   return {
-    name: "Summary",
+    name: t("sheets.summary"),
     columns: [
-      { header: "Member", key: "name", width: 24 },
-      { header: "Email", key: "email", width: 28 },
-      { header: "Active", key: "active", width: 14 },
-      { header: "Active (hours)", key: "activeHours", width: 14 },
-      { header: "Idle", key: "idle", width: 12 },
-      { header: "Days active", key: "days", width: 12 },
-      { header: "Avg per active day", key: "avg", width: 18 },
-      { header: "Sessions", key: "sessions", width: 10 },
-      { header: "Actions", key: "events", width: 10 },
+      { header: t("columns.member"), key: "name", width: 24 },
+      { header: t("columns.email"), key: "email", width: 28 },
+      { header: t("columns.active"), key: "active", width: 14 },
+      { header: t("columns.activeHours"), key: "activeHours", width: 14 },
+      { header: t("columns.idle"), key: "idle", width: 12 },
+      { header: t("columns.daysActive"), key: "days", width: 12 },
+      { header: t("columns.avgPerActiveDay"), key: "avg", width: 18 },
+      { header: t("columns.sessions"), key: "sessions", width: 10 },
+      { header: t("columns.actions"), key: "events", width: 10 },
     ],
     rows: [...totals.values()]
       .sort((a, b) => b.activeMs - a.activeMs)
@@ -127,7 +130,7 @@ export async function exportAllMembersActivityToXlsx(
   return buildAndDownload(
     [
       summarySheet(rows, people),
-      { name: "Daily", columns: dailyColumns(tz), rows: dailyRows(rows, people) },
+      { name: t("sheets.daily"), columns: dailyColumns(tz), rows: dailyRows(rows, people) },
     ],
     filename,
   );
@@ -143,25 +146,25 @@ export async function exportMemberActivityToXlsx(
   const tz = localTimeZone();
   const people = directoryIndex(directory);
   const sheets: SheetSpec[] = [
-    { name: "Daily", columns: dailyColumns(tz), rows: dailyRows(rows, people) },
+    { name: t("sheets.daily"), columns: dailyColumns(tz), rows: dailyRows(rows, people) },
   ];
   if (sessions.length) {
     sheets.push({
-      name: "Sessions",
+      name: t("sheets.sessions"),
       columns: [
-        { header: "Device", key: "device", width: 26 },
-        { header: `Started (${tz})`, key: "started", width: 24 },
-        { header: `Ended (${tz})`, key: "ended", width: 24 },
-        { header: "Ended because", key: "reason", width: 16 },
-        { header: "Active", key: "active", width: 12 },
-        { header: "Idle", key: "idle", width: 12 },
-        { header: "Network", key: "ip", width: 18 },
+        { header: t("columns.device"), key: "device", width: 26 },
+        { header: t("columns.started", { tz }), key: "started", width: 24 },
+        { header: t("columns.ended", { tz }), key: "ended", width: 24 },
+        { header: t("columns.endedBecause"), key: "reason", width: 16 },
+        { header: t("columns.active"), key: "active", width: 12 },
+        { header: t("columns.idle"), key: "idle", width: 12 },
+        { header: t("columns.network"), key: "ip", width: 18 },
       ],
       rows: sessions.map((s) => ({
         device: s.deviceLabel,
         started: fmtLocal(s.startedAt),
         ended: fmtLocal(s.endedAt),
-        reason: s.endReason ?? (s.endedAt ? "" : "still active"),
+        reason: s.endReason ?? (s.endedAt ? "" : t("stillActive")),
         active: fmtDurationMs(s.activeMs),
         idle: fmtDurationMs(s.idleMs),
         // A /24, never the full address — the same coarsening the UI shows.

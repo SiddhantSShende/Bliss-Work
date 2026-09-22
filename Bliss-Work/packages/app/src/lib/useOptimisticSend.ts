@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient, type QueryKey } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 
 /** The shape both MessageDTO and ChannelMessageDTO share for reconciling a
  *  temp row against the server's response. Mirrors useOlderMessages' `Paged`
@@ -73,6 +74,7 @@ export function useOptimisticSend<TDto extends Sendable>({
   onSuccess,
   onError,
 }: UseOptimisticSendOptions<TDto>) {
+  const { t } = useTranslation("chatThread");
   const qc = useQueryClient();
 
   return useMutation({
@@ -111,7 +113,7 @@ export function useOptimisticSend<TDto extends Sendable>({
     },
     onError: (error, vars, ctx) => {
       qc.setQueryData<TDto[]>(queryKey, (prev) => (prev ?? []).filter((m) => m.id !== ctx?.tempId));
-      toast.error("Message failed to send");
+      toast.error(t("shared.messageFailedToSend"));
       onError?.(error, vars);
     },
   });

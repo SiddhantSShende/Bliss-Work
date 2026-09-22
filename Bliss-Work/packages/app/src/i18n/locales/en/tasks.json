@@ -1,0 +1,228 @@
+{
+  "liveEvents": {
+    "newTask": "New task: {{title}}",
+    "newTaskFrom": "from {{sender}}",
+    "taskLeftBy": "Task left by {{assignee}}",
+    "taskIgnoredBy": "Task ignored by {{assignee}}",
+    "taskReviewed": "{{reviewer}} reviewed your task",
+    "taskAcknowledgedBy": "Task acknowledged by {{assignee}}",
+    "taskCompletedBy": "Task completed by {{assignee}}"
+  },
+  "tasksList": {
+    "header": "Tasks",
+    "categories": {
+      "mine": "My tasks",
+      "allocated": "Allocated to me",
+      "available": "Available",
+      "completed": "Completed",
+      "left": "Left",
+      "ignored": "Ignored"
+    }
+  },
+  "tasksPage": {
+    "titles": {
+      "mine": "My tasks",
+      "allocated": "Allocated to me",
+      "available": "Available",
+      "completed": "Completed",
+      "left": "Left",
+      "ignored": "Ignored",
+      "default": "Tasks"
+    },
+    "buckets": {
+      "allocated": "Allocated",
+      "available": "Available",
+      "mine": "My tasks",
+      "completed": "Completed",
+      "left": "Left",
+      "ignored": "Ignored"
+    },
+    "export": {
+      "title": "Export tasks to Excel",
+      "button": "Export"
+    },
+    "newTask": "New task",
+    "empty": {
+      "title": "Nothing here",
+      "hint": "Tasks appear here as they arrive."
+    },
+    "actionVerbs": {
+      "acknowledge": "acknowledge",
+      "complete": "complete",
+      "ignore": "ignore",
+      "leave": "leave"
+    },
+    "toasts": {
+      "actionFailed": "Couldn't {{verb}} the task",
+      "completed": "Task completed — the sender has been notified.",
+      "left": "You left the task — the sender has been notified."
+    },
+    "unpin": "Unpin",
+    "pagination": {
+      "previous": "Previous",
+      "next": "Next",
+      "pageOf": "Page {{current}} of {{total}}"
+    }
+  },
+  "myTasksBoard": {
+    "loading": "Loading your tasks…",
+    "loadError": {
+      "title": "Couldn't load your tasks.",
+      "retry": "Retry"
+    },
+    "empty": {
+      "title": "You haven't sent any tasks",
+      "hint": "Create one with “New task”."
+    },
+    "filters": {
+      "statusHeading": "Status",
+      "peopleHeading": "People",
+      "clear": "Clear filters"
+    },
+    "noMatch": {
+      "title": "No tasks match these filters",
+      "hint": "Older tasks aren't loaded yet — load more below."
+    },
+    "loadMore": "Load older tasks",
+    "loadingMore": "Loading…",
+    "milestones": {
+      "allocated": "Allocated",
+      "acknowledged": "Acknowledged",
+      "ignored": "Ignored",
+      "completed": "Completed",
+      "left": "Left",
+      "reviewed": "Reviewed"
+    },
+    "review": {
+      "write": "Write review",
+      "edit": "Edit review"
+    }
+  },
+  "createTaskDialog": {
+    "title": "New task",
+    "fields": {
+      "title": "Title",
+      "titlePlaceholder": "What needs doing?",
+      "description": "Description",
+      "descriptionPlaceholder": "Add details…",
+      "assignTo": "Assign to",
+      "assignToWithCount": "Assign to ({{count}})",
+      "searchPeoplePlaceholder": "Search people…",
+      "noMatches": "No matches.",
+      "assignToChannel": "Assign to channel",
+      "noChannels": "You aren't in any channels yet. Create one from the Channels sidebar.",
+      "memberCount_one": "({{count}} member)",
+      "memberCount_other": "({{count}} members)",
+      "channelHint": "Every member of the channel receives the task with the same Acknowledge / Ignore flow."
+    },
+    "modes": {
+      "people": "People",
+      "channel": "Channel"
+    },
+    "errors": {
+      "needTitle": "Give the task a title",
+      "needAssignee": "Pick at least one assignee",
+      "pickChannel": "Pick a channel",
+      "createFailed": "Could not create task"
+    },
+    "toasts": {
+      "sentPlain": "Task sent",
+      "genericChannelFallback": "channel",
+      "sentToChannel_one": "Task sent to #{{channelName}} — {{count}} member",
+      "sentToChannel_other": "Task sent to #{{channelName}} — {{count}} members"
+    },
+    "actions": {
+      "cancel": "Cancel",
+      "send": "Send task",
+      "sending": "Sending…"
+    }
+  },
+  "exportTasksDialog": {
+    "title": "Export tasks to Excel",
+    "scopeHeading": "Which tasks",
+    "scopes": {
+      "all": "All my tasks",
+      "sent": "Allocated by me",
+      "received": "Assigned to me"
+    },
+    "rangeHeading": "Time range",
+    "ranges": {
+      "week": "Past week",
+      "month": "Past month",
+      "year": "Past year",
+      "all": "All time",
+      "custom": "Custom range"
+    },
+    "from": "From",
+    "to": "To",
+    "footerNote": "Times are exported in your device's local timezone. One row per person the task was allocated to.",
+    "actions": {
+      "cancel": "Cancel",
+      "export": "Export",
+      "exporting": "Exporting…"
+    },
+    "toasts": {
+      "nothingTitle": "Nothing to export",
+      "nothingDescription": "No tasks in the selected range.",
+      "exported_one": "Exported {{count}} row to Excel",
+      "exported_other": "Exported {{count}} rows to Excel",
+      "cappedTitle": "Export was capped",
+      "cappedDescription": "Only the most recent {{cap}} rows were included — narrow the date range for the rest.",
+      "failedTitle": "Export failed"
+    }
+  },
+  "miniTaskCalendar": {
+    "previousMonth": "Previous month",
+    "nextMonth": "Next month"
+  },
+  "dropConfirm": {
+    "title_one": "Attach this file?",
+    "title_other": "Attach these {{count}} files?",
+    "description": "Nothing is sent yet — they go to the message box, and you still press Send.",
+    "cancel": "Cancel",
+    "attach": "Attach"
+  },
+  "createReviewDialog": {
+    "title": "Review {{name}}'s work",
+    "ratingOptional": "Rating (optional)",
+    "starCount_one": "{{count}} star",
+    "starCount_other": "{{count}} stars",
+    "clear": "Clear",
+    "feedback": "Feedback",
+    "feedbackPlaceholder": "How did they do?",
+    "cancel": "Cancel",
+    "saving": "Saving…",
+    "saveReview": "Save review",
+    "saved": "Review saved",
+    "couldNotSave": "Couldn't save review",
+    "writeFirst": "Write a short review first"
+  },
+  "xlsxExport": {
+    "sheetName": "Task Timeline",
+    "columns": {
+      "task": "Task",
+      "description": "Description",
+      "allocatedBy": "Allocated by",
+      "allocatedByEmail": "Allocated by (email)",
+      "allocatedTo": "Allocated to",
+      "allocatedToEmail": "Allocated to (email)",
+      "status": "Status",
+      "allocatedAt": "Allocated at ({{tz}})",
+      "acknowledgedAt": "Acknowledged at ({{tz}})",
+      "ignoredAt": "Ignored at ({{tz}})",
+      "completedAt": "Completed at ({{tz}})",
+      "leftAt": "Left at ({{tz}})",
+      "timeToComplete": "Time to complete",
+      "reviewedAt": "Reviewed at ({{tz}})",
+      "review": "Review",
+      "rating": "Rating"
+    },
+    "status": {
+      "SENT": "Sent (awaiting)",
+      "ACKNOWLEDGED": "Acknowledged",
+      "COMPLETED": "Completed",
+      "IGNORED": "Ignored",
+      "LEFT": "Left"
+    }
+  }
+}

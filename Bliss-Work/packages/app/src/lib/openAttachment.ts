@@ -1,6 +1,7 @@
 import { toast } from "sonner";
 import type { PlatformConfig } from "../platform";
 import { canPreviewDocInApp } from "./chatEnvelope";
+import i18n from "../i18n";
 
 /**
  * Opening an attachment the app cannot show itself. Shared by chat and channel
@@ -61,7 +62,7 @@ export async function openAttachmentNatively(
   filename: string,
 ): Promise<void> {
   const result = await config.openAttachment!(url, filename);
-  if (!result.ok) toast.error(`Could not open ${filename}`, { description: result.error });
+  if (!result.ok) toast.error(i18n.t("common:attachment.couldNotOpen", { filename }), { description: result.error });
 }
 
 /**

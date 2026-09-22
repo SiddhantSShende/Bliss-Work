@@ -1,4 +1,5 @@
 import { Check, X, Flag, LogOut, PinOff, Minus } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Avatar, Badge } from "@taskboard/ui";
 import type { StickyTaskDTO, TaskAction } from "@taskboard/shared";
 
@@ -51,6 +52,7 @@ export function StickyWidget({
    */
   onUnpin?: () => void;
 }) {
+  const { t } = useTranslation("stickies");
   // senderUsername is the email local-part, so "from j.okafor" is what a note
   // built from it alone says. This widget also renders in the desktop sticky
   // window, which has no directory query — hence the field on the DTO rather
@@ -84,7 +86,7 @@ export function StickyWidget({
             {/* Truncated like the title above it. Left to wrap, a two-word
                 sender name turned into three lines on a narrow note and the
                 header alone ate the room the action row needed. */}
-            <div className="truncate text-xs text-muted">from {senderName}</div>
+            <div className="truncate text-xs text-muted">{t("card.from", { name: senderName })}</div>
           </div>
         </div>
         {/* `shrink-0`: on a narrow note the long status word ("acknowledged")
@@ -103,7 +105,7 @@ export function StickyWidget({
               {onCollapse && (
                 <button
                   className="app-no-drag rounded-lg p-1 text-muted hover:bg-surface-2 hover:text-fg"
-                  title="Collapse to a pill"
+                  title={t("card.collapseToPill")}
                   onClick={onCollapse}
                 >
                   <Minus size={16} />
@@ -116,8 +118,8 @@ export function StickyWidget({
               {onUnpin && (
                 <button
                   className="app-no-drag rounded-lg p-1 text-muted hover:bg-surface-2 hover:text-fg"
-                  title="Unpin (the task stays)"
-                  aria-label="Unpin"
+                  title={t("card.unpinNoteTitle")}
+                  aria-label={t("card.unpin")}
                   onClick={onUnpin}
                 >
                   <PinOff size={16} />
@@ -130,7 +132,7 @@ export function StickyWidget({
             // so the X is hidden rather than firing a 409.
             <button
               className="app-no-drag rounded-lg p-1 text-muted hover:bg-surface-2 hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
-              title="Dismiss (ignore)"
+              title={t("card.dismissIgnore")}
               disabled={busy}
               onClick={() => onAction("IGNORE")}
             >
@@ -167,8 +169,8 @@ export function StickyWidget({
           content-sized card pushed past the window edge. */}
       <div className="app-no-drag flex shrink-0 flex-wrap gap-2">
         {task.actions.includes("ACKNOWLEDGE") && !locked && (
-          <ActionBtn tone="accent" label="Acknowledge" disabled={busy} onClick={() => onAction("ACKNOWLEDGE")}>
-            <Check size={15} /> Acknowledge
+          <ActionBtn tone="accent" label={t("card.acknowledge")} disabled={busy} onClick={() => onAction("ACKNOWLEDGE")}>
+            <Check size={15} /> {t("card.acknowledge")}
           </ActionBtn>
         )}
         {/* Explicit Ignore button next to Acknowledge for every SENT card. On
@@ -177,18 +179,18 @@ export function StickyWidget({
             expect (and asked for) a clearly-labelled Ignore button beside
             Acknowledge rather than only a corner ✗ — so render it in both. */}
         {task.actions.includes("IGNORE") && !locked && (
-          <ActionBtn tone="danger" label="Ignore" disabled={busy} onClick={() => onAction("IGNORE")}>
-            <X size={15} /> Ignore
+          <ActionBtn tone="danger" label={t("card.ignore")} disabled={busy} onClick={() => onAction("IGNORE")}>
+            <X size={15} /> {t("card.ignore")}
           </ActionBtn>
         )}
         {task.actions.includes("COMPLETE") && (
-          <ActionBtn tone="success" label="Complete" disabled={busy} onClick={() => onAction("COMPLETE")}>
-            <Flag size={15} /> Complete
+          <ActionBtn tone="success" label={t("card.complete")} disabled={busy} onClick={() => onAction("COMPLETE")}>
+            <Flag size={15} /> {t("card.complete")}
           </ActionBtn>
         )}
         {task.actions.includes("LEAVE") && !locked && (
-          <ActionBtn tone="ghost" label="Leave" disabled={busy} onClick={() => onAction("LEAVE")}>
-            <LogOut size={15} /> Leave
+          <ActionBtn tone="ghost" label={t("card.leave")} disabled={busy} onClick={() => onAction("LEAVE")}>
+            <LogOut size={15} /> {t("card.leave")}
           </ActionBtn>
         )}
       </div>

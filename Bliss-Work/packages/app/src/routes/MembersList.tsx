@@ -2,6 +2,8 @@ import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { BarChart3, MessageSquare, Search, Users } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { Avatar, EmptyState, Input } from "@taskboard/ui";
 import type { ConversationDTO, MemberActivityDTO, UserDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
@@ -19,6 +21,7 @@ import { usePresence } from "../lib/usePresence";
  *  fastest route to — sending people through a detail page first would have
  *  made the app's primary messaging entry point two clicks slower. */
 export function MembersList() {
+  const { t } = useTranslation("members");
   const { api } = useRuntime();
   const me = useSession((s) => s.user)!;
   const nav = useNavigate();
@@ -82,13 +85,13 @@ export function MembersList() {
   return (
     <>
       <ListHeader
-        title="Members"
+        title={t("members:list.title")}
         action={
           isAdmin ? (
             <button
               onClick={() => nav("/app/members/activity")}
-              title="Workspace activity"
-              aria-label="Workspace activity"
+              title={t("members:list.workspaceActivity")}
+              aria-label={t("members:list.workspaceActivity")}
               className="rounded-lg p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg"
             >
               <BarChart3 size={17} />
@@ -100,7 +103,12 @@ export function MembersList() {
       <div className="px-2 pt-2">
         <div className="relative">
           <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-          <Input className="h-9 pl-9" placeholder="Search teammates…" value={q} onChange={(e) => setQ(e.target.value)} />
+          <Input
+            className="h-9 pl-9"
+            placeholder={t("members:list.searchPlaceholder")}
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
         </div>
       </div>
       <div className="min-h-0 flex-1 space-y-0.5 overflow-auto p-2">
@@ -111,13 +119,15 @@ export function MembersList() {
           >
             <Avatar name={meUser.displayName} src={meUser.avatarUrl} />
             <div className="min-w-0 flex-1">
-              <div className="truncate font-medium text-fg">{meUser.displayName} (you)</div>
-              <div className="truncate text-sm text-muted">Your activity and sessions</div>
+              <div className="truncate font-medium text-fg">
+                {t("members:list.selfRow.name", { name: meUser.displayName })}
+              </div>
+              <div className="truncate text-sm text-muted">{t("members:list.selfRow.subtitle")}</div>
             </div>
           </button>
         )}
         {results.length === 0 && !showSelfRow ? (
-          <EmptyState icon={<Users size={22} />} title="No teammates found" />
+          <EmptyState icon={<Users size={22} />} title={t("members:list.empty.title")} />
         ) : (
           results.map((u) => (
             <div key={u.id} className={`group ${rowClass(u.id === userId)}`}>
@@ -141,6 +151,7 @@ export function MembersList() {
                       onlineSet.has(u.id),
                       activityById.get(u.id),
                       hideStatusFor(u),
+                      t,
                     )}
                   </div>
                 </div>
@@ -148,8 +159,8 @@ export function MembersList() {
               <button
                 onClick={() => message(u)}
                 disabled={busy}
-                title={`Message ${u.displayName}`}
-                aria-label={`Message ${u.displayName}`}
+                title={t("members:list.messageButton", { name: u.displayName })}
+                aria-label={t("members:list.messageButton", { name: u.displayName })}
                 className="shrink-0 rounded-lg p-2 text-muted opacity-0 transition hover:bg-surface-2 hover:text-accent focus-visible:opacity-100 group-hover:opacity-100 disabled:opacity-50 md:opacity-60"
               >
                 <MessageSquare size={16} />
@@ -180,13 +191,14 @@ function statusLine(
   username: string,
   socketOpen: boolean,
   activity: MemberActivityDTO | undefined,
-  hideStatus = false,
+  hideStatus: boolean,
+  t: TFunction,
 ): string {
   if (hideStatus) return `@${username}`;
-  if (!activity) return socketOpen ? "Online" : `@${username}`;
-  if (activity.state === "online") return "Online";
-  if (activity.state === "idle") return "Idle";
+  if (!activity) return socketOpen ? t("members:list.status.online") : `@${username}`;
+  if (activity.state === "online") return t("members:list.status.online");
+  if (activity.state === "idle") return t("members:list.status.idle");
   if (!activity.lastSeenAt) return `@${username}`;
-  return `Last seen ${relativeTime(activity.lastSeenAt)}`;
+  return t("members:list.status.lastSeen", { time: relativeTime(activity.lastSeenAt) });
 }
 

@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { X, AlertCircle } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Avatar } from "@taskboard/ui";
 import { isValidMailAddress, normalizeMailAddress, splitMailAddresses } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
@@ -33,6 +34,7 @@ export function MailAddressField({
   placeholder?: string;
   autoFocus?: boolean;
 }) {
+  const { t } = useTranslation("mail");
   const { api } = useRuntime();
   const [draft, setDraft] = useState("");
   const [focused, setFocused] = useState(false);
@@ -96,7 +98,7 @@ export function MailAddressField({
           return (
             <span
               key={addr}
-              title={bad ? "This does not look like an email address" : addr}
+              title={bad ? t("addressField.invalidAddressTitle") : addr}
               className={`inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-xs ${
                 bad ? "bg-danger/12 text-danger" : "bg-accent-soft text-accent"
               }`}
@@ -109,7 +111,7 @@ export function MailAddressField({
                   e.stopPropagation();
                   remove(addr);
                 }}
-                aria-label={`Remove ${addr}`}
+                aria-label={t("addressField.removeAddress", { address: addr })}
                 className="shrink-0 hover:opacity-70"
               >
                 <X size={11} />

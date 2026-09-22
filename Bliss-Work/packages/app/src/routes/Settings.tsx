@@ -13,6 +13,7 @@
 import { useEffect, useState } from "react";
 import { Palette, MoreVertical, Check, Bell, BellOff, Info, RefreshCw, Eye, ShieldCheck, MonitorSmartphone, Sun, Moon } from "lucide-react";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { Button, PageHeader, useTheme, THEMES, themeClasses, themeName, darkCounterpart, type ThemeId } from "@taskboard/ui";
 import { Link } from "react-router-dom";
 import { BUILD_SHA } from "../lib/buildInfo";
@@ -22,6 +23,7 @@ import { usePopupDismiss } from "../lib/usePopupDismiss";
 import { loadDesktopNotifs, saveDesktopNotifs } from "../lib/notificationPrefs";
 
 export function Settings() {
+  const { t } = useTranslation(["settings", "common"]);
   const { theme } = useTheme();
   const { config } = useRuntime();
   const goBack = useGoBack();
@@ -48,37 +50,37 @@ export function Settings() {
   return (
     <div className="flex h-full flex-col">
       <PageHeader
-        title="Settings"
-        subtitle="Preferences for how the app behaves on this device."
+        title={t("settings:header.title")}
+        subtitle={t("settings:header.subtitle")}
         onBack={goBack}
       />
       <div className="min-h-0 flex-1 overflow-auto p-6">
         <div className="mx-auto max-w-xl space-y-4">
           <SettingRow
             icon={<Palette size={18} />}
-            title="Theme"
-            description={`Currently using ${themeName(theme)}.`}
+            title={t("settings:theme.title")}
+            description={t("settings:theme.description", { theme: themeName(theme) })}
             action={<ThemeMenu />}
           />
 
           <SettingRow
             icon={<ShieldCheck size={18} />}
-            title="Two-factor authentication"
-            description="Add an authenticator app or a passkey as a second sign-in step."
+            title={t("settings:twoFactor.title")}
+            description={t("settings:twoFactor.description")}
             action={
               <Link to="/app/settings/security">
-                <Button variant="subtle" size="sm">Manage</Button>
+                <Button variant="subtle" size="sm">{t("common:buttons.manage")}</Button>
               </Link>
             }
           />
 
           <SettingRow
             icon={<MonitorSmartphone size={18} />}
-            title="Active sessions"
-            description="See every device signed in to your account, and sign any of them out remotely."
+            title={t("settings:activeSessions.title")}
+            description={t("settings:activeSessions.description")}
             action={
               <Link to="/app/settings/sessions">
-                <Button variant="subtle" size="sm">View</Button>
+                <Button variant="subtle" size="sm">{t("common:buttons.view")}</Button>
               </Link>
             }
           />
@@ -87,26 +89,26 @@ export function Settings() {
               must always be able to find what is recorded about them. */}
           <SettingRow
             icon={<Eye size={18} />}
-            title="Your activity"
-            description="See everything BlissWork records about how you work — the same record your workspace admins see."
+            title={t("settings:activity.title")}
+            description={t("settings:activity.description", { brand: "BlissWork" })}
             action={
               <Link to="/app/settings/activity">
-                <Button variant="subtle" size="sm">View</Button>
+                <Button variant="subtle" size="sm">{t("common:buttons.view")}</Button>
               </Link>
             }
           />
 
           <SettingRow
             icon={desktopNotifs ? <Bell size={18} /> : <BellOff size={18} />}
-            title="Desktop notifications"
+            title={t("settings:desktopNotifications.title")}
             description={
               desktopNotifs
-                ? "Show toasts when new messages and tasks arrive."
-                : "Toasts are paused. You can still see notifications in the bell menu."
+                ? t("settings:desktopNotifications.onDescription")
+                : t("settings:desktopNotifications.offDescription")
             }
             action={
               <Button variant="subtle" size="sm" onClick={toggleNotifs}>
-                {desktopNotifs ? "Turn off" : "Turn on"}
+                {desktopNotifs ? t("settings:desktopNotifications.turnOff") : t("settings:desktopNotifications.turnOn")}
               </Button>
             }
           />
@@ -123,6 +125,7 @@ export function Settings() {
  *  rendered with that theme's own CSS classes, so it reads straight off
  *  theme.css instead of a colour list duplicated here. */
 function ThemeMenu() {
+  const { t } = useTranslation("settings");
   const { theme, isDark, toggle, setTheme } = useTheme();
   const [open, setOpen] = useState(false);
   const close = () => setOpen(false);
@@ -138,8 +141,8 @@ function ThemeMenu() {
       <button
         type="button"
         onClick={() => (open ? close() : setOpen(true))}
-        title="Change theme"
-        aria-label="Change theme"
+        title={t("settings:theme.changeTheme")}
+        aria-label={t("settings:theme.changeTheme")}
         aria-haspopup="menu"
         aria-expanded={open}
         className="flex items-center rounded-lg p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg"
@@ -149,12 +152,12 @@ function ThemeMenu() {
       {open && (
         <div
           role="menu"
-          aria-label="Theme"
+          aria-label={t("settings:theme.menuLabel")}
           className="absolute right-0 z-[1000] mt-1.5 w-72 rounded-xl border border-border bg-surface p-1.5 shadow-card"
         >
           <div className="flex gap-1 p-1">
-            <AppearanceOption icon={<Sun size={14} />} label="Light" active={!isDark} onClick={() => isDark && toggle()} />
-            <AppearanceOption icon={<Moon size={14} />} label="Dark" active={isDark} onClick={() => !isDark && toggle()} />
+            <AppearanceOption icon={<Sun size={14} />} label={t("settings:theme.light")} active={!isDark} onClick={() => isDark && toggle()} />
+            <AppearanceOption icon={<Moon size={14} />} label={t("settings:theme.dark")} active={isDark} onClick={() => !isDark && toggle()} />
           </div>
           <div className="my-1 h-px bg-border/60" />
           {THEMES.map((opt) => (
@@ -246,6 +249,7 @@ function ThemeSwatch({ themeId }: { themeId: ThemeId }) {
  * bundle" — which look identical otherwise.
  */
 function AboutRow() {
+  const { t } = useTranslation("settings");
   const { config } = useRuntime();
   const [version, setVersion] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
@@ -270,9 +274,9 @@ function AboutRow() {
   useEffect(() => {
     if (!config.onUpdateCheckFailed) return;
     return config.onUpdateCheckFailed((message) => {
-      toast.error("Update download failed", { description: message });
+      toast.error(t("settings:about.toasts.updateDownloadFailed"), { description: message });
     });
-  }, [config]);
+  }, [config, t]);
 
   const check = async () => {
     if (!config.checkForUpdates) return;
@@ -280,15 +284,17 @@ function AboutRow() {
     try {
       const r = await config.checkForUpdates();
       if (r.status === "downloading" || r.status === "available") {
-        toast.success(`Update to ${r.version} is downloading`, {
-          description: "You'll be asked to restart when it's ready.",
+        toast.success(t("settings:about.toasts.updateDownloading", { version: r.version }), {
+          description: t("settings:about.toasts.updateDownloadingDescription"),
         });
       } else if (r.status === "up-to-date") {
-        toast.success("You're up to date", { description: `Version ${r.version}` });
+        toast.success(t("settings:about.toasts.upToDate"), {
+          description: t("settings:about.toasts.upToDateDescription", { version: r.version }),
+        });
       } else {
         // 'unsupported' (dev run / Store build) and 'error' both carry a
         // specific message — show it rather than a generic failure.
-        toast(r.message ?? "Couldn't check for updates");
+        toast(r.message ?? t("settings:about.toasts.checkFailedFallback"));
       }
     } finally {
       setChecking(false);
@@ -296,19 +302,19 @@ function AboutRow() {
   };
 
   const description = version
-    ? `BlissWork ${version} · desktop`
-    : `BlissWork · build ${BUILD_SHA}`;
+    ? t("settings:about.versionDesktop", { brand: "BlissWork", version })
+    : t("settings:about.versionBuild", { brand: "BlissWork", sha: BUILD_SHA });
 
   return (
     <SettingRow
       icon={<Info size={18} />}
-      title="About"
+      title={t("settings:about.title")}
       description={description}
       action={
         config.checkForUpdates ? (
           <Button variant="subtle" size="sm" onClick={check} disabled={checking}>
             <RefreshCw size={14} className={checking ? "animate-spin" : undefined} />
-            {checking ? "Checking…" : "Check for updates"}
+            {checking ? t("settings:about.checking") : t("settings:about.checkForUpdates")}
           </Button>
         ) : null
       }

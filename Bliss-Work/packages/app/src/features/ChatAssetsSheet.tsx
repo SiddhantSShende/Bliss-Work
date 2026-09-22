@@ -11,6 +11,7 @@
  * this thing" panel in the app uses.
  */
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ExternalLink, FileText, Images, Link2, Play } from "lucide-react";
 import { EmptyState } from "@taskboard/ui";
 import {
@@ -43,6 +44,7 @@ export function ChatAssetsSheet({
   /** The thread as it is currently loaded, in send order. */
   messages: readonly AssetMessage[];
 }) {
+  const { t } = useTranslation("chatList");
   const { config } = useRuntime();
   const [tab, setTab] = useState<AssetTab>("media");
   // A single doc opened from the Docs tab, previewed in the SAME Lightbox the
@@ -73,9 +75,9 @@ export function ChatAssetsSheet({
   };
 
   const tabs: readonly TabSpec<AssetTab>[] = [
-    { key: "media", label: "Media", badge: assets.media.length },
-    { key: "docs", label: "Docs", badge: assets.docs.length },
-    { key: "links", label: "Links", badge: assets.links.length },
+    { key: "media", label: t("chatAssets.tabs.media"), badge: assets.media.length },
+    { key: "docs", label: t("chatAssets.tabs.docs"), badge: assets.docs.length },
+    { key: "links", label: t("chatAssets.tabs.links"), badge: assets.links.length },
   ];
 
   return (
@@ -86,8 +88,7 @@ export function ChatAssetsSheet({
         {/* The bound, said once. Everything on this panel comes out of the
             messages on screen, and scrolling the thread up widens it. */}
         <p className="mb-3 text-xs text-muted">
-          From the {messages.length} message{messages.length === 1 ? "" : "s"} loaded here — load
-          older messages in the conversation to include more.
+          {t("chatAssets.scopeNote", { count: messages.length })}
         </p>
 
         {tab === "media" && <MediaGrid assets={assets.media} urlFor={urlFor} isResolved={isResolved} />}
@@ -134,12 +135,13 @@ function MediaGrid({
   urlFor: (id: string | undefined) => string | undefined;
   isResolved: boolean;
 }) {
+  const { t } = useTranslation("chatList");
   if (assets.length === 0) {
     return (
       <EmptyState
         icon={<Images size={22} />}
-        title="No photos or video yet"
-        hint="Images and clips shared in this conversation collect here."
+        title={t("chatAssets.emptyMedia.title")}
+        hint={t("chatAssets.emptyMedia.hint")}
       />
     );
   }
@@ -158,7 +160,7 @@ function MediaGrid({
             target="_blank"
             rel="noopener noreferrer"
             title={`${item.name}${senderName ? ` · ${senderName}` : ""}${at ? ` · ${relativeTime(at)}` : ""}`}
-            aria-label={`Open ${item.name}`}
+            aria-label={t("chatAssets.openItem", { name: item.name })}
             className="group relative aspect-square overflow-hidden rounded-xl bg-surface-2 ring-1 ring-border/60 transition hover:ring-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             {preview ? (
@@ -172,7 +174,7 @@ function MediaGrid({
               // Resolved with no URL means the file is not readable by this
               // viewer any more — a different statement from "still loading".
               <span className="flex h-full w-full items-center justify-center text-[10px] text-muted">
-                {isResolved ? "Unavailable" : ""}
+                {isResolved ? t("chatAssets.unavailable") : ""}
               </span>
             )}
             {isVideo && (
@@ -203,12 +205,13 @@ function DocList({
   /** Open a doc — in the shared in-app Lightbox, or outside the app. */
   onPreview: (asset: MediaAsset) => void;
 }) {
+  const { t } = useTranslation("chatList");
   if (assets.length === 0) {
     return (
       <EmptyState
         icon={<FileText size={22} />}
-        title="No documents yet"
-        hint="Files that aren't photos or video — PDFs, spreadsheets, archives — collect here."
+        title={t("chatAssets.emptyDocs.title")}
+        hint={t("chatAssets.emptyDocs.hint")}
       />
     );
   }
@@ -245,7 +248,7 @@ function DocList({
                 <Shared senderName={senderName} at={at} />
               </span>
               {url && !previewable && !opensOutside && (
-                <span className="text-xs text-muted">Preview isn&apos;t available for this file type</span>
+                <span className="text-xs text-muted">{t("chatAssets.previewUnavailable")}</span>
               )}
             </span>
           </>
@@ -260,7 +263,7 @@ function DocList({
               <button
                 type="button"
                 onClick={() => onPreview(asset)}
-                aria-label={`Open ${item.name}`}
+                aria-label={t("chatAssets.openItem", { name: item.name })}
                 className={`w-full ${rowClass}`}
               >
                 {row}
@@ -282,12 +285,13 @@ function DocList({
 }
 
 function LinkList({ assets }: { assets: LinkAsset[] }) {
+  const { t } = useTranslation("chatList");
   if (assets.length === 0) {
     return (
       <EmptyState
         icon={<Link2 size={22} />}
-        title="No links yet"
-        hint="Web addresses posted in this conversation collect here."
+        title={t("chatAssets.emptyLinks.title")}
+        hint={t("chatAssets.emptyLinks.hint")}
       />
     );
   }

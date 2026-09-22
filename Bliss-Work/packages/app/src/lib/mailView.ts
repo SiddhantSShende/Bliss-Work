@@ -9,6 +9,7 @@
 import type { InboxItemDTO } from "@taskboard/shared";
 import { clock, dayLabel } from "./chatFormat";
 import { groupConsecutiveByLabel } from "./groupConsecutive";
+import i18n from "../i18n";
 
 /** The folders the folder column lists. */
 export type MailFolder = "inbox" | "sent" | "drafts" | "deleted" | "favorites";
@@ -17,6 +18,13 @@ export type MailFolder = "inbox" | "sent" | "drafts" | "deleted" | "favorites";
 export interface FolderSpec {
   key: MailFolder;
   label: string;
+}
+
+/** Localized via the global i18next instance, same as dayLabel.ts — resolved
+ *  fresh on every call (not baked into the MAIL_FOLDERS constant below) so it
+ *  follows the in-app selected locale even after a language switch. */
+export function folderLabel(key: MailFolder): string {
+  return i18n.t(`mail:folders.box.${key}`);
 }
 
 /**
@@ -36,17 +44,21 @@ export interface FolderSpec {
  *               The star is the one thing on this screen the server has no
  *               column for, so it lives on the device — see lib/mailPrefs.
  */
-export const MAIL_FOLDERS = [
-  { key: "inbox", label: "Inbox" },
-  { key: "sent", label: "Sent Items" },
-  { key: "drafts", label: "Drafts" },
-  { key: "deleted", label: "Deleted Items" },
-  { key: "favorites", label: "Favorites" },
-] as const satisfies readonly FolderSpec[];
+export const MAIL_FOLDERS: readonly { key: MailFolder }[] = [
+  { key: "inbox" },
+  { key: "sent" },
+  { key: "drafts" },
+  { key: "deleted" },
+  { key: "favorites" },
+];
 
-/** The folder's spec — its label, for the header the message column writes. */
+/** The folder's spec — its label, for the header the message column writes.
+ *  Resolved fresh (see folderLabel) rather than looked up in a static table,
+ *  so it follows the in-app selected locale. */
 export function folderSpec(folder: MailFolder): FolderSpec {
-  return MAIL_FOLDERS.find((f) => f.key === folder) ?? MAIL_FOLDERS[0];
+  // Same fallback as folderOf below: default to the Inbox for an unknown key.
+  const key = MAIL_FOLDERS.some((f) => f.key === folder) ? folder : "inbox";
+  return { key, label: folderLabel(key) };
 }
 
 /**

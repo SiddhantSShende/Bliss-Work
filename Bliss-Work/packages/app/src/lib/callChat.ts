@@ -26,6 +26,7 @@
  */
 import { truncateToUtf8Bytes, utf8ByteLength } from "./textBytes";
 import { loadLocalCopy, meetingArtifactFilename, mergeById, saveLocalCopy } from "./meetingArtifact";
+import i18n from "../i18n";
 
 /** One message, from one participant. Immutable once sent. */
 export interface ChatEntry {
@@ -161,7 +162,7 @@ export function chatToText(
   nameOf: (identity: string) => string,
 ): string {
   const when = (t: number) =>
-    new Date(t).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+    new Date(t).toLocaleString(i18n.language, { dateStyle: "medium", timeStyle: "short" });
   const first = chat[0];
   const head = [title ? `${title} — chat` : "Meeting chat", first ? when(first.at) : ""].filter(
     Boolean,

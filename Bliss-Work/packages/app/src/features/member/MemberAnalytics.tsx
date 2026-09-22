@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import {
   Activity,
   BarChart3,
@@ -30,6 +31,7 @@ import { surfaceLabel } from "./activityLabels";
 
 /** Charts for one member. `userId` may be "me" — the server resolves it. */
 export function MemberAnalytics({ userId }: { userId: string }) {
+  const { t, i18n } = useTranslation("members");
   const { api } = useRuntime();
   const [range, setRange] = useState<RangeKey>("30d");
   const { from, to } = computeRange(range);
@@ -52,8 +54,8 @@ export function MemberAnalytics({ userId }: { userId: string }) {
         <AnalyticsHeader range={range} onRangeChange={setRange} />
         <EmptyState
           icon={<BarChart3 size={22} />}
-          title="No activity in this period"
-          hint="Charts appear once there is a day of activity to plot."
+          title={t("members:analytics.empty.title")}
+          hint={t("members:analytics.empty.hint")}
         />
       </div>
     );
@@ -61,8 +63,8 @@ export function MemberAnalytics({ userId }: { userId: string }) {
   const days = data.days;
   const activeDays = days.filter((d) => d.activeMs > 0).length;
   const bars = days.map((d) => ({
-    label: parseLocalDay(d.day).toLocaleDateString(undefined, { day: "numeric", month: "short" }),
-    title: parseLocalDay(d.day).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" }),
+    label: parseLocalDay(d.day).toLocaleDateString(i18n.language, { day: "numeric", month: "short" }),
+    title: parseLocalDay(d.day).toLocaleDateString(i18n.language, { weekday: "long", day: "numeric", month: "long" }),
     value: d.activeMs,
     context: d.idleMs,
   }));
@@ -76,7 +78,7 @@ export function MemberAnalytics({ userId }: { userId: string }) {
     undefined as (typeof days)[number] | undefined,
   );
   const peakDayLabel = peakDay
-    ? parseLocalDay(peakDay.day).toLocaleDateString(undefined, { day: "numeric", month: "short" })
+    ? parseLocalDay(peakDay.day).toLocaleDateString(i18n.language, { day: "numeric", month: "short" })
     : null;
 
   // The busiest hour-of-day, summed across every day in the range — the same
@@ -104,64 +106,85 @@ export function MemberAnalytics({ userId }: { userId: string }) {
         <KpiCard
           featured
           icon={<Clock size={15} />}
-          label="Active time"
+          label={t("members:analytics.kpi.activeTime")}
           value={formatMs(data.totalActiveMs)}
-          hint={`across ${activeDays} day${activeDays === 1 ? "" : "s"}`}
+          hint={t("members:analytics.kpi.acrossDays", { count: activeDays })}
           trend={days.map((d) => d.activeMs)}
         />
         <KpiCard
           icon={<LogIn size={15} />}
-          label="Sessions"
+          label={t("members:analytics.kpi.sessions")}
           value={String(data.sessions)}
-          hint="recorded sign-ins"
+          hint={t("members:analytics.kpi.sessionsHint")}
         />
         <KpiCard
           icon={<Timer size={15} />}
-          label="Avg. session"
+          label={t("members:analytics.kpi.avgSession")}
           value={formatMs(avgSessionMs)}
-          hint="active time per session"
+          hint={t("members:analytics.kpi.avgSessionHint")}
         />
-        <KpiCard icon={<Zap size={15} />} label="Actions" value={String(data.events)} hint="recorded events" />
+        <KpiCard
+          icon={<Zap size={15} />}
+          label={t("members:analytics.kpi.actions")}
+          value={String(data.events)}
+          hint={t("members:analytics.kpi.actionsHint")}
+        />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
         <SectionCard
           className="lg:col-span-2"
           icon={<TrendingUp size={16} />}
-          title="Active time per day"
-          hint="Purple is time at the keyboard; grey is time signed in but idle."
+          title={t("members:analytics.sections.activeTimePerDay.title")}
+          hint={t("members:analytics.sections.activeTimePerDay.hint")}
         >
-          <BarChart data={bars} valueLabel="Active" contextLabel="Idle" />
+          <BarChart data={bars} valueLabel={t("members:analytics.chart.active")} contextLabel={t("members:analytics.chart.idle")} />
         </SectionCard>
 
-        <SectionCard icon={<Sparkles size={16} />} title="Highlights" hint="Standout moments from this period.">
+        <SectionCard
+          icon={<Sparkles size={16} />}
+          title={t("members:analytics.sections.highlights.title")}
+          hint={t("members:analytics.sections.highlights.hint")}
+        >
           <ul className="space-y-3 text-sm">
             <HighlightRow
-              label="Best day"
+              label={t("members:analytics.highlights.bestDay")}
               value={peakDay && peakDay.activeMs > 0 ? `${peakDayLabel} · ${formatMs(peakDay.activeMs)}` : "—"}
             />
             <HighlightRow
-              label="Peak hours"
-              value={peakHourMs > 0 ? `${hourLabel(peakHour)}–${hourLabel(peakHour + 1)}` : "No hourly data yet"}
+              label={t("members:analytics.highlights.peakHours")}
+              value={peakHourMs > 0 ? `${hourLabel(peakHour)}–${hourLabel(peakHour + 1)}` : t("members:analytics.highlights.noHourlyData")}
             />
-            <HighlightRow label="Idle, signed in" value={formatMs(data.totalIdleMs)} />
+            <HighlightRow label={t("members:analytics.highlights.idleSignedIn")} value={formatMs(data.totalIdleMs)} />
           </ul>
         </SectionCard>
       </div>
 
-      <SectionCard icon={<CalendarClock size={16} />} title="When they work" hint="Darker means more active time in that hour.">
+      <SectionCard
+        icon={<CalendarClock size={16} />}
+        title={t("members:analytics.sections.whenTheyWork.title")}
+        hint={t("members:analytics.sections.whenTheyWork.hint")}
+      >
         <Heatmap grid={data.hourly} />
       </SectionCard>
 
       <div className="grid gap-4 md:grid-cols-2">
-        <SectionCard icon={<Layers size={16} />} title="Where they spend time" hint="Sections of BlissWork, by time.">
+        <SectionCard
+          icon={<Layers size={16} />}
+          title={t("members:analytics.sections.whereTheySpendTime.title")}
+          hint={t("members:analytics.sections.whereTheySpendTime.hint", { brand: "BlissWork" })}
+        >
           <RankedBars
             data={data.bySurface.map((s) => ({
-              key: s.key, label: surfaceLabel(s.key) ?? s.key, value: s.valueMs,
+              key: s.key, label: surfaceLabel(s.key, t) ?? s.key, value: s.valueMs,
             }))}
           />
         </SectionCard>
-        <SectionCard icon={<Activity size={16} />} title="What they do" hint="Recorded actions, by count.">
+        <SectionCard
+          icon={<Activity size={16} />}
+          title={t("members:analytics.sections.whatTheyDo.title")}
+          hint={t("members:analytics.sections.whatTheyDo.hint")}
+        >
           <RankedBars
             data={data.byAction.map((a) => ({ key: a.key, label: a.label, value: a.count }))}
             format={(v) => String(v)}
@@ -181,11 +204,12 @@ function AnalyticsHeader({
   range: RangeKey;
   onRangeChange: (range: RangeKey) => void;
 }) {
+  const { t } = useTranslation("members");
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div>
-        <h3 className="text-base font-semibold text-fg">Activity overview</h3>
-        <p className="text-sm text-muted">Time, sessions, and focus across apps and sites.</p>
+        <h3 className="text-base font-semibold text-fg">{t("members:analytics.header.title")}</h3>
+        <p className="text-sm text-muted">{t("members:analytics.header.subtitle")}</p>
       </div>
       <Tabs tabs={ACTIVITY_RANGES} active={range} onChange={onRangeChange} />
     </div>

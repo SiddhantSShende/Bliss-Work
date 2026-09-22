@@ -13,6 +13,7 @@
  * it doesn't).
  */
 import { Users } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@taskboard/ui";
 import { CallTile } from "./CallTile";
 import type { RoomParticipant } from "../lib/useCallRoom";
@@ -39,6 +40,7 @@ export function CallSpeakerFilmstrip({
   orientation?: "vertical" | "horizontal";
   limit?: number;
 }) {
+  const { t } = useTranslation("calls");
   const active = participants.filter((p) => p.identity === activeId);
   const rest = participants.filter((p) => p.identity !== activeId);
   const shown = [...active, ...rest].slice(0, limit);
@@ -51,7 +53,7 @@ export function CallSpeakerFilmstrip({
         "flex shrink-0 gap-2",
         vertical ? "h-full w-32 flex-col overflow-y-auto" : "h-24 overflow-x-auto",
       )}
-      aria-label="Other participants"
+      aria-label={t("filmstrip.ariaLabel")}
     >
       {shown.map((p) => (
         <div key={p.identity} className={cn("shrink-0", vertical ? "aspect-video w-full" : "h-full w-28")}>
@@ -73,7 +75,9 @@ export function CallSpeakerFilmstrip({
           )}
         >
           <Users size={16} />
-          <span className="text-[11px] font-medium leading-tight">+{overflow} More members</span>
+          <span className="text-[11px] font-medium leading-tight">
+            {t("filmstrip.moreMembers", { count: overflow })}
+          </span>
         </div>
       )}
     </div>

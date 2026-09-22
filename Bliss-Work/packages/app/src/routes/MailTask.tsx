@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { ApiError, type NotificationDTO, type StickyTaskDTO, type TaskAction } from "@taskboard/shared";
 import { EmptyState } from "@taskboard/ui";
 import { ListTodo } from "lucide-react";
@@ -23,6 +24,7 @@ import { StickyWidget } from "../features/StickyWidget";
  * inbox / sticky.
  */
 export function MailTask() {
+  const { t } = useTranslation("mail");
   const { taskId } = useParams<{ taskId: string }>();
   const { api, config } = useRuntime();
   const qc = useQueryClient();
@@ -63,7 +65,7 @@ export function MailTask() {
       void qc.invalidateQueries({ queryKey: qk.unifiedInbox });
     },
     onError: (err) =>
-      toast.error(err instanceof ApiError ? err.message : "Couldn't update that task"),
+      toast.error(err instanceof ApiError ? err.message : t("task.couldNotUpdateToast")),
   });
 
   // Mark the task "seen" the moment its detail view opens. Task inbox rows are
@@ -117,15 +119,15 @@ export function MailTask() {
     // Still resolving the server fallback — don't flash "not found".
     if (fetching) {
       return (
-        <div className="flex h-full items-center justify-center text-muted">Loading…</div>
+        <div className="flex h-full items-center justify-center text-muted">{t("shared.loading")}</div>
       );
     }
     return (
       <div className="flex h-full items-center justify-center">
         <EmptyState
           icon={<ListTodo size={26} />}
-          title="Task not found"
-          hint="It may have been removed."
+          title={t("task.notFoundTitle")}
+          hint={t("task.notFoundHint")}
         />
       </div>
     );

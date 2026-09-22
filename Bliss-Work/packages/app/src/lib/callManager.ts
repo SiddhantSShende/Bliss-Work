@@ -1,5 +1,6 @@
 import type { ClientFrame } from "@taskboard/shared";
 import { AUDIO_CAPTURE_DEFAULTS } from "./mediaConstraints";
+import i18n from "../i18n";
 
 export type CallMedia = "audio" | "video";
 
@@ -157,7 +158,7 @@ export class CallSession {
     };
     this.pc.onconnectionstatechange = () => {
       if (this.pc.connectionState === "connected") o.onConnected();
-      else if (this.pc.connectionState === "failed") this.close("connection failed");
+      else if (this.pc.connectionState === "failed") this.close(i18n.t("calls:endedReasons.connectionFailed"));
     };
   }
 

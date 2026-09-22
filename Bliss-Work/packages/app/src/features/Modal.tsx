@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { useTranslation } from "react-i18next";
 import { X } from "lucide-react";
 
 /**
@@ -171,6 +172,7 @@ export function Sheet({
    *  hamburger-opens-a-left-drawer convention every other sheet doesn't. */
   side?: "left" | "right";
 }) {
+  const { t } = useTranslation("common");
   const panelRef = useDialogBehavior(open, onClose);
   const fromLeft = side === "left";
 
@@ -206,8 +208,8 @@ export function Sheet({
                   <button
                     type="button"
                     onClick={onClose}
-                    title="Close"
-                    aria-label="Close"
+                    title={t("modal.close")}
+                    aria-label={t("modal.close")}
                     className="-mr-1 shrink-0 rounded-lg p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg"
                   >
                     <X size={15} />

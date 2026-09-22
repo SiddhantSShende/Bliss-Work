@@ -2,6 +2,7 @@ import EmojiPicker, { EmojiStyle, Theme } from "emoji-picker-react";
 import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { Smile } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { useTheme } from "@taskboard/ui";
 import { usePopupDismiss } from "../lib/usePopupDismiss";
 
@@ -132,6 +133,7 @@ export function EmojiPopup({
  * selection would couple the two components for a gain nobody has asked for.
  */
 export function EmojiPickerButton({ onPick }: { onPick: (emoji: string) => void }) {
+  const { t } = useTranslation("chatMedia");
   const [open, setOpen] = useState(false);
   const popupRef = useRef<HTMLDivElement>(null);
   // The wrapper holds the trigger, so pressing it again closes rather than
@@ -145,8 +147,8 @@ export function EmojiPickerButton({ onPick }: { onPick: (emoji: string) => void 
         type="button"
         onClick={() => setOpen((v) => !v)}
         className="flex h-11 w-11 items-center justify-center rounded-full text-muted hover:bg-surface-2 hover:text-fg"
-        title="Insert an emoji"
-        aria-label="Insert an emoji"
+        title={t("emojiPicker.insertEmoji")}
+        aria-label={t("emojiPicker.insertEmoji")}
         aria-expanded={open}
       >
         <Smile size={18} />

@@ -10,6 +10,8 @@ import {
   Trash2,
   EyeOff,
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import type { ReactionDTO } from "@taskboard/shared";
 import { usePopupDismiss } from "../lib/usePopupDismiss";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -97,6 +99,7 @@ export function MessageActions({
    *  the caller may not moderate — the server enforces it either way. */
   onTogglePin?: () => void;
 }) {
+  const { t } = useTranslation("chatThread");
   const [menu, setMenu] = useState(false);
   const [emoji, setEmoji] = useState(false);
   // Which destructive confirm to show, if any. Neither delete fires on click
@@ -127,8 +130,8 @@ export function MessageActions({
         {onReact && (
           <button
             onClick={() => { setEmoji((v) => !v); setMenu(false); }}
-            title="React"
-            aria-label="React to this message"
+            title={t("messageActions.react.title")}
+            aria-label={t("messageActions.react.ariaLabel")}
             className="rounded-full p-1 text-muted hover:bg-surface-2 hover:text-fg"
           >
             <SmilePlus size={13} />
@@ -136,8 +139,8 @@ export function MessageActions({
         )}
         <button
           onClick={() => { setMenu((v) => !v); setEmoji(false); }}
-          title="More"
-          aria-label="Message actions"
+          title={t("messageActions.more.title")}
+          aria-label={t("messageActions.more.ariaLabel")}
           aria-expanded={menu}
           className="rounded-full p-1 text-muted hover:bg-surface-2 hover:text-fg"
         >
@@ -170,7 +173,7 @@ export function MessageActions({
         >
           {onReply && (
             <button role="menuitem" className={item} onClick={() => { onReply(); setMenu(false); }}>
-              <CornerUpLeft size={13} className="text-muted" /> Reply
+              <CornerUpLeft size={13} className="text-muted" /> {t("messageActions.menu.reply")}
             </button>
           )}
           {onForwardTo && (
@@ -179,7 +182,7 @@ export function MessageActions({
               className={item}
               onClick={() => { onForwardTo(); setMenu(false); }}
             >
-              <Forward size={13} className="text-muted" /> Forward to chat or channel…
+              <Forward size={13} className="text-muted" /> {t("messageActions.menu.forwardTo")}
             </button>
           )}
           {forwardHref && (
@@ -194,17 +197,17 @@ export function MessageActions({
               rel="noopener noreferrer"
               onClick={() => { onForward?.(); setMenu(false); }}
             >
-              <WhatsAppIcon size={13} className="text-[#25D366]" /> Forward to WhatsApp
+              <WhatsAppIcon size={13} className="text-[#25D366]" /> {t("messageActions.menu.forwardWhatsApp")}
             </a>
           )}
           {onMarkUnread && (
             <button role="menuitem" className={item} onClick={() => { onMarkUnread(); setMenu(false); }}>
-              <MailOpen size={13} className="text-muted" /> Mark as unread
+              <MailOpen size={13} className="text-muted" /> {t("messageActions.menu.markUnread")}
             </button>
           )}
           {onHide && (
             <button role="menuitem" className={item} onClick={() => { setMenu(false); setConfirm("hide"); }}>
-              <EyeOff size={13} className="text-muted" /> Delete for me
+              <EyeOff size={13} className="text-muted" /> {t("messageActions.menu.deleteForMe")}
             </button>
           )}
           {/* "Pin for everyone" — moderators only, so the caller simply does not
@@ -217,9 +220,9 @@ export function MessageActions({
               onClick={() => { onTogglePin(); setMenu(false); }}
             >
               {pinned ? (
-                <><PinOff size={13} className="text-muted" /> Unpin for everyone</>
+                <><PinOff size={13} className="text-muted" /> {t("messageActions.menu.unpinForEveryone")}</>
               ) : (
-                <><Pin size={13} className="text-muted" /> Pin for everyone</>
+                <><Pin size={13} className="text-muted" /> {t("messageActions.menu.pinForEveryone")}</>
               )}
             </button>
           )}
@@ -235,7 +238,7 @@ export function MessageActions({
               className={`${item} text-danger hover:bg-danger/10`}
               onClick={() => { setMenu(false); setConfirm("deleteAll"); }}
             >
-              <Trash2 size={13} /> Delete for everyone
+              <Trash2 size={13} /> {t("messageActions.menu.deleteForEveryone")}
             </button>
           )}
         </div>
@@ -244,13 +247,13 @@ export function MessageActions({
       <ConfirmDialog
         open={confirm !== null}
         onClose={() => setConfirm(null)}
-        title="Delete message?"
+        title={t("messageActions.confirmDialog.title")}
         message={
           confirm === "deleteAll"
-            ? "Are you sure you want to delete this message? It will be removed for everyone in this conversation."
-            : "Are you sure you want to delete this message? This only removes it from your own view."
+            ? t("messageActions.confirmDialog.deleteAllMessage")
+            : t("messageActions.confirmDialog.deleteMeMessage")
         }
-        confirmLabel="Delete"
+        confirmLabel={t("messageActions.confirmDialog.confirmLabel")}
         danger
         onConfirm={() => {
           if (confirm === "hide") onHide?.();
@@ -274,14 +277,14 @@ export function MessageActions({
  * Falls back to the old wording when there are no names at all, which is what a
  * client holding a cached tally from before reactors existed will have.
  */
-function reactorLabel(r: ReactionDTO): string {
-  const action = r.mine ? "Click to remove your reaction" : "Click to react";
+function reactorLabel(r: ReactionDTO, t: TFunction): string {
+  const action = r.mine ? t("messageActions.reactions.clickToRemove") : t("messageActions.reactions.clickToReact");
   if (!r.reactors || r.reactors.length === 0) return action;
   const named = r.reactors.filter(Boolean);
   if (named.length === 0) return action;
   const hidden = Math.max(0, r.count - named.length);
-  const who = hidden > 0 ? `${named.join(", ")} and ${hidden} more` : named.join(", ");
-  return `${who} reacted with ${r.emoji} — ${action.toLowerCase()}`;
+  const who = hidden > 0 ? t("messageActions.reactions.andMore", { names: named.join(", "), hidden }) : named.join(", ");
+  return t("messageActions.reactions.tooltip", { who, emoji: r.emoji, action: action.toLowerCase() });
 }
 
 /**
@@ -303,11 +306,12 @@ export function ReactionChips({
   reactions: ReactionDTO[];
   onToggle: (emoji: string, on: boolean) => void;
 }) {
+  const { t } = useTranslation("chatThread");
   if (reactions.length === 0) return null;
   return (
     <div className="mt-1 flex flex-wrap gap-1">
       {reactions.map((r) => {
-        const label = reactorLabel(r);
+        const label = reactorLabel(r, t);
         return (
           <button
             key={r.emoji}

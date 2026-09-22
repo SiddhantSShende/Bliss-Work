@@ -1,12 +1,13 @@
 import { useCallback, useEffect } from "react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import type { ChannelMessageDTO, MessageDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { surfaceOf } from "../lib/section";
 import { getSessionId } from "../lib/telemetrySession";
-import { SCREENSHOT_BLOCKED_MESSAGE, watchCaptureKeys } from "../lib/screenGuard";
+import { watchCaptureKeys } from "../lib/screenGuard";
 import { useActiveThread } from "../lib/activeThread";
 import { qk } from "../lib/queryBridge";
 
@@ -58,6 +59,7 @@ import { qk } from "../lib/queryBridge";
  * seq, so this writes the FINAL row, not a temp one to be swapped later.
  */
 export function ScreenshotNotice() {
+  const { t } = useTranslation("common");
   const { api, config } = useRuntime();
   const qc = useQueryClient();
   const authed = useSession((s) => s.status) === "authed";
@@ -71,7 +73,7 @@ export function ScreenshotNotice() {
       // next render — a capture chord fired in that window would otherwise
       // post into the thread the user just navigated away from.
       const thread = useActiveThread.getState().thread;
-      toast.error(SCREENSHOT_BLOCKED_MESSAGE);
+      toast.error(t("screenshotBlocked"));
       // Both the beacon and the chat notice attribute to a signed-in user;
       // neither has anyone to report as without one.
       if (!authed || !user) return;
@@ -157,7 +159,7 @@ export function ScreenshotNotice() {
         })
         .catch((err) => console.error("[security] failed to post screenshot notice", err));
     },
-    [api, authed, config.kind, qc, user],
+    [api, authed, config.kind, qc, t, user],
   );
 
   useEffect(() => {

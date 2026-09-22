@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { create } from "zustand";
 import { Building2, Check, ChevronsUpDown } from "lucide-react";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { isMfaPending } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
@@ -92,6 +93,7 @@ export function useSwitchOrg() {
  *  organizations this identity belongs to. Renders even with one org (shows the
  *  name); the dropdown only offers a switch when there are 2+. */
 export function OrgSwitcher() {
+  const { t } = useTranslation("org");
   const { api } = useRuntime();
   const user = useSession((s) => s.user);
   const switchOrg = useSwitchOrg();
@@ -101,7 +103,7 @@ export function OrgSwitcher() {
 
   const { data: orgs = [] } = useQuery({ queryKey: qk.myOrgs, queryFn: () => api.myOrgs() });
 
-  const label = user?.orgName || orgs.find((o) => o.active)?.orgName || "Workspace";
+  const label = user?.orgName || orgs.find((o) => o.active)?.orgName || t("org:orgSwitcher.workspaceFallback");
   const canSwitch = orgs.length > 1;
 
   const onSelect = async (orgId: string) => {
@@ -115,7 +117,9 @@ export function OrgSwitcher() {
       // alone — closing the dropdown here could yank focus from under it.
       if (outcome !== "superseded") setOpen(false);
     } catch {
-      toast.error("Couldn't switch organization", { description: "Please try again." });
+      toast.error(t("org:orgSwitcher.toasts.switchFailedTitle"), {
+        description: t("org:orgSwitcher.toasts.switchFailedDescription"),
+      });
     }
   };
 
@@ -123,7 +127,7 @@ export function OrgSwitcher() {
     <div ref={ref} className="relative shrink-0">
       <button
         onClick={() => canSwitch && setOpen((o) => !o)}
-        title={canSwitch ? "Switch organization" : label}
+        title={canSwitch ? t("org:orgSwitcher.switchTitle") : label}
         className={`flex items-center gap-1.5 rounded-xl border border-border/70 bg-surface/60 px-2.5 py-1.5 text-sm font-medium text-fg transition-colors ${
           canSwitch ? "hover:bg-surface-2" : "cursor-default"
         }`}
@@ -135,7 +139,7 @@ export function OrgSwitcher() {
       {open && canSwitch && (
         <div className="absolute left-0 top-full z-50 mt-1 w-64 overflow-hidden rounded-xl border border-border bg-surface shadow-card">
           <div className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted">
-            Your organizations
+            {t("org:orgSwitcher.yourOrganizations")}
           </div>
           <div className="max-h-72 overflow-auto pb-1">
             {orgs.map((o) => {
@@ -153,11 +157,11 @@ export function OrgSwitcher() {
                   <div className="min-w-0 flex-1">
                     <div className="truncate font-medium text-fg">{o.orgName}</div>
                     <div className="truncate text-[11px] text-muted">
-                      {o.roles.includes("org_admin") ? "Admin" : "Member"}
+                      {o.roles.includes("org_admin") ? t("org:orgSwitcher.roleLabel.admin") : t("org:orgSwitcher.roleLabel.member")}
                     </div>
                   </div>
                   {busyOrgId === o.orgId ? (
-                    <span className="text-[11px] text-muted">Switching…</span>
+                    <span className="text-[11px] text-muted">{t("org:orgSwitcher.switchingLabel")}</span>
                   ) : (
                     active && <Check size={15} className="shrink-0 text-accent" />
                   )}

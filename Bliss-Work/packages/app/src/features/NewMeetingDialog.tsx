@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { Calendar, ChevronDown, Clock, Video, X } from "lucide-react";
 import type { CallDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
@@ -54,6 +56,7 @@ interface FormErrors {
  *  guess whether it's stale. `attempted`-gating the DISPLAY of these lives in
  *  the component; this always returns the true current answer. */
 function validate(
+  t: TFunction,
   title: string,
   startAt: Date | null,
   endAt: Date | null,
@@ -61,19 +64,19 @@ function validate(
   startsNow: boolean,
 ): FormErrors {
   const errors: FormErrors = {};
-  if (!title.trim()) errors.title = "Meeting title is required.";
+  if (!title.trim()) errors.title = t("newMeeting.errors.titleRequired");
 
-  if (!startAt) errors.start = "Start date and time are required.";
+  if (!startAt) errors.start = t("newMeeting.errors.startRequired");
   // The default Start Time is the minute the popup OPENED at, so it drifts into
   // the past the longer the popup sits there. Only a time the user picked can be
   // "in the past"; an untouched one means now, whenever they press the button.
   else if (!startsNow && startAt.getTime() < Date.now() - GRACE_MS) {
-    errors.start = "Start time can't be in the past.";
+    errors.start = t("newMeeting.errors.startInPast");
   }
 
-  if (!endAt) errors.end = "End date and time are required.";
+  if (!endAt) errors.end = t("newMeeting.errors.endRequired");
   else if (startAt && endAt.getTime() <= (startsNow ? Date.now() : startAt.getTime())) {
-    errors.end = "End time must be later than the start time.";
+    errors.end = t("newMeeting.errors.endBeforeStart");
   }
 
   return errors;
@@ -116,6 +119,7 @@ export function NewMeetingDialog({
    *  yet. */
   onStarted?: (call: CallDTO) => void;
 }) {
+  const { t } = useTranslation("meetings");
   const { api } = useRuntime();
   const qc = useQueryClient();
   const panelRef = useDialogBehavior(true, onClose);
@@ -136,7 +140,7 @@ export function NewMeetingDialog({
 
   const startAt = useMemo(() => combine(startDate, startTime), [startDate, startTime]);
   const endAt = useMemo(() => combine(endDate, endTime), [endDate, endTime]);
-  const errors = validate(title, startAt, endAt, !startEdited);
+  const errors = validate(t, title, startAt, endAt, !startEdited);
   const hasErrors = Object.keys(errors).length > 0;
 
   /** A start time meaningfully ahead of now — as opposed to "now" itself,
@@ -165,7 +169,7 @@ export function NewMeetingDialog({
       onClose();
       if (!vars.isFuture) onStarted?.(call);
     },
-    onError: () => toast.error("Couldn't schedule that meeting"),
+    onError: () => toast.error(t("newMeeting.scheduleError")),
   });
 
   const submit = () => {
@@ -185,18 +189,18 @@ export function NewMeetingDialog({
         ref={panelRef}
         role="dialog"
         aria-modal="true"
-        aria-label="New Meeting"
+        aria-label={t("newMeeting.title")}
         tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
         className="flex max-h-[calc(100dvh-2rem)] w-full max-w-md flex-col overflow-y-auto rounded-2xl border border-gray-200 bg-white p-6 shadow-lg"
       >
         <div className="mb-5 flex shrink-0 items-center justify-between">
-          <h2 className="text-lg font-semibold text-gray-900">New Meeting</h2>
+          <h2 className="text-lg font-semibold text-gray-900">{t("newMeeting.title")}</h2>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close"
-            title="Close"
+            aria-label={t("newMeeting.close")}
+            title={t("newMeeting.close")}
             className="-mr-1 -mt-1 rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
           >
             <X size={18} />
@@ -205,11 +209,11 @@ export function NewMeetingDialog({
 
         <div className="flex flex-col gap-4">
           <label className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium text-gray-700">Meeting Title</span>
+            <span className="text-sm font-medium text-gray-700">{t("newMeeting.titleLabel")}</span>
             <input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="Enter meeting title"
+              placeholder={t("newMeeting.titlePlaceholder")}
               maxLength={200}
               className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none placeholder:text-gray-400 focus:border-accent focus:ring-1 focus:ring-accent"
             />
@@ -219,7 +223,7 @@ export function NewMeetingDialog({
           </label>
 
           <DateTimeFields
-            label="Start Time"
+            label={t("newMeeting.startTimeLabel")}
             date={startDate}
             time={startTime}
             onDateChange={(v) => {
@@ -234,7 +238,7 @@ export function NewMeetingDialog({
           />
 
           <DateTimeFields
-            label="End Time"
+            label={t("newMeeting.endTimeLabel")}
             date={endDate}
             time={endTime}
             onDateChange={setEndDate}
@@ -249,7 +253,7 @@ export function NewMeetingDialog({
             onClick={onClose}
             className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
           >
-            Cancel
+            {t("newMeeting.cancel")}
           </button>
           <button
             type="button"
@@ -258,7 +262,7 @@ export function NewMeetingDialog({
             className="flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-fg transition hover:brightness-105 disabled:opacity-60"
           >
             <Video size={15} />
-            {create.isPending ? "Starting…" : isFuture ? "Schedule" : "Start Now"}
+            {create.isPending ? t("newMeeting.starting") : isFuture ? t("newMeeting.schedule") : t("newMeeting.startNow")}
           </button>
         </div>
       </div>
