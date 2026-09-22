@@ -43,7 +43,12 @@ curl -s -X POST "http://localhost:8001/internal/keys/rotate/<ORG_ID>" \
 ## 3. Blind-index key (`DATA_BLIND_INDEX_KEY`)
 
 Load-bearing for email login. Rotating it requires recomputing `users.email_bidx`
-for every user (decrypt `email_enc` → `HMAC` with the new key). Treat like the
+for every user (decrypt `email_enc` → `HMAC` with the new key) **and
+`identities.email_bidx`** — the column `/auth/login` actually looks the account up
+by. `scripts/rewrap-crypto-keys.py` does both; the integrations-svc blind indexes
+(`integration_connections.external_account_id_bidx`,
+`provider_identities.external_handle_bidx`, `provider_activity.external_id_bidx`)
+are NOT recomputed by it. Treat like the
 JWT signing key; do not rotate casually.
 
 ## 4. JWT signing key (Ed25519) — zero-downtime dual-kid

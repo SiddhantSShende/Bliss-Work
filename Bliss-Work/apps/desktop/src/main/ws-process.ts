@@ -9,7 +9,7 @@
  */
 import { WebSocket as NodeWebSocket } from "ws";
 import { ApiClient, WsClient, type ServerEvent, type StickyTaskDTO, type ClientFrame, type WsEventMeta } from "@taskboard/shared";
-import { shouldRefreshSticky } from "./sticky-refresh";
+import { createRefreshGate, shouldRefreshSticky } from "./sticky-refresh";
 
 const parent = (process as unknown as { parentPort: NodeJS.EventEmitter & { postMessage: (m: unknown) => void } }).parentPort;
 
@@ -28,9 +28,35 @@ function send(msg: unknown) {
   parent.postMessage(msg);
 }
 
+/** How long main gets to answer a token request, and how many times it is asked. */
+const TOKEN_REQUEST_TIMEOUT_MS = 10_000;
+const TOKEN_REQUEST_ATTEMPTS = 3;
+
+/**
+ * Ask main (→ the hidden main renderer, the session's only refresher) for a
+ * fresh access token. That renderer can be gone or still loading, so an
+ * unanswered request is re-sent a few times and then resolves "" — which every
+ * caller already treats as "no token" — instead of hanging the socket's
+ * reconnect (or a task action's 401 retry) forever.
+ */
 function requestToken(): Promise<string> {
-  send({ type: "need-token" });
-  return new Promise<string>((resolve) => pendingToken.push(resolve));
+  return new Promise<string>((resolve) => {
+    let attempts = 0;
+    const ask = () => {
+      const settle = (t: string) => {
+        clearTimeout(timer);
+        resolve(t);
+      };
+      const timer = setTimeout(() => {
+        pendingToken.splice(pendingToken.indexOf(settle), 1);
+        if (++attempts < TOKEN_REQUEST_ATTEMPTS) ask();
+        else resolve("");
+      }, TOKEN_REQUEST_TIMEOUT_MS);
+      pendingToken.push(settle);
+      send({ type: "need-token" });
+    };
+    ask();
+  });
 }
 
 function build(cfg: {
@@ -82,6 +108,32 @@ function build(cfg: {
  *  assignment into a multi-minute wait. */
 const STICKY_REFRESH_RETRY_DELAYS_MS = [500, 1500];
 
+/** What one successful /tasks/sticky + /sticky/pins read produced. */
+interface StickyRead {
+  tasks: StickyTaskDTO[];
+  /** null when sticky-svc is unconfigured or was unreachable. */
+  openPins: string[] | null;
+}
+
+/** Only the newest refresh may publish — see createRefreshGate. */
+const stickyRefreshGate = createRefreshGate<StickyRead>();
+
+/** Hand a read to main, and tell sticky-svc these reached a screen. */
+function publishSticky({ tasks, openPins }: StickyRead) {
+  stickyTasks = tasks;
+  send({ type: "sticky", tasks, openPins: openPins ?? undefined });
+
+  // Tell sticky-svc these reached a screen, so the delivery watchdog stops
+  // nudging about them. Fire-and-forget: a failure costs one redundant
+  // nudge, which is far cheaper than letting it break the notes.
+  if (openPins) {
+    const actionable = new Set(tasks.map((t) => t.taskId));
+    for (const taskId of openPins) {
+      if (actionable.has(taskId)) void api?.stickyAckDelivery(taskId).catch(() => {});
+    }
+  }
+}
+
 /**
  * Re-read which task notes belong on this desktop, and tell main.
  *
@@ -100,6 +152,7 @@ const STICKY_REFRESH_RETRY_DELAYS_MS = [500, 1500];
  */
 async function refreshSticky() {
   if (!api || !token) return;
+  const ticket = stickyRefreshGate.begin();
   for (let attempt = 0; ; attempt++) {
     try {
       const [tasksResult, pinsResult] = await Promise.allSettled([
@@ -109,7 +162,6 @@ async function refreshSticky() {
       // The task list is load-bearing; a failure here is a real failure and
       // takes the retry path below.
       if (tasksResult.status === "rejected") throw tasksResult.reason;
-      stickyTasks = tasksResult.value;
 
       // The pin set is advisory. A rejection is logged once and otherwise
       // ignored — it must not stop the notes appearing.
@@ -119,27 +171,30 @@ async function refreshSticky() {
           pinsResult.reason instanceof Error ? pinsResult.reason.message : pinsResult.reason,
         );
       }
-      const openPins = pinsResult.status === "fulfilled" ? pinsResult.value : null;
+      const read: StickyRead = {
+        tasks: tasksResult.value,
+        openPins: pinsResult.status === "fulfilled" ? pinsResult.value : null,
+      };
 
-      send({ type: "sticky", tasks: stickyTasks, openPins: openPins ?? undefined });
-
-      // Tell sticky-svc these reached a screen, so the delivery watchdog stops
-      // nudging about them. Fire-and-forget: a failure costs one redundant
-      // nudge, which is far cheaper than letting it break the notes.
-      if (openPins) {
-        const actionable = new Set(stickyTasks.map((t) => t.taskId));
-        for (const taskId of openPins) {
-          if (actionable.has(taskId)) void api.stickyAckDelivery(taskId).catch(() => {});
-        }
-      }
+      // Only the newest refresh publishes: a slower older one landing after it
+      // would re-pin a task the newer list had just dropped as completed or
+      // ignored. An older one is kept as a spare instead, for the case below.
+      if (stickyRefreshGate.succeeded(ticket, read)) publishSticky(read);
       return;
     } catch (e) {
+      // A newer refresh (or a sign-out) owns the outcome now; retrying this one
+      // would only add load.
+      if (!stickyRefreshGate.isCurrent(ticket)) return;
       const delay = STICKY_REFRESH_RETRY_DELAYS_MS[attempt];
       if (delay === undefined) {
         // Genuinely offline, or the server is down — keep the last known list
         // rather than wiping pinned notes off a transient failure. The next
         // task.* event (or app launch) tries again.
         console.error("[sticky] refresh failed after retries:", e instanceof Error ? e.message : e);
+        // The newest refresh has nothing to publish, but an older one that did
+        // succeed may: better than leaving the notes stale until that next event.
+        const spare = stickyRefreshGate.gaveUp(ticket);
+        if (spare) publishSticky(spare);
         return;
       }
       await new Promise((resolve) => setTimeout(resolve, delay));
@@ -199,6 +254,8 @@ parent.on("message", async (raw: unknown) => {
       // front of them. close() also parks the reconnect loop, so nothing
       // re-dials with an empty token; the next `token` message reopens it.
       ws?.close();
+      // Drop any refresh still in flight for the user who just left.
+      stickyRefreshGate.cancel();
       break;
     }
     case "intent": {

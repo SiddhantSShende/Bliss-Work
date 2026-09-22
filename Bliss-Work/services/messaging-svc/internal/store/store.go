@@ -80,6 +80,7 @@ func New(ctx context.Context, dbURL string, cryptor *crypto.Cryptor) (*Store, er
 		pool.Close()
 		return nil, err
 	}
+	cryptor.SetKeyCommitter(newFirstKeyCommitter(poolCfg.ConnConfig))
 	return &Store{pool: pool, crypto: cryptor}, nil
 }
 

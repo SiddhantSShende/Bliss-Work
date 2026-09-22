@@ -173,7 +173,7 @@ export class ChatStickyManager {
       // Linux only. On macOS a type:"desktop" window "will not receive focus,
       // keyboard or mouse events" — which for a window whose entire purpose is
       // TYPING a reply means it cannot be used at all. Windows ignores the
-      // option outright. See ./foreground for what each platform can do.
+      // option outright.
       ...(process.platform === "linux" ? { type: "desktop" } : {}),
       hasShadow: true,
       maximizable: false,

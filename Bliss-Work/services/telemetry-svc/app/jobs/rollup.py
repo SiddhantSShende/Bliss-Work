@@ -35,8 +35,8 @@ _SESSION_ROLLUP = text(
         -- Local midnight, in the configured zone, as a real instant — not a
         -- date comparison, since user_sessions.started_at/ended_at are
         -- timestamptz.
-        SELECT (:day::timestamp AT TIME ZONE '{_TZ}')                    AS day_start,
-               (:day::timestamp AT TIME ZONE '{_TZ}') + interval '1 day' AS day_end
+         SELECT (CAST(:day AS timestamp) AT TIME ZONE '{_TZ}')                    AS day_start,
+             (CAST(:day AS timestamp) AT TIME ZONE '{_TZ}') + interval '1 day' AS day_end
     ),
     -- A session belongs to :day if ANY part of its wall-clock span overlaps
     -- it — not just the day it STARTED on. A session that opens before
@@ -75,8 +75,8 @@ _SESSION_ROLLUP = text(
            MIN(clipped_start), MAX(clipped_end), COUNT(*),
            -- active_ms/idle_ms have no per-instant timestamp to bucket
            -- exactly the way activity_events' by_hour does — user_sessions
-           -- only ever stored running TOTALS (open_or_touch's
-           -- active_ms = active_ms + :active), never when each increment
+           -- only ever stored running totals (open_or_touch increments
+           -- active_ms as the session runs), never when each increment
            -- happened. Prorated by this day's share of the session's total
            -- wall-clock span: the best available approximation without a
            -- schema change to record per-interval accrual, and strictly

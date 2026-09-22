@@ -55,6 +55,10 @@ func (s *Store) OpenConversation(ctx context.Context, orgID, callerID, peerID st
 
 	convID := uuid.Must(uuid.NewV7()).String()
 	err := s.withOrg(ctx, orgID, func(tx pgx.Tx) error {
+		// Same gate as SendMessage: a peer id from another org must not get a row.
+		if err := requireSameOrgUser(ctx, tx, orgID, peerID); err != nil {
+			return err
+		}
 		if err := tx.QueryRow(ctx,
 			`INSERT INTO conversations (id, org_id, user_low, user_high)
 			 VALUES ($1, $2, $3, $4)
@@ -135,6 +139,12 @@ func (s *Store) Block(ctx context.Context, orgID, callerID, peerID string) error
 
 		// RLS: scope this tx to the caller's org before any RLS table is touched.
 		if err := setOrgGUC(ctx, tx, orgID); err != nil {
+			return err
+		}
+
+		// Blocking creates the conversation row if there is none, so the peer
+		// must be in this org for the same reason as in SendMessage.
+		if err := requireSameOrgUser(ctx, tx, orgID, peerID); err != nil {
 			return err
 		}
 
@@ -308,6 +318,10 @@ func (s *Store) ListConversations(ctx context.Context, orgID, callerID string) (
 			LEFT JOIN LATERAL (
 			    SELECT body, body_enc, sender_id FROM messages m
 			    WHERE m.conversation_id = c.id
+			      -- An unsent message keeps its body_enc (deleting for everyone only
+			      -- stamps this column), so it must be skipped here or its text
+			      -- stays on show as the "last message" to both people.
+			      AND m.deleted_for_all_at IS NULL
 			      -- Skips messages THIS caller cleared/hid, so the preview shows the
 			      -- newest message the caller can actually still see rather than one
 			      -- they deliberately hid (see ClearConversation/HideMessage).

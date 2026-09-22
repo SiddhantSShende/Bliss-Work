@@ -63,6 +63,16 @@ export const FLUSH_AT = 20;
 export const MAX_QUEUED = 200;
 /** Server-side cap on a single batch (`Beacon.events`, max_length=100). */
 export const MAX_PER_FLUSH = 100;
+/**
+ * After a failed attempt, wait this long before the next one, doubling per
+ * consecutive failure up to the cap. Without it a client that cannot reach the
+ * server retries on every flush timer and heartbeat, and the browser logs each
+ * failed request to the console. The cap stays well under the server's
+ * three-minute session timeout so a reconnecting client is back on the record
+ * before it reads as gone.
+ */
+export const BACKOFF_BASE_MS = 60_000;
+export const BACKOFF_MAX_MS = 120_000;
 
 export class TelemetryQueue {
   private events: QueuedEvent[] = [];
@@ -80,11 +90,20 @@ export class TelemetryQueue {
    * the dedup this exists for. See flush().
    */
   private pendingRetry: FlushPayload | null = null;
+  private failures = 0;
+  private retryNotBefore = 0;
   sessionId: string | null = null;
 
+  /**
+   * `isReady` is asked before each ordinary flush and answers whether a beacon
+   * sent now has any chance of landing (online, holding a live token). False
+   * skips the attempt entirely — nothing is dequeued or lost — instead of
+   * making a request that is certain to fail.
+   */
   constructor(
     private readonly send: (payload: FlushPayload) => Promise<{ sessionId: string }>,
     private readonly source: "web" | "desktop" = "web",
+    private readonly isReady: () => Promise<boolean> = async () => true,
   ) {}
 
   get size(): number {
@@ -108,6 +127,10 @@ export class TelemetryQueue {
     this.idleMs += Math.max(0, idleMs);
   }
 
+  private get hasSomethingToSend(): boolean {
+    return this.pendingRetry !== null || this.events.length > 0 || this.activeMs > 0 || this.idleMs > 0;
+  }
+
   get shouldFlush(): boolean {
     return this.events.length >= FLUSH_AT;
   }
@@ -122,6 +145,30 @@ export class TelemetryQueue {
    */
   async flush(opts: { ended?: boolean } = {}): Promise<boolean> {
     if (this.inFlight) return false;
+
+    // The goodbye (pagehide / sign-out) skips both gates: there is no later
+    // attempt to defer to, and a wasted one costs nothing.
+    if (!opts.ended) {
+      // Nothing to say, or still backing off: don't even ask the gate, which
+      // may itself go to the network to refresh a token.
+      if (!this.hasSomethingToSend || Date.now() < this.retryNotBefore) return false;
+      // Hold the single-flight slot across the await so a second timer firing
+      // meanwhile cannot slip past the check above and double-send.
+      this.inFlight = true;
+      let ready = false;
+      try {
+        ready = await this.isReady();
+      } catch {
+        // A throwing gate must not break the never-throw contract; treat it
+        // as "not ready".
+      } finally {
+        this.inFlight = false;
+      }
+      if (!ready) {
+        this.backOff();
+        return false;
+      }
+    }
 
     let payload: FlushPayload;
     if (this.pendingRetry) {
@@ -161,6 +208,8 @@ export class TelemetryQueue {
     try {
       const ack = await this.send(payload);
       this.pendingRetry = null;
+      this.failures = 0;
+      this.retryNotBefore = 0;
       // The server may hand back a DIFFERENT id than we sent: when a session has
       // already been closed (swept after this client went quiet), reusing the id
       // would silently drop every further beat. Adopting the new one is what
@@ -177,10 +226,23 @@ export class TelemetryQueue {
       // Freeze this exact attempt for the next flush() call to retry
       // unchanged. Never rethrow.
       this.pendingRetry = payload;
+      this.backOff();
       return false;
     } finally {
       this.inFlight = false;
     }
+  }
+
+  /** Forget the backoff, e.g. when the browser reports it is back online. */
+  clearBackoff(): void {
+    this.failures = 0;
+    this.retryNotBefore = 0;
+  }
+
+  private backOff(): void {
+    this.failures += 1;
+    this.retryNotBefore =
+      Date.now() + Math.min(BACKOFF_BASE_MS * 2 ** (this.failures - 1), BACKOFF_MAX_MS);
   }
 
   /** Drop everything without sending — used on sign-out, when the queue belongs
@@ -191,5 +253,6 @@ export class TelemetryQueue {
     this.idleMs = 0;
     this.pendingRetry = null;
     this.sessionId = null;
+    this.clearBackoff();
   }
 }

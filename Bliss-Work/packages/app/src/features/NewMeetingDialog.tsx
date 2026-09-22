@@ -53,15 +53,26 @@ interface FormErrors {
 /** Pure so it can run on every render — the Cancel/submit row never has to
  *  guess whether it's stale. `attempted`-gating the DISPLAY of these lives in
  *  the component; this always returns the true current answer. */
-function validate(title: string, startAt: Date | null, endAt: Date | null): FormErrors {
+function validate(
+  title: string,
+  startAt: Date | null,
+  endAt: Date | null,
+  /** The Start Time is still the value the form opened with, i.e. "now". */
+  startsNow: boolean,
+): FormErrors {
   const errors: FormErrors = {};
   if (!title.trim()) errors.title = "Meeting title is required.";
 
   if (!startAt) errors.start = "Start date and time are required.";
-  else if (startAt.getTime() < Date.now() - GRACE_MS) errors.start = "Start time can't be in the past.";
+  // The default Start Time is the minute the popup OPENED at, so it drifts into
+  // the past the longer the popup sits there. Only a time the user picked can be
+  // "in the past"; an untouched one means now, whenever they press the button.
+  else if (!startsNow && startAt.getTime() < Date.now() - GRACE_MS) {
+    errors.start = "Start time can't be in the past.";
+  }
 
   if (!endAt) errors.end = "End date and time are required.";
-  else if (startAt && endAt.getTime() <= startAt.getTime()) {
+  else if (startAt && endAt.getTime() <= (startsNow ? Date.now() : startAt.getTime())) {
     errors.end = "End time must be later than the start time.";
   }
 
@@ -120,10 +131,12 @@ export function NewMeetingDialog({
    *  user has tried to go rather than nagging them before they've typed
    *  anything — same convention as the rest of the app's forms. */
   const [attempted, setAttempted] = useState(false);
+  /** Whether the user has changed the Start Time from its "right now" default. */
+  const [startEdited, setStartEdited] = useState(false);
 
   const startAt = useMemo(() => combine(startDate, startTime), [startDate, startTime]);
   const endAt = useMemo(() => combine(endDate, endTime), [endDate, endTime]);
-  const errors = validate(title, startAt, endAt);
+  const errors = validate(title, startAt, endAt, !startEdited);
   const hasErrors = Object.keys(errors).length > 0;
 
   /** A start time meaningfully ahead of now — as opposed to "now" itself,
@@ -131,7 +144,7 @@ export function NewMeetingDialog({
    *  popup (which defaults Start Time to the current moment) and clicking
    *  submit. This alone decides Start Now vs Schedule, both for the button's
    *  own label (STEP 6) and for what gets sent to the server. */
-  const isFuture = !!startAt && startAt.getTime() - Date.now() > GRACE_MS;
+  const isFuture = startEdited && !!startAt && startAt.getTime() - Date.now() > GRACE_MS;
 
   const create = useMutation({
     mutationFn: (vars: { startAt: Date; endAt: Date; isFuture: boolean }) =>
@@ -209,8 +222,14 @@ export function NewMeetingDialog({
             label="Start Time"
             date={startDate}
             time={startTime}
-            onDateChange={setStartDate}
-            onTimeChange={setStartTime}
+            onDateChange={(v) => {
+              setStartEdited(true);
+              setStartDate(v);
+            }}
+            onTimeChange={(v) => {
+              setStartEdited(true);
+              setStartTime(v);
+            }}
             error={attempted ? errors.start : undefined}
           />
 

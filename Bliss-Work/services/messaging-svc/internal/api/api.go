@@ -39,6 +39,15 @@ const smallBody = 1 << 20
 // what keeps an unauthenticated endpoint from being an amplifier.
 const livekitWebhooksPerMinute = 3000
 
+// internalServicePerMinute is the allowance for the internal service-to-service
+// group. These routes are the request-volume backbone of message delivery
+// (markDelivered/hydrateMessages fire per message, per recipient), so the
+// budget is sized well above a per-IP default — this is defense-in-depth
+// against a flood if the "never exposed through the edge proxy" network
+// isolation this group relies on is ever violated by an infra
+// misconfiguration, not a limit meant to bind under normal internal traffic.
+const internalServicePerMinute = 6000
+
 // Server holds handler dependencies.
 type Server struct {
 	store    *store.Store
@@ -186,6 +195,7 @@ func (s *Server) Router(webOrigin string) http.Handler {
 	// (no JWT middleware). Auth via X-Internal-Token in the handler.
 	// Intentionally not CORS-allowed for browser callers. Small JSON bodies.
 	r.Group(func(g chi.Router) {
+		g.Use(s.limiter.PerIPBudget("internal", internalServicePerMinute))
 		g.Use(mw.MaxBytes(smallBody))
 		g.Post("/internal/messages/delivered", s.markDelivered)
 		// ws-gateway calls this to reconstruct full message.created content

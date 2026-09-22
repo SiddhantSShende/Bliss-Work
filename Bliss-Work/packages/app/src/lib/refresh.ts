@@ -50,6 +50,46 @@ export function isSessionDead(): boolean {
   return sessionDead;
 }
 
+/** `navigator.onLine` is trustworthy in one direction only: false means no
+ *  network interface is up, while true says nothing about whether the internet
+ *  is reachable. So it can veto a request, never approve one. */
+export function isOffline(): boolean {
+  return typeof navigator !== "undefined" && navigator.onLine === false;
+}
+
+/** Treat a token this close to expiry as already expired: the request would be
+ *  in flight when it lapses. */
+const EXPIRY_MARGIN_MS = 5_000;
+
+const isStale = ({ accessToken, expiresAt }: { accessToken: string | null; expiresAt: number | null }) =>
+  accessToken !== null && expiresAt !== null && expiresAt - Date.now() <= EXPIRY_MARGIN_MS;
+
+/**
+ * Make sure the access token in memory is one the server will still accept,
+ * refreshing it first when it is not. Resolves false when there is no usable
+ * token afterwards (signed out, offline, refresh failed), so a caller that can
+ * afford to skip a request does that rather than send one certain to 401.
+ *
+ * Why this exists: after the machine sleeps, interval timers fire before the
+ * proactive refresh timer (runtime.tsx) has caught up, and the ~15-minute token
+ * has expired in the meantime. Every request then 401s, refreshes — often
+ * before DNS is back — fails again, and the browser logs each of those to the
+ * console however quietly the app handles them.
+ *
+ * `expiresAt` is measured against THIS device's clock (see store/session.ts),
+ * so a skewed device clock cannot make a healthy token look stale.
+ */
+export async function ensureFreshSession(
+  authBase: string,
+  persist?: (token: string | null) => void,
+  getRefreshToken?: () => Promise<string | null>,
+): Promise<boolean> {
+  if (isOffline()) return false;
+  if (isStale(useSession.getState())) await refreshSession(authBase, persist, getRefreshToken);
+  const session = useSession.getState();
+  return session.accessToken !== null && !isStale(session);
+}
+
 // Any successful sign-in mints a NEW token family, so the breaker must open
 // again. Subscribing here covers every entry point at once — login, onboarding,
 // invite-accept, org switch — instead of relying on each one to remember.
@@ -167,6 +207,9 @@ export function refreshSession(
   // Circuit breaker: the family is revoked, so asking again can only produce
   // another 401. Answer locally until the user signs in again.
   if (sessionDead) return Promise.resolve(null);
+  // Definitely offline: the request could only fail, and every failed fetch is
+  // logged to the console once per attempt. Same answer, no request.
+  if (isOffline()) return Promise.resolve(null);
   if (inFlight) return inFlight;
   inFlight = (async () => {
     try {

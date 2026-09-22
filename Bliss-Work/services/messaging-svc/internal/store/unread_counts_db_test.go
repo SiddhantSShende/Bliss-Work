@@ -23,6 +23,8 @@ func TestUnreadCounts_MatchesConversationsSum(t *testing.T) {
 	orgID := uuid.NewString()
 	sender := uuid.NewString()
 	recipient := uuid.NewString()
+	seedUser(t, s, orgID, sender, "sender", "Sender")
+	seedUser(t, s, orgID, recipient, "recipient", "Recipient")
 
 	for i := 0; i < 3; i++ {
 		if _, err := s.SendMessage(ctx, orgID, sender, recipient, "hi", uuid.NewString(), SendOptions{}); err != nil {

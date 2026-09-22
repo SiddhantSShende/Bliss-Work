@@ -104,7 +104,7 @@ async def register_start(
     body: WebauthnRegisterStartRequest,
     authorization: str | None = Header(default=None),
 ) -> dict:
-    async with engine.connect() as conn:
+    async with engine.begin() as conn:
         user_id, org_id = await mfa_service.resolve_actor_for_enrollment(
             conn, authorization=authorization, pending_token=body.pendingToken
         )
@@ -249,7 +249,7 @@ async def register_finish(
 
 @router.post("/auth/start")
 async def auth_start(body: WebauthnAuthStartRequest) -> dict:
-    async with engine.connect() as conn:
+    async with engine.begin() as conn:
         resolved = await mfa_service.peek_mfa_pending(conn, body.pendingToken)
         if resolved is None:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid or expired session")
@@ -282,7 +282,7 @@ async def step_up_start(principal: Principal = Depends(get_principal)) -> dict:
     identity from the restricted login-time pending token (no session yet),
     while this one requires an actual signed-in caller, exactly like
     mfa_service.verify_step_up itself does for the assertion it produces."""
-    async with engine.connect() as conn:
+    async with engine.begin() as conn:
         await service.set_org_guc(conn, principal.org_id)
         allow_ids = await _credential_ids_for_user(conn, principal.user_id)
         if not allow_ids:

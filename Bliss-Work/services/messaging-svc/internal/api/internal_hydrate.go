@@ -13,9 +13,15 @@ type internalHydrateReq struct {
 // event from — everything EXCEPT eventId (which ws-gateway already holds
 // from the compact Redis reference and must preserve verbatim for client
 // dedup, not regenerate — see docs/REDIS-REPLAY-RECORD-OPTIMIZATION.md
-// section H) and orgId/clientMsgId (confirmed unused by every client, see
-// that report's section G).
+// section H).
+//
+// orgId and clientMsgId ARE needed: the client validates every frame against
+// its ServerEvent schema, which requires both, and drops a frame that fails —
+// so a rebuilt message.created without them never reached the app. (An earlier
+// note here held that no client used them; the schema says otherwise.)
 type hydrateMessageResp struct {
+	OrgID           string `json:"orgId"`
+	ClientMsgID     string `json:"clientMsgId"`
 	MessageID       string `json:"messageId"`
 	ConversationID  string `json:"conversationId"`
 	ThreadID        string `json:"threadId,omitempty"`
@@ -81,6 +87,8 @@ func (s *Server) hydrateMessages(w http.ResponseWriter, r *http.Request) {
 	out := make(map[string]hydrateMessageResp, len(hydrated))
 	for id, m := range hydrated {
 		out[id] = hydrateMessageResp{
+			OrgID:           m.OrgID,
+			ClientMsgID:     m.ClientMsgID,
 			MessageID:       m.MessageID,
 			ConversationID:  m.ConversationID,
 			ThreadID:        m.ThreadID,

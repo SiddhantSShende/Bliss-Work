@@ -15,26 +15,30 @@ import { dirname, join } from "node:path";
  *           collapsed?, expandedWidth?, expandedHeight?   // task pill state
  *         }
  *       },
- *       pinned: string[]   // task ids the user pinned to the desktop
+ *       pinned: string[],    // task ids pinned to the desktop
+ *       unpinned: string[]   // task ids the user explicitly unpinned
  *     }
  *
  * `pinned` is the load-bearing source of truth for the "pin a task to the
  * desktop" feature: StickyManager floats a note iff its id is in `pinned` AND
  * the task is still actionable (SENT or ACKNOWLEDGED). Persisting it is what
  * makes a note survive relaunch — an unfinished commitment comes back until it
- * is completed or ignored.
+ * is completed, ignored or unpinned.
  *
- * ── What is deliberately NOT persisted ───────────────────────────────────────
- * A `dismissed` list used to live here, and taking it out is the point of this
- * file's current shape. It recorded notes the user had cleared, and
- * autopinActionable skipped anything in it — forever, since nothing removed an
- * id while the task was still actionable. Because opening a task in the inbox
- * ALSO wrote to it, merely reading an allocation retired its note permanently,
- * with the task still outstanding. Hiding a note is now a THIS-RUN decision
- * held in memory by StickyManager (hideForSession), so the only thing that
- * takes a note away for good is a terminal status on the server. An older file
- * may still carry the field; it is ignored on load and dropped on the next
- * write.
+ * ── `unpinned`: only an EXPLICIT Unpin writes it ─────────────────────────────
+ * Tasks auto-pin on every live server push, so removing an id from `pinned` is
+ * not enough to make an Unpin stick — the next push would pin it straight back.
+ * `unpinned` is the veto that stops that, and it is persisted so the choice
+ * survives a relaunch too. It is written by StickyManager.unpin() (the note's
+ * own Unpin button) and by nothing else.
+ *
+ * That narrowness matters. An earlier `dismissed` list was ALSO written whenever
+ * a task was merely opened in the inbox, so reading an allocation retired its
+ * note for good with the task still outstanding. An id leaves `unpinned` once
+ * its task leaves the actionable set (StickyManager.prunePinned), so the list
+ * stays bounded and a task that becomes actionable again pins again. An older
+ * file may still carry the retired `dismissed` field; it is ignored on load and
+ * dropped on the next write.
  *
  * `minimized` is persisted for the main window but ignored for NOTES on
  * restore, for a related reason — see positionWidget in ./sticky-manager.
@@ -99,10 +103,13 @@ interface OnDisk {
    *  ACKNOWLEDGED). Persisted so a pinned note re-floats after relaunch — the
    *  "only Complete removes it" promise must survive a restart. */
   pinned: string[];
+  /** Task ids the user explicitly unpinned. Auto-pin skips these so an Unpin is
+   *  not undone by the next server push — see the file doc. */
+  unpinned: string[];
 }
 
 let filePath = "";
-let mem: OnDisk = { version: SCHEMA_VERSION, geometry: {}, pinned: [] };
+let mem: OnDisk = { version: SCHEMA_VERSION, geometry: {}, pinned: [], unpinned: [] };
 let dirty = false;
 let flushTimer: NodeJS.Timeout | null = null;
 
@@ -126,6 +133,7 @@ export function initStickyState(): void {
           ? parsed.geometry
           : {},
       pinned: stringList(parsed.pinned),
+      unpinned: stringList(parsed.unpinned),
       main: isMainBounds(parsed.main) ? parsed.main : undefined,
     };
     // A note recorded as minimized cannot be brought back: the window is built
@@ -137,7 +145,7 @@ export function initStickyState(): void {
     }
   } catch {
     // Don't crash on a corrupted file; merge defaults instead.
-    mem = { version: SCHEMA_VERSION, geometry: {}, pinned: [] };
+    mem = { version: SCHEMA_VERSION, geometry: {}, pinned: [], unpinned: [] };
   }
 }
 
@@ -201,6 +209,37 @@ export function removePinned(id: string): void {
     mem.pinned.splice(i, 1);
     scheduleFlush();
   }
+}
+
+// ── Explicit-unpin veto ───────────────────────────────────────────────────────
+
+/** Whether the user explicitly unpinned this task (auto-pin must skip it). */
+export function isUnpinned(id: string): boolean {
+  return mem.unpinned.includes(id);
+}
+
+/** Record an explicit Unpin. Idempotent; ignores non-string/empty ids. */
+export function addUnpinned(id: string): void {
+  if (typeof id !== "string" || !id) return;
+  if (!mem.unpinned.includes(id)) {
+    mem.unpinned.push(id);
+    scheduleFlush();
+  }
+}
+
+/** Forget an explicit Unpin, e.g. once its task is no longer actionable.
+ *  Idempotent. */
+export function removeUnpinned(id: string): void {
+  const i = mem.unpinned.indexOf(id);
+  if (i !== -1) {
+    mem.unpinned.splice(i, 1);
+    scheduleFlush();
+  }
+}
+
+/** Current explicit-unpin ids (a copy). */
+export function getUnpinned(): string[] {
+  return [...mem.unpinned];
 }
 
 /** Return geometry for a widget, or undefined if none stored. */

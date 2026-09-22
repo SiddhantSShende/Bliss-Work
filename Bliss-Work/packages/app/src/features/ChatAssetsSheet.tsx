@@ -20,6 +20,8 @@ import {
   type MediaAsset,
 } from "../lib/chatAssets";
 import { canPreviewDocInApp, prettySize } from "../lib/chatEnvelope";
+import { hasOutsideOpen, openOutsideApp } from "../lib/openAttachment";
+import { useRuntime } from "../lib/runtime";
 import { relativeTime } from "../lib/relativeTime";
 import { useAttachmentLinks } from "../lib/useAttachmentLinks";
 import { Lightbox } from "./Lightbox";
@@ -41,6 +43,7 @@ export function ChatAssetsSheet({
   /** The thread as it is currently loaded, in send order. */
   messages: readonly AssetMessage[];
 }) {
+  const { config } = useRuntime();
   const [tab, setTab] = useState<AssetTab>("media");
   // A single doc opened from the Docs tab, previewed in the SAME Lightbox the
   // inline chat bubble and the Media tab use — one in-app viewer, not a
@@ -59,6 +62,15 @@ export function ChatAssetsSheet({
     [assets],
   );
   const { urlFor, isResolved } = useAttachmentLinks(ids);
+
+  // Same rule as the thread's bubble (useChatMedia.openItem): a doc with no
+  // in-app view leaves the app (desktop's own application, or a browser tab on
+  // web); the rest use the Lightbox.
+  const openDoc = (asset: MediaAsset) => {
+    const url = urlFor(asset.item.id);
+    if (url && openOutsideApp(config, asset.item.mime, url, asset.item.name)) return;
+    setDocPreview(asset);
+  };
 
   const tabs: readonly TabSpec<AssetTab>[] = [
     { key: "media", label: "Media", badge: assets.media.length },
@@ -79,7 +91,9 @@ export function ChatAssetsSheet({
         </p>
 
         {tab === "media" && <MediaGrid assets={assets.media} urlFor={urlFor} isResolved={isResolved} />}
-        {tab === "docs" && <DocList assets={assets.docs} urlFor={urlFor} onPreview={setDocPreview} />}
+        {tab === "docs" && (
+          <DocList assets={assets.docs} urlFor={urlFor} opensOutside={hasOutsideOpen(config)} onPreview={openDoc} />
+        )}
         {tab === "links" && <LinkList assets={assets.links} />}
       </Sheet>
 
@@ -178,11 +192,15 @@ function MediaGrid({
 function DocList({
   assets,
   urlFor,
+  opensOutside,
   onPreview,
 }: {
   assets: MediaAsset[];
   urlFor: (id: string | undefined) => string | undefined;
-  /** Open a previewable doc in the shared in-app Lightbox. */
+  /** A doc with no in-app view leaves the app (desktop's own application, or a
+   *  browser tab on web), so the row must not say it cannot be previewed. */
+  opensOutside: boolean;
+  /** Open a doc — in the shared in-app Lightbox, or outside the app. */
   onPreview: (asset: MediaAsset) => void;
 }) {
   if (assets.length === 0) {
@@ -226,7 +244,7 @@ function DocList({
                 </span>
                 <Shared senderName={senderName} at={at} />
               </span>
-              {url && !previewable && (
+              {url && !previewable && !opensOutside && (
                 <span className="text-xs text-muted">Preview isn&apos;t available for this file type</span>
               )}
             </span>

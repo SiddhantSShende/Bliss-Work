@@ -3,6 +3,7 @@ export * from "./types/domain";
 export * from "./types/errors";
 export * from "./policy/stickyPin";
 export * from "./policy/mailAddress";
+export * from "./policy/clientPlatform";
 export * from "./ws-client/WsClient";
 export * from "./lib/jwt";
 export * from "./graphql/operations";

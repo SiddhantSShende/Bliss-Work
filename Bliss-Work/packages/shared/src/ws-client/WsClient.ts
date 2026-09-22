@@ -279,6 +279,10 @@ export class WsClient {
 
     ws.onclose = () => {
       clearTimeout(connectTimer);
+      // A socket close()/connect() already replaced (an org switch) finishes
+      // closing LATER. Acting on it would report "closed" while the new socket is
+      // up, stop that socket's heartbeat, and queue a reconnect.
+      if (this.ws !== ws) return;
       this.setStatus("closed");
       if (this.pingTimer) clearInterval(this.pingTimer);
       if (this.pongTimer) clearTimeout(this.pongTimer);

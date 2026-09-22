@@ -9,6 +9,7 @@
     "./platform": "./src/platform.ts",
     "./lib/runtime": "./src/lib/runtime.tsx",
     "./lib/refresh": "./src/lib/refresh.ts",
+    "./lib/clearCacheOnIdentityChange": "./src/lib/clearCacheOnIdentityChange.ts",
     "./lib/retryPolicy": "./src/lib/retryPolicy.ts",
     "./lib/matchUser": "./src/lib/matchUser.ts",
     "./lib/userLabel": "./src/lib/userLabel.ts",

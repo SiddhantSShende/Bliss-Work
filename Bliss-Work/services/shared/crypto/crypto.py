@@ -34,12 +34,14 @@ import hmac
 import os
 import struct
 import time
+import weakref
 from typing import Protocol
 
 from argon2.low_level import Type, hash_secret_raw
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from sqlalchemy import text
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import AsyncConnection
+from sqlalchemy.orm import Session
 
 _FMT_V1 = 0x01
 _NONCE_LEN = 12
@@ -213,6 +215,13 @@ class KMSKEKProvider:
 
 
 # ── Cryptor ──────────────────────────────────────────────────────────────────
+def _transaction_of(conn):
+    """The SQLAlchemy object whose commit/rollback events say how the caller's
+    transaction ended: the sync Session behind an AsyncSession, or the sync
+    Connection behind an AsyncConnection. None when `conn` is neither."""
+    return getattr(conn, "sync_session", None) or getattr(conn, "sync_connection", None)
+
+
 class Cryptor:
     """Transparent column encryptor. Methods take the active DB ``conn`` so the
     per-org DEK can be loaded/created from ``org_keys`` (cached after first use).
@@ -227,6 +236,10 @@ class Cryptor:
         self._dek_cache: dict[tuple[str, int], tuple[bytes, float]] = {}
         self._current: dict[str, tuple[bytes, int, float]] = {}  # org -> (dek, version, expiry)
         self._locks: dict[str, asyncio.Lock] = {}
+        # A DEK generated inside a caller's transaction that has not ended yet:
+        # org -> (weakref to that transaction's SQLAlchemy object, dek, version).
+        # See _keep_until_commit.
+        self._provisional: dict[str, tuple[weakref.ref, bytes, int]] = {}
 
     # blind index is pure (no DB / no DEK) so it's usable pre-org-context (login).
     def blind_index(self, value: str) -> bytes:
@@ -383,6 +396,12 @@ class Cryptor:
         cached = self._current.get(org_id)
         if cached and cached[2] > now:
             return cached[0], cached[1]
+        # A key THIS transaction created a moment ago (the title, then the
+        # description, of an org's first write) is not committed, so it is not in
+        # the caches — see _keep_until_commit.
+        provisional = self._provisional_for(conn, org_id)
+        if provisional is not None:
+            return provisional
         async with self._lock(org_id):  # single-flight: avoid a cold-cache stampede
             cached = self._current.get(org_id)
             if cached and cached[2] > time.monotonic():
@@ -399,9 +418,10 @@ class Cryptor:
             ).first()
             if row is None:
                 dek, version = await self._generate_dek(conn, org_id)
-            else:
-                version = int(row.key_version)
-                dek = await self._unwrap(org_id, bytes(row.wrapped_dek), version)
+                self._keep_until_commit(conn, org_id, dek, version)
+                return dek, version
+            version = int(row.key_version)
+            dek = await self._unwrap(org_id, bytes(row.wrapped_dek), version)
             expiry = time.monotonic() + self._ttl
             self._current[org_id] = (dek, version, expiry)
             self._dek_cache[(org_id, version)] = (dek, expiry)
@@ -412,6 +432,9 @@ class Cryptor:
         hit = self._dek_cache.get((org_id, version))
         if hit and hit[1] > now:
             return hit[0]
+        provisional = self._provisional_for(conn, org_id, version)
+        if provisional is not None:
+            return provisional[0]
         row = (
             await conn.execute(
                 text("SELECT wrapped_dek FROM org_keys WHERE org_id = :o AND key_version = :v"),
@@ -423,6 +446,60 @@ class Cryptor:
         dek = await self._unwrap(org_id, bytes(row.wrapped_dek), version)
         self._dek_cache[(org_id, version)] = (dek, time.monotonic() + self._ttl)
         return dek
+
+    def _provisional_for(self, conn, org_id: str, version: int | None = None) -> tuple[bytes, int] | None:
+        """The key this very transaction generated and has not yet committed."""
+        held = self._provisional.get(org_id)
+        owner = _transaction_of(conn)
+        if held is None or owner is None or held[0]() is not owner:
+            return None
+        if version is not None and held[2] != version:
+            return None
+        return held[1], held[2]
+
+    def _keep_until_commit(self, conn, org_id: str, dek: bytes, version: int) -> None:
+        """Hold a DEK this call just generated until the caller's transaction ends.
+
+        The `org_keys` row it goes with is written inside that transaction. Caching
+        the key at once (as this used to) meant a rollback removed the row but not
+        the key: for the next few minutes every write for the org was encrypted
+        under a key that existed nowhere in the database — no row was ever inserted
+        for it — and once the cache expired, or another pod read it, that ciphertext
+        could not be decrypted. So the key is cached only on COMMIT, and dropped on
+        rollback; until then it serves only the transaction that created it.
+
+        When `conn` gives no way to observe how its transaction ends, the key is not
+        cached at all: the next call finds the committed row, or creates a new one.
+        """
+        owner = _transaction_of(conn)
+        if owner is None:
+            return
+        self._provisional[org_id] = (weakref.ref(owner), dek, version)
+        commit_event, rollback_event = (
+            ("after_commit", "after_rollback") if isinstance(owner, Session) else ("commit", "rollback")
+        )
+        settled = False
+
+        def settle(committed: bool) -> None:
+            # Whichever of commit/rollback fires first wins; the other listener,
+            # if it ever runs (a Session can outlive one transaction), is a no-op.
+            nonlocal settled
+            if settled:
+                return
+            settled = True
+            held = self._provisional.get(org_id)
+            if held is not None and held[0]() is owner:
+                del self._provisional[org_id]
+            if committed:
+                expiry = time.monotonic() + self._ttl
+                self._current[org_id] = (dek, version, expiry)
+                self._dek_cache[(org_id, version)] = (dek, expiry)
+
+        # once=True, not event.remove() from inside the callback: SQLAlchemy
+        # iterates its listener deque while dispatching, and removing one there
+        # raises "deque mutated during iteration". The listeners die with `owner`.
+        event.listen(owner, commit_event, lambda *_a: settle(True), once=True)
+        event.listen(owner, rollback_event, lambda *_a: settle(False), once=True)
 
     async def _generate_dek(self, conn: AsyncConnection, org_id: str) -> tuple[bytes, int]:
         dek = os.urandom(32)

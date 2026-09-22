@@ -7,6 +7,7 @@ import { EmptyState } from "@taskboard/ui";
 import { ListTodo } from "lucide-react";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
+import { decrementUnreadCount, refreshUnreadCount } from "../lib/unreadNotificationCount";
 import { StickyWidget } from "../features/StickyWidget";
 
 /**
@@ -104,7 +105,10 @@ export function MailTask() {
       qc.setQueryData<NotificationDTO[]>(qk.notifications, (prev) =>
         (prev ?? []).map((n) => (n.taskId === taskId ? { ...n, read: true } : n)),
       );
-      void Promise.all(unreadForTask.map((n) => api.markNotificationRead(n.id).catch(() => {})));
+      decrementUnreadCount(qc, unreadForTask.length);
+      void Promise.all(unreadForTask.map((n) => api.markNotificationRead(n.id).catch(() => {}))).then(() =>
+        refreshUnreadCount(qc),
+      );
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taskId]);
@@ -127,18 +131,9 @@ export function MailTask() {
     );
   }
 
-  // Lock + chip track what actually floats: pinned AND still acknowledged.
+  // The lock tracks what actually floats: pinned AND still acknowledged.
+  // Pinning itself is automatic, so the card shows no pin control.
   const floatable = pinnedIds.includes(task.taskId) && task.myStatus === "ACKNOWLEDGED";
-  const pin = async () => {
-    try {
-      const res = await config.pinTask!(task.taskId);
-      qc.setQueryData<string[]>(qk.taskPins, () => res.pinned);
-      if (!res.ok && res.reason === "limit")
-        toast("Desktop is full — complete or unpin a note first (max 5 pinned).");
-    } catch {
-      void qc.invalidateQueries({ queryKey: qk.taskPins });
-    }
-  };
 
   return (
     <div className="flex h-full items-start justify-center overflow-auto p-6">
@@ -148,8 +143,6 @@ export function MailTask() {
           onAction={(a) => actMut.mutate(a)}
           busy={actMut.isPending}
           compact={false}
-          onPin={config.pinTask ? () => void pin() : undefined}
-          pinned={floatable}
           locked={floatable}
         />
       </div>

@@ -102,3 +102,63 @@ func TestListOpenChannels(t *testing.T) {
 		t.Error("IsLocked = true for a channel seeded as unlocked")
 	}
 }
+
+// TestInternalChannelMembershipRequiresCallerMembership: task-svc's
+// channel-mode task creation calls this to resolve fan-out recipients. It
+// used to trust ANY channel id under the internal token alone — no check
+// that the calling end user was a member of it — so any org member could
+// name a private/locked channel they never joined and get a task (and its
+// member roster) fanned out to it. See docs/AUTH_AUTHZ_REMEDIATION_PLAN.md.
+func TestInternalChannelMembershipRequiresCallerMembership(t *testing.T) {
+	s := lifecycleStore(t)
+	ctx := context.Background()
+
+	orgID := uuid.Must(uuid.NewV7()).String()
+	otherOrgID := uuid.Must(uuid.NewV7()).String()
+	memberID := uuid.Must(uuid.NewV7()).String()
+	outsiderID := uuid.Must(uuid.NewV7()).String() // same org, never joined the channel
+	lockedChanID := uuid.Must(uuid.NewV7()).String()
+
+	if err := s.withBypass(ctx, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO channels (id, org_id, name, created_by, is_locked) VALUES ($1,$2,$3,$4,true)`,
+			lockedChanID, orgID, "private-eng", memberID); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx,
+			`INSERT INTO channel_members (channel_id, org_id, user_id) VALUES ($1,$2,$3)`,
+			lockedChanID, orgID, memberID)
+		return err
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	// A genuine member can still resolve the roster (locked just means
+	// "no self-join", not "hidden from its own members").
+	got, err := s.InternalChannelMembership(ctx, orgID, lockedChanID, memberID)
+	if err != nil {
+		t.Fatalf("member resolving their own locked channel: %v", err)
+	}
+	if !got.IsLocked || len(got.MemberIDs) != 1 || got.MemberIDs[0] != memberID {
+		t.Errorf("got %+v, want the single member and IsLocked=true", got)
+	}
+
+	// Same org, but never joined this channel — must be refused, not handed
+	// the member list.
+	if _, err := s.InternalChannelMembership(ctx, orgID, lockedChanID, outsiderID); err != ErrForbidden {
+		t.Errorf("non-member same-org caller: got err %v, want ErrForbidden", err)
+	}
+
+	// A caller asserting the WRONG org for a real member of the channel must
+	// also be refused — orgID is trusted from the caller's own JWT (via
+	// task-svc), not derived from the channel row, so this is the check that
+	// stops a cross-org probe.
+	if _, err := s.InternalChannelMembership(ctx, otherOrgID, lockedChanID, memberID); err != ErrForbidden {
+		t.Errorf("wrong-org caller: got err %v, want ErrForbidden", err)
+	}
+
+	// An id that isn't a channel at all in either org.
+	if _, err := s.InternalChannelMembership(ctx, orgID, uuid.Must(uuid.NewV7()).String(), memberID); err != ErrForbidden {
+		t.Errorf("nonexistent channel: got err %v, want ErrForbidden", err)
+	}
+}

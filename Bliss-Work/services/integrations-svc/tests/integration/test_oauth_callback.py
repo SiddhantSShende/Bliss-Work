@@ -20,7 +20,10 @@ USER_B = "44444444-4444-4444-4444-444444444444"
 def _principal(user_id: str, org_id: str = ORG, plan: str = "enterprise"):
     from app.auth import Principal
 
-    return Principal(user_id=user_id, org_id=org_id, roles=["admin"], username="me", plan=plan)
+    # The real role string put_/delete_app_credentials check for is "org_admin"
+    # (app/routes/app_creds.py) — the app-credentials PUT this file's setup
+    # calls requires it.
+    return Principal(user_id=user_id, org_id=org_id, roles=["org_admin"], username="me", plan=plan)
 
 
 async def _client(principal) -> httpx.AsyncClient:

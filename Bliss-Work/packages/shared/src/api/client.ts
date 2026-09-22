@@ -75,6 +75,7 @@ import {
   httpStatusToCode,
 } from "../types/errors";
 import type { GraphqlOperationName } from "../graphql/operations";
+import type { ClientPlatform } from "../policy/clientPlatform";
 
 export interface ApiConfig {
   authBase: string; // e.g. http://localhost:8001
@@ -190,6 +191,11 @@ function asErrorCode(code: string | undefined): ErrorCode | undefined {
  * the thread it draws them from grows without limit as older pages load.
  */
 const CHANNEL_RECEIPT_IDS_MAX = 100;
+
+/** Mirrors the largest page task-svc will serve (_MAX_LIMIT in tasks_read.py). */
+const TASK_LIST_PAGE_SIZE = 100;
+/** 2,000 tasks; past that the list is truncated rather than fetched without end. */
+const TASK_LIST_MAX_PAGES = 20;
 
 export class ApiClient {
   constructor(private readonly cfg: ApiConfig) {}
@@ -344,8 +350,18 @@ export class ApiClient {
   }
   /** Returns either a session, or an MfaPendingDTO when a second factor is
    *  still owed — check with `isMfaPending()` before treating the result as
-   *  a session. */
-  login(body: { email: string; password: string; captchaId: string; captchaValue: string }) {
+   *  a session.
+   *
+   *  `captchaId`/`captchaValue` may be omitted only by a client that declares an
+   *  exempt `clientPlatform` (see policy/clientPlatform.ts); the server still
+   *  decides, and answers 400 if it wants the CAPTCHA anyway. */
+  login(body: {
+    email: string;
+    password: string;
+    captchaId?: string;
+    captchaValue?: string;
+    clientPlatform?: ClientPlatform;
+  }) {
     return this.req(this.cfg.authBase, "/auth/login", {
       method: "POST",
       body: JSON.stringify(body),
@@ -1758,14 +1774,40 @@ export class ApiClient {
       body: JSON.stringify(body),
     }, z.object({ taskId: z.string() }));
   }
+  /**
+   * Every row of one of the caller's task lists, walking the server's pages.
+   *
+   * These endpoints cap a response at 100 rows (50 by default) and callers used to
+   * read only the first, so anyone past that many open tasks silently lost the rest
+   * — and the desktop sticky refresh treated a task missing from the first page as
+   * no longer wanted and unpinned it. The pages are ordered totally (see
+   * tasks_read.py), so walking them neither skips nor repeats a row.
+   *
+   * Bounded, like the server's own cap: TASK_LIST_MAX_PAGES pages, so a runaway
+   * list cannot turn one refresh into an unbounded run of requests.
+   */
+  private async taskListAllPages(path: string): Promise<StickyTaskDTO[]> {
+    const rows: StickyTaskDTO[] = [];
+    for (let page = 0; page < TASK_LIST_MAX_PAGES; page++) {
+      const batch = await this.req(
+        this.cfg.taskBase,
+        `${path}?limit=${TASK_LIST_PAGE_SIZE}&offset=${page * TASK_LIST_PAGE_SIZE}`,
+        {},
+        z.array(StickyTaskDTO),
+      );
+      rows.push(...batch);
+      if (batch.length < TASK_LIST_PAGE_SIZE) break;
+    }
+    return rows;
+  }
   taskInbox() {
-    return this.req(this.cfg.taskBase, "/api/v1/tasks/inbox", {}, z.array(StickyTaskDTO));
+    return this.taskListAllPages("/api/v1/tasks/inbox");
   }
   taskAssigned() {
-    return this.req(this.cfg.taskBase, "/api/v1/tasks/assigned", {}, z.array(StickyTaskDTO));
+    return this.taskListAllPages("/api/v1/tasks/assigned");
   }
   tasksSticky() {
-    return this.req(this.cfg.taskBase, "/api/v1/tasks/sticky", {}, z.array(StickyTaskDTO));
+    return this.taskListAllPages("/api/v1/tasks/sticky");
   }
   /**
    * Task ids sticky-svc says still have an open commitment for this user.
@@ -1808,8 +1850,16 @@ export class ApiClient {
   taskDetail(taskId: string) {
     return this.req(this.cfg.taskBase, `/api/v1/tasks/${taskId}/detail`, {}, StickyTaskDTO);
   }
-  tasksSent() {
-    return this.req(this.cfg.taskBase, "/api/v1/tasks/sent", {}, z.array(SentTaskDTO));
+  /** Tasks I sent, newest first. The server pages by task (default 50, max 100);
+   *  pass `limit`/`offset` to walk further back. A task whose assignee ignored it
+   *  is hidden from the sender unless `includeIgnored` is set. */
+  tasksSent(opts?: { limit?: number; offset?: number; includeIgnored?: boolean }) {
+    const q = new URLSearchParams();
+    if (opts?.limit !== undefined) q.set("limit", String(opts.limit));
+    if (opts?.offset !== undefined) q.set("offset", String(opts.offset));
+    if (opts?.includeIgnored) q.set("includeIgnored", "true");
+    const qs = q.toString();
+    return this.req(this.cfg.taskBase, `/api/v1/tasks/sent${qs ? `?${qs}` : ""}`, {}, z.array(SentTaskDTO));
   }
   taskAction(
     taskId: string,

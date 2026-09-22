@@ -56,7 +56,9 @@ async def list_pins(
                     "       status_version, opened_at, last_delivered_at "
                     "  FROM sticky_pins "
                     " WHERE org_id = :org AND assignee_id = :me AND status = 'OPEN' "
-                    " ORDER BY opened_at ASC "
+                    # task_id breaks ties so OFFSET pages neither skip nor repeat pins
+                    # opened in the same instant.
+                    " ORDER BY opened_at ASC, task_id ASC "
                     " LIMIT :limit OFFSET :offset"
                 ),
                 {

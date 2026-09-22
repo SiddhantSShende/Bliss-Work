@@ -331,6 +331,19 @@ async def connect_start(
             await db.commit()
         return ConnectStartOut(authorizeUrl=oauth.authorize_url(cfg, state, challenge, redirect_uri))
 
+    # Token-paste connections are org-wide (scope_kind "org", owner_user_id
+    # NULL — see _SCOPE_FOR) and can silently overwrite the org's existing
+    # credential for this provider (the ON CONFLICT upsert in
+    # _upsert_connection). Gated the same way the org's OAuth app credentials
+    # already are (routes/app_creds.py put/delete_app_credentials) — any
+    # member creating or replacing a shared, org-wide integration credential
+    # needs org_admin. The OAuth branch above is per-USER (owner_user_id =
+    # principal.user_id) and stays self-service.
+    if "org_admin" not in principal.roles:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="org_admin role required"
+        )
+
     # ── token-paste connect (body already parsed above) ───────────────────────
     missing = [f.key for f in spec.fields if not str(body.get(f.key, "")).strip()]
     if missing:
@@ -404,6 +417,15 @@ async def connect_start(
 
 @router.delete("/integrations/{conn_id}")
 async def disconnect(conn_id: str, principal: Principal = PrincipalDep) -> Response:
+    # A user's own (owner_user_id = uid) connection is always theirs to
+    # disconnect. An org-wide one (owner_user_id IS NULL — a token-paste
+    # credential shared by the whole org, see _SCOPE_FOR) needs org_admin,
+    # same as creating one now does in connect_start — otherwise any member
+    # could sever the org's Slack/WhatsApp connection for everyone. Folded
+    # into the WHERE (rather than checked separately) so a non-admin member
+    # gets the same "connection not found" a nonexistent id would, instead of
+    # a 403 that confirms an org-wide connection exists.
+    is_admin = "org_admin" in principal.roles
     async with session() as db:
         await set_org_context(db, principal.org_id)
         res = await db.execute(
@@ -418,10 +440,10 @@ async def disconnect(conn_id: str, principal: Principal = PrincipalDep) -> Respo
                        external_account_id_bidx = NULL,
                        updated_at = now()
                  WHERE id = :id
-                   AND (owner_user_id = :uid OR owner_user_id IS NULL)
+                   AND (owner_user_id = :uid OR (owner_user_id IS NULL AND :is_admin))
                 """
             ),
-            {"id": conn_id, "uid": principal.user_id},
+            {"id": conn_id, "uid": principal.user_id, "is_admin": is_admin},
         )
         await db.commit()
     if res.rowcount == 0:

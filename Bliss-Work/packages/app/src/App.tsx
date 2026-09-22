@@ -11,6 +11,7 @@ import { useSession } from "./store/session";
 import { refreshSession } from "./lib/refresh";
 import { installGlobalErrorHandlers } from "./lib/globalErrorHandlers";
 import { installAuthChannel, requestSession } from "./lib/authChannel";
+import { clearCacheOnIdentityChange } from "./lib/clearCacheOnIdentityChange";
 import { withLoadTimeout } from "./lib/withLoadTimeout";
 import { reloadForStaleChunk } from "./lib/chunkReloadRecovery";
 import { legacyInboxTarget } from "./lib/mailView";
@@ -173,6 +174,9 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+// The cache is keyed by nothing that says whose it is — see the module.
+clearCacheOnIdentityChange(queryClient);
 
 export type { PlatformConfig } from "./platform";
 export type { StickyBridge } from "./platform";

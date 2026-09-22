@@ -135,7 +135,11 @@ func (s *Server) fetchStaticMap(ctx context.Context, key, lat, lng string, zoom 
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return err
+		// See geocode.go's stripRequestURL: http.Client wraps a transport
+		// failure in a *url.Error whose Error() string embeds the full
+		// request URL, including this server's apiKey= — and staticMap logs
+		// this error.
+		return fmt.Errorf("map provider request failed: %w", stripRequestURL(err))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {

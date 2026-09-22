@@ -100,6 +100,14 @@ class Settings(BaseSettings):
     # since fetching a challenge is otherwise free and would itself become a
     # DoS/enumeration vector without a budget.
     captcha_rate_limit_per_minute: int = 20
+    # Client platforms whose /auth/login skips the CAPTCHA (comma-separated,
+    # lower-case; empty = nobody is exempt). A product decision: macOS and iOS
+    # sign-ins are not challenged. The platform is DECLARED by the client
+    # (LoginRequest.clientPlatform) and cannot be verified, so this is a policy
+    # switch rather than a control a hostile client has to honour — setting it
+    # empty puts the CAPTCHA back on every platform without a code change.
+    # Never applies to /auth/orgs.
+    captcha_exempt_platforms: str = "macos,ios"
 
     # Redis for distributed rate limiting (honest across pods). Empty = in-process
     # fallback (per-pod, fails open). slowapi_storage_uri overrides redis_url for
@@ -169,6 +177,11 @@ class Settings(BaseSettings):
             problems.append("DATA_BLIND_INDEX_KEY is still the dev default")
         if "taskboard_dev_pw" in self.auth_database_url:
             problems.append("AUTH_DATABASE_URL still uses the dev password")
+        if urlsplit(self.auth_database_url).username == "taskboard":
+            problems.append(
+                "AUTH_DATABASE_URL must not use the taskboard superuser role "
+                "— use the least-privileged auth_user role (superuser bypasses Row-Level Security)"
+            )
         if "sslmode=verify-full" not in self.auth_database_url:
             problems.append("AUTH_DATABASE_URL must use sslmode=verify-full in production")
         if not self.cookie_secure:
@@ -269,6 +282,12 @@ class Settings(BaseSettings):
             if sep and name.strip() and url.strip():
                 out[name.strip()] = url.strip()
         return out
+
+    @property
+    def captcha_exempt_platform_set(self) -> frozenset[str]:
+        return frozenset(
+            s.strip().lower() for s in self.captcha_exempt_platforms.split(",") if s.strip()
+        )
 
     @property
     def placement_candidate_list(self) -> list[str]:

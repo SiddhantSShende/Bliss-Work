@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { Alert, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { ApiError, isMfaPending } from '@taskboard/shared';
+import { ApiError, isCaptchaExemptPlatform, isMfaPending } from '@taskboard/shared';
 import { useRuntime } from '@taskboard/app/lib/runtime';
 import { useSession } from '@taskboard/app/store/session';
 import { useCaptcha } from '../../hooks/useCaptcha';
+import { clientPlatform } from '../../lib/clientPlatform';
 import { syncRefreshTokenFromJar } from '../../services/authCookie';
 import { Button } from '../../components/Button';
 import { TextField } from '../../components/TextField';
@@ -22,17 +23,24 @@ export function LoginScreen({ navigation }: Props) {
   const [busy, setBusy] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const captcha = useCaptcha();
+  // iOS signs in without a CAPTCHA; Android keeps it. The server makes the same
+  // call from `clientPlatform` — this only decides whether to fetch and show it.
+  // `captchaForced` covers a server that wants one anyway (client and server out
+  // of step, e.g. mid-deploy): show the challenge instead of a dead end.
+  const [captchaForced, setCaptchaForced] = useState(false);
+  const needsCaptcha = captchaForced || !isCaptchaExemptPlatform(clientPlatform);
+  const captcha = useCaptcha(needsCaptcha);
 
   const submit = async () => {
-    if (!captcha.captchaId || busy) return;
+    const captchaId = needsCaptcha ? captcha.captchaId : null;
+    if ((needsCaptcha && !captchaId) || busy) return;
     setBusy(true);
     try {
       const result = await api.login({
         email,
         password,
-        captchaId: captcha.captchaId,
-        captchaValue: captcha.value,
+        clientPlatform,
+        ...(captchaId ? { captchaId, captchaValue: captcha.value } : {}),
       });
       if (isMfaPending(result)) {
         navigation.navigate('MfaChallenge', {
@@ -55,6 +63,9 @@ export function LoginScreen({ navigation }: Props) {
       // was never the problem.
       if (err instanceof ApiError && err.status === 401) {
         Alert.alert('Invalid email or password');
+      } else if (err instanceof ApiError && err.status === 400 && !needsCaptcha) {
+        setCaptchaForced(true);
+        Alert.alert('Security check required', 'Complete the security check, then sign in again.');
       } else if (err instanceof ApiError && err.status === 400) {
         Alert.alert('Incorrect security check', 'Please try again.');
       } else if (err instanceof ApiError && err.status === 429) {
@@ -65,8 +76,9 @@ export function LoginScreen({ navigation }: Props) {
         Alert.alert("Can't reach the server", 'Check your connection and try again.');
       }
       // The CAPTCHA the server just validated is single-use regardless of
-      // why the request ultimately failed — a retry needs a fresh one.
-      void captcha.refresh();
+      // why the request ultimately failed — a retry needs a fresh one. (Nothing
+      // to refresh when none was used; a forced one is fetched by useCaptcha.)
+      if (needsCaptcha) void captcha.refresh();
     } finally {
       setBusy(false);
     }
@@ -94,12 +106,12 @@ export function LoginScreen({ navigation }: Props) {
         textContentType="password"
         autoComplete="password"
       />
-      <CaptchaField captcha={captcha} />
+      {needsCaptcha && <CaptchaField captcha={captcha} />}
       <Button
         title={busy ? 'Signing in…' : 'Sign in'}
         onPress={submit}
         loading={busy}
-        disabled={!captcha.captchaId || captcha.value.length === 0 || !email || !password}
+        disabled={(needsCaptcha && (!captcha.captchaId || captcha.value.length === 0)) || !email || !password}
       />
       <View style={{ alignItems: 'center' }}>
         <Text style={{ color: colors.muted, fontSize: 13 }}>

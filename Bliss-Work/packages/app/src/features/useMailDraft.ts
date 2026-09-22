@@ -154,6 +154,7 @@ export function useMailDraft(existingId?: string): MailDraftState {
     if (!pending) return;
     const id = await pending;
     await api.discardMailDraft(id);
+    qc.removeQueries({ queryKey: qk.mail(id), exact: true });
     void qc.invalidateQueries({ queryKey: qk.mailDrafts });
   }, [api, qc]);
 
@@ -168,11 +169,23 @@ export function useMailDraft(existingId?: string): MailDraftState {
       void pending
         .then(async (id) => {
           const content = contentRef.current;
-          if (!content || isEmpty(content)) {
+          // `content` is only null when this session never learned what the
+          // draft actually holds — e.g. a resumed draft closed before its
+          // data loaded, or after a load error. Treating that as "empty"
+          // would silently delete a draft with real, already-saved content,
+          // so leave it untouched instead of guessing.
+          if (content === null) return;
+          if (isEmpty(content)) {
             await api.discardMailDraft(id);
           } else {
             await persist(id);
           }
+          // The composer read this draft through qk.mail(id) with an infinite
+          // staleTime and is the only writer, so that copy is now behind what was
+          // just saved. Dropped rather than invalidated: an invalidated entry is
+          // still handed to the next mount as data, and reopening the draft would
+          // fill the form from it and autosave the OLD text over the new.
+          qc.removeQueries({ queryKey: qk.mail(id), exact: true });
           // The Drafts folder is frequently on screen BESIDE the composer, so
           // it has to be told. Only here and on discard: invalidating on every
           // autosave would refetch that list every couple of seconds while the

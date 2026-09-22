@@ -6,6 +6,7 @@ var FanoutTopics = []string{
 	"messaging.events.v1",
 	"task.events.v1",
 	"notification.events.v1",
+	"integration.events.v1",
 }
 
 // Event is the partially-parsed envelope used for routing. Only the fields the
@@ -116,6 +117,16 @@ func (e *Event) RecipientsOf() []string {
 	case "task.acknowledged", "task.completed", "task.ignored", "task.left", "task.reviewed":
 		return dedupe([]string{e.SenderID, e.AssigneeID})
 	case "notification.created", "notification.read":
+		return dedupe([]string{e.RecipientID})
+	case "integration.activity.created":
+		// integrations-svc's emit_activity_created addresses this to exactly
+		// one user (the connection's owner, or its created_by for an outbound
+		// send) — see services/integrations-svc/app/events.py. This topic was
+		// added to FanoutTopics in the same change as this case: before, the
+		// event published successfully (the topic itself was missing from the
+		// broker, now fixed in infra/kafka/create-topics.sh) but ws-gateway
+		// never subscribed to it at all, so it reached no client regardless of
+		// routing.
 		return dedupe([]string{e.RecipientID})
 	case "call.scheduled", "call.ring", "call.participant_added", "call.ended",
 		"call.started", "call.waiting", "call.participant_left",

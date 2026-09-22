@@ -27,9 +27,9 @@ import { clampToPrimary, isOnPrimary } from "./sticky-state";
  * is meant to sit in the ordinary stack.
  *
  * Do NOT apply this to task notes. Their always-on-top flag is the mechanism
- * that rests them on the desktop (see createStickyWindow and
- * StickyManager.setSafeToFloat); calling this on them would silently undo the
- * feature, which is exactly how it was lost once already.
+ * that keeps them above every other application (see
+ * createStickyWindow); calling this on them would silently undo the feature,
+ * which is exactly how it was lost once already.
  */
 export function dropAlwaysOnTop(widgets: Iterable<BrowserWindow>): void {
   for (const w of widgets) if (!w.isDestroyed()) w.setAlwaysOnTop(false);

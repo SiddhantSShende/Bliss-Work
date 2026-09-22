@@ -16,7 +16,8 @@ import { useAttachmentLinks } from "../lib/useAttachmentLinks";
 import { toast } from "sonner";
 import { useRuntime } from "../lib/runtime";
 import { errorText } from "../lib/errorText";
-import { canPreviewDocInApp, MEDIA_MAX_BYTES, type MediaItem } from "../lib/chatEnvelope";
+import { openAttachmentNatively, rendersInApp } from "../lib/openAttachment";
+import { MEDIA_MAX_BYTES, type MediaItem } from "../lib/chatEnvelope";
 import { prettySize } from "../lib/fileOffer";
 import { Lightbox } from "./Lightbox";
 
@@ -294,10 +295,7 @@ export function MailAttachmentCards({ attachments }: { attachments: MailAttachme
   const [preview, setPreview] = useState<MailAttachmentDTO | null>(null);
   if (attachments.length === 0) return null;
 
-  const openNatively = async (filename: string, url: string) => {
-    const result = await config.openAttachment!(url, filename);
-    if (!result.ok) toast.error(`Could not open ${filename}`, { description: result.error });
-  };
+  const openNatively = (filename: string, url: string) => openAttachmentNatively(config, url, filename);
 
   return (
     <section className="mt-6 border-t border-border/60 pt-4">
@@ -308,9 +306,7 @@ export function MailAttachmentCards({ attachments }: { attachments: MailAttachme
         {attachments.map((a) => {
           const url = links.urlFor(a.id);
           const { Icon, tone } = fileGlyph(a.mime, a.filename);
-          const previewable =
-            !!url &&
-            (canPreviewDocInApp(a.mime) || a.mime.startsWith("image/") || a.mime.startsWith("video/"));
+          const previewable = !!url && rendersInApp(a.mime);
           return (
             <li
               key={a.id}

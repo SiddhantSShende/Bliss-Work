@@ -10,10 +10,11 @@ assignment and offset commit are independent). For every relayable event:
      returns no rows and we skip; if a 'pending' row exists (prior worker
      crashed mid-flight), the reaper retries it later.
   3. Lookup recipient e-mail + username via auth-svc's internal API.
-  4. Check presence: no fresh entry in presence:u:<userId> AND event.occurredAt
-     is older than offline_threshold_seconds. The "older than X seconds"
-     check uses event.occurredAt (NOT now()) so post-rebalance re-reads of
-     messages the user has ALREADY seen via WS do not produce spam.
+  4. Give the user a grace window to see it live, then check presence: wait
+     until event.occurredAt is offline_threshold_seconds old, and relay only if
+     there is still no fresh entry in presence:u:<userId>. The window is measured
+     from event.occurredAt (NOT now()), so an event this consumer reaches late
+     (a rebalance, a backlog) has already used it up and goes out without waiting.
   5. Render + send via the existing aiosmtplib Mailer.
   6. UPDATE email_consumed.state='sent', sent_at=now().
 
@@ -119,6 +120,12 @@ _STOP_TIMEOUT = 30.0
 # rather than unbounded so one mail with an unusually long attachment list
 # cannot open dozens of simultaneous streams to messaging-svc.
 _ATTACHMENT_FETCH_CONCURRENCY = 6
+
+
+# Pause before a failed batch is re-read, so a dead SMTP relay or database is
+# not hammered. Failures are counted per event and routed to the DLQ past
+# poison_max_failures, so this only ever bounds a transient outage.
+_RETRY_BACKOFF = 2.0
 
 
 class RelayConsumer:
@@ -259,8 +266,25 @@ class RelayConsumer:
             # Commit only AFTER every partition's _mark_sent writes completed.
             if handled and ok:
                 await consumer.commit()
+            elif handled:
+                # Not committing is not enough: the fetch position has already
+                # moved past this batch, so the next getmany() returns what comes
+                # AFTER it, and when that succeeds its commit carries the offset
+                # past the message that failed — skipped for good, not retried.
+                # Seeking back is what makes "Kafka redelivers and we retry" true.
+                # Re-running the messages that did succeed is safe: each is
+                # dedup-claimed and already 'sent'.
+                for tp, messages in batch.items():
+                    consumer.seek(tp, messages[0].offset)
+                await self._sleep_or_stop(_RETRY_BACKOFF)
             if self._stop.is_set():
                 break
+
+    async def _sleep_or_stop(self, delay: float) -> None:
+        try:
+            await asyncio.wait_for(self._stop.wait(), timeout=delay)
+        except asyncio.TimeoutError:
+            pass
 
     async def _handle_partition(self, messages) -> bool:
         """Process one partition's slice of a batch, strictly in order."""
@@ -346,13 +370,31 @@ class RelayConsumer:
             return False
 
         async with self._mark_inflight(str(event_id), str(recipient_id)):
-            # Offline gate. event.occurredAt is the canonical "when did this
-            # happen on the bus" timestamp — comparing to it instead of now()
-            # avoids spamming users who legitimately viewed the event live but
-            # we only got around to processing now after a rebalance.
-            if not await self._should_relay(recipient_id, event.get("occurredAt", "")):
-                # Mark sent (=skipped, no rewind) so a later replay doesn't try
-                # again. The result is the same to the user.
+            # Offline gate. The user gets a grace window to see the event live
+            # before it becomes an email: wait out whatever is left of it, THEN
+            # check presence. event.occurredAt is the canonical "when did this
+            # happen on the bus" timestamp — measuring from it rather than from
+            # now() means an event this consumer only reaches late (a rebalance, a
+            # backlog) has already used up its window and goes out without waiting.
+            #
+            # This used to SKIP any event younger than the window and mark it sent
+            # for good. Events are consumed within milliseconds of occurring, so
+            # nearly every one was skipped: offline notification email went out
+            # only when the consumer happened to be a minute behind.
+            #
+            # Waiting here is safe against the reaper because this pair is in
+            # _inflight (see _mark_inflight), which the reaper never reclaims.
+            wait = self._grace_remaining(event.get("occurredAt", ""))
+            if wait > 0:
+                await self._sleep_or_stop(wait)
+                if self._stop.is_set():
+                    # Shutting down mid-wait: NOT a skip. Release the claim so the
+                    # redelivery after the restart can send it.
+                    await self._release_claim(str(event_id), str(recipient_id))
+                    return False
+            if not await self._should_relay(recipient_id):
+                # Online (they saw it live): mark sent (=skipped, no rewind) so a
+                # later replay doesn't try again. The result is the same to the user.
                 await self._mark_sent(event_id, recipient_id)
                 self._failures.pop(str(event_id), None)
                 return True
@@ -371,7 +413,7 @@ class RelayConsumer:
                 self._failures.pop(str(event_id), None)
                 return True
             except Exception as exc:  # noqa: BLE001 - poison-message handling below
-                return await self._on_failure(str(event_id), event, str(exc))
+                return await self._retry_or_dlq(str(event_id), str(recipient_id), event, str(exc))
 
             # Offset advances only AFTER _mark_sent completes.
             await self._mark_sent(event_id, recipient_id)
@@ -406,7 +448,9 @@ class RelayConsumer:
         try:
             return await self._do_handle_outbound_mail(event, event_id)
         except Exception as exc:  # noqa: BLE001 - poison-message handling below
-            return await self._on_failure(str(event_id), event, str(exc))
+            return await self._retry_or_dlq(
+                str(event_id), str(event.get("mailId") or ""), event, str(exc)
+            )
 
     async def _do_handle_outbound_mail(self, event: dict, event_id: str) -> bool:
         envelope = str(event.get("envelope") or "")
@@ -463,6 +507,7 @@ class RelayConsumer:
                 # MESSAGE — nothing about the mail is wrong, the mailbox was
                 # momentarily unreachable.
                 _log.warning("relay_mail_provider_unavailable", mail_id=mail_id, error=str(exc))
+                await self._release_claim(event_id, str(mail_id))
                 return False
             # `covered` is the set of envelopes the provider send actually
             # reached (None means an old, pre-migration row with no recorded
@@ -784,6 +829,39 @@ class RelayConsumer:
             parts.append((att.filename, att.mime, data))
         return parts, skipped
 
+    async def _retry_or_dlq(self, event_id: str, recipient_key: str, event: dict, error: str) -> bool:
+        """_on_failure, and when it says "retry", release this attempt's claim.
+
+        The redelivery has to be able to claim the event again. Left 'pending',
+        it finds this attempt's own row, answers False without counting it, and
+        waits for the reaper — which releases a stale 'pending' row for Kafka
+        redelivery without pretending it was sent. The retry can then claim it;
+        for mail.outbound there is no in-app copy to make up for it.
+        """
+        done = await self._on_failure(event_id, event, error)
+        if not done and recipient_key:
+            await self._release_claim(event_id, recipient_key)
+        return done
+
+    async def _release_claim(self, event_id: str, recipient_key: str) -> None:
+        """Drop this attempt's still-'pending' claim so a redelivery can retry.
+        Best-effort, and never touches a row that is already 'sent'."""
+        if self._db is None:
+            _log.warning("relay_release_claim_no_db", event_id=event_id)
+            return
+        try:
+            async with self._db.acquire() as conn:
+                await conn.execute(
+                    """
+                    DELETE FROM email_consumed
+                    WHERE event_id = $1 AND recipient_id = $2
+                          AND state = 'pending' AND owner = 'relay'
+                    """,
+                    event_id, recipient_key,
+                )
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("relay_release_claim_failed", event_id=event_id, error=str(exc))
+
     async def _on_failure(self, event_id: str, event: dict, error: str) -> bool:
         """Count consecutive failures; route poison messages to the DLQ.
 
@@ -828,20 +906,29 @@ class RelayConsumer:
             _log.error("relay_dlq_publish_failed", event_id=event.get("eventId"),
                        error=str(exc))
 
-    async def _should_relay(self, recipient_id: str, occurred_at_iso: str) -> bool:
-        assert self._presence is not None
-        if await self._presence.is_online(recipient_id):
-            return False
+    def _grace_remaining(self, occurred_at_iso: str) -> float:
+        """Seconds until an event is offline_threshold_seconds old: how long the
+        user still has to see it live before it becomes an email. 0 when the
+        window has already passed, or the event carries no usable timestamp
+        (best-effort: relay if we can't tell)."""
         if not occurred_at_iso:
-            return True  # Best-effort: relay if we can't tell.
+            return 0.0
         try:
             occurred = datetime.fromisoformat(occurred_at_iso.replace("Z", "+00:00"))
         except ValueError:
-            return True
+            return 0.0
         if occurred.tzinfo is None:
             occurred = occurred.replace(tzinfo=timezone.utc)
-        delta = (datetime.now(timezone.utc) - occurred).total_seconds()
-        return delta >= self._settings.offline_threshold_seconds
+        age = (datetime.now(timezone.utc) - occurred).total_seconds()
+        threshold = float(self._settings.offline_threshold_seconds)
+        # Capped at the window itself: an event stamped in the future (clock
+        # skew between producer and this host) must not stall the partition.
+        return max(0.0, min(threshold, threshold - age))
+
+    async def _should_relay(self, recipient_id: str) -> bool:
+        """True when the recipient is offline now — called AFTER the grace window."""
+        assert self._presence is not None
+        return not await self._presence.is_online(recipient_id)
 
     async def _lookup_user(self, user_id: str, request_id: str | None = None) -> dict | None:
         """Resolve a user's e-mail/username from auth-svc's internal API.
@@ -1061,9 +1148,9 @@ class RelayConsumer:
 
         Reaper-driven retries don't try to re-send the email themselves —
         that would require persisting the full event payload. Instead the
-        reaper flips genuinely abandoned rows to 'sent' so we move on; in
-        practice a crash mid-pipeline is rare and a missed notification per
-        crash is acceptable (the in-app inbox is always authoritative).
+        reaper releases genuinely abandoned claims so Kafka can redeliver the
+        event; a stale claim must never be changed to 'sent' without a
+        successful send.
         """
         while not self._stop.is_set():
             try:
@@ -1101,13 +1188,13 @@ class RelayConsumer:
                 if stale:
                     await conn.executemany(
                         """
-                        UPDATE email_consumed SET state = 'sent', sent_at = now()
+                        DELETE FROM email_consumed
                         WHERE event_id = $1 AND recipient_id = $2 AND state = 'pending'
                               AND owner = 'relay'
                         """,
                         stale,
                     )
-                    _log.info("relay_reaped_pending", count=len(stale))
+                    _log.info("relay_released_pending", count=len(stale))
         except Exception as exc:  # noqa: BLE001
             _log.warning("relay_reaper_failed", error=str(exc))
 

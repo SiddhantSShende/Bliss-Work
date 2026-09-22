@@ -35,6 +35,16 @@ const MAX_SUBJECT = 200;
  * opened and never written in is discarded instead; see useMailDraft.
  */
 export function MailCompose() {
+  const { draftId } = useParams<{ draftId?: string }>();
+  const { key } = useLocation();
+  // The two compose routes render this at the same place in the tree, so without a
+  // key React reuses one mounted composer across them: every field is filled from
+  // the new draft, but the attachment tray only appends and a new mail would keep
+  // the previous draft's text. One composer per draft, and per New Mail navigation.
+  return <Composer key={draftId ?? key} />;
+}
+
+function Composer() {
   const { api } = useRuntime();
   const qc = useQueryClient();
   const nav = useNavigate();
@@ -250,6 +260,15 @@ export function MailCompose() {
         onSubmit={(e) => {
           e.preventDefault();
           if (canSend && !send.isPending) send.mutate();
+        }}
+        // A single-line input in a form submits it on Enter. Sending is a
+        // deliberate act — the Send button — not a side effect of moving on from
+        // a field: neither subject nor body is required to send, so a stray Enter
+        // used to mail an empty message, with no confirmation and no undo. The
+        // message body is a textarea (Enter is a newline) and Send is a button
+        // (Enter presses it), so neither is affected.
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && e.target instanceof HTMLInputElement) e.preventDefault();
         }}
         className="flex min-h-0 flex-1 flex-col"
       >

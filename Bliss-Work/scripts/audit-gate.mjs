@@ -156,8 +156,27 @@ if (!report) {
   process.exit(1);
 }
 
-const data = JSON.parse(report);
-const vulns = Object.values(data.vulnerabilities ?? {});
+let data;
+try {
+  data = JSON.parse(report);
+} catch {
+  console.error("audit-gate: npm audit did not return JSON — refusing to pass without an audit result");
+  process.exit(1);
+}
+
+// FAIL CLOSED. When npm cannot reach the audit endpoint it exits non-zero with
+// `{ "message": ..., "error": {...} }` and no `vulnerabilities` key at all. That
+// used to read as "no vulnerabilities": the gate printed OK and exited 0, so a
+// runner with no route to the registry passed every advisory it never saw. A
+// report is only a result if it carries the vulnerabilities map npm always
+// includes on a completed audit (an empty object when there is nothing to report).
+if (data.error || data.vulnerabilities === null || typeof data.vulnerabilities !== "object") {
+  const why = data.message ?? data.error?.summary ?? "no vulnerabilities section in the report";
+  console.error(`audit-gate: npm audit did not complete (${why}) — refusing to pass without an audit result`);
+  process.exit(1);
+}
+
+const vulns = Object.values(data.vulnerabilities);
 
 const blocking = [];
 const waived = [];

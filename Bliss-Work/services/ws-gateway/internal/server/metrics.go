@@ -3,6 +3,7 @@ package server
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -73,31 +74,50 @@ func (r *statusRecorder) Unwrap() http.ResponseWriter {
 	return r.ResponseWriter
 }
 
+// unmatchedPath is the "path" label for a request no route claimed.
+const unmatchedPath = "unmatched"
+
+// methodLabel bounds the "method" label: Go accepts any token as an HTTP method,
+// so passing r.Method through would let a client mint series at will.
+func methodLabel(method string) string {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut,
+		http.MethodPatch, http.MethodDelete, http.MethodOptions:
+		return method
+	}
+	return "OTHER"
+}
+
 // metrics records request counts and durations for every route except
-// /metrics itself. For ServeMux services the registered paths are static
-// (/healthz, /readyz, /ws, /presence) so r.URL.Path is already low-cardinality
-// and safe to use as the "path" label without UUID explosion.
+// /metrics itself.
+//
+// The "path" label is the mux pattern that handled the request, read after the
+// mux has run (it records the match on the request), NEVER r.URL.Path: the path is
+// client-chosen, and every distinct one — a scanner's /a/1, /a/2, … — would create
+// its own counter plus a full histogram in this process for as long as it lives.
+// Requests no route matches share one "unmatched" series.
 func metrics(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path := r.URL.Path
-		if path == metricsPath {
+		if r.URL.Path == metricsPath {
 			// Never instrument the scrape endpoint.
 			next.ServeHTTP(w, r)
 			return
 		}
 
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		method := methodLabel(r.Method)
+		start := time.Now()
+		next.ServeHTTP(rec, r)
 
+		path := r.Pattern
+		if path == "" {
+			path = unmatchedPath
+		}
 		// Only time non-websocket routes. A long-lived /ws connection would
 		// skew the latency histogram, so it is counted but not observed.
-		if path == wsPath {
-			next.ServeHTTP(rec, r)
-		} else {
-			timer := prometheus.NewTimer(httpRequestDuration.WithLabelValues(r.Method, path))
-			next.ServeHTTP(rec, r)
-			timer.ObserveDuration()
+		if path != wsPath {
+			httpRequestDuration.WithLabelValues(method, path).Observe(time.Since(start).Seconds())
 		}
-
-		httpRequestsTotal.WithLabelValues(r.Method, path, strconv.Itoa(rec.status)).Inc()
+		httpRequestsTotal.WithLabelValues(method, path, strconv.Itoa(rec.status)).Inc()
 	})
 }

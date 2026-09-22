@@ -39,6 +39,10 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=256)
     captchaId: str | None = Field(default=None, max_length=64)
     captchaValue: str | None = Field(default=None, max_length=64)
+    # Which client is signing in: windows | macos | linux | ios | android |
+    # unknown. Self-declared. Free-form on purpose — an unrecognised value must
+    # mean "CAPTCHA required", not a 422 — see captcha_service.is_exempt_platform.
+    clientPlatform: str | None = Field(default=None, max_length=32)
 
 
 class RefreshRequest(BaseModel):

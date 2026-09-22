@@ -30,6 +30,7 @@ export function MediaBubble({
   urlFor,
   isResolved,
   progress,
+  opensOutside,
   onOpen,
 }: {
   items: MediaItem[];
@@ -38,6 +39,10 @@ export function MediaBubble({
   isResolved: boolean;
   /** Keyed by item id while the message is still being sent. */
   progress?: Record<string, UploadProgress>;
+  /** A file with no in-app view is taken out of the app by onOpen (the desktop's
+   *  own application, or a browser tab on web), so its card must not say it
+   *  cannot be previewed. */
+  opensOutside?: boolean;
   onOpen: (index: number) => void;
 }) {
   const visuals = items.filter(
@@ -74,6 +79,7 @@ export function MediaBubble({
           url={urlFor(item.id)}
           isResolved={isResolved}
           progress={progress?.[item.id]}
+          opensOutside={opensOutside}
           onOpen={() => onOpen(items.indexOf(item))}
         />
       ))}
@@ -150,18 +156,20 @@ function VisualTile({
  * A non-visual attachment (PDF, spreadsheet, archive, …) inside a message
  * bubble.
  *
- * Clicking it opens the file — never downloads it, matching the rest of the
- * app's "view, don't save" policy for chat attachments (see Lightbox's own
- * note, and internal/api/attachments.go's server-side enforcement, which
- * ignores `?dl=1`). Every resolved attachment is clickable, and always opens
- * the same in-app Lightbox the gallery uses, exactly like the identical
+ * Clicking it opens the file, never offers it as a separate download (the
+ * server ignores `?dl=1` — internal/api/attachments.go). Every resolved
+ * attachment is clickable. A type the app can render itself
+ * (`canPreviewDocInApp`) opens in the in-app Lightbox, like the identical
  * file's row in the conversation's "Media, Links & Docs" panel
- * (ChatAssetsSheet). A type the app can render itself (`canPreviewDocInApp`,
- * plus images/video) shows the file; anything else — Office documents,
- * archives — still opens the Lightbox, which explains it cannot be
- * previewed. There is no fallback to downloading: nothing here is ever a
- * link to the file, so a type outside the inline allowlist (media/mime.go)
- * simply has no bytes to leak through a click.
+ * (ChatAssetsSheet).
+ *
+ * Anything else — Office documents, archives — leaves the app (`opensOutside`),
+ * the way an email attachment's Open does (see lib/openAttachment.ts): on
+ * desktop the OS's own application via `config.openAttachment`, on web a
+ * browser tab pointed at the signed URL. The app fetches and saves nothing
+ * itself; what the browser does with the response is the server's call
+ * (media.ServeAs / Content-Disposition). A host with neither opens the
+ * Lightbox, which explains the file cannot be previewed.
  */
 function FileCard({
   item,
@@ -169,6 +177,7 @@ function FileCard({
   url,
   isResolved,
   progress,
+  opensOutside,
   onOpen,
 }: {
   item: MediaItem;
@@ -176,6 +185,7 @@ function FileCard({
   url: string | undefined;
   isResolved: boolean;
   progress?: UploadProgress;
+  opensOutside?: boolean;
   onOpen: () => void;
 }) {
   const clickable = !progress && !!url;
@@ -206,7 +216,7 @@ function FileCard({
             `Uploading… ${Math.round(progress.ratio * 100)}%`
           ) : !url && isResolved ? (
             "Not available to you"
-          ) : clickable && !previewable ? (
+          ) : clickable && !previewable && !opensOutside ? (
             "Preview isn't available for this file type"
           ) : (
             prettySize(item.size)

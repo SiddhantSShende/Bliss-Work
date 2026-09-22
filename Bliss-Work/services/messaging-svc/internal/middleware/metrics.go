@@ -69,6 +69,18 @@ func (sr *statusRecorder) Write(b []byte) (int, error) {
 	return sr.ResponseWriter.Write(b)
 }
 
+// methodLabel bounds the "method" label: Go accepts any token as an HTTP method,
+// so passing r.Method through would let a client mint a fresh series per value
+// (the path is already bounded by the route pattern below).
+func methodLabel(method string) string {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut,
+		http.MethodPatch, http.MethodDelete, http.MethodOptions:
+		return method
+	}
+	return "OTHER"
+}
+
 // Metrics returns chi-compatible middleware that records request counts and
 // latencies. It skips the /metrics endpoint entirely (Prometheus shouldn't
 // scrape-measure itself). The route pattern is only known *after* chi routes the
@@ -96,7 +108,8 @@ func Metrics(next http.Handler) http.Handler {
 			}
 		}
 
-		httpRequestsTotal.WithLabelValues(r.Method, path, strconv.Itoa(rec.status)).Inc()
-		httpRequestDuration.WithLabelValues(r.Method, path).Observe(time.Since(start).Seconds())
+		method := methodLabel(r.Method)
+		httpRequestsTotal.WithLabelValues(method, path, strconv.Itoa(rec.status)).Inc()
+		httpRequestDuration.WithLabelValues(method, path).Observe(time.Since(start).Seconds())
 	})
 }

@@ -22,9 +22,23 @@ import { safeExternalUrl } from "../shared/external-url";
  * Phase 10 P2P-transfer code for what is otherwise a two-line helper.
  */
 
-/** Strip path separators / leading dots from a server-supplied filename. */
-function sanitize(name: string): string {
-  const base = name.replace(/[/\\]/g, "_").replace(/^\.+/, "").trim();
+/**
+ * Strip path separators, leading dots, characters Windows will not keep in a
+ * file name, and trailing dots/spaces from a server-supplied filename.
+ *
+ * Applied on every platform rather than only win32: a stray colon or trailing dot
+ * is never worth preserving in a download name, and the check below is only as
+ * good as the name it is given. Windows silently drops trailing dots and spaces
+ * when it creates a file, so "evil.exe." IS evil.exe on disk — yet extname() sees
+ * no extension in it and the executable check waved it through to shell.openPath.
+ * A colon would instead address an NTFS alternate data stream ("x.exe:payload").
+ */
+export function sanitize(name: string): string {
+  const base = name
+    .replace(/[/\\<>:"|?*\u0000-\u001f]/g, "_")
+    .replace(/^\.+/, "")
+    .replace(/[. ]+$/, "")
+    .trim();
   return base || "download";
 }
 
@@ -64,7 +78,7 @@ const EXECUTABLE_EXTENSIONS = new Set([
 /** Checked against the SAVED/sanitized path, not the sender-supplied
  *  filename — what matters is what will actually land on disk and be handed
  *  to shell.openPath. */
-function isExecutableAttachment(savedPath: string): boolean {
+export function isExecutableAttachment(savedPath: string): boolean {
   return EXECUTABLE_EXTENSIONS.has(extname(savedPath).toLowerCase());
 }
 

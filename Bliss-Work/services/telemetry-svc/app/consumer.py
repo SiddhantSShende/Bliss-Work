@@ -87,6 +87,15 @@ _RETRY_BACKOFF = 1.0
 _CONTROL_TYPES = ("org.deleted",)
 
 
+def _deserialize_event(value: bytes) -> dict | list | None:
+    """Keep malformed Kafka records skippable instead of failing fetch."""
+    try:
+        return json.loads(value.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        log.warning("malformed_kafka_event_skipped")
+        return None
+
+
 class TelemetryConsumer:
     def __init__(self) -> None:
         self._consumer: AIOKafkaConsumer | None = None
@@ -121,7 +130,7 @@ class TelemetryConsumer:
             group_id=_GROUP_ID,
             enable_auto_commit=False,
             auto_offset_reset="latest",  # see the module docstring
-            value_deserializer=lambda v: json.loads(v.decode("utf-8")),
+            value_deserializer=_deserialize_event,
         )
 
     @staticmethod

@@ -25,6 +25,9 @@ import (
 func seedMessageUsers(t *testing.T, s *Store, orgID string) (alice, bob string) {
 	t.Helper()
 	alice, bob = uuid.Must(uuid.NewV7()).String(), uuid.Must(uuid.NewV7()).String()
+	// SendMessage refuses a recipient with no user_projection row in the org.
+	seedUser(t, s, orgID, alice, "alice", "Alice")
+	seedUser(t, s, orgID, bob, "bob", "Bob")
 	return alice, bob
 }
 

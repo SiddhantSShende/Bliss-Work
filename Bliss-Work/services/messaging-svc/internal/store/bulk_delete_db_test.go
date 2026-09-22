@@ -215,6 +215,7 @@ func TestDeleteMessagesForAll_IDFromAnotherConversation_IsSkipped(t *testing.T) 
 	orgID := uuid.Must(uuid.NewV7()).String()
 	alice, bob := seedMessageUsers(t, s, orgID)
 	carol := uuid.Must(uuid.NewV7()).String()
+	seedUser(t, s, orgID, carol, "carol", "Carol")
 
 	convAB, err := s.SendMessage(ctx, orgID, alice, bob, "in AB", uuid.Must(uuid.NewV7()).String(), SendOptions{})
 	if err != nil {

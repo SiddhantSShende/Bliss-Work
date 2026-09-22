@@ -80,26 +80,20 @@ export function initAutoUpdate(getMainWindow: () => BrowserWindow | null): void 
   });
 
   autoUpdater.on("update-available", (info: UpdateInfo) => {
+    // A downloaded-but-not-installed update stays "available" until the app
+    // restarts, so EVERY periodic check announces it again. Nothing to verify or
+    // fetch a second time — and re-downloading is what re-fires "update-downloaded"
+    // and, with it, the restart prompt.
+    if (info.version === downloadedVersion) return;
     console.log("[updater] update available:", info.version);
     void verifyAndDownload(info);
   });
 
   autoUpdater.on("update-downloaded", (info: { version: string }) => {
+    downloadedVersion = info.version;
+    const asked = manualCheckInFlight;
     manualCheckInFlight = false;
-    void dialog
-      .showMessageBox({
-        type: "info",
-        buttons: ["Restart now", "Later"],
-        defaultId: 0,
-        cancelId: 1,
-        title: "Update ready",
-        message: `BlissWork ${info.version} is ready to install.`,
-        detail: "Restart the app to apply the update. It will also install automatically the next time you quit.",
-      })
-      .then(({ response }) => {
-        // Defer so the dialog is fully dismissed before the app relaunches.
-        if (response === 0) setImmediate(() => autoUpdater.quitAndInstall());
-      });
+    promptRestart(info.version, asked);
   });
 
   check();
@@ -141,6 +135,35 @@ let windowGetter: (() => BrowserWindow | null) | null = null;
 // background path (check() / checkOnWindowFocus()). Gates whether a later
 // "error" event is worth interrupting the user for.
 let manualCheckInFlight = false;
+// The version whose installer has been downloaded this session, and the one the
+// restart prompt was last shown for. The prompt is shown once per version: a
+// "Later" is an answer, and the 3-minute check must not ask again.
+let downloadedVersion: string | null = null;
+let promptedVersion: string | null = null;
+
+/**
+ * Offer the restart. Skipped when this version's prompt has already been shown
+ * this session, unless the user asked for it (`asked`: Settings → About → Check
+ * for updates), so a "Later" is not undone by the background timer.
+ */
+function promptRestart(version: string, asked: boolean): void {
+  if (!asked && promptedVersion === version) return;
+  promptedVersion = version;
+  void dialog
+    .showMessageBox({
+      type: "info",
+      buttons: ["Restart now", "Later"],
+      defaultId: 0,
+      cancelId: 1,
+      title: "Update ready",
+      message: `BlissWork ${version} is ready to install.`,
+      detail: "Restart the app to apply the update. It will also install automatically the next time you quit.",
+    })
+    .then(({ response }) => {
+      // Defer so the dialog is fully dismissed before the app relaunches.
+      if (response === 0) setImmediate(() => autoUpdater.quitAndInstall());
+    });
+}
 
 function check(): void {
   lastCheckAt = Date.now();
@@ -245,6 +268,12 @@ export async function checkForUpdatesNow(): Promise<UpdateCheckResult> {
   try {
     const result = await autoUpdater.checkForUpdates();
     const latest = result?.updateInfo?.version;
+    if (latest && latest === downloadedVersion) {
+      // Already downloaded this session, so no download is coming to trigger the
+      // prompt: the user asked, so show it now.
+      promptRestart(latest, true);
+      return { status: "downloading", version: latest };
+    }
     if (latest && latest !== app.getVersion()) {
       // checkForUpdates() above already fired "update-available", which
       // triggers verifyAndDownload() — the integrity check, then the actual

@@ -121,6 +121,11 @@ def _batch(*messages):
     return {"tp": [_Msg(m, offset=i) for i, m in enumerate(messages)]}
 
 
+def test_malformed_kafka_bytes_are_skippable():
+    assert consumer._deserialize_event(b"not-json") is None
+    assert consumer._deserialize_event(b'{"type":"ok"}') == {"type": "ok"}
+
+
 # ── the poison-message case ──────────────────────────────────────────────────
 
 

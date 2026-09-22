@@ -50,6 +50,14 @@ func (s *Store) SendMessage(ctx context.Context, orgID, senderID, recipientID, b
 			return err
 		}
 
+		// The recipient must belong to this org. Without it a send opens a
+		// conversation with a user id guessed from another org: the upsert below
+		// stamps the row with OUR org_id, RLS is satisfied, and the resulting
+		// message.created is routed to the foreign user by id alone.
+		if err := requireSameOrgUser(ctx, tx, orgID, recipientID); err != nil {
+			return err
+		}
+
 		// Ensure the conversation row exists (ordered pair, unique per org).
 		convID := uuid.Must(uuid.NewV7()).String()
 		err = tx.QueryRow(ctx,

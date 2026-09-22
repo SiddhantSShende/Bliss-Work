@@ -62,7 +62,8 @@ func NewTaskProjectionConsumer(st *store.Store, brokers []string, log *slog.Logg
 // FetchMessage + an explicit CommitMessages after a SUCCESSFUL handle — see
 // consumer.go's Run for why: ReadMessage commits before returning whenever
 // the reader belongs to a consumer group, which could commit an offset before
-// the message behind it was ever actually applied.
+// the message behind it was ever actually applied. A failed message is retried
+// in place (handleWithRetry) so a later commit cannot carry the offset past it.
 func (c *TaskProjectionConsumer) Run(ctx context.Context) {
 	defer c.r.Close()
 	for {
@@ -83,11 +84,10 @@ func (c *TaskProjectionConsumer) Run(ctx context.Context) {
 			}
 			continue
 		}
-		msgCtx, span := startConsumeSpan(ctx, m)
-		ok := c.handleSafely(msgCtx, m.Value)
-		span.End()
-		if !ok {
-			continue
+		if !handleWithRetry(ctx, c.log, "task projector", m, func(msgCtx context.Context) bool {
+			return c.handleSafely(msgCtx, m.Value)
+		}) {
+			return // shutting down mid-retry: left uncommitted, so a restart redelivers it
 		}
 		if err := c.r.CommitMessages(ctx, m); err != nil {
 			c.log.Error("task projector commit failed", "err", err)

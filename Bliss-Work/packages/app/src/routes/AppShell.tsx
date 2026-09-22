@@ -8,6 +8,7 @@ import { useSession } from "../store/session";
 import { qk, WsEventBridge } from "../lib/queryBridge";
 import { listSectionOf, railSectionOf } from "../lib/section";
 import { useSelectedChat } from "../lib/selectedChat";
+import { useSyncUnreadCounts } from "../lib/useSyncUnreadCounts";
 import { TelemetryBridge } from "../lib/telemetry";
 import { CallProvider } from "../lib/useCall";
 import { CallUI } from "../features/CallUI";
@@ -48,6 +49,7 @@ export function AppShell() {
     queryKey: qk.unreadCounts,
     queryFn: () => api.unreadCounts(),
   });
+  useSyncUnreadCounts();
   const { data: notifUnread } = useQuery({
     queryKey: qk.notificationsUnreadCount,
     queryFn: () => api.notificationsUnreadCount(),

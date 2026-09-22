@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync/atomic"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -91,11 +90,13 @@ func (s *Store) AddPresence(ctx context.Context, userID, nodeID, connID string) 
 
 // TouchPresence refreshes the heartbeat for one live connection.
 //
-// Called from the connection loop's existing ping ticker. Both keys are
-// refreshed: the org set's score is what OnlineUserIDs reaps against, so a user
+// Called from the connection loop's heartbeat ticker, which passes beat: how many
+// heartbeats THIS connection has sent, counted from 1. The TTL cadence is a
+// property of one socket's own beats (see ttlRefreshEveryN), so it must be
+// counted per socket and never shared. Both keys are refreshed: the org set's score is what OnlineUserIDs reaps against, so a user
 // whose only signal was the connection-level key would age out of the org view
 // while still connected.
-func (s *Store) TouchPresence(ctx context.Context, orgID, userID, nodeID, connID string) (err error) {
+func (s *Store) TouchPresence(ctx context.Context, orgID, userID, nodeID, connID string, beat uint64) (err error) {
 	defer observe(metrics.PurposePresence, time.Now(), &err)
 	now := float64(nowMs())
 	// Pipeline, NOT TxPipeline. This is the one place that touches two
@@ -115,7 +116,7 @@ func (s *Store) TouchPresence(ctx context.Context, orgID, userID, nodeID, connID
 	// so re-arming it every time is an order of magnitude more writes than the
 	// expiry needs — and at a socket per beat, these two commands are the
 	// single largest source of Redis traffic in the platform.
-	if shouldRefreshTTL() {
+	if refreshesTTL(beat) {
 		pipe.Expire(ctx, s.presenceKey(userID), presenceTTL)
 		pipe.Expire(ctx, s.orgPresenceKey(orgID), presenceTTL)
 	}
@@ -137,13 +138,18 @@ func (s *Store) TouchPresence(ctx context.Context, orgID, userID, nodeID, connID
 // TTL without redoing this arithmetic fails the build.
 const ttlRefreshEveryN = 4
 
-// ttlBeat counts heartbeats process-wide for the sampling above.
-var ttlBeat atomic.Uint64
-
-func shouldRefreshTTL() bool {
-	// Always refresh on the first beat of a process, so a pod that has just
-	// started does not wait up to N beats before arming any TTL at all.
-	return ttlBeat.Add(1)%ttlRefreshEveryN == 1
+// refreshesTTL reports whether one connection's beat-th heartbeat (counted from
+// 1) also re-arms the key TTLs. Its first beat always does, so a socket does not
+// wait up to N beats before arming any TTL at all.
+//
+// This is deliberately a function of the connection's OWN beat number. It used to
+// sample a single counter shared by every socket in the process, which made each
+// socket's refresh spacing depend on how the beats of all the others interleaved:
+// with a fixed beating order a socket was either always the sampled one or never,
+// and one that never was lost its presence key when the TTL ran out — the user
+// vanished from routing until their next heartbeat re-created it.
+func refreshesTTL(beat uint64) bool {
+	return beat%ttlRefreshEveryN == 1
 }
 
 // RemovePresence clears a connection's presence entry.

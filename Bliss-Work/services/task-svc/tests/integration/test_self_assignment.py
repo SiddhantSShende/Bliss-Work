@@ -58,7 +58,8 @@ async def _assignee_row(task_id: str, assignee_id: str):
         ).first()
 
 
-async def test_self_assignment_is_accepted_and_persists(db_app):
+async def test_self_assignment_is_accepted_and_persists(db_app, seed_members):
+    await seed_members(ORG, SENDER)
     async with await _client() as c:
         r = await c.post(
             "/api/v1/tasks",
@@ -73,7 +74,8 @@ async def test_self_assignment_is_accepted_and_persists(db_app):
     assert row.status_version == 0
 
 
-async def test_self_assigned_task_can_be_acknowledged(db_app):
+async def test_self_assigned_task_can_be_acknowledged(db_app, seed_members):
+    await seed_members(ORG, SENDER)
     async with await _client() as c:
         r = await c.post(
             "/api/v1/tasks",

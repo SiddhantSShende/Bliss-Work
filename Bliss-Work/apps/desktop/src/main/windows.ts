@@ -2,8 +2,8 @@ import { BrowserWindow, screen } from "electron";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { appIcon } from "./assets";
+import { attachToDesktopLayer } from "./desktop-layer";
 import { hardenWindow } from "./harden";
-import { shouldFloatNotesNow } from "./app-active";
 import { isSystemAway } from "./window-state-guard";
 import { getMainWindowBounds, saveMainWindowBounds } from "./sticky-state";
 
@@ -119,47 +119,39 @@ function wireBoundsPersistence(win: BrowserWindow): void {
 }
 
 export function createStickyWindow(collapsed = false): BrowserWindow {
-  // DESKTOP-PINNED TASK NOTE — an allocated task rests on the user's DESKTOP,
-  // the way a paper note rests on a monitor bezel. It is there whenever the
-  // desktop is what they are looking at, whether or not BlissWork is open, and
-  // it stays until the task is Completed or Ignored. It is never over another
-  // application.
+  // PINNED TASK POPUP — a persistent desktop widget. An allocated task stays on
+  // screen until it is completed, ignored or the user clicks Unpin. Opening or
+  // switching to another application never hides or minimises it.
   //
-  // How that is achieved, per platform:
-  //
-  //   • WINDOWS and macOS — real `alwaysOnTop`, toggled by StickyManager in
-  //     step with ./app-active: ON while BlissWork is frontmost OR the bare
-  //     desktop is showing, OFF the instant another application is. Electron's
-  //     `alwaysOnTop` is a single global flag with no "above my own windows
-  //     only" setting, so toggling it in step with that reading is the only way
-  //     to get a note that rests on the desktop without ever covering someone
-  //     else's work.
-  //
-  //   • LINUX — `type: "desktop"` maps to _NET_WM_WINDOW_TYPE_DESKTOP, which
-  //     parks the window at the BOTTOM of the real stack, on the wallpaper
-  //     layer. That is a note ON the desktop in the most literal sense: it can
-  //     never be in anybody's way, so alwaysOnTop is simply never turned on
-  //     there and nothing ever has to be hidden.
+  // Where it sits differs by platform:
+  //   • WINDOWS — on the DESKTOP layer: above the wallpaper and icons, below every
+  //     normal application, so it never floats over Chrome or an editor and needs
+  //     no click on the desktop to reappear. Electron cannot express that, so
+  //     desktop-layer.ts places the window with a Win32 call; if that is
+  //     unavailable the note is still an ordinary non-topmost window.
+  //   • macOS / Linux — alwaysOnTop at the "screen-saver" level (the highest
+  //     Electron offers), visible on all workspaces and over fullscreen apps.
+  //     `type: "desktop"` is deliberately not used: it parked the note behind
+  //     every window on Linux.
   //
   // Why NOT an Electron child window (`parent`), which this briefly was: an
   // owned window is bound to its owner's lifecycle, so it follows the main
-  // window into a minimize and cannot be shown while the owner is hidden. That
-  // makes the note a companion to the APP rather than a widget on the DESKTOP,
-  // and it is what made pinned tasks vanish on Win+D, on minimise, and on
-  // close-to-tray. Ownership and "rests on the desktop" are mutually exclusive.
+  // window into a minimize and cannot be shown while the owner is hidden. The
+  // note has to outlive BlissWork's own window — minimised, or closed to the
+  // tray.
   //
   //   • focusable: false → the note can never take focus or be raised to the
-  //     front by a click. That is what makes clicking a note NOT count as
-  //     leaving BlissWork (the main window keeps focus, so the app-wide focus
-  //     read in ./app-active stays true) and keeps the note from ever fighting
-  //     the user for the keyboard, and it means its own alwaysOnTop toggling
-  //     never fights the window manager. Task actions are pure click targets —
-  //     no text input — so this costs nothing.
+  //     front by a click, so clicking it never pulls focus off whatever the user
+  //     is working in and it never fights them for the keyboard. Task actions
+  //     are pure click targets — no text input — so this costs nothing. (On
+  //     Linux it also keeps the window manager from managing it as a normal
+  //     window, which is what lets it stay on top across workspaces.)
   //   • skipTaskbar: true → kept out of the taskbar/alt-tab, since it is a
   //     desktop widget, not a window someone switches to directly.
   //   • showInactive() (below) surfaces it WITHOUT stealing focus.
   //
   // The StickyManager confines its position to the primary display.
+  const onDesktopLayer = process.platform === "win32";
   const win = new BrowserWindow({
     // Wide enough for "Acknowledge" and "Ignore" to sit side by side with their
     // text labels. The note used to render those two as bare icons to fit 320px,
@@ -197,11 +189,8 @@ export function createStickyWindow(collapsed = false): BrowserWindow {
     resizable: true,
     movable: true,
     skipTaskbar: true,
-    // Starts false on every platform. On win32/darwin StickyManager turns it on
-    // as soon as the desktop reading says it is safe; on Linux it stays off for
-    // good, because `type: "desktop"` below is the mechanism there instead.
-    alwaysOnTop: false,
-    ...(process.platform === "linux" ? { type: "desktop" as const } : {}),
+    // Topmost from the first frame off Windows; on Windows the note is NOT topmost.
+    alwaysOnTop: !onDesktopLayer,
     focusable: false, // never raises to the front, never steals focus
     hasShadow: true,
     maximizable: false,
@@ -222,34 +211,30 @@ export function createStickyWindow(collapsed = false): BrowserWindow {
 
   hardenWindow(win, "sticky");
 
+  if (onDesktopLayer) {
+    attachToDesktopLayer(win);
+  } else {
+    // Highest priority in the window stack. The constructor flag alone puts the
+    // note at the ordinary "floating" level, which a fullscreen app or another
+    // topmost window can sit over; "screen-saver" is the top of the stack.
+    win.setAlwaysOnTop(true, "screen-saver");
+    // Follow the user across workspaces and into fullscreen spaces.
+    // skipTransformProcessType keeps macOS from flickering the Dock icon away.
+    win.setVisibleOnAllWorkspaces(true, {
+      visibleOnFullScreen: true,
+      skipTransformProcessType: true,
+    });
+  }
+
   // No taskId in the query any more — this one window carries the whole
   // carousel, pushed over IPC (sticky:task*) once the renderer is ready.
   const query = collapsed ? "?collapsed=1" : "";
   if (DEV_URL) void win.loadURL(`${DEV_URL}/sticky.html${query}`);
   else void win.loadFile(join(rendererDir, "sticky.html"), { search: query });
 
-  // Show it without grabbing keyboard focus — but only while it is safe to be
-  // on screen. A task allocated while someone is in another application must
-  // not appear over their work; it waits, and StickyManager.setSafeToFloat()
-  // brings it up the moment they return to BlissWork or to the desktop.
-  win.on("ready-to-show", () => {
-    if (!shouldFloatNotesNow()) return;
-    win.showInactive();
-    setNoteOnTop(win, true);
-  });
+  // Show it without grabbing keyboard focus. Unconditional: a task allocated
+  // while the user is in another application is shown at once — the note does
+  // not wait for the user to come back to BlissWork.
+  win.on("ready-to-show", () => win.showInactive());
   return win;
-}
-
-/**
- * Raise or drop a note's always-on-top flag.
- *
- * A no-op on Linux, where `type: "desktop"` already parks the note at the
- * bottom of the stack: promoting it there would lift it off the wallpaper layer
- * and defeat the whole mechanism. Shared with StickyManager so both places
- * apply the same platform rule rather than each remembering it.
- */
-export function setNoteOnTop(win: BrowserWindow, onTop: boolean): void {
-  if (process.platform === "linux") return;
-  if (win.isDestroyed()) return;
-  win.setAlwaysOnTop(onTop);
 }

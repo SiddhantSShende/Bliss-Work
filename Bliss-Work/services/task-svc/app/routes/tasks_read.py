@@ -22,6 +22,10 @@ _MAX_LIMIT = 100
 
 LimitQuery = Query(default=_DEFAULT_LIMIT, ge=1, le=_MAX_LIMIT)
 OffsetQuery = Query(default=0, ge=0)
+# A sender never sees an assignee who ignored the task (Ignore sets
+# sender_dismissed) unless they ask: TasksList, Search and mobile rely on that
+# default, while My Tasks opts in so its Ignored filter has rows to show.
+IncludeIgnoredQuery = Query(default=False, alias="includeIgnored")
 
 
 # ── Inbox / Sticky (caller as assignee) ─────────────────────────────────────────
@@ -61,7 +65,9 @@ async def _sticky_list(
                     "LEFT JOIN user_projection up "
                     "       ON up.user_id = t.sender_id AND up.org_id = t.org_id "
                     f"WHERE ta.org_id = :org AND ta.assignee_id = :me AND ta.status IN ({placeholders}) "
-                    "ORDER BY ta.assigned_at DESC "
+                    # task_id breaks ties: a bulk assignment shares one assigned_at, and
+                    # without a total order OFFSET pages skip or repeat rows.
+                    "ORDER BY ta.assigned_at DESC, ta.task_id DESC "
                     "LIMIT :limit OFFSET :offset"
                 ),
                 params,
@@ -218,6 +224,7 @@ async def sent(
     principal: Principal = PrincipalDep,
     limit: int = LimitQuery,
     offset: int = OffsetQuery,
+    include_ignored: bool = IncludeIgnoredQuery,
 ) -> list[SentTaskDTO]:
     async with session() as db:
         # RLS: scope this transaction to the caller's org before any read.
@@ -225,6 +232,9 @@ async def sent(
         # Paginate by task (the unit a caller sees), not by assignee row, so a
         # single task's assignees never get split across pages. We page the
         # distinct task ids, then hydrate each with all its assignee rows.
+        # Ordered by (created_at, id): tasks created in one transaction share a
+        # created_at, and without the id tiebreaker OFFSET paging could skip or
+        # repeat them between pages.
         task_rows = (
             await db.execute(
                 text(
@@ -232,9 +242,10 @@ async def sent(
                     "WHERE t.org_id = :org AND t.sender_id = :me "
                     "      AND EXISTS ("
                     "          SELECT 1 FROM task_assignees ta "
-                    "          WHERE ta.task_id = t.id AND ta.sender_dismissed = false"
+                    "          WHERE ta.task_id = t.id "
+                    "                AND (:include_ignored OR ta.sender_dismissed = false)"
                     "      ) "
-                    "ORDER BY t.created_at DESC "
+                    "ORDER BY t.created_at DESC, t.id DESC "
                     "LIMIT :limit OFFSET :offset"
                 ),
                 {
@@ -242,6 +253,7 @@ async def sent(
                     "me": principal.user_id,
                     "limit": limit,
                     "offset": offset,
+                    "include_ignored": include_ignored,
                 },
             )
         ).all()
@@ -263,11 +275,16 @@ async def sent(
                     "LEFT JOIN user_projection up "
                     "       ON up.user_id = ta.assignee_id AND up.org_id = ta.org_id "
                     "WHERE t.org_id = :org AND t.sender_id = :me "
-                    "      AND ta.sender_dismissed = false "
+                    "      AND (:include_ignored OR ta.sender_dismissed = false) "
                     "      AND t.id = ANY(:tids) "
-                    "ORDER BY t.created_at DESC, ta.assigned_at ASC"
+                    "ORDER BY t.created_at DESC, t.id DESC, ta.assigned_at ASC"
                 ),
-                {"org": principal.org_id, "me": principal.user_id, "tids": task_ids},
+                {
+                    "org": principal.org_id,
+                    "me": principal.user_id,
+                    "tids": task_ids,
+                    "include_ignored": include_ignored,
+                },
             )
         ).all()
 

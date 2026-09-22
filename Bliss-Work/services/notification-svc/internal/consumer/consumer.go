@@ -457,6 +457,29 @@ func (c *Consumer) create(ctx context.Context, tx pgx.Tx, n notification) error 
 		return errMalformed
 	}
 
+	// org_id, recipient_id and task_id are all `uuid`-typed columns (see
+	// 001_init.sql). A well-formed JSON event with a non-UUID or empty value
+	// in any of them used to reach the INSERT below, which Postgres rejects
+	// with 22P02 — an error indistinguishable here from a transient DB
+	// failure, so runBatch treated it as one: abandon the batch, restart, and
+	// redeliver the exact same unparseable value forever. Validating up front
+	// and dead-lettering, same as the eventId check above, is what turns that
+	// crash-loop into a bounded, logged skip.
+	if _, err := uuid.Parse(n.orgID); err != nil {
+		c.log.Warn("invalid orgId, dead-lettering", "eventId", n.sourceEventID, "orgId", n.orgID)
+		return errMalformed
+	}
+	if _, err := uuid.Parse(n.recipientID); err != nil {
+		c.log.Warn("invalid recipientId, dead-lettering", "eventId", n.sourceEventID, "recipientId", n.recipientID)
+		return errMalformed
+	}
+	if n.taskID != nil {
+		if _, err := uuid.Parse(*n.taskID); err != nil {
+			c.log.Warn("invalid taskId, dead-lettering", "eventId", n.sourceEventID, "taskId", *n.taskID)
+			return errMalformed
+		}
+	}
+
 	// Dedup: claim this event id. If it already exists, skip. Within a batch
 	// this also catches a duplicate that arrived twice in the SAME tx, because
 	// the insert is visible to its own transaction.

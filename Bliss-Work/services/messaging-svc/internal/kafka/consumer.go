@@ -36,6 +36,57 @@ func startConsumeSpan(ctx context.Context, m kafka.Message) (context.Context, tr
 	)
 }
 
+// A handler that reports failure is retried IN PLACE — the next message is not
+// fetched until this one is done — because Kafka tracks one offset per
+// partition: committing any LATER message moves the group past an earlier one
+// that failed and was never retried, so "withhold the commit and let a restart
+// redeliver it" only holds if nothing else commits first. Retrying in place is
+// what makes it hold.
+//
+// The pause starts at handleRetryBackoff and doubles up to maxHandleBackoff, so
+// maxHandleAttempts rides out about a minute and a half of database trouble.
+// Vars, not consts, only so a test need not wait.
+const maxHandleAttempts = 8
+
+var (
+	handleRetryBackoff = time.Second
+	maxHandleBackoff   = 30 * time.Second
+)
+
+// handleWithRetry runs handle until it reports the offset safe to commit,
+// pausing between failures. It returns false ONLY when ctx ends first, and the
+// message must then be left uncommitted so a restart redelivers it.
+//
+// A message that still fails after maxHandleAttempts is logged at error level
+// and reported done: one that can never succeed must not stall its partition —
+// and every organisation's events behind it. That is a loud, bounded loss
+// instead of a silent, permanent stall.
+func handleWithRetry(ctx context.Context, log *slog.Logger, what string, m kafka.Message, handle func(context.Context) bool) bool {
+	backoff := handleRetryBackoff
+	for attempt := 1; ; attempt++ {
+		msgCtx, span := startConsumeSpan(ctx, m)
+		ok := handle(msgCtx)
+		span.End()
+		if ok {
+			return true
+		}
+		if attempt >= maxHandleAttempts {
+			log.Error(what+" gave up on a message after retries",
+				"topic", m.Topic, "partition", m.Partition, "offset", m.Offset, "attempts", attempt)
+			return true
+		}
+		log.Warn(what+" handler failed, retrying",
+			"topic", m.Topic, "partition", m.Partition, "offset", m.Offset,
+			"attempt", attempt, "retry_in", backoff)
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(backoff):
+		}
+		backoff = min(backoff*2, maxHandleBackoff)
+	}
+}
+
 // AuthConsumer consumes auth.events, maintains the user_projection, and erases
 // an organization's data when it is deleted.
 type AuthConsumer struct {
@@ -74,11 +125,9 @@ func NewAuthConsumer(st *store.Store, blobs blob.Store, brokers []string, log *s
 // event is gone, with no error and no way to ever retry it. Withholding the
 // commit on failure means a restart redelivers this message instead.
 //
-// (Kafka tracks one offset per partition, so a LATER message's successful
-// commit still implicitly advances past an earlier failed one that was never
-// individually committed — this closes "committed before the handler ever
-// ran," not every possible interaction with a stuck partition. handle()'s
-// dedup insert is what makes redelivering an already-applied message safe.)
+// A failed message is retried in place (handleWithRetry) rather than skipped,
+// so a later message's commit cannot carry the offset past it. handle()'s
+// dedup insert is what makes redelivering an already-applied message safe.
 func (c *AuthConsumer) Run(ctx context.Context) {
 	defer c.r.Close()
 	for {
@@ -99,11 +148,10 @@ func (c *AuthConsumer) Run(ctx context.Context) {
 			}
 			continue
 		}
-		msgCtx, span := startConsumeSpan(ctx, m)
-		ok := c.handleSafely(msgCtx, m.Value)
-		span.End()
-		if !ok {
-			continue
+		if !handleWithRetry(ctx, c.log, "auth consumer", m, func(msgCtx context.Context) bool {
+			return c.handleSafely(msgCtx, m.Value)
+		}) {
+			return // shutting down mid-retry: left uncommitted, so a restart redelivers it
 		}
 		if err := c.r.CommitMessages(ctx, m); err != nil {
 			c.log.Error("auth consumer commit failed", "err", err)

@@ -50,7 +50,8 @@ async def _assignee_status(task_id: str, assignee_id: str) -> str:
 
 
 # ── The bug: re-acknowledging a COMPLETED task must 409, not 200 ────────────
-async def test_acknowledge_after_complete_is_a_conflict_not_a_fake_success(db_app):
+async def test_acknowledge_after_complete_is_a_conflict_not_a_fake_success(db_app, seed_members):
+    await seed_members(ORG, SENDER)
     async with await _client() as c:
         r = await c.post("/api/v1/tasks", json={"title": "one shot", "assigneeIds": [SENDER]})
         assert r.status_code == 201, r.text
@@ -72,7 +73,8 @@ async def test_acknowledge_after_complete_is_a_conflict_not_a_fake_success(db_ap
 
 # ── Positive control: acknowledging an already-ACKNOWLEDGED task is still a
 # genuinely idempotent 200 ───────────────────────────────────────────────────
-async def test_acknowledge_twice_in_a_row_is_still_idempotent(db_app):
+async def test_acknowledge_twice_in_a_row_is_still_idempotent(db_app, seed_members):
+    await seed_members(ORG, SENDER)
     async with await _client() as c:
         r = await c.post("/api/v1/tasks", json={"title": "double ack", "assigneeIds": [SENDER]})
         assert r.status_code == 201, r.text

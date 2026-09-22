@@ -1,5 +1,6 @@
 """CAPTCHA generation + validation — required before every login and account
-creation (`/auth/login`, `/auth/orgs`).
+creation (`/auth/login`, `/auth/orgs`), except that login skips it for the
+platforms in `CAPTCHA_EXEMPT_PLATFORMS` (see `is_exempt_platform`).
 
 ── Why a captcha_id + rendered image, never the plaintext ───────────────────
 The value is never returned to the client in any form other than the
@@ -161,11 +162,29 @@ async def generate_challenge() -> tuple[str, bytes, int]:
 _INVALID_CAPTCHA = HTTPException(status.HTTP_400_BAD_REQUEST, "invalid or expired captcha")
 
 
-async def verify_and_consume(captcha_id: str | None, captcha_value: str | None) -> None:
+def is_exempt_platform(client_platform: str | None) -> bool:
+    """True when the client DECLARES itself a platform that is not challenged
+    (`CAPTCHA_EXEMPT_PLATFORMS`, default macOS + iOS). Exact token match after
+    trim/lower-casing — anything unrecognised, empty or absent is NOT exempt.
+
+    The declaration is unverifiable, so this is a product policy, not a
+    control: any caller can claim it. Only /auth/login passes a platform in;
+    /auth/orgs never does, so registration stays challenged everywhere."""
+    if client_platform is None:
+        return False
+    return client_platform.strip().lower() in settings.captcha_exempt_platform_set
+
+
+async def verify_and_consume(
+    captcha_id: str | None,
+    captcha_value: str | None,
+    client_platform: str | None = None,
+) -> None:
     """Raises `_INVALID_CAPTCHA` on ANY failure — missing, unknown id, expired,
     wrong value, or already used/over-attempted — always the SAME message, so
     a caller learns nothing about which case it was. No-op when
-    `CAPTCHA_ENABLED` is false (the dev/CI escape hatch — see config.py).
+    `CAPTCHA_ENABLED` is false (the dev/CI escape hatch — see config.py), or
+    when `client_platform` is one `is_exempt_platform` accepts.
 
     Called BEFORE any credential check in both login and registration: cheap
     to reject here, before an Argon2 verify or an identity lookup ever runs,
@@ -174,6 +193,8 @@ async def verify_and_consume(captcha_id: str | None, captcha_value: str | None) 
     have succeeded.
     """
     if not settings.captcha_enabled:
+        return
+    if is_exempt_platform(client_platform):
         return
     if not captcha_id or not captcha_value:
         raise _INVALID_CAPTCHA

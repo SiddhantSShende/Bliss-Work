@@ -4,12 +4,6 @@ import { fileURLToPath } from "node:url";
 import type { StickyTaskDTO } from "@taskboard/shared";
 import { createMainWindow } from "./windows";
 import { StickyManager } from "./sticky-manager";
-import {
-  onShouldFloatChange,
-  startAppActiveWatch,
-  stopAppActiveWatch,
-  trackMainWindow,
-} from "./app-active";
 import { ChatStickyManager, type ChatStickyBootstrap } from "./chat-sticky-manager";
 import { MeetingInviteManager } from "./meeting-invite-manager";
 import { MeetingWindowManager } from "./meeting-window-manager";
@@ -36,6 +30,7 @@ import { popupFor, raise, shouldNotify, userIdFromToken, windowStateOf } from ".
 import { resolveEndpointsFromEnv } from "../shared/endpoints";
 import { findDeepLink, parseDeepLink } from "../shared/deeplink";
 import { openExternalSafely } from "./harden";
+import { createOpenUrlHandler } from "./deep-link-cold-start";
 import { forwardDeepLinkWhenReady } from "./deep-link-forwarder";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
@@ -89,7 +84,7 @@ const meetingWindows = new MeetingWindowManager();
 // So the main window's status pill (see the meeting-window:status/closed
 // channels below) clears itself even on a non-graceful close — a crash, or
 // destroyAll() at quit, both of which skip the window's own close handshake.
-meetingWindows.onClosed = (callId) => mainWindow?.webContents.send("meeting-window:closed", callId);
+meetingWindows.onClosed = (callId) => sendToMain("meeting-window:closed", callId);
 
 // Last-resort guards: the app runs in the tray with always-on-top notes that
 // must outlive a stray error in an IPC handler or async callback. Log and keep
@@ -194,7 +189,7 @@ if (!app.requestSingleInstanceLock()) {
     initScreenshotGuard((chord, recorded) => {
       // `recorded` travels with the notice so the renderer reports the attempt
       // to the server only when main could not — see screenshot-guard.ts.
-      mainWindow?.webContents.send("security:screenshot-blocked", { chord, recorded });
+      sendToMain("security:screenshot-blocked", { chord, recorded });
     });
   });
 }
@@ -211,12 +206,19 @@ app.setAppUserModelId("com.blisswork.desktop");
 if (process.defaultApp) app.setAsDefaultProtocolClient("taskboard", process.execPath, [process.argv[1] ?? ""]);
 else app.setAsDefaultProtocolClient("taskboard");
 
-app.on("open-url", (_e, url) => {
-  focusMain();
-  // Same race as second-instance above (this is macOS's own entry point for
-  // the identical cold-start problem) — see deep-link-forwarder.ts.
-  if (mainWindow) forwardDeepLinkWhenReady(mainWindow, url, forwardDeepLink);
+// A link that LAUNCHES the app arrives here before app.whenReady() on macOS, when
+// there is no window to focus or forward to yet: it is held and bootstrap()
+// collects it — see deep-link-cold-start.ts.
+const openUrl = createOpenUrlHandler({
+  isReady: () => app.isReady(),
+  deliver: (url) => {
+    focusMain();
+    // Same race as second-instance above (this is macOS's own entry point for
+    // the identical cold-start problem) — see deep-link-forwarder.ts.
+    if (mainWindow) forwardDeepLinkWhenReady(mainWindow, url, forwardDeepLink);
+  },
 });
+app.on("open-url", (_e, url) => openUrl.handle(url));
 
 function bootstrap() {
   initCache();
@@ -253,11 +255,11 @@ function bootstrap() {
 
   // COLD START: on Windows/Linux a deep link that LAUNCHES the app arrives in
   // argv, not through `second-instance` (which only fires when an instance is
-  // already running) and not through `open-url` (macOS only). Without this,
-  // clicking an invite or a meeting-join link while the app is closed opens a
-  // blank app and silently drops the token. Wait for the renderer to be ready,
-  // or the IPC lands before anything is listening.
-  const launchLink = findDeepLink(process.argv);
+  // already running). On macOS it arrives through `open-url` before ready, held
+  // by `openUrl` above. Without this, clicking an invite or a meeting-join link
+  // while the app is closed opens a blank app and silently drops the token. Wait
+  // for the renderer to be ready, or the IPC lands before anything is listening.
+  const launchLink = findDeepLink(process.argv) ?? openUrl.takeHeld();
   if (launchLink) {
     mainWindow.webContents.once("did-finish-load", () => forwardDeepLink(launchLink));
   }
@@ -278,14 +280,6 @@ function bootstrap() {
   screen.on("display-removed", reclampStickies);
   screen.on("display-metrics-changed", reclampStickies);
 
-  // Keep the task notes on screen exactly while the user can see their desktop
-  // — whether that is BlissWork itself in front or the bare desktop with
-  // BlissWork minimised or in the tray — and take them off the moment another
-  // application is. See ./app-active for how that reading is made, and why it
-  // is safe to consult the OS for it.
-  onShouldFloatChange((safe) => sticky.setSafeToFloat(safe));
-  startAppActiveWatch();
-
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       mainWindow = createMainWindow();
@@ -294,14 +288,45 @@ function bootstrap() {
   });
 }
 
-function wireMainWindow(win: BrowserWindow) {
-  // The task notes are DESKTOP widgets, not children of this window — they
-  // outlive it being minimised or closed to the tray. This window is still
-  // tracked, because its focus is one of the two reasons a note may be on
-  // screen. Re-pointed here rather than captured once, because it can be
-  // recreated (macOS `activate`, the tray path).
-  trackMainWindow(win);
+/**
+ * Send to the main window's renderer, if one is still alive. The window can be
+ * hidden in the tray with a crashed or mid-recovery renderer, and
+ * `webContents.send` on a destroyed one throws.
+ */
+function sendToMain(channel: string, ...args: unknown[]): void {
+  const contents = mainWindow?.webContents;
+  if (contents && !contents.isDestroyed()) contents.send(channel, ...args);
+}
 
+/** More than this many renderer crashes in the window below means it is failing
+ *  on load — stop respawning a hidden window in a loop. */
+const MAX_RENDERER_RECOVERIES = 3;
+const RENDERER_RECOVERY_WINDOW_MS = 5 * 60_000;
+let rendererRecoveries: number[] = [];
+
+/**
+ * The hidden main renderer is the session's only token refresher, so pins go
+ * stale (never wrong) once it dies. Replace it, keeping the window hidden if the
+ * user could not see it; it re-bootstraps the session from the stored refresh
+ * token and hands the ws-process a fresh access token.
+ */
+function recoverMainWindow(dead: BrowserWindow) {
+  if (quitting || dead !== mainWindow) return;
+  const now = Date.now();
+  rendererRecoveries = rendererRecoveries.filter((t) => now - t < RENDERER_RECOVERY_WINDOW_MS);
+  if (rendererRecoveries.length >= MAX_RENDERER_RECOVERIES) {
+    console.error("[main] main renderer keeps crashing — not recreating it again");
+    return;
+  }
+  rendererRecoveries.push(now);
+  console.error("[main] main renderer gone — recreating the window");
+  const wasVisible = dead.isVisible();
+  dead.destroy();
+  mainWindow = createMainWindow(!wasVisible);
+  wireMainWindow(mainWindow);
+}
+
+function wireMainWindow(win: BrowserWindow) {
   // Intercept close to keep running in the tray, so the widgets + WS survive
   // the window being dismissed. A real quit sets `quitting`.
   // Windows only, and it must be registered BEFORE the close handler below so
@@ -317,10 +342,14 @@ function wireMainWindow(win: BrowserWindow) {
     }
   });
 
-  // Task-note visibility is NOT wired here: ./app-active listens app-wide, so
-  // that focus moving between BlissWork's own windows (main window → a chat
-  // note) never reads as leaving the app. Chat stickies are a separate feature
-  // with their own (unchanged) always-behind behaviour.
+  win.webContents.on("render-process-gone", (_e, details) => {
+    if (details.reason !== "clean-exit") recoverMainWindow(win);
+  });
+
+  // Task notes are NOT wired here: they never take focus and are not owned by
+  // this window (see createStickyWindow), so they outlive it being minimised or
+  // closed to the tray. Chat stickies are a separate feature with their own
+  // (unchanged) always-behind behaviour.
   win.on("focus", () => {
     chatSticky.lowerZOrder();
     checkOnWindowFocus();
@@ -355,9 +384,9 @@ function forwardDeepLink(url?: string) {
   const link = parseDeepLink(url);
   if (!link) return;
   if (link.kind === "meeting") {
-    mainWindow?.webContents.send("deeplink:meeting", link.token);
+    sendToMain("deeplink:meeting", link.token);
   } else {
-    mainWindow?.webContents.send("deeplink:invite", link.token);
+    sendToMain("deeplink:invite", link.token);
   }
 }
 
@@ -379,7 +408,7 @@ function startWsProcess() {
       wsRestartTimer = null;
       startWsProcess();
       // The new child has no token yet; prompt the renderer to forward it.
-      mainWindow?.webContents.send("token:request");
+      sendToMain("token:request");
     }, delay);
   });
 
@@ -406,7 +435,7 @@ function startWsProcess() {
       wsRestarts = 0;
       switch (m.type) {
         case "event":
-          mainWindow?.webContents.send("ws:event", m.event, { replayed: m.replayed === true });
+          sendToMain("ws:event", m.event, { replayed: m.replayed === true });
           // Live events only. The replayed burst is everything that happened
           // while this client was offline, so popping one notification per item
           // would bury the desktop on every reconnect — and the user has
@@ -435,10 +464,10 @@ function startWsProcess() {
           if (m.threadId) chatSticky.pushMessage(m.threadId, m.payload);
           break;
         case "rtc-frame":
-          mainWindow?.webContents.send("rtc:frame", m.frame);
+          sendToMain("rtc:frame", m.frame);
           break;
         case "need-token":
-          mainWindow?.webContents.send("token:request");
+          sendToMain("token:request");
           break;
       }
     },
@@ -621,6 +650,21 @@ ipcMain.on("auth:set-refresh-token", (e, token: unknown) => {
   if (!fromMainWindow(e)) return;
   if (token === null) {
     void clearRefreshToken();
+    // Sign-out (the only caller that clears it): the pins, the unpin vetoes and
+    // the cached tasks belong to the user who just left — the next person to
+    // sign in on this profile must not inherit them.
+    sticky.prunePinned([]);
+    sticky.setTasks([]);
+    setTasks([]);
+    updateTray();
+    // Chat stickies too: they carry a thread's messages and the pinner's id, and
+    // ws-process would keep forwarding that thread into a window the next user
+    // sees. Through the ordinary unpin path, so the geometry is forgotten and
+    // ws-process is told to stop.
+    for (const threadId of chatSticky.pinnedIds()) {
+      chatSticky.unpin(threadId);
+      wsProc?.postMessage({ type: "sticky-chat-unsubscribe", threadId });
+    }
     return;
   }
   if (typeof token !== "string" || !token) return;
@@ -673,17 +717,17 @@ ipcMain.handle("task:list-pinned", () => {
     return [];
   }
 });
-// Take a note off screen for the rest of this run. Sent ONLY by the note's own
-// X — not by opening the task, which is reading it, not dealing with it. The
-// pin survives, so the note is back on the next launch if the task is still
-// actionable; only completing or ignoring it removes it for good.
-ipcMain.on("sticky:dismiss", (_e, taskId: unknown) => {
+// Unpin a task from the desktop popup. Sent ONLY by the note's own Unpin button
+// — not by opening the task, which is reading it, not dealing with it. The
+// unpin is persisted, so it holds across server pushes and restarts; the task
+// itself is untouched and stays in the in-app Tasks list.
+ipcMain.on("sticky:unpin", (_e, taskId: unknown) => {
   if (typeof taskId !== "string" || !taskId) return;
   try {
-    sticky.hideForSession(taskId);
+    sticky.unpin(taskId);
     updateTray();
   } catch (err) {
-    console.error("[sticky] sticky:dismiss failed", err);
+    console.error("[sticky] sticky:unpin failed", err);
   }
 });
 // The carousel window's renderer has subscribed to "sticky:tasks" and is
@@ -813,7 +857,7 @@ ipcMain.on("meeting-invite:dismiss", (e, callId: unknown) => {
 });
 
 // From the invite popup's OWN window/preload, not the main window — same
-// trust level as sticky:dismiss (a callId + a choice of three fixed actions,
+// trust level as sticky:unpin (a callId + a choice of three fixed actions,
 // nothing session-bearing). Video/Voice bring the main window forward and
 // hand the join off to it (requestMeetingJoin lives in the shared app code,
 // which only the main window renders); Leave just clears the popup. Sender
@@ -829,7 +873,7 @@ ipcMain.on("meeting-invite:act", (e, payload: unknown) => {
   if (meetingInvite.currentWindow()?.webContents !== e.sender) return;
   if (action === "video" || action === "voice") {
     focusMain();
-    mainWindow?.webContents.send("meeting-invite:join", { callId, media: action });
+    sendToMain("meeting-invite:join", { callId, media: action });
   } else if (action !== "leave") {
     return;
   }
@@ -872,7 +916,7 @@ ipcMain.on("meeting-window:status", (e, status: unknown) => {
   if (!status || typeof status !== "object") return;
   if (typeof (status as Record<string, unknown>).callId !== "string") return;
   if (!meetingWindows.all().some((w) => w.webContents === e.sender)) return;
-  mainWindow?.webContents.send("meeting-window:status", status);
+  sendToMain("meeting-window:status", status);
 });
 
 // The status pill's hang-up button. Round-trips to the window that actually
@@ -939,7 +983,6 @@ powerMonitor.on("shutdown", onSystemShutdown);
  */
 app.on("before-quit", (e) => {
   quitting = true;
-  stopAppActiveWatch();
   // Flush any pending sticky-state writes so the user's geometry survives a
   // tray-quit. The atomic temp-then-rename means a SIGKILL during this call
   // still leaves a valid prior file in place.

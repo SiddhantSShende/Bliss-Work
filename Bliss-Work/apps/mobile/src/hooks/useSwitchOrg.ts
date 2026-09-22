@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { isMfaPending } from '@taskboard/shared';
 import { useRuntime } from '@taskboard/app/lib/runtime';
 import { useSession } from '@taskboard/app/store/session';
+import { syncRefreshTokenFromJar } from '../services/authCookie';
 
 /**
  * Switch the active organization — mobile twin of `useSwitchOrg`
@@ -40,6 +41,11 @@ export function useSwitchOrg() {
         );
         return;
       }
+      // /auth/orgs/:id/switch starts a NEW refresh family and sets its cookie in the
+      // native jar. getRefreshToken() reads the Keychain mirror first, so until the
+      // mirror is re-synced the next refresh or relaunch presents the OLD org's
+      // token and silently flips the app back (or logs it out if that family was revoked).
+      await syncRefreshTokenFromJar();
       setSession({ user: result.user, accessToken: result.accessToken, expiresIn: result.expiresIn });
       qc.clear(); // every cached query is scoped to the previous org
     } catch {

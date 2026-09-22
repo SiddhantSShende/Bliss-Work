@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { Button, Input } from "@taskboard/ui";
-import { ApiError, isMfaPending } from "@taskboard/shared";
+import { ApiError, isCaptchaExemptPlatform, isMfaPending } from "@taskboard/shared";
 import { toast } from "sonner";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
@@ -10,6 +10,7 @@ import { broadcastSession } from "../lib/authChannel";
 import { AuthLayout, Field } from "./Onboarding";
 import { CaptchaField, useCaptcha } from "../features/Captcha";
 import { safeRedirect } from "../lib/safeRedirect";
+import { detectClientPlatform } from "../lib/clientPlatform";
 
 export function Login() {
   const { api } = useRuntime();
@@ -22,17 +23,27 @@ export function Login() {
   const [busy, setBusy] = useState(false);
   const [reveal, setReveal] = useState(false);
   const [form, setForm] = useState({ email: "", password: "" });
-  const captcha = useCaptcha();
+  // macOS and iOS sign in without a CAPTCHA; every other platform keeps it. The
+  // server makes the same call from `clientPlatform` — this only decides whether
+  // to fetch and show the challenge.
+  const [platform] = useState(detectClientPlatform);
+  // Set when the server wants a CAPTCHA from a platform this client took to be
+  // exempt (client and server out of step, e.g. mid-deploy): show the challenge
+  // rather than leave the person unable to sign in.
+  const [captchaForced, setCaptchaForced] = useState(false);
+  const needsCaptcha = captchaForced || !isCaptchaExemptPlatform(platform);
+  const captcha = useCaptcha(needsCaptcha);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!captcha.captchaId) return;
+    const captchaId = needsCaptcha ? captcha.captchaId : null;
+    if (needsCaptcha && !captchaId) return;
     setBusy(true);
     try {
       const result = await api.login({
         ...form,
-        captchaId: captcha.captchaId,
-        captchaValue: captcha.value,
+        clientPlatform: platform,
+        ...(captchaId ? { captchaId, captchaValue: captcha.value } : {}),
       });
       if (isMfaPending(result)) {
         nav("/mfa-challenge", { state: { ...result, redirect } });
@@ -52,6 +63,11 @@ export function Login() {
       // caller. Only 401 is actually about the credentials.
       if (err instanceof ApiError && err.status === 401) {
         toast.error("Invalid email or password");
+      } else if (err instanceof ApiError && err.status === 400 && !needsCaptcha) {
+        setCaptchaForced(true);
+        toast.error("Security check required", {
+          description: "Complete the security check below, then sign in again.",
+        });
       } else if (err instanceof ApiError && err.status === 400) {
         toast.error("Incorrect security check", { description: "Please try again." });
       } else if (err instanceof ApiError && err.status === 429) {
@@ -70,8 +86,9 @@ export function Login() {
       }
       // The CAPTCHA the server just validated is single-use — dead now
       // regardless of WHY the request ultimately failed (wrong password,
-      // wrong CAPTCHA, or anything else). A retry needs a fresh one.
-      void captcha.refresh();
+      // wrong CAPTCHA, or anything else). A retry needs a fresh one. (Nothing to
+      // refresh when none was used; a forced one is fetched by useCaptcha itself.)
+      if (needsCaptcha) void captcha.refresh();
     } finally {
       setBusy(false);
     }
@@ -129,11 +146,11 @@ export function Login() {
             Forgot password?
           </Link>
         </div>
-        <CaptchaField captcha={captcha} />
+        {needsCaptcha && <CaptchaField captcha={captcha} />}
         <Button
           type="submit"
           loading={busy}
-          disabled={!captcha.captchaId || captcha.value.length === 0}
+          disabled={needsCaptcha && (!captcha.captchaId || captcha.value.length === 0)}
           size="lg"
           className="mt-1 w-full"
         >

@@ -18,6 +18,7 @@ from __future__ import annotations
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import DataError
 
 from .logging_config import log
 
@@ -91,6 +92,26 @@ async def _validation_exception_handler(
     return response
 
 
+async def _data_error_handler(request: Request, exc: DataError) -> JSONResponse:
+    """A malformed value reached Postgres as a bind parameter — most often a
+    non-UUID path parameter hitting a `uuid`-typed column (asyncpg raises
+    InvalidTextRepresentationError, SQLSTATE 22P02, which SQLAlchemy
+    classifies as DataError; the same happens for e.g. an out-of-range
+    numeric). Several routes take a raw `str` path param and pass it straight
+    through to a query with no upfront validation, so a typo'd or scanned id
+    used to fall through to `_unhandled_exception_handler` as a logged 500.
+    `DataError` is specifically SQLAlchemy's "the driver rejected this DATA",
+    distinct from `IntegrityError`/`OperationalError`/etc., so this can never
+    mask a genuine server-side failure as a client error.
+    """
+    rid = _request_id(request)
+    log.warning("malformed_value_reached_db", path=request.url.path, request_id=rid)
+    body = _error_body("bad_request", "invalid request", rid)
+    response = JSONResponse(status_code=400, content=body)
+    response.headers["X-Request-Id"] = rid
+    return response
+
+
 async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     rid = _request_id(request)
     # Full traceback to logs only — never to the client.
@@ -105,4 +126,5 @@ def register_exception_handlers(app: FastAPI) -> None:
     """Wire the canonical handlers on the FastAPI app."""
     app.add_exception_handler(HTTPException, _http_exception_handler)
     app.add_exception_handler(RequestValidationError, _validation_exception_handler)
+    app.add_exception_handler(DataError, _data_error_handler)
     app.add_exception_handler(Exception, _unhandled_exception_handler)

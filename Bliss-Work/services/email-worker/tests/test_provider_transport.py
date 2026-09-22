@@ -43,7 +43,7 @@ def _settings() -> types.SimpleNamespace:
         smtp_username="",
         smtp_password="",
         smtp_starttls=False,
-        redis_url="redis://localhost:6379/0",
+        redis_url="redis://localhost:6379/0", relay_max_concurrency=4,
         poison_max_failures=3,
         messaging_internal_base="http://messaging-svc:8004",
         integrations_internal_base="http://integrations-svc:8005",

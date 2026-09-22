@@ -3,6 +3,14 @@ import { toast } from "sonner";
 import { useRuntime } from "./runtime";
 import { canShareFiles, handoffMediaFiles } from "./waMediaForward";
 
+// Mirrors useAttachmentLinks.ts's MAX_LINK_BATCH: the server caps one
+// /attachments/links mint at 50 ids (maxLinkBatch, attachments.go) and 400s
+// the whole request otherwise. A media message forwarded to WhatsApp isn't
+// bounded to that many items, so this call site needs the same chunking —
+// unchunked, forwarding a big enough album would fail outright instead of
+// just the items past the cap.
+const MAX_LINK_BATCH = 50;
+
 /**
  * Fires the media half of a WhatsApp forward, alongside (never instead of)
  * the existing text-only wa.me anchor click — see waMediaForward.ts for why
@@ -29,8 +37,16 @@ export function useWhatsAppMediaForward() {
         try {
           // Same authorized, short-lived, scope-rechecked link mint every
           // rendered attachment already goes through (useAttachmentLinks) —
-          // no new authorization surface for external forwarding.
-          links = await api.attachmentLinks(attachments.map((a) => a.id));
+          // no new authorization surface for external forwarding. Chunked
+          // the same way, since this list isn't bounded to the server's
+          // per-request cap the way a single rendered page usually is.
+          const ids = attachments.map((a) => a.id);
+          const chunks: string[][] = [];
+          for (let index = 0; index < ids.length; index += MAX_LINK_BATCH) {
+            chunks.push(ids.slice(index, index + MAX_LINK_BATCH));
+          }
+          const responses = await Promise.all(chunks.map((chunk) => api.attachmentLinks(chunk)));
+          links = responses.flat();
         } catch {
           toast.error("Couldn't prepare the attachment for WhatsApp");
           return;

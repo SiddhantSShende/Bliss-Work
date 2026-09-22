@@ -44,3 +44,60 @@ const REFRESH_ON: ReadonlySet<string> = new Set<string>([...TASK_LIFECYCLE, STIC
 export function shouldRefreshSticky(eventType: string): boolean {
   return REFRESH_ON.has(eventType);
 }
+
+/**
+ * Ordering guard for overlapping /tasks/sticky re-reads.
+ *
+ * Every lifecycle event starts its own fetch, so two can be in flight at once,
+ * and responses do not return in the order they were asked for. A slow older
+ * one landing AFTER a newer one would be applied on top of it — auto-pinning a
+ * task the newer list had just dropped (completed, ignored) and leaving its note
+ * on screen with nothing to take it down until the next event. `begin()` hands
+ * out a ticket; only the holder of the newest one may publish its result.
+ *
+ * "Only the newest" would throw away good data if the newest then never
+ * succeeds: an older refresh that DID succeed would be discarded for nothing,
+ * leaving the notes stale until the next event. So one that finishes after being
+ * superseded is kept as a spare, and published only if the newest gives up. It
+ * is never used once something newer has gone out — that would put back what the
+ * newer publication took down.
+ */
+export function createRefreshGate<T>() {
+  let latest = 0;
+  /** The newest ticket whose result went out. */
+  let published = 0;
+  let spare: { ticket: number; result: T } | undefined;
+  return {
+    begin: (): number => ++latest,
+    isCurrent: (ticket: number): boolean => ticket === latest,
+
+    /** A refresh succeeded. True: it is the newest — publish it. False: it was
+     *  superseded; it is kept as a spare unless something newer is already out. */
+    succeeded(ticket: number, result: T): boolean {
+      if (ticket === latest) {
+        published = ticket;
+        spare = undefined;
+        return true;
+      }
+      if (ticket > published && (!spare || ticket > spare.ticket)) spare = { ticket, result };
+      return false;
+    },
+
+    /** The newest refresh exhausted its retries. The spare to publish in its
+     *  place, if there is one. (A spare is always newer than `published`: every
+     *  publication and cancel() clears it.) */
+    gaveUp(ticket: number): T | undefined {
+      if (ticket !== latest || !spare) return undefined;
+      published = spare.ticket;
+      const { result } = spare;
+      spare = undefined;
+      return result;
+    },
+
+    /** Sign-out: nothing in flight for the user who left may be published or kept. */
+    cancel(): void {
+      published = ++latest;
+      spare = undefined;
+    },
+  };
+}

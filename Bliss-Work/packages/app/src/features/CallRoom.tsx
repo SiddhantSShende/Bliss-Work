@@ -75,6 +75,7 @@ import { useLocalRecording } from "../lib/useLocalRecording";
 import { MiniMeeting } from "./MiniMeeting";
 import { BracketFrame } from "./BracketFrame";
 import { CallSidebar } from "./CallSidebar";
+import { CallAudioSinks } from "./CallAudioSinks";
 import { CallTile, UnpinButton } from "./CallTile";
 import { CallMembers } from "./CallMembers";
 import { CallSpeakerFilmstrip } from "./CallSpeakerFilmstrip";
@@ -1008,6 +1009,11 @@ export function CallRoom({
 
   return (
     <>
+      {/* Everyone's voice, once each — not tied to which tiles the layout shows
+          (see CallAudioSinks). A sibling of the hidden room, like MiniMeeting,
+          so it plays whether the room is visible or minimised. */}
+      <CallAudioSinks participants={participants} />
+
       {/* The meeting, small and on top, while the app is used underneath.
           Rendered as a SIBLING of the room rather than inside it: the room is
           hidden when minimised, and anything nested in it would be hidden too. */}

@@ -18,6 +18,7 @@ import { useRuntime } from "./runtime";
 
 /** Server TTL is 600s (MEDIA_URL_TTL_SECONDS); refresh with room to spare. */
 const REFRESH_MS = 8 * 60_000;
+const MAX_LINK_BATCH = 50;
 
 export function useAttachmentLinks(ids: string[]) {
   const { api } = useRuntime();
@@ -28,7 +29,14 @@ export function useAttachmentLinks(ids: string[]) {
   const query = useQuery({
     queryKey: ["attachmentLinks", key.join(",")],
     enabled: key.length > 0,
-    queryFn: () => api.attachmentLinks(key),
+    queryFn: async () => {
+      const chunks: string[][] = [];
+      for (let index = 0; index < key.length; index += MAX_LINK_BATCH) {
+        chunks.push(key.slice(index, index + MAX_LINK_BATCH));
+      }
+      const responses = await Promise.all(chunks.map((chunk) => api.attachmentLinks(chunk)));
+      return responses.flat();
+    },
     staleTime: REFRESH_MS,
     refetchInterval: REFRESH_MS,
     // Nothing here is worth a retry storm: a missing link degrades to a

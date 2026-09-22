@@ -185,12 +185,16 @@ func (s *Store) resolveForwardSource(ctx context.Context, tx pgx.Tx, orgID, forw
 		high    string
 	)
 	var threadID *string
+	// A message deleted for everyone keeps its body_enc, so both lookups below
+	// exclude it: an unsent message is not a source, and answers ErrForbidden
+	// like any other unreadable one rather than being decrypted and cloned.
 	err := tx.QueryRow(ctx,
 		`SELECT m.sender_id::text, m.body, m.body_enc, m.conversation_id::text,
 		        m.thread_id::text, c.user_low::text, c.user_high::text, m.seq
 		   FROM messages m
 		   JOIN conversations c ON c.id = m.conversation_id
-		  WHERE m.id = $1`, sourceMessageID).
+		  WHERE m.id = $1
+		    AND m.deleted_for_all_at IS NULL`, sourceMessageID).
 		Scan(&sender, &body, &bodyEnc, &out.ConversationID, &threadID, &low, &high, &out.Seq)
 	switch {
 	case err == nil:
@@ -211,7 +215,7 @@ func (s *Store) resolveForwardSource(ctx context.Context, tx pgx.Tx, orgID, forw
 	case errors.Is(err, pgx.ErrNoRows):
 		e := tx.QueryRow(ctx,
 			`SELECT sender_id::text, body, body_enc, channel_id::text, seq
-			   FROM channel_messages WHERE id = $1`, sourceMessageID).
+			   FROM channel_messages WHERE id = $1 AND deleted_for_all_at IS NULL`, sourceMessageID).
 			Scan(&sender, &body, &bodyEnc, &out.ChannelID, &out.Seq)
 		if errors.Is(e, pgx.ErrNoRows) {
 			return "", ErrForbidden

@@ -368,10 +368,11 @@ func (s *Store) CreateDirectCall(
 // user_projection — this service's local mirror of who exists, so the check
 // needs no cross-service call on the hot path.
 //
-// Shared by every path that widens a call's roster with a same-org user —
-// ScheduleMeeting's invitee loop, CreateDirectCall, AddParticipant — which
-// used to repeat this exact lookup, one copy per call site, differing only
-// in the local variable name.
+// Shared by every path that reaches a named user: the call paths that widen a
+// roster (ScheduleMeeting's invitee loop, CreateDirectCall, AddParticipant —
+// which used to repeat this exact lookup, one copy per call site) and the chat
+// paths that open a conversation (SendMessage, OpenConversation, Block). An id
+// that does not exist answers the same ErrForbidden as one from another org.
 func requireSameOrgUser(ctx context.Context, tx pgx.Tx, orgID, userID string) error {
 	var userOrg string
 	err := tx.QueryRow(ctx,

@@ -12,7 +12,13 @@ WHEN TO USE
 WHY IT'S SAFE
   * The per-org DEK VALUE never changes — only its wrapping (under the KEK) is
     rewritten — so every *_enc column stays decryptable untouched. Only
-    org_keys.wrapped_dek (all service DBs) and users.email_bidx (authdb) change.
+    org_keys.wrapped_dek (all service DBs) and the email blind index (authdb:
+    users.email_bidx AND identities.email_bidx) change.
+  * identities.email_bidx is what /auth/login looks the account up by (users.
+    email_bidx is per-membership), so leaving it on the OLD key breaks every
+    login. An identity has no encrypted email of its own; its email is read from
+    any of its memberships. An identity with NO membership cannot be recomputed —
+    it is reported and left, and cannot sign in anyway.
   * --dry-run verifies the whole plan read-only. --apply runs each DB in ONE
     transaction with verify-before-commit and ROLLS BACK that DB on any failure.
 
@@ -121,6 +127,13 @@ async def migrate_db(db: str, apply: bool) -> None:
                 "SELECT 1 FROM information_schema.tables WHERE table_name='users'"
             )
         )
+        # Not just `users`: an authdb with no `identities` table (pre-0007) has no login
+        # index to move, so the two are probed separately.
+        has_identities = has_users and bool(
+            await conn.fetchval(
+                "SELECT 1 FROM information_schema.tables WHERE table_name='identities'"
+            )
+        )
         if has_users:
             for u in await conn.fetch("SELECT id::text, org_id::text, email_enc, email_bidx FROM users"):
                 dek = deks[(u["org_id"], col_version(u["email_enc"]))]
@@ -129,6 +142,30 @@ async def migrate_db(db: str, apply: bool) -> None:
                     f"user {u['id']}: stored bidx != OLD-key bidx"
                 )
             print(f"  [{db}] user emails decrypted; old bidx verified")
+
+        identity_emails: dict[str, str] = {}
+        if has_identities:
+            # One decryptable email per identity: any of its memberships will do,
+            # they share the email by construction (that is what an identity is).
+            for i in await conn.fetch(
+                "SELECT DISTINCT ON (i.id) i.id::text AS identity_id, i.email_bidx, "
+                "       u.org_id::text AS org_id, u.email_enc "
+                "  FROM identities i JOIN users u ON u.identity_id = i.id "
+                " ORDER BY i.id, u.created_at"
+            ):
+                dek = deks[(i["org_id"], col_version(i["email_enc"]))]
+                email = col_decrypt(dek, i["org_id"], i["email_enc"])
+                assert hmac.compare_digest(bytes(i["email_bidx"]), bidx(old_bik, email)), (
+                    f"identity {i['identity_id']}: stored bidx != OLD-key bidx"
+                )
+                identity_emails[i["identity_id"]] = email
+            total = await conn.fetchval("SELECT count(*) FROM identities")
+            print(f"  [{db}] {len(identity_emails)}/{total} identities: old bidx verified")
+            if len(identity_emails) < total:
+                print(
+                    f"  [{db}] WARNING: {total - len(identity_emails)} identity(ies) have no "
+                    "membership, so their email is unrecoverable and their bidx stays on the OLD key"
+                )
 
         if not apply:
             print(f"  [{db}] DRY-RUN ok")
@@ -148,10 +185,19 @@ async def migrate_db(db: str, apply: bool) -> None:
                     await conn.execute(
                         "UPDATE users SET email_bidx=$1 WHERE id=$2", bidx(new_bik, email), u["id"]
                     )
+            for identity_id, email in identity_emails.items():
+                await conn.execute(
+                    "UPDATE identities SET email_bidx=$1 WHERE id=$2::uuid", bidx(new_bik, email), identity_id
+                )
             for r in await conn.fetch("SELECT org_id::text, key_version, wrapped_dek FROM org_keys"):
                 assert unwrap(new_k, r["org_id"], r["wrapped_dek"]) == deks[
                     (r["org_id"], int(r["key_version"]))
                 ], f"{db}: post-update DEK mismatch"
+            for row in await conn.fetch("SELECT id::text, email_bidx FROM identities"):
+                if row["id"] in identity_emails:
+                    assert hmac.compare_digest(
+                        bytes(row["email_bidx"]), bidx(new_bik, identity_emails[row["id"]])
+                    ), f"{db}: identity {row['id']} post-update bidx mismatch"
             print(f"  [{db}] APPLIED + verified-before-commit")
     finally:
         await conn.close()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 
 import httpx
 import uuid6
@@ -26,25 +27,31 @@ router = APIRouter()
 _CANDIDATE_LIMIT = 100
 
 
-async def _resolve_channel_members(channel_id: str, org_id: str) -> list[str]:
+async def _resolve_channel_members(channel_id: str, org_id: str, caller_id: str) -> list[str]:
     """Call messaging-svc's internal endpoint to fetch the channel's current
     member ids. Falls back to an empty list (caller decides what to do) on
     any transport / auth failure — the caller's HTTPException converts that
     into a 400 so the user gets a clean error instead of a half-created task.
 
-    The org_id from the caller's JWT is checked against the org_id the
-    channel belongs to so a cross-org attacker can't fan-out via a channel
-    they aren't in.
+    org_id and caller_id (the user creating the task) are passed so
+    messaging-svc can verify BOTH that the channel belongs to this org AND
+    that caller_id is actually a member of it — task-svc has no
+    channel_members table of its own to check that against, so this is the
+    only gate against an org member naming a private/locked channel they
+    never joined to fan a task out to its whole membership.
     """
     headers = {"X-Internal-Token": settings.messaging_internal_token}
     url = f"{settings.messaging_internal_base}/internal/channels/{channel_id}/members"
+    params = {"orgId": org_id, "callerId": caller_id}
     async with httpx.AsyncClient(timeout=httpx.Timeout(5.0, connect=2.0)) as client:
         try:
-            resp = await client.get(url, headers=headers)
+            resp = await client.get(url, headers=headers, params=params)
         except httpx.HTTPError as exc:
             log.warning("channel_members_fetch_failed", channel_id=channel_id, error=str(exc))
             raise HTTPException(status_code=503, detail="messaging service unreachable") from exc
     if resp.status_code == 404:
+        # Same response whether the channel doesn't exist, belongs to another
+        # org, or caller_id isn't a member of it — see the endpoint's docstring.
         raise HTTPException(status_code=404, detail="channel not found")
     if resp.status_code != 200:
         log.warning(
@@ -55,9 +62,38 @@ async def _resolve_channel_members(channel_id: str, org_id: str) -> list[str]:
         raise HTTPException(status_code=502, detail="messaging service error")
     body = resp.json()
     if body.get("orgId") != org_id:
-        # Cross-org probe — pretend it doesn't exist.
+        # Defense in depth: messaging-svc already checked this server-side.
         raise HTTPException(status_code=404, detail="channel not found")
     return list(body.get("memberIds") or [])
+
+
+async def _require_org_members(db: AsyncSession, org_id: str, user_ids: list[str]) -> None:
+    """Every assignee the CLIENT named must be an active member of the caller's org.
+
+    Without it a task can be pushed to a user id from another org: the assignee row
+    is stamped with the caller's org, so RLS is satisfied, and ws-gateway routes
+    task.assigned to the assignee by id alone. An id from another org, an id nobody
+    has and a deactivated member all get the same 400, so the endpoint cannot be
+    used to probe which ids exist.
+
+    Checked against user_projection (the same mirror the assignee picker and the
+    Available roster already rely on). Channel-derived assignees are not checked
+    here: messaging-svc has already resolved them within the org.
+    """
+    rows = await db.execute(
+        text(
+            "SELECT user_id FROM user_projection "
+            "WHERE org_id = :org AND active AND user_id = ANY(:ids)"
+        ),
+        {"org": org_id, "ids": user_ids},
+    )
+    members = {str(r.user_id) for r in rows}
+    # Compared as canonical UUIDs: the request schema accepts any UUID spelling.
+    if any(str(uuid.UUID(u)) not in members for u in user_ids):
+        raise HTTPException(
+            status_code=400,
+            detail="every assignee must be an active member of your organisation",
+        )
 
 
 async def _insert_task_assignees(
@@ -143,7 +179,12 @@ async def create_task(
     # tasks.channel_id we persist below).
     channel_id = body.channelId
     if channel_id:
-        assignee_ids = [a for a in dict.fromkeys(await _resolve_channel_members(channel_id, org_id))]
+        assignee_ids = [
+            a
+            for a in dict.fromkeys(
+                await _resolve_channel_members(channel_id, org_id, sender_id)
+            )
+        ]
     else:
         # Self-assignment is allowed here, same as it already is via channel
         # mode above when the caller happens to be a member of the target
@@ -210,6 +251,12 @@ async def create_task(
                 raise
 
         sender_username = await resolve_username(db, org_id, sender_id) or principal.username
+
+        # Only a task actually being created gets here (an idempotent replay has
+        # already returned), and it runs before encrypt() so a rejected request
+        # never creates the org's key.
+        if not channel_id:
+            await _require_org_members(db, org_id, assignee_ids)
 
         # Encrypt PII (title/description) at rest under the org's DEK. The DEK is
         # created lazily inside THIS write transaction on first use for the org.

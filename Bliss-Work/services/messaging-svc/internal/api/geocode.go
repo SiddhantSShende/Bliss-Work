@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -304,11 +305,28 @@ func (s *Server) getJSON(ctx context.Context, endpoint string) ([]byte, error) {
 	}
 	resp, err := http.DefaultClient.Do(req) //nolint:gosec // G704: same fixed-host endpoint, see doc comment above
 	if err != nil {
-		return nil, err
+		// http.Client wraps a transport failure (DNS, connect, TLS, timeout) in
+		// a *url.Error, whose Error() string embeds the full request URL —
+		// including apiKey= — and both callers of getJSON log this error, so
+		// the key must not survive past this point.
+		return nil, fmt.Errorf("geocode provider request failed: %w", stripRequestURL(err))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("geocode provider returned %d", resp.StatusCode)
 	}
 	return io.ReadAll(io.LimitReader(resp.Body, geocodeMaxSize))
+}
+
+// stripRequestURL removes an *url.Error's embedded request URL — endpoint in
+// getJSON, or staticMapURL's return value in maps.go's fetchStaticMap — from
+// a transport-level error before it is logged or returned. Both build that
+// URL with this server's own provider apiKey in the query string, which
+// url.Error otherwise carries verbatim into its Error() string.
+func stripRequestURL(err error) error {
+	var uerr *url.Error
+	if errors.As(err, &uerr) {
+		return uerr.Err
+	}
+	return err
 }

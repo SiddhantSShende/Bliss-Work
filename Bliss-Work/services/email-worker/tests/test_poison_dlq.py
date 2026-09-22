@@ -41,6 +41,7 @@ def _settings(poison_max_failures: int) -> types.SimpleNamespace:
         smtp_password="",
         smtp_starttls=False,
         redis_url="redis://localhost:6379/0",
+        relay_max_concurrency=4,
         poison_max_failures=poison_max_failures,
     )
 

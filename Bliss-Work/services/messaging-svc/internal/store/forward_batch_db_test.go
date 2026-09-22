@@ -235,6 +235,7 @@ func TestForwardMessages_MixedScopeSources_Rejected(t *testing.T) {
 	orgID := uuid.Must(uuid.NewV7()).String()
 	forwarder, other := seedMessageUsers(t, s, orgID)
 	carol := uuid.Must(uuid.NewV7()).String()
+	seedUser(t, s, orgID, carol, "carol", "Carol")
 
 	inAB, err := s.SendMessage(ctx, orgID, forwarder, other, "in AB", uuid.Must(uuid.NewV7()).String(), SendOptions{})
 	if err != nil {

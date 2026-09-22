@@ -259,7 +259,24 @@ type Cryptor struct {
 	byVer   map[dekKey]dekEntry     // (org, version) -> DEK
 	locks   map[string]*sync.Mutex  // per-org single-flight lock
 	locksMu sync.Mutex
+
+	// commitKey creates an org's first DEK durably; see KeyCommitter.
+	commitKey KeyCommitter
 }
+
+// KeyCommitter runs fn in a transaction of its own, scoped to orgID, and commits
+// it before returning. It must NOT share the caller's transaction or connection:
+// the first DEK is cached process-wide the moment it exists, so it has to be
+// committed by then. A key created inside a write that later rolls back would
+// leave the cache holding a key no database has, and everything encrypted under
+// it in the meantime becomes unreadable once the cache expires.
+type KeyCommitter func(ctx context.Context, orgID string, fn func(Querier) error) error
+
+// SetKeyCommitter installs the committer used to create an org's first DEK. Call
+// it once, before the Cryptor is shared between goroutines. Without one the
+// Cryptor can still decrypt and encrypt for orgs that already have a key, but
+// creating a first key fails rather than falling back to an unsafe path.
+func (c *Cryptor) SetKeyCommitter(k KeyCommitter) { c.commitKey = k }
 
 type dekKey struct {
 	org     string
@@ -281,8 +298,9 @@ func New(kek KEKProvider, cacheTTL time.Duration) *Cryptor {
 }
 
 // Encrypt returns the self-describing ciphertext for plaintext under the org's
-// current DEK. q must be the same tx as the surrounding write so a freshly
-// generated org_keys row is created atomically.
+// current DEK. q must be the same tx as the surrounding write and carry the
+// org's RLS context, so the org_keys lookup is authorised. The org's first key is
+// the exception to sharing that tx: it is committed separately (see KeyCommitter).
 func (c *Cryptor) Encrypt(ctx context.Context, q Querier, orgID, plaintext string) ([]byte, error) {
 	dek, version, err := c.currentDEK(ctx, q, orgID)
 	if err != nil {
@@ -468,7 +486,7 @@ func (c *Cryptor) currentDEK(ctx context.Context, q Querier, orgID string) ([]by
 		 ORDER BY key_version DESC LIMIT 1`, orgID)
 	if scanErr := row.Scan(&version, &wrapped); scanErr != nil {
 		if errors.Is(scanErr, pgx.ErrNoRows) {
-			dek, version, err = c.generateDEK(ctx, q, orgID)
+			dek, version, err = c.createFirstDEK(ctx, orgID)
 			if err != nil {
 				return nil, 0, err
 			}
@@ -518,10 +536,31 @@ func (c *Cryptor) dekForVersion(ctx context.Context, q Querier, orgID string, ve
 	return dek, nil
 }
 
+// createFirstDEK creates the org's first DEK and commits it before returning, so
+// the caller may cache it. See KeyCommitter for why it cannot ride the caller's
+// transaction.
+func (c *Cryptor) createFirstDEK(ctx context.Context, orgID string) ([]byte, int, error) {
+	if c.commitKey == nil {
+		return nil, 0, cryptoErrf("no key committer configured; cannot create the first DEK for org %s", orgID)
+	}
+	var (
+		dek     []byte
+		version int
+	)
+	err := c.commitKey(ctx, orgID, func(q Querier) (err error) {
+		dek, version, err = c.generateDEK(ctx, q, orgID)
+		return err
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	return dek, version, nil
+}
+
 // generateDEK creates the org's first DEK lazily, wraps it, and inserts the
-// org_keys row inside the caller's tx (ON CONFLICT DO NOTHING for races). It
-// re-reads to win any concurrent insert; if our own INSERT is still in-flight
-// in the same tx, the SELECT inside that tx sees it.
+// org_keys row inside q's tx (ON CONFLICT DO NOTHING for races). It re-reads to
+// win any concurrent insert; if our own INSERT is still in-flight in the same
+// tx, the SELECT inside that tx sees it.
 func (c *Cryptor) generateDEK(ctx context.Context, q Querier, orgID string) ([]byte, int, error) {
 	dek := make([]byte, dekLen)
 	if _, err := rand.Read(dek); err != nil {

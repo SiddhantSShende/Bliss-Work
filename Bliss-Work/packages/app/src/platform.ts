@@ -180,20 +180,23 @@ export interface PlatformConfig {
    * open (main/meeting-invite-manager.ts's dismiss()).
    */
   dismissMeetingInvitePopup?: (callId: string) => void;
-  /** Present only in Electron: pin an acknowledged task to the desktop as a
-   *  locked, always-on-top sticky note. Resolves with the authoritative pinned
-   *  set (+ refusal reason). Absent on web (no persistent desktop window
-   *  exists), so the "Pin to desktop" button hides itself there. */
+  /** Present only in Electron: pin a task to the desktop as an always-on-top
+   *  sticky note. Tasks already pin themselves when they arrive; this is used
+   *  when one is acknowledged. Resolves with the authoritative pinned set
+   *  (+ refusal reason — including "unpinned" for a task the user explicitly
+   *  unpinned, which is never re-pinned). Absent on web (no persistent desktop
+   *  window exists). */
   pinTask?: (taskId: string) => Promise<PinResult>;
   /** Present only in Electron: the task ids currently pinned to the desktop
-   *  (source of truth = main process). Drives the Pin button's pinned state. */
+   *  (source of truth = main process). Drives the in-app lock on acknowledged
+   *  pinned tasks. */
   listPinned?: () => Promise<string[]>;
-  // NOTE: there is deliberately no `dismissSticky` here. One existed, and the
-  // app called it whenever a task was OPENED, which permanently retired that
-  // task's desktop note while the task was still outstanding. Hiding a note is
-  // now the note's own business — its X sends "sticky:dismiss" straight from
-  // the note window (see apps/desktop/src/preload/sticky.ts) and is forgotten
-  // on restart. Nothing in the app should be able to clear someone's note.
+  // NOTE: there is deliberately no `unpinTask`/`dismissSticky` here. One existed,
+  // and the app called it whenever a task was OPENED, which permanently retired
+  // that task's desktop note while the task was still outstanding. Unpinning is
+  // the note's own business — its Unpin button sends "sticky:unpin" straight
+  // from the note window (see apps/desktop/src/preload/sticky.ts). Nothing in
+  // the app should be able to clear someone's note.
   /** Forward the current access token to the host (Electron → utilityProcess). */
   persistToken?: (token: string | null) => void;
   /** Present only in Electron: pin a DM thread to the desktop as a standalone

@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -212,6 +213,12 @@ func Load() (*Config, error) {
 		}
 		if c.Data.MasterSalt == "dev-master-salt-change-me-16+bytes" {
 			return nil, fmt.Errorf("DATA_MASTER_SALT is still the dev default; refusing to start in production")
+		}
+		// Mirrors the Python services' taskboard-superuser check: a URL that
+		// still authenticates as the `taskboard` admin/superuser role bypasses
+		// Row-Level Security unconditionally, even on FORCE RLS tables.
+		if u, err := url.Parse(c.DatabaseURL); err == nil && u.User != nil && u.User.Username() == "taskboard" {
+			return nil, fmt.Errorf("MESSAGING_DATABASE_URL must not use the taskboard superuser role — use the least-privileged messaging_user role (bypasses Row-Level Security); refusing to start in production")
 		}
 	}
 	// Required, with no default, deliberately. This key signs every attachment

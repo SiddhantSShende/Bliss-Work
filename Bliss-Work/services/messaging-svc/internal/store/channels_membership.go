@@ -21,7 +21,6 @@ package store
 
 import (
 	"context"
-	"errors"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -127,6 +126,8 @@ func (s *Store) ListOpenChannels(
 			LEFT JOIN LATERAL (
 			    SELECT body, body_enc, sender_id FROM channel_messages m
 			    WHERE m.channel_id = c.id
+			      -- Unsent messages keep their body_enc; skip them (see ListConversations).
+			      AND m.deleted_for_all_at IS NULL
 			      AND NOT EXISTS (
 			          SELECT 1 FROM message_hides h
 			          WHERE h.message_id = m.id AND h.user_id = $2
@@ -260,16 +261,21 @@ func emitChannelMemberJoined(ctx context.Context, tx pgx.Tx, orgID, channelID, c
 }
 
 // InternalChannelMembership is the service-to-service variant of
-// ChannelMemberIDs — no caller check, returns the org + lock flag + every
-// member id so task-svc can fan out a channel-allocated task without
-// holding the original caller's JWT.
+// ChannelMemberIDs, used by task-svc to resolve a channel-allocated task's
+// assignees. Same authorization as the public roster read: callerID must
+// themselves be a member of channelID within orgID (checked via
+// requireChannelMember, org-scoped exactly like ChannelMemberIDs below) —
+// task-svc has no channel_members table of its own to check this against, so
+// this is the only gate. Without it, any org member could name ANY channel id
+// — including a private/locked one they never joined — and get a task fanned
+// out to its whole membership; see docs/AUTH_AUTHZ_REMEDIATION_PLAN.md.
 type ChannelMembershipSnapshot struct {
 	OrgID     string
 	IsLocked  bool
 	MemberIDs []string
 }
 
-func (s *Store) InternalChannelMembership(ctx context.Context, channelID string) (*ChannelMembershipSnapshot, error) {
+func (s *Store) InternalChannelMembership(ctx context.Context, orgID, channelID, callerID string) (*ChannelMembershipSnapshot, error) {
 	var out *ChannelMembershipSnapshot
 	err := RetryOnSerializationFailure(ctx, 3, func(ctx context.Context) error {
 		tx, err := s.pool.Begin(ctx)
@@ -278,20 +284,18 @@ func (s *Store) InternalChannelMembership(ctx context.Context, channelID string)
 		}
 		defer tx.Rollback(ctx)
 
-		// RLS: trusted internal service-to-service path (task-svc fan-out) with NO
-		// caller org in scope — the org is RESOLVED FROM the channel row. BYPASS.
-		if err := setBypassGUC(ctx, tx); err != nil {
+		// RLS: scope this tx to the CALLER's org before any RLS table is touched —
+		// same as ChannelMemberIDs, not the old bypass. requireChannelMember below
+		// then fails closed (ErrForbidden) if channelID isn't actually in this org.
+		if err := setOrgGUC(ctx, tx, orgID); err != nil {
 			return err
 		}
-
-		var orgID string
-		var locked bool
-		err = tx.QueryRow(ctx,
-			`SELECT org_id, is_locked FROM channels WHERE id = $1`, channelID).Scan(&orgID, &locked)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrForbidden
+		if err := requireChannelMember(ctx, tx, orgID, channelID, callerID); err != nil {
+			return err
 		}
-		if err != nil {
+		var locked bool
+		if err := tx.QueryRow(ctx,
+			`SELECT is_locked FROM channels WHERE id = $1`, channelID).Scan(&locked); err != nil {
 			return err
 		}
 		ids, err := channelMemberIDs(ctx, tx, channelID)

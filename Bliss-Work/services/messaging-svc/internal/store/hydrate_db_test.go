@@ -25,9 +25,12 @@ func TestHydrateMessages_ReconstructsSentMessage(t *testing.T) {
 	orgID := uuid.NewString()
 	senderID := uuid.NewString()
 	recipientID := uuid.NewString()
+	seedUser(t, s, orgID, senderID, "sender", "Sender")
+	seedUser(t, s, orgID, recipientID, "recipient", "Recipient")
+	clientMsgID := uuid.NewString()
 
 	res, err := s.SendMessage(ctx, orgID, senderID, recipientID, "hello from the hydrate test",
-		uuid.NewString(), SendOptions{Origin: ThreadOriginChat})
+		clientMsgID, SendOptions{Origin: ThreadOriginChat})
 	if err != nil {
 		t.Fatalf("SendMessage: %v", err)
 	}
@@ -46,6 +49,14 @@ func TestHydrateMessages_ReconstructsSentMessage(t *testing.T) {
 	}
 	if m.SenderID != senderID {
 		t.Errorf("SenderID = %q, want %q", m.SenderID, senderID)
+	}
+	// The rebuilt event needs both: the client schema requires them, and it drops
+	// a frame without them (see the api package's hydrateMessageResp).
+	if m.OrgID != orgID {
+		t.Errorf("OrgID = %q, want %q", m.OrgID, orgID)
+	}
+	if m.ClientMsgID != clientMsgID {
+		t.Errorf("ClientMsgID = %q, want %q", m.ClientMsgID, clientMsgID)
 	}
 	if m.RecipientID != recipientID {
 		t.Errorf("RecipientID = %q, want %q (reconstructed via the threads join)", m.RecipientID, recipientID)
@@ -90,6 +101,8 @@ func TestHydrateMessages_MailOriginReconstructed(t *testing.T) {
 	orgID := uuid.NewString()
 	senderID := uuid.NewString()
 	recipientID := uuid.NewString()
+	seedUser(t, s, orgID, senderID, "sender", "Sender")
+	seedUser(t, s, orgID, recipientID, "recipient", "Recipient")
 
 	res, err := s.SendMessage(ctx, orgID, senderID, recipientID, "mail-origin body",
 		uuid.NewString(), SendOptions{Origin: ThreadOriginMail})
@@ -117,12 +130,20 @@ func TestHydrateMessages_MultiOrgBatch(t *testing.T) {
 	s := lifecycleStore(t)
 	ctx := context.Background()
 
-	res1, err := s.SendMessage(ctx, uuid.NewString(), uuid.NewString(), uuid.NewString(),
+	// Two orgs, each with its own sender and recipient.
+	org1, sender1, recipient1 := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	org2, sender2, recipient2 := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	seedUser(t, s, org1, sender1, "sender1", "Sender One")
+	seedUser(t, s, org1, recipient1, "recipient1", "Recipient One")
+	seedUser(t, s, org2, sender2, "sender2", "Sender Two")
+	seedUser(t, s, org2, recipient2, "recipient2", "Recipient Two")
+
+	res1, err := s.SendMessage(ctx, org1, sender1, recipient1,
 		"org one body", uuid.NewString(), SendOptions{Origin: ThreadOriginChat})
 	if err != nil {
 		t.Fatalf("SendMessage (org 1): %v", err)
 	}
-	res2, err := s.SendMessage(ctx, uuid.NewString(), uuid.NewString(), uuid.NewString(),
+	res2, err := s.SendMessage(ctx, org2, sender2, recipient2,
 		"org two body", uuid.NewString(), SendOptions{Origin: ThreadOriginChat})
 	if err != nil {
 		t.Fatalf("SendMessage (org 2): %v", err)

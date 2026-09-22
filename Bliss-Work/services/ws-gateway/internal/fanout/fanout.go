@@ -11,6 +11,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/task-board/shared-backoff"
 	"github.com/task-board/shared-kafkaauth"
 	"github.com/task-board/ws-gateway/internal/contract"
 	"github.com/task-board/ws-gateway/internal/hub"
@@ -28,6 +29,21 @@ type Consumer struct {
 	hub    *hub.Hub
 	log    *slog.Logger
 }
+
+// outboxWriteMaxAttempts is the total number of AppendOutbox attempts (1
+// initial + 2 retries) per recipient. A write failure here was previously
+// silent: the loop still proceeded to Fanout and the Kafka offset still
+// committed regardless, so a recipient who was offline (or shed) at that same
+// moment permanently lost this event's replay entry — a real hole in the
+// at-least-once guarantee the rest of this file documents.
+const outboxWriteMaxAttempts = 3
+
+// outboxWriteRetryPolicy mirrors internal/delivery's short, capped-exponential
+// policy (same shared/backoff idiom), but even shorter: this runs inside the
+// per-event handle loop, ahead of live delivery to every recipient of this
+// event, so the backoff must stay short enough that a Redis blip can't
+// visibly stall fanout for everyone else on the same event.
+var outboxWriteRetryPolicy = backoff.Policy{Base: 20 * time.Millisecond, Max: 200 * time.Millisecond}
 
 // New creates a Consumer.
 //
@@ -156,10 +172,19 @@ func (c *Consumer) handle(ctx context.Context, raw []byte) {
 	outboxPayload := contract.TryCompact(&ev, payload)
 
 	for _, uid := range recipients {
-		err := c.store.AppendOutbox(ctx, uid, score, outboxPayload)
+		var err error
+		for attempt := 1; attempt <= outboxWriteMaxAttempts; attempt++ {
+			if err = c.store.AppendOutbox(ctx, uid, score, outboxPayload); err == nil {
+				break
+			}
+			if attempt == outboxWriteMaxAttempts || !outboxWriteRetryPolicy.Sleep(ctx.Done(), attempt) {
+				break
+			}
+		}
 		metrics.FanoutOutboxWritesTotal.WithLabelValues(metrics.Result(err)).Inc()
 		if err != nil {
-			c.log.Error("append outbox failed", "user", uid, "err", err)
+			c.log.Error("append outbox failed after retries",
+				"user", uid, "attempts", outboxWriteMaxAttempts, "err", err)
 		}
 		// `live` records whether a socket for this recipient existed on this node
 		// at delivery time — the decisive signal when diagnosing "messages need a

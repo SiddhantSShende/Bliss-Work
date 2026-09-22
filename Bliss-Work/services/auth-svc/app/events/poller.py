@@ -209,7 +209,10 @@ class OutboxPoller:
                     # events out of order. The prefix that DID succeed is still
                     # marked below, so progress is never lost.
                     failure = exc
-                    failed_ids = [str(r.id) for r in sendable[len(published_ids):]]
+                    # Only the row the broker refused is charged an attempt. The rows behind
+                    # it were never offered, and charging them made one poison row
+                    # dead-letter its whole batch together.
+                    failed_ids = [str(row.id)]
                     break
                 published_ids.append(str(row.id))
 

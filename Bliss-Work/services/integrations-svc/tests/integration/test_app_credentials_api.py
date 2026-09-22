@@ -26,7 +26,9 @@ def _principal(user_id=ME, org_id=ORG, plan="enterprise"):
     # Every fixture in this file predates the plan gate and exercises the
     # connect flow, so default to "enterprise" here — the free-plan case is
     # exercised explicitly, by name, in the connect-gating tests below.
-    return Principal(user_id=user_id, org_id=org_id, roles=["admin"], username="me", plan=plan)
+    # The real role string put_/delete_app_credentials check for is "org_admin"
+    # (app/routes/app_creds.py) — every route this file exercises requires it.
+    return Principal(user_id=user_id, org_id=org_id, roles=["org_admin"], username="me", plan=plan)
 
 
 async def _client(principal=None):

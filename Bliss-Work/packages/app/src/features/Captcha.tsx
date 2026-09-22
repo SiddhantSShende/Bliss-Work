@@ -16,8 +16,12 @@ import { Field } from "../routes/Onboarding";
  * only a captcha-specific error — otherwise a retry with a corrected
  * password but the same (now-consumed) captcha_id fails again for a reason
  * the user never sees. See Login.tsx / Onboarding.tsx's catch blocks.
+ *
+ * `enabled` false fetches nothing: Login passes it for platforms that are not
+ * challenged (macOS, iOS), so they never wait on — or request — an image they
+ * will not be asked to solve. Flipping it to true starts the fetch.
  */
-export function useCaptcha() {
+export function useCaptcha(enabled = true) {
   const { api } = useRuntime();
   const [captchaId, setCaptchaId] = useState<string | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
@@ -40,8 +44,8 @@ export function useCaptcha() {
   }, [api]);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    if (enabled) void refresh();
+  }, [enabled, refresh]);
 
   return { captchaId, imageUrl, value, setValue, loading, refresh };
 }

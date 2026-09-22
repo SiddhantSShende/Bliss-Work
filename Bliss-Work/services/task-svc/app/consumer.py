@@ -29,6 +29,11 @@ MESSAGING_TOPIC = "messaging.events.v1"
 # Defensive bound on consumed string fields before they hit user_projection.
 _MAX_STR = 255
 
+# Matches routes/tasks_write.py's _CANDIDATE_LIMIT: caps the fan-out query in
+# _handle_channel_member_joined so an unusually large channel can't force one
+# consumer transaction to decrypt/process an unbounded number of tasks.
+_CHANNEL_JOIN_TASK_LIMIT = 100
+
 # Kafka reconnect backoff: doubles from _RECONNECT_BASE up to _RECONNECT_MAX.
 _RECONNECT_BASE = 1.0
 _RECONNECT_MAX = 30.0
@@ -52,11 +57,18 @@ _RECONNECT_MAX = 30.0
 # transaction would buy nothing (they almost never co-occur) while making a
 # failure in one able to roll back another.
 #
-# Error semantics are therefore UNCHANGED from the per-message version: a
-# failing handler is logged and skipped, exactly as before. Because each handler
-# still commits independently, a failure costs one event here — not the batch —
-# so batching introduces no regression that would need a seek-back to undo.
-# telemetry-svc merges its transactions and does need one; see the note there.
+# Error semantics: a handler failure now stops the batch instead of being
+# logged and skipped — the earlier version committed past a failure, which
+# turned a transient DB hiccup into a silently dropped user.created /
+# channel.member.joined / org.deleted event, and let one malformed record wedge
+# the offset forever with no way to get past it. `_consume_loop` seeks back to
+# the start of the batch and retries with exponential backoff
+# (`_RETRY_BACKOFF`/`_RETRY_BACKOFF_MAX`), exactly like sticky-svc and
+# telemetry-svc. The one difference from those two: this topic is fed by
+# several unrelated handlers rather than one, so a single message that can
+# NEVER succeed is given up on (logged, dead-lettered) after
+# `_MAX_HANDLER_ATTEMPTS` instead of blocking every later event on this
+# partition indefinitely.
 _MAX_BATCH_SIZE = 200
 
 # How long to wait for a batch to fill once at least one message has arrived.
@@ -64,6 +76,18 @@ _MAX_BATCH_SIZE = 200
 # much of arriving, which is far below anything a person waiting for a task to
 # appear could notice.
 _BATCH_LINGER_MS = 250
+
+# Backoff after a handler failure, so a stuck database is retried rather than
+# hammered. Doubles per attempt on the same failing message (see `_attempts`),
+# capped at _RETRY_BACKOFF_MAX — same doubling shape as the reconnect backoff
+# above, parameterized separately since the two back off on different things.
+_RETRY_BACKOFF = 1.0
+_RETRY_BACKOFF_MAX = 30.0
+
+# A message that fails this many times in a row can't be fixed by retrying
+# harder — it is logged and skipped instead of blocking every event behind it
+# on this partition forever. Matches messaging-svc's handleWithRetry.
+_MAX_HANDLER_ATTEMPTS = 8
 
 
 def _clean_str(value, max_len: int = _MAX_STR) -> str:
@@ -85,6 +109,15 @@ def _clean_str(value, max_len: int = _MAX_STR) -> str:
     return cleaned[:max_len]
 
 
+def _deserialize_event(value: bytes) -> dict | list | None:
+    """Keep malformed Kafka records skippable instead of failing fetch."""
+    try:
+        return json.loads(value.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        log.warning("malformed_kafka_event_skipped")
+        return None
+
+
 class TaskSvcConsumer:
     """Subscribes to the upstream topics task-svc needs to react to:
 
@@ -102,6 +135,10 @@ class TaskSvcConsumer:
         self._consumer: AIOKafkaConsumer | None = None
         self._task: asyncio.Task | None = None
         self._stop = asyncio.Event()
+        # (topic, partition, offset) -> consecutive failure count. Only ever
+        # holds entries for messages that are CURRENTLY failing: cleared on
+        # success and on giving up past _MAX_HANDLER_ATTEMPTS.
+        self._attempts: dict[tuple[str, int, int], int] = {}
 
     async def start(self) -> None:
         # Deliberately does NOT connect to Kafka — same host-reboot race as
@@ -138,7 +175,7 @@ class TaskSvcConsumer:
             # advancing the offset past an unprocessed event.
             enable_auto_commit=False,
             auto_offset_reset="earliest",
-            value_deserializer=lambda v: json.loads(v.decode("utf-8")),
+            value_deserializer=_deserialize_event,
         )
 
     @staticmethod
@@ -197,27 +234,57 @@ class TaskSvcConsumer:
                 )
                 if not batches:
                     continue
-                await self._process_batch(batches)
-                if self._stop.is_set():
-                    break
-                # One offset commit for the whole fetch, after every handler in
-                # it has finished (and committed its own transaction). This is
-                # the round trip the batching exists to amortize.
-                await consumer.commit()
+                if await self._process_batch(batches):
+                    if self._stop.is_set():
+                        break
+                    # One offset commit for the whole fetch, after every
+                    # handler in it has finished (and committed its own
+                    # transaction). This is the round trip the batching exists
+                    # to amortize.
+                    await consumer.commit()
+                    continue
+
+                # A handler failed and hasn't yet hit _MAX_HANDLER_ATTEMPTS.
+                # NOT committing is not enough on its own: the fetch position
+                # has already moved past these messages, so the next
+                # getmany() would return the ones after them, and when THAT
+                # batch succeeds its commit would carry the offset past the
+                # one that failed — skipping it for good instead of
+                # redelivering it. Seeking back is what makes "offsets follow
+                # success" true. Retrying costs nothing: every handler
+                # dedup-claims its event before writing, so whatever a failed
+                # attempt already wrote is a no-op the next time through.
+                for tp, records in batches.items():
+                    consumer.seek(tp, records[0].offset)
+                attempts = max(self._attempts.values(), default=1)
+                delay = min(_RETRY_BACKOFF * (2 ** (attempts - 1)), _RETRY_BACKOFF_MAX)
+                await self._sleep_or_stop(delay)
         except asyncio.CancelledError:
             pass
 
-    async def _process_batch(self, batches: dict) -> None:
-        """Run every message in one fetch through its handler.
+    async def _process_batch(self, batches: dict) -> bool:
+        """Run every message in one fetch through its handler, in order.
 
-        Each handler owns its own session, dedup claim and commit, so this is
-        deliberately just a loop — the batching is in the fetch and the offset
-        commit around it, not in the database work.
+        True if the offsets may advance. Stops at the first handler failure
+        instead of logging and moving on — logging-and-continuing is exactly
+        the bug this replaces, where a DB hiccup or a malformed message was
+        silently skipped and the offset committed past it anyway. Leaving the
+        offset uncommitted here is what lets `_consume_loop` seek back and
+        retry the whole batch.
+
+        A message is retried in place (same batch, same order) up to
+        `_MAX_HANDLER_ATTEMPTS` times across however many times its batch
+        gets redelivered; past that it can't be fixed by retrying harder, so
+        it is logged and given up on instead of blocking every later message
+        on this partition forever. Each handler still owns its own session,
+        dedup claim and commit — the batching is only in the fetch and the
+        offset commit around it, not in the database work.
         """
         for _tp, messages in batches.items():
             for msg in messages:
                 if self._stop.is_set():
-                    return
+                    return True
+                key = (msg.topic, msg.partition, msg.offset)
                 try:
                     # CONSUMER span continuing the producer's trace via the
                     # traceparent header. Per message rather than per batch: a
@@ -229,18 +296,36 @@ class TaskSvcConsumer:
                     ):
                         await self._handle(msg.value)
                 except Exception:  # noqa: BLE001 — never kill the consumer loop
-                    # Logged and skipped, exactly as before this loop batched.
-                    # The handler's own transaction rolled back, so nothing
-                    # half-written survives; the event is dedup-claimed, so a
-                    # redelivery after a restart re-runs it cleanly.
                     event = msg.value if isinstance(msg.value, dict) else {}
+                    attempts = self._attempts.get(key, 0) + 1
+                    if attempts < _MAX_HANDLER_ATTEMPTS:
+                        self._attempts[key] = attempts
+                        log.warning(
+                            "event_handle_retry",
+                            attempt=attempts,
+                            event_type=event.get("type"),
+                            org_id=event.get("orgId"),
+                            event_id=event.get("eventId"),
+                        )
+                        return False
+                    # Given up: the handler's own transaction rolled back, so
+                    # nothing half-written survives. Cleared from the ledger
+                    # (it's no longer "currently failing") and skipped rather
+                    # than retried again; the event is dedup-claimed, so it
+                    # can't be double-applied if it's later fixed upstream and
+                    # somehow redelivered.
+                    self._attempts.pop(key, None)
                     log.exception(
-                        "event_handle_error",
+                        "event_handle_dead_lettered",
+                        attempts=attempts,
                         event_type=event.get("type"),
                         org_id=event.get("orgId"),
                         event_id=event.get("eventId"),
                     )
                     continue
+                else:
+                    self._attempts.pop(key, None)
+        return True
 
     async def _handle(self, event: dict) -> None:
         # Malformed / non-whitelisted events fall through to a safe skip; the
@@ -373,14 +458,22 @@ class TaskSvcConsumer:
                               WHERE a.task_id = t.id
                                 AND a.status IN ('SENT', 'ACKNOWLEDGED')
                           )
+                        LIMIT :limit
                         """
                     ),
-                    {"org": org_id, "ch": channel_id},
+                    {"org": org_id, "ch": channel_id, "limit": _CHANNEL_JOIN_TASK_LIMIT},
                 )
             ).all()
             if not rows:
                 await db.commit()
                 return
+            if len(rows) == _CHANNEL_JOIN_TASK_LIMIT:
+                log.warning(
+                    "channel_member_joined_task_fanout_capped",
+                    org_id=org_id,
+                    channel_id=channel_id,
+                    limit=_CHANNEL_JOIN_TASK_LIMIT,
+                )
 
             joined_count = 0
             for row in rows:

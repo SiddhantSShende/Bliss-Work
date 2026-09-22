@@ -54,12 +54,11 @@ const api = {
    *  stale colour. */
   setBackgroundColor: (color: string) => ipcRenderer.send("sticky:bg", { color }),
 
-  /** Take the given task's note off screen for the rest of this run. Distinct
-   *  from `act(taskId, "ignore")` — that is a decision about the TASK; this is
-   *  only about the note, and the task keeps its status. NOT remembered across
-   *  restarts: an outstanding task gets its note back on the next launch, and
-   *  only completing or ignoring the task removes it for good. */
-  dismiss: (taskId: string) => ipcRenderer.send("sticky:dismiss", taskId),
+  /** Unpin the given task from the desktop popup. Distinct from
+   *  `act(taskId, "ignore")` — that is a decision about the TASK; this is only
+   *  about the note, and the task keeps its status. Persisted: the task is not
+   *  auto-pinned again, across server pushes and restarts. */
+  unpin: (taskId: string) => ipcRenderer.send("sticky:unpin", taskId),
 };
 
 contextBridge.exposeInMainWorld("sticky", api);

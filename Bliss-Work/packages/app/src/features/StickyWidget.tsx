@@ -1,6 +1,6 @@
-import { Check, X, Flag, LogOut, Pin, Minus } from "lucide-react";
+import { Check, X, Flag, LogOut, PinOff, Minus } from "lucide-react";
 import { Avatar, Badge } from "@taskboard/ui";
-import { shouldOfferPin, type StickyTaskDTO, type TaskAction } from "@taskboard/shared";
+import type { StickyTaskDTO, TaskAction } from "@taskboard/shared";
 
 /**
  * Presentational task card. Used inline in the Tasks/Inbox screens and as the
@@ -17,23 +17,22 @@ import { shouldOfferPin, type StickyTaskDTO, type TaskAction } from "@taskboard/
  * is an OS window the user can resize and whose document cannot scroll. See the
  * class list below.
  *
- * Pin model (Electron only):
- *   - `onPin` present → render a "Pin to desktop" button on ACKNOWLEDGED tasks.
- *   - `pinned` → the task is already floating; show a "Pinned" chip instead.
+ * Pin model (Electron only): tasks pin to the desktop automatically, so the card
+ * itself carries no pin controls.
  *   - `locked` → this is (or mirrors) an acknowledged pinned note: the only exit
  *     is Complete, so Ignore/Leave are suppressed and `onCollapse` offers a
  *     collapse-to-pill control.
+ *   - `onUnpin` → floating note only: an Unpin button that removes the note
+ *     from the desktop popup.
  */
 export function StickyWidget({
   task,
   onAction,
   busy = false,
   compact = false,
-  onPin,
-  pinned = false,
   locked = false,
   onCollapse,
-  onDismiss,
+  onUnpin,
 }: {
   task: StickyTaskDTO;
   onAction: (action: TaskAction) => void;
@@ -41,27 +40,17 @@ export function StickyWidget({
    *  action button so a slow request can't be double-submitted. */
   busy?: boolean;
   compact?: boolean;
-  /** Electron-only: pin this task to the desktop (shown on ACKNOWLEDGED tasks). */
-  onPin?: () => void;
-  /** Whether this task is already pinned to the desktop. */
-  pinned?: boolean;
   /** Locked = pinned & inescapable: hide Ignore/Leave, leave only Complete. */
   locked?: boolean;
   /** Floating note only: collapse this note to a pill. */
   onCollapse?: () => void;
   /**
-   * Floating note only: clear the NOTE without touching the TASK. Distinct from
-   * Ignore, which is a decision about the work; this just says "I've seen it".
+   * Floating note only: unpin the NOTE from the desktop without touching the
+   * TASK. Distinct from Ignore, which is a decision about the work; the task
+   * stays in the Tasks list with all its actions.
    */
-  onDismiss?: () => void;
+  onUnpin?: () => void;
 }) {
-  const showPin = shouldOfferPin({
-    status: task.myStatus,
-    canPinOnPlatform: !!onPin,
-    alreadyPinned: pinned,
-    locked,
-  });
-
   // senderUsername is the email local-part, so "from j.okafor" is what a note
   // built from it alone says. This widget also renders in the desktop sticky
   // window, which has no directory query — hence the field on the DTO rather
@@ -109,7 +98,7 @@ export function StickyWidget({
           </Badge>
           {locked || compact ? (
             // Floating note: Ignore lives in the button row, so the header gets
-            // a collapse-to-pill control — plus, now, a real dismiss.
+            // a collapse-to-pill control — plus Unpin.
             <>
               {onCollapse && (
                 <button
@@ -120,19 +109,18 @@ export function StickyWidget({
                   <Minus size={16} />
                 </button>
               )}
-              {/* Clearing the NOTE is not the same as ignoring the TASK, and
-                  the note used to offer neither: collapse replaced the X, so a
-                  note the user had read could only be got rid of by completing
-                  or ignoring the task it belonged to. This closes it and
-                  remembers, without touching the commitment. */}
-              {onDismiss && (
+              {/* Unpinning the NOTE is not the same as ignoring the TASK: collapse
+                  replaced the header X, so without this a note could only be got
+                  rid of by completing or ignoring the task it belonged to. This
+                  removes the note and remembers, without touching the task. */}
+              {onUnpin && (
                 <button
                   className="app-no-drag rounded-lg p-1 text-muted hover:bg-surface-2 hover:text-fg"
-                  title="Clear this note (the task stays)"
-                  aria-label="Clear this note"
-                  onClick={onDismiss}
+                  title="Unpin (the task stays)"
+                  aria-label="Unpin"
+                  onClick={onUnpin}
                 >
-                  <X size={16} />
+                  <PinOff size={16} />
                 </button>
               )}
             </>
@@ -202,16 +190,6 @@ export function StickyWidget({
           <ActionBtn tone="ghost" label="Leave" disabled={busy} onClick={() => onAction("LEAVE")}>
             <LogOut size={15} /> Leave
           </ActionBtn>
-        )}
-        {showPin && (
-          <ActionBtn tone="ghost" onClick={() => onPin?.()}>
-            <Pin size={15} /> Pin to desktop
-          </ActionBtn>
-        )}
-        {pinned && (
-          <span className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-accent-soft px-3 py-2 text-sm font-medium text-accent">
-            <Pin size={15} /> Pinned to desktop
-          </span>
         )}
       </div>
     </div>

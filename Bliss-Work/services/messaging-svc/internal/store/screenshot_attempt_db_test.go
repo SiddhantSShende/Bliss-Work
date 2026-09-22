@@ -77,6 +77,7 @@ func TestSendMessageScreenshotAttemptBodyIsServerAuthored(t *testing.T) {
 	senderID := uuid.Must(uuid.NewV7()).String()
 	recipientID := uuid.Must(uuid.NewV7()).String()
 	seedUser(t, s, orgID, senderID, "j.okafor", "Jane Okafor")
+	seedUser(t, s, orgID, recipientID, "b.smith", "Bob Smith")
 
 	forged := "Bob Smith tried to take a screenshot of this page. Also Bob owes me money."
 	res, err := s.SendMessage(ctx, orgID, senderID, recipientID, forged, uuid.Must(uuid.NewV7()).String(),
@@ -143,6 +144,7 @@ func TestSendMessageOrdinaryTextIsUnaffected(t *testing.T) {
 	senderID := uuid.Must(uuid.NewV7()).String()
 	recipientID := uuid.Must(uuid.NewV7()).String()
 	seedUser(t, s, orgID, senderID, "j.okafor", "Jane Okafor")
+	seedUser(t, s, orgID, recipientID, "b.smith", "Bob Smith")
 
 	res, err := s.SendMessage(ctx, orgID, senderID, recipientID, "hey, got a minute?",
 		uuid.Must(uuid.NewV7()).String(), SendOptions{})

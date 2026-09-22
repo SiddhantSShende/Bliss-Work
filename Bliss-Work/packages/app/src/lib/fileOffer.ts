@@ -35,15 +35,34 @@ export function encodeFileOffer(o: Omit<FileOfferEnvelope, "v">): string {
   return `📎 ${o.name} · ${prettySize(o.size)}${SENTINEL}${JSON.stringify(envelope)}`;
 }
 
-/** Returns the envelope if `body` is a file offer, else null (plain message). */
+/** Longest file name kept from an offer — the field is peer-controlled. */
+const MAX_NAME_LENGTH = 255;
+
+/**
+ * Returns the envelope if `body` is a file offer, else null (plain message).
+ *
+ * The envelope is written by the OTHER party, so every field is checked rather
+ * than trusted to have the shape `encodeFileOffer` gives it. A `name` that was an
+ * object used to reach the bubble unchanged and React threw while rendering it,
+ * taking the whole chat view down. The two ids are required; the descriptive
+ * fields degrade to harmless defaults, like the media envelope's.
+ */
 export function parseFileOffer(body: string): FileOfferEnvelope | null {
   const i = body.indexOf(SENTINEL);
   if (i < 0) return null;
   try {
-    const o = JSON.parse(body.slice(i + 1)) as FileOfferEnvelope;
-    if (o && o.v === 1 && typeof o.offerId === "string" && typeof o.sha256 === "string") {
-      return o;
-    }
+    const o: unknown = JSON.parse(body.slice(i + 1));
+    if (!o || typeof o !== "object") return null;
+    const e = o as Record<string, unknown>;
+    if (e.v !== 1 || typeof e.offerId !== "string" || typeof e.sha256 !== "string") return null;
+    return {
+      v: 1,
+      offerId: e.offerId,
+      sha256: e.sha256,
+      name: typeof e.name === "string" && e.name ? e.name.slice(0, MAX_NAME_LENGTH) : "file",
+      size: typeof e.size === "number" && Number.isFinite(e.size) && e.size >= 0 ? e.size : 0,
+      mime: typeof e.mime === "string" ? e.mime : "application/octet-stream",
+    };
   } catch {
     /* not a valid envelope — treat as plain text */
   }

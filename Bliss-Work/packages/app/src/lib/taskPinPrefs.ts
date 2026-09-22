@@ -1,9 +1,9 @@
 /**
  * Desktop-only "pinned" marker for assigned tasks, kept on THIS DEVICE.
  *
- * Distinct from the Electron "Pin to desktop" sticky-note feature (see
- * PlatformConfig.pinTask / StickyWidget's `onPin`/`pinned` props), which opens
- * an always-on-top OS window and is authoritative in the main process. This
+ * Distinct from the Electron desktop popup (the always-on-top sticky note; see
+ * PlatformConfig.pinTask / listPinned), which is an OS window authoritative in
+ * the main process and is unpinned from the popup itself. This
  * marker is a plain client-side flag — a task the desktop app is showing you
  * gets marked pinned automatically the first time it appears assigned, and
  * clicking Unpin just clears the flag. There is no server concept of this at

@@ -15,9 +15,8 @@
  * (see lib/MeetingSession). So this holds no media, no participant state and no
  * connection; it renders what CallRoom hands it and calls back for the rest.
  *
- * The preview deliberately carries NO audio (`withAudio={false}`): the room
- * behind it is still playing everybody, and a second sink on the same track is
- * the same voice twice.
+ * The preview carries no audio: tiles never do (see CallAudioSinks), and the
+ * room behind it is still playing everybody.
  *
  * ── The drag ─────────────────────────────────────────────────────────────────
  * Same three-phase pointer state machine as BrowserStickies, for the same
@@ -248,7 +247,7 @@ export function MiniMeeting({
         className="group relative block h-28 w-full bg-surface-2"
       >
         {stage ? (
-          <CallTile p={stage} size="strip" withAudio={false} />
+          <CallTile p={stage} size="strip" />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-[11px] text-muted">
             {connecting ? "Connecting…" : "Nobody is speaking"}

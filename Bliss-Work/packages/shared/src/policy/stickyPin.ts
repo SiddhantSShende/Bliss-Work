@@ -14,8 +14,9 @@ import type { AssigneeStatus, StickyTaskDTO } from "../types/domain";
  *  guess) and can surface why a pin was refused. */
 export interface PinResult {
   ok: boolean;
-  /** Why the pin was refused (only set when ok === false). */
-  reason?: "limit" | "invalid";
+  /** Why the pin was refused (only set when ok === false). "unpinned" means the
+   *  user explicitly unpinned this task, which no automatic path may undo. */
+  reason?: "limit" | "invalid" | "unpinned";
   /** The pinned set after the request (the renderer seeds its cache from this). */
   pinned: string[];
 }

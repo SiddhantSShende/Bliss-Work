@@ -15,6 +15,7 @@ import {
 import { isUrlOnly } from "../lib/chatFormat";
 import { makeThumbnail } from "../lib/thumbnail";
 import { useAttachmentLinks } from "../lib/useAttachmentLinks";
+import { hasOutsideOpen, openOutsideApp } from "../lib/openAttachment";
 import { useFileTransfers } from "../lib/fileTransfer";
 import { MediaBubble, type UploadProgress } from "./MediaBubble";
 import { LocationBubble } from "./LocationBubble";
@@ -524,6 +525,20 @@ export function useChatMedia(opts: ChatMediaOptions) {
   );
   const links = useAttachmentLinks(allIds);
 
+  // A click on an attachment. A file with no in-app view leaves the app the way
+  // an email attachment's Open does — the desktop's own application on desktop,
+  // a browser tab on web. Everything else (images, video, PDF, plain text, and
+  // any host with neither) opens in the Lightbox.
+  const openItem = useCallback(
+    (items: MediaItem[], index: number) => {
+      const item = items[index];
+      const url = item ? links.urlFor(item.id) : undefined;
+      if (item && url && openOutsideApp(config, item.mime, url, item.name)) return;
+      setLightbox({ items, index });
+    },
+    [config, links],
+  );
+
   const renderBody = useCallback(
     (m: { id: string; senderId: string; body: string }) => {
       const env = parseChatEnvelope(m.body);
@@ -540,7 +555,8 @@ export function useChatMedia(opts: ChatMediaOptions) {
             mine={mine}
             urlFor={links.urlFor}
             isResolved={links.isResolved}
-            onOpen={(index) => setLightbox({ items: env.items, index })}
+            opensOutside={hasOutsideOpen(config)}
+            onOpen={(index) => openItem(env.items, index)}
           />
         );
       }
@@ -560,7 +576,7 @@ export function useChatMedia(opts: ChatMediaOptions) {
         />
       );
     },
-    [meId, links, noteIds, ft],
+    [meId, links, noteIds, ft, config, openItem],
   );
 
   // ── drag & drop / paste ───────────────────────────────────────────────────

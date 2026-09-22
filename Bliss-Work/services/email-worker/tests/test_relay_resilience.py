@@ -64,7 +64,8 @@ def _relay_settings() -> types.SimpleNamespace:
     return types.SimpleNamespace(
         smtp_host="mailpit", smtp_port=1025, smtp_from="no-reply@test.local",
         smtp_username="", smtp_password="", smtp_starttls=False,
-        redis_url="redis://localhost:6379/0", poison_max_failures=3,
+        redis_url="redis://localhost:6379/0", relay_max_concurrency=4,
+        poison_max_failures=3,
     )
 
 
@@ -153,16 +154,17 @@ class _FetchOnlyConn:
 
     def __init__(self, rows: list[dict]) -> None:
         self._rows = rows
-        self.updated: list[tuple] = []
+        self.deleted: list[tuple] = []
 
     async def fetch(self, *_a, **_kw):
         return [_Row(r) for r in self._rows]
 
-    async def executemany(self, _sql, rows):
-        self.updated.extend(rows)
+    async def executemany(self, sql, rows):
+        if "DELETE FROM email_consumed" in sql:
+            self.deleted.extend(rows)
 
 
-# ── _is_sent / _already_sent: a DB error must not propagate ─────────────────
+# ── dedup claims: a DB error must not propagate ─────────────────────────────
 
 
 async def test_relay_is_sent_survives_a_db_error():
@@ -174,11 +176,11 @@ async def test_relay_is_sent_survives_a_db_error():
     assert result is False  # treated as "not confirmed sent" -> normal retry path
 
 
-async def test_worker_already_sent_survives_a_db_error():
+async def test_worker_claim_survives_a_db_error():
     worker = EmailWorker(_relay_settings())
     worker._db = _Pool(_FailingConn())  # noqa: SLF001
 
-    result = await worker._already_sent("evt-1")  # noqa: SLF001
+    result = await worker._claim("evt-1", "recipient-1")  # noqa: SLF001
 
     assert result is False
 
@@ -231,7 +233,7 @@ async def test_reap_once_skips_rows_this_process_has_inflight():
 
     await consumer._reap_once()  # noqa: SLF001
 
-    assert conn.updated == [("evt-abandoned", "r2")]
+    assert conn.deleted == [("evt-abandoned", "r2")]
 
 
 async def test_reap_once_reclaims_nothing_when_everything_is_inflight():
@@ -242,7 +244,7 @@ async def test_reap_once_reclaims_nothing_when_everything_is_inflight():
 
     await consumer._reap_once()  # noqa: SLF001
 
-    assert conn.updated == []
+    assert conn.deleted == []
 
 
 async def test_reap_once_survives_a_db_error():

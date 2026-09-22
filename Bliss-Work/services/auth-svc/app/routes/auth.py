@@ -213,8 +213,11 @@ async def login(body: LoginRequest, response: Response, request: Request) -> Ses
     # Checked before the identity lookup or any Argon2 verify — independent of
     # whether the credentials themselves are right or wrong, so a captcha
     # failure never becomes a signal about account existence. See
-    # captcha_service.verify_and_consume.
-    await captcha_service.verify_and_consume(body.captchaId, body.captchaValue)
+    # captcha_service.verify_and_consume. Login alone passes the declared
+    # platform (macOS/iOS are not challenged); create_org above never does.
+    await captcha_service.verify_and_consume(
+        body.captchaId, body.captchaValue, body.clientPlatform
+    )
     generic = HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid credentials")
     now = datetime.now(timezone.utc)
     ip, user_agent, request_id = request_context(request)
@@ -279,8 +282,6 @@ async def login(body: LoginRequest, response: Response, request: Request) -> Ses
                 else:
                     failed = True
             else:
-                if ident.failed_login_count or ident.locked_until is not None:
-                    await service.reset_identity_lockout(conn, str(ident.id))
                 await service.touch_last_user(conn, str(ident.id), membership_id)
 
                 # MFA gate, evaluated against exactly this membership (never
@@ -302,6 +303,12 @@ async def login(body: LoginRequest, response: Response, request: Request) -> Ses
                         enrollmentRequired=must_enroll_first,
                     )
                 else:
+                    # Cleared only when the sign-in COMPLETES. With a second factor
+                    # still owed the count must survive, or a password holder could
+                    # reset it by logging in again and guess codes without limit;
+                    # mfa_challenge clears it once the factor checks out.
+                    if ident.failed_login_count or ident.locked_until is not None:
+                        await service.reset_identity_lockout(conn, str(ident.id))
                     session, raw_refresh, family_id = await service.build_session(conn, membership_id)
                     # Only in the SUCCESS branch. The failed path above commits its
                     # counter and raises afterwards, so anything enqueued before this
@@ -380,26 +387,35 @@ async def refresh(
         # No credential at all — nothing to invalidate, and NOT terminal: a
         # request that simply arrived without the cookie must not log anyone out.
         return _refresh_rejected("missing", clear_cookie=False)
-    try:
-        async with engine.begin() as conn:
-            # Pre-org-context: the token is looked up by hash in refresh_tokens
-            # (no RLS) before the org is known; build_session then reads
-            # users/org_keys (RLS) cross-org, so this trusted flow uses bypass.
-            await service.set_bypass_rls(conn)
+    rejected: service.RefreshError | None = None
+    async with engine.begin() as conn:
+        # Pre-org-context: the token is looked up by hash in refresh_tokens
+        # (no RLS) before the org is known; build_session then reads
+        # users/org_keys (RLS) cross-org, so this trusted flow uses bypass.
+        await service.set_bypass_rls(conn)
+        try:
             session, new_raw = await service.rotate_refresh_token(conn, raw)
-    except service.RefreshError as exc:
+        except service.RefreshError as exc:
+            # Caught INSIDE the transaction, and answered after it. On 'reused' and
+            # 'deactivated', rotate_refresh_token revokes the whole family BEFORE it
+            # raises, and an exception leaving engine.begin() rolls that revocation
+            # back: a stolen token's family kept rotating for its full lifetime
+            # because theft detection never took effect. (login raises after its
+            # block for the same reason.) Nothing else is written on any rejection.
+            rejected = exc
+    if rejected is not None:
         # Log WHO and WHICH family, and whether the token came from the cookie
         # (browser) or the request body (desktop — see the `raw` line above).
         # When two clients collide, that field is what identifies the culprit.
         log.info(
             "refresh_rejected",
-            error=str(exc),
-            code=exc.code,
-            user_id=exc.user_id,
-            family_id=exc.family_id,
+            error=str(rejected),
+            code=rejected.code,
+            user_id=rejected.user_id,
+            family_id=rejected.family_id,
             source="body" if from_body else "cookie",
         )
-        return _refresh_rejected(exc.code)
+        return _refresh_rejected(rejected.code)
 
     set_refresh_cookie(response, new_raw)
     return session

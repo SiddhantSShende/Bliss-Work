@@ -5,6 +5,7 @@ import { EmptyState } from "@taskboard/ui";
 import type { NotificationDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
+import { decrementUnreadCount, refreshUnreadCount } from "../lib/unreadNotificationCount";
 import { Sheet } from "./Modal";
 
 export function NotificationsPanel({
@@ -45,8 +46,15 @@ export function NotificationsPanel({
     if (!open) return;
     return () => {
       const current = qc.getQueryData<NotificationDTO[]>(qk.notifications) ?? [];
-      if (!current.some((n) => !n.read)) return;
-      void api.readAllNotifications().catch(() => {});
+      const unreadCount = current.filter((n) => !n.read).length;
+      if (unreadCount === 0) return;
+      // The list is capped at the 200 newest, so this can undercount a deep
+      // backlog; the refresh once read-all settles puts the badge right.
+      decrementUnreadCount(qc, unreadCount);
+      void api
+        .readAllNotifications()
+        .catch(() => {})
+        .then(() => refreshUnreadCount(qc));
       qc.setQueryData<NotificationDTO[]>(qk.notifications, (prev) =>
         (prev ?? []).map((n) => (n.read ? n : { ...n, read: true })),
       );
@@ -54,10 +62,27 @@ export function NotificationsPanel({
   }, [open, api, qc]);
 
   const markRead = async (id: string) => {
-    await api.markNotificationRead(id).catch(() => {});
+    // Flip the row and lower the badge BEFORE the request, not after it. If the
+    // panel closes while the request is out, the close handler's read-all counts
+    // the unread rows in the cache — this one has to be read there already, or
+    // it comes off the badge twice.
+    let flipped = 0;
     qc.setQueryData<NotificationDTO[]>(qk.notifications, (prev) =>
-      (prev ?? []).map((n) => (n.id === id ? { ...n, read: true } : n)),
+      (prev ?? []).map((n) => {
+        if (n.id !== id || n.read) return n;
+        flipped++;
+        return { ...n, read: true };
+      }),
     );
+    decrementUnreadCount(qc, flipped);
+
+    const failed = await api.markNotificationRead(id).then(
+      () => false,
+      () => true,
+    );
+    // The server has the last word. Failed: it still holds the row unread, so
+    // refetch the list as well and the row comes back; otherwise just the count.
+    void (failed ? qc.invalidateQueries({ queryKey: qk.notifications }) : refreshUnreadCount(qc));
   };
 
   // Read notifications are HISTORY, not news. Showing them by default meant the
