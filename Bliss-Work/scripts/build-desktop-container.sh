@@ -84,7 +84,19 @@ cleanup() {
     cp "$LOCK_SNAPSHOT" "$LOCK"
     rm -f "$PKG_SNAPSHOT" "$LOCK_SNAPSHOT"
 }
-trap cleanup EXIT
+# EXIT alone is not enough: this script is PID 1 in the container (compose's
+# desktop-builder has no `init:`, and the command is exec-form with no shell
+# wrapper around it), and Linux gives PID 1 a special default disposition —
+# a signal with no explicit handler is IGNORED rather than terminating the
+# process. `docker compose stop` / Ctrl+C during the ~10-minute, near-silent
+# electron-builder --win step (which reads as "hung") sends SIGTERM; without
+# an explicit TERM/INT trap that signal was simply dropped, the run sat past
+# Docker's stop grace period, and the followup SIGKILL is uncatchable — no
+# trap, including this EXIT one, ever runs. That is how apps/desktop/
+# package.json and package-lock.json were left permanently bumped to a
+# version in the working tree: this cleanup never fired, and every later
+# run's snapshot just re-adopted the already-bumped file as "original".
+trap cleanup EXIT INT TERM
 
 node scripts/set-desktop-version.mjs "$VER"
 

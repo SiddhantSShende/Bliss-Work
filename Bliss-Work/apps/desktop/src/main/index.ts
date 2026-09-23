@@ -100,6 +100,37 @@ process.on("unhandledRejection", (reason) => console.error("[main] unhandledReje
 // `ready` — Chromium reads its command line during startup.
 app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
 
+// Chromium's GPU process can die or hang right at startup on some Windows
+// machines — an old/buggy GPU driver, an RDP session, certain VM graphics
+// stacks. When it does, the window still opens but nothing is ever
+// composited into it: it stays at its raw background colour (near-black,
+// see createMainWindow in windows.ts), and even DevTools fails to open,
+// since DevTools is its own Chromium surface that composites through the
+// SAME GPU process. Nothing throws — the uncaughtException/unhandledRejection
+// guards below never see this — because no JS ever ran; the app just looks
+// dead with a solid black window. If the GPU process goes down within
+// STARTUP_GPU_GUARD_MS of launch, relaunch once with hardware acceleration
+// off rather than leave the user staring at an unresponsive black window
+// with no way to tell why. Scoped to startup only, not the whole app
+// lifetime — a GPU crash after hours of normal use is a different problem,
+// and auto-relaunching mid-meeting would be its own bug. `--gpu-safe-mode`
+// marks the retry so a machine whose GPU keeps crashing even in software
+// mode doesn't relaunch forever.
+const GPU_SAFE_MODE_FLAG = "--gpu-safe-mode";
+const STARTUP_GPU_GUARD_MS = 15_000;
+if (process.argv.includes(GPU_SAFE_MODE_FLAG)) {
+  app.disableHardwareAcceleration();
+} else {
+  const onEarlyGpuCrash = (_e: Electron.Event, details: Electron.Details) => {
+    if (details.type !== "GPU") return;
+    console.error("[main] GPU process gone during startup — relaunching with hardware acceleration disabled");
+    app.relaunch({ args: [...process.argv.slice(1), GPU_SAFE_MODE_FLAG] });
+    app.exit(0);
+  };
+  app.on("child-process-gone", onEarlyGpuCrash);
+  setTimeout(() => app.removeListener("child-process-gone", onEarlyGpuCrash), STARTUP_GPU_GUARD_MS);
+}
+
 // Same timing rule as the switch above, for the same reason: Chromium reads the
 // geolocation API key while it builds its network context during startup, so
 // installing it inside `whenReady` is a silent no-op. Without a key the network
