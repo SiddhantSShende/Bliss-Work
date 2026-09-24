@@ -110,7 +110,7 @@
     "stepUp": {
       "titles": {
         "disable": "Confirm it's you",
-        "regenerate": "Confirm it's you to regenerate codes",
+        "regenerate": "Confirm it's you to regenerate codes"
       },
       "passwordPlaceholder": "Your password",
       "backupCodePlaceholder": "Backup code",
@@ -118,12 +118,12 @@
       "useAuthCodeInstead": "Use an authentication code instead",
       "useBackupCodeInstead": "Use a backup code instead",
       "submitLabels": {
-        "regenerate": "Regenerate backup codes",
+        "regenerate": "Regenerate backup codes"
       },
       "toasts": {
         "tooManyAttemptsTitle": "Too many attempts",
         "verificationFailedTitle": "Verification failed",
-        "verificationFailedDescription": "Check your password and code, then try again.",
+        "verificationFailedDescription": "Check your password and code, then try again."
       }
     },
     "toasts": {
