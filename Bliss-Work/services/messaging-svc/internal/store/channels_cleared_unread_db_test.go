@@ -29,7 +29,7 @@ func TestChannelUnread_ExcludesMessagesTheCallerCleared(t *testing.T) {
 
 	var lastMsgID string
 	for _, body := range []string{"one", "two", "three"} {
-		msg, err := s.SendChannelMessage(ctx, orgID, channelID, author, body, newClientID(), "", "")
+		msg, err := s.SendChannelMessage(ctx, orgID, channelID, author, body, newClientID(), "", "", "")
 		if err != nil {
 			t.Fatalf("send %q: %v", body, err)
 		}

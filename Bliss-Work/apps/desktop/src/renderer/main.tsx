@@ -54,6 +54,9 @@ declare global {
       notifications: {
         getDesktopEnabled: () => Promise<boolean>;
         setDesktopEnabled: (enabled: boolean) => Promise<void>;
+        showIncomingCall: (caller: string, media: "audio" | "video") => void;
+        closeIncomingCall: () => void;
+        onIncomingCallAction: (cb: (action: "accept" | "reject") => void) => () => void;
       };
       rtc: RtcTransport;
       fileSink: FileSink;

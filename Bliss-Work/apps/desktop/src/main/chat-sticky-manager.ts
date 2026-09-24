@@ -13,7 +13,7 @@ const rendererDir = join(here, "../renderer");
 
 /**
  * MAX_CHAT_WIDGETS: per the Phase 8 spec we allow up to 4 chat widgets in
- * addition to MAX_WIDGETS=5 task widgets (the docs called for 8/4=12; we set
+ * addition to the task carousel (the docs called for 8/4=12; we set
  * the lower per-kind quota here so tasks always have their slot). A 12-slot
  * cap settings-gated raise lives in the settings page (not yet wired).
  */

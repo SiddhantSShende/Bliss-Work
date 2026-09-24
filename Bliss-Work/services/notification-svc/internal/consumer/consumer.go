@@ -358,6 +358,9 @@ func (c *Consumer) handle(ctx context.Context, tx pgx.Tx, value []byte) error {
 	case events.TypeTaskLeft:
 		kind = events.KindTaskLeft
 		text = "Task left by " + ev.AssigneeUsername
+	case events.TypeTaskWithdrawn:
+		kind = events.KindTaskWithdrawn
+		text = "Task allocation withdrawn"
 	default:
 		return nil // ignore other event types
 	}
@@ -368,11 +371,15 @@ func (c *Consumer) handle(ctx context.Context, tx pgx.Tx, value []byte) error {
 		taskID = &t
 	}
 
+	recipientID := ev.SenderID
+	if ev.Type == events.TypeTaskWithdrawn {
+		recipientID = ev.AssigneeID
+	}
 	return c.create(ctx, tx, notification{
 		sourceEventID: ev.EventID,
 		sourceType:    ev.Type,
 		orgID:         ev.OrgID,
-		recipientID:   ev.SenderID,
+		recipientID:   recipientID,
 		kind:          kind,
 		text:          text,
 		taskID:        taskID,

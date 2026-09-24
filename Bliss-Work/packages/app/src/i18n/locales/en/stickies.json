@@ -18,7 +18,9 @@
     "collapseLabel": "Collapse sticky note",
     "ignoreTitle": "Ignore — the sender will be notified",
     "acknowledgeTitle": "Acknowledge — keep this note on screen until you complete it",
-    "unpinFromDesktopTitle": "Unpin from the desktop — the task stays in your Tasks list"
+    "unpinFromDesktopTitle": "Unpin from the desktop — the task stays in your Tasks list",
+    "navPrevious": "Previous pinned task",
+    "navNext": "Next pinned task"
   },
   "overlay": {
     "ariaLabel": "Floating sticky notes"
@@ -29,6 +31,6 @@
     "taskIgnored": "Task ignored — the sender has been notified.",
     "noteUnpinned": "Note unpinned",
     "noteUnpinnedDescription": "It's still in your Tasks list — complete it from there.",
-    "desktopFull": "Desktop is full — complete or unpin a note first (max 5 pinned)."
+    "desktopFull": "Couldn't pin this task to the desktop."
   }
 }

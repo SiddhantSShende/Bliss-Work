@@ -58,7 +58,7 @@ class Settings(BaseSettings):
     lockout_minutes: int = 15
     require_email_verification: bool = False
 
-    # ── MFA (TOTP + WebAuthn) ────────────────────────────────────────────────
+    # ── MFA (TOTP) ────────────────────────────────────────────────────────────
     # Lifetime of the server-only "MFA pending" token minted after a correct
     # password when a second factor is still owed. Short: it exists only to
     # ferry the caller from POST /auth/login to the challenge-verify endpoint
@@ -68,13 +68,6 @@ class Settings(BaseSettings):
     # this many days' warning (banner, not a lockout) before login starts
     # blocking at the password step until they enroll.
     mfa_grace_period_days: int = 14
-    # WebAuthn relying-party identity. rp_id must be a registrable domain (no
-    # scheme/port) that matches the page origin the ceremony runs on — derived
-    # from web_origin below rather than configured separately, so there is one
-    # source of truth for "what origin is this app" instead of two that could
-    # drift. rp_name is only ever shown to the user, in their OS/browser's
-    # passkey prompt.
-    webauthn_rp_name: str = "BlissWork"
 
     # How long a requested org deletion stays cancellable before the purge job
     # will act on it. Long enough that a mistake is caught by a human coming
@@ -206,13 +199,6 @@ class Settings(BaseSettings):
                 + "\n  - ".join(problems)
             )
         return self
-
-    @property
-    def webauthn_rp_id(self) -> str:
-        """The registrable domain of `web_origin`, no scheme/port — WebAuthn's
-        rp.id. Derived rather than a separate setting so there is exactly one
-        place that says what this deployment's web origin is."""
-        return urlsplit(self.web_origin).hostname or "localhost"
 
     @property
     def sqlalchemy_url(self) -> str:

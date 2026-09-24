@@ -11,12 +11,11 @@ import { broadcastSession } from "../lib/authChannel";
 import { AuthLayout, Field } from "./Onboarding";
 import { TotpEnrollPanel } from "../features/TotpEnrollPanel";
 import { BackupCodesView } from "../features/BackupCodesView";
-import { getPasskeyAssertion, webauthnSupported } from "../lib/webauthn";
 import { safeRedirect } from "../lib/safeRedirect";
 
 interface ChallengeState {
   pendingToken: string;
-  methods: ("totp" | "webauthn")[];
+  methods: "totp"[];
   enrollmentRequired: boolean;
   /** Where to land after verifying, e.g. a meeting link — see Login.tsx.
    *  Absent from the org-switch caller (OrgSwitcher.tsx), which always wants
@@ -103,7 +102,7 @@ function ChallengeForm({
   onSuccess,
 }: {
   pendingToken: string;
-  methods: ("totp" | "webauthn")[];
+  methods: "totp"[];
   onSuccess: (session: SessionDTO) => void;
 }) {
   const { t } = useTranslation("auth");
@@ -111,7 +110,6 @@ function ChallengeForm({
   const [useBackupCode, setUseBackupCode] = useState(false);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
-  const [passkeyBusy, setPasskeyBusy] = useState(false);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -131,20 +129,6 @@ function ChallengeForm({
       }
     } finally {
       setBusy(false);
-    }
-  };
-
-  const usePasskey = async () => {
-    setPasskeyBusy(true);
-    try {
-      const options = await api.mfaWebauthnAuthStart(pendingToken);
-      const credential = await getPasskeyAssertion(options);
-      const session = await api.mfaChallengeVerify({ pendingToken, webauthnCredential: credential });
-      onSuccess(session);
-    } catch {
-      toast.error(t("mfaChallenge.errors.passkeyFailedTitle"), { description: t("mfaChallenge.errors.passkeyFailedDescription") });
-    } finally {
-      setPasskeyBusy(false);
     }
   };
 
@@ -170,16 +154,6 @@ function ChallengeForm({
           {busy ? t("mfaChallenge.challenge.verifying") : t("mfaChallenge.challenge.verify")}
         </Button>
         <div className="flex flex-col items-center gap-2 text-sm">
-          {methods.includes("webauthn") && webauthnSupported() && (
-            <button
-              type="button"
-              onClick={usePasskey}
-              disabled={passkeyBusy}
-              className="font-medium text-accent hover:underline disabled:opacity-60"
-            >
-              {passkeyBusy ? t("mfaChallenge.challenge.waitingForPasskey") : t("mfaChallenge.challenge.usePasskeyInstead")}
-            </button>
-          )}
           <button
             type="button"
             onClick={() => {

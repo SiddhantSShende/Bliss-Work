@@ -40,6 +40,7 @@ export const EventType = {
   ChannelBlocked: "channel.blocked",
   ChannelUnblocked: "channel.unblocked",
   TaskAssigned: "task.assigned",
+  TaskWithdrawn: "task.withdrawn",
   TaskAcknowledged: "task.acknowledged",
   TaskCompleted: "task.completed",
   TaskIgnored: "task.ignored",
@@ -477,9 +478,17 @@ const taskBase = {
 export const TaskAssigned = z.object({
   type: z.literal(EventType.TaskAssigned),
   ...taskBase,
+  members: z.array(z.string().uuid()).optional(),
   senderUsername: z.string(),
   title: z.string(),
   description: z.string(),
+});
+
+export const TaskWithdrawn = z.object({
+  type: z.literal(EventType.TaskWithdrawn),
+  ...taskBase,
+  members: z.array(z.string().uuid()).optional(),
+  assigneeUsername: z.string(),
 });
 
 export const TaskAcknowledged = z.object({
@@ -552,7 +561,7 @@ export const NotificationCreated = z.object({
   ...envelope,
   notificationId: z.string().uuid(),
   recipientId: z.string().uuid(),
-  kind: z.enum(["TASK_ACKNOWLEDGED", "TASK_COMPLETED", "TASK_IGNORED", "TASK_LEFT", "CHANNEL_ADDED"]),
+  kind: z.enum(["TASK_ACKNOWLEDGED", "TASK_COMPLETED", "TASK_IGNORED", "TASK_LEFT", "TASK_WITHDRAWN", "CHANNEL_ADDED"]),
   text: z.string(),
   taskId: z.string().uuid().optional(),
 });
@@ -889,6 +898,7 @@ export const ServerEvent = z.discriminatedUnion("type", [
   ChannelBlocked,
   ChannelUnblocked,
   TaskAssigned,
+  TaskWithdrawn,
   TaskAcknowledged,
   TaskCompleted,
   TaskIgnored,
@@ -923,6 +933,7 @@ export type ChannelRoleChanged = z.infer<typeof ChannelRoleChanged>;
 export type ChannelBlocked = z.infer<typeof ChannelBlocked>;
 export type ChannelUnblocked = z.infer<typeof ChannelUnblocked>;
 export type TaskAssigned = z.infer<typeof TaskAssigned>;
+export type TaskWithdrawn = z.infer<typeof TaskWithdrawn>;
 export type TaskAcknowledged = z.infer<typeof TaskAcknowledged>;
 export type TaskCompleted = z.infer<typeof TaskCompleted>;
 export type TaskIgnored = z.infer<typeof TaskIgnored>;

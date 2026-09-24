@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button } from "@taskboard/ui";
 import { Check, Copy } from "lucide-react";
+import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 
 /**
@@ -16,12 +17,27 @@ export function BackupCodesView({ codes, onDone }: { codes: string[]; onDone: ()
   const [ack, setAck] = useState(false);
 
   const copyAll = async () => {
+    const text = codes.join("\n");
     try {
-      await navigator.clipboard.writeText(codes.join("\n"));
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.setAttribute("readonly", "");
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        try {
+          textarea.select();
+          if (!document.execCommand("copy")) throw new Error("Clipboard copy failed");
+        } finally {
+          textarea.remove();
+        }
+      }
       setCopied(true);
     } catch {
-      // Clipboard access can be denied/unavailable — the codes are still
-      // selectable text below, so this is a convenience, not the only path.
+      toast.error(t("account:backupCodesView.copyFailed"));
     }
   };
 
@@ -35,7 +51,7 @@ export function BackupCodesView({ codes, onDone }: { codes: string[]; onDone: ()
           </span>
         ))}
       </div>
-      <Button variant="subtle" size="sm" onClick={copyAll} className="self-start">
+      <Button type="button" variant="subtle" size="sm" onClick={copyAll} className="self-start">
         {copied ? <Check size={14} /> : <Copy size={14} />}
         {copied ? t("account:backupCodesView.copied") : t("account:backupCodesView.copyAll")}
       </Button>

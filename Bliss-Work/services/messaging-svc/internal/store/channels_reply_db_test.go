@@ -50,12 +50,12 @@ func TestChannelMessageReplyToIDRoundTrips(t *testing.T) {
 	seedChannel(t, s, orgID, channelID, senderID)
 
 	original, err := s.SendChannelMessage(ctx, orgID, channelID, senderID, "the original",
-		uuid.Must(uuid.NewV7()).String(), "", "")
+		uuid.Must(uuid.NewV7()).String(), "", "", "")
 	if err != nil {
 		t.Fatalf("send original: %v", err)
 	}
 	reply, err := s.SendChannelMessage(ctx, orgID, channelID, senderID, "quoting it",
-		uuid.Must(uuid.NewV7()).String(), "", original.MessageID)
+		uuid.Must(uuid.NewV7()).String(), "", original.MessageID, "")
 	if err != nil {
 		t.Fatalf("send reply: %v", err)
 	}
@@ -92,7 +92,7 @@ func TestChannelMessageWithNoReplyLeavesReplyToIDEmpty(t *testing.T) {
 	seedChannel(t, s, orgID, channelID, senderID)
 
 	res, err := s.SendChannelMessage(ctx, orgID, channelID, senderID, "no reply here",
-		uuid.Must(uuid.NewV7()).String(), "", "")
+		uuid.Must(uuid.NewV7()).String(), "", "", "")
 	if err != nil {
 		t.Fatalf("send: %v", err)
 	}

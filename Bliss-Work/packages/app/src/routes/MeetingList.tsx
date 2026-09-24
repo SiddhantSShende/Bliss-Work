@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { AlertCircle, Calendar } from "lucide-react";
@@ -23,6 +23,7 @@ import {
   type MeetingFilter,
 } from "../lib/meetingView";
 import { MeetingRow } from "../features/MeetingRow";
+import { MeetingFilterMenu } from "../features/MeetingFilterMenu";
 
 /**
  * The meeting list under the calendar: Upcoming, Live and Past, each row saying
@@ -55,11 +56,15 @@ const PAST_PAGE_SIZE = 5;
 
 export function MeetingList({
   filter = NO_MEETING_FILTER,
+  onFilterChange,
+  selectedMeetingId,
   onOpenRoom,
 }: {
   /** The calendar's filter, applied here too so the page narrows as one thing
    *  rather than as two halves that disagree. */
   filter?: MeetingFilter;
+  onFilterChange?: (filter: MeetingFilter) => void;
+  selectedMeetingId?: string | null;
   /** Join/Open — the caller owns it because entering a room is a session-level
    *  act (a tab, or the in-app overlay), not something a list row can decide. */
   onOpenRoom?: (call: CallDTO) => void;
@@ -69,6 +74,7 @@ export function MeetingList({
   const bucket = bucketOf(params);
   const { api } = useRuntime();
   const viewerId = useSession((s) => s.user?.id ?? null);
+  const [filterOpen, setFilterOpen] = useState(false);
 
   // Upcoming + Live. One request for the section, shared with everything else
   // that reads qk.calls.
@@ -135,7 +141,7 @@ export function MeetingList({
   };
 
   return (
-    <div className="flex min-h-0 flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-border/60 px-3 py-2">
         {MEETING_BUCKETS.map((b) => {
           const on = b.key === bucket;
@@ -158,9 +164,14 @@ export function MeetingList({
             </button>
           );
         })}
+        {onFilterChange && (
+          <div className="ml-auto">
+            <MeetingFilterMenu value={filter} onChange={onFilterChange} open={filterOpen} onOpenChange={setFilterOpen} />
+          </div>
+        )}
       </div>
 
-      <div className="min-h-0 flex-1">
+      <div className="min-h-0 flex-1 overflow-y-auto">
         {q.isLoading ? (
           <div className="flex items-center gap-2 p-6 text-sm text-muted">
             <Spinner /> {t("list.loading")}
@@ -202,6 +213,8 @@ export function MeetingList({
               <MeetingRow
                 key={call.id}
                 call={call}
+                compact
+                selected={call.id === selectedMeetingId}
                 search={params.toString()}
                 name={meetingDisplayName(call, nameOf, viewerId)}
                 organiser={nameOf(call.createdBy)}

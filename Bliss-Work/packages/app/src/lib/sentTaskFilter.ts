@@ -3,14 +3,15 @@ import { startOfDay } from "./dayLabel";
 
 export type SentAssignee = SentTaskDTO["assignees"][number];
 type AssigneeStatus = SentAssignee["status"];
+export type SentStatus = AssigneeStatus | "SCHEDULED";
 
 /** The four statuses My Tasks offers as filters. SENT (allocated, not yet
  *  acknowledged) has no chip: it is shown whenever no status is selected. */
-export const STATUS_FILTERS: readonly AssigneeStatus[] = ["COMPLETED", "ACKNOWLEDGED", "LEFT", "IGNORED"];
+export const STATUS_FILTERS: readonly SentStatus[] = ["COMPLETED", "ACKNOWLEDGED", "LEFT", "IGNORED", "SCHEDULED"];
 
 export interface SentTaskFilter {
   /** OR within the set; empty = every status, SENT included. */
-  statuses: ReadonlySet<AssigneeStatus>;
+  statuses: ReadonlySet<SentStatus>;
   /** OR within the set, by assigneeId; empty = everyone. */
   personIds: ReadonlySet<string>;
   /** Local start-of-day the assignment must fall on; null = any day. */

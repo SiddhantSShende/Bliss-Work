@@ -123,7 +123,7 @@ export function CallTile({
           muted={p.isLocal}
           className={cn(
             "h-full w-full",
-            p.sharing ? "bg-black object-contain" : "object-cover",
+            p.sharing ? "bg-black object-contain" : "object-contain",
             // Only the local camera is mirrored, so the tile reads naturally to
             // the person looking at themselves — never a remote participant's
             // camera (they see the raw, un-mirrored track LiveKit publishes,

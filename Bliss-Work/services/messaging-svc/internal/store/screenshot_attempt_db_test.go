@@ -121,7 +121,7 @@ func TestSendChannelMessageScreenshotAttemptBodyIsServerAuthored(t *testing.T) {
 
 	forged := "Someone else tried to take a screenshot — not me, I promise."
 	res, err := s.SendChannelMessage(ctx, orgID, channelID, senderID, forged, uuid.Must(uuid.NewV7()).String(),
-		MessageKindScreenshotAttempt, "")
+		MessageKindScreenshotAttempt, "", "")
 	if err != nil {
 		t.Fatalf("SendChannelMessage: %v", err)
 	}

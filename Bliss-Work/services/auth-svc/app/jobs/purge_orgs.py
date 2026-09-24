@@ -69,12 +69,9 @@ PURGE_STATEMENTS: tuple[str, ...] = (
     "WHERE last_user_id IN (SELECT id FROM users WHERE org_id = :org)",
     "DELETE FROM refresh_tokens WHERE user_id IN (SELECT id FROM users WHERE org_id = :org)",
     "DELETE FROM user_tokens WHERE user_id IN (SELECT id FROM users WHERE org_id = :org)",
-    # mfa_backup_codes/mfa_webauthn_credentials both REFERENCE users(id) with no
-    # CASCADE (see migrations/0016_mfa.sql) — same reasoning as everything else
-    # in this list, and skipping them means the final DELETE FROM users below
-    # fails its FK check for any org with even one MFA-enrolled member.
+    # mfa_backup_codes REFERENCES users(id) with no CASCADE, so it must be
+    # removed before the final DELETE FROM users below.
     "DELETE FROM mfa_backup_codes WHERE user_id IN (SELECT id FROM users WHERE org_id = :org)",
-    "DELETE FROM mfa_webauthn_credentials WHERE user_id IN (SELECT id FROM users WHERE org_id = :org)",
     "DELETE FROM user_roles WHERE org_id = :org",
     "DELETE FROM invites WHERE org_id = :org",
     "DELETE FROM audit_log WHERE org_id = :org",

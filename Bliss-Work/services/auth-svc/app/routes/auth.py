@@ -294,9 +294,7 @@ async def login(body: LoginRequest, response: Response, request: Request) -> Ses
                 )
                 if mfa_required_now:
                     pending_raw = await mfa_service.mint_mfa_pending(conn, dto.orgId, membership_id)
-                    methods = (
-                        [] if must_enroll_first else await mfa_service.enrolled_methods(conn, membership_id)
-                    )
+                    methods = [] if must_enroll_first else ["totp"]
                     mfa_pending = MfaPendingDTO(
                         pendingToken=pending_raw,
                         methods=methods,  # type: ignore[arg-type]
@@ -544,9 +542,7 @@ async def switch_org(
         )
         if mfa_required_now:
             pending_raw = await mfa_service.mint_mfa_pending(conn, org_id, target_user)
-            methods = (
-                [] if must_enroll_first else await mfa_service.enrolled_methods(conn, target_user)
-            )
+            methods = [] if must_enroll_first else ["totp"]
             return MfaPendingDTO(
                 pendingToken=pending_raw,
                 methods=methods,  # type: ignore[arg-type]

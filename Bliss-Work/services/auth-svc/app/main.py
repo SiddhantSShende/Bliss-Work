@@ -36,7 +36,6 @@ from .routes import jwks as jwks_routes
 from .routes import members as member_routes
 from .routes import mfa_challenge as mfa_challenge_routes
 from .routes import mfa_totp as mfa_totp_routes
-from .routes import mfa_webauthn as mfa_webauthn_routes
 from .routes import org_lifecycle as org_routes
 from .routes import password_reset as password_reset_routes
 from .routes import sessions as sessions_routes
@@ -164,7 +163,6 @@ app.include_router(org_routes.router)
 app.include_router(password_reset_routes.router)
 app.include_router(email_verify_routes.router)
 app.include_router(mfa_totp_routes.router)
-app.include_router(mfa_webauthn_routes.router)
 app.include_router(mfa_challenge_routes.router)
 app.include_router(sessions_routes.router)
 app.include_router(internal_routes.router)

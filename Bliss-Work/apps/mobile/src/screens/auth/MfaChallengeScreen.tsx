@@ -20,8 +20,6 @@ type Props = NativeStackScreenProps<AuthStackParamList, 'MfaChallenge'>;
  * backup code). Two things that screen also handles are deliberately out of
  * scope here rather than half-built:
  *
- *  - WebAuthn/passkey step-up ("Use a passkey instead") — needs a native
- *    module (react-native-passkey) not yet added; tracked for Phase F.
  *  - `enrollmentRequired` (a workspace that mandates MFA for an admin who
  *    hasn't enrolled yet) — needs the QR-enrollment + backup-codes-reveal
  *    UI (TotpEnrollPanel/BackupCodesView), real screens of their own, not

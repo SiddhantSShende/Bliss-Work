@@ -6,6 +6,9 @@
   "author": "BlissWork",
   "homepage": "https://blisswork.rnrtechs.com",
   "main": "out/main/index.js",
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "scripts": {
     "dev": "unset ELECTRON_RUN_AS_NODE; electron-vite dev",
     "build": "electron-vite build",

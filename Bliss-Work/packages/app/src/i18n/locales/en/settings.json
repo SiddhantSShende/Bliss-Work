@@ -9,11 +9,22 @@
     "changeTheme": "Change theme",
     "menuLabel": "Theme",
     "light": "Light",
-    "dark": "Dark"
+    "dark": "Dark",
+    "custom": {
+      "title": "Custom theme",
+      "name": "Theme name",
+      "colors": "Colors",
+      "color": "Color {{number}}",
+      "preview": "Custom theme preview",
+      "create": "Create custom theme",
+      "edit": "Edit custom theme",
+      "cancel": "Cancel",
+      "save": "Save theme"
+    }
   },
   "twoFactor": {
     "title": "Two-factor authentication",
-    "description": "Add an authenticator app or a passkey as a second sign-in step."
+    "description": "Add an authenticator app as a second sign-in step."
   },
   "activeSessions": {
     "title": "Active sessions",

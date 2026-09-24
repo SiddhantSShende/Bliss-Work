@@ -27,6 +27,7 @@ const (
 	TypeTaskCompleted       = "task.completed"
 	TypeTaskIgnored         = "task.ignored"
 	TypeTaskLeft            = "task.left"
+	TypeTaskWithdrawn       = "task.withdrawn"
 	TypeNotificationCreated = "notification.created"
 	TypeNotificationRead    = "notification.read"
 	TypeOrgDeleted          = "org.deleted"
@@ -39,6 +40,7 @@ const (
 	KindTaskCompleted    = "TASK_COMPLETED"
 	KindTaskIgnored      = "TASK_IGNORED"
 	KindTaskLeft         = "TASK_LEFT"
+	KindTaskWithdrawn    = "TASK_WITHDRAWN"
 	KindChannelAdded     = "CHANNEL_ADDED"
 )
 

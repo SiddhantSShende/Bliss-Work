@@ -1,4 +1,18 @@
-import { app, BrowserWindow, desktopCapturer, ipcMain, Menu, powerMonitor, screen, session, shell, Tray, utilityProcess, UtilityProcess } from "electron";
+import {
+  app,
+  BrowserWindow,
+  desktopCapturer,
+  ipcMain,
+  Menu,
+  Notification as ElectronNotification,
+  powerMonitor,
+  screen,
+  session,
+  shell,
+  Tray,
+  utilityProcess,
+  UtilityProcess,
+} from "electron";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { StickyTaskDTO } from "@taskboard/shared";
@@ -58,6 +72,7 @@ const ENDPOINTS = resolveEndpointsFromEnv(app.isPackaged, {
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
+let incomingCallNotification: Electron.Notification | null = null;
 let wsProc: UtilityProcess | null = null;
 let quitting = false;
 // Separate from `quitting`: quitApp() (tray/menu Quit) already sets
@@ -419,6 +434,15 @@ function focusMain() {
   mainWindow.focus();
 }
 
+function sendIncomingCallAction(action: "accept" | "reject"): void {
+  if (action === "accept") focusMain();
+  const win = mainWindow;
+  if (!win || win.isDestroyed()) return;
+  const send = () => sendToMain("incoming-call:action", action);
+  if (win.webContents.isLoading()) win.webContents.once("did-finish-load", send);
+  else send();
+}
+
 /**
  * Route one taskboard:// deep link to the renderer.
  *
@@ -678,6 +702,49 @@ ipcMain.handle("media:open-microphone-settings", async () => {
 function fromMainWindow(e: { sender: Electron.WebContents }): boolean {
   return e.sender === mainWindow?.webContents;
 }
+
+function closeIncomingCallNotification(): void {
+  incomingCallNotification?.close();
+  incomingCallNotification = null;
+}
+
+ipcMain.on("incoming-call:show", (e, payload: unknown) => {
+  if (!fromMainWindow(e)) return;
+  if (!payload || typeof payload !== "object") return;
+  const { caller, media } = payload as Record<string, unknown>;
+  if (typeof caller !== "string" || !caller || (media !== "audio" && media !== "video")) return;
+  if (!notificationPrefs.getDesktopEnabled()) return;
+  if (!ElectronNotification.isSupported()) return;
+
+  closeIncomingCallNotification();
+  const notification = new ElectronNotification({
+    title: caller,
+    body: media === "video" ? "Incoming video call" : "Incoming voice call",
+    actions: [
+      { type: "button", text: "ACCEPT" },
+      { type: "button", text: "REJECT" },
+    ],
+    timeoutType: "never",
+    urgency: "critical",
+    silent: false,
+  });
+  incomingCallNotification = notification;
+  notification.on("action", (_event, index) => {
+    if (incomingCallNotification !== notification) return;
+    closeIncomingCallNotification();
+    sendIncomingCallAction(index === 0 ? "accept" : "reject");
+  });
+  notification.on("click", () => focusMain());
+  notification.on("close", () => {
+    if (incomingCallNotification === notification) incomingCallNotification = null;
+  });
+  notification.show();
+});
+
+ipcMain.on("incoming-call:close", (e) => {
+  if (!fromMainWindow(e)) return;
+  closeIncomingCallNotification();
+});
 
 ipcMain.on("auth:token", (e, token: string | null) => {
   if (!fromMainWindow(e)) return;

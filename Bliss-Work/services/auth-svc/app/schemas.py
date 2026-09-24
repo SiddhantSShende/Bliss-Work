@@ -275,51 +275,37 @@ class MfaPendingDTO(BaseModel):
     still owed. `pendingToken` is a short-lived, single-use, server-only
     secret (never emailed) that the client presents to mfa_challenge.py's
     verify endpoint, and — while mfa_enrolled is still false — to the
-    enroll-start/enroll-confirm endpoints in mfa_totp.py/mfa_webauthn.py (the
+    enroll-start/enroll-confirm endpoints in mfa_totp.py (the
     restricted enrollment credential; see
     docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 7)."""
 
     mfaRequired: bool = True
     pendingToken: str
-    methods: list[Literal["totp", "webauthn"]]
+    methods: list[Literal["totp"]]
     # True once past the org's mfa_grace_period_ends_at with no enrollment —
     # the client must route straight into enrollment, not a challenge screen.
     enrollmentRequired: bool = False
 
 
-class MfaMethodsDTO(BaseModel):
-    """Which second factors the CALLER (an already-signed-in, enrolled user)
-    has registered — same shape/values as MfaPendingDTO.methods, but for an
-    ordinary Bearer-authed caller rather than a pending login. Lets Settings
-    decide whether to offer a passkey as a step-up shortcut without guessing
-    from mfaEnrolled alone: a passkey-only enrollee has no TOTP secret or
-    backup code to fall back on for MFA-disable / backup-codes regenerate."""
-
-    methods: list[Literal["totp", "webauthn"]]
-
-
 class MfaChallengeRequest(BaseModel):
     pendingToken: str = Field(min_length=1, max_length=512)
-    # Exactly one of these three is set, matching whichever method the client
+    # Exactly one of these two is set, matching whichever method the client
     # is presenting.
     totpCode: str | None = Field(default=None, min_length=6, max_length=10)
     backupCode: str | None = Field(default=None, min_length=1, max_length=32)
-    webauthnCredential: dict | None = None
 
 
 class MfaStepUpRequest(BaseModel):
     """Step-up re-auth shared by two consequential MFA actions — disabling MFA
     and regenerating backup codes: password + a still-valid second factor, so
-    a stolen access token alone can never perform either. Exactly one of
-    totpCode/backupCode/webauthnCredential should be set — mirrors
-    MfaChallengeRequest's three-way choice, except a password is ALSO always
+    a stolen access     token alone can never perform either. Exactly one of totpCode/backupCode
+    should be set — mirrors MfaChallengeRequest's two-way choice, except a password is ALSO always
     required here (an already-signed-in caller has no earlier password check
     in this flow the way a fresh login does)."""
 
     password: str = Field(min_length=1, max_length=256)
     totpCode: str | None = Field(default=None, min_length=6, max_length=10)
     backupCode: str | None = Field(default=None, min_length=1, max_length=32)
-    webauthnCredential: dict | None = None
 
 
 class TotpEnrollStartRequest(BaseModel):
@@ -362,31 +348,6 @@ class TotpEnrollConfirmResponse(BaseModel):
 class BackupCodesRegenerateResponse(BaseModel):
     backupCodes: list[str]
 
-
-class WebauthnRegisterStartRequest(BaseModel):
-    pendingToken: str | None = Field(default=None, max_length=512)
-
-
-class WebauthnRegisterFinishRequest(BaseModel):
-    credential: dict
-    nickname: str | None = Field(default=None, max_length=80)
-    pendingToken: str | None = Field(default=None, max_length=512)
-    # Required only when this membership already has MFA enrolled — i.e. this
-    # call would add another credential to an already-protected account
-    # rather than set up its first factor. Same shape/purpose as
-    # TotpEnrollConfirmRequest.stepUp above; see mfa_webauthn.py's
-    # register_finish.
-    stepUp: MfaStepUpRequest | None = None
-
-
-class WebauthnRegisterFinishResponse(BaseModel):
-    id: str
-    nickname: str | None = None
-    session: SessionDTO | None = None
-
-
-class WebauthnAuthStartRequest(BaseModel):
-    pendingToken: str = Field(min_length=1, max_length=512)
 
 
 class OrgMfaSettingsRequest(BaseModel):

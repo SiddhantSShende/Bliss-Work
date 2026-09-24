@@ -768,7 +768,7 @@ export function CallRoom({
       : t("preJoin.readyToJoinLabel");
 
     return (
-      <div className="meeting-theme meeting-mesh fixed inset-0 z-[100] flex flex-col text-fg">
+      <div className="meeting-surface meeting-theme meeting-mesh fixed inset-0 z-[100] flex flex-col text-fg">
         <header className="flex shrink-0 items-center justify-between border-b border-border/70 px-5 py-3">
           <div className="min-w-0">
             <div className="truncate font-semibold">{title}</div>
@@ -806,7 +806,7 @@ export function CallRoom({
                 autoPlay
                 muted
                 playsInline
-                className={`h-full w-full -scale-x-100 object-cover ${previewCamOn ? "" : "hidden"}`}
+                className={`h-full w-full -scale-x-100 object-contain ${previewCamOn ? "" : "hidden"}`}
               />
               {!previewCamOn && !previewError && (
                 <div className="text-center text-muted">
@@ -1040,7 +1040,7 @@ export function CallRoom({
           posts the leave (see useCallRoom's cleanup), so keeping this in the
           DOM is precisely what lets the meeting outlive a minimise. */}
       <div
-        className={minimized ? "hidden" : "meeting-theme meeting-mesh fixed inset-0 z-[100] flex text-fg"}
+        className={minimized ? "hidden" : "meeting-surface meeting-theme meeting-mesh fixed inset-0 z-[100] flex min-h-0 min-w-0 text-fg"}
       >
         <CallSidebar
           micOn={micOn}
@@ -1118,10 +1118,10 @@ export function CallRoom({
           {/* Below the header: the video area next to whichever of
               Chat/Notes/Participants is open. Nothing here ever overlays the
               video as a popup — the side panel collapses in place instead. */}
-          <div className="flex min-h-0 flex-1 flex-col gap-4 px-6 pb-6 lg:flex-row">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-hidden px-6 pb-6 lg:flex-row">
             {/* min-w-0: becomes a flex-ROW sibling of CallSidePanel at lg:,
                 same shrink-below-content-width reason as above. */}
-            <main className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
+            <main className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden">
               {/* The sharer's own reminder, and the only stop control that exists. */}
               {sharing && <ScreenSharePopup startedAt={connectedAt} onStop={() => void toggleShare()} />}
 

@@ -46,12 +46,17 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { Check, X, PinOff, Minus, Maximize2, Pin } from "lucide-react";
-import { ApiError, type StickyTaskDTO } from "@taskboard/shared";
+import { Check, X, PinOff, Minus, Maximize2, Pin, ChevronLeft, ChevronRight } from "lucide-react";
+import { actionsFor, ApiError, type StickyTaskDTO } from "@taskboard/shared";
 import { IconButton as SharedIconButton } from "@taskboard/ui";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { useSession } from "../store/session";
+import {
+  consumeBrowserTaskSelection,
+  unpinBrowserTask,
+  useBrowserTaskPinState,
+} from "../lib/browserStickyState";
 
 const POSITION_KEY = "tb.browser-stickies.v1";
 const NOTE_W = 280;
@@ -157,7 +162,12 @@ export function BrowserStickies() {
   // task. This used to be a localStorage set, which combined with the (now
   // removed) dismiss-on-open call meant reading a task retired its note for
   // good — see the note in packages/app/src/platform.ts.
-  const [unpinned, setUnpinned] = useState<UnpinnedSet>({});
+  const browserPinState = useBrowserTaskPinState();
+  const unpinnedIds = browserPinState.unpinnedIds;
+  const unpinned = useMemo<UnpinnedSet>(
+    () => Object.fromEntries(unpinnedIds.map((id) => [id, true])),
+    [unpinnedIds],
+  );
 
   useEffect(() => writeJSON(POSITION_KEY, positionMap), [positionMap]);
 
@@ -170,19 +180,47 @@ export function BrowserStickies() {
     window.setTimeout(() => settledRef.current.delete(taskId), SETTLE_MS);
   }, []);
 
-  // Visible set: SENT and ACKNOWLEDGED tasks that the user hasn't unpinned
-  // locally, capped at 5 to keep the screen sane.
-  const visible = useMemo(
+  const eligibleTasks = useMemo(
     () =>
-      tasks
-        .filter(
-          (task) =>
-            (task.myStatus === "SENT" || task.myStatus === "ACKNOWLEDGED") &&
-            !unpinned[task.taskId] &&
-            !settledRef.current.has(task.taskId),
-        )
-        .slice(0, 5),
+      tasks.filter(
+        (task) =>
+          (task.myStatus === "SENT" || task.myStatus === "ACKNOWLEDGED") &&
+          !unpinned[task.taskId] &&
+          !settledRef.current.has(task.taskId),
+      ),
     [tasks, unpinned],
+  );
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const previousEligibleIds = useRef<string[]>([]);
+
+  useEffect(() => {
+    const requestedTaskId = consumeBrowserTaskSelection();
+    if (requestedTaskId) setSelectedTaskId(requestedTaskId);
+  }, [browserPinState.requestedTaskId]);
+
+  // Preserve the selected task while it remains eligible. If it disappears,
+  // keep the same carousel index so the next valid task takes its place.
+  useEffect(() => {
+    setSelectedTaskId((current) => {
+      if (eligibleTasks.length === 0) return null;
+      if (current && eligibleTasks.some((task) => task.taskId === current)) return current;
+      const previousIndex = current ? previousEligibleIds.current.indexOf(current) : -1;
+      return eligibleTasks[previousIndex >= 0 ? previousIndex % eligibleTasks.length : 0]!.taskId;
+    });
+    previousEligibleIds.current = eligibleTasks.map((task) => task.taskId);
+  }, [eligibleTasks]);
+
+  const activeTask =
+    eligibleTasks.find((task) => task.taskId === selectedTaskId) ?? eligibleTasks[0] ?? null;
+  const switchTask = useCallback(
+    (direction: -1 | 1) => {
+      if (eligibleTasks.length < 2 || !activeTask) return;
+      const index = eligibleTasks.findIndex((task) => task.taskId === activeTask.taskId);
+      setSelectedTaskId(
+        eligibleTasks[(index + direction + eligibleTasks.length) % eligibleTasks.length]!.taskId,
+      );
+    },
+    [activeTask, eligibleTasks],
   );
 
   // GC stale persisted entries when their task disappears from the server.
@@ -197,13 +235,6 @@ export function BrowserStickies() {
     if (!enabled || !isSuccess) return;
     const liveIds = new Set(tasks.map((task) => task.taskId));
     setPositionMap((prev) => {
-      const stale = Object.keys(prev).filter((k) => !liveIds.has(k));
-      if (stale.length === 0) return prev;
-      const next = { ...prev };
-      for (const k of stale) delete next[k];
-      return next;
-    });
-    setUnpinned((prev) => {
       const stale = Object.keys(prev).filter((k) => !liveIds.has(k));
       if (stale.length === 0) return prev;
       const next = { ...prev };
@@ -240,7 +271,9 @@ export function BrowserStickies() {
       const previous = qc.getQueryData<StickyTaskDTO[]>(qk.sticky);
       qc.setQueryData<StickyTaskDTO[]>(qk.sticky, (prev) =>
         (prev ?? []).map((task) =>
-          task.taskId === taskId ? { ...task, myStatus: "ACKNOWLEDGED" } : task,
+          task.taskId === taskId
+            ? { ...task, myStatus: "ACKNOWLEDGED" as const, actions: actionsFor("ACKNOWLEDGED") }
+            : task,
         ),
       );
       return { previous };
@@ -282,7 +315,7 @@ export function BrowserStickies() {
   // this client. No network call. The user completes it from /app/tasks.
   const unpinLocally = useCallback(
     (taskId: string) => {
-      setUnpinned((prev) => ({ ...prev, [taskId]: true }));
+      unpinBrowserTask(taskId);
       toast(t("toasts.noteUnpinned"), {
         description: t("toasts.noteUnpinnedDescription"),
       });
@@ -298,13 +331,20 @@ export function BrowserStickies() {
   // without server side-effects, so the user is never trapped.
   const hideLocally = useCallback(
     (taskId: string) => {
-      setUnpinned((prev) => ({ ...prev, [taskId]: true }));
+      unpinBrowserTask(taskId);
       // No toast — the user is dismissing, they don't want another popup.
     },
     [],
   );
 
-  if (!enabled || visible.length === 0) return null;
+  if (!enabled || !activeTask) return null;
+  const activeState = positionMap[activeTask.taskId];
+  const initialPosition = activeState
+    ? clampToViewport(
+        { x: activeState.x, y: activeState.y },
+        activeState.collapsed,
+      )
+    : defaultPosition(0);
 
   return (
     <div
@@ -312,31 +352,26 @@ export function BrowserStickies() {
       aria-label={t("overlay.ariaLabel")}
     >
       <AnimatePresence>
-        {visible.map((task, i) => {
-          const ns = positionMap[task.taskId];
-          const collapsed = ns?.collapsed ?? false;
-          const initial =
-            ns && (ns.x || ns.y) ? { x: ns.x, y: ns.y } : defaultPosition(i);
-          return (
-            <FloatingNote
-              key={task.taskId}
-              task={task}
-              collapsed={collapsed}
-              initialPosition={initial}
-              busy={
-                (ackMut.isPending && ackMut.variables === task.taskId) ||
-                (ignoreMut.isPending && ignoreMut.variables === task.taskId)
-              }
-              onPositionSettled={(p) => patchState(task.taskId, p)}
-              onCollapse={() => patchState(task.taskId, { collapsed: true })}
-              onExpand={() => patchState(task.taskId, { collapsed: false })}
-              onAcknowledge={() => ackMut.mutate(task.taskId)}
-              onIgnore={() => ignoreMut.mutate(task.taskId)}
-              onUnpin={() => unpinLocally(task.taskId)}
-              onHide={() => hideLocally(task.taskId)}
-            />
-          );
-        })}
+        <FloatingNote
+          key="web-task-pin"
+          task={activeTask}
+          collapsed={activeState?.collapsed ?? false}
+          initialPosition={initialPosition}
+          busy={
+            (ackMut.isPending && ackMut.variables === activeTask.taskId) ||
+            (ignoreMut.isPending && ignoreMut.variables === activeTask.taskId)
+          }
+          onPositionSettled={(p) => patchState(activeTask.taskId, p)}
+          onCollapse={() => patchState(activeTask.taskId, { collapsed: true })}
+          onExpand={() => patchState(activeTask.taskId, { collapsed: false })}
+          onAcknowledge={() => ackMut.mutate(activeTask.taskId)}
+          onIgnore={() => ignoreMut.mutate(activeTask.taskId)}
+          onUnpin={() => unpinLocally(activeTask.taskId)}
+          onHide={() => hideLocally(activeTask.taskId)}
+          hasMultiple={eligibleTasks.length > 1}
+          onPrevious={() => switchTask(-1)}
+          onNext={() => switchTask(1)}
+        />
       </AnimatePresence>
     </div>
   );
@@ -354,6 +389,9 @@ interface FloatingNoteProps {
   onIgnore: () => void;
   onUnpin: () => void;
   onHide: () => void;
+  hasMultiple: boolean;
+  onPrevious: () => void;
+  onNext: () => void;
 }
 
 function FloatingNote({
@@ -368,16 +406,20 @@ function FloatingNote({
   onIgnore,
   onUnpin,
   onHide,
+  hasMultiple,
+  onPrevious,
+  onNext,
 }: FloatingNoteProps) {
   const { t } = useTranslation("stickies");
   const isSent = task.myStatus === "SENT";
+  const [isCollapsed, setIsCollapsed] = useState(collapsed);
   const [pos, setPos] = useState(() => clampToViewport(initialPosition, collapsed));
 
   useEffect(() => {
-    const onResize = () => setPos((p) => clampToViewport(p, collapsed));
+    const onResize = () => setPos((p) => clampToViewport(p, isCollapsed));
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
-  }, [collapsed]);
+  }, [isCollapsed]);
 
   /** Drag state: idle → press → drag. Threshold-based to keep button clicks
    *  intact even when fired from inside the draggable surface. */
@@ -415,7 +457,7 @@ function FloatingNote({
         /* capture may be denied — drag still works */
       }
     }
-    setPos(clampToViewport({ x: d.origin.x + dx, y: d.origin.y + dy }, collapsed));
+    setPos(clampToViewport({ x: d.origin.x + dx, y: d.origin.y + dy }, isCollapsed));
   };
 
   const onPointerEnd = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -446,7 +488,7 @@ function FloatingNote({
     },
   };
 
-  if (collapsed) {
+  if (isCollapsed) {
     return (
       <motion.div
         layout
@@ -459,14 +501,27 @@ function FloatingNote({
         className="pointer-events-auto cursor-grab active:cursor-grabbing"
       >
         <div
-          className="flex h-full items-center gap-2 rounded-2xl border border-border bg-surface px-3 shadow-widget"
+          className="relative flex h-full items-center gap-2 rounded-2xl border border-border bg-surface px-3 shadow-widget"
           title={task.title}
         >
+          {hasMultiple && (
+            <>
+              <PinNavButton direction="previous" onClick={onPrevious} />
+              <PinNavButton direction="next" onClick={onNext} />
+            </>
+          )}
           <Pin size={14} className="shrink-0 text-accent" />
           <span className="min-w-0 flex-1 truncate text-xs font-medium text-fg">
             {task.title || t("card.untitledTask")}
           </span>
-          <IconButton onClick={onExpand} title={t("card.expand")} label={t("card.expandLabel")}>
+          <IconButton
+            onClick={() => {
+              setIsCollapsed(false);
+              onExpand();
+            }}
+            title={t("card.expand")}
+            label={t("card.expandLabel")}
+          >
             <Maximize2 size={13} />
           </IconButton>
           <IconButton onClick={onHide} title={t("card.dismiss")} label={t("card.dismissLabel")}>
@@ -488,7 +543,13 @@ function FloatingNote({
       style={{ ...interactionProps.style, width: NOTE_W }}
       className="pointer-events-auto cursor-grab active:cursor-grabbing"
     >
-      <div className="flex flex-col gap-2 rounded-2xl border border-border bg-surface p-3 shadow-widget">
+      <div className="relative flex flex-col gap-2 rounded-2xl border border-border bg-surface p-3 shadow-widget">
+        {hasMultiple && (
+          <>
+            <PinNavButton direction="previous" onClick={onPrevious} />
+            <PinNavButton direction="next" onClick={onNext} />
+          </>
+        )}
         <div className="flex items-start justify-between gap-2">
           <div className="flex min-w-0 items-center gap-1.5">
             <Pin size={13} className="shrink-0 text-accent" />
@@ -497,7 +558,14 @@ function FloatingNote({
             </span>
           </div>
           <div className="flex shrink-0 items-center gap-0.5">
-            <IconButton onClick={onCollapse} title={t("card.collapse")} label={t("card.collapseLabel")}>
+            <IconButton
+              onClick={() => {
+                setIsCollapsed(true);
+                onCollapse();
+              }}
+              title={t("card.collapse")}
+              label={t("card.collapseLabel")}
+            >
               <Minus size={14} />
             </IconButton>
             <IconButton onClick={onHide} title={t("card.dismiss")} label={t("card.dismissLabel")}>
@@ -510,7 +578,7 @@ function FloatingNote({
           <div className="text-[11px] text-muted">{t("card.from", { name: task.senderUsername })}</div>
         )}
         {task.description && (
-          <p className="line-clamp-3 text-[12px] leading-snug text-fg/80">
+          <p className="max-h-16 overflow-y-auto whitespace-pre-wrap text-[12px] leading-snug text-fg/80 [scrollbar-color:var(--color-border)_transparent] [scrollbar-width:thin]">
             {task.description}
           </p>
         )}
@@ -580,8 +648,34 @@ function IconButton({
   );
 }
 
+function PinNavButton({
+  direction,
+  onClick,
+}: {
+  direction: "previous" | "next";
+  onClick: () => void;
+}) {
+  const { t } = useTranslation("stickies");
+  const previous = direction === "previous";
+  const label = t(previous ? "card.navPrevious" : "card.navNext");
+  return (
+    <button
+      type="button"
+      data-no-drag
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      className={`app-no-drag absolute top-1/2 z-10 flex h-6 w-5 -translate-y-1/2 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-fg ${
+        previous ? "-left-5" : "-right-5"
+      }`}
+    >
+      {previous ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
+    </button>
+  );
+}
+
 /** Tone-styled action button. Tones map to the canonical UI palette so
- *  light/dark are automatic via CSS variables. */
+ * light/dark are automatic via CSS variables. */
 function ActionButton({
   children,
   onClick,

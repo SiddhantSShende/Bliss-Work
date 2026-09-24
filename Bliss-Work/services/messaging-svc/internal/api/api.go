@@ -693,6 +693,11 @@ type sendReq struct {
 	Origin string `json:"origin"`
 	// Message being quoted, if any.
 	ReplyToID string `json:"replyToId"`
+	// Required when Kind is "attachment_opened"/"attachment_downloaded" — the
+	// attachment the activity is about. The store re-resolves its real
+	// filename and re-checks the caller may read it; Body is ignored for
+	// these kinds (see store.attachmentForActivity).
+	AttachmentID string `json:"attachmentId"`
 }
 
 type openConversationReq struct {
@@ -756,8 +761,13 @@ func (s *Server) sendMessage(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid replyToId")
 		return
 	}
+	isAttachmentActivity := req.Kind == store.MessageKindAttachmentOpened || req.Kind == store.MessageKindAttachmentDownloaded
+	if isAttachmentActivity && !validUUID(req.AttachmentID) {
+		writeErr(w, http.StatusBadRequest, "attachmentId required")
+		return
+	}
 	res, err := s.store.SendMessage(r.Context(), claims.OrgID, claims.UserID, req.RecipientID, req.Body, req.ClientMsgID,
-		store.SendOptions{Kind: req.Kind, Origin: req.Origin, ReplyToID: req.ReplyToID})
+		store.SendOptions{Kind: req.Kind, Origin: req.Origin, ReplyToID: req.ReplyToID, AttachmentID: req.AttachmentID})
 	if err != nil {
 		s.mapErr(w, err)
 		return

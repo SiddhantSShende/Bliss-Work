@@ -595,13 +595,28 @@ const (
 	// the authenticated caller, so this can only ever be a client reporting on
 	// itself, never forged onto someone else's thread.
 	MessageKindScreenshotAttempt = "screenshot_attempt"
+	// MessageKindAttachmentOpened/Downloaded record that the sender's own
+	// client successfully opened (desktop: handed the downloaded file to the
+	// OS's native app) or downloaded an attachment in this chat/channel. Same
+	// trust level as MessageKindScreenshotAttempt — senderID is always the
+	// authenticated caller — but the body ALSO names a filename, which is
+	// attacker-controlled data unless authored from the attachment row itself.
+	// attachmentForActivity is what makes that safe: it re-resolves the real,
+	// decrypted filename from opts.attachmentID and re-checks the caller may
+	// read it, the same way GetAttachmentForDownload does for an actual
+	// download, so a client can only ever claim to have opened/downloaded a
+	// file it can actually see — never an arbitrary string.
+	MessageKindAttachmentOpened     = "attachment_opened"
+	MessageKindAttachmentDownloaded = "attachment_downloaded"
+	MessageKindChannelRenamed       = "channel_renamed"
 )
 
 // ValidMessageKind reports whether a CLIENT-SUPPLIED kind is one we accept on
 // the send path. Server-derived kinds are set through appendOpts.kind and are
 // intentionally absent here — see MessageKindForwardExternal.
 func ValidMessageKind(kind string) bool {
-	return kind == MessageKindText || kind == MessageKindCallMissed || kind == MessageKindScreenshotAttempt
+	return kind == MessageKindText || kind == MessageKindCallMissed || kind == MessageKindScreenshotAttempt ||
+		kind == MessageKindAttachmentOpened || kind == MessageKindAttachmentDownloaded
 }
 
 // screenshotAttemptBody is the ONLY text a MessageKindScreenshotAttempt
@@ -629,6 +644,27 @@ func screenshotAttemptBody(displayName, username string) string {
 		name = "Someone"
 	}
 	return fmt.Sprintf("%s tried to take a screenshot", name)
+}
+
+// attachmentActionBody is the ONLY text a MessageKindAttachmentOpened or
+// MessageKindAttachmentDownloaded message may ever carry — same reasoning as
+// screenshotAttemptBody, plus the filename must come from the attachment row
+// (attachmentForActivity), never from client-supplied text, or any member
+// could post a fabricated "X opened secret-plan.pdf" naming a file that was
+// never shared here.
+func attachmentActionBody(kind, displayName, username, filename string) string {
+	name := displayName
+	if name == "" {
+		name = username
+	}
+	if name == "" {
+		name = "Someone"
+	}
+	verb := "opened"
+	if kind == MessageKindAttachmentDownloaded {
+		verb = "downloaded"
+	}
+	return fmt.Sprintf("%s %s %s", name, verb, filename)
 }
 
 type MessageDTO struct {

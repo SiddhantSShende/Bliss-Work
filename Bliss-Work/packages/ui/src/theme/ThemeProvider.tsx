@@ -1,5 +1,14 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { type ThemeId, isThemeId, themeClasses, darkCounterpart, defaultThemeFor, ALL_THEME_CLASSES } from "./themes";
+import {
+  CUSTOM_THEME_CLASS,
+  customThemeStyle,
+  isCustomThemeActive,
+  persistCustomTheme,
+  persistCustomThemeActive,
+  readStoredCustomTheme,
+  type CustomTheme,
+} from "./customTheme";
 
 export type { ThemeId as Theme };
 
@@ -8,11 +17,17 @@ const ThemeCtx = createContext<{
   isDark: boolean;
   setTheme: (theme: ThemeId) => void;
   toggle: () => void;
+  customTheme: CustomTheme | null;
+  customThemeActive: boolean;
+  saveCustomTheme: (theme: CustomTheme) => void;
 }>({
   theme: defaultThemeFor(false),
   isDark: false,
   setTheme: () => {},
   toggle: () => {},
+  customTheme: null,
+  customThemeActive: false,
+  saveCustomTheme: () => {},
 });
 
 const THEME_KEY = "tb-theme";
@@ -68,17 +83,47 @@ export function ThemeProvider({
   forceDefault?: boolean;
 }) {
   const [theme, setThemeState] = useState<ThemeId>(readStoredTheme);
+  const [customTheme, setCustomTheme] = useState<CustomTheme | null>(readStoredCustomTheme);
+  const [customThemeActive, setCustomThemeActive] = useState(isCustomThemeActive);
 
   useEffect(() => {
     const root = document.documentElement;
     const effective = forceDefault ? defaultThemeFor(false) : theme;
     root.classList.remove(...ALL_THEME_CLASSES);
     root.classList.add(...themeClasses(effective));
-  }, [theme, forceDefault]);
+    root.classList.remove(CUSTOM_THEME_CLASS);
+    for (const property of [
+      "--color-accent",
+      "--color-accent-strong",
+      "--color-accent-fg",
+      "--color-accent-soft",
+      "--color-brand-from",
+      "--color-brand-mid",
+      "--color-brand-to",
+      "--color-brand-gradient",
+    ]) {
+      root.style.removeProperty(property);
+    }
+    if (!forceDefault && customThemeActive && customTheme) {
+      root.classList.add(CUSTOM_THEME_CLASS);
+      for (const [property, value] of Object.entries(customThemeStyle(customTheme))) {
+        root.style.setProperty(property, value);
+      }
+    }
+  }, [customTheme, customThemeActive, forceDefault, theme]);
 
   const setTheme = (next: ThemeId) => {
     persistTheme(next);
     setThemeState(next);
+    persistCustomThemeActive(false);
+    setCustomThemeActive(false);
+  };
+
+  const saveCustomTheme = (next: CustomTheme) => {
+    persistCustomTheme(next);
+    persistCustomThemeActive(true);
+    setCustomTheme(next);
+    setCustomThemeActive(true);
   };
 
   /** Profile → Dark Mode / Settings → Theme: flips the CURRENT family's own
@@ -95,7 +140,13 @@ export function ThemeProvider({
 
   const isDark = theme.endsWith("-dark");
 
-  return <ThemeCtx.Provider value={{ theme, isDark, setTheme, toggle }}>{children}</ThemeCtx.Provider>;
+  return (
+    <ThemeCtx.Provider
+      value={{ theme, isDark, setTheme, toggle, customTheme, customThemeActive, saveCustomTheme }}
+    >
+      {children}
+    </ThemeCtx.Provider>
+  );
 }
 
 export const useTheme = () => useContext(ThemeCtx);

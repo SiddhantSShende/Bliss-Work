@@ -28,7 +28,6 @@ _RLS_TABLES = (
     # rolling back) breaks every subsequent test's cleanup with a
     # ForeignKeyViolationError.
     "mfa_backup_codes",
-    "mfa_webauthn_credentials",
     "users",
     "org_keys",
     "orgs",

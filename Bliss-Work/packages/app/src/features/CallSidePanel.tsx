@@ -47,7 +47,7 @@ export function CallSidePanel({
   return (
     <aside
       aria-label={t("sidePanel.regionAriaLabel", { tab: tabWord })}
-      className={cn("glass flex flex-col overflow-hidden rounded-2xl", className)}
+      className={cn("glass flex min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl", className)}
     >
       <header className="flex shrink-0 items-center justify-between gap-2 border-b border-border/70 px-2 py-2">
         <div className="flex items-center gap-1" role="tablist" aria-label={t("sidePanel.tablistAriaLabel")}>

@@ -108,13 +108,19 @@ func (e *Event) RecipientsOf() []string {
 		// outbox) even though messaging-svc actively produces it.
 		return dedupe([]string{e.ForwardedBy, e.RootAuthorID})
 	case "task.assigned":
-		return dedupe([]string{e.AssigneeID})
+		if len(e.Members) > 0 {
+			return dedupe(e.Members)
+		}
+		return dedupe([]string{e.SenderID, e.AssigneeID})
 	case "sticky.refresh":
 		// The desktop-note delivery watchdog (services/sticky-relay) telling one
 		// person's clients to re-fetch their pins. Carries no task content, so
 		// there is nobody else to deliver it to.
 		return dedupe([]string{e.AssigneeID})
-	case "task.acknowledged", "task.completed", "task.ignored", "task.left", "task.reviewed":
+	case "task.acknowledged", "task.completed", "task.ignored", "task.left", "task.withdrawn", "task.reviewed":
+		if e.Type == "task.withdrawn" && len(e.Members) > 0 {
+			return dedupe(e.Members)
+		}
 		return dedupe([]string{e.SenderID, e.AssigneeID})
 	case "notification.created", "notification.read":
 		return dedupe([]string{e.RecipientID})

@@ -6,7 +6,3 @@ pytest-cov==6.0.0
 # Integration suites spin real Postgres/Kafka via testcontainers (CI has Docker).
 testcontainers[postgres]==4.9.0
 httpx==0.28.1
-# CBOR encoding for hand-built WebAuthn test vectors (tests/webauthn_vectors.py)
-# — a transitive dep of the app's own `webauthn` package, pinned explicitly
-# here since test code imports it directly.
-cbor2==6.1.4

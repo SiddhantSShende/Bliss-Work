@@ -79,17 +79,12 @@
   "mfaSettings": {
     "header": {
       "title": "Two-factor authentication",
-      "subtitle": "Add a second step to signing in — an authenticator app or a passkey."
+      "subtitle": "Add a second step to signing in with an authenticator app."
     },
     "enrolled": {
       "status": {
         "title": "Two-factor authentication is on",
         "description": "You'll be asked for a second factor when you sign in."
-      },
-      "addPasskey": {
-        "title": "Add a passkey",
-        "description": "Use your device's fingerprint, face, or a security key instead of a code.",
-        "action": "Add"
       },
       "backupCodes": {
         "title": "Backup codes",
@@ -98,7 +93,7 @@
       },
       "disable": {
         "title": "Turn off two-factor authentication",
-        "description": "Removes your authenticator app, passkeys, and backup codes.",
+        "description": "Removes your authenticator app and backup codes.",
         "action": "Turn off"
       }
     },
@@ -106,10 +101,6 @@
       "totp": {
         "title": "Authenticator app",
         "description": "Google Authenticator, 1Password, Authy, or any TOTP app."
-      },
-      "passkey": {
-        "title": "Passkey",
-        "description": "Your device's fingerprint, face, or a security key."
       },
       "setUp": "Set up"
     },
@@ -120,38 +111,25 @@
       "titles": {
         "disable": "Confirm it's you",
         "regenerate": "Confirm it's you to regenerate codes",
-        "addPasskey": "Confirm it's you to add a passkey"
       },
       "passwordPlaceholder": "Your password",
       "backupCodePlaceholder": "Backup code",
       "authCodePlaceholder": "Authentication code",
       "useAuthCodeInstead": "Use an authentication code instead",
       "useBackupCodeInstead": "Use a backup code instead",
-      "waitingForPasskey": "Waiting for passkey…",
-      "usePasskeyInstead": "Use a passkey instead",
       "submitLabels": {
         "regenerate": "Regenerate backup codes",
-        "addPasskey": "Add passkey"
       },
       "toasts": {
         "tooManyAttemptsTitle": "Too many attempts",
         "verificationFailedTitle": "Verification failed",
         "verificationFailedDescription": "Check your password and code, then try again.",
-        "passkeyVerifyFailed": {
-          "title": "Couldn't verify passkey",
-          "description": "Please try again."
-        }
       }
     },
     "toasts": {
       "refreshFailed": {
         "title": "Couldn't refresh your account",
         "description": "Your two-factor authentication status on this page may be out of date — refresh to see the latest."
-      },
-      "passkeyAdded": "Passkey added",
-      "addPasskeyFailed": {
-        "title": "Couldn't add passkey",
-        "description": "Please try again."
       },
       "mfaTurnedOff": "Two-factor authentication turned off"
     }
@@ -176,6 +154,7 @@
   "backupCodesView": {
     "description": "Save these backup codes somewhere safe. Each one lets you sign in ONE time if you lose access to your authenticator — they will not be shown again.",
     "copied": "Copied",
+    "copyFailed": "Couldn't copy the backup codes. Please select and copy them manually.",
     "copyAll": "Copy all",
     "acknowledgeLabel": "I've saved these codes somewhere safe.",
     "done": "Done"

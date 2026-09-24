@@ -29,6 +29,8 @@ export function MeetingRow({
   name,
   organiser,
   organiserAvatar,
+  compact = false,
+  selected = false,
   onOpenRoom,
 }: {
   call: CallDTO;
@@ -36,6 +38,8 @@ export function MeetingRow({
   name: string;
   organiser: string;
   organiserAvatar: string | null | undefined;
+  compact?: boolean;
+  selected?: boolean;
   onOpenRoom?: (call: CallDTO) => void;
 }) {
   const { t } = useTranslation("meetings");
@@ -52,7 +56,7 @@ export function MeetingRow({
   const openDetail = () => nav({ pathname: `/app/meetings/${call.id}`, search });
 
   return (
-    <li className="flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-surface-2/60">
+    <li className={`${compact ? "flex flex-col items-stretch gap-2 px-3 py-3" : "flex items-center gap-3 px-3 py-2.5"} transition-colors hover:bg-surface-2/60 ${selected ? "bg-accent-soft/60 ring-1 ring-inset ring-accent/30" : ""}`}>
       <button
         type="button"
         onClick={openDetail}
@@ -85,7 +89,7 @@ export function MeetingRow({
         </span>
       </button>
 
-      <div className="hidden w-40 shrink-0 sm:block">
+      <div className={compact ? "flex items-center gap-1 pl-12 text-xs" : "hidden w-40 shrink-0 sm:block"}>
         <div className="truncate text-xs font-medium text-fg">{dayLabel(start)}</div>
         <div className="flex items-center gap-1 truncate text-xs text-muted">
           <Clock size={11} className="shrink-0" aria-hidden />
@@ -101,7 +105,7 @@ export function MeetingRow({
         </div>
       </div>
 
-      <div className="hidden w-36 shrink-0 items-center gap-2 lg:flex">
+      <div className={compact ? "flex items-center gap-2 pl-12" : "hidden w-36 shrink-0 items-center gap-2 lg:flex"}>
         <Avatar name={organiser} src={organiserAvatar} size="sm" />
         <span className="min-w-0">
           <span className="block text-[10px] uppercase tracking-wide text-muted">{t("row.organiser")}</span>
@@ -110,14 +114,14 @@ export function MeetingRow({
       </div>
 
       <div
-        className="hidden w-16 shrink-0 items-center gap-1 text-xs text-muted md:flex"
+        className={compact ? "flex items-center gap-1 pl-12 text-xs text-muted" : "hidden w-16 shrink-0 items-center gap-1 text-xs text-muted md:flex"}
         title={t("row.inviteJoinTitle", { invited: call.participants.length, joined })}
       >
         <Users size={13} className="shrink-0" aria-hidden />
         {call.participants.length}
       </div>
 
-      <div className="flex shrink-0 items-center gap-1.5">
+      <div className={compact ? "flex shrink-0 items-center justify-end gap-1.5" : "flex shrink-0 items-center gap-1.5"}>
         {joinable && onOpenRoom ? (
           <Button size="sm" onClick={() => onOpenRoom(call)}>
             {bucket === "live" ? t("row.join") : t("row.open")}

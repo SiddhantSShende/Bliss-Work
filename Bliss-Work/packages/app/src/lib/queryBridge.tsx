@@ -137,6 +137,7 @@ export function WsEventBridge() {
           handleChannelEvent(e, ctx);
           break;
         case EventType.TaskAssigned:
+        case EventType.TaskWithdrawn:
         case EventType.TaskAcknowledged:
         case EventType.TaskCompleted:
         case EventType.TaskIgnored:
@@ -577,7 +578,12 @@ function handleTaskEvent(e: ServerEvent, ctx: EventHandlerContext) {
   const { qc, invalidate, me, live, config } = ctx;
   switch (e.type) {
     case EventType.TaskAssigned: {
+      if (e.senderId === me) {
+        invalidate(qk.sent);
+        invalidate(qk.assigned);
+      }
       if (e.assigneeId === me) {
+        invalidate(qk.assigned);
         invalidate(qk.inbox);
         invalidate(qk.sticky);
         // New TASK row lands in the unified inbox / People sidebar.
@@ -588,6 +594,10 @@ function handleTaskEvent(e: ServerEvent, ctx: EventHandlerContext) {
             description: i18n.t("tasks:liveEvents.newTaskFrom", { sender: e.senderUsername }),
           });
       }
+          invalidate(qk.assigned);
+          invalidate(qk.sticky);
+          invalidate(qk.inbox);
+          invalidate(qk.unifiedInbox);
       // Availability roster: task.* events reach only the sender + assignee
       // (ws-gateway contract.RecipientsOf), so this invalidation is instant
       // feedback for THOSE TWO only. Every other member of the org converges
@@ -595,6 +605,25 @@ function handleTaskEvent(e: ServerEvent, ctx: EventHandlerContext) {
       // correctness mechanism. Left unguarded so it stays right if routing
       // ever widens.
       invalidate(qk.availability);
+      break;
+    }
+    case EventType.TaskWithdrawn: {
+      if (e.senderId === me) {
+        invalidate(qk.sent);
+        invalidate(qk.assigned);
+      }
+      if (e.assigneeId === me) {
+        clearTaskForMe(qc, invalidate, e.taskId);
+        qc.removeQueries({ queryKey: ["taskDetail", e.taskId] });
+        invalidate(qk.unifiedInbox);
+        refreshInboxSidebars(invalidate);
+      }
+      invalidate(qk.assigned);
+      invalidate(qk.sticky);
+      invalidate(qk.inbox);
+      invalidate(qk.unifiedInbox);
+      invalidate(qk.notifications);
+      invalidate(qk.notificationsUnreadCount);
       break;
     }
     case EventType.TaskAcknowledged: {
@@ -783,7 +812,7 @@ function refreshInboxSidebars(invalidate: CoalescedInvalidator) {
 /**
  * Auto-pin a just-acknowledged task to the desktop (Electron only). Mirrors the
  * manual pin flow in MailTask: writes the authoritative pinned set back into
- * `qk.taskPins` and surfaces the max-5 limit refusal. No-op on web (config.pinTask
+ * `qk.taskPins` and surfaces a pin refusal. No-op on web (config.pinTask
  * absent) and idempotent on redelivered events (already-pinned ⇒ same set).
  */
 function autoPinOnAcknowledge(

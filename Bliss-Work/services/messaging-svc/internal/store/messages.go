@@ -29,6 +29,9 @@ type SendOptions struct {
 	Origin string
 	// ReplyToID is the message being quoted, in the same conversation.
 	ReplyToID string
+	// AttachmentID is required when Kind is MessageKindAttachmentOpened or
+	// MessageKindAttachmentDownloaded — see attachmentForActivity.
+	AttachmentID string
 }
 
 func (s *Store) SendMessage(ctx context.Context, orgID, senderID, recipientID, body, clientMsgID string, opts SendOptions) (*SendResult, error) {
@@ -95,7 +98,7 @@ func (s *Store) SendMessage(ctx context.Context, orgID, senderID, recipientID, b
 
 		// Top-level send → new thread, this message is the root.
 		res, err := s.appendMessage(ctx, tx, orgID, convID, senderID, recipientID, body, clientMsgID, "", "",
-			appendOpts{kind: opts.Kind, origin: opts.Origin, replyToID: opts.ReplyToID})
+			appendOpts{kind: opts.Kind, origin: opts.Origin, replyToID: opts.ReplyToID, attachmentID: opts.AttachmentID})
 		if err != nil {
 			return err
 		}
@@ -326,6 +329,9 @@ type appendOpts struct {
 	// never alongside isForward, which marks the DIFFERENT case of an internal
 	// forward's clone. See MessageDTO.ForwardPlatform.
 	forwardPlatform string
+	// attachmentID is required when kind is MessageKindAttachmentOpened or
+	// MessageKindAttachmentDownloaded — see attachmentForActivity.
+	attachmentID string
 }
 
 // kindArg is the messages.kind value to insert — 'text' unless a system kind
@@ -392,6 +398,20 @@ func (s *Store) appendMessageTx(
 			return nil, err
 		}
 		body = screenshotAttemptBody(senderDisplay, senderName)
+	}
+	if opts.kind == MessageKindAttachmentOpened || opts.kind == MessageKindAttachmentDownloaded {
+		if opts.attachmentID == "" {
+			return nil, ErrForbidden
+		}
+		filename, err := s.attachmentForActivity(ctx, tx, orgID, opts.attachmentID, senderID)
+		if err != nil {
+			return nil, err
+		}
+		senderName, senderDisplay, err := s.cachedUserNames(ctx, tx, orgID, senderID)
+		if err != nil {
+			return nil, err
+		}
+		body = attachmentActionBody(opts.kind, senderDisplay, senderName, filename)
 	}
 
 	msgID := opts.messageID

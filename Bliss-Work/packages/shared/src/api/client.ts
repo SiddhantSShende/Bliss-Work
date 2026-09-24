@@ -50,18 +50,17 @@ import {
   MessageDTO,
   type MessageKind,
   MfaBackupCodesResult,
-  MfaMethodsResult,
   MfaTotpEnrollConfirmResult,
   I18nCatalogDTO,
   I18nLanguagesDTO,
   MfaTotpEnrollStartResult,
-  MfaWebauthnRegisterFinishResult,
   type ThreadOrigin,
   NotificationDTO,
   OrgMembershipDTO,
   OrgLifecycleDTO,
   OrgMfaSettingsDTO,
   ReviewResponse,
+  ScheduledTaskDTO,
   SentTaskDTO,
   StickyTaskDTO,
   TaskExportRow,
@@ -754,15 +753,14 @@ export class ApiClient {
     return this.req<void>(this.cfg.authBase, "/auth/email/resend", { method: "POST" });
   }
 
-  // ── MFA (TOTP + WebAuthn) ─────────────────────────────────────────────────────
+  // ── MFA (TOTP) ────────────────────────────────────────────────────────────────
   /** Verify the second factor a pending login is waiting on. Exactly one of
-   *  totpCode/backupCode/webauthnCredential should be set. On success this
+   *  totpCode or backupCode should be set. On success this
    *  IS the session — nothing further to call. */
   mfaChallengeVerify(body: {
     pendingToken: string;
     totpCode?: string;
     backupCode?: string;
-    webauthnCredential?: unknown;
   }) {
     return this.req(
       this.cfg.authBase,
@@ -772,17 +770,12 @@ export class ApiClient {
     );
   }
   /** Step-up re-auth (password + a still-valid second factor) to turn MFA off.
-   *  Exactly one of totpCode/backupCode/webauthnCredential should be set. */
-  mfaDisable(body: { password: string; totpCode?: string; backupCode?: string; webauthnCredential?: unknown }) {
+   *  Exactly one of totpCode/backupCode should be set. */
+  mfaDisable(body: { password: string; totpCode?: string; backupCode?: string }) {
     return this.req<void>(this.cfg.authBase, "/auth/mfa/disable", {
       method: "POST",
       body: JSON.stringify(body),
     });
-  }
-  /** Which second factors the CALLER has registered — lets Settings decide
-   *  whether to offer a passkey as a step-up shortcut (see MfaMethodsResult). */
-  mfaMethods() {
-    return this.req(this.cfg.authBase, "/auth/mfa/methods", {}, MfaMethodsResult);
   }
   /** Generate a TOTP secret + otpauth:// URI. `pendingToken` only when
    *  authenticating via the restricted enrollment credential (no session yet). */
@@ -807,66 +800,17 @@ export class ApiClient {
   }
   /** Step-up re-auth; invalidates every unused prior code before minting the
    *  new batch — the old codes stop working immediately. Exactly one of
-   *  totpCode/backupCode/webauthnCredential should be set. */
+   *  totpCode or backupCode should be set. */
   mfaRegenerateBackupCodes(body: {
     password: string;
     totpCode?: string;
     backupCode?: string;
-    webauthnCredential?: unknown;
   }) {
     return this.req(
       this.cfg.authBase,
       "/auth/mfa/totp/backup-codes/regenerate",
       { method: "POST", body: JSON.stringify(body) },
       MfaBackupCodesResult,
-    );
-  }
-  /** WebAuthn registration ceremony options (PublicKeyCredentialCreationOptions,
-   *  base64url-encoded per the spec) — feed straight to the enrollment page's
-   *  `navigator.credentials.create()` call after decoding. */
-  mfaWebauthnRegisterStart(pendingToken?: string) {
-    return this.req<Record<string, unknown>>(
-      this.cfg.authBase,
-      "/auth/mfa/webauthn/register/start",
-      { method: "POST", body: JSON.stringify({ pendingToken }) },
-    );
-  }
-  mfaWebauthnRegisterFinish(body: {
-    credential: unknown;
-    nickname?: string;
-    pendingToken?: string;
-    /** Required when adding a credential to an ALREADY-enrolled account —
-     *  see mfaDisable's doc comment for why. Omitted for first-time
-     *  enrollment (nothing yet to step up from). */
-    stepUp?: { password: string; totpCode?: string; backupCode?: string; webauthnCredential?: unknown };
-  }) {
-    return this.req(
-      this.cfg.authBase,
-      "/auth/mfa/webauthn/register/finish",
-      { method: "POST", body: JSON.stringify(body) },
-      MfaWebauthnRegisterFinishResult,
-    );
-  }
-  /** WebAuthn authentication ceremony options for a pending login — feed to
-   *  `navigator.credentials.get()`, then pass the result as
-   *  `mfaChallengeVerify`'s `webauthnCredential`. */
-  mfaWebauthnAuthStart(pendingToken: string) {
-    return this.req<Record<string, unknown>>(
-      this.cfg.authBase,
-      "/auth/mfa/webauthn/auth/start",
-      { method: "POST", body: JSON.stringify({ pendingToken }) },
-    );
-  }
-  /** WebAuthn authentication ceremony options for STEP-UP re-auth (an
-   *  already signed-in caller) — feed to `navigator.credentials.get()`, then
-   *  pass the result as `mfaDisable`/`mfaRegenerateBackupCodes`'s
-   *  `webauthnCredential`. Identity comes from the Bearer token, unlike
-   *  `mfaWebauthnAuthStart` above (a pending login, no session yet). */
-  mfaWebauthnStepUpStart() {
-    return this.req<Record<string, unknown>>(
-      this.cfg.authBase,
-      "/auth/mfa/webauthn/step-up/start",
-      { method: "POST" },
     );
   }
   /** The org's mandatory-MFA-for-admins policy + grace-period deadline. */
@@ -1782,12 +1726,27 @@ export class ApiClient {
      *  auto-added via the ChannelMemberJoined consumer in task-svc.
      *  When set, `assigneeIds` is ignored — server is the source of truth. */
     channelId?: string;
+    allocation?: "NOW" | "SCHEDULED" | "RECURRING";
+    scheduledFor?: string;
+    recurrence?: {
+      startAt: string;
+      frequency: "DAILY" | "WEEKLY" | "MONTHLY";
+      interval: number;
+      weekdays?: number[];
+      monthlyRule?: "DAY_OF_MONTH" | "WEEKDAY_PATTERN";
+      monthlyDay?: number;
+      monthlyOrdinal?: number;
+      monthlyWeekday?: number;
+      endCondition: "NO_END" | "AFTER_OCCURRENCES" | "ON_DATE";
+      endAt?: string;
+      occurrenceCount?: number;
+    };
   }, idempotencyKey?: string) {
     return this.req(this.cfg.taskBase, "/api/v1/tasks", {
       method: "POST",
       headers: { "idempotency-key": idempotencyKey ?? uuid() },
       body: JSON.stringify(body),
-    }, z.object({ taskId: z.string() }));
+    }, z.object({ taskId: z.string(), scheduleId: z.string().optional() }));
   }
   /**
    * Every row of one of the caller's task lists, walking the server's pages.
@@ -1876,6 +1835,30 @@ export class ApiClient {
     const qs = q.toString();
     return this.req(this.cfg.taskBase, `/api/v1/tasks/sent${qs ? `?${qs}` : ""}`, {}, z.array(SentTaskDTO));
   }
+  taskSchedules() {
+    return this.req(
+      this.cfg.taskBase,
+      "/api/v1/tasks/schedules",
+      {},
+      z.array(ScheduledTaskDTO),
+    );
+  }
+  cancelTaskSchedule(scheduleId: string) {
+    return this.req(
+      this.cfg.taskBase,
+      `/api/v1/tasks/schedules/${encodeURIComponent(scheduleId)}`,
+      { method: "DELETE" },
+      z.object({ scheduleId: z.string(), status: z.literal("CANCELLED") }),
+    );
+  }
+  updateTaskSchedule(scheduleId: string, nextRunAt: string) {
+    return this.req(
+      this.cfg.taskBase,
+      `/api/v1/tasks/schedules/${encodeURIComponent(scheduleId)}`,
+      { method: "PATCH", body: JSON.stringify({ nextRunAt }) },
+      z.object({ scheduleId: z.string(), status: z.literal("UPDATED") }),
+    );
+  }
   taskAction(
     taskId: string,
     action: "acknowledge" | "complete" | "ignore" | "leave",
@@ -1886,6 +1869,26 @@ export class ApiClient {
       `/api/v1/tasks/${taskId}/assignees/me/${action}`,
       { method: "POST", headers: { "idempotency-key": idempotencyKey ?? uuid() } },
       z.object({ status: z.string(), statusVersion: z.number() }),
+    );
+  }
+  addTaskParticipants(taskId: string, userIds: string[], idempotencyKey?: string) {
+    return this.req(
+      this.cfg.taskBase,
+      `/api/v1/tasks/${taskId}/assignees`,
+      {
+        method: "POST",
+        headers: { "idempotency-key": idempotencyKey ?? uuid() },
+        body: JSON.stringify({ userIds }),
+      },
+      z.object({ addedUserIds: z.array(z.string()) }),
+    );
+  }
+  withdrawTaskParticipant(taskId: string, userId: string, idempotencyKey?: string) {
+    return this.req(
+      this.cfg.taskBase,
+      `/api/v1/tasks/${taskId}/assignees/${userId}`,
+      { method: "DELETE", headers: { "idempotency-key": idempotencyKey ?? uuid() } },
+      z.object({ withdrawnUserId: z.string(), statusVersion: z.number() }),
     );
   }
   /** Allocator writes/updates a review on a COMPLETED assignee. Sender-only;

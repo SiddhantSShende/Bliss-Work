@@ -458,6 +458,44 @@ func (s *Store) GetAttachmentForDownload(ctx context.Context, orgID, userID, id 
 	return out, nil
 }
 
+// attachmentForActivity loads attachmentID's real, decrypted filename and
+// verifies userID may currently read it — the same membership rule
+// GetAttachmentForDownload enforces for an actual download — so that
+// MessageKindAttachmentOpened/Downloaded can never name a file the caller
+// cannot see, or a string that was never a real filename at all.
+//
+// Runs on the CALLER's already-open tx (the appendMessageTx/SendChannelMessage
+// write transaction), matching how cachedUserNames resolves the sender's
+// display name inline rather than opening a second transaction.
+func (s *Store) attachmentForActivity(ctx context.Context, tx pgx.Tx, orgID, attachmentID, userID string) (string, error) {
+	if _, err := uuid.Parse(attachmentID); err != nil {
+		return "", ErrNotFound
+	}
+	var scope, scopeID string
+	var namePlain *string
+	var nameEnc []byte
+	err := tx.QueryRow(ctx, `
+		SELECT scope, scope_id::text, filename, filename_enc
+		FROM attachments WHERE id = $1 AND org_id = $2`,
+		attachmentID, orgID).Scan(&scope, &scopeID, &namePlain, &nameEnc)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	if err := requireScopeMember(ctx, tx, orgID, scope, scopeID, userID); err != nil {
+		return "", err
+	}
+	if nameEnc != nil {
+		return s.crypto.Decrypt(ctx, tx, orgID, nameEnc)
+	}
+	if namePlain != nil {
+		return *namePlain, nil
+	}
+	return "", ErrNotFound
+}
+
 // ExpiredBlob names a blob the reaper may unlink.
 type ExpiredBlob struct {
 	OrgID  string

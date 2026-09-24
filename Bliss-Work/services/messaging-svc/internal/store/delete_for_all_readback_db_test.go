@@ -97,10 +97,10 @@ func TestDeletedForAll_Channel_PreviewAndForward(t *testing.T) {
 	seedUser(t, s, orgID, browser, "browser", "Browser")
 	channelID := seedChannelWithRoles(t, s, orgID, owner, map[string]string{member: "member"})
 
-	if _, err := s.SendChannelMessage(ctx, orgID, channelID, owner, "standup moved to 10", newClientID(), "", ""); err != nil {
+	if _, err := s.SendChannelMessage(ctx, orgID, channelID, owner, "standup moved to 10", newClientID(), "", "", ""); err != nil {
 		t.Fatalf("send: %v", err)
 	}
-	secret, err := s.SendChannelMessage(ctx, orgID, channelID, owner, "the merger is off, tell nobody", newClientID(), "", "")
+	secret, err := s.SendChannelMessage(ctx, orgID, channelID, owner, "the merger is off, tell nobody", newClientID(), "", "", "")
 	if err != nil {
 		t.Fatalf("send: %v", err)
 	}

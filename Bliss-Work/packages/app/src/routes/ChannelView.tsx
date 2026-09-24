@@ -513,16 +513,19 @@ export function ChannelView() {
 
   return (
     <div className="flex h-full flex-col">
-      {/* relative z-30, matching TopNavbar's `glass relative z-50`. backdrop-blur
-          makes this header a STACKING CONTEXT that is painted at its in-flow
-          position, so without a z-index of its own everything inside it — the
-          options menu included — is trapped below the message list that follows
-          it in the DOM, whatever z-index the menu asks for. That is what put a
-          dropdown behind the photos and file cards in the thread. z-30 clears
-          the list and a message's own action popover (z-20) while staying under
-          the sheets and dialogs (z-50) and the lightbox (z-[100]), which should
-          still cover it. */}
-      <header className="relative z-30 flex items-center justify-between border-b border-border/70 bg-surface/60 px-5 py-3 backdrop-blur">
+      {/* relative z-50, actually matching TopNavbar's `glass relative z-50`
+          (it claimed to match at z-30 before, which is still below TopNavbar).
+          backdrop-blur makes this header a STACKING CONTEXT that is painted at
+          its in-flow position, so without a z-index of its own everything
+          inside it — the options menu included — is trapped below whatever it
+          is compared against, no matter what z-index the menu itself asks for.
+          z-30 cleared the message list and a message's own action popover
+          (z-20), but was still capped below TopNavbar (z-50), which is what put
+          the options/call menu behind the top nav bar. z-50 clears TopNavbar
+          too while staying under the lightbox (z-[100]), which should still
+          cover it; Modal/dialog overlays are `fixed inset-0 z-50` siblings
+          outside this header's stacking context, so they are unaffected. */}
+      <header className="relative z-50 flex items-center justify-between border-b border-border/70 bg-surface/60 px-5 py-3 backdrop-blur">
         {/* min-w-0 + truncate: a long channel name must not push the member
             count and options menu off the right edge on a narrow window. */}
         <div className="flex min-w-0 items-center gap-2">

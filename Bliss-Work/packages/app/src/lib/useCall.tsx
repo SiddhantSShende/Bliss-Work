@@ -8,7 +8,12 @@ import { isGetUserMediaDenied } from "./useCallRoom";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { createRingtone, primeRingtoneAudio } from "./ringtone";
-import { notifyIncomingCall, notifyMissedCall, primeCallNotifications } from "./callNotify";
+import {
+  notifyIncomingCall,
+  notifyMissedCall,
+  onIncomingCallAction,
+  primeCallNotifications,
+} from "./callNotify";
 import { qk } from "./queryBridge";
 import { usersByIdsQuery } from "./userLabel";
 
@@ -592,6 +597,17 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     // the directory, and re-running would restart the ring from the top.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.status]);
+
+  // Electron owns the OS notification while the renderer owns the call. Keep
+  // the action bridge subscribed for the lifetime of this provider so an
+  // action taken while the window is hidden reuses the same call controls.
+  useEffect(() => {
+    return onIncomingCallAction((action) => {
+      if (stateRef.current.status !== "incoming") return;
+      if (action === "accept") accept();
+      else decline();
+    });
+  }, [accept, decline]);
 
   // Unlock audio + ask for notification permission on the first interaction.
   // Both are refused without a user gesture, and a call arriving at an idle tab

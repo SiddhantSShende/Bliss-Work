@@ -36,6 +36,5 @@ export const qk = {
   mailDetail: (mailId: string) => ['mailDetail', mailId] as const,
   presence: ['presence'] as const,
   activeSessions: ['activeSessions'] as const,
-  mfaMethods: ['mfaMethods'] as const,
   activityTimeline: (userId: string, category: string) => ['activityTimeline', userId, category] as const,
 };

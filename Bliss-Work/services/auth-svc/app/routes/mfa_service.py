@@ -1,18 +1,10 @@
 """MFA shared logic: the "MFA pending" token, the restricted enrollment
-credential, TOTP replay-safe verification, backup codes, and WebAuthn
-challenge storage. Thin route layers (mfa_totp.py, mfa_webauthn.py,
+credential, TOTP replay-safe verification, and backup codes. Thin route layers (mfa_totp.py,
 mfa_challenge.py) sit on top of this, mirroring the existing
 account_service.py/invites_service.py split. See
 docs/AUTH_AUTHZ_REMEDIATION_PLAN.md, Phase 7.
 
 ── Storage: `users`, not `identities` ────────────────────────────────────────
-MFA state lives per org-membership on `users` — `identities` (the cross-org
-shared credential) has no per-identity encryption mechanism, while `users`
-already has the only existing encrypted-column convention (email_enc/
-email_bidx) via the shared Cryptor class, which is strictly per-org (org_id is
-the AAD). Accepted consequence: a user with two org memberships enrolls
-TOTP/WebAuthn twice — consistent with the mandatory policy itself being an
-org-admin setting, not an identity-wide one.
 
 ── The "MFA pending" token, and why it doubles as an enrollment credential ───
 After a correct password, if a second factor is still owed, /auth/login mints
@@ -52,7 +44,6 @@ from ..security.passwords import verify_password_async
 from .account_service import consume_token, mint_token, peek_token
 
 PURPOSE_MFA_PENDING = "mfa_pending"
-PURPOSE_WEBAUTHN_CHALLENGE = "webauthn_challenge"
 
 
 # ── The "MFA pending" token ───────────────────────────────────────────────────
@@ -109,7 +100,7 @@ async def resolve_enrollment_actor(
 async def resolve_actor_for_enrollment(
     conn: AsyncConnection, *, authorization: str | None, pending_token: str | None
 ) -> tuple[str, str]:
-    """Entry point for mfa_totp.py's / mfa_webauthn.py's enroll/registration
+    """Entry point for mfa_totp.py's enrollment
     routes: tries the normal Bearer header first (an invalid one 401s here,
     same as any other authenticated route — it does NOT silently fall back),
     and only consults the restricted enrollment credential when no Bearer
@@ -129,9 +120,8 @@ async def resolve_actor_for_enrollment(
 
 async def is_already_enrolled(conn: AsyncConnection, user_id: str) -> bool:
     """Whether this membership already has MFA enrolled. TOTP enroll-confirm
-    and WebAuthn register-finish call this to decide whether the write they
-    are about to make — overwrite the TOTP secret, or add another WebAuthn
-    credential — needs step-up re-auth first, exactly like MFA-disable and
+    TOTP enroll-confirm calls this to decide whether overwriting the TOTP
+    secret needs step-up re-auth first, exactly like MFA-disable and
     backup-codes/regenerate already require: a user with nothing enrolled yet
     has no existing factor for a stolen Bearer token to hijack, but
     overwriting or augmenting an EXISTING one is exactly as consequential as
@@ -178,35 +168,6 @@ async def mfa_gate(conn: AsyncConnection, user_id: str, org_id: str, roles: list
     return True, True
 
 
-async def enrolled_methods(conn: AsyncConnection, user_id: str) -> list[str]:
-    """Which second factors this membership can actually present right now —
-    what MfaPendingDTO.methods tells the client to offer. Backup codes are
-    deliberately not in this list: they're always offerable as a fallback
-    (when any unused code exists), not a primary method to choose between."""
-    row = (
-        await conn.execute(
-            text(
-                """
-                SELECT (u.mfa_totp_secret_enc IS NOT NULL) AS has_totp,
-                       EXISTS(
-                           SELECT 1 FROM mfa_webauthn_credentials w WHERE w.user_id = u.id
-                       ) AS has_webauthn
-                FROM users u WHERE u.id = :id
-                """
-            ),
-            {"id": user_id},
-        )
-    ).first()
-    if row is None:
-        return []
-    methods = []
-    if row.has_totp:
-        methods.append("totp")
-    if row.has_webauthn:
-        methods.append("webauthn")
-    return methods
-
-
 # ── TOTP ──────────────────────────────────────────────────────────────────────
 def generate_totp_secret() -> str:
     return pyotp.random_base32()
@@ -214,7 +175,7 @@ def generate_totp_secret() -> str:
 
 def totp_otpauth_url(secret: str, *, account_name: str) -> str:
     return pyotp.totp.TOTP(secret).provisioning_uri(
-        name=account_name, issuer_name=settings.webauthn_rp_name
+        name=account_name, issuer_name="BlissWork"
     )
 
 
@@ -331,28 +292,6 @@ async def verify_and_consume_backup_code(conn: AsyncConnection, user_id: str, co
     return True
 
 
-# ── WebAuthn challenge storage ───────────────────────────────────────────────
-async def mint_webauthn_challenge(conn: AsyncConnection, org_id: str, user_id: str) -> bytes:
-    """A fresh single-use challenge, stored via the SAME user_tokens
-    infrastructure the MFA-pending token uses rather than a new table: the
-    "raw" secret user_tokens already mints IS a random byte string, which is
-    exactly what a WebAuthn challenge is. Returned as bytes for the `webauthn`
-    library's `challenge=` parameter."""
-    raw, _ = await mint_token(
-        conn, org_id, user_id, PURPOSE_WEBAUTHN_CHALLENGE, timedelta(minutes=5)
-    )
-    return raw.encode("ascii")
-
-
-async def consume_webauthn_challenge(conn: AsyncConnection, challenge: bytes) -> tuple[str, str]:
-    """Redeem a challenge extracted from a verified ceremony's clientDataJSON.
-    Single-use + expiry via account_service.consume_token — this is what
-    satisfies "challenge is fresh and single-use, matches a challenge this
-    server issued, not previously consumed" from the Phase 7 acceptance
-    criteria."""
-    return await consume_token(conn, PURPOSE_WEBAUTHN_CHALLENGE, challenge.decode("ascii"))
-
-
 # ── Step-up re-auth (MFA-disable, backup-codes/regenerate) ───────────────────
 async def verify_step_up(
     conn: AsyncConnection,
@@ -361,23 +300,12 @@ async def verify_step_up(
     password: str,
     totp_code: str | None,
     backup_code: str | None,
-    webauthn_credential: dict | None = None,
 ) -> bool:
     """Password + a still-valid current second factor. Used by two
     consequential actions an already-signed-in caller may take (MFA-disable,
     backup-codes/regenerate) so a stolen access token alone can never perform
     either.
 
-    `webauthn_credential` covers the passkey-only enrollee, who has no TOTP
-    code or backup code to present here at all — without it, that enrollment
-    path could never satisfy step-up and would be permanently unable to
-    disable MFA or regenerate backup codes. Verified via
-    mfa_webauthn.verify_webauthn_assertion — the SAME assertion-checking
-    logic the login-time challenge uses (challenge freshness, RP/origin,
-    sign-count anti-clone), just scoped by a challenge minted for THIS
-    already-authenticated user rather than resolved from a login-pending
-    token. Imported locally: mfa_webauthn imports this module at top level,
-    so a module-level import here would be circular.
     """
     row = (
         await conn.execute(
@@ -394,14 +322,4 @@ async def verify_step_up(
         return await verify_totp_replay_safe(conn, user_id, secret, totp_code)
     if backup_code:
         return await verify_and_consume_backup_code(conn, user_id, backup_code)
-    if webauthn_credential:
-        from .mfa_webauthn import verify_webauthn_assertion
-
-        try:
-            asserted_user_id, _asserted_org_id = await verify_webauthn_assertion(conn, webauthn_credential)
-        except HTTPException:
-            # Wrong/replayed/malformed assertion — same "step-up failed"
-            # outcome as a wrong password or code, not a distinct error shape.
-            return False
-        return asserted_user_id == user_id
     return False

@@ -14,7 +14,7 @@ import { useEffect, useState } from "react";
 import { Palette, MoreVertical, Check, Bell, BellOff, Info, RefreshCw, Eye, ShieldCheck, MonitorSmartphone, Sun, Moon } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { Button, PageHeader, useTheme, THEMES, themeClasses, themeName, darkCounterpart, type ThemeId } from "@taskboard/ui";
+import { Button, Input, PageHeader, useTheme, THEMES, customThemeGradient, themeClasses, themeName, darkCounterpart, type CustomTheme, type ThemeId } from "@taskboard/ui";
 import { Link } from "react-router-dom";
 import { BUILD_SHA } from "../lib/buildInfo";
 import { useRuntime } from "../lib/runtime";
@@ -126,8 +126,9 @@ export function Settings() {
  *  theme.css instead of a colour list duplicated here. */
 function ThemeMenu() {
   const { t } = useTranslation("settings");
-  const { theme, isDark, toggle, setTheme } = useTheme();
+  const { theme, isDark, toggle, setTheme, customTheme, customThemeActive, saveCustomTheme } = useTheme();
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
   const close = () => setOpen(false);
   const wrap = usePopupDismiss<HTMLDivElement>(open, close);
   // THEMES only lists each family's light id (see themes.ts), so comparing
@@ -135,6 +136,33 @@ function ThemeMenu() {
   // in Dark mode. Reduce `theme` to its light-mode id first — the family the
   // active theme belongs to, independent of which mode it's currently in.
   const activeFamily = isDark ? darkCounterpart(theme) : theme;
+
+  const beginEditing = () => setEditing(true);
+  const cancelEditing = () => setEditing(false);
+
+  if (editing) {
+    return (
+      <div ref={wrap} className="relative">
+        <button
+          type="button"
+          onClick={cancelEditing}
+          title={t("settings:theme.custom.cancel")}
+          aria-label={t("settings:theme.custom.cancel")}
+          className="flex items-center rounded-lg p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg"
+        >
+          <MoreVertical size={18} />
+        </button>
+        <CustomThemeBuilder
+          initial={customTheme}
+          onCancel={cancelEditing}
+          onSave={(next) => {
+            saveCustomTheme(next);
+            setEditing(false);
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div ref={wrap} className="relative">
@@ -179,9 +207,96 @@ function ThemeMenu() {
               {opt.id === activeFamily && <Check size={16} className="shrink-0 text-accent" />}
             </button>
           ))}
+          <div className="my-1 h-px bg-border/60" />
+          {customTheme && (
+            <button
+              type="button"
+              role="menuitemradio"
+              aria-checked={customThemeActive}
+              onClick={() => saveCustomTheme(customTheme)}
+              className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-surface-2"
+            >
+              <span className="h-9 w-14 shrink-0 rounded-md border border-border" style={{ background: customThemeGradient(customTheme.colors) }} />
+              <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg">{customTheme.name}</span>
+              {customThemeActive && <Check size={16} className="shrink-0 text-accent" />}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={beginEditing}
+            className="mt-1 flex w-full items-center justify-center rounded-lg border border-dashed border-border px-2 py-2 text-sm font-medium text-accent transition-colors hover:bg-accent-soft"
+          >
+            {customTheme ? t("settings:theme.custom.edit") : t("settings:theme.custom.create")}
+          </button>
         </div>
       )}
     </div>
+  );
+}
+
+function CustomThemeBuilder({
+  initial,
+  onCancel,
+  onSave,
+}: {
+  initial: CustomTheme | null;
+  onCancel: () => void;
+  onSave: (theme: CustomTheme) => void;
+}) {
+  const { t } = useTranslation("settings");
+  const [name, setName] = useState(initial?.name ?? "");
+  const [colors, setColors] = useState<string[]>(initial?.colors ?? ["#6366f1"]);
+
+  const setColorCount = (count: number) => {
+    setColors((current) => Array.from({ length: count }, (_, index) => current[index] ?? current[current.length - 1] ?? "#6366f1"));
+  };
+
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        const trimmedName = name.trim();
+        if (!trimmedName) return;
+        onSave({ name: trimmedName, colors });
+      }}
+      className="absolute right-0 z-[1000] mt-1.5 w-72 rounded-xl border border-border bg-surface p-3 shadow-card"
+    >
+      <div className="mb-3 text-sm font-semibold text-fg">{t("settings:theme.custom.title")}</div>
+      <Input value={name} onChange={(event) => setName(event.target.value)} placeholder={t("settings:theme.custom.name")} required maxLength={80} />
+      <div className="mt-3 flex items-center justify-between text-xs font-medium text-muted">
+        <span>{t("settings:theme.custom.colors")}</span>
+        <div className="flex gap-1">
+          {[1, 2, 3].map((count) => (
+            <button
+              key={count}
+              type="button"
+              onClick={() => setColorCount(count)}
+              className={`h-7 w-7 rounded-md border text-xs ${colors.length === count ? "border-accent bg-accent-soft text-accent" : "border-border text-muted"}`}
+            >
+              {count}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="mt-2 flex gap-2">
+        {colors.map((color, index) => (
+          <label key={index} className="flex min-w-0 flex-1 flex-col gap-1 text-[11px] text-muted">
+            {t("settings:theme.custom.color", { number: index + 1 })}
+            <input
+              type="color"
+              value={color}
+              onChange={(event) => setColors((current) => current.map((value, colorIndex) => colorIndex === index ? event.target.value : value))}
+              className="h-10 w-full cursor-pointer rounded-lg border border-border bg-surface p-1"
+            />
+          </label>
+        ))}
+      </div>
+      <div className="mt-3 h-16 rounded-lg border border-border" style={{ background: customThemeGradient(colors) }} aria-label={t("settings:theme.custom.preview")} />
+      <div className="mt-3 flex justify-end gap-2">
+        <Button type="button" variant="subtle" size="sm" onClick={onCancel}>{t("settings:theme.custom.cancel")}</Button>
+        <Button type="submit" size="sm" disabled={!name.trim()}>{t("settings:theme.custom.save")}</Button>
+      </div>
+    </form>
   );
 }
 

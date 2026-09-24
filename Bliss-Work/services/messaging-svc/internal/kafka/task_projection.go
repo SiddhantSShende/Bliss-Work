@@ -17,6 +17,7 @@ import (
 // task event type discriminants (mirrors packages/shared/src/types/events.ts).
 const (
 	typeTaskAssigned     = "task.assigned"
+	typeTaskWithdrawn    = "task.withdrawn"
 	typeTaskAcknowledged = "task.acknowledged"
 	typeTaskCompleted    = "task.completed"
 	typeTaskIgnored      = "task.ignored"
@@ -134,7 +135,7 @@ func (c *TaskProjectionConsumer) handle(ctx context.Context, value []byte) bool 
 		return true
 	}
 	switch evt.Type {
-	case typeTaskAssigned, typeTaskAcknowledged, typeTaskCompleted, typeTaskIgnored, typeTaskLeft, typeTaskDeleted:
+	case typeTaskAssigned, typeTaskWithdrawn, typeTaskAcknowledged, typeTaskCompleted, typeTaskIgnored, typeTaskLeft, typeTaskDeleted:
 		// supported
 	default:
 		return true
@@ -166,6 +167,8 @@ func (c *TaskProjectionConsumer) handle(ctx context.Context, value []byte) bool 
 			ctx, evt.OrgID, evt.AssigneeID, evt.TaskID, evt.SenderID,
 			evt.Title, evt.Description, occurred,
 		)
+	case typeTaskWithdrawn:
+		werr = c.store.DeleteTaskInboxItem(ctx, evt.AssigneeID, evt.TaskID, occurred)
 	case typeTaskAcknowledged:
 		werr = c.updateBadge(ctx, evt, occurred, "ACKNOWLEDGED")
 	case typeTaskCompleted:

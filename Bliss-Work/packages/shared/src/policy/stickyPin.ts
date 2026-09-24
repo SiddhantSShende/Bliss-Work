@@ -41,7 +41,7 @@ export function canPinTask(status: AssigneeStatus): boolean {
 /**
  * Whether a task should float as a desktop note at all. Unlike `canPinTask`,
  * this includes SENT: a newly assigned task auto-pops on the desktop showing
- * Acknowledge / Ignore, then stays floating once acknowledged (→ Complete).
+ * Acknowledge / Ignore, then stays floating once acknowledged (→ Complete / Leave).
  * Terminal statuses never float — the server drops them from /tasks/sticky.
  */
 export function canFloatTask(status: AssigneeStatus): boolean {

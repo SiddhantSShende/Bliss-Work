@@ -1,7 +1,6 @@
 import { BrowserWindow, screen } from "electron";
 import {
   actionsFor,
-  canAcceptNewPin,
   canFloatTask,
   idsToPrune,
   selectFloatingTasks,
@@ -33,13 +32,6 @@ import { reclampGroupToPrimary, snapBackIfOffPrimary } from "./sticky-window-gro
  * written and age out via the existing 30-day GC.
  */
 const CONTAINER_ID = "sticky:tasks";
-
-/**
- * Hard cap on simultaneous task widgets. Settings-gated raise to 12 lives in
- * Phase 8. Any task beyond the cap is dropped from the rendered widget set but
- * still appears in the in-app inbox/tasks view.
- */
-const MAX_WIDGETS = 5;
 
 /**
  * Per-edge clamp margin to keep restored widgets from straddling the work-area
@@ -101,9 +93,8 @@ const FULL_H = 200;
 export class StickyManager {
   /** The single carousel window, or null while nothing is pinned/floating. */
   private win: BrowserWindow | null = null;
-  /** The floating set as of the last reconcile() — what the carousel pages
-   *  through. next()/prev() only move currentIndex within this; reconcile()
-   *  is what recomputes it. */
+  /** The complete floating set as of the last reconcile(). The renderer only
+   *  receives a small window from this list, but navigation uses the full set. */
   private visible: StickyTaskDTO[] = [];
   /** Which entry of `visible` the carousel currently shows. */
   private currentIndex = 0;
@@ -124,26 +115,20 @@ export class StickyManager {
   }
 
   /**
-   * Pin every actionable (SENT/ACKNOWLEDGED) task not already pinned, up to the
-   * on-screen cap. This is what makes an allocation auto-float: the ws-process
-   * re-fetches /tasks/sticky on every `task.*` event, so a newly assigned SENT
-   * task lands in `this.tasks` and gets pinned + reconciled into a window with
-   * no manual pin. Capped so the persisted pinned set can't grow unbounded.
+  * Pin every actionable (SENT/ACKNOWLEDGED) task not already pinned. This is
+  * what makes an allocation auto-float: the ws-process re-fetches
+  * /tasks/sticky on every `task.*` event, so a newly assigned SENT task lands
+  * in `this.tasks` and gets pinned + reconciled into the carousel.
    *
    * The one thing that holds a task back is the user's explicit Unpin — an
    * actionable task they have not completed, ignored or unpinned is one this is
    * supposed to keep putting back.
    */
   private autopinActionable(): void {
-    // Counted off the SAME set reconcile() renders from, so the two cannot
-    // disagree about how full the desktop is.
-    let floating = selectFloatingTasks(this.tasks, getPinned(), -1).length;
     for (const t of this.tasks) {
-      if (floating >= MAX_WIDGETS) break;
       if (isUnpinned(t.taskId)) continue;
       if (!isPinned(t.taskId) && canFloatTask(t.myStatus)) {
         addPinned(t.taskId);
-        floating++;
       }
     }
   }
@@ -205,8 +190,8 @@ export class StickyManager {
    *
    * - Idempotent: re-pinning a task surfaces its existing note (restoring a
    *   minimized window / expanding a collapsed pill) rather than duplicating it.
-   * - Capped: refuses (reason "limit") once MAX_WIDGETS tasks already float, so
-   *   we never tell the user a note is pinned when it can't be shown.
+  * - There is no carousel-size cap: every actionable task can be pinned and
+  *   the renderer receives only the current lazy window.
    * - Refuses (reason "unpinned") a task the user explicitly unpinned: nothing
    *   automatic may undo an Unpin, and acknowledging is not a request to re-pin.
    * - The note floats with whatever real status the task has (SENT → Acknowledge
@@ -248,12 +233,6 @@ export class StickyManager {
           statusVersion: 0,
         } as unknown as StickyTaskDTO,
       ];
-    }
-    // New pin — enforce the on-screen cap (count tasks that already float).
-    // Same set autopinActionable/reconcile count against.
-    const floatingCount = selectFloatingTasks(this.tasks, getPinned(), -1).length;
-    if (!canAcceptNewPin(floatingCount, MAX_WIDGETS)) {
-      return { ok: false, reason: "limit", pinned: getPinned() };
     }
     addPinned(taskId);
     this.reconcile();
@@ -410,8 +389,9 @@ export class StickyManager {
   }
 
   private reconcile(): void {
-    // Float only pinned tasks that are still actionable (SENT/ACK), capped.
-    const visible = selectFloatingTasks(this.tasks, getPinned(), MAX_WIDGETS);
+    // Keep the complete pinned/actionable set here. pushCurrent() windows the
+    // payload sent to the renderer without discarding navigation targets.
+    const visible = selectFloatingTasks(this.tasks, getPinned(), -1);
 
     if (visible.length === 0) {
       if (this.win && !this.win.isDestroyed()) this.win.close();
@@ -536,14 +516,22 @@ export class StickyManager {
     w.setBackgroundColor(color);
   }
 
-  /** Push the current carousel page (the full visible set + which index is
-   *  shown) to the renderer. Sending the whole set rather than just the
-   *  index keeps main and renderer trivially in sync — no separate "here's
-   *  the array" vs "here's where you are" messages to keep ordered. */
+  /** Push a small sliding window around the current task. The manager keeps
+   *  the complete set for ordering/indexing; only this payload is bounded so
+   *  the renderer never mounts every task at once. */
   private pushCurrent(): void {
     const w = this.win;
     if (w && !w.isDestroyed()) {
-      w.webContents.send("sticky:tasks", { tasks: this.visible, index: this.currentIndex });
+      const windowSize = 5;
+      const start = Math.max(
+        0,
+        Math.min(this.currentIndex - 2, this.visible.length - windowSize),
+      );
+      const end = Math.min(this.visible.length, start + windowSize);
+      w.webContents.send("sticky:tasks", {
+        tasks: this.visible.slice(start, end),
+        index: this.currentIndex - start,
+      });
     }
   }
 

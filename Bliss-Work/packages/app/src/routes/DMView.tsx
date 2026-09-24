@@ -532,7 +532,12 @@ export function DMView() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="relative z-30 flex items-center justify-between border-b border-border/70 bg-surface/60 px-5 py-3 backdrop-blur">
+      {/* relative z-50, matching TopNavbar's `glass relative z-50` — see
+          ChannelView's header for why: backdrop-blur makes this its own
+          stacking context, so a lower z-index here traps the options/call
+          menu below TopNavbar no matter what z-index the menu itself asks
+          for, regardless of the menu's own z-index. */}
+      <header className="relative z-50 flex items-center justify-between border-b border-border/70 bg-surface/60 px-5 py-3 backdrop-blur">
         {/* min-w-0 + truncate: without them a long username pushes the call and
             block buttons off the right edge on a narrow window. */}
         <div className="flex min-w-0 items-center gap-3">

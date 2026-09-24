@@ -132,7 +132,7 @@ export function CallWindow() {
 
   if (isLoading) {
     return (
-      <div className="flex h-full items-center justify-center bg-surface text-sm text-muted">
+      <div className="meeting-surface meeting-theme meeting-mesh fixed inset-0 flex items-center justify-center text-sm text-muted">
         {t("window.loading")}
       </div>
     );
@@ -143,7 +143,7 @@ export function CallWindow() {
   // something a retry can plausibly fix, that one is not.
   if (isError || !call) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-4 bg-surface p-6">
+      <div className="meeting-surface meeting-theme meeting-mesh fixed inset-0 flex flex-col items-center justify-center gap-4 p-6">
         <EmptyState
           icon={<AlertCircle size={24} />}
           title={t("window.loadError.title")}
@@ -169,7 +169,7 @@ export function CallWindow() {
   // instead of an immediate answer.
   if (call.status === "ENDED" || call.status === "CANCELLED") {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-4 bg-surface p-6">
+      <div className="meeting-surface meeting-theme meeting-mesh fixed inset-0 flex flex-col items-center justify-center gap-4 p-6">
         <EmptyState
           icon={<AlertCircle size={24} />}
           title={t("window.unavailable.title")}

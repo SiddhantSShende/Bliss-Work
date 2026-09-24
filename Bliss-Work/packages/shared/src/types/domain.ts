@@ -319,7 +319,7 @@ export type SessionDTO = z.infer<typeof SessionDTO>;
  * when a second factor is still owed. `pendingToken` is a short-lived,
  * single-use, server-only secret the client presents to the MFA
  * challenge-verify endpoint next — or, while `enrollmentRequired` is true, to
- * the TOTP/WebAuthn enroll-start/enroll-confirm endpoints instead (the
+ * the TOTP enroll-start/enroll-confirm endpoints instead (the
  * "restricted enrollment credential": the only way a blocked admin who has
  * never enrolled can reach enrollment, since there is no session yet to
  * authenticate with).
@@ -327,7 +327,7 @@ export type SessionDTO = z.infer<typeof SessionDTO>;
 export const MfaPendingDTO = z.object({
   mfaRequired: z.literal(true).default(true),
   pendingToken: z.string(),
-  methods: z.array(z.enum(["totp", "webauthn"])),
+  methods: z.array(z.literal("totp")),
   enrollmentRequired: z.boolean().default(false),
 });
 export type MfaPendingDTO = z.infer<typeof MfaPendingDTO>;
@@ -341,16 +341,6 @@ export type LoginResult = z.infer<typeof LoginResult>;
 export function isMfaPending(result: LoginResult): result is MfaPendingDTO {
   return "mfaRequired" in result && result.mfaRequired === true;
 }
-
-/** GET /auth/mfa/methods — which second factors the CALLER has registered.
- *  Lets Settings decide whether to offer a passkey as a step-up shortcut
- *  (MFA-disable / backup-codes regenerate) without guessing from
- *  `user.mfaEnrolled` alone — a passkey-only enrollee has no TOTP code or
- *  backup code to fall back on for either action. */
-export const MfaMethodsResult = z.object({
-  methods: z.array(z.enum(["totp", "webauthn"])),
-});
-export type MfaMethodsResult = z.infer<typeof MfaMethodsResult>;
 
 export const OrgMfaSettingsDTO = z.object({
   requireMfaForAdmins: z.boolean(),
@@ -426,6 +416,7 @@ export const MessageKind = z.enum([
   "call_missed",
   "forward_external",
   "screenshot_attempt",
+  "channel_renamed",
 ]);
 export type MessageKind = z.infer<typeof MessageKind>;
 
@@ -765,6 +756,13 @@ export type AssigneeStatus = z.infer<typeof AssigneeStatus>;
 export const TaskAction = z.enum(["ACKNOWLEDGE", "IGNORE", "COMPLETE", "LEAVE"]);
 export type TaskAction = z.infer<typeof TaskAction>;
 
+export const TaskParticipantDTO = z.object({
+  userId: z.string().uuid(),
+  username: z.string(),
+  status: AssigneeStatus,
+});
+export type TaskParticipantDTO = z.infer<typeof TaskParticipantDTO>;
+
 /** Star rating on a review — 1..5, or null when the allocator left only text. */
 const ReviewRating = z.number().int().min(1).max(5).nullable().optional();
 
@@ -775,6 +773,7 @@ export const StickyTaskDTO = z.object({
   orgId: z.string().uuid(),
   title: z.string(),
   description: z.string(),
+  channelId: z.string().nullable().optional(),
   senderId: z.string().uuid(),
   senderUsername: z.string(),
   /** Real name. Prefer this over `senderUsername`, which is the email local-part. */
@@ -790,6 +789,7 @@ export const StickyTaskDTO = z.object({
   reviewedAt: z.string().nullable().optional(),
   review: z.string().nullable().optional(),
   reviewRating: ReviewRating,
+  participants: z.array(TaskParticipantDTO).default([]),
 });
 export type StickyTaskDTO = z.infer<typeof StickyTaskDTO>;
 
@@ -815,8 +815,33 @@ export const SentTaskDTO = z.object({
       reviewRating: ReviewRating,
     }),
   ),
+  participants: z.array(TaskParticipantDTO).default([]),
 });
 export type SentTaskDTO = z.infer<typeof SentTaskDTO>;
+
+export const ScheduledTaskDTO = z.object({
+  scheduleId: z.string().uuid(),
+  title: z.string(),
+  description: z.string(),
+  channelId: z.string().nullable().optional(),
+  kind: z.enum(["SCHEDULED", "RECURRING"]),
+  scheduledFor: z.string().nullable().optional(),
+  startAt: z.string(),
+  nextRunAt: z.string(),
+  frequency: z.string().nullable().optional(),
+  interval: z.number().int().nullable().optional(),
+  weekdays: z.array(z.number().int()),
+  monthlyRule: z.string().nullable().optional(),
+  monthlyDay: z.number().int().nullable().optional(),
+  monthlyOrdinal: z.number().int().nullable().optional(),
+  monthlyWeekday: z.number().int().nullable().optional(),
+  endCondition: z.string(),
+  endAt: z.string().nullable().optional(),
+  occurrenceLimit: z.number().int().nullable().optional(),
+  occurrenceCount: z.number().int(),
+  assignees: z.array(z.object({ userId: z.string(), username: z.string() })),
+});
+export type ScheduledTaskDTO = z.infer<typeof ScheduledTaskDTO>;
 
 /** Response from POST …/review — the persisted review. */
 export const ReviewResponse = z.object({
@@ -887,6 +912,7 @@ export const NotificationDTO = z.object({
     "TASK_COMPLETED",
     "TASK_IGNORED",
     "TASK_LEFT",
+    "TASK_WITHDRAWN",
     "CHANNEL_ADDED",
   ]),
   text: z.string(),

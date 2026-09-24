@@ -1,6 +1,6 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { MessageSquare, Ban, Check, Forward, PhoneMissed, Pin, Camera } from "lucide-react";
+import { MessageSquare, Ban, Check, Forward, PhoneMissed, Pin, Camera, Hash } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { Avatar } from "@taskboard/ui";
@@ -27,7 +27,7 @@ export interface ThreadMessage {
   pending?: boolean;
   /** System entries (a missed call, a forward handed off to WhatsApp, a refused
    *  screenshot) render as a centered notice, not a bubble. */
-  kind?: "text" | "call_missed" | "forward_external" | "screenshot_attempt";
+  kind?: "text" | "call_missed" | "forward_external" | "screenshot_attempt" | "channel_renamed";
   /** Sender-side delivery state. Set only on the caller's own messages. */
   status?: MessageDTO["status"];
   /** The message this one quotes. Rendered as a strip above the body. */
@@ -445,6 +445,17 @@ export function ChatThread({
                 <div key={m.id}>
                   {dayChip}
                   <SystemPill icon={<Camera size={12} className="text-warning" />} at={m.at}>
+                    {m.body}
+                  </SystemPill>
+                </div>
+              );
+            }
+
+            if (m.kind === "channel_renamed") {
+              return (
+                <div key={m.id}>
+                  {dayChip}
+                  <SystemPill icon={<Hash size={12} className="text-accent" />} at={m.at}>
                     {m.body}
                   </SystemPill>
                 </div>

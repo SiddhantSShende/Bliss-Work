@@ -23,6 +23,14 @@ export { StatTile, Sparkline } from "./components/charts/StatTile";
 export { formatMs } from "./components/charts/scale";
 export { ThemeProvider, useTheme, type Theme } from "./theme/ThemeProvider";
 export {
+  CUSTOM_THEME_CLASS,
+  customThemeGradient,
+  customThemeStyle,
+  isCustomThemeActive,
+  readStoredCustomTheme,
+  type CustomTheme,
+} from "./theme/customTheme";
+export {
   THEMES,
   themeClasses,
   themeName,

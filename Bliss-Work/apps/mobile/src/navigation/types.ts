@@ -8,7 +8,7 @@ export type AuthStackParamList = {
   Login: undefined;
   MfaChallenge: {
     pendingToken: string;
-    methods: ('totp' | 'webauthn')[];
+    methods: 'totp'[];
     enrollmentRequired: boolean;
   };
 };

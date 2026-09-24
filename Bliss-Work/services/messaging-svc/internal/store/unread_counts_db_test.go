@@ -103,7 +103,7 @@ func TestUnreadCounts_MatchesChannelsSum(t *testing.T) {
 
 	var lastSeq int64
 	for i := 0; i < 4; i++ {
-		res, err := s.SendChannelMessage(ctx, orgID, ch.ID, creator, "hello", uuid.NewString(), "", "")
+		res, err := s.SendChannelMessage(ctx, orgID, ch.ID, creator, "hello", uuid.NewString(), "", "", "")
 		if err != nil {
 			t.Fatalf("SendChannelMessage %d: %v", i, err)
 		}

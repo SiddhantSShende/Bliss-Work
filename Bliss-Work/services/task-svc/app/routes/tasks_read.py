@@ -59,7 +59,13 @@ async def _sticky_list(
                     "       ta.completed_at, ta.ignored_at, ta.left_at, ta.reviewed_at, "
                     "       ta.review_enc, ta.review_rating, "
                     "       COALESCE(up.username, '') AS sender_username, "
-                    "       COALESCE(up.display_name, '') AS sender_display_name "
+                    "       COALESCE(up.display_name, '') AS sender_display_name, "
+                    "       COALESCE((SELECT json_agg(json_build_object("
+                    "         'userId', p.assignee_id, 'username', COALESCE(pu.username, ''), 'status', p.status) "
+                    "         ORDER BY p.assigned_at, p.assignee_id) "
+                    "         FROM task_assignees p LEFT JOIN user_projection pu "
+                    "           ON pu.user_id = p.assignee_id AND pu.org_id = p.org_id "
+                    "         WHERE p.task_id = ta.task_id AND p.org_id = ta.org_id), '[]'::json) AS participants "
                     "FROM task_assignees ta "
                     "JOIN tasks t ON t.id = ta.task_id "
                     "LEFT JOIN user_projection up "
@@ -117,6 +123,7 @@ async def _sticky_list(
                 reviewedAt=iso(r.reviewed_at),
                 review=review,
                 reviewRating=r.review_rating,
+                participants=r.participants or [],
             )
         )
     return out
@@ -163,7 +170,13 @@ async def task_detail(
                     "       ta.completed_at, ta.ignored_at, ta.left_at, ta.reviewed_at, "
                     "       ta.review_enc, ta.review_rating, "
                     "       COALESCE(up.username, '') AS sender_username, "
-                    "       COALESCE(up.display_name, '') AS sender_display_name "
+                    "       COALESCE(up.display_name, '') AS sender_display_name, "
+                    "       COALESCE((SELECT json_agg(json_build_object("
+                    "         'userId', p.assignee_id, 'username', COALESCE(pu.username, ''), 'status', p.status) "
+                    "         ORDER BY p.assigned_at, p.assignee_id) "
+                    "         FROM task_assignees p LEFT JOIN user_projection pu "
+                    "           ON pu.user_id = p.assignee_id AND pu.org_id = p.org_id "
+                    "         WHERE p.task_id = ta.task_id AND p.org_id = ta.org_id), '[]'::json) AS participants "
                     "FROM task_assignees ta "
                     "JOIN tasks t ON t.id = ta.task_id "
                     "LEFT JOIN user_projection up "
@@ -200,6 +213,7 @@ async def task_detail(
             reviewedAt=iso(row.reviewed_at),
             review=review,
             reviewRating=row.review_rating,
+            participants=row.participants or [],
         )
 
 
@@ -300,6 +314,7 @@ async def sent(
                     description=await cryptor().decrypt(db, org, r.description_enc) or "",
                     createdAt=iso(r.created_at),
                     assignees=[],
+                    participants=[],
                 )
                 order.append(tid)
             review = (
@@ -321,5 +336,8 @@ async def sent(
                     review=review,
                     reviewRating=r.review_rating,
                 )
+            )
+            by_task[tid].participants.append(
+                {"userId": str(r.assignee_id), "username": r.assignee_username, "status": r.status}
             )
     return [by_task[t] for t in order]

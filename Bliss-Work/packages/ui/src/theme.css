@@ -37,7 +37,9 @@
   --color-accent-fg: #ffffff;
   --color-accent-soft: #eff6ff;
   --color-brand-from: #60a5fa;
+  --color-brand-mid: #60a5fa;
   --color-brand-to: #2563eb;
+  --color-brand-gradient: linear-gradient(135deg, #60a5fa, #2563eb);
   --color-success: oklch(0.7 0.15 158);
   --color-danger: oklch(0.62 0.21 25);
   --color-warning: oklch(0.8 0.15 80);
@@ -94,7 +96,9 @@
   --color-accent-fg: #020817;
   --color-accent-soft: #172554;
   --color-brand-from: #60a5fa;
+  --color-brand-mid: #60a5fa;
   --color-brand-to: #3b82f6;
+  --color-brand-gradient: linear-gradient(135deg, #60a5fa, #3b82f6);
   --color-success: oklch(0.75 0.15 158);
   --color-danger: oklch(0.68 0.2 25);
   --color-warning: oklch(0.82 0.15 80);
@@ -121,6 +125,12 @@
   --glass-bg: rgba(15, 23, 42, 0.55);
   --glass-border: rgba(59, 130, 246, 0.1);
   --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+/* Custom themes keep the existing gradient utilities and replace their stops
+   with the builder's fixed top-left to bottom-right gradient. */
+.custom-theme .bg-gradient-to-br {
+  background: var(--color-brand-gradient) !important;
 }
 
 /* ── Named colour themes ──────────────────────────────────────────────────
@@ -475,6 +485,11 @@
   --glass-border: rgba(34, 211, 238, 0.16);
   --glass-shadow: 0 0 30px rgba(34, 211, 238, 0.08), 0 20px 45px rgba(0, 0, 0, 0.55);
   color-scheme: dark;
+}
+
+.meeting-surface {
+  min-height: 100vh;
+  min-height: 100dvh;
 }
 
 /* The redesign's deep-space backdrop: a near-black gradient with faint,

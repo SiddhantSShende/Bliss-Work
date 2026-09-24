@@ -62,8 +62,8 @@ const api = {
   setToken: (token: string | null) => ipcRenderer.send("auth:token", token),
 
   /** Pin an acknowledged task to the desktop as a locked sticky note. Resolves
-   *  with the authoritative pinned set (+ refusal reason, e.g. the on-screen
-   *  cap was hit) so the renderer never optimistically lies about pin state. */
+   *  with the authoritative pinned set and any refusal reason so the renderer
+   *  never optimistically lies about pin state. */
   pinTask: (taskId: string): Promise<PinResult> => ipcRenderer.invoke("task:pin", taskId),
 
   /** Task ids currently pinned to the desktop (source of truth = main process
@@ -273,6 +273,14 @@ const api = {
     getDesktopEnabled: (): Promise<boolean> => ipcRenderer.invoke("notifications:get-desktop-enabled"),
     setDesktopEnabled: (enabled: boolean): Promise<void> =>
       ipcRenderer.invoke("notifications:set-desktop-enabled", enabled),
+    showIncomingCall: (caller: string, media: "audio" | "video"): void =>
+      ipcRenderer.send("incoming-call:show", { caller, media }),
+    closeIncomingCall: (): void => ipcRenderer.send("incoming-call:close"),
+    onIncomingCallAction: (cb: (action: "accept" | "reject") => void): (() => void) => {
+      const handler = (_event: unknown, action: "accept" | "reject") => cb(action);
+      ipcRenderer.on("incoming-call:action", handler);
+      return () => ipcRenderer.removeListener("incoming-call:action", handler);
+    },
   },
 
   /** Phase 10 sender-side streaming sha256 — the renderer feeds file slices and

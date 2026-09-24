@@ -163,6 +163,58 @@ async def _insert_task_assignees(
     )
 
 
+async def _insert_schedule(
+    db: AsyncSession,
+    *,
+    schedule_id: str,
+    org_id: str,
+    sender_id: str,
+    title_enc: bytes,
+    description_enc: bytes,
+    channel_id: str | None,
+    assignee_ids: list[str],
+    body: CreateTaskRequest,
+) -> None:
+    recurrence = body.recurrence
+    start_at = body.scheduledFor if body.allocation == "SCHEDULED" else recurrence.startAt  # type: ignore[union-attr]
+    await db.execute(
+        text(
+            "INSERT INTO task_schedules ("
+            "id, org_id, sender_id, title_enc, description_enc, channel_id, assignee_ids, "
+            "kind, scheduled_for, start_at, frequency, frequency_interval, weekdays, "
+            "monthly_rule, monthly_day, monthly_ordinal, monthly_weekday, end_condition, "
+            "end_at, occurrence_limit, next_run_at"
+            ") VALUES ("
+            ":id, :org, :sender, :title, :description, :channel, CAST(:assignees AS uuid[]), "
+            ":kind, :scheduled, :start, :frequency, :interval, :weekdays, :monthly_rule, "
+            ":monthly_day, :monthly_ordinal, :monthly_weekday, :end_condition, :end_at, "
+            ":occurrence_limit, :next_run"
+            ")"
+        ),
+        {
+            "id": schedule_id,
+            "org": org_id,
+            "sender": sender_id,
+            "title": title_enc,
+            "description": description_enc,
+            "channel": channel_id,
+            "assignees": assignee_ids,
+            "kind": body.allocation,
+            "scheduled": body.scheduledFor,
+            "start": start_at,
+            "frequency": recurrence.frequency if recurrence else None,
+            "interval": recurrence.interval if recurrence else None,
+            "weekdays": recurrence.weekdays if recurrence else [],
+            "monthly_rule": recurrence.monthlyRule if recurrence else None,
+            "monthly_day": recurrence.monthlyDay if recurrence else None,
+            "monthly_ordinal": recurrence.monthlyOrdinal if recurrence else None,
+            "monthly_weekday": recurrence.monthlyWeekday if recurrence else None,
+            "end_condition": recurrence.endCondition if recurrence else "NO_END",
+            "end_at": recurrence.endAt if recurrence else None,
+            "occurrence_limit": recurrence.occurrenceCount if recurrence else None,
+            "next_run": start_at,
+        },
+    )
 @router.post("/tasks", response_model=CreateTaskResponse, status_code=status.HTTP_201_CREATED)
 async def create_task(
     body: CreateTaskRequest,
@@ -265,6 +317,25 @@ async def create_task(
         # ciphertext.
         title_enc = await cryptor().encrypt(db, org_id, body.title)
         desc_enc = await cryptor().encrypt(db, org_id, body.description or "")
+
+        if body.allocation != "NOW":
+            # A deferred task stores the same assignment target, but does not
+            # create task_assignees or emit task.assigned until the worker sees
+            # next_run_at. Channel membership is resolved again at that point.
+            await _insert_schedule(
+                db,
+                schedule_id=task_id,
+                org_id=org_id,
+                sender_id=sender_id,
+                title_enc=title_enc,
+                description_enc=desc_enc,
+                channel_id=channel_id,
+                assignee_ids=[] if channel_id else assignee_ids,
+                body=body,
+            )
+            await db.commit()
+            log.info("task_schedule_created", schedule_id=task_id, kind=body.allocation)
+            return CreateTaskResponse(taskId=task_id, scheduleId=task_id)
 
         await db.execute(
             text(

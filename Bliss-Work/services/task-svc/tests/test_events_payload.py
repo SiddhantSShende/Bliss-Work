@@ -36,3 +36,13 @@ def test_task_left_includes_assignee_username() -> None:
     )
     _common(evt, "task.left")
     assert evt["assigneeUsername"] == "bob"
+
+
+def test_task_withdrawn_routes_to_all_affected_participants() -> None:
+    evt = events.task_withdrawn(
+        org_id="org", task_id="t", assignee_id="a", sender_id="s",
+        status_version=4, assignee_username="alice", members=["s", "a", "b"],
+    )
+    _common(evt, "task.withdrawn")
+    assert evt["assigneeUsername"] == "alice"
+    assert evt["members"] == ["s", "a", "b"]

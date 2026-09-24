@@ -6,8 +6,9 @@ import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { Plus, ListTodo, Download, PinOff } from "lucide-react";
 import { Button, GlassCard, EmptyState, IconButton } from "@taskboard/ui";
-import type { StickyTaskDTO, TaskAction, UserDTO } from "@taskboard/shared";
+import { actionsFor, type StickyTaskDTO, type TaskAction, type UserDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
+import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
 import { autoPinAssignedTask, unpinAssignedTask, useAssignedTaskPin } from "../lib/taskPinPrefs";
 import { TERMINAL_VIEW_LIMIT, isTerminalView, terminalAt } from "./tasksBuckets";
@@ -100,6 +101,7 @@ export function Tasks() {
 function AssignedBucket({ view }: { view: string }) {
   const { t } = useTranslation("tasks");
   const { api, config } = useRuntime();
+  const currentUserId = useSession((s) => s.user?.id);
   const qc = useQueryClient();
   const { data: all = [] } = useQuery({ queryKey: qk.assigned, queryFn: () => api.taskAssigned() });
   const [page, setPage] = useState(1);
@@ -203,7 +205,7 @@ function AssignedBucket({ view }: { view: string }) {
         const patchStatus = (list: StickyTaskDTO[] | undefined) =>
           (list ?? []).map((t) =>
             t.taskId === taskId
-              ? { ...t, myStatus: "ACKNOWLEDGED" as const }
+              ? { ...t, myStatus: "ACKNOWLEDGED" as const, actions: actionsFor("ACKNOWLEDGED") }
               : t,
           );
         qc.setQueryData<StickyTaskDTO[]>(qk.sticky, patchStatus);
@@ -251,6 +253,22 @@ function AssignedBucket({ view }: { view: string }) {
       void qc.invalidateQueries({ queryKey: qk.availability });
     },
   });
+  const membership = useMutation({
+    mutationFn: ({ taskId, userIds }: { taskId: string; userIds: string[] }) => api.addTaskParticipants(taskId, userIds),
+    onSuccess: () => {
+      toast.success(t("participants.added"));
+      for (const key of [qk.assigned, qk.sticky, qk.inbox, qk.sent]) void qc.invalidateQueries({ queryKey: key });
+    },
+    onError: (err) => toast.error(t("participants.failed"), { description: String(err) }),
+  });
+  const withdrawal = useMutation({
+    mutationFn: ({ taskId, userId }: { taskId: string; userId: string }) => api.withdrawTaskParticipant(taskId, userId),
+    onSuccess: () => {
+      toast.success(t("participants.withdrawn"));
+      for (const key of [qk.assigned, qk.sticky, qk.inbox, qk.sent]) void qc.invalidateQueries({ queryKey: key });
+    },
+    onError: (err) => toast.error(t("participants.failed"), { description: String(err) }),
+  });
 
   if (tasks.length === 0)
     return (
@@ -294,8 +312,11 @@ function AssignedBucket({ view }: { view: string }) {
               <StickyWidget
                 task={task}
                 onAction={(a) => act.mutate({ taskId: task.taskId, action: a })}
-                busy={act.isPending && act.variables?.taskId === task.taskId}
+                busy={(act.isPending && act.variables?.taskId === task.taskId) || membership.isPending || withdrawal.isPending}
                 locked={floatable}
+                currentUserId={currentUserId}
+                onAddParticipants={(userIds) => membership.mutateAsync({ taskId: task.taskId, userIds }).then(() => undefined)}
+                onWithdrawParticipant={(userId) => withdrawal.mutateAsync({ taskId: task.taskId, userId }).then(() => undefined)}
               />
             </motion.div>
           );

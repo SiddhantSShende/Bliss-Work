@@ -1,11 +1,14 @@
-import { useMemo, useState } from "react";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { ListTodo, Star, MessageSquarePlus } from "lucide-react";
-import { Avatar, Badge, Button, GlassCard, EmptyState, Spinner } from "@taskboard/ui";
+import { toast } from "sonner";
+import { ListTodo, Star, MessageSquarePlus, CalendarClock } from "lucide-react";
+import { Avatar, Badge, Button, GlassCard, EmptyState, Spinner, Input } from "@taskboard/ui";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { useUserLabels } from "../lib/userLabel";
+import { useSession } from "../store/session";
+import { TaskParticipantAdd, TaskParticipants } from "./TaskParticipants";
 import {
   NO_SENT_FILTER,
   STATUS_FILTERS,
@@ -21,6 +24,7 @@ import { MiniTaskCalendar } from "./MiniTaskCalendar";
 
 /** Tasks fetched per request — the server's maximum page. */
 const PAGE_SIZE = 100;
+const VISIBLE_BATCH_SIZE = 4;
 
 /** Format an ISO instant to the viewer's local date + time (or "" when absent).
  *  `lang` is the in-app selected locale (i18n.language) so this follows the
@@ -51,6 +55,8 @@ function toggled<T>(set: ReadonlySet<T>, value: T): Set<T> {
 export function MyTasksBoard() {
   const { t } = useTranslation("tasks");
   const { api } = useRuntime();
+  const qc = useQueryClient();
+  const currentUserId = useSession((s) => s.user?.id) ?? "";
   // A child of qk.sent: the realtime bridge's invalidate(qk.sent) prefix-matches
   // it, while TasksList/Search keep their own plain-array qk.sent cache.
   const sent = useInfiniteQuery({
@@ -61,13 +67,39 @@ export function MyTasksBoard() {
       last.length < PAGE_SIZE ? undefined : all.reduce((n, page) => n + page.length, 0),
   });
   const tasks = useMemo(() => sent.data?.pages.flat() ?? [], [sent.data]);
+  const schedules = useQuery({ queryKey: [...qk.sent, "schedules"], queryFn: () => api.taskSchedules() });
   const [filter, setFilter] = useState<SentTaskFilter>(NO_SENT_FILTER);
+  const [visibleCount, setVisibleCount] = useState(VISIBLE_BATCH_SIZE);
   const [reviewTarget, setReviewTarget] = useState<{ taskId: string; assignee: SentAssignee } | null>(null);
+  const membership = useMutation({
+    mutationFn: ({ taskId, userIds }: { taskId: string; userIds: string[] }) => api.addTaskParticipants(taskId, userIds),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: qk.sent }),
+    onError: (err) => toast.error(t("participants.failed"), { description: String(err) }),
+  });
+  const withdrawal = useMutation({
+    mutationFn: ({ taskId, userId }: { taskId: string; userId: string }) => api.withdrawTaskParticipant(taskId, userId),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: qk.sent }),
+    onError: (err) => toast.error(t("participants.failed"), { description: String(err) }),
+  });
 
   const people = useMemo(() => personOptions(tasks), [tasks]);
   const { nameOf, avatarUrlOf } = useUserLabels(useMemo(() => people.map((p) => p.id), [people]));
   const visible = useMemo(() => filterSentTasks(tasks, filter), [tasks, filter]);
+  const visibleSchedules = filter.statuses.has("SCHEDULED") ? schedules.data ?? [] : [];
+  const visibleTasks = useMemo(() => visible.slice(0, visibleCount), [visible, visibleCount]);
   const marks = useMemo(() => markedDays(tasks, filter), [tasks, filter]);
+
+  useEffect(() => {
+    setVisibleCount(VISIBLE_BATCH_SIZE);
+  }, [filter]);
+
+  const loadMore = async () => {
+    const nextCount = visibleCount + VISIBLE_BATCH_SIZE;
+    if (nextCount > visible.length && sent.hasNextPage) {
+      await sent.fetchNextPage();
+    }
+    setVisibleCount(nextCount);
+  };
 
   // No data yet is not "no tasks": the first page is still loading, or failed.
   // Without this the empty state flashed on every visit (this board has its own
@@ -85,7 +117,13 @@ export function MyTasksBoard() {
         <Spinner /> {t("myTasksBoard.loading")}
       </div>
     );
-  if (tasks.length === 0)
+  if (tasks.length === 0 && schedules.isPending)
+    return (
+      <div className="flex items-center gap-2 p-4 text-sm text-muted">
+        <Spinner /> {t("myTasksBoard.loading")}
+      </div>
+    );
+  if (tasks.length === 0 && schedules.data && schedules.data.length === 0)
     return (
       <EmptyState
         icon={<ListTodo size={24} />}
@@ -159,18 +197,39 @@ export function MyTasksBoard() {
               </Button>
             </div>
           )}
-          {visible.length === 0 ? (
+          {visible.length === 0 && visibleSchedules.length === 0 ? (
             <EmptyState
               icon={<ListTodo size={24} />}
               title={t("myTasksBoard.noMatch.title")}
               hint={sent.hasNextPage ? t("myTasksBoard.noMatch.hint") : undefined}
             />
           ) : (
-            <div className="grid gap-3">
-              {visible.map(({ task: t, assignees }) => (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {visibleSchedules.map((schedule) => (
+                <ScheduledTaskCard key={schedule.scheduleId} schedule={schedule} onCancelled={() => void schedules.refetch()} />
+              ))}
+              {visibleTasks.map(({ task: t, assignees }) => (
                 <GlassCard key={t.taskId} className="p-4">
-                  <div className="font-semibold text-fg">{t.title}</div>
+                  <div className="flex min-w-0 items-center gap-2">
+                    <div className="min-w-0 truncate font-semibold text-fg">{t.title}</div>
+                    {(t.participants ?? assignees.map((a) => ({ userId: a.assigneeId, username: a.assigneeUsername, status: a.status }))).some(
+                      (participant) => participant.status === "SENT" || participant.status === "ACKNOWLEDGED",
+                    ) && (
+                      <TaskParticipantAdd
+                        participants={t.participants ?? assignees.map((a) => ({ userId: a.assigneeId, username: a.assigneeUsername, status: a.status }))}
+                        onAdd={(userIds) => membership.mutateAsync({ taskId: t.taskId, userIds }).then(() => undefined)}
+                      />
+                    )}
+                  </div>
                   {t.description && <p className="mt-1 text-sm text-muted">{t.description}</p>}
+                  <TaskParticipants
+                    participants={t.participants ?? assignees.map((a) => ({ userId: a.assigneeId, username: a.assigneeUsername, status: a.status }))}
+                    currentUserId={currentUserId}
+                    allocatorId={currentUserId}
+                    addPlacement="name"
+                    onAdd={(userIds) => membership.mutateAsync({ taskId: t.taskId, userIds }).then(() => undefined)}
+                    onWithdraw={(userId) => withdrawal.mutateAsync({ taskId: t.taskId, userId }).then(() => undefined)}
+                  />
                   <div className="mt-3 flex flex-col divide-y divide-border/50">
                     {assignees.map((a) => (
                       <AssigneeTimeline
@@ -184,9 +243,9 @@ export function MyTasksBoard() {
               ))}
             </div>
           )}
-          {sent.hasNextPage && (
+          {(visibleCount < visible.length || sent.hasNextPage) && (
             <div className="flex justify-center">
-              <Button variant="secondary" size="sm" disabled={sent.isFetchingNextPage} onClick={() => void sent.fetchNextPage()}>
+              <Button variant="secondary" size="sm" disabled={sent.isFetchingNextPage} onClick={() => void loadMore()}>
                 {sent.isFetchingNextPage ? t("myTasksBoard.loadingMore") : t("myTasksBoard.loadMore")}
               </Button>
             </div>
@@ -205,6 +264,79 @@ export function MyTasksBoard() {
         />
       )}
     </>
+  );
+}
+
+function ScheduledTaskCard({
+  schedule,
+  onCancelled,
+}: {
+  schedule: import("@taskboard/shared").ScheduledTaskDTO;
+  onCancelled: () => void;
+}) {
+  const { t, i18n } = useTranslation("tasks");
+  const { api } = useRuntime();
+  const [editing, setEditing] = useState(false);
+  const [editValue, setEditValue] = useState(() => {
+    const value = new Date(schedule.nextRunAt);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}T${pad(value.getHours())}:${pad(value.getMinutes())}`;
+  });
+  const cancel = useMutation({
+    mutationFn: () => api.cancelTaskSchedule(schedule.scheduleId),
+    onSuccess: onCancelled,
+    onError: (error) => toast.error(String(error)),
+  });
+  const update = useMutation({
+    mutationFn: () => api.updateTaskSchedule(schedule.scheduleId, new Date(editValue).toISOString()),
+    onSuccess: () => {
+      setEditing(false);
+      onCancelled();
+    },
+    onError: (error) => toast.error(String(error)),
+  });
+  const date = new Date(schedule.nextRunAt).toLocaleString(i18n.language, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+  const recurrence = schedule.kind === "RECURRING"
+    ? `${schedule.frequency?.toLowerCase()} · ${schedule.interval ?? 1}x`
+    : null;
+  return (
+    <GlassCard className="p-4">
+      <div className="flex items-start gap-2">
+        <CalendarClock size={17} className="mt-0.5 shrink-0 text-accent" />
+        <div className="min-w-0 flex-1">
+          <div className="truncate font-semibold text-fg">{schedule.title}</div>
+          <div className="mt-1 text-xs font-medium uppercase tracking-wide text-accent">{t("myTasksBoard.scheduled")}</div>
+          {editing ? (
+            <Input type="datetime-local" value={editValue} min={new Date().toISOString().slice(0, 16)} onChange={(event) => setEditValue(event.target.value)} />
+          ) : (
+            <div className="mt-1 text-sm text-muted">{date}</div>
+          )}
+          {recurrence && <div className="mt-1 text-xs text-muted">{recurrence}</div>}
+          {schedule.assignees.length > 0 && (
+            <div className="mt-2 text-sm text-fg">{schedule.assignees.map((assignee) => assignee.username).join(", ")}</div>
+          )}
+          {schedule.assignees.length === 0 && schedule.channelId && (
+            <div className="mt-2 text-sm text-fg">Channel assignment</div>
+          )}
+          <div className="mt-3 flex gap-2">
+            {editing ? (
+              <>
+                <Button variant="secondary" size="sm" disabled={update.isPending} onClick={() => update.mutate()}>Save</Button>
+                <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>Cancel</Button>
+              </>
+            ) : (
+              <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>Edit</Button>
+            )}
+            <Button variant="ghost" size="sm" disabled={cancel.isPending} onClick={() => cancel.mutate()}>
+              {schedule.kind === "RECURRING" ? t("myTasksBoard.cancelRecurring") : t("myTasksBoard.cancelSchedule")}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </GlassCard>
   );
 }
 

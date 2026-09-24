@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 AssigneeStatus = Literal["SENT", "IGNORED", "ACKNOWLEDGED", "COMPLETED", "LEFT"]
 TaskActionT = Literal["ACKNOWLEDGE", "IGNORE", "COMPLETE", "LEAVE"]
@@ -15,6 +16,64 @@ TaskActionT = Literal["ACKNOWLEDGE", "IGNORE", "COMPLETE", "LEAVE"]
 # same bound enforced explicitly rather than inheriting it for free. Public
 # (no leading underscore): it's imported by tasks_write.py for that reason.
 MAX_ASSIGNEES = 500
+
+
+class RecurrenceSpec(BaseModel):
+    startAt: datetime
+    frequency: Literal["DAILY", "WEEKLY", "MONTHLY"]
+    interval: int = Field(default=1, ge=1, le=365)
+    weekdays: list[int] = Field(default_factory=list, max_length=7)
+    monthlyRule: Literal["DAY_OF_MONTH", "WEEKDAY_PATTERN"] | None = None
+    monthlyDay: int | None = Field(default=None, ge=1, le=31)
+    monthlyOrdinal: int | None = Field(default=None, ge=1, le=5)
+    monthlyWeekday: int | None = Field(default=None, ge=0, le=6)
+    endCondition: Literal["NO_END", "AFTER_OCCURRENCES", "ON_DATE"] = "NO_END"
+    endAt: datetime | None = None
+    occurrenceCount: int | None = Field(default=None, ge=1, le=100_000)
+
+    @field_validator("startAt", "endAt")
+    @classmethod
+    def _datetimes_are_aware(cls, value: datetime | None) -> datetime | None:
+        if value is not None and value.tzinfo is None:
+            raise ValueError("schedule datetimes must include a timezone")
+        return value
+
+    @field_validator("weekdays")
+    @classmethod
+    def _weekdays_are_valid(cls, value: list[int]) -> list[int]:
+        if len(set(value)) != len(value) or any(day < 0 or day > 6 for day in value):
+            raise ValueError("weekdays must contain unique values from 0 through 6")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_recurrence(self) -> "RecurrenceSpec":
+        if self.startAt <= datetime.now(timezone.utc):
+            raise ValueError("recurring task startAt must be in the future")
+        if self.frequency == "WEEKLY" and not self.weekdays:
+            raise ValueError("weekly recurrence requires at least one weekday")
+        if self.frequency != "WEEKLY" and self.weekdays:
+            raise ValueError("weekdays are only valid for weekly recurrence")
+        if self.frequency == "MONTHLY":
+            if self.monthlyRule == "DAY_OF_MONTH" and self.monthlyDay is None:
+                raise ValueError("monthly day-of-month rule requires monthlyDay")
+            if self.monthlyRule == "WEEKDAY_PATTERN" and (
+                self.monthlyOrdinal is None or self.monthlyWeekday is None
+            ):
+                raise ValueError("monthly weekday rule requires ordinal and weekday")
+            if self.monthlyRule is None:
+                raise ValueError("monthly recurrence requires a recurrence rule")
+        elif any(value is not None for value in (self.monthlyRule, self.monthlyDay, self.monthlyOrdinal, self.monthlyWeekday)):
+            raise ValueError("monthly recurrence fields are only valid for monthly recurrence")
+        if self.endCondition == "AFTER_OCCURRENCES" and self.occurrenceCount is None:
+            raise ValueError("occurrenceCount is required")
+        if self.endCondition == "ON_DATE":
+            if self.endAt is None:
+                raise ValueError("endAt is required")
+            if self.endAt <= self.startAt:
+                raise ValueError("endAt must be after startAt")
+        elif self.endAt is not None or self.occurrenceCount is not None:
+            raise ValueError("endAt and occurrenceCount must match endCondition")
+        return self
 
 
 # Upper bounds on every free-text / list field. Without them a client can submit
@@ -32,6 +91,34 @@ class CreateTaskRequest(BaseModel):
     # task is tagged with channel_id so future joiners can be auto-added
     # via the ChannelMemberJoined event consumer.
     channelId: str | None = None
+    allocation: Literal["NOW", "SCHEDULED", "RECURRING"] = "NOW"
+    scheduledFor: datetime | None = None
+    recurrence: RecurrenceSpec | None = None
+
+    @field_validator("scheduledFor")
+    @classmethod
+    def _scheduled_for_is_aware(cls, value: datetime | None) -> datetime | None:
+        if value is not None and value.tzinfo is None:
+            raise ValueError("scheduledFor must include a timezone")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_allocation(self) -> "CreateTaskRequest":
+        if self.allocation == "NOW":
+            if self.scheduledFor is not None or self.recurrence is not None:
+                raise ValueError("scheduledFor and recurrence require deferred allocation")
+        elif self.allocation == "SCHEDULED":
+            if self.scheduledFor is None:
+                raise ValueError("scheduledFor is required")
+            if self.scheduledFor <= datetime.now(timezone.utc):
+                raise ValueError("scheduledFor must be in the future")
+            if self.recurrence is not None:
+                raise ValueError("recurrence is only valid for recurring allocation")
+        elif self.recurrence is None:
+            raise ValueError("recurrence is required")
+        if self.allocation == "RECURRING" and self.scheduledFor is not None:
+            raise ValueError("scheduledFor is only valid for scheduled allocation")
+        return self
 
     @field_validator("channelId")
     @classmethod
@@ -57,6 +144,62 @@ class CreateTaskRequest(BaseModel):
 
 class CreateTaskResponse(BaseModel):
     taskId: str
+    scheduleId: str | None = None
+
+
+class ScheduledAssignee(BaseModel):
+    userId: str
+    username: str
+
+
+class ScheduledTaskDTO(BaseModel):
+    scheduleId: str
+    title: str
+    description: str
+    channelId: str | None = None
+    kind: Literal["SCHEDULED", "RECURRING"]
+    scheduledFor: str | None = None
+    startAt: str
+    nextRunAt: str
+    frequency: str | None = None
+    interval: int | None = None
+    weekdays: list[int] = []
+    monthlyRule: str | None = None
+    monthlyDay: int | None = None
+    monthlyOrdinal: int | None = None
+    monthlyWeekday: int | None = None
+    endCondition: str
+    endAt: str | None = None
+    occurrenceLimit: int | None = None
+    occurrenceCount: int
+    assignees: list[ScheduledAssignee]
+
+
+class UpdateScheduleRequest(BaseModel):
+    nextRunAt: datetime
+
+    @field_validator("nextRunAt")
+    @classmethod
+    def _next_run_is_aware_and_future(cls, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            raise ValueError("nextRunAt must include a timezone")
+        if value <= datetime.now(timezone.utc):
+            raise ValueError("nextRunAt must be in the future")
+        return value
+
+
+class AddTaskAssigneesRequest(BaseModel):
+    userIds: list[str] = Field(min_length=1, max_length=MAX_ASSIGNEES)
+
+    @field_validator("userIds")
+    @classmethod
+    def _user_ids_are_uuids(cls, v: list[str]) -> list[str]:
+        for user_id in v:
+            try:
+                uuid.UUID(user_id)
+            except (ValueError, AttributeError) as exc:
+                raise ValueError("userIds must all be valid UUIDs") from exc
+        return list(dict.fromkeys(v))
 
 
 class StickyTaskDTO(BaseModel):
@@ -84,6 +227,7 @@ class StickyTaskDTO(BaseModel):
     reviewedAt: str | None = None
     review: str | None = None
     reviewRating: int | None = None
+    participants: list[dict]
 
 
 class SentAssignee(BaseModel):
@@ -109,6 +253,7 @@ class SentTaskDTO(BaseModel):
     description: str
     createdAt: str
     assignees: list[SentAssignee]
+    participants: list[dict]
 
 
 class TransitionResponse(BaseModel):

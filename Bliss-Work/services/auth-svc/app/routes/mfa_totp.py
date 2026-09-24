@@ -79,7 +79,7 @@ async def enroll_confirm(
             step_up = body.stepUp
             ok = step_up is not None and await mfa_service.verify_step_up(
                 conn, org_id, user_id,
-                step_up.password, step_up.totpCode, step_up.backupCode, step_up.webauthnCredential,
+                step_up.password, step_up.totpCode, step_up.backupCode,
             )
             if not ok:
                 raise HTTPException(status.HTTP_401_UNAUTHORIZED, "re-authentication failed")
@@ -153,7 +153,6 @@ async def regenerate_backup_codes(
             body.password,
             body.totpCode,
             body.backupCode,
-            body.webauthnCredential,
         )
         if not ok:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "re-authentication failed")

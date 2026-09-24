@@ -221,6 +221,9 @@ type sendChannelMsgReq struct {
 	Kind string `json:"kind"`
 	// Message being quoted, if any. Mirrors sendReq/replyReq's ReplyToID.
 	ReplyToID string `json:"replyToId"`
+	// Required when Kind is "attachment_opened"/"attachment_downloaded".
+	// Mirrors sendReq's AttachmentID — see its doc comment.
+	AttachmentID string `json:"attachmentId"`
 }
 
 func (s *Server) sendChannelMessage(w http.ResponseWriter, r *http.Request) {
@@ -251,7 +254,12 @@ func (s *Server) sendChannelMessage(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid replyToId")
 		return
 	}
-	res, err := s.store.SendChannelMessage(r.Context(), claims.OrgID, channelID, claims.UserID, req.Body, req.ClientMsgID, req.Kind, req.ReplyToID)
+	isAttachmentActivity := req.Kind == store.MessageKindAttachmentOpened || req.Kind == store.MessageKindAttachmentDownloaded
+	if isAttachmentActivity && !validUUID(req.AttachmentID) {
+		writeErr(w, http.StatusBadRequest, "attachmentId required")
+		return
+	}
+	res, err := s.store.SendChannelMessage(r.Context(), claims.OrgID, channelID, claims.UserID, req.Body, req.ClientMsgID, req.Kind, req.ReplyToID, req.AttachmentID)
 	if err != nil {
 		s.mapErr(w, err)
 		return

@@ -67,6 +67,7 @@ function task(id: string, status: AssigneeStatus = "SENT"): StickyTaskDTO {
     myStatus: status,
     actions: actionsFor(status),
     statusVersion: 1,
+    participants: [],
     assignedAt: "2026-09-19T00:00:00.000Z",
     acknowledgedAt: null,
   };
@@ -107,13 +108,25 @@ describe("auto-pin", () => {
     expect(windows().filter((w) => !w.closed)).toHaveLength(1);
   });
 
-  it("pins every task in a burst into the SAME popup, up to the on-screen cap", async () => {
+  it("pins every task in a burst into the SAME popup", async () => {
     const { manager, state } = await launch();
     manager.setTasks(["a", "b", "c", "d", "e", "f"].map((id) => task(id)), { live: true });
 
     expect(shown()).toEqual(["a", "b", "c", "d", "e"]);
-    expect(state.getPinned()).toEqual(["a", "b", "c", "d", "e"]);
+    expect(state.getPinned()).toEqual(["a", "b", "c", "d", "e", "f"]);
     expect(windows()).toHaveLength(1);
+  });
+
+  it("slides the five-task render window across the complete pinned set", async () => {
+    const { manager } = await launch();
+    manager.setTasks(["a", "b", "c", "d", "e", "f"].map((id) => task(id)), { live: true });
+
+    manager.next();
+    expect(shown()).toEqual(["a", "b", "c", "d", "e"]);
+    manager.next();
+    expect(shown()).toEqual(["a", "b", "c", "d", "e"]);
+    manager.next();
+    expect(shown()).toEqual(["b", "c", "d", "e", "f"]);
   });
 
   it("does not pin off the bootstrap cache (a stale snapshot)", async () => {

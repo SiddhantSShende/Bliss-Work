@@ -14,6 +14,17 @@ import i18n from "../i18n";
 
 type Supported = typeof Notification;
 
+type ElectronCallBridge = {
+  showIncomingCall: (caller: string, media: "audio" | "video") => void;
+  closeIncomingCall: () => void;
+  onIncomingCallAction: (cb: (action: "accept" | "reject") => void) => () => void;
+};
+
+function electronBridge(): ElectronCallBridge | undefined {
+  if (typeof window === "undefined") return undefined;
+  return (window as Window & { taskboard?: { notifications?: ElectronCallBridge } }).taskboard?.notifications;
+}
+
 function api(): Supported | undefined {
   if (typeof window === "undefined") return undefined;
   return "Notification" in window ? window.Notification : undefined;
@@ -41,9 +52,20 @@ export interface CallNotification {
   close: () => void;
 }
 
+export function onIncomingCallAction(
+  cb: (action: "accept" | "reject") => void,
+): () => void {
+  return electronBridge()?.onIncomingCallAction(cb) ?? (() => {});
+}
+
 /** Raise a notification for an incoming call. Clicking it focuses the app.
  *  Returns a handle whose close() is safe to call more than once. */
 export function notifyIncomingCall(caller: string, media: "audio" | "video"): CallNotification {
+  const desktop = electronBridge();
+  if (desktop) {
+    desktop.showIncomingCall(caller, media);
+    return { close: desktop.closeIncomingCall };
+  }
   const N = api();
   if (!N || N.permission !== "granted" || !loadDesktopNotifs()) return { close: () => {} };
   try {

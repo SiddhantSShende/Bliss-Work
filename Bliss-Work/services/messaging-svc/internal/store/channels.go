@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -97,8 +98,35 @@ func (s *Store) RenameChannel(ctx context.Context, orgID, channelID, callerID st
 		if err := requireChannelManager(ctx, tx, orgID, channelID, callerID, roles); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `UPDATE channels SET name = $2 WHERE id = $1`, channelID, name); err != nil {
+		var oldName string
+		if err := tx.QueryRow(ctx, `SELECT name FROM channels WHERE id = $1 FOR UPDATE`, channelID).Scan(&oldName); err != nil {
 			return err
+		}
+		if oldName != name {
+			if _, err := tx.Exec(ctx, `UPDATE channels SET name = $2 WHERE id = $1`, channelID, name); err != nil {
+				return err
+			}
+			username, displayName, err := s.cachedUserNames(ctx, tx, orgID, callerID)
+			if err != nil {
+				return err
+			}
+			if displayName == "" {
+				displayName = username
+			}
+			clientMsgID := uuid.NewMD5(uuid.Nil, []byte(fmt.Sprintf("channel-rename:%s:%s:%s", channelID, oldName, name)))
+			body := fmt.Sprintf("%s renamed channel from %s to %s", displayName, oldName, name)
+			if _, err := s.appendChannelMessageTx(
+				ctx,
+				tx,
+				orgID,
+				channelID,
+				callerID,
+				body,
+				clientMsgID.String(),
+				channelAppendOpts{kind: MessageKindChannelRenamed},
+			); err != nil {
+				return err
+			}
 		}
 		return tx.QueryRow(ctx, `SELECT id, name, (SELECT count(*) FROM channel_members WHERE channel_id = $1), is_locked, created_by FROM channels WHERE id = $1`, channelID).
 			Scan(&out.ID, &out.Name, &out.MemberCount, &out.IsLocked, &out.CreatedBy)
@@ -322,7 +350,11 @@ func memberJoinedEvents(orgID, channelID, channelName, actorID string, userIDs [
 //
 // kind is a MessageKind* constant ("" → text), whitelisted by the caller via
 // ValidMessageKind exactly as sendMessage does for DMs — see store.go.
-func (s *Store) SendChannelMessage(ctx context.Context, orgID, channelID, senderID, body, clientMsgID, kind, replyToID string) (*ChannelSendResult, error) {
+//
+// attachmentID is required when kind is MessageKindAttachmentOpened or
+// MessageKindAttachmentDownloaded — see attachmentForActivity. Ignored
+// otherwise.
+func (s *Store) SendChannelMessage(ctx context.Context, orgID, channelID, senderID, body, clientMsgID, kind, replyToID, attachmentID string) (*ChannelSendResult, error) {
 	var out *ChannelSendResult
 	err := RetryOnSerializationFailure(ctx, 3, func(ctx context.Context) error {
 		tx, err := s.pool.Begin(ctx)
@@ -392,6 +424,16 @@ func (s *Store) SendChannelMessage(ctx context.Context, orgID, channelID, sender
 		}
 		if kind == MessageKindScreenshotAttempt {
 			body = screenshotAttemptBody(senderDisplay, senderName)
+		}
+		if kind == MessageKindAttachmentOpened || kind == MessageKindAttachmentDownloaded {
+			if attachmentID == "" {
+				return ErrForbidden
+			}
+			filename, ferr := s.attachmentForActivity(ctx, tx, orgID, attachmentID, senderID)
+			if ferr != nil {
+				return ferr
+			}
+			body = attachmentActionBody(kind, senderDisplay, senderName, filename)
 		}
 
 		// Encrypt the body under the org DEK (created lazily in THIS tx); the

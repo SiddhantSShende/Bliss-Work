@@ -7,6 +7,7 @@
     "taskReviewed": "{{reviewer}} reviewed your task",
     "taskAcknowledgedBy": "Task acknowledged by {{assignee}}",
     "taskCompletedBy": "Task completed by {{assignee}}"
+    ,"taskWithdrawn": "Task allocation withdrawn"
   },
   "tasksList": {
     "header": "Tasks",
@@ -58,6 +59,16 @@
       "left": "You left the task — the sender has been notified."
     },
     "unpin": "Unpin",
+    "participants": {
+      "label": "Participants",
+      "add": "Add",
+      "addTitle": "Add participants",
+      "withdraw": "Withdraw",
+      "withdrawUser": "Withdraw {{name}}",
+      "added": "Participants added",
+      "withdrawn": "Participant withdrawn",
+      "failed": "Could not update participants"
+    },
     "pagination": {
       "previous": "Previous",
       "next": "Next",
@@ -83,8 +94,8 @@
       "title": "No tasks match these filters",
       "hint": "Older tasks aren't loaded yet — load more below."
     },
-    "loadMore": "Load older tasks",
-    "loadingMore": "Loading…",
+    "loadMore": "Load more",
+    "loadingMore": "Loading...",
     "milestones": {
       "allocated": "Allocated",
       "acknowledged": "Acknowledged",
@@ -96,7 +107,10 @@
     "review": {
       "write": "Write review",
       "edit": "Edit review"
-    }
+    },
+    "scheduled": "Scheduled",
+    "cancelSchedule": "Cancel schedule",
+    "cancelRecurring": "Cancel recurring task"
   },
   "createTaskDialog": {
     "title": "New task",
@@ -107,6 +121,7 @@
       "descriptionPlaceholder": "Add details…",
       "assignTo": "Assign to",
       "assignToWithCount": "Assign to ({{count}})",
+      "you": "(You)",
       "searchPeoplePlaceholder": "Search people…",
       "noMatches": "No matches.",
       "assignToChannel": "Assign to channel",
@@ -123,10 +138,17 @@
       "needTitle": "Give the task a title",
       "needAssignee": "Pick at least one assignee",
       "pickChannel": "Pick a channel",
+      "invalidSchedule": "Choose a future date and time",
+      "invalidStart": "Choose a future recurring start",
+      "needWeekday": "Choose at least one weekday",
+      "invalidMonthlyRule": "Choose a valid monthly day",
+      "invalidOccurrences": "Occurrences must be greater than zero",
+      "invalidEndDate": "The end date must be after the start",
       "createFailed": "Could not create task"
     },
     "toasts": {
       "sentPlain": "Task sent",
+      "scheduled": "Task scheduled",
       "genericChannelFallback": "channel",
       "sentToChannel_one": "Task sent to #{{channelName}} — {{count}} member",
       "sentToChannel_other": "Task sent to #{{channelName}} — {{count}} members"
@@ -135,6 +157,23 @@
       "cancel": "Cancel",
       "send": "Send task",
       "sending": "Sending…"
+    },
+    "allocation": {
+      "title": "Allocation",
+      "now": "Now",
+      "scheduled": "Schedule for later",
+      "recurring": "Recurring task",
+      "startDate": "Start date",
+      "startTime": "Start time",
+      "daily": "Daily",
+      "weekly": "Weekly",
+      "monthly": "Monthly",
+      "everyDay": "Every N day(s)",
+      "everyWeek": "Every N week(s)",
+      "everyMonth": "Every N month(s)",
+      "noEnd": "No end date",
+      "afterOccurrences": "End after N occurrences",
+      "onDate": "End on specific date"
     }
   },
   "exportTasksDialog": {
