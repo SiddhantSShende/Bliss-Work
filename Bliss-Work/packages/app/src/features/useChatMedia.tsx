@@ -16,6 +16,8 @@ import {
 import { isUrlOnly } from "../lib/chatFormat";
 import { makeThumbnail } from "../lib/thumbnail";
 import { useAttachmentLinks } from "../lib/useAttachmentLinks";
+import { useAttachmentActivity } from "../lib/useAttachmentActivity";
+import { downloadAttachment } from "../lib/download";
 import { hasOutsideOpen, openOutsideApp } from "../lib/openAttachment";
 import { useFileTransfers } from "../lib/fileTransfer";
 import { MediaBubble, type UploadProgress } from "./MediaBubble";
@@ -529,19 +531,48 @@ export function useChatMedia(opts: ChatMediaOptions) {
     [idsVersion],
   );
   const links = useAttachmentLinks(allIds);
+  const reportAttachmentActivity = useAttachmentActivity(scope, scopeId, meId);
 
   // A click on an attachment. A file with no in-app view leaves the app the way
   // an email attachment's Open does — the desktop's own application on desktop,
   // a browser tab on web. Everything else (images, video, PDF, plain text, and
   // any host with neither) opens in the Lightbox.
+  //
+  // Every branch is the user invoking the app's OPEN action — never a render, a
+  // viewport entry or a hover — so every branch reports exactly one
+  // "attachment_opened", and never "attachment_downloaded": that kind belongs to
+  // the explicit 3-dot → Download (downloadItem below) alone. What the browser or
+  // OS then does with a type it cannot render (e.g. saving a .docx) is its own
+  // native handling, outside the app's control, and does not change what the user
+  // asked for here.
   const openItem = useCallback(
     (items: MediaItem[], index: number) => {
       const item = items[index];
       const url = item ? links.urlFor(item.id) : undefined;
-      if (item && url && openOutsideApp(config, item.mime, url, item.name)) return;
+      if (item && url && openOutsideApp(config, item.mime, url, item.name)) {
+        reportAttachmentActivity("attachment_opened", item);
+        return;
+      }
+      if (item) reportAttachmentActivity("attachment_opened", item);
       setLightbox({ items, index });
     },
-    [config, links],
+    [config, links, reportAttachmentActivity],
+  );
+
+  // A file's 3-dot menu → Download: the ONLY deliberate download. Saves through
+  // the viewer's own signed URL with the server's explicit-download flag (see
+  // downloadAttachment) and records exactly one "attachment_downloaded" — never
+  // an "opened" too, since nothing here goes through openItem. No resolved URL
+  // (still loading, or the server would not mint one for this viewer) means
+  // nothing was downloaded, so nothing is reported.
+  const downloadItem = useCallback(
+    (item: Pick<MediaItem, "id" | "name">) => {
+      const url = links.urlFor(item.id);
+      if (!url) return;
+      downloadAttachment(url, item.name);
+      reportAttachmentActivity("attachment_downloaded", item);
+    },
+    [links, reportAttachmentActivity],
   );
 
   const renderBody = useCallback(
@@ -678,6 +709,8 @@ export function useChatMedia(opts: ChatMediaOptions) {
 
   return {
     renderBody,
+    /** Explicit 3-dot → Download of one file; see the callback's comment. */
+    downloadItem,
     onAttach,
     onShareLocation,
     onFiles,

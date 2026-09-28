@@ -177,6 +177,12 @@ var cappedRoutes = map[string]string{
 	"POST /api/v1/calls/{id}/chat":  "small",
 	"POST /api/v1/calls/{id}/notes": "small",
 
+	// A repeating meeting's series. Both carry at most a title, two id lists
+	// (bounded in the handler) and a rule, and sit inside the same /api/v1
+	// small-body group, so the cap is inherited.
+	"PATCH /api/v1/meeting-series/{id}":  "small",
+	"DELETE /api/v1/meeting-series/{id}": "small",
+
 	// LiveKit's egress/room webhook. PUBLIC — it is reached without a session,
 	// so an uncapped body here would be a denial-of-service anyone could send.
 	// It has its own group applying mw.MaxBytes(smallBody) rather than

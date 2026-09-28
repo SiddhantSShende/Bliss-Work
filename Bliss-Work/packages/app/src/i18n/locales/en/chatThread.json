@@ -255,6 +255,8 @@
     },
     "menu": {
       "reply": "Reply",
+      "download": "Download",
+      "downloadNamed": "Download {{name}}",
       "forwardTo": "Forward to chat or channel…",
       "forwardWhatsApp": "Forward to WhatsApp",
       "markUnread": "Mark as unread",

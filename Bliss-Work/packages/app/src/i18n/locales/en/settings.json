@@ -8,11 +8,12 @@
     "description": "Currently using {{theme}}.",
     "changeTheme": "Change theme",
     "menuLabel": "Theme",
+    "syncFailed": "Theme changed on this device only. We couldn't save it to your account and will keep trying.",
     "light": "Light",
     "dark": "Dark",
     "custom": {
       "title": "Custom theme",
-      "name": "Theme name",
+      "label": "Custom",
       "colors": "Colors",
       "color": "Color {{number}}",
       "preview": "Custom theme preview",
@@ -27,8 +28,8 @@
     "description": "Add an authenticator app as a second sign-in step."
   },
   "activeSessions": {
-    "title": "Active sessions",
-    "description": "See every device signed in to your account, and sign any of them out remotely."
+    "title": "Current Logins",
+    "description": "See every device currently signed in to your account, and sign any of them out remotely."
   },
   "activity": {
     "title": "Your activity",

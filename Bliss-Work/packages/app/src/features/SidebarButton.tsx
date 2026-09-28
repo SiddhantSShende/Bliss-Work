@@ -38,7 +38,9 @@ export function SidebarButton({
       aria-label={title ?? label}
       aria-pressed={active}
       className={cn(
-        "flex w-16 shrink-0 flex-col items-center gap-1 rounded-xl px-1 py-2.5 text-muted transition-colors",
+        // Tighter on a short window so more of the rail fits before it has to
+        // scroll; the hit area is still 64×46 or more.
+        "flex w-16 shrink-0 flex-col items-center gap-1 rounded-xl px-1 py-2.5 text-muted transition-colors [@media(max-height:680px)]:py-1.5",
         "hover:bg-surface-2 hover:text-fg disabled:cursor-not-allowed disabled:opacity-40",
         active && activeClassName,
         className,

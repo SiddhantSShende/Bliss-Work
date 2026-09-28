@@ -11,6 +11,7 @@ import { CallControls } from "./CallControls";
 import { ScreenSharePopup } from "./ScreenSharePopup";
 import { AddPeopleDialog } from "./AddPeopleDialog";
 import { useMeetingSession } from "../lib/MeetingSession";
+import { useVideoAspect } from "../lib/useVideoAspect";
 
 /** Attaches a MediaStream to a media element and STARTS it.
  *
@@ -57,6 +58,7 @@ function StreamVideo({
   className,
   onBlocked,
   onPlaying,
+  onAspect,
 }: {
   stream?: MediaStream;
   muted?: boolean;
@@ -72,9 +74,17 @@ function StreamVideo({
    *  is the decoder itself, not that bookkeeping, so it is true regardless of
    *  whether `unmute` ever arrives. */
   onPlaying?: () => void;
+  /** The width ÷ height of the picture being shown, or null while there is none.
+   *  Measured here, where the element is mounted with this component, so the
+   *  card that holds it can take the picture's shape (see CallUI). */
+  onAspect?: (aspect: number | null) => void;
 }) {
   const ref = useRef<HTMLVideoElement>(null);
   useAttachedStream(ref, stream, onBlocked);
+  const aspect = useVideoAspect(ref);
+  useEffect(() => {
+    onAspect?.(aspect);
+  }, [aspect, onAspect]);
   return (
     <video ref={ref} autoPlay playsInline muted={muted} className={className} onPlaying={onPlaying} />
   );
@@ -224,6 +234,9 @@ export function CallUI() {
     setRemoteFrameSeen(false);
   }, [call.remoteStream]);
 
+  // The shape of the remote picture, so the stage below can be that shape.
+  const [remoteAspect, setRemoteAspect] = useState<number | null>(null);
+
   if (call.status === "idle") return null;
 
   const peer = call.peerName ?? t("callUi.peerFallbackName");
@@ -279,50 +292,77 @@ export function CallUI() {
   const remoteVisible = call.remoteVideo || call.peerCamOn || call.peerSharing || remoteFrameSeen;
   const showingVideo = remoteVisible || !!selfView;
 
+  // The stage takes the remote picture's own shape, so it is filled edge to edge
+  // and nothing is cropped. Clamped so a very wide or very tall stream cannot
+  // make the card a strip or a tower; those get bars inside the stage instead.
+  // 16:9 (what cameras send) while there is no picture yet.
+  const stageAspect = Math.min(16 / 9, Math.max(3 / 4, remoteAspect ?? 16 / 9));
+
   return (
     <Backdrop dark={showingVideo}>
       {/* dvh, not vh: on a browser with a dynamic toolbar (mobile, some
           desktop PWA chrome) vh can overshoot the actually-visible area,
           clipping the bottom of the card — the same fix CallRoom's pre-join
-          preview already applies to its own height cap. */}
-      <div className="relative flex h-full max-h-[90dvh] w-full max-w-3xl flex-col items-center justify-center gap-6 rounded-3xl bg-black/80 p-6">
+          preview already applies to its own height cap.
+
+          The card hugs its content: the stage (the picture, at its own aspect
+          ratio) with the name and controls in a footer under it, rather than a
+          tall fixed card with the picture floating in the middle of it. The
+          stage is the only part that shrinks when the window is short, and it
+          shrinks in HEIGHT only — the picture is object-contain, so a stage
+          squeezed past its ratio gets side bars, never a crop. On a window
+          under 480px tall the padding and gap tighten so the stage keeps room. */}
+      <div className="relative flex max-h-[90dvh] w-full max-w-3xl flex-col gap-4 rounded-3xl bg-black/80 p-4 sm:p-6 [@media(max-height:480px)]:gap-2 [@media(max-height:480px)]:p-3">
         {/* The voice, always — never on the <video>, which is muted, so the
             sound does not cut out when a camera or a share starts. */}
         <RemoteAudio stream={call.remoteStream} onBlocked={onAudioBlocked} />
-        {/* Always attached, like RemoteAudio above — not mounted only once
-            `remoteVisible` says so. It used to be the other way round, which
-            meant nothing was even bound to the stream (so nothing could ever
-            decode a frame) until a signal that is itself sometimes late or
-            missing said to start. Absolutely positioned, so it never
-            participates in this flex column's layout; the Avatar below still
-            centers itself exactly as before, just now painted OVER a video
-            that is already live underneath it rather than in its place. */}
-        <StreamVideo
-          stream={call.remoteStream}
-          muted
-          className="absolute inset-0 h-full w-full rounded-3xl object-cover"
-          onPlaying={() => setRemoteFrameSeen(true)}
-        />
-        {!remoteVisible && <Avatar name={peer} size="lg" />}
-        {selfView && (
+        <div
+          className="relative flex min-h-0 w-full shrink items-center justify-center overflow-hidden rounded-2xl"
+          style={{ aspectRatio: stageAspect }}
+        >
+          {/* Always attached, like RemoteAudio above — not mounted only once
+              `remoteVisible` says so. It used to be the other way round, which
+              meant nothing was even bound to the stream (so nothing could ever
+              decode a frame) until a signal that is itself sometimes late or
+              missing said to start. Absolutely positioned, so it never
+              participates in this flex layout; the Avatar below still centers
+              itself exactly as before, just now painted OVER a video that is
+              already live underneath it rather than in its place. */}
           <StreamVideo
-            stream={selfView}
+            stream={call.remoteStream}
             muted
-            // Mirrored only while this is the camera: once `call.sharing` swaps
-            // `selfView` to the screen stream (see its definition above), the
-            // viewer's own display must come through un-flipped and readable.
-            className={`absolute bottom-24 right-4 z-10 h-36 w-28 rounded-xl object-cover ring-2 ring-white/30 ${call.sharing ? "" : "-scale-x-100"}`}
+            // object-contain, not cover: cover crops to fill the box, and a 16:9
+            // picture in a differently shaped one lost more than half of its
+            // frame and enlarged the face by the same factor. Contained, the
+            // whole picture is always there.
+            className="absolute inset-0 h-full w-full object-contain"
+            onPlaying={() => setRemoteFrameSeen(true)}
+            onAspect={setRemoteAspect}
           />
-        )}
+          {!remoteVisible && <Avatar name={peer} size="lg" />}
+          {selfView && (
+            <StreamVideo
+              stream={selfView}
+              muted
+              // Mirrored only while this is the camera: once `call.sharing` swaps
+              // `selfView` to the screen stream (see its definition above), the
+              // viewer's own display must come through un-flipped and readable.
+              // Takes the stream's OWN shape (h-auto/w-auto, capped in both
+              // directions as a share of the stage) rather than a fixed portrait
+              // box that crops a landscape camera down to the middle of the frame.
+              className={`absolute bottom-3 right-3 z-10 h-auto max-h-[35%] w-auto max-w-[30%] rounded-xl object-contain ring-2 ring-white/30 ${call.sharing ? "" : "-scale-x-100"}`}
+            />
+          )}
+        </div>
 
         {call.sharing && <ScreenSharePopup startedAt={call.connectedAt} onStop={call.toggleShare} />}
 
-        <div className="z-10 mt-auto text-center text-white drop-shadow">
+        <div className="z-10 shrink-0 text-center text-white drop-shadow">
           <div className="text-xl font-semibold">{peer}</div>
           <div className="text-sm opacity-80">{subtitle}</div>
         </div>
 
-        <div className="z-10 mb-2">
+        <div className="z-10 shrink-0">
           <CallControls
             micOn={call.micOn}
             camOn={call.camOn}

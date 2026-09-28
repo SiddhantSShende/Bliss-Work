@@ -1,5 +1,6 @@
 import type { ClientFrame } from "@taskboard/shared";
 import { AUDIO_CAPTURE_DEFAULTS } from "./mediaConstraints";
+import { logMicProcessing } from "./micDiagnostics";
 import i18n from "../i18n";
 
 export type CallMedia = "audio" | "video";
@@ -179,6 +180,7 @@ export class CallSession {
       return;
     }
     this.local = stream;
+    logMicProcessing("call:acquired", this.local.getAudioTracks()[0]);
     for (const track of this.local.getAudioTracks()) this.pc.addTrack(track, this.local);
     // One video slot, always — with the camera in it on a video call, and empty
     // on a voice call so the Video and Share Screen controls have somewhere to

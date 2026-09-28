@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { useRuntime } from "./runtime";
 import { meetingJoinUrl } from "./meetingDeepLink";
+import { copyText } from "./clipboard";
 
 /**
  * Mint (once) and copy a link anyone can use to join a call.
@@ -32,15 +33,11 @@ export function useCallInviteLink(callId: string) {
     const url = link ?? (await mint.mutateAsync().catch(() => null));
     if (!url) return false;
     setLink(url);
-    try {
-      await navigator.clipboard.writeText(url);
-      return true;
-    } catch {
-      // Insecure origins and older WebViews have no clipboard API. The link is
-      // on screen by now, so there is something to select rather than nothing.
-      toast(t("inviteLink.copyFailed"), { description: t("inviteLink.copyManually") });
-      return false;
-    }
+    if (await copyText(url)) return true;
+    // The link is on screen by now, so there is something to select rather
+    // than nothing.
+    toast(t("inviteLink.copyFailed"), { description: t("inviteLink.copyManually") });
+    return false;
   };
 
   return { link, isPending: mint.isPending, copyLink };

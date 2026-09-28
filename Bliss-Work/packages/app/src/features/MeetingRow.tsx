@@ -15,7 +15,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Clock, MoreHorizontal, Phone, PlayCircle, Users, Video } from "lucide-react";
+import { Clock, MoreHorizontal, Phone, PlayCircle, Repeat, Users, Video } from "lucide-react";
 import { Avatar, Badge, Button } from "@taskboard/ui";
 import type { CallDTO } from "@taskboard/shared";
 import { usePopupDismiss } from "../lib/usePopupDismiss";
@@ -73,6 +73,12 @@ export function MeetingRow({
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-2">
             <span className="truncate text-sm font-semibold text-fg">{name}</span>
+            {call.series && (
+              <span className="shrink-0 text-muted" title={t("series.badge")}>
+                <Repeat size={12} aria-hidden />
+                <span className="sr-only">{t("series.badge")}</span>
+              </span>
+            )}
             {bucket === "live" ? (
               <Badge tone="success" className="shrink-0">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-success" /> {t("row.live")}

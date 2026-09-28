@@ -16,6 +16,7 @@ import { EventType, type ServerEvent, type WsEventMeta } from "@taskboard/shared
 import { useRuntime } from "./runtime";
 import { decodeRoomMessage, encodeRoomMessage, type RoomMessage } from "./roomMessages";
 import { AUDIO_CAPTURE_DEFAULTS } from "./mediaConstraints";
+import { watchLivekitMic } from "./micDiagnostics";
 
 /**
  * A participant as the call UI needs to render them.
@@ -490,7 +491,13 @@ export function useCallRoom(callId: string | null) {
         .on(RoomEvent.TrackUnsubscribed, resync)
         .on(RoomEvent.TrackMuted, resync)
         .on(RoomEvent.TrackUnmuted, resync)
-        .on(RoomEvent.LocalTrackPublished, resync)
+        .on(RoomEvent.LocalTrackPublished, (pub) => {
+          // Fires for the first publish AND for the re-acquire after a token
+          // refresh (scheduleRefresh disconnects, reconnects, then republishes
+          // the mic) — the moments worth checking the capture settings at.
+          if (pub.source === Track.Source.Microphone && pub.audioTrack) watchLivekitMic(pub.audioTrack);
+          resync();
+        })
         .on(RoomEvent.LocalTrackUnpublished, (pub) => {
           // Chrome's own "Stop sharing" bar ends the track, and LiveKit
           // unpublishes it for us. Without this the app would go on claiming to

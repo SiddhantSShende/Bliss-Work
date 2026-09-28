@@ -59,21 +59,22 @@
       "left": "You left the task — the sender has been notified."
     },
     "unpin": "Unpin",
-    "participants": {
-      "label": "Participants",
-      "add": "Add",
-      "addTitle": "Add participants",
-      "withdraw": "Withdraw",
-      "withdrawUser": "Withdraw {{name}}",
-      "added": "Participants added",
-      "withdrawn": "Participant withdrawn",
-      "failed": "Could not update participants"
-    },
     "pagination": {
       "previous": "Previous",
       "next": "Next",
       "pageOf": "Page {{current}} of {{total}}"
     }
+  },
+  "participants": {
+    "label": "Participants",
+    "add": "Add",
+    "addMember": "Add member",
+    "addTitle": "Add participants",
+    "withdraw": "Withdraw",
+    "withdrawUser": "Withdraw {{name}}",
+    "added": "Participants added",
+    "withdrawn": "Participant withdrawn",
+    "failed": "Could not update participants"
   },
   "myTasksBoard": {
     "loading": "Loading your tasks…",

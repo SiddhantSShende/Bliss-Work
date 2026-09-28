@@ -39,7 +39,8 @@
     "empty": {
       "noMatches": "No matches.",
       "noneToInvite": "No one else to invite."
-    }
+    },
+    "loading": "Loading people…"
   },
   "orgPage": {
     "header": {

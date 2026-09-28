@@ -17,7 +17,7 @@ from .config import settings
 from crypto import cryptor
 from .db import engine
 from .logging_config import log
-from .schemas import SessionDTO, UserDTO
+from .schemas import SessionDTO, ThemePrefs, UserDTO
 from .security.keys import mint_access_token
 from .security.passwords import hash_password_async, verify_password_async
 
@@ -103,13 +103,18 @@ async def roles_for_user(conn: AsyncConnection, user_id: str) -> list[str]:
     return [r.name for r in rows]
 
 
-async def user_dto(conn: AsyncConnection, user_id: str) -> UserDTO | None:
+async def user_dto(
+    conn: AsyncConnection, user_id: str, *, with_theme_prefs: bool = False
+) -> UserDTO | None:
+    """One user as a UserDTO. `with_theme_prefs` is opt-in and only for the
+    caller's OWN record (GET/PATCH /auth/me) — this function also backs
+    `GET /auth/users/{id}` for colleagues, who must not receive it."""
     row = (
         await conn.execute(
             text(
                 "SELECT u.id, u.org_id, u.username, u.display_name_enc, u.email_enc, "
-                "       u.avatar_enc, u.email_verified, u.mfa_enrolled, o.plan, o.name AS org_name, "
-                "       o.require_mfa_for_admins, o.mfa_grace_period_ends_at "
+                "       u.avatar_enc, u.email_verified, u.mfa_enrolled, u.theme_prefs, o.plan, "
+                "       o.name AS org_name, o.require_mfa_for_admins, o.mfa_grace_period_ends_at "
                 "FROM users u JOIN orgs o ON o.id = u.org_id WHERE u.id = :id"
             ),
             {"id": user_id},
@@ -142,7 +147,16 @@ async def user_dto(conn: AsyncConnection, user_id: str) -> UserDTO | None:
         orgMfaGracePeriodEndsAt=(
             row.mfa_grace_period_ends_at.isoformat() if row.mfa_grace_period_ends_at else None
         ),
+        themePrefs=_theme_prefs_from_row(row.theme_prefs) if with_theme_prefs else None,
     )
+
+
+def _theme_prefs_from_row(raw: object) -> ThemePrefs | None:
+    """users.theme_prefs -> ThemePrefs. asyncpg hands jsonb back as text unless
+    a codec is registered, so accept either form."""
+    if raw is None:
+        return None
+    return ThemePrefs.model_validate(json.loads(raw) if isinstance(raw, str) else raw)
 
 
 async def user_dtos_for_org(
@@ -320,6 +334,16 @@ async def update_display_name(
     await conn.execute(
         text("UPDATE users SET display_name_enc = :dn WHERE id = :id"),
         {"dn": enc, "id": user_id},
+    )
+
+
+async def update_theme_prefs(conn: AsyncConnection, user_id: str, prefs: ThemePrefs) -> None:
+    """Sets the caller's synced UI theme. Deliberately NOT audited (unlike a
+    display-name or avatar change): it is a colour preference that changes with
+    a single click, and each row in the hash-chained audit_log is permanent."""
+    await conn.execute(
+        text("UPDATE users SET theme_prefs = CAST(:tp AS jsonb) WHERE id = :id"),
+        {"tp": prefs.model_dump_json(), "id": user_id},
     )
 
 

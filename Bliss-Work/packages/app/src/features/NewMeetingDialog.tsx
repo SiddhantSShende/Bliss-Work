@@ -3,11 +3,21 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
-import { Calendar, ChevronDown, Clock, Video, X } from "lucide-react";
-import type { CallDTO } from "@taskboard/shared";
+import { Calendar, ChevronDown, Clock, Video } from "lucide-react";
+import { ApiError, type CallDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
-import { useDialogBehavior } from "./Modal";
+import { useToggleSet } from "../lib/useToggleSet";
+import {
+  browserTimeZone,
+  emptyRecurrence,
+  toRecurrenceInput,
+  validateRecurrence,
+  type RecurrenceForm,
+} from "../lib/meetingRecurrence";
+import { MeetingAudienceFields } from "./MeetingAudienceFields";
+import { MeetingDialogShell } from "./MeetingDialogShell";
+import { MeetingRepeatField } from "./MeetingRepeatField";
 
 /** How long the meeting runs when scheduled, in minutes — matches the
  *  server's own default (defaultCallMinutes in calls.go), same reasoning as
@@ -108,6 +118,14 @@ function validate(
  * Still the SAME backend call as before: api.scheduleMeeting, invalidating
  * qk.calls so Upcoming/Live/Past + the Meetings rail badge update without a
  * refresh — see queryBridge.tsx's handling of the resulting call.* events.
+ *
+ * ── Members, channels, repeat ────────────────────────────────────────────────
+ * Members and channels say who is invited (the channels' members are all
+ * invited); Repeat makes this the first of a series. All three ride the same
+ * request. A REPEATING meeting is always scheduled, never "Start Now": there is
+ * nothing to repeat from otherwise, so choosing Repeat also turns off the
+ * "an untouched start time means now" allowance and holds the start to the same
+ * not-in-the-past rule a chosen time gets.
  */
 export function NewMeetingDialog({
   onClose,
@@ -122,7 +140,6 @@ export function NewMeetingDialog({
   const { t } = useTranslation("meetings");
   const { api } = useRuntime();
   const qc = useQueryClient();
-  const panelRef = useDialogBehavior(true, onClose);
 
   const [title, setTitle] = useState("");
   const [startDate, setStartDate] = useState(() => localDate(new Date()));
@@ -131,6 +148,9 @@ export function NewMeetingDialog({
   const [endTime, setEndTime] = useState(() =>
     localTime(new Date(Date.now() + DEFAULT_MEETING_MINUTES * 60_000)),
   );
+  const invitees = useToggleSet();
+  const channels = useToggleSet();
+  const [recurrence, setRecurrence] = useState<RecurrenceForm>(emptyRecurrence);
   /** Set on the first submit attempt, so validation messages appear once the
    *  user has tried to go rather than nagging them before they've typed
    *  anything — same convention as the rest of the app's forms. */
@@ -138,116 +158,78 @@ export function NewMeetingDialog({
   /** Whether the user has changed the Start Time from its "right now" default. */
   const [startEdited, setStartEdited] = useState(false);
 
+  const repeating = recurrence.repeat !== "NONE";
   const startAt = useMemo(() => combine(startDate, startTime), [startDate, startTime]);
   const endAt = useMemo(() => combine(endDate, endTime), [endDate, endTime]);
-  const errors = validate(t, title, startAt, endAt, !startEdited);
-  const hasErrors = Object.keys(errors).length > 0;
+  const errors = validate(t, title, startAt, endAt, !startEdited && !repeating);
+  const recurrenceErrors = validateRecurrence(t, recurrence, startDate);
+  const hasErrors = Object.keys(errors).length > 0 || Object.keys(recurrenceErrors).length > 0;
 
   /** A start time meaningfully ahead of now — as opposed to "now" itself,
    *  including the ordinary few seconds of clock skew between opening this
    *  popup (which defaults Start Time to the current moment) and clicking
-   *  submit. This alone decides Start Now vs Schedule, both for the button's
+   *  submit. With Repeat it does not matter: a repeating meeting is scheduled
+   *  either way. This alone decides Start Now vs Schedule, both for the button's
    *  own label (STEP 6) and for what gets sent to the server. */
   const isFuture = startEdited && !!startAt && startAt.getTime() - Date.now() > GRACE_MS;
+  const scheduled = isFuture || repeating;
 
   const create = useMutation({
-    mutationFn: (vars: { startAt: Date; endAt: Date; isFuture: boolean }) =>
+    mutationFn: (vars: { startAt: Date; endAt: Date; scheduled: boolean }) =>
       api.scheduleMeeting({
         title: title.trim(),
         media: "video",
-        scheduledAt: vars.isFuture ? vars.startAt.toISOString() : undefined,
+        scheduledAt: vars.scheduled ? vars.startAt.toISOString() : undefined,
         // Only meaningful for a real future schedule — "start now" has no
         // fixed end the server needs to know about up front, same as
         // ScheduleCallDialog's own "no start time at all -> omit
         // durationMinutes too" reasoning.
-        durationMinutes: vars.isFuture
+        durationMinutes: vars.scheduled
           ? Math.round((vars.endAt.getTime() - vars.startAt.getTime()) / 60_000)
           : undefined,
+        // Left out when empty, so a plain meeting's request is exactly what it
+        // always was.
+        inviteeIds: invitees.selected.size ? [...invitees.selected] : undefined,
+        channelIds: channels.selected.size ? [...channels.selected] : undefined,
+        recurrence: toRecurrenceInput(recurrence, startDate, browserTimeZone()),
       }),
     onSuccess: (call, vars) => {
       void qc.invalidateQueries({ queryKey: qk.calls });
       onClose();
-      if (!vars.isFuture) onStarted?.(call);
+      if (!vars.scheduled) onStarted?.(call);
     },
-    onError: () => toast.error(t("newMeeting.scheduleError")),
+    // 403 is the server's one answer for a member who is gone, a channel that is
+    // gone or that the organiser is not in, and a block: say what to do about it.
+    onError: (err) =>
+      toast.error(
+        err instanceof ApiError && err.status === 403
+          ? t("newMeeting.errors.peopleUnavailable")
+          : t("newMeeting.scheduleError"),
+      ),
   });
 
   const submit = () => {
-    if (hasErrors || !startAt || !endAt) {
+    // A double click, or Enter while a request is in flight, must not schedule
+    // the meeting twice.
+    if (create.isPending) return;
+    // Decided NOW, not read from the last render: whether a start is "in the
+    // past" depends on the clock, and a popup left open with nothing touched has
+    // not re-rendered since the time it was validated at.
+    const stale = Object.keys(validate(t, title, startAt, endAt, !startEdited && !repeating)).length > 0;
+    if (stale || hasErrors || !startAt || !endAt) {
       setAttempted(true);
       return;
     }
-    create.mutate({ startAt, endAt, isFuture });
+    create.mutate({ startAt, endAt, scheduled });
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      onClick={onClose}
-    >
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label={t("newMeeting.title")}
-        tabIndex={-1}
-        onClick={(e) => e.stopPropagation()}
-        className="flex max-h-[calc(100dvh-2rem)] w-full max-w-md flex-col overflow-y-auto rounded-2xl border border-gray-200 bg-white p-6 shadow-lg"
-      >
-        <div className="mb-5 flex shrink-0 items-center justify-between">
-          <h2 className="text-lg font-semibold text-gray-900">{t("newMeeting.title")}</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label={t("newMeeting.close")}
-            title={t("newMeeting.close")}
-            className="-mr-1 -mt-1 rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
-          >
-            <X size={18} />
-          </button>
-        </div>
-
-        <div className="flex flex-col gap-4">
-          <label className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium text-gray-700">{t("newMeeting.titleLabel")}</span>
-            <input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder={t("newMeeting.titlePlaceholder")}
-              maxLength={200}
-              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none placeholder:text-gray-400 focus:border-accent focus:ring-1 focus:ring-accent"
-            />
-            {attempted && errors.title && (
-              <span className="text-xs text-danger">{errors.title}</span>
-            )}
-          </label>
-
-          <DateTimeFields
-            label={t("newMeeting.startTimeLabel")}
-            date={startDate}
-            time={startTime}
-            onDateChange={(v) => {
-              setStartEdited(true);
-              setStartDate(v);
-            }}
-            onTimeChange={(v) => {
-              setStartEdited(true);
-              setStartTime(v);
-            }}
-            error={attempted ? errors.start : undefined}
-          />
-
-          <DateTimeFields
-            label={t("newMeeting.endTimeLabel")}
-            date={endDate}
-            time={endTime}
-            onDateChange={setEndDate}
-            onTimeChange={setEndTime}
-            error={attempted ? errors.end : undefined}
-          />
-        </div>
-
-        <div className="mt-6 flex shrink-0 items-center justify-end gap-2.5">
+    <MeetingDialogShell
+      title={t("newMeeting.title")}
+      closeLabel={t("newMeeting.close")}
+      onClose={onClose}
+      footer={
+        <>
           <button
             type="button"
             onClick={onClose}
@@ -262,11 +244,61 @@ export function NewMeetingDialog({
             className="flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-fg transition hover:brightness-105 disabled:opacity-60"
           >
             <Video size={15} />
-            {create.isPending ? t("newMeeting.starting") : isFuture ? t("newMeeting.schedule") : t("newMeeting.startNow")}
+            {create.isPending ? t("newMeeting.starting") : scheduled ? t("newMeeting.schedule") : t("newMeeting.startNow")}
           </button>
-        </div>
-      </div>
-    </div>
+        </>
+      }
+    >
+      <label className="flex flex-col gap-1.5">
+        <span className="text-sm font-medium text-gray-700">{t("newMeeting.titleLabel")}</span>
+        <input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder={t("newMeeting.titlePlaceholder")}
+          maxLength={200}
+          className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none placeholder:text-gray-400 focus:border-accent focus:ring-1 focus:ring-accent"
+        />
+        {attempted && errors.title && <span className="text-xs text-danger">{errors.title}</span>}
+      </label>
+
+      <DateTimeFields
+        label={t("newMeeting.startTimeLabel")}
+        date={startDate}
+        time={startTime}
+        onDateChange={(v) => {
+          setStartEdited(true);
+          setStartDate(v);
+        }}
+        onTimeChange={(v) => {
+          setStartEdited(true);
+          setStartTime(v);
+        }}
+        error={attempted ? errors.start : undefined}
+      />
+
+      <DateTimeFields
+        label={t("newMeeting.endTimeLabel")}
+        date={endDate}
+        time={endTime}
+        onDateChange={setEndDate}
+        onTimeChange={setEndTime}
+        error={attempted ? errors.end : undefined}
+      />
+
+      <MeetingRepeatField
+        value={recurrence}
+        onChange={setRecurrence}
+        startDate={startDate}
+        errors={attempted ? recurrenceErrors : undefined}
+      />
+
+      <MeetingAudienceFields
+        invitees={invitees.selected}
+        onToggleInvitee={invitees.toggle}
+        channels={channels.selected}
+        onToggleChannel={channels.toggle}
+      />
+    </MeetingDialogShell>
   );
 }
 

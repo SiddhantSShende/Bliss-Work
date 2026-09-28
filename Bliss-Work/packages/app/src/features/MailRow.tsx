@@ -203,7 +203,7 @@ export function MailRow({
             icon={<Flag size={14} />}
             title={t("row.completeTitle")}
             label={t("row.completeLabel")}
-            tone="success"
+            tone="accent"
             disabled={completePending}
             onClick={(e) => { e.preventDefault(); onComplete(item.refId); }}
           />
@@ -279,7 +279,7 @@ function Quick({
   label: string;
   /** Icon only. For Delete, whose icon is conventional and whose row is full. */
   hideLabel?: boolean;
-  tone: "muted" | "danger" | "accent" | "success";
+  tone: "muted" | "danger" | "accent";
   /** True while this row's own request for this action is in flight. */
   disabled?: boolean;
   onClick: (e: React.MouseEvent) => void;
@@ -288,7 +288,6 @@ function Quick({
     muted: "text-muted hover:bg-surface hover:text-fg",
     danger: "text-muted hover:bg-surface hover:text-danger",
     accent: "text-accent hover:bg-accent-soft",
-    success: "text-success hover:bg-success/10",
   };
   return (
     <button

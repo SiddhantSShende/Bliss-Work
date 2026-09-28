@@ -1,6 +1,6 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { MessageSquare, Ban, Check, Forward, PhoneMissed, Pin, Camera, Hash } from "lucide-react";
+import { MessageSquare, Ban, Check, Forward, PhoneMissed, Pin, Camera, Hash, Eye, Download } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { Avatar } from "@taskboard/ui";
@@ -27,7 +27,14 @@ export interface ThreadMessage {
   pending?: boolean;
   /** System entries (a missed call, a forward handed off to WhatsApp, a refused
    *  screenshot) render as a centered notice, not a bubble. */
-  kind?: "text" | "call_missed" | "forward_external" | "screenshot_attempt" | "channel_renamed";
+  kind?:
+    | "text"
+    | "call_missed"
+    | "forward_external"
+    | "screenshot_attempt"
+    | "attachment_opened"
+    | "attachment_downloaded"
+    | "channel_renamed";
   /** Sender-side delivery state. Set only on the caller's own messages. */
   status?: MessageDTO["status"];
   /** The message this one quotes. Rendered as a strip above the body. */
@@ -171,6 +178,7 @@ export function ChatThread({
   replyTo,
   onCancelReply,
   renderBody,
+  onDownloadFile,
   onAttach,
   onShareLocation,
   onPaste,
@@ -252,6 +260,12 @@ export function ChatThread({
    * both surfaces render the same things.
    */
   renderBody?: (m: ThreadMessage) => React.ReactNode | null;
+  /**
+   * Explicit download of one attachment, straight from useChatMedia. When
+   * supplied, a message that carries files gets a "Download" entry per file in
+   * its 3-dot menu — the only deliberate download; clicking the file opens it.
+   */
+  onDownloadFile?: (file: Pick<MediaItem, "id" | "name">) => void;
   /** Composer affordances — hidden when not supplied. */
   onAttach?: () => void;
   onShareLocation?: () => void;
@@ -462,6 +476,21 @@ export function ChatThread({
               );
             }
 
+            // A file activity notice — "X opened/downloaded FILE" — is server-
+            // authored the same way (see the two cases above): the body already
+            // names who and what, nothing to vary between mine/theirs.
+            if (m.kind === "attachment_opened" || m.kind === "attachment_downloaded") {
+              const Icon = m.kind === "attachment_opened" ? Eye : Download;
+              return (
+                <div key={m.id}>
+                  {dayChip}
+                  <SystemPill icon={<Icon size={12} className="text-muted" />} at={m.at}>
+                    {m.body}
+                  </SystemPill>
+                </div>
+              );
+            }
+
             // Handing a message to WhatsApp is the same class of fact: it left
             // the workspace. The body is authored server-side, and the peer's
             // copy carries the caveat — see ForwardBadge.
@@ -478,6 +507,11 @@ export function ChatThread({
             // own bubble; anything else falls through to plain text.
             const custom = renderBody?.(m) ?? null;
             const emojiOnly = !m.replyToId && isSingleEmoji(m.body);
+            // The files this message carries, for its 3-dot menu's Download. Only
+            // a media envelope has any (a location or plain text is empty), and
+            // only worth parsing again when something custom actually rendered.
+            const fileEnv = onDownloadFile && custom ? parseChatEnvelope(m.body) : null;
+            const files = fileEnv?.kind === "media" ? fileEnv.items : undefined;
 
             return (
               <div key={m.id}>
@@ -586,6 +620,9 @@ export function ChatThread({
                       {!m.pending && !m.deletedForAll && !selecting && (
                         <MessageActions
                           mine={mine}
+                          containerRef={listRef}
+                          files={files}
+                          onDownload={onDownloadFile}
                           // Built here because this is where the body lives.
                           // waForwardText strips the envelope of a structured
                           // body, so an attachment or shared location forwards

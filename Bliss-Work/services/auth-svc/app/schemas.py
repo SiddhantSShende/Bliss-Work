@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
@@ -14,6 +14,19 @@ Role = Literal["org_admin", "member"]
 # multi-MB payload sent straight to the API, bypassing the client resize.
 MAX_AVATAR_DATA_URL_LENGTH = 500_000
 _AVATAR_DATA_URL_RE = re.compile(r"^data:image/(jpeg|png|webp);base64,[A-Za-z0-9+/]+=*$")
+
+# A theme id is a short token such as "rose" or "rose-dark". The server does NOT
+# keep its own list of valid ids: that would be a third copy to update whenever
+# a colour family is added (themes.ts and both theme-init.js already are), and
+# the clients validate against their own list on read anyway — an id a client
+# does not know is ignored there.
+#
+# Both are enforced with pydantic's own `pattern` constraint rather than a
+# `field_validator` that raises ValueError: a ValueError lands in the error's
+# `ctx`, which errors.py's validation handler cannot JSON-encode, so bad input
+# would surface as a 500 instead of a 422. `pattern` errors carry a plain string.
+_THEME_ID_PATTERN = r"^[A-Za-z]{1,24}(-dark)?$"
+_HEX_COLOR_PATTERN = r"^#[0-9a-fA-F]{6}$"
 
 
 # ── Requests ──────────────────────────────────────────────────────────────────
@@ -61,6 +74,20 @@ class AcceptInviteRequest(BaseModel):
     username: str = Field(min_length=1, max_length=50)
 
 
+class ThemePrefs(BaseModel):
+    """The account's UI theme (packages/ui ThemePrefs) — stored as-is in
+    users.theme_prefs and echoed back on /auth/me so every client resolves to
+    the same active theme."""
+
+    theme: str = Field(pattern=_THEME_ID_PATTERN)
+    # The single custom palette (1-3 #rrggbb colours), kept even while a preset
+    # is the active choice so switching back to "Custom" restores it.
+    customColors: list[Annotated[str, Field(pattern=_HEX_COLOR_PATTERN)]] | None = Field(
+        default=None, min_length=1, max_length=3
+    )
+    customActive: bool = False
+
+
 class UpdateProfileRequest(BaseModel):
     # Both optional and independently settable: a display-name save and an
     # avatar upload are two different actions in the UI that happen to share
@@ -68,6 +95,7 @@ class UpdateProfileRequest(BaseModel):
     # that always submits both.
     displayName: str | None = Field(default=None, min_length=1, max_length=80)
     avatarUrl: str | None = Field(default=None, max_length=MAX_AVATAR_DATA_URL_LENGTH)
+    themePrefs: ThemePrefs | None = None
 
     @field_validator("avatarUrl")
     @classmethod
@@ -120,6 +148,12 @@ class UserDTO(BaseModel):
     mfaEnrolled: bool = False
     orgRequireMfaForAdmins: bool = False
     orgMfaGracePeriodEndsAt: str | None = None
+    # The account's UI theme, or None until a client first publishes one — see
+    # ThemePrefs. Populated ONLY by GET/PATCH /auth/me (service.user_dto's
+    # `with_theme_prefs`): every other place a UserDTO is built — a colleague's
+    # profile, the directory, the session returned at login/refresh — leaves it
+    # None, so one member's preference is never served to another.
+    themePrefs: ThemePrefs | None = None
 
 
 class OrgMembershipDTO(BaseModel):

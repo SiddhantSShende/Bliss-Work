@@ -19,6 +19,7 @@ import (
 	"github.com/task-board/messaging-svc/internal/livekit"
 	"github.com/task-board/messaging-svc/internal/metrics"
 	mw "github.com/task-board/messaging-svc/internal/middleware"
+	"github.com/task-board/messaging-svc/internal/recurrence"
 	"github.com/task-board/messaging-svc/internal/store"
 )
 
@@ -110,6 +111,20 @@ func mapStoreError(err error) (int, ErrorCode, string) {
 		// from an SFU outage would tell the caller to retry a request that is
 		// not going to succeed differently.
 		return http.StatusConflict, CodeConflict, "recording already in progress"
+	case errors.Is(err, recurrence.ErrInvalid):
+		// 400: the rule is the caller's own input and the message says which part
+		// of it is wrong ("weekly recurrence needs at least one weekday").
+		return http.StatusBadRequest, CodeValidationError, err.Error()
+	case errors.Is(err, store.ErrMeetingTooLarge):
+		return http.StatusBadRequest, CodeValidationError, err.Error()
+	case errors.Is(err, store.ErrTooManySeries):
+		// 409: well-formed and allowed, but the organiser is at the limit — a state
+		// the client can resolve by cancelling one.
+		return http.StatusConflict, CodeConflict, err.Error()
+	case errors.Is(err, store.ErrSeriesCancelled):
+		// 409: well-formed, and the caller organised it — it just no longer exists
+		// to be changed.
+		return http.StatusConflict, CodeConflict, err.Error()
 	case errors.Is(err, store.ErrForbidden):
 		return http.StatusForbidden, CodeForbidden, "forbidden"
 	case errors.Is(err, store.ErrMixedForwardScope):

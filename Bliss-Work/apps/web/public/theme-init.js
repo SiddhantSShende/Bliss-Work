@@ -57,11 +57,21 @@
   const theme = isAuthRoute() ? DEFAULT_THEME : storedOrDefaultTheme();
   document.documentElement.classList.add(...THEME_CLASSES[theme]);
 
+  // Black or white, whichever reads better on the user-picked accent — kept in
+  // lock-step with readableForeground in packages/ui/src/theme/customTheme.ts.
+  function readableForeground(background) {
+    const [r, g, b] = [1, 3, 5].map((start) => {
+      const channel = parseInt(background.slice(start, start + 2), 16) / 255;
+      return channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.179 ? "#000000" : "#ffffff";
+  }
+
   if (!isAuthRoute()) {
     try {
       const raw = localStorage.getItem("tb-custom-theme");
       const custom = raw ? JSON.parse(raw) : null;
-      const valid = custom && typeof custom.name === "string" && custom.name.trim() && Array.isArray(custom.colors) && custom.colors.length >= 1 && custom.colors.length <= 3 && custom.colors.every((color) => /^#[\da-fA-F]{6}$/.test(color));
+      const valid = custom && Array.isArray(custom.colors) && custom.colors.length >= 1 && custom.colors.length <= 3 && custom.colors.every((color) => /^#[\da-fA-F]{6}$/.test(color));
       if (valid && localStorage.getItem("tb-custom-theme-active") === "true") {
         const colors = custom.colors;
         const first = colors[0];
@@ -70,8 +80,9 @@
         const root = document.documentElement;
         root.classList.add("custom-theme");
         root.style.setProperty("--color-accent", first);
-        root.style.setProperty("--color-accent-strong", first);
-        root.style.setProperty("--color-accent-fg", "#ffffff");
+        const foreground = readableForeground(first);
+        root.style.setProperty("--color-accent-strong", `color-mix(in srgb, ${first} 88%, ${foreground === "#000000" ? "white" : "black"})`);
+        root.style.setProperty("--color-accent-fg", foreground);
         root.style.setProperty("--color-accent-soft", `color-mix(in srgb, ${first} 12%, white)`);
         root.style.setProperty("--color-brand-from", first);
         root.style.setProperty("--color-brand-mid", colors[1] || last);

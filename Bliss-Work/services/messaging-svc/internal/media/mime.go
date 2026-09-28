@@ -116,18 +116,44 @@ func sniffExtra(head []byte) string {
 	return ""
 }
 
-// normalizeType strips parameters ("; charset=utf-8") and lowercases.
+// typeAliases maps the spellings real sniffers and browsers emit onto the names
+// in inlineTypes. http.DetectContentType reports a WAV as "audio/wave" and an
+// Ogg stream as "application/ogg" — never "audio/wav" / "audio/ogg" — so without
+// this those two allowlist entries could not match anything the sniffer
+// produced. The file was stored under a name ServeAs refuses, and clicking a
+// playable audio file downloaded it instead of playing it.
+//
+// It only ever renames INTO an existing allowlist entry; it cannot admit a type
+// the allowlist does not already trust. Applied in normalizeType so it also
+// holds for rows stored before it existed (ServeAs normalizes the stored value)
+// — no migration needed.
+var typeAliases = map[string]string{
+	"audio/wave":      "audio/wav",
+	"audio/x-wav":     "audio/wav",
+	"audio/vnd.wave":  "audio/wav",
+	"application/ogg": "audio/ogg",
+}
+
+func canonicalType(t string) string {
+	if c, ok := typeAliases[t]; ok {
+		return c
+	}
+	return t
+}
+
+// normalizeType strips parameters ("; charset=utf-8"), lowercases, and folds
+// known aliases onto their allowlist name (see typeAliases).
 func normalizeType(t string) string {
 	if t == "" {
 		return ""
 	}
 	if parsed, _, err := mime.ParseMediaType(t); err == nil {
-		return strings.ToLower(parsed)
+		return canonicalType(strings.ToLower(parsed))
 	}
 	if i := strings.IndexByte(t, ';'); i >= 0 {
 		t = t[:i]
 	}
-	return strings.ToLower(strings.TrimSpace(t))
+	return canonicalType(strings.ToLower(strings.TrimSpace(t)))
 }
 
 // ServeAs maps a stored type to what we actually put on the wire.
@@ -143,6 +169,26 @@ func ServeAs(stored string) (contentType string, inline bool) {
 		return t, true
 	}
 	return "application/octet-stream", false
+}
+
+// ServeHeaders is the Content-Type and Content-Disposition for serving a stored
+// file — ServeAs, plus the EXPLICIT Download (`?dl=1`, a file's 3-dot menu →
+// Download).
+//
+// A normal open passes forceDownload=false: a type ServeAs allows renders
+// inline, everything else keeps its fail-safe octet-stream + attachment.
+// forceDownload=true makes a renderable type `attachment` too, so the browser
+// saves it instead of showing it.
+//
+// It can only ever make the response MORE restrictive. `inline` is cleared here
+// and never set, and the Content-Type is ServeAs's own either way, so no caller
+// input can turn an allowlist refusal into inline delivery.
+func ServeHeaders(stored, filename string, forceDownload bool) (contentType, disposition string) {
+	ct, inline := ServeAs(stored)
+	if forceDownload {
+		inline = false
+	}
+	return ct, ContentDisposition(inline, filename)
 }
 
 // maxFilenameBytes bounds the header we emit. 255 is the common filesystem

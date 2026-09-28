@@ -17,6 +17,7 @@ const USER: SessionDTO["user"] = {
   mfaEnrolled: false,
   orgRequireMfaForAdmins: false,
   orgMfaGracePeriodEndsAt: null,
+  themePrefs: null,
 };
 
 const setOnline = (online: boolean) =>

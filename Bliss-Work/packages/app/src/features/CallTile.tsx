@@ -25,11 +25,14 @@ const NAME_TEXT: Record<TileSize, string> = {
   strip: "text-[10px]",
 };
 
-const AVATAR: Record<TileSize, string> = {
-  stage: "h-24 w-24 text-3xl",
-  grid: "h-14 w-14 text-base",
-  strip: "h-9 w-9 text-xs",
-};
+/**
+ * The avatar follows the TILE, not the size class: a third of the tile's shorter
+ * side, kept between a size a face-initial is legible at and one that stops
+ * looking like an avatar. `cqmin` is relative to the tile (it is a size
+ * container — see the root element below), so the same rule holds in a 1300px
+ * stage, a 320px grid tile and a 128px filmstrip thumbnail.
+ */
+const AVATAR = "h-[clamp(2.25rem,32cqmin,8rem)] w-[clamp(2.25rem,32cqmin,8rem)] text-[clamp(0.875rem,11cqmin,2.5rem)]";
 
 export function CallTile({
   p,
@@ -102,14 +105,19 @@ export function CallTile({
   return (
     <div
       className={cn(
-        "group relative h-full min-h-0 w-full overflow-hidden rounded-xl bg-surface-2 ring-2 transition-colors",
+        // [container-type:size] makes the tile a size container: its box is
+        // decided ENTIRELY by whoever places it, and nothing inside it — a
+        // camera's intrinsic size, or having no content at all — can grow or
+        // collapse it. The pictures and the avatar are laid out against it
+        // (absolute inset-0 / cq units) rather than against their own content.
+        "group relative h-full min-h-0 w-full min-w-0 overflow-hidden rounded-xl bg-surface-2 ring-2 transition-colors [container-type:size]",
         p.speaking || active ? "ring-accent" : "ring-transparent",
         active && size === "stage" && "shadow-[0_0_28px_-6px_var(--color-accent)]",
         pinned && size !== "stage" && !active && "ring-accent/60",
       )}
     >
       {selfSharePreview ? (
-        <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-black px-2 text-center text-white">
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black px-2 text-center text-white">
           <Monitor size={size === "strip" ? 18 : 28} className="text-red-400" />
           <span className={cn("font-medium", NAME_TEXT[size])}>{t("tile.presentingScreen")}</span>
         </div>
@@ -122,8 +130,21 @@ export function CallTile({
           // element is an echo loop.
           muted={p.isLocal}
           className={cn(
-            "h-full w-full",
-            p.sharing ? "bg-black object-contain" : "object-contain",
+            // Out of flow (absolute inset-0) so the camera's intrinsic size
+            // never takes part in layout: as an in-flow box a <video> whose
+            // parent has no definite height falls back to its own aspect ratio,
+            // and that height propagated up through the grid and made a
+            // portrait or 4:3 camera's tile taller than the slot it was given.
+            // The tile is the one sized thing; the picture fills it.
+            //
+            // object-contain, for camera and screen alike: the WHOLE frame is
+            // always visible. object-cover crops to fill, which on a 4:3 or
+            // portrait camera in a 16:9 tile discards a quarter to half of the
+            // picture and enlarges the face by the same factor. The tile shapes
+            // (lib/tileLayout) are chosen to match cameras, so a 16:9 camera has
+            // no bars at all; the odd-shaped ones get bars, never a crop.
+            "absolute inset-0 h-full w-full object-contain",
+            p.sharing && "bg-black",
             // Only the local camera is mirrored, so the tile reads naturally to
             // the person looking at themselves — never a remote participant's
             // camera (they see the raw, un-mirrored track LiveKit publishes,
@@ -133,11 +154,13 @@ export function CallTile({
           )}
         />
       ) : (
-        <div className="flex h-full w-full items-center justify-center">
+        // Camera off: the tile keeps its size (it never depended on the video)
+        // and the avatar sits at its centre — both axes — whatever the shape.
+        <div className="absolute inset-0 flex items-center justify-center">
           <div
             className={cn(
               "flex items-center justify-center rounded-full bg-accent-soft font-semibold text-accent",
-              AVATAR[size],
+              AVATAR,
             )}
           >
             {(p.name || "?").slice(0, 2).toUpperCase()}

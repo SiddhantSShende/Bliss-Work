@@ -673,6 +673,9 @@ export function ChannelView() {
           onClose={() => setAssetsOpen(false)}
           title={`#${channel.name}`}
           messages={threadForTools}
+          scope="channel"
+          scopeId={channelId}
+          meId={me.id}
         />
       )}
       <ChatThread
@@ -744,6 +747,7 @@ export function ChannelView() {
           ) : undefined
         }
         renderBody={media.renderBody}
+        onDownloadFile={media.downloadItem}
         onAttach={media.onAttach}
         onShareLocation={media.onShareLocation}
         onPaste={media.onPaste}

@@ -47,10 +47,14 @@ export function CallSidePanel({
   return (
     <aside
       aria-label={t("sidePanel.regionAriaLabel", { tab: tabWord })}
-      className={cn("glass flex min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl", className)}
+      // @container: the tab bar asks how wide THIS PANEL is, not the window —
+      // at lg the panel is a 288px column, and three labelled tabs plus the
+      // save and close buttons need ~306px, which used to push the ✕ out of
+      // the panel (clipped by its own overflow-hidden) at exactly 1024–1279px.
+      className={cn("@container glass flex min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl", className)}
     >
       <header className="flex shrink-0 items-center justify-between gap-2 border-b border-border/70 px-2 py-2">
-        <div className="flex items-center gap-1" role="tablist" aria-label={t("sidePanel.tablistAriaLabel")}>
+        <div className="flex min-w-0 items-center gap-1" role="tablist" aria-label={t("sidePanel.tablistAriaLabel")}>
           <TabButton
             active={active === "chat"}
             onClick={() => onSelectTab("chat")}
@@ -116,6 +120,10 @@ function TabButton({
       type="button"
       role="tab"
       aria-selected={active}
+      // The visible label disappears below @xs (see the panel's root), so the
+      // name is stated explicitly rather than left to be computed from content.
+      title={label}
+      aria-label={label}
       onClick={onClick}
       className={cn(
         "relative flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors",
@@ -125,7 +133,7 @@ function TabButton({
       )}
     >
       {children}
-      {label}
+      <span className="hidden @xs:inline">{label}</span>
       {badge > 0 && (
         <span
           aria-hidden

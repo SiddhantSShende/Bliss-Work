@@ -18,6 +18,8 @@ import {
   BulkForwardResultDTO,
   CaptchaChallengeDTO,
   CallDTO,
+  MeetingRecurrenceInput,
+  MeetingSeriesDTO,
   CallChatMessageDTO,
   CallChatPageDTO,
   CallNoteDTO,
@@ -67,6 +69,7 @@ import {
   OrgActivitySummaryDTO,
   ThreadDTO,
   TimelinePage,
+  ThemePrefsDTO,
   UserDTO,
   SessionDTO,
 } from "../types/domain";
@@ -630,8 +633,9 @@ export class ApiClient {
   /** Both fields are independently optional — the Profile page saves a
    *  display-name edit and an avatar upload as two separate actions that
    *  happen to share this endpoint. `avatarUrl` is a client-resized
-   *  `data:image/(jpeg|png|webp);base64,...` URI (see lib/thumbnail.ts). */
-  updateProfile(body: { displayName?: string; avatarUrl?: string }) {
+   *  `data:image/(jpeg|png|webp);base64,...` URI (see lib/thumbnail.ts).
+   *  `themePrefs` is the account's synced UI theme (see lib/themeSync). */
+  updateProfile(body: { displayName?: string; avatarUrl?: string; themePrefs?: ThemePrefsDTO }) {
     return this.req(this.cfg.authBase, "/auth/me", {
       method: "PATCH",
       body: JSON.stringify(body),
@@ -919,11 +923,26 @@ export class ApiClient {
       }),
     );
   }
-  reply(conversationId: string, body: string, clientMsgId?: string, replyToId?: string) {
+  reply(
+    conversationId: string,
+    body: string,
+    clientMsgId?: string,
+    replyToId?: string,
+    /**
+     * Optional system kind (e.g. "attachment_opened"); absent means an
+     * ordinary reply. Mirrors sendMessage's Kind — see its doc comment.
+     */
+    kind?: MessageKind,
+    /** Required alongside kind "attachment_opened"/"attachment_downloaded". */
+    attachmentId?: string,
+  ) {
     return this.req(
       this.cfg.messagingBase,
       `/api/v1/conversations/${conversationId}/reply`,
-      { method: "POST", body: JSON.stringify({ body, clientMsgId: clientMsgId ?? uuid(), replyToId }) },
+      {
+        method: "POST",
+        body: JSON.stringify({ body, clientMsgId: clientMsgId ?? uuid(), replyToId, kind, attachmentId }),
+      },
       z.object({ messageId: z.string(), seq: z.number(), threadId: z.string() }),
     );
   }
@@ -2045,11 +2064,16 @@ export class ApiClient {
     clientMsgId?: string,
     kind?: MessageKind,
     replyToId?: string,
+    /** Required alongside kind "attachment_opened"/"attachment_downloaded". */
+    attachmentId?: string,
   ) {
     return this.req(
       this.cfg.messagingBase,
       `/api/v1/channels/${channelId}/messages`,
-      { method: "POST", body: JSON.stringify({ body, clientMsgId: clientMsgId ?? uuid(), kind, replyToId }) },
+      {
+        method: "POST",
+        body: JSON.stringify({ body, clientMsgId: clientMsgId ?? uuid(), kind, replyToId, attachmentId }),
+      },
       z.object({ messageId: z.string(), seq: z.number() }),
     );
   }
@@ -2229,6 +2253,11 @@ export class ApiClient {
      *  The server ends the call when this elapses. */
     durationMinutes?: number;
     inviteeIds?: string[];
+    /** Channels whose members are invited. The caller must be in each. */
+    channelIds?: string[];
+    /** Makes this the first of a repeating series; needs `scheduledAt`. The
+     *  response is then the FIRST occurrence, carrying `series`. */
+    recurrence?: MeetingRecurrenceInput;
   }) {
     return this.req(
       this.cfg.messagingBase,
@@ -2236,6 +2265,47 @@ export class ApiClient {
       { method: "POST", body: JSON.stringify(body) },
       CallDTO,
     );
+  }
+
+  /** A repeating meeting's series — organiser only. What an edit form restores. */
+  meetingSeries(seriesId: string) {
+    return this.req(
+      this.cfg.messagingBase,
+      `/api/v1/meeting-series/${seriesId}`,
+      {},
+      MeetingSeriesDTO,
+    );
+  }
+
+  /** Change a series. A field left out is left alone. Its UPCOMING occurrences are
+   *  reconciled with the new shape: one whose date and time is still in the
+   *  schedule keeps its id (so its join link and any guest who arrived by it), only
+   *  dates that left the schedule are removed and only new ones are written, and
+   *  people are added or removed as picked. Occurrences that have started or ended
+   *  are never touched. */
+  updateMeetingSeries(
+    seriesId: string,
+    body: {
+      title?: string;
+      inviteeIds?: string[];
+      channelIds?: string[];
+      recurrence?: MeetingRecurrenceInput;
+    },
+  ) {
+    return this.req(
+      this.cfg.messagingBase,
+      `/api/v1/meeting-series/${seriesId}`,
+      { method: "PATCH", body: JSON.stringify(body) },
+      MeetingSeriesDTO,
+    );
+  }
+
+  /** Stop a series and remove its upcoming occurrences. Ones that have already
+   *  started or ended stay as history. Cancelling twice is not an error. */
+  cancelMeetingSeries(seriesId: string) {
+    return this.req<void>(this.cfg.messagingBase, `/api/v1/meeting-series/${seriesId}`, {
+      method: "DELETE",
+    });
   }
 
   /** Every call the caller is expected at, including meetings hosted by

@@ -58,6 +58,15 @@ func TestSendMessage_ValidationRejects(t *testing.T) {
 		{"empty body", `{"recipientId":"` + validUUIDStr + `","body":"","clientMsgId":"` + otherUUID + `"}`},
 		{"missing clientMsgId", `{"recipientId":"` + validUUIDStr + `","body":"hi"}`},
 		{"bad clientMsgId", `{"recipientId":"` + validUUIDStr + `","body":"hi","clientMsgId":"nope"}`},
+		{"unknown kind", `{"recipientId":"` + validUUIDStr + `","body":"hi","clientMsgId":"` + otherUUID + `","kind":"not_a_real_kind"}`},
+		{
+			"attachment_opened with no attachmentId",
+			`{"recipientId":"` + validUUIDStr + `","body":"hi","clientMsgId":"` + otherUUID + `","kind":"attachment_opened"}`,
+		},
+		{
+			"attachment_downloaded with a malformed attachmentId",
+			`{"recipientId":"` + validUUIDStr + `","body":"hi","clientMsgId":"` + otherUUID + `","kind":"attachment_downloaded","attachmentId":"nope"}`,
+		},
 	}
 
 	s := &Server{} // store is nil — reject paths must not reach it.
@@ -88,6 +97,17 @@ func TestReply_ValidationRejects(t *testing.T) {
 		{"valid id but malformed json", validUUIDStr, `{`},
 		{"valid id but empty body", validUUIDStr, `{"body":"","clientMsgId":"` + validUUIDStr + `"}`},
 		{"valid id but bad clientMsgId", validUUIDStr, `{"body":"hi","clientMsgId":"nope"}`},
+		{"valid id but unknown kind", validUUIDStr, `{"body":"hi","clientMsgId":"` + validUUIDStr + `","kind":"not_a_real_kind"}`},
+		{
+			"valid id but attachment_opened with no attachmentId",
+			validUUIDStr,
+			`{"body":"hi","clientMsgId":"` + validUUIDStr + `","kind":"attachment_opened"}`,
+		},
+		{
+			"valid id but attachment_downloaded with a malformed attachmentId",
+			validUUIDStr,
+			`{"body":"hi","clientMsgId":"` + validUUIDStr + `","kind":"attachment_downloaded","attachmentId":"nope"}`,
+		},
 	}
 
 	s := &Server{}

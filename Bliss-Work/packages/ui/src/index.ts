@@ -21,7 +21,7 @@ export { Heatmap } from "./components/charts/Heatmap";
 export { RankedBars, type RankedDatum } from "./components/charts/RankedBars";
 export { StatTile, Sparkline } from "./components/charts/StatTile";
 export { formatMs } from "./components/charts/scale";
-export { ThemeProvider, useTheme, type Theme } from "./theme/ThemeProvider";
+export { ThemeProvider, useTheme, hasStoredThemeChoice, type Theme, type ThemePrefs } from "./theme/ThemeProvider";
 export {
   CUSTOM_THEME_CLASS,
   customThemeGradient,

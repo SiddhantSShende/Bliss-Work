@@ -617,7 +617,7 @@ async def me(principal: Principal = Depends(get_principal)) -> UserDTO:
         # the caller's verified org. engine.connect() runs in an implicit tx, so
         # the transaction-local GUC is cleaned up when the connection returns.
         await service.set_org_guc(conn, principal.org_id)
-        dto = await service.user_dto(conn, principal.user_id)
+        dto = await service.user_dto(conn, principal.user_id, with_theme_prefs=True)
     if dto is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "user not found")
     return dto
@@ -641,6 +641,8 @@ async def update_me(
             )
         if body.avatarUrl is not None:
             await service.update_avatar(conn, principal.org_id, principal.user_id, body.avatarUrl)
+        if body.themePrefs is not None:
+            await service.update_theme_prefs(conn, principal.user_id, body.themePrefs)
         if body.displayName is not None or body.avatarUrl is not None:
             await service.write_audit(
                 conn,
@@ -649,7 +651,7 @@ async def update_me(
                 action="user.profile_updated",
                 target=principal.user_id,
             )
-        dto = await service.user_dto(conn, principal.user_id)
+        dto = await service.user_dto(conn, principal.user_id, with_theme_prefs=True)
     if dto is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "user not found")
     log.info("profile_updated", user_id=principal.user_id)

@@ -210,7 +210,29 @@ if (!app.requestSingleInstanceLock()) {
     // "media" is: this app only ever loads its own origin, so there is no
     // untrusted page that could abuse it, and it is the ONLY caller of
     // window.Notification in the renderer (grep before adding a second one).
-    const allowed = new Set(["media", "geolocation", "picture-in-picture", "notifications"]);
+    //
+    // "clipboard-sanitized-write" is what Chromium checks before
+    // navigator.clipboard.writeText() resolves — it is what an explicit Copy
+    // button (2FA backup codes, meeting invite link) uses in every renderer.
+    // Without it every writeText() call rejects immediately, no matter how
+    // directly it follows a user click, and each Copy button's own catch
+    // block was turning that rejection into "please select and copy
+    // manually" — indistinguishable from a real OS refusal. This is
+    // independent of screenshot/content-protection (setContentProtection in
+    // screenshot-guard.ts): that controls what the OS compositor is allowed
+    // to capture from the window, not what the page is allowed to put on the
+    // clipboard, and granting this does not touch it. "clipboard-read" stays
+    // OUT of the allowlist on purpose — nothing in this app calls
+    // navigator.clipboard.read()/readText(), so there is no reason to grant
+    // the more sensitive paste-back permission (MIDI, USB, and the rest also
+    // stay denied).
+    const allowed = new Set([
+      "media",
+      "geolocation",
+      "picture-in-picture",
+      "notifications",
+      "clipboard-sanitized-write",
+    ]);
     session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => cb(allowed.has(permission)));
     session.defaultSession.setPermissionCheckHandler((_wc, permission) => allowed.has(permission));
 

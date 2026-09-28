@@ -87,10 +87,11 @@ export function Lightbox({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          {/* No download control, by product decision — attachments are for
-              viewing in the app, not for saving. The server ignores ?dl=1 too
-              (internal/api/attachments.go), so a hand-crafted link cannot
-              re-enable it. */}
+          {/* No download control here on purpose: the viewer is for viewing.
+              The one deliberate download is a file's 3-dot menu → Download on
+              its message (ChatThread → MessageActions → useChatMedia.downloadItem),
+              which is also what records "downloaded" — a second button here
+              would be a second, separately-audited path to the same thing. */}
           <button
             onClick={onClose}
             title={t("lightbox.close")}
@@ -166,12 +167,12 @@ export function Lightbox({
 
 /**
  * Shown for a type this app has no in-app renderer for — Office documents,
- * archives, and anything else outside `canPreviewDocInApp` plus images/video.
- * There is no fallback to open or download it: the server forces
- * `Content-Disposition: attachment` for everything outside its own inline
- * allowlist (media/mime.go), so a link out would just be a download wearing
- * an Open label. This replaces that dead end with an explicit reason instead
- * of a click that silently does nothing.
+ * archives, and anything else outside `canPreviewDocInApp` plus images/video —
+ * on a host that also has no way to hand it out of the app (see
+ * lib/openAttachment.ts: web opens a browser tab, desktop the OS's own
+ * application, so only mobile and desktop's secondary windows land here).
+ * It is an explicit reason instead of a click that silently does nothing; the
+ * file itself is still reachable through the message's 3-dot menu → Download.
  */
 function UnsupportedPreview({ name }: { name: string }) {
   const { t } = useTranslation("common");

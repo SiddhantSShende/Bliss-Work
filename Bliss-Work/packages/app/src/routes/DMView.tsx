@@ -693,6 +693,7 @@ export function DMView() {
         }}
         onForward={recordForward}
         renderBody={media.renderBody}
+        onDownloadFile={media.downloadItem}
         onAttach={media.onAttach}
         onShareLocation={media.onShareLocation}
         onPaste={media.onPaste}
@@ -720,6 +721,9 @@ export function DMView() {
           onClose={() => setAssetsOpen(false)}
           title={peerName}
           messages={threadForTools}
+          scope="conversation"
+          scopeId={conversationId}
+          meId={me.id}
         />
       )}
       {scheduleOpen && (

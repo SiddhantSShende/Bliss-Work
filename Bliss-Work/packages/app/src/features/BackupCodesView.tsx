@@ -3,6 +3,7 @@ import { Button } from "@taskboard/ui";
 import { Check, Copy } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
+import { copyText } from "../lib/clipboard";
 
 /**
  * Shown exactly once, right after enrollment or a regeneration — the server
@@ -18,25 +19,9 @@ export function BackupCodesView({ codes, onDone }: { codes: string[]; onDone: ()
 
   const copyAll = async () => {
     const text = codes.join("\n");
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text);
-      } else {
-        const textarea = document.createElement("textarea");
-        textarea.value = text;
-        textarea.setAttribute("readonly", "");
-        textarea.style.position = "fixed";
-        textarea.style.opacity = "0";
-        document.body.appendChild(textarea);
-        try {
-          textarea.select();
-          if (!document.execCommand("copy")) throw new Error("Clipboard copy failed");
-        } finally {
-          textarea.remove();
-        }
-      }
+    if (await copyText(text)) {
       setCopied(true);
-    } catch {
+    } else {
       toast.error(t("account:backupCodesView.copyFailed"));
     }
   };

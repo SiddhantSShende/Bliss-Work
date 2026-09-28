@@ -551,9 +551,9 @@ function FloatingNote({
           </>
         )}
         <div className="flex items-start justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-1.5">
-            <Pin size={13} className="shrink-0 text-accent" />
-            <span className="truncate text-sm font-semibold text-fg">
+          <div className="flex min-w-0 flex-1 items-start gap-1.5">
+            <Pin size={13} className="mt-0.5 shrink-0 text-accent" />
+            <span className="min-w-0 line-clamp-2 text-sm font-semibold text-fg">
               {task.title || t("card.untitledTask")}
             </span>
           </div>

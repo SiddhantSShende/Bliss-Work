@@ -4,7 +4,8 @@ import { BrowserRouter, HashRouter, Navigate, Route, Routes, useLocation, usePar
 import { Toaster } from "sonner";
 import { ThemeProvider } from "@taskboard/ui";
 import type { PlatformConfig } from "./platform";
-import { RuntimeProvider } from "./lib/runtime";
+import { RuntimeProvider, useRuntime } from "./lib/runtime";
+import { ThemeSync, publishThemePrefs } from "./lib/themeSync";
 import { LanguageProvider } from "./i18n/LanguageProvider";
 import { queryRetryDelay, shouldRetryQuery } from "./lib/retryPolicy";
 import { FileTransferProvider } from "./lib/fileTransfer";
@@ -399,8 +400,17 @@ const FORCED_DEFAULT_THEME_PATHS = new Set(["/login", "/onboarding"]);
  */
 function ThemedTree({ children }: { children: React.ReactNode }) {
   const { pathname } = useLocation();
+  const { api } = useRuntime();
   return (
-    <ThemeProvider forceDefault={FORCED_DEFAULT_THEME_PATHS.has(pathname)}>{children}</ThemeProvider>
+    // onPrefsChange / ThemeSync mirror the selection to the account so the web
+    // and desktop apps agree — see lib/themeSync.
+    <ThemeProvider
+      forceDefault={FORCED_DEFAULT_THEME_PATHS.has(pathname)}
+      onPrefsChange={(prefs) => publishThemePrefs(api, prefs, { notify: true })}
+    >
+      <ThemeSync />
+      {children}
+    </ThemeProvider>
   );
 }
 

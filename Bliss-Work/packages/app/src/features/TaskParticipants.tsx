@@ -6,6 +6,10 @@ import type { TaskParticipantDTO } from "@taskboard/shared";
 import { Modal } from "./Modal";
 import { MemberPicker } from "./MemberPicker";
 
+/** Only an open assignment can be extended or withdrawn; COMPLETED, LEFT and
+ *  IGNORED are history. The server enforces the same rule (participants.py). */
+const isActive = (participant: TaskParticipantDTO) => participant.status === "SENT" || participant.status === "ACKNOWLEDGED";
+
 export function TaskParticipants({
   participants,
   currentUserId,
@@ -13,6 +17,7 @@ export function TaskParticipants({
   onAdd,
   onWithdraw,
   addPlacement = "participants",
+  layout = "chips",
 }: {
   participants: TaskParticipantDTO[];
   currentUserId: string;
@@ -20,22 +25,32 @@ export function TaskParticipants({
   onAdd?: (userIds: string[]) => Promise<void>;
   onWithdraw?: (userId: string) => Promise<void>;
   addPlacement?: "name" | "participants";
+  /** "chips" (default) is the compact pill row with an icon-only Withdraw, for
+   *  the small sticky note. "list" is one row per person with a labelled
+   *  Withdraw button and an "Add member" button underneath, for the
+   *  allocator's My Tasks card, where the controls have to be discoverable. */
+  layout?: "chips" | "list";
 }) {
   const { t } = useTranslation("tasks");
   const [busy, setBusy] = useState(false);
-  const active = participants.some(
-    (participant) => participant.userId === currentUserId && (participant.status === "SENT" || participant.status === "ACKNOWLEDGED"),
-  );
-  const hasOpenAssignment = participants.some(
-    (participant) => participant.status === "SENT" || participant.status === "ACKNOWLEDGED",
-  );
+  const active = participants.some((participant) => participant.userId === currentUserId && isActive(participant));
+  const hasOpenAssignment = participants.some(isActive);
   const canAdd = !!onAdd && hasOpenAssignment && (currentUserId === allocatorId || active);
   const canWithdraw = currentUserId === allocatorId && !!onWithdraw;
+  const showAdd = canAdd && addPlacement === "participants";
+  // Withdrawing yourself is Leave, which is a different action with its own button.
+  const removable = (participant: TaskParticipantDTO) =>
+    canWithdraw && participant.userId !== currentUserId && isActive(participant);
 
+  // Called fire-and-forget from onClick, so a rejection has nowhere to go: it
+  // would surface as an unhandled promise rejection. Every caller's mutation
+  // already reports its own failure (the onError toast), so it is dropped here.
   const run = async (operation: () => Promise<void>) => {
     setBusy(true);
     try {
       await operation();
+    } catch {
+      // Reported by the caller; the buttons re-enable below so it can be retried.
     } finally {
       setBusy(false);
     }
@@ -45,18 +60,41 @@ export function TaskParticipants({
     <div className="mt-3 min-w-0 border-t border-border/50 pt-3">
       <div className="flex min-w-0 items-center gap-2">
         <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted">{t("participants.label")}</span>
-        {canAdd && addPlacement === "participants" && <TaskParticipantAdd participants={participants} onAdd={onAdd!} />}
+        {showAdd && layout === "chips" && <TaskParticipantAdd participants={participants} onAdd={onAdd!} />}
       </div>
-      <div className="mt-2 flex min-w-0 flex-wrap gap-1.5">
-        {participants.map((participant) => {
-          const removable = canWithdraw && participant.userId !== currentUserId && (participant.status === "SENT" || participant.status === "ACKNOWLEDGED");
-          return (
+      {layout === "list" ? (
+        <ul className="mt-2 flex min-w-0 flex-col divide-y divide-border/50">
+          {participants.map((participant) => {
+            const name = participant.username || participant.userId;
+            return (
+              <li key={participant.userId} className="flex min-w-0 items-center justify-between gap-2 py-1.5 first:pt-0 last:pb-0">
+                <span className="inline-flex min-w-0 items-center gap-2 text-sm font-medium text-fg">
+                  <span className="min-w-0 truncate">{name}</span>
+                  <Badge tone={participantTone(participant.status)}>{participant.status.toLowerCase()}</Badge>
+                </span>
+                {removable(participant) && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="shrink-0 text-danger"
+                    aria-label={t("participants.withdrawUser", { name })}
+                    disabled={busy}
+                    onClick={() => void run(() => onWithdraw!(participant.userId))}
+                  >
+                    <UserMinus size={14} /> {t("participants.withdraw")}
+                  </Button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <div className="mt-2 flex min-w-0 flex-wrap gap-1.5">
+          {participants.map((participant) => (
             <span key={participant.userId} className="inline-flex min-w-0 items-center gap-1 rounded-full bg-surface-2 px-2 py-1 text-xs text-fg">
               <span className="max-w-40 truncate">{participant.username || participant.userId}</span>
-              <Badge tone={participant.status === "COMPLETED" ? "success" : participant.status === "ACKNOWLEDGED" ? "accent" : participant.status === "SENT" ? "neutral" : "danger"}>
-                {participant.status.toLowerCase()}
-              </Badge>
-              {removable && (
+              <Badge tone={participantTone(participant.status)}>{participant.status.toLowerCase()}</Badge>
+              {removable(participant) && (
                 <IconButton
                   className="h-5 w-5"
                   title={t("participants.withdraw")}
@@ -68,37 +106,59 @@ export function TaskParticipants({
                 </IconButton>
               )}
             </span>
-          );
-        })}
-      </div>
+          ))}
+        </div>
+      )}
+      {showAdd && layout === "list" && (
+        <div className="mt-2 flex justify-end">
+          <TaskParticipantAdd participants={participants} onAdd={onAdd!} prominent />
+        </div>
+      )}
     </div>
   );
+}
+
+function participantTone(status: TaskParticipantDTO["status"]) {
+  return status === "COMPLETED" ? "success" : status === "ACKNOWLEDGED" ? "accent" : status === "SENT" ? "neutral" : "danger";
 }
 
 export function TaskParticipantAdd({
   participants,
   onAdd,
+  prominent = false,
 }: {
   participants: TaskParticipantDTO[];
   onAdd: (userIds: string[]) => Promise<void>;
+  /** A full-size secondary "Add member" button instead of the compact ghost "Add". */
+  prominent?: boolean;
 }) {
   const { t } = useTranslation("tasks");
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const exclude = new Set(participants.map((participant) => participant.userId));
+  // Called fire-and-forget from the picker, so as with Withdraw a rejection would
+  // be unhandled. The caller's mutation already toasts it; the dialog stays open
+  // (it only closes on success) and, once not busy, can be submitted again.
   const add = async (userIds: string[]) => {
     setBusy(true);
     try {
       await onAdd(userIds);
       setOpen(false);
+    } catch {
+      // Reported by the caller.
     } finally {
       setBusy(false);
     }
   };
   return (
     <>
-      <Button variant="ghost" size="sm" className="h-7 shrink-0 px-2 text-xs" onClick={() => setOpen(true)}>
-        <Plus size={13} /> {t("participants.add")}
+      <Button
+        variant={prominent ? "secondary" : "ghost"}
+        size="sm"
+        className={prominent ? "shrink-0" : "h-7 shrink-0 px-2 text-xs"}
+        onClick={() => setOpen(true)}
+      >
+        <Plus size={prominent ? 14 : 13} /> {t(prominent ? "participants.addMember" : "participants.add")}
       </Button>
       <Modal open={open} onClose={busy ? () => {} : () => setOpen(false)} title={t("participants.addTitle")}>
         <MemberPicker exclude={exclude} busy={busy} onConfirm={(ids) => void add(ids)} onCancel={() => setOpen(false)} confirmLabel={t("participants.add")} />

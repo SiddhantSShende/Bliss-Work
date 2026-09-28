@@ -14,6 +14,7 @@
  */
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { CallSession } from "./callManager";
+import { AUDIO_CAPTURE_DEFAULTS } from "./mediaConstraints";
 
 type SignalingState = "stable" | "have-local-offer" | "have-remote-offer" | "closed";
 
@@ -219,5 +220,38 @@ describe("callee video transceiver reassociation (the recvonly bug)", () => {
     // applyOffer's `this.answered` guard short-circuits before reaching
     // setRemoteDescription again — createAnsweredFrom is unchanged.
     expect(pc.createAnsweredFrom).toBe(firstAnswerCall);
+  });
+});
+
+describe("microphone capture", () => {
+  it("asks for the shared audio-processing constraints, not a bare `audio: true`", async () => {
+    await makeSession("audio").prepareCallee();
+
+    // Bare `audio: true` would leave noise suppression to whatever the user agent
+    // felt like — see AUDIO_CONSTRAINTS in callManager.ts.
+    expect(getUserMedia).toHaveBeenCalledTimes(1);
+    expect(getUserMedia.mock.calls[0]?.[0]?.audio).toEqual(AUDIO_CAPTURE_DEFAULTS);
+  });
+
+  it("reports the effective settings of the track it actually acquired", async () => {
+    const debug = vi.spyOn(console, "debug").mockImplementation(() => {});
+    getUserMedia.mockImplementationOnce(async () => {
+      const audio = {
+        kind: "audio",
+        stop: vi.fn(),
+        enabled: true,
+        id: "audio-track",
+        getSettings: () => ({ noiseSuppression: true, echoCancellation: true, autoGainControl: true }),
+      };
+      return { getTracks: () => [audio], getAudioTracks: () => [audio], getVideoTracks: () => [] };
+    });
+
+    await makeSession("audio").prepareCallee();
+
+    expect(debug).toHaveBeenCalledWith(
+      "[MIC] call:acquired",
+      expect.objectContaining({ notApplied: [], unreported: [] }),
+    );
+    debug.mockRestore();
   });
 });

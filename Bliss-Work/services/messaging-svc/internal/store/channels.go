@@ -429,7 +429,7 @@ func (s *Store) SendChannelMessage(ctx context.Context, orgID, channelID, sender
 			if attachmentID == "" {
 				return ErrForbidden
 			}
-			filename, ferr := s.attachmentForActivity(ctx, tx, orgID, attachmentID, senderID)
+			filename, ferr := s.attachmentForActivity(ctx, tx, orgID, attachmentID, senderID, ScopeChannel, channelID)
 			if ferr != nil {
 				return ferr
 			}

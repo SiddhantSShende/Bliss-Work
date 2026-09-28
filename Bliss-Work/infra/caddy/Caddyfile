@@ -252,8 +252,12 @@
 	# CSP is set on the SPA shell ONLY (not the global header block) so JSON/API
 	# responses keep their own stricter policy. frame-ancestors must be a real
 	# header (ignored in the <meta> tag); connect-src allows wss: for the gateway.
+	# frame-src blob: mirrors apps/web/index.html: the Lightbox previews a PDF or
+	# text attachment in a blob: iframe. A header CSP is enforced independently of
+	# the <meta> one, and default-src 'self' does not cover blob:, so leaving it
+	# out here blocks that preview on the live site however the meta tag reads.
 	handle {
-		header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob: mediastream:; connect-src 'self' https: wss: http://localhost:* ws://localhost:*; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob: mediastream:; connect-src 'self' https: wss: http://localhost:* ws://localhost:*; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 		reverse_proxy nginx:80
 	}
 

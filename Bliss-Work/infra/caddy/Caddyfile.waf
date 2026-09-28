@@ -312,8 +312,11 @@
 		#    header block, so it lands only on the HTML shell: frame-ancestors MUST
 		#    be a real header (it's ignored in the <meta> tag) and JSON/API
 		#    responses keep their own stricter default-src 'none' policy. connect-src
-		#    allows wss: for the realtime gateway.
-		header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob: mediastream:; connect-src 'self' https: wss: http://localhost:* ws://localhost:*; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		#    allows wss: for the realtime gateway. frame-src blob: mirrors
+		#    apps/web/index.html: the Lightbox previews a PDF or text attachment in
+		#    a blob: iframe, and a header CSP is enforced independently of the
+		#    <meta> one (default-src 'self' does not cover blob:).
+		header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob: mediastream:; connect-src 'self' https: wss: http://localhost:* ws://localhost:*; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 		reverse_proxy nginx:80
 	}
 

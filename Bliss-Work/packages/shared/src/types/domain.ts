@@ -5,6 +5,16 @@ import { z } from "zod";
 export const Role = z.enum(["org_admin", "member"]);
 export type Role = z.infer<typeof Role>;
 
+/** The account's UI theme (packages/ui `ThemePrefs`, same shape). `theme` is a
+ *  bare string, not an enum: a newer client may write an id this build has not
+ *  heard of, and the reader validates it against its own list. */
+export const ThemePrefsDTO = z.object({
+  theme: z.string(),
+  customColors: z.array(z.string()).nullable().default(null),
+  customActive: z.boolean().default(false),
+});
+export type ThemePrefsDTO = z.infer<typeof ThemePrefsDTO>;
+
 export const UserDTO = z.object({
   id: z.string().uuid(),
   orgId: z.string().uuid(),
@@ -29,6 +39,10 @@ export const UserDTO = z.object({
   mfaEnrolled: z.boolean().default(false),
   orgRequireMfaForAdmins: z.boolean().default(false),
   orgMfaGracePeriodEndsAt: z.string().nullable().default(null),
+  /** The account's UI theme, shared by web and desktop — null until a client
+   *  first publishes one. Only the caller's OWN user carries it (`/auth/me`,
+   *  the profile PATCH); member/directory listings leave it null. */
+  themePrefs: ThemePrefsDTO.nullable().default(null),
 });
 export type UserDTO = z.infer<typeof UserDTO>;
 
@@ -416,6 +430,8 @@ export const MessageKind = z.enum([
   "call_missed",
   "forward_external",
   "screenshot_attempt",
+  "attachment_opened",
+  "attachment_downloaded",
   "channel_renamed",
 ]);
 export type MessageKind = z.infer<typeof MessageKind>;
@@ -1148,6 +1164,77 @@ export type CallShareDTO = z.infer<typeof CallShareDTO>;
 export const CallRecordingStatus = z.enum(["RECORDING", "READY", "FAILED"]);
 export type CallRecordingStatus = z.infer<typeof CallRecordingStatus>;
 
+/** How a repeating meeting repeats. The vocabulary is task-svc's recurring
+ *  tasks' (see ScheduledTaskDTO): the same frequencies and end conditions, and
+ *  weekdays numbered 0 = Monday … 6 = Sunday — NOT `Date#getDay()`, where
+ *  Sunday is 0. One deliberate difference: `endDate` is a calendar date read in
+ *  `timeZone` ("until 31 December"), not an instant. */
+export const RecurrenceFrequency = z.enum(["DAILY", "WEEKLY", "MONTHLY"]);
+export type RecurrenceFrequency = z.infer<typeof RecurrenceFrequency>;
+
+export const RecurrenceEndCondition = z.enum(["NO_END", "ON_DATE", "AFTER_OCCURRENCES"]);
+export type RecurrenceEndCondition = z.infer<typeof RecurrenceEndCondition>;
+
+export const RecurrenceDTO = z.object({
+  frequency: RecurrenceFrequency,
+  /** "Every N" days, weeks or months by `frequency`. */
+  interval: z.number().int(),
+  /** 0 = Monday … 6 = Sunday. WEEKLY only; empty otherwise. */
+  weekdays: z.array(z.number().int()).default([]),
+  endCondition: RecurrenceEndCondition,
+  /** "YYYY-MM-DD", the last local day an occurrence may start on. ON_DATE only. */
+  endDate: z.string().nullish(),
+  /** Total occurrences, the first included. AFTER_OCCURRENCES only. */
+  occurrenceCount: z.number().int().nullish(),
+  /** The IANA zone the schedule is read in. "10:00 every Monday" is 10:00 there. */
+  timeZone: z.string(),
+});
+export type RecurrenceDTO = z.infer<typeof RecurrenceDTO>;
+
+/** A recurrence as SENT when scheduling or editing. The same fields RecurrenceDTO
+ *  answers with. `weekdays` is required for WEEKLY and refused otherwise;
+ *  `endDate` only with ON_DATE; `occurrenceCount` only with AFTER_OCCURRENCES —
+ *  the server refuses stray fields rather than ignoring them. */
+export interface MeetingRecurrenceInput {
+  frequency: RecurrenceFrequency;
+  interval: number;
+  weekdays?: number[];
+  endCondition: RecurrenceEndCondition;
+  endDate?: string;
+  occurrenceCount?: number;
+  timeZone: string;
+}
+
+export const MeetingSeriesStatus = z.enum(["ACTIVE", "CANCELLED", "COMPLETED"]);
+export type MeetingSeriesStatus = z.infer<typeof MeetingSeriesStatus>;
+
+/** What every occurrence of a repeating meeting carries, so a row can say
+ *  "repeats weekly". Nothing about who was invited. */
+export const SeriesSummaryDTO = z.object({
+  id: z.string().uuid(),
+  status: MeetingSeriesStatus,
+  recurrence: RecurrenceDTO,
+});
+export type SeriesSummaryDTO = z.infer<typeof SeriesSummaryDTO>;
+
+/** A whole series, for its organiser: what an edit form needs. `inviteeIds` and
+ *  `channelIds` are what was PICKED — not who ended up on any one occurrence,
+ *  which also includes the channels' members and the organiser. */
+export const MeetingSeriesDTO = SeriesSummaryDTO.extend({
+  createdBy: z.string().uuid(),
+  title: z.string().default(""),
+  media: z.enum(["audio", "video"]).default("video"),
+  /** The first start; its local date and time of day anchor the whole schedule. */
+  startAt: z.string(),
+  durationMinutes: z.number().int(),
+  /** The first occurrence not yet written, or absent once the series is over. */
+  nextStartAt: z.string().nullish(),
+  inviteeIds: z.array(z.string().uuid()).default([]),
+  channelIds: z.array(z.string().uuid()).default([]),
+  occurrenceCount: z.number().int(),
+});
+export type MeetingSeriesDTO = z.infer<typeof MeetingSeriesDTO>;
+
 export const CallDTO = z.object({
   id: z.string().uuid(),
   orgId: z.string().uuid(),
@@ -1189,6 +1276,13 @@ export const CallDTO = z.object({
    *  A failed recording is reported as neither: there is nothing to play, and
    *  the failure is the operator's to see, not the participants'. */
   recordingStatus: CallRecordingStatus.exclude(["FAILED"]).nullish(),
+  /** The channels a MEETING was addressed to: a record of who was asked, not a
+   *  roster — `participants` is that. Empty for every other kind, and for every
+   *  meeting from before this field existed. */
+  channelIds: z.array(z.string().uuid()).default([]),
+  /** Set on an occurrence of a repeating meeting. Absent for a one-off, and for a
+   *  guest from another organisation, who cannot read the hosting org's series. */
+  series: SeriesSummaryDTO.nullish(),
 });
 export type CallDTO = z.infer<typeof CallDTO>;
 

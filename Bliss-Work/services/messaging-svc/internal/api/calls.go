@@ -261,39 +261,56 @@ func (s *Server) listChannelCalls(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// scheduleMeetingReq is a scheduleCallReq plus what only a meeting can carry.
+type scheduleMeetingReq struct {
+	scheduleCallReq
+	// ChannelIDs are channels whose members are invited. The caller must be in
+	// each of them.
+	ChannelIDs []string `json:"channelIds"`
+	// Recurrence, when set, makes this the first of a repeating series and
+	// requires scheduledAt. See meeting_series.go.
+	Recurrence *recurrenceReq `json:"recurrence"`
+}
+
 // scheduleMeeting serves POST /api/v1/meetings.
 //
 // Feature 2. Distinct from a channel call precisely because its roster is
 // explicit: that is what makes a link meaningful, and what lets someone outside
-// the org hold a seat.
+// the org hold a seat. It may also be addressed to channels (whose members are
+// invited) and may repeat; the response is the meeting written, which for a
+// series is its first occurrence.
 func (s *Server) scheduleMeeting(w http.ResponseWriter, r *http.Request) {
 	claims, _ := auth.FromContext(r.Context())
-	var req scheduleCallReq
+	var req scheduleMeetingReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	sc, ok := parseSchedule(req)
+	sc, ok := parseSchedule(req.scheduleCallReq)
 	if !ok {
 		writeErr(w, http.StatusBadRequest, badScheduleMsg)
 		return
 	}
-	if len(req.InviteeIDs) > maxMeetingInvitees {
-		writeErr(w, http.StatusBadRequest, "too many invitees")
+	invitees, msg := parseIDList(req.InviteeIDs, maxMeetingInvitees, "invitee")
+	if msg != "" {
+		writeErr(w, http.StatusBadRequest, msg)
 		return
 	}
-	for _, id := range req.InviteeIDs {
-		if !validUUID(id) {
-			writeErr(w, http.StatusBadRequest, "invalid invitee id")
-			return
-		}
+	opts, msg := meetingOptions(req, sc)
+	if msg != "" {
+		writeErr(w, http.StatusBadRequest, msg)
+		return
 	}
-	c, err := s.store.ScheduleMeeting(r.Context(), claims.OrgID, claims.UserID,
-		sc.Title, sc.Media, sc.At, sc.EndsAt, req.InviteeIDs)
+	c, err := s.store.ScheduleMeetingWithOptions(r.Context(), claims.OrgID, claims.UserID,
+		sc.Title, sc.Media, sc.At, sc.EndsAt, invitees, opts)
 	if err != nil {
 		s.mapErrR(w, r, err)
 		return
 	}
+	// One announcement, whether or not it repeats: the first occurrence is what
+	// people are being told about. The rest are written quietly as they come
+	// inside the horizon, and each one announces itself when it STARTS, exactly
+	// as a one-off does.
 	s.notifyCall(r.Context(), c, events.TypeCallScheduled, claims.UserID)
 	// Same as a channel call: "meet now" has no start request to follow.
 	if c.Status == "LIVE" {

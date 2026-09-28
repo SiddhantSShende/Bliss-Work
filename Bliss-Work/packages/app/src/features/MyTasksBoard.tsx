@@ -8,7 +8,7 @@ import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { useUserLabels } from "../lib/userLabel";
 import { useSession } from "../store/session";
-import { TaskParticipantAdd, TaskParticipants } from "./TaskParticipants";
+import { TaskParticipants } from "./TaskParticipants";
 import {
   NO_SENT_FILTER,
   STATUS_FILTERS,
@@ -209,28 +209,20 @@ export function MyTasksBoard() {
                 <ScheduledTaskCard key={schedule.scheduleId} schedule={schedule} onCancelled={() => void schedules.refetch()} />
               ))}
               {visibleTasks.map(({ task: t, assignees }) => (
-                <GlassCard key={t.taskId} className="p-4">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <div className="min-w-0 truncate font-semibold text-fg">{t.title}</div>
-                    {(t.participants ?? assignees.map((a) => ({ userId: a.assigneeId, username: a.assigneeUsername, status: a.status }))).some(
-                      (participant) => participant.status === "SENT" || participant.status === "ACKNOWLEDGED",
-                    ) && (
-                      <TaskParticipantAdd
-                        participants={t.participants ?? assignees.map((a) => ({ userId: a.assigneeId, username: a.assigneeUsername, status: a.status }))}
-                        onAdd={(userIds) => membership.mutateAsync({ taskId: t.taskId, userIds }).then(() => undefined)}
-                      />
-                    )}
+                <GlassCard key={t.taskId} className="flex min-w-0 flex-col p-4">
+                  <div className="flex min-w-0 items-start gap-2">
+                    <div className="min-w-0 flex-1 line-clamp-2 break-words font-semibold text-fg">{t.title}</div>
                   </div>
-                  {t.description && <p className="mt-1 text-sm text-muted">{t.description}</p>}
+                  {t.description && <p className="mt-1 min-w-0 line-clamp-3 break-words text-sm text-muted">{t.description}</p>}
                   <TaskParticipants
                     participants={t.participants ?? assignees.map((a) => ({ userId: a.assigneeId, username: a.assigneeUsername, status: a.status }))}
                     currentUserId={currentUserId}
                     allocatorId={currentUserId}
-                    addPlacement="name"
+                    layout="list"
                     onAdd={(userIds) => membership.mutateAsync({ taskId: t.taskId, userIds }).then(() => undefined)}
                     onWithdraw={(userId) => withdrawal.mutateAsync({ taskId: t.taskId, userId }).then(() => undefined)}
                   />
-                  <div className="mt-3 flex flex-col divide-y divide-border/50">
+                  <div className="mt-3 flex min-w-0 flex-col divide-y divide-border/50">
                     {assignees.map((a) => (
                       <AssigneeTimeline
                         key={a.assigneeId}
@@ -303,11 +295,11 @@ function ScheduledTaskCard({
     ? `${schedule.frequency?.toLowerCase()} · ${schedule.interval ?? 1}x`
     : null;
   return (
-    <GlassCard className="p-4">
-      <div className="flex items-start gap-2">
+    <GlassCard className="flex min-w-0 flex-col p-4">
+      <div className="flex min-w-0 items-start gap-2">
         <CalendarClock size={17} className="mt-0.5 shrink-0 text-accent" />
         <div className="min-w-0 flex-1">
-          <div className="truncate font-semibold text-fg">{schedule.title}</div>
+          <div className="line-clamp-2 break-words font-semibold text-fg">{schedule.title}</div>
           <div className="mt-1 text-xs font-medium uppercase tracking-wide text-accent">{t("myTasksBoard.scheduled")}</div>
           {editing ? (
             <Input type="datetime-local" value={editValue} min={new Date().toISOString().slice(0, 16)} onChange={(event) => setEditValue(event.target.value)} />
@@ -316,12 +308,12 @@ function ScheduledTaskCard({
           )}
           {recurrence && <div className="mt-1 text-xs text-muted">{recurrence}</div>}
           {schedule.assignees.length > 0 && (
-            <div className="mt-2 text-sm text-fg">{schedule.assignees.map((assignee) => assignee.username).join(", ")}</div>
+            <div className="mt-2 line-clamp-2 break-words text-sm text-fg">{schedule.assignees.map((assignee) => assignee.username).join(", ")}</div>
           )}
           {schedule.assignees.length === 0 && schedule.channelId && (
             <div className="mt-2 text-sm text-fg">Channel assignment</div>
           )}
-          <div className="mt-3 flex gap-2">
+          <div className="mt-3 flex flex-wrap gap-2">
             {editing ? (
               <>
                 <Button variant="secondary" size="sm" disabled={update.isPending} onClick={() => update.mutate()}>Save</Button>
@@ -354,13 +346,13 @@ function AssigneeTimeline({ assignee: a, onReview }: { assignee: SentAssignee; o
 
   return (
     <div className="py-3 first:pt-0 last:pb-0">
-      <div className="flex items-center justify-between gap-2">
-        <span className="inline-flex items-center gap-2 text-sm font-medium text-fg">
-          {a.assigneeUsername}
+      <div className="flex min-w-0 items-center justify-between gap-2">
+        <span className="inline-flex min-w-0 items-center gap-2 text-sm font-medium text-fg">
+          <span className="min-w-0 truncate">{a.assigneeUsername}</span>
           <Badge tone={statusTone(a.status)}>{a.status.toLowerCase()}</Badge>
         </span>
         {a.status === "COMPLETED" && (
-          <Button variant="ghost" size="sm" onClick={onReview}>
+          <Button variant="ghost" size="sm" className="shrink-0" onClick={onReview}>
             <MessageSquarePlus size={14} /> {a.review ? t("myTasksBoard.review.edit") : t("myTasksBoard.review.write")}
           </Button>
         )}

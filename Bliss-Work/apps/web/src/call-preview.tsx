@@ -62,7 +62,7 @@ function NeonRoomPreview() {
           </Button>
         </div>
       </div>
-      <div className="meeting-theme meeting-mesh overflow-hidden rounded-3xl" style={{ height: 720 }}>
+      <div className="meeting-theme meeting-mesh relative overflow-hidden rounded-3xl" style={{ height: 720 }}>
         <div className="flex h-full">
           <CallSidebar
             micOn camOn={false} sharing={scenario === "sharing"}

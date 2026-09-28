@@ -14,6 +14,16 @@
  * minimise into, Copy Link always present but disabled+tooltipped when
  * unavailable). They used to be tucked behind a "More" overflow button
  * (CallMoreMenu); that's gone now, and this is the whole control surface.
+ *
+ * ── Two shapes, one component ────────────────────────────────────────────────
+ * From `sm` (640px) up it is the vertical rail beside the video, a fixed 80px
+ * wide. Below that a rail would take a quarter to half of the window's width, so
+ * the same buttons become a horizontal dock along the bottom (the room's shell
+ * flips to a column — see CallRoom) and scroll sideways when they do not all
+ * fit. That is a deliberate second layout rather than the rail being allowed to
+ * compress: no button ever shrinks (each is a fixed w-16 that does not flex),
+ * and End Call sits outside the scrolling part in both shapes, so leaving is
+ * never a scroll away.
  */
 import {
   Disc,
@@ -107,9 +117,9 @@ export function CallSidebar({
   return (
     <nav
       aria-label={t("sidebar.controlsAriaLabel")}
-      className="glass relative z-20 flex h-full min-h-0 w-20 shrink-0 flex-col overflow-hidden rounded-r-3xl"
+      className="glass relative z-20 flex w-full shrink-0 flex-row overflow-hidden rounded-t-2xl sm:h-full sm:min-h-0 sm:w-20 sm:flex-col sm:rounded-r-3xl sm:rounded-t-none"
     >
-      <div className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto overscroll-contain py-4 [scrollbar-color:var(--color-border)_transparent] [scrollbar-width:thin]">
+      <div className="flex min-h-0 min-w-0 flex-1 items-center overflow-x-auto overscroll-contain px-2 py-1 [scrollbar-color:var(--color-border)_transparent] [scrollbar-width:thin] sm:flex-col sm:overflow-x-hidden sm:overflow-y-auto sm:px-0 sm:py-4">
         <SidebarButton
           icon={micOn ? <Mic size={20} /> : <MicOff size={20} />}
           label={micOn ? t("sidebar.mute") : t("sidebar.muted")}
@@ -154,7 +164,7 @@ export function CallSidebar({
             activeClassName="bg-danger/15 text-danger ring-1 ring-danger [filter:drop-shadow(0_0_6px_var(--color-danger))]"
           />
         )}
-        <div className="my-1 h-px w-8 shrink-0 bg-border/70" />
+        <div className="mx-1 h-8 w-px shrink-0 bg-border/70 sm:mx-0 sm:my-1 sm:h-px sm:w-8" />
         <SidebarButton
           icon={<Link2 size={20} />}
           label={t("sidebar.copyLink")}
@@ -175,7 +185,7 @@ export function CallSidebar({
           <SidebarButton icon={<Minimize2 size={20} />} label={t("sidebar.minimize")} onClick={onMinimize} title={t("sidebar.minimise")} />
         )}
       </div>
-      <div className="flex shrink-0 justify-center border-t border-border/70 py-3">
+      <div className="flex shrink-0 items-center justify-center border-l border-border/70 px-2 sm:border-l-0 sm:border-t sm:px-0 sm:py-3">
         <SidebarButton
           icon={<PhoneOff size={20} />}
           label={t("sidebar.end")}

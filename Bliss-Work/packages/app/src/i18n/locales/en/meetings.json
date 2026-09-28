@@ -100,7 +100,11 @@
         "channelCallValue": "Roster is the channel",
         "beingRecorded": "This call is being recorded",
         "sharingOne": "{{name}} is sharing their screen",
-        "sharingMany": "{{count}} people are sharing"
+        "sharingMany": "{{count}} people are sharing",
+        "repeats": "Repeats",
+        "channels": "Channels",
+        "channelsUnavailable_one": "{{count}} channel",
+        "channelsUnavailable_other": "{{count}} channels"
       }
     },
     "recording": {
@@ -141,13 +145,74 @@
       "startRequired": "Start date and time are required.",
       "startInPast": "Start time can't be in the past.",
       "endRequired": "End date and time are required.",
-      "endBeforeStart": "End time must be later than the start time."
+      "endBeforeStart": "End time must be later than the start time.",
+      "peopleUnavailable": "Some of the members or channels you picked are no longer available."
     },
     "cancel": "Cancel",
     "starting": "Starting…",
     "schedule": "Schedule",
     "startNow": "Start Now",
-    "scheduleError": "Couldn't schedule that meeting"
+    "scheduleError": "Couldn't schedule that meeting",
+    "membersLabel": "Members",
+    "membersAdd": "Add members",
+    "membersDone": "Done",
+    "membersNone": "No members added yet.",
+    "membersRemove": "Remove {{name}}",
+    "unknownMember": "Unknown member",
+    "channelsLabel": "Channels",
+    "channelsAdd": "Add channels",
+    "channelsDone": "Done",
+    "channelsNone": "No channels added yet.",
+    "channelsRemove": "Remove {{name}}",
+    "channelsHint": "Everyone in a channel is invited.",
+    "unknownChannel": "Unavailable channel",
+    "channelPicker": {
+      "searchPlaceholder": "Search channels…",
+      "searchAriaLabel": "Search your channels",
+      "loading": "Loading channels…",
+      "error": "Couldn't load your channels.",
+      "retry": "Try again",
+      "members_one": "{{count}} member",
+      "members_other": "{{count}} members",
+      "empty": {
+        "none": "You're not in any channels.",
+        "noMatches": "No matches."
+      }
+    },
+    "repeat": {
+      "label": "Repeat",
+      "none": "Does not repeat",
+      "daily": "Daily",
+      "weekly": "Weekly",
+      "monthly": "Monthly",
+      "every": "Every",
+      "intervalAria": "Repeat every",
+      "unit": {
+        "day_one": "day",
+        "day_other": "days",
+        "week_one": "week",
+        "week_other": "weeks",
+        "month_one": "month",
+        "month_other": "months"
+      },
+      "on": "On",
+      "ends": "Ends",
+      "endNever": "Never",
+      "endOnDate": "On date",
+      "endAfter": "After occurrences",
+      "endDateAria": "End date",
+      "occurrenceCountAria": "Number of occurrences",
+      "occurrences_one": "occurrence",
+      "occurrences_other": "occurrences",
+      "errors": {
+        "interval": "Enter a whole number from 1 to {{max}}.",
+        "weekdays": "Pick at least one day.",
+        "endDateRequired": "Choose an end date.",
+        "endDateBeforeStart": "The end date can't be before the first meeting.",
+        "occurrenceCount": "Enter a whole number from 1 to {{max}}."
+      },
+      "monthlyHint": "Repeats on day {{day}} of the month. Months without that day are skipped."
+    }
   },
   "schedule": {
     "error": "Couldn't schedule that call",
@@ -231,5 +296,42 @@
     "micOn": "Microphone on",
     "micOff": "Microphone off",
     "leaveMeeting": "Leave meeting"
+  },
+  "series": {
+    "badge": "Repeating meeting",
+    "summary": {
+      "day_one": "Repeats daily",
+      "day_other": "Repeats every {{count}} days",
+      "week_one": "Repeats weekly on {{days}}",
+      "week_other": "Repeats every {{count}} weeks on {{days}}",
+      "month_one": "Repeats monthly",
+      "month_other": "Repeats every {{count}} months",
+      "withEnd": "{{repeat}}, {{end}}",
+      "until": "until {{date}}",
+      "times_one": "{{count}} meeting in total",
+      "times_other": "{{count}} meetings in total"
+    },
+    "edit": {
+      "button": "Edit series",
+      "title": "Edit repeating meeting",
+      "close": "Close",
+      "loading": "Loading…",
+      "error": "Couldn't load this series.",
+      "retry": "Try again",
+      "first": "First meeting: {{when}}. Its date and time can't be changed here.",
+      "note": "Saving updates the upcoming meetings in this series. Meetings that keep their date and time keep their join links and guests, and meetings that already happened are left as they are.",
+      "cancel": "Cancel",
+      "save": "Save changes",
+      "saving": "Saving…",
+      "saveError": "Couldn't save your changes"
+    },
+    "cancelSeries": {
+      "button": "Cancel series",
+      "title": "Cancel this series?",
+      "message": "Every upcoming meeting in this series will be removed for everyone. Meetings that already happened are kept.",
+      "confirm": "Cancel series",
+      "error": "Couldn't cancel the series",
+      "done": "Series cancelled"
+    }
   }
 }

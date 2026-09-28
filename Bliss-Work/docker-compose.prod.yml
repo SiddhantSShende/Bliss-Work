@@ -147,7 +147,11 @@ x-svc-defaults: &svc-defaults
 services:
   # ── Web build + static host ────────────────────────────────────────────────
   web-builder:
-    image: node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293
+    # Node 22: the root `engines` floor is >=22.13.0 and the lockfile carries
+    # packages that refuse anything older (react-native 0.87, metro 0.87,
+    # electron 42). On 20 every `npm ci` printed EBADENGINE for all of them.
+    # Keep in step with .nvmrc and apps/web/Dockerfile.
+    image: node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402
     restart: "no"
     working_dir: /workspace
     env_file:

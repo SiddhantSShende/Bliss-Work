@@ -1,14 +1,28 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { SentTaskDTO } from "@taskboard/shared";
+import { toast } from "sonner";
+import { useSession } from "../store/session";
+import { trackUnhandledRejections } from "../test/unhandledRejections";
 
 const api = {
   tasksSent: vi.fn(async () => [] as SentTaskDTO[]),
   directory: vi.fn(async () => []),
+  taskSchedules: vi.fn(async () => []),
+  addTaskParticipants: vi.fn(async (_taskId: string, userIds: string[]) => ({ addedUserIds: userIds })),
+  withdrawTaskParticipant: vi.fn(async (_taskId: string, userId: string) => ({ withdrawnUserId: userId, statusVersion: 1 })),
 };
 vi.mock("../lib/runtime", () => ({ useRuntime: () => ({ api, config: {} }) }));
+// The picker searches the directory; the board only cares which ids come back.
+vi.mock("./MemberPicker", () => ({
+  MemberPicker: (p: { onConfirm: (ids: string[]) => void; busy?: boolean }) => (
+    <button type="button" disabled={p.busy} onClick={() => p.onConfirm(["u-new"])}>
+      pick a member
+    </button>
+  ),
+}));
 // The dialog has its own behaviour; what matters here is what the board hands it.
 vi.mock("./CreateReviewDialog", () => ({
   CreateReviewDialog: (p: { assigneeId: string; existingText?: string | null; existingRating?: number | null }) => (
@@ -155,5 +169,96 @@ describe("MyTasksBoard reviews", () => {
     await screen.findByText("Write the docs");
     await user.click(screen.getByRole("button", { name: /edit review/i }));
     expect(screen.getByTestId("review-dialog")).toHaveTextContent("u-carol|Solid work|4");
+  });
+});
+
+describe("MyTasksBoard participants", () => {
+  beforeEach(() => useSession.setState({ user: { id: "u-me" } as never }));
+  afterEach(() => useSession.setState({ user: null }));
+
+  it("shows a labelled Withdraw only for the active assignee and one Add member on that card", async () => {
+    renderBoard();
+    await screen.findByText("Fix the flaky test");
+
+    // t3's alice is SENT. Completed (alice, carol on t1/t2) and ignored (bob) people get no Withdraw,
+    // and t1/t2 have no open assignment to add to.
+    const withdraw = screen.getAllByRole("button", { name: /^Withdraw / });
+    expect(withdraw.map((b) => b.getAttribute("aria-label"))).toEqual(["Withdraw alice"]);
+    expect(withdraw[0]).toHaveTextContent("Withdraw");
+    expect(screen.getAllByRole("button", { name: "Add member" })).toHaveLength(1);
+  });
+
+  it("withdraws through the API and refetches the sent list", async () => {
+    const user = userEvent.setup();
+    renderBoard();
+    await screen.findByText("Fix the flaky test");
+    const before = api.tasksSent.mock.calls.length;
+
+    await user.click(screen.getByRole("button", { name: "Withdraw alice" }));
+
+    expect(api.withdrawTaskParticipant).toHaveBeenCalledWith("t3", "u-alice");
+    await waitFor(() => expect(api.tasksSent.mock.calls.length).toBeGreaterThan(before));
+  });
+
+  it("adds a member through the API, closes the picker and refetches the sent list", async () => {
+    const user = userEvent.setup();
+    renderBoard();
+    await screen.findByText("Fix the flaky test");
+    const before = api.tasksSent.mock.calls.length;
+
+    await user.click(screen.getByRole("button", { name: "Add member" }));
+    await user.click(await screen.findByRole("button", { name: "pick a member" }));
+
+    expect(api.addTaskParticipants).toHaveBeenCalledWith("t3", ["u-new"]);
+    await waitFor(() => expect(api.tasksSent.mock.calls.length).toBeGreaterThan(before));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "pick a member" })).not.toBeInTheDocument());
+  });
+
+  it("toasts a failed withdraw once, leaves the list alone and leaves no rejection unhandled", async () => {
+    const rejections = trackUnhandledRejections();
+    const toastError = vi.spyOn(toast, "error").mockImplementation(() => 1);
+    try {
+      const user = userEvent.setup();
+      api.withdrawTaskParticipant.mockRejectedValueOnce(new Error("boom"));
+      renderBoard();
+      await screen.findByText("Fix the flaky test");
+      const before = api.tasksSent.mock.calls.length;
+
+      await user.click(screen.getByRole("button", { name: "Withdraw alice" }));
+      await waitFor(() => expect(toastError).toHaveBeenCalledTimes(1));
+
+      expect(toastError).toHaveBeenCalledWith("Could not update participants", { description: "Error: boom" });
+      expect(await rejections.unhandled()).toEqual([]);
+      expect(api.tasksSent.mock.calls.length).toBe(before);
+      expect(screen.getByRole("button", { name: "Withdraw alice" })).toBeEnabled();
+    } finally {
+      rejections.stop();
+      toastError.mockRestore();
+    }
+  });
+
+  it("toasts a failed add once, keeps the picker open and usable, and leaves no rejection unhandled", async () => {
+    const rejections = trackUnhandledRejections();
+    const toastError = vi.spyOn(toast, "error").mockImplementation(() => 1);
+    try {
+      const user = userEvent.setup();
+      api.addTaskParticipants.mockRejectedValueOnce(new Error("boom"));
+      renderBoard();
+      await screen.findByText("Fix the flaky test");
+      const before = api.tasksSent.mock.calls.length;
+
+      await user.click(screen.getByRole("button", { name: "Add member" }));
+      await user.click(await screen.findByRole("button", { name: "pick a member" }));
+      await waitFor(() => expect(toastError).toHaveBeenCalledTimes(1));
+
+      expect(toastError).toHaveBeenCalledWith("Could not update participants", { description: "Error: boom" });
+      expect(await rejections.unhandled()).toEqual([]);
+      expect(api.tasksSent.mock.calls.length).toBe(before);
+      // Still open, and no longer busy, so the user can retry.
+      await waitFor(() => expect(screen.getByRole("button", { name: "pick a member" })).toBeEnabled());
+    } finally {
+      rejections.stop();
+      toastError.mockRestore();
+    }
   });
 });

@@ -6,11 +6,15 @@
  * reads the same way here as it does above, instead of sometimes being
  * off-screen in this row.
  *
- * Two orientations, chosen by the caller to match which of the redesign's two
+ * Three orientations, chosen by the caller to match which of the redesign's
  * main-content layouts is showing: a VERTICAL stack beside a speaking
  * participant's stage tile, a HORIZONTAL row below a shared screen (a wide
  * screen capture and a side column fight each other for width; a row below
- * it doesn't).
+ * it doesn't), or AUTO for the speaker layout, which is the vertical stack when
+ * the area is wide enough to spare a column and the horizontal row when it is
+ * not (a narrow window, or the chat panel open). "Wide enough" is asked of the
+ * nearest `@container` ancestor, not of the viewport, because the room the
+ * stage really has is what is left after the side panel took its share.
  */
 import { Users } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -37,7 +41,7 @@ export function CallSpeakerFilmstrip({
   hands: Set<string>;
   pinned: string | null;
   onTogglePin: (identity: string) => void;
-  orientation?: "vertical" | "horizontal";
+  orientation?: "vertical" | "horizontal" | "auto";
   limit?: number;
 }) {
   const { t } = useTranslation("calls");
@@ -46,17 +50,31 @@ export function CallSpeakerFilmstrip({
   const shown = [...active, ...rest].slice(0, limit);
   const overflow = participants.length - shown.length;
   const vertical = orientation === "vertical";
+  const auto = orientation === "auto";
+
+  // A thumbnail's box, per orientation. 16:9 in every one — the shape a camera
+  // is — so the picture fills it: a row of them is as tall as the row, a stack
+  // of them as wide as the stack.
+  const thumb = auto
+    ? "aspect-video h-full @xl:h-auto @xl:w-full"
+    : vertical
+      ? "aspect-video w-full"
+      : "aspect-video h-full";
 
   return (
     <div
       className={cn(
         "flex shrink-0 gap-2",
-        vertical ? "h-full w-32 flex-col overflow-y-auto" : "h-24 overflow-x-auto",
+        auto
+          ? "h-24 overflow-x-auto @xl:h-full @xl:w-32 @xl:flex-col @xl:overflow-y-auto @xl:overflow-x-hidden"
+          : vertical
+            ? "h-full w-32 flex-col overflow-y-auto"
+            : "h-24 overflow-x-auto",
       )}
       aria-label={t("filmstrip.ariaLabel")}
     >
       {shown.map((p) => (
-        <div key={p.identity} className={cn("shrink-0", vertical ? "aspect-video w-full" : "h-full w-28")}>
+        <div key={p.identity} className={cn("shrink-0", thumb)}>
           <CallTile
             p={p}
             size="strip"
@@ -71,7 +89,7 @@ export function CallSpeakerFilmstrip({
         <div
           className={cn(
             "flex shrink-0 flex-col items-center justify-center gap-1 rounded-xl border border-border/70 bg-surface-2 text-center text-muted",
-            vertical ? "aspect-video w-full" : "h-full w-28",
+            thumb,
           )}
         >
           <Users size={16} />

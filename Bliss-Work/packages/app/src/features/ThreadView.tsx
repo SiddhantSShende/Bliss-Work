@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { motion } from "framer-motion";
-import { MessageSquare, ChevronUp, Loader2, PhoneMissed, Camera } from "lucide-react";
+import { MessageSquare, ChevronUp, Loader2, PhoneMissed, Camera, Eye, Download } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "@taskboard/ui";
 import type { MessageDTO } from "@taskboard/shared";
@@ -177,6 +177,20 @@ export function ThreadView({
               <div key={m.id}>
                 {dayChip}
                 <SystemPill icon={<Camera size={12} className="text-warning" />} at={m.at}>
+                  {m.body}
+                </SystemPill>
+              </div>
+            );
+          }
+
+          // A file activity notice — "X opened/downloaded FILE" — is
+          // server-authored the same way; nothing to vary between mine/theirs.
+          if (m.kind === "attachment_opened" || m.kind === "attachment_downloaded") {
+            const Icon = m.kind === "attachment_opened" ? Eye : Download;
+            return (
+              <div key={m.id}>
+                {dayChip}
+                <SystemPill icon={<Icon size={12} className="text-muted" />} at={m.at}>
                   {m.body}
                 </SystemPill>
               </div>

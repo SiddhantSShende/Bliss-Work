@@ -28,7 +28,7 @@
 # ── Build stage ─────────────────────────────────────────────────────────────
 # Same node digest the web-builder service already pins, so the bundle produced
 # here is byte-comparable with the one production builds today.
-FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS build
+FROM node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS build
 
 ENV npm_config_update_notifier=false \
     # `npm ci` at the root installs every workspace, and the root devDependencies

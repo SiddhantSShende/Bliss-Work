@@ -85,26 +85,26 @@ export function StickyWidget({
       }`}
     >
       <div className="flex shrink-0 items-start justify-between gap-2">
-        <div className="flex min-w-0 items-start gap-2.5">
+        <div className="flex min-w-0 flex-1 items-start gap-2.5">
           <Avatar name={senderName} size="sm" />
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center gap-2">
-              <div className="min-w-0 truncate font-semibold leading-tight text-fg">{task.title}</div>
+              <div className="min-w-0 line-clamp-2 font-semibold leading-tight text-fg">{task.title}</div>
               {currentUserId && onAddParticipants && task.participants.some((p) => p.status === "SENT" || p.status === "ACKNOWLEDGED") && (
                 <TaskParticipantAdd participants={task.participants} onAdd={onAddParticipants} />
               )}
             </div>
-            {/* Truncated like the title above it. Left to wrap, a two-word
-                sender name turned into three lines on a narrow note and the
-                header alone ate the room the action row needed. */}
+            {/* Unlike the title above it, kept single-line: left to wrap, a
+                two-word sender name turned into three lines on a narrow note
+                and the header alone ate the room the action row needed. */}
             <div className="truncate text-xs text-muted">{t("card.from", { name: senderName })}</div>
           </div>
         </div>
         {/* `shrink-0`: on a narrow note the long status word ("acknowledged")
             otherwise wraps this cluster onto a second line, nearly doubling the
             header and shoving the action row off the bottom of the window. The
-            title beside it is already `min-w-0` + `truncate`, so it is the one
-            that should give way. */}
+            title beside it is already `min-w-0` + `line-clamp-2`, so it is the
+            one that should give way. */}
         <div className="app-no-drag flex shrink-0 items-center gap-1.5">
           <Badge tone={task.myStatus === "ACKNOWLEDGED" ? "accent" : "neutral"}>
             {task.myStatus.toLowerCase()}
@@ -154,10 +154,14 @@ export function StickyWidget({
       </div>
 
       {/* Keep the card and its actions stable while allowing the full
-          description to be read in place. */}
+          description to be read in place. `app-no-drag` is required here: the
+          whole card is an OS drag region (see above), and without opting out,
+          Electron treats a wheel/trackpad gesture over this element as window
+          drag input rather than forwarding it to the scrollable paragraph —
+          so it showed a scrollbar that never actually scrolled. */}
       {task.description && (
         <p
-          className={`min-h-0 max-h-20 overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-fg/80 ${
+          className={`app-no-drag min-h-0 max-h-20 overflow-y-auto overscroll-contain whitespace-pre-wrap text-sm leading-relaxed text-fg/80 ${
             compact ? "max-h-16" : "max-h-20"
           } [scrollbar-color:var(--color-border)_transparent] [scrollbar-width:thin]`}
         >
@@ -201,7 +205,7 @@ export function StickyWidget({
           </ActionBtn>
         )}
         {task.actions.includes("COMPLETE") && (
-          <ActionBtn tone="success" label={t("card.complete")} disabled={busy} onClick={() => onAction("COMPLETE")}>
+          <ActionBtn tone="accent" label={t("card.complete")} disabled={busy} onClick={() => onAction("COMPLETE")}>
             <Flag size={15} /> {t("card.complete")}
           </ActionBtn>
         )}
@@ -224,14 +228,13 @@ function ActionBtn({
 }: {
   children: React.ReactNode;
   onClick: () => void;
-  tone: "accent" | "success" | "ghost" | "danger";
+  tone: "accent" | "ghost" | "danger";
   /** Tooltip text. The visible label is the button's own children. */
   label?: string;
   disabled?: boolean;
 }) {
   const tones = {
     accent: "bg-accent text-accent-fg hover:bg-accent-strong shadow-soft",
-    success: "bg-success text-white hover:brightness-110 shadow-soft",
     ghost: "border border-border text-fg hover:bg-surface-2",
     danger: "bg-danger text-white hover:brightness-110 shadow-soft",
   };

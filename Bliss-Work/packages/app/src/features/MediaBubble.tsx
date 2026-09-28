@@ -158,8 +158,9 @@ function VisualTile({
  * A non-visual attachment (PDF, spreadsheet, archive, …) inside a message
  * bubble.
  *
- * Clicking it opens the file, never offers it as a separate download (the
- * server ignores `?dl=1` — internal/api/attachments.go). Every resolved
+ * Clicking it OPENS the file and never downloads it: no `download` attribute,
+ * no `?dl=1`. The one deliberate download is the message's 3-dot menu →
+ * Download (useChatMedia.downloadItem). Every resolved
  * attachment is clickable. A type the app can render itself
  * (`canPreviewDocInApp`) opens in the in-app Lightbox, like the identical
  * file's row in the conversation's "Media, Links & Docs" panel
@@ -169,8 +170,11 @@ function VisualTile({
  * the way an email attachment's Open does (see lib/openAttachment.ts): on
  * desktop the OS's own application via `config.openAttachment`, on web a
  * browser tab pointed at the signed URL. The app fetches and saves nothing
- * itself; what the browser does with the response is the server's call
- * (media.ServeAs / Content-Disposition). A host with neither opens the
+ * itself; what the browser does with the response follows the server's
+ * headers (media.ServeAs / Content-Disposition): a type it can render is
+ * shown, and one it cannot — an Office file, an archive — gets the browser's
+ * own native handling, which the app neither controls nor claims to preview.
+ * A host with neither opens the
  * Lightbox, which explains the file cannot be previewed.
  */
 function FileCard({

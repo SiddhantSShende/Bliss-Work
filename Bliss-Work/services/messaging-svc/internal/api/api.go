@@ -330,6 +330,12 @@ func (s *Server) Router(webOrigin string) http.Handler {
 
 			// Meetings: an explicit roster, so a link means something.
 			r.Post("/meetings", s.scheduleMeeting)
+			// The series behind a repeating meeting. Organiser only, decided in
+			// the store. See meeting_series.go for why the series, not one
+			// occurrence, is what these change.
+			r.Get("/meeting-series/{id}", s.getMeetingSeries)
+			r.Patch("/meeting-series/{id}", s.updateMeetingSeries)
+			r.Delete("/meeting-series/{id}", s.cancelMeetingSeries)
 			r.Post("/calls/{id}/invites", s.createCallInvite)
 			r.Delete("/calls/{id}/invites/{inviteId}", s.revokeCallInvite)
 			// The ONE cross-org door in this service. Not under /calls/{id}
@@ -781,6 +787,13 @@ type replyReq struct {
 	// Message being quoted, if any. A reply always inherits its thread's origin,
 	// so there is nothing to declare here.
 	ReplyToID string `json:"replyToId"`
+	// Optional system kind (e.g. "attachment_opened"); absent means an
+	// ordinary reply. Whitelisted below, same as sendReq's Kind.
+	Kind string `json:"kind"`
+	// Required when Kind is "attachment_opened"/"attachment_downloaded" — see
+	// sendReq's AttachmentID doc comment; Body is still required but ignored,
+	// same as there, so every existing client keeps sending one.
+	AttachmentID string `json:"attachmentId"`
 }
 
 func (s *Server) reply(w http.ResponseWriter, r *http.Request) {
@@ -803,11 +816,29 @@ func (s *Server) reply(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, errBodyTooLong)
 		return
 	}
+	if req.Kind != "" && !store.ValidMessageKind(req.Kind) {
+		writeErr(w, http.StatusBadRequest, "unknown message kind")
+		return
+	}
 	if req.ReplyToID != "" && !validUUID(req.ReplyToID) {
 		writeErr(w, http.StatusBadRequest, "invalid replyToId")
 		return
 	}
-	res, err := s.store.Reply(r.Context(), claims.OrgID, claims.UserID, convID, req.Body, req.ClientMsgID, req.ReplyToID)
+	isAttachmentActivity := req.Kind == store.MessageKindAttachmentOpened || req.Kind == store.MessageKindAttachmentDownloaded
+	if isAttachmentActivity && !validUUID(req.AttachmentID) {
+		writeErr(w, http.StatusBadRequest, "attachmentId required")
+		return
+	}
+	var res *store.SendResult
+	var err error
+	if isAttachmentActivity {
+		// See store.ReplyAttachmentActivity: appends to the conversation's
+		// existing thread instead of Reply's plain path, which would be fine
+		// for an ordinary message but mints a fresh thread every call here.
+		res, err = s.store.ReplyAttachmentActivity(r.Context(), claims.OrgID, claims.UserID, convID, req.Kind, req.AttachmentID, req.ClientMsgID)
+	} else {
+		res, err = s.store.Reply(r.Context(), claims.OrgID, claims.UserID, convID, req.Body, req.ClientMsgID, req.ReplyToID)
+	}
 	if err != nil {
 		s.mapErr(w, err)
 		return

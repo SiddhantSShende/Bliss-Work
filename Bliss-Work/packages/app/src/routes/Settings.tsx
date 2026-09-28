@@ -14,7 +14,7 @@ import { useEffect, useState } from "react";
 import { Palette, MoreVertical, Check, Bell, BellOff, Info, RefreshCw, Eye, ShieldCheck, MonitorSmartphone, Sun, Moon } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { Button, Input, PageHeader, useTheme, THEMES, customThemeGradient, themeClasses, themeName, darkCounterpart, type CustomTheme, type ThemeId } from "@taskboard/ui";
+import { Button, PageHeader, useTheme, THEMES, customThemeGradient, themeClasses, themeName, darkCounterpart, type CustomTheme, type ThemeId } from "@taskboard/ui";
 import { Link } from "react-router-dom";
 import { BUILD_SHA } from "../lib/buildInfo";
 import { useRuntime } from "../lib/runtime";
@@ -24,7 +24,7 @@ import { loadDesktopNotifs, saveDesktopNotifs } from "../lib/notificationPrefs";
 
 export function Settings() {
   const { t } = useTranslation(["settings", "common"]);
-  const { theme } = useTheme();
+  const { theme, customThemeActive } = useTheme();
   const { config } = useRuntime();
   const goBack = useGoBack();
   const [desktopNotifs, setDesktopNotifs] = useState(loadDesktopNotifs);
@@ -59,7 +59,7 @@ export function Settings() {
           <SettingRow
             icon={<Palette size={18} />}
             title={t("settings:theme.title")}
-            description={t("settings:theme.description", { theme: themeName(theme) })}
+            description={t("settings:theme.description", { theme: customThemeActive ? t("settings:theme.custom.label") : themeName(theme) })}
             action={<ThemeMenu />}
           />
 
@@ -135,7 +135,10 @@ function ThemeMenu() {
   // `theme` straight against `opt.id` would leave every row unchecked while
   // in Dark mode. Reduce `theme` to its light-mode id first — the family the
   // active theme belongs to, independent of which mode it's currently in.
-  const activeFamily = isDark ? darkCounterpart(theme) : theme;
+  // While the custom theme is active NO preset is selected — `theme` still
+  // holds the preset it was layered over, and checking that row too is what
+  // put a ✓ on both it and Custom.
+  const activeFamily = customThemeActive ? null : isDark ? darkCounterpart(theme) : theme;
 
   const beginEditing = () => setEditing(true);
   const cancelEditing = () => setEditing(false);
@@ -217,7 +220,7 @@ function ThemeMenu() {
               className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-surface-2"
             >
               <span className="h-9 w-14 shrink-0 rounded-md border border-border" style={{ background: customThemeGradient(customTheme.colors) }} />
-              <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg">{customTheme.name}</span>
+              <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg">{t("settings:theme.custom.label")}</span>
               {customThemeActive && <Check size={16} className="shrink-0 text-accent" />}
             </button>
           )}
@@ -244,7 +247,6 @@ function CustomThemeBuilder({
   onSave: (theme: CustomTheme) => void;
 }) {
   const { t } = useTranslation("settings");
-  const [name, setName] = useState(initial?.name ?? "");
   const [colors, setColors] = useState<string[]>(initial?.colors ?? ["#6366f1"]);
 
   const setColorCount = (count: number) => {
@@ -255,15 +257,12 @@ function CustomThemeBuilder({
     <form
       onSubmit={(event) => {
         event.preventDefault();
-        const trimmedName = name.trim();
-        if (!trimmedName) return;
-        onSave({ name: trimmedName, colors });
+        onSave({ colors });
       }}
       className="absolute right-0 z-[1000] mt-1.5 w-72 rounded-xl border border-border bg-surface p-3 shadow-card"
     >
       <div className="mb-3 text-sm font-semibold text-fg">{t("settings:theme.custom.title")}</div>
-      <Input value={name} onChange={(event) => setName(event.target.value)} placeholder={t("settings:theme.custom.name")} required maxLength={80} />
-      <div className="mt-3 flex items-center justify-between text-xs font-medium text-muted">
+      <div className="flex items-center justify-between text-xs font-medium text-muted">
         <span>{t("settings:theme.custom.colors")}</span>
         <div className="flex gap-1">
           {[1, 2, 3].map((count) => (
@@ -294,7 +293,7 @@ function CustomThemeBuilder({
       <div className="mt-3 h-16 rounded-lg border border-border" style={{ background: customThemeGradient(colors) }} aria-label={t("settings:theme.custom.preview")} />
       <div className="mt-3 flex justify-end gap-2">
         <Button type="button" variant="subtle" size="sm" onClick={onCancel}>{t("settings:theme.custom.cancel")}</Button>
-        <Button type="submit" size="sm" disabled={!name.trim()}>{t("settings:theme.custom.save")}</Button>
+        <Button type="submit" size="sm">{t("settings:theme.custom.save")}</Button>
       </div>
     </form>
   );

@@ -1,6 +1,8 @@
-import { useRef, useState } from "react";
+import { useRef, useState, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import {
   CornerUpLeft,
+  Download,
   Forward,
   MoreHorizontal,
   MailOpen,
@@ -14,6 +16,7 @@ import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import type { ReactionDTO } from "@taskboard/shared";
 import { usePopupDismiss } from "../lib/usePopupDismiss";
+import { usePopoverPosition } from "../lib/usePopoverPosition";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { EmojiGrid, EmojiPopup, QUICK_REACTIONS } from "./EmojiPicker";
 import { WhatsAppIcon } from "./WhatsAppIcon";
@@ -32,6 +35,9 @@ import { WhatsAppIcon } from "./WhatsAppIcon";
  */
 export function MessageActions({
   mine,
+  containerRef,
+  files,
+  onDownload,
   forwardHref,
   onReply,
   onForwardTo,
@@ -45,6 +51,23 @@ export function MessageActions({
   onTogglePin,
 }: {
   mine: boolean;
+  /**
+   * The thread's scroll container. The overflow menu is portalled (see
+   * `menuRef` below — the same reason `EmojiPopup` is), so its placement has
+   * to be measured against something; anchoring that measurement to the
+   * viewport instead of this container is what let the menu flip "above" a
+   * message near the top of the thread and land behind the fixed chat
+   * header, which sits above the container but is still inside the viewport.
+   */
+  containerRef: RefObject<HTMLDivElement | null>;
+  /**
+   * The files this message carries, if any. Each one gets its own "Download"
+   * entry (a lone file just "Download", several name theirs) — the explicit,
+   * deliberate download, and the only one: clicking the file itself opens it.
+   */
+  files?: ReadonlyArray<{ id: string; name: string }>;
+  /** Download one of `files`. Absent (with `files`) where downloading is not offered. */
+  onDownload?: (file: { id: string; name: string }) => void;
   /**
    * The wa.me URL this message forwards to, or undefined to hide the action
    * (offered per-surface; channels and threads differ).
@@ -107,6 +130,7 @@ export function MessageActions({
   // the mistake a confirm step exists to catch.
   const [confirm, setConfirm] = useState<"hide" | "deleteAll" | null>(null);
   const popupRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   // ONE registration for both panels, because they share a wrapper and only one
   // of them is ever open: each trigger closes the other, so "is anything open
   // here" is the state that dismissal cares about.
@@ -116,8 +140,24 @@ export function MessageActions({
       setMenu(false);
       setEmoji(false);
     },
-    [popupRef],
+    // Both panels are portalled (see menuRef/popupRef's own components), so
+    // neither is inside `wrap` in the DOM — both have to be listed, or
+    // clicking inside either one reads as an outside click and closes it.
+    [popupRef, menuRef],
   );
+  // Prefers above (today's default), flipping to below only when the message
+  // is close enough to the top of the scroll container that the menu would
+  // not fit above it. Aligned to the trigger's right edge for `mine`
+  // messages (whose row is right-aligned) and its left edge otherwise —
+  // matching the menu's previous `right-0`/`left-0` placement.
+  const menuStyle = usePopoverPosition({
+    anchor: wrap,
+    panelRef: menuRef,
+    boundary: containerRef,
+    preferred: "above",
+    align: mine ? "end" : "start",
+    active: menu,
+  });
 
   const item =
     "flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs text-fg transition-colors hover:bg-surface-2";
@@ -166,16 +206,39 @@ export function MessageActions({
         </EmojiPopup>
       )}
 
-      {menu && (
+      {menu && typeof document !== "undefined" && createPortal(
         <div
+          ref={menuRef}
           role="menu"
-          className={`absolute z-20 ${mine ? "right-0" : "left-0"} bottom-7 w-52 rounded-xl border border-border bg-surface p-1 shadow-soft`}
+          // Portalled to document.body and positioned in fixed coordinates
+          // via menuStyle (see usePopoverPosition) — same reason as
+          // EmojiPopup: a panel positioned inside the thread's scroll box is
+          // clipped by it, which is what let this menu render half-hidden
+          // behind the chat header for a message near the top of the thread.
+          className="fixed z-[1100] w-52 overflow-y-auto overscroll-contain rounded-xl border border-border bg-surface p-1 shadow-soft"
+          style={menuStyle}
         >
           {onReply && (
             <button role="menuitem" className={item} onClick={() => { onReply(); setMenu(false); }}>
               <CornerUpLeft size={13} className="text-muted" /> {t("messageActions.menu.reply")}
             </button>
           )}
+          {onDownload &&
+            files?.map((file) => (
+              <button
+                key={file.id}
+                role="menuitem"
+                className={item}
+                onClick={() => { onDownload(file); setMenu(false); }}
+              >
+                <Download size={13} className="text-muted shrink-0" />
+                <span className="min-w-0 truncate">
+                  {files.length === 1
+                    ? t("messageActions.menu.download")
+                    : t("messageActions.menu.downloadNamed", { name: file.name })}
+                </span>
+              </button>
+            ))}
           {onForwardTo && (
             <button
               role="menuitem"
@@ -241,7 +304,8 @@ export function MessageActions({
               <Trash2 size={13} /> {t("messageActions.menu.deleteForEveryone")}
             </button>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
 
       <ConfirmDialog

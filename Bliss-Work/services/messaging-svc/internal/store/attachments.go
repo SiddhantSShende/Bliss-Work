@@ -464,10 +464,18 @@ func (s *Store) GetAttachmentForDownload(ctx context.Context, orgID, userID, id 
 // MessageKindAttachmentOpened/Downloaded can never name a file the caller
 // cannot see, or a string that was never a real filename at all.
 //
+// wantScope/wantScopeID name the conversation or channel the notice is being
+// POSTED into, and the attachment must live in exactly that one. Membership of
+// the attachment's own scope is not enough on its own: a user in both DM A and
+// channel B could otherwise post "X opened <file from B>" into A, disclosing
+// B's filename to everyone in A who is not in B. A mismatch answers ErrNotFound,
+// the same as an id that does not exist, so it is no oracle for other scopes'
+// attachments either.
+//
 // Runs on the CALLER's already-open tx (the appendMessageTx/SendChannelMessage
 // write transaction), matching how cachedUserNames resolves the sender's
 // display name inline rather than opening a second transaction.
-func (s *Store) attachmentForActivity(ctx context.Context, tx pgx.Tx, orgID, attachmentID, userID string) (string, error) {
+func (s *Store) attachmentForActivity(ctx context.Context, tx pgx.Tx, orgID, attachmentID, userID, wantScope, wantScopeID string) (string, error) {
 	if _, err := uuid.Parse(attachmentID); err != nil {
 		return "", ErrNotFound
 	}
@@ -483,6 +491,9 @@ func (s *Store) attachmentForActivity(ctx context.Context, tx pgx.Tx, orgID, att
 	}
 	if err != nil {
 		return "", err
+	}
+	if scope != wantScope || scopeID != wantScopeID {
+		return "", ErrNotFound
 	}
 	if err := requireScopeMember(ctx, tx, orgID, scope, scopeID, userID); err != nil {
 		return "", err

@@ -15,22 +15,30 @@
  * the toast, the file-transfer context, `fetch` and `window.open` are stubbed.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { AttachmentScope } from "@taskboard/shared";
+import type { AttachmentScope, MessageDTO } from "@taskboard/shared";
 import { encodeMedia, type MediaItem } from "../lib/chatEnvelope";
+import { qk } from "../lib/queryKeys";
 
 type Host = { kind?: string; openAttachment?: ReturnType<typeof vi.fn> };
 const h = vi.hoisted(() => ({
   api: {
     attachmentLinks: vi.fn(),
     mediaUrl: (path: string) => `https://msg.test${path}`,
+    // Rest params so `mock.calls` is typed as the arguments the hook really passes.
+    reply: vi.fn(async (..._args: unknown[]) => ({ messageId: "activity-msg", seq: 1, threadId: "thread-1" })),
+    sendChannelMessage: vi.fn(async (..._args: unknown[]) => ({ messageId: "activity-msg", seq: 1 })),
   },
   config: {} as Host,
   toastError: vi.fn(),
 }));
 vi.mock("../lib/runtime", () => ({ useRuntime: () => ({ api: h.api, config: h.config }) }));
+vi.mock("../store/session", () => ({
+  useSession: (sel: (s: { user: { id: string; username: string; displayName: string } }) => unknown) =>
+    sel({ user: { id: "me", username: "me", displayName: "Me" } }),
+}));
 vi.mock("sonner", () => ({ toast: { error: h.toastError, success: vi.fn() } }));
 vi.mock("../lib/fileTransfer", () => ({
   useFileTransfers: () => ({ stateOf: () => undefined, decline: vi.fn(), cancel: vi.fn() }),
@@ -87,6 +95,12 @@ beforeEach(() => {
   h.api.attachmentLinks.mockImplementation(async (ids: string[]) =>
     ids.map((id) => ({ id, url: `/media/${id}?t=tok`, expiresAt: "2099-01-01T00:00:00Z" })),
   );
+  // mockReset + a fresh implementation, not mockClear: one test installs a
+  // never-settling `reply`, which would otherwise leak into every later test.
+  h.api.reply.mockReset();
+  h.api.reply.mockImplementation(async () => ({ messageId: "activity-msg", seq: 1, threadId: "thread-1" }));
+  h.api.sendChannelMessage.mockReset();
+  h.api.sendChannelMessage.mockImplementation(async () => ({ messageId: "activity-msg", seq: 1 }));
   windowOpen = vi.spyOn(window, "open").mockReturnValue(null);
   // The PDF/text Lightbox fetches its own bytes; this also proves the open path
   // itself never does.
@@ -230,7 +244,19 @@ describe("the conversation's Docs panel", () => {
     { id: "m1", body: encodeMedia([PPTX, PDF]), senderName: "Sam", at: "2026-09-21T09:00:00Z" },
   ];
   const renderSheet = () =>
-    render(withQuery(<ChatAssetsSheet open onClose={() => {}} title="Sam" messages={messages} />));
+    render(
+      withQuery(
+        <ChatAssetsSheet
+          open
+          onClose={() => {}}
+          title="Sam"
+          messages={messages}
+          scope="conversation"
+          scopeId="scope-1"
+          meId="me"
+        />,
+      ),
+    );
   const openDocsTab = async () => userEvent.click(await screen.findByRole("tab", { name: /Docs/ }));
 
   it("web: an Office doc opens in the browser", async () => {
@@ -265,5 +291,264 @@ describe("the conversation's Docs panel", () => {
 
     expect(openAttachment).toHaveBeenCalledExactlyOnceWith(urlOf("att-pptx"), "Quarterly.pptx");
     expect(windowOpen).not.toHaveBeenCalled();
+  });
+});
+
+describe("file activity messages", () => {
+  beforeEach(asWeb);
+
+  it("posts attachment_opened through the DM reply endpoint — the SAME thread an ordinary reply uses — when a file opens in the Lightbox", async () => {
+    render(withQuery(<Message scope="conversation" items={[PDF]} />));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Open Report.pdf" }));
+
+    expect(h.api.reply).toHaveBeenCalledExactlyOnceWith(
+      "scope-1",
+      "Me opened Report.pdf",
+      expect.any(String),
+      undefined,
+      "attachment_opened",
+      "att-pdf",
+    );
+    expect(h.api.sendChannelMessage).not.toHaveBeenCalled();
+  });
+
+  it("posts attachment_opened — never downloaded — when a file with no in-app view opens in a browser tab", async () => {
+    render(withQuery(<Message scope="conversation" items={[PPTX]} />));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Open Quarterly.pptx" }));
+
+    expect(windowOpen).toHaveBeenCalledExactlyOnceWith(...OPEN_ARGS("att-pptx"));
+    expect(h.api.reply).toHaveBeenCalledExactlyOnceWith(
+      "scope-1",
+      "Me opened Quarterly.pptx",
+      expect.any(String),
+      undefined,
+      "attachment_opened",
+      "att-pptx",
+    );
+  });
+
+  it.each([PPTX, DOCX, XLSX, ZIP])(
+    "records exactly one attachment_opened for a click on $name, however the browser then handles it",
+    async (item) => {
+      render(withQuery(<Message scope="conversation" items={[item]} />));
+
+      await userEvent.click(await screen.findByRole("button", { name: `Open ${item.name}` }));
+
+      const kinds = h.api.reply.mock.calls.map((c) => c[4]);
+      expect(kinds).toEqual(["attachment_opened"]);
+    },
+  );
+
+  it("posts attachment_opened when desktop hands a file to the OS's own application", async () => {
+    const openAttachment = asDesktop();
+    render(withQuery(<Message scope="conversation" items={[PPTX]} />));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Open Quarterly.pptx" }));
+
+    expect(openAttachment).toHaveBeenCalledExactlyOnceWith(urlOf("att-pptx"), "Quarterly.pptx");
+    expect(h.api.reply.mock.calls.map((c) => c[4])).toEqual(["attachment_opened"]);
+  });
+
+  it("posts attachment_opened through the channel endpoint, never the DM reply endpoint, for a channel scope", async () => {
+    render(withQuery(<Message scope="channel" items={[PDF]} />));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Open Report.pdf" }));
+
+    expect(h.api.sendChannelMessage).toHaveBeenCalledExactlyOnceWith(
+      "scope-1",
+      "Me opened Report.pdf",
+      expect.any(String),
+      "attachment_opened",
+      undefined,
+      "att-pdf",
+    );
+    expect(h.api.reply).not.toHaveBeenCalled();
+  });
+
+  it("posts attachment_opened through the channel endpoint when a file opens in a browser tab", async () => {
+    render(withQuery(<Message scope="channel" items={[PPTX]} />));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Open Quarterly.pptx" }));
+
+    expect(h.api.sendChannelMessage).toHaveBeenCalledExactlyOnceWith(
+      "scope-1",
+      "Me opened Quarterly.pptx",
+      expect.any(String),
+      "attachment_opened",
+      undefined,
+      "att-pptx",
+    );
+    expect(h.api.reply).not.toHaveBeenCalled();
+  });
+
+  it("the Docs panel records attachment_opened for a file that leaves the app too", async () => {
+    render(
+      withQuery(
+        <ChatAssetsSheet
+          open
+          onClose={() => {}}
+          title="Sam"
+          messages={[{ id: "m1", body: encodeMedia([PPTX]), senderName: "Sam", at: "2026-09-21T09:00:00Z" }]}
+          scope="conversation"
+          scopeId="scope-3"
+          meId="me"
+        />,
+      ),
+    );
+    await userEvent.click(await screen.findByRole("tab", { name: /Docs/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "Open Quarterly.pptx" }));
+
+    expect(windowOpen).toHaveBeenCalledExactlyOnceWith(...OPEN_ARGS("att-pptx"));
+    expect(h.api.reply.mock.calls.map((c) => c[4])).toEqual(["attachment_opened"]);
+  });
+
+  // A normal click is never a download: no `download` attribute anywhere, no
+  // scripted anchor, and the URL carries no explicit-download flag. What
+  // makes something a download is the server's `?dl=1`, and only 3-dot →
+  // Download sends it (chatAttachmentDownload.test.tsx).
+  it("a normal click never creates a download anchor and never sends ?dl=1", async () => {
+    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    const { container } = render(withQuery(<Message scope="conversation" items={[PPTX, IMAGE, PDF]} />));
+
+    for (const name of ["Open Quarterly.pptx", "Open photo.png", "Open Report.pdf"]) {
+      await userEvent.click(await screen.findByRole("button", { name }));
+    }
+
+    expect(anchorClick).not.toHaveBeenCalled();
+    expect(container.querySelector("a[download]")).toBeNull();
+    expect(document.querySelector("a[download]")).toBeNull();
+    for (const [url] of windowOpen.mock.calls) expect(String(url)).not.toContain("dl=1");
+  });
+
+  it("never claims an activity event for a file that never rendered — no click, no post", async () => {
+    render(withQuery(<Message scope="conversation" items={[PDF]} />));
+
+    await screen.findByRole("button", { name: "Open Report.pdf" });
+
+    expect(h.api.reply).not.toHaveBeenCalled();
+    expect(h.api.sendChannelMessage).not.toHaveBeenCalled();
+  });
+
+  it("does not double-post when the same file is clicked twice before the first request settles", async () => {
+    h.api.reply.mockImplementation(() => new Promise(() => {})); // never settles within the test
+    render(withQuery(<Message scope="conversation" items={[PDF]} />));
+    const button = await screen.findByRole("button", { name: "Open Report.pdf" });
+
+    await userEvent.click(button);
+    await userEvent.click(button);
+
+    expect(h.api.reply).toHaveBeenCalledTimes(1);
+  });
+
+  it("the conversation's Docs panel posts its own open the same way", async () => {
+    render(
+      withQuery(
+        <ChatAssetsSheet
+          open
+          onClose={() => {}}
+          title="Sam"
+          messages={[{ id: "m1", body: encodeMedia([PDF]), senderName: "Sam", at: "2026-09-21T09:00:00Z" }]}
+          scope="channel"
+          scopeId="channel-9"
+          meId="me"
+        />,
+      ),
+    );
+    await userEvent.click(await screen.findByRole("tab", { name: /Docs/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "Open Report.pdf" }));
+
+    expect(h.api.sendChannelMessage).toHaveBeenCalledExactlyOnceWith(
+      "channel-9",
+      "Me opened Report.pdf",
+      expect.any(String),
+      "attachment_opened",
+      undefined,
+      "att-pdf",
+    );
+  });
+
+  it("the Media tab's own thumbnail also posts attachment_opened — never downloaded, since images/video always render inline", async () => {
+    render(
+      withQuery(
+        <ChatAssetsSheet
+          open
+          onClose={() => {}}
+          title="Sam"
+          messages={[{ id: "m1", body: encodeMedia([IMAGE]), senderName: "Sam", at: "2026-09-21T09:00:00Z" }]}
+          scope="conversation"
+          scopeId="scope-7"
+          meId="me"
+        />,
+      ),
+    );
+    // Media is the default tab — no tab click needed first.
+    await userEvent.click(await screen.findByRole("link", { name: "Open photo.png" }));
+
+    expect(h.api.reply).toHaveBeenCalledExactlyOnceWith(
+      "scope-7",
+      "Me opened photo.png",
+      expect.any(String),
+      undefined,
+      "attachment_opened",
+      "att-img",
+    );
+    expect(h.api.sendChannelMessage).not.toHaveBeenCalled();
+  });
+
+  it("an unresolved Media tile (no access) posts nothing — there is no URL to actually open", async () => {
+    h.api.attachmentLinks.mockResolvedValue([]);
+    render(
+      withQuery(
+        <ChatAssetsSheet
+          open
+          onClose={() => {}}
+          title="Sam"
+          messages={[{ id: "m1", body: encodeMedia([IMAGE]), senderName: "Sam", at: "2026-09-21T09:00:00Z" }]}
+          scope="conversation"
+          scopeId="scope-7"
+          meId="me"
+        />,
+      ),
+    );
+    // An unresolved tile's href is omitted (no URL to point at), so it no
+    // longer carries the implicit "link" role — found by its title instead.
+    const tile = await screen.findByTitle(/photo\.png/);
+    await userEvent.click(tile);
+
+    expect(h.api.reply).not.toHaveBeenCalled();
+  });
+
+  // The realtime bridge (queryBridge.tsx) never echoes the sender's own
+  // MessageCreated event back into this same query — that skip is what makes
+  // this cache patch the ONLY place the sender's own pill gets rendered.
+  // This test guards the other half: if that invariant were ever violated (a
+  // WS echo racing the HTTP response into the SAME cache entry), the
+  // messageId dedup below must still prevent a visible duplicate.
+  it("never double-renders the sender's own pill even if the message id is already in cache", async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    qc.setQueryData<MessageDTO[]>(qk.messages("scope-1"), [
+      {
+        id: "activity-msg",
+        conversationId: "scope-1",
+        seq: 1,
+        senderId: "me",
+        body: "Me opened Report.pdf",
+        kind: "attachment_opened",
+        createdAt: "2026-01-01T00:00:00Z",
+      },
+    ]);
+    render(
+      <QueryClientProvider client={qc}>
+        <Message scope="conversation" items={[PDF]} />
+      </QueryClientProvider>,
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: "Open Report.pdf" }));
+    await waitFor(() => expect(h.api.reply).toHaveBeenCalledTimes(1));
+
+    const list = qc.getQueryData<MessageDTO[]>(qk.messages("scope-1")) ?? [];
+    expect(list.filter((m) => m.id === "activity-msg")).toHaveLength(1);
   });
 });

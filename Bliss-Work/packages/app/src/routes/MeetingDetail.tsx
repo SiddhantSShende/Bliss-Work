@@ -3,13 +3,14 @@ import { useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
-import { AlertCircle, Disc, Hash, PlayCircle, ScreenShare, Video } from "lucide-react";
+import { AlertCircle, Disc, Hash, PlayCircle, Repeat, ScreenShare, Video } from "lucide-react";
 import { Avatar, Badge, Button, Spinner } from "@taskboard/ui";
 import type { CallDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
 import { useUserLabels } from "../lib/userLabel";
+import { describeRecurrence } from "../lib/meetingRecurrence";
 import { openCallTab } from "../lib/callWindow";
 import { useMeetingSession } from "../lib/MeetingSession";
 import { dayLabel, timeLabel, whenOf } from "../lib/meetingTime";
@@ -22,6 +23,7 @@ import {
 } from "../lib/meetingView";
 import { Tabs, type TabSpec } from "../features/Tabs";
 import { MeetingInviteLink } from "../features/MeetingInviteLink";
+import { MeetingSeriesActions } from "../features/MeetingSeriesActions";
 import { MeetingChatPanel, MeetingNotesPanel } from "../features/MeetingTranscript";
 
 /**
@@ -120,7 +122,8 @@ export function MeetingDetail() {
               {call.title.trim() === "" && <span className="italic">{t("detail.noTitleSet")}</span>}
             </p>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            <MeetingSeriesActions call={call} />
             <MeetingStatusBadge call={call} />
             {joinable && (
               <Button size="sm" onClick={open}>
@@ -261,6 +264,14 @@ function MeetingOverview({
             icon={call.recordingStatus ? <Disc size={13} /> : undefined}
           />
           {call.channelId && <Fact label={t("detail.overview.meeting.channelCall")} value={t("detail.overview.meeting.channelCallValue")} icon={<Hash size={13} />} />}
+          {call.series && (
+            <Fact
+              label={t("detail.overview.meeting.repeats")}
+              value={describeRecurrence(t, call.series.recurrence)}
+              icon={<Repeat size={13} />}
+            />
+          )}
+          {call.channelIds.length > 0 && <MeetingChannelsFact channelIds={call.channelIds} />}
         </dl>
         {call.recordingStatus === "READY" && <RecordingLink callId={call.id} />}
         {call.recordingStatus === "RECORDING" && (
@@ -327,6 +338,23 @@ function Fact({ label, value, icon }: { label: string; value: string; icon?: Rea
       </dd>
     </div>
   );
+}
+
+/** The channels a meeting was addressed to, by name. A channel the viewer is not
+ *  in is not in their channel list, so it cannot be named — counted instead, which
+ *  says it exists without pretending to know what it is called. */
+function MeetingChannelsFact({ channelIds }: { channelIds: string[] }) {
+  const { t } = useTranslation("meetings");
+  const { api } = useRuntime();
+  const { data: channels } = useQuery({ queryKey: qk.channels, queryFn: () => api.channels() });
+  const byId = new Map((channels ?? []).map((c) => [c.id, c.name]));
+  const named = channelIds.flatMap((id) => (byId.has(id) ? [`#${byId.get(id)}`] : []));
+  const rest = channelIds.length - named.length;
+  const value = [
+    ...named,
+    ...(rest > 0 ? [t("detail.overview.meeting.channelsUnavailable", { count: rest })] : []),
+  ].join(", ");
+  return <Fact label={t("detail.overview.meeting.channels")} value={value} icon={<Hash size={13} />} />;
 }
 
 /**

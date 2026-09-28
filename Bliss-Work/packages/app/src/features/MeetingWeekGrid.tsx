@@ -68,7 +68,7 @@ export function MeetingWeekGrid({
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="flex" style={{ height: bodyHeight }}>
             <div className="w-14 shrink-0">
-              {hours.map((h) => (
+              {hours.map((h, index) => (
                 <div
                   key={h}
                   className="relative border-b border-transparent"
@@ -76,8 +76,17 @@ export function MeetingWeekGrid({
                 >
                   {/* Lifted onto the line it labels rather than sitting inside
                       the hour below it, which is what makes a block starting at
-                      10:00 line up with the "10 AM" it is next to. */}
-                  <span className="absolute -top-2 right-2 text-[11px] font-medium text-muted">
+                      10:00 line up with the "10 AM" it is next to. The very
+                      first row has no row above it to lift into — scrolled to
+                      the top, that negative offset pushes the label above the
+                      scroll container's own edge and clips it (whichever hour
+                      the window happens to start at, e.g. 12 AM). So the first
+                      row's label sits flush at its own top instead. */}
+                  <span
+                    className={`absolute right-2 text-[11px] font-medium text-muted ${
+                      index === 0 ? "top-0" : "-top-2"
+                    }`}
+                  >
                     {hourLabel(h, i18n.language)}
                   </span>
                 </div>

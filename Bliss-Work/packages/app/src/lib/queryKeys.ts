@@ -22,6 +22,11 @@ export const qk = {
    *  every other call surface gets is exactly what keeps the calendar live when
    *  somebody schedules, starts or ends a meeting. */
   callsRange: (fromISO: string, toISO: string) => ["calls", "range", fromISO, toISO] as const,
+  /** A repeating meeting's series, for its organiser's edit form. Under the
+   *  ["calls"] prefix for the same reason as callsRange: an edit, a cancel or the
+   *  server topping the series up changes what it holds, and every call event
+   *  already sweeps that prefix. */
+  meetingSeries: (id: string) => ["calls", "series", id] as const,
   /** The signed playback link for one call's recording. Its own key, not part
    *  of the call, because the link EXPIRES and is refetched on a timer while
    *  the call row itself does not change. */
