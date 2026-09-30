@@ -1,13 +1,14 @@
 import { useMemo, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
-import { Calendar, ChevronDown, Clock, Video } from "lucide-react";
+import { Calendar, Video } from "lucide-react";
 import { ApiError, type CallDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { useToggleSet } from "../lib/useToggleSet";
+import { usePeopleCandidates } from "../lib/usePeopleCandidates";
 import {
   browserTimeZone,
   emptyRecurrence,
@@ -17,7 +18,10 @@ import {
 } from "../lib/meetingRecurrence";
 import { MeetingAudienceFields } from "./MeetingAudienceFields";
 import { MeetingDialogShell } from "./MeetingDialogShell";
+import { MeetingPreview } from "./MeetingPreview";
 import { MeetingRepeatField } from "./MeetingRepeatField";
+import { MeetingScheduledDialog } from "./MeetingScheduledDialog";
+import { TimePicker } from "./TimePicker";
 
 /** How long the meeting runs when scheduled, in minutes — matches the
  *  server's own default (defaultCallMinutes in calls.go), same reasoning as
@@ -31,10 +35,11 @@ const DEFAULT_MEETING_MINUTES = 60;
  *  submit, not a real past date — mirrors ScheduleCallDialog's own
  *  SCHEDULE_GRACE_MS and the server's scheduleGraceWindow (calls.go), kept
  *  in step so this client never rejects a value the server would accept, or
- *  the reverse. Doubles as the Start Now / Schedule boundary: the Start Time
+ *  the reverse. Also the "start now" vs. a real future schedule boundary
+ *  the request itself is decided by (see `scheduled` below): the Start Time
  *  fields default to right now, so without this grace window the ordinary
- *  few seconds between opening the popup and clicking submit would make the
- *  button read "Schedule" for a start time the user never touched. */
+ *  few seconds between opening the popup and clicking submit would send a
+ *  future `scheduledAt` for a start time the user never touched. */
 const GRACE_MS = 60_000;
 
 function localDate(d: Date): string {
@@ -54,6 +59,16 @@ function combine(date: string, time: string): Date | null {
   if (!date || !time) return null;
   const d = new Date(`${date}T${time}`);
   return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** `startAt` + the meeting's default length — what End resets to whenever
+ *  Start changes. Native Date arithmetic on the epoch-ms value (not string
+ *  math on the date/time fields separately), so a start near midnight rolls
+ *  the date half forward on its own: 23:30 -> 00:30 the next day, with
+ *  nothing here needing to special-case the rollover. */
+function plusDefaultDuration(startAt: Date): { date: string; time: string } {
+  const end = new Date(startAt.getTime() + DEFAULT_MEETING_MINUTES * 60_000);
+  return { date: localDate(end), time: localTime(end) };
 }
 
 interface FormErrors {
@@ -93,36 +108,45 @@ function validate(
 }
 
 /**
- * The "New Meeting" popup — redesigned to a compact, predominantly WHITE
- * corporate card (per the product's reference design) rather than the app's
- * usual dark-mode-adaptive surface. See STEP 9 of the task this shipped
- * with: everything here is intentionally hardcoded white/gray/dark-text —
- * `bg-white`, `border-gray-200`, `text-gray-900` — NOT `bg-surface`/
- * `text-fg`, which would flip to a dark card in dark mode. The one place
- * that still follows the user's chosen theme is the accent — the Start Now
- * / Schedule button, the field icons, and focus rings all use the existing
+ * The "New Meeting" popup — a compact, predominantly WHITE corporate card
+ * (per the product's reference design) rather than the app's usual
+ * dark-mode-adaptive surface: everything here is intentionally hardcoded
+ * white/gray/dark-text — `bg-white`, `border-gray-200`, `text-gray-900` —
+ * NOT `bg-surface`/`text-fg`, which would flip to a dark card in dark mode.
+ * The one place that still follows the user's chosen theme is the accent —
+ * the submit button, the field icons, and focus rings all use the existing
  * `accent`/`accent-fg` tokens (ScheduleCallDialog.tsx's chosen accent
  * variety), so switching theme in Settings still recolors this popup's one
  * highlight the same way it does everywhere else.
  *
  * A dedicated component rather than a new branch of ScheduleCallDialog: this
  * popup's layout (two independently-labeled date+time fields per row,
- * always-populated start defaulting to now, no post-create invite-link
- * step — that's still available from the meeting's own detail page via
- * MeetingInviteLink) is different enough from the channel/direct scopes'
- * shared shell that folding it in as another `scope.kind === "meeting"`
- * conditional would have made that file harder to follow for a design that
- * has nothing left in common with theirs. ScheduleCallDialog.tsx no longer
- * has a "meeting" scope at all — this replaced it there.
+ * always-populated start defaulting to now, a Meeting Preview, a
+ * confirmation step of its own — MeetingInviteLink is still what the
+ * meeting's own detail page uses afterwards) is different enough from the
+ * channel/direct scopes' shared shell that folding it in as another
+ * `scope.kind === "meeting"` conditional would have made that file harder to
+ * follow for a design that has nothing left in common with theirs.
+ * ScheduleCallDialog.tsx no longer has a "meeting" scope at all — this
+ * replaced it there.
  *
  * Still the SAME backend call as before: api.scheduleMeeting, invalidating
  * qk.calls so Upcoming/Live/Past + the Meetings rail badge update without a
  * refresh — see queryBridge.tsx's handling of the resulting call.* events.
  *
+ * ── Confirmation, not an immediate redirect ──────────────────────────────────
+ * The submit button always reads "Schedule Meeting", whatever `scheduled`
+ * below works out to be for the REQUEST (that still decides `scheduledAt`
+ * and `durationMinutes`, exactly as before). Once `create` succeeds, this
+ * renders MeetingScheduledDialog in place of the form rather than closing —
+ * onClose/onStarted only fire from THAT dialog's own buttons, so a "Start
+ * Now" meeting no longer jumps straight into the room; the confirmation is
+ * always in between, with Start Meeting Now as its own explicit action.
+ *
  * ── Members, channels, repeat ────────────────────────────────────────────────
  * Members and channels say who is invited (the channels' members are all
  * invited); Repeat makes this the first of a series. All three ride the same
- * request. A REPEATING meeting is always scheduled, never "Start Now": there is
+ * request. A REPEATING meeting is always scheduled, never "start now": there is
  * nothing to repeat from otherwise, so choosing Repeat also turns off the
  * "an untouched start time means now" allowance and holds the start to the same
  * not-in-the-past rule a chosen time gets.
@@ -130,12 +154,14 @@ function validate(
 export function NewMeetingDialog({
   onClose,
   onStarted,
+  onViewInCalendar,
 }: {
   onClose: () => void;
-  /** Fired when the meeting starts immediately (Start Now) so the caller can
-   *  open it right away. NOT fired for a future Schedule — nothing to join
-   *  yet. */
+  /** Fired from the confirmation's Start Meeting Now, so the caller can open
+   *  the meeting right away. */
   onStarted?: (call: CallDTO) => void;
+  /** Fired from the confirmation's View in Calendar. */
+  onViewInCalendar?: (call: CallDTO) => void;
 }) {
   const { t } = useTranslation("meetings");
   const { api } = useRuntime();
@@ -144,10 +170,14 @@ export function NewMeetingDialog({
   const [title, setTitle] = useState("");
   const [startDate, setStartDate] = useState(() => localDate(new Date()));
   const [startTime, setStartTime] = useState(() => localTime(new Date()));
-  const [endDate, setEndDate] = useState(() => localDate(new Date()));
-  const [endTime, setEndTime] = useState(() =>
-    localTime(new Date(Date.now() + DEFAULT_MEETING_MINUTES * 60_000)),
-  );
+  // Both halves from the SAME plusDefaultDuration(now) call, not independent
+  // localDate(now)/localTime(now + 1h): computing the date half from `now`
+  // while the time half already carries the +1h offset used to leave them
+  // mismatched whenever "now" was near midnight — opening at 23:30 produced
+  // TODAY's date with a "00:30" time, i.e. an End an hour BEFORE Start rather
+  // than an hour after it.
+  const [endDate, setEndDate] = useState(() => plusDefaultDuration(new Date()).date);
+  const [endTime, setEndTime] = useState(() => plusDefaultDuration(new Date()).time);
   const invitees = useToggleSet();
   const channels = useToggleSet();
   const [recurrence, setRecurrence] = useState<RecurrenceForm>(emptyRecurrence);
@@ -157,6 +187,44 @@ export function NewMeetingDialog({
   const [attempted, setAttempted] = useState(false);
   /** Whether the user has changed the Start Time from its "right now" default. */
   const [startEdited, setStartEdited] = useState(false);
+  /** Set once `create` succeeds — swaps the form for MeetingScheduledDialog.
+   *  See the component doc comment's "Confirmation, not an immediate
+   *  redirect". */
+  const [scheduledCall, setScheduledCall] = useState<CallDTO | null>(null);
+
+  // Names for the Meeting Preview (and, after success, the confirmation's
+  // recap of the same thing) — same directory/channel queries
+  // MeetingAudienceFields itself uses, cached under the same keys.
+  const { all: people } = usePeopleCandidates("");
+  const { data: channelList } = useQuery({ queryKey: qk.channels, queryFn: () => api.channels() });
+  const inviteeNames = useMemo(() => {
+    const byId = new Map(people.map((u) => [u.id, u]));
+    return [...invitees.selected].map(
+      (id) => byId.get(id)?.displayName || byId.get(id)?.username || t("newMeeting.unknownMember"),
+    );
+  }, [invitees.selected, people, t]);
+  const channelNames = useMemo(() => {
+    const byId = new Map((channelList ?? []).map((c) => [c.id, c]));
+    return [...channels.selected].map((id) => byId.get(id)?.name || t("newMeeting.unknownChannel"));
+  }, [channels.selected, channelList, t]);
+
+  /** Start changed (either half) -> End resets to Start + the default length,
+   *  discarding whatever End currently held, including a value the user
+   *  customized by hand: once Start moves, a previously-picked End almost
+   *  never means what it used to. Called from the Start field's own
+   *  onDateChange/onTimeChange below rather than an effect watching startAt —
+   *  an effect keyed on startAt would also fire from EndTime's own combine()
+   *  dependency chain re-running for unrelated reasons, and would have no way
+   *  to tell "Start just changed" from "this is just a render". Driving it
+   *  from the two handlers that are the only real sources of a Start change
+   *  needs neither a loop nor that guesswork. */
+  const resetEndAfterStartChange = (nextStartDate: string, nextStartTime: string) => {
+    const nextStart = combine(nextStartDate, nextStartTime);
+    if (!nextStart) return;
+    const end = plusDefaultDuration(nextStart);
+    setEndDate(end.date);
+    setEndTime(end.time);
+  };
 
   const repeating = recurrence.repeat !== "NONE";
   const startAt = useMemo(() => combine(startDate, startTime), [startDate, startTime]);
@@ -169,8 +237,9 @@ export function NewMeetingDialog({
    *  including the ordinary few seconds of clock skew between opening this
    *  popup (which defaults Start Time to the current moment) and clicking
    *  submit. With Repeat it does not matter: a repeating meeting is scheduled
-   *  either way. This alone decides Start Now vs Schedule, both for the button's
-   *  own label (STEP 6) and for what gets sent to the server. */
+   *  either way. This alone decides what is actually sent to the server —
+   *  `scheduledAt` present or omitted — the button itself no longer varies
+   *  by it. */
   const isFuture = startEdited && !!startAt && startAt.getTime() - Date.now() > GRACE_MS;
   const scheduled = isFuture || repeating;
 
@@ -193,10 +262,9 @@ export function NewMeetingDialog({
         channelIds: channels.selected.size ? [...channels.selected] : undefined,
         recurrence: toRecurrenceInput(recurrence, startDate, browserTimeZone()),
       }),
-    onSuccess: (call, vars) => {
+    onSuccess: (call) => {
       void qc.invalidateQueries({ queryKey: qk.calls });
-      onClose();
-      if (!vars.scheduled) onStarted?.(call);
+      setScheduledCall(call);
     },
     // 403 is the server's one answer for a member who is gone, a channel that is
     // gone or that the organiser is not in, and a block: say what to do about it.
@@ -223,6 +291,22 @@ export function NewMeetingDialog({
     create.mutate({ startAt, endAt, scheduled });
   };
 
+  if (scheduledCall && startAt && endAt) {
+    return (
+      <MeetingScheduledDialog
+        call={scheduledCall}
+        title={title}
+        startAt={startAt}
+        endAt={endAt}
+        inviteeNames={inviteeNames}
+        channelNames={channelNames}
+        onClose={onClose}
+        onStarted={onStarted}
+        onViewInCalendar={onViewInCalendar}
+      />
+    );
+  }
+
   return (
     <MeetingDialogShell
       title={t("newMeeting.title")}
@@ -244,7 +328,7 @@ export function NewMeetingDialog({
             className="flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-fg transition hover:brightness-105 disabled:opacity-60"
           >
             <Video size={15} />
-            {create.isPending ? t("newMeeting.starting") : scheduled ? t("newMeeting.schedule") : t("newMeeting.startNow")}
+            {create.isPending ? t("newMeeting.scheduling") : t("newMeeting.scheduleMeeting")}
           </button>
         </>
       }
@@ -268,10 +352,12 @@ export function NewMeetingDialog({
         onDateChange={(v) => {
           setStartEdited(true);
           setStartDate(v);
+          resetEndAfterStartChange(v, startTime);
         }}
         onTimeChange={(v) => {
           setStartEdited(true);
           setStartTime(v);
+          resetEndAfterStartChange(startDate, v);
         }}
         error={attempted ? errors.start : undefined}
       />
@@ -297,6 +383,14 @@ export function NewMeetingDialog({
         onToggleInvitee={invitees.toggle}
         channels={channels.selected}
         onToggleChannel={channels.toggle}
+      />
+
+      <MeetingPreview
+        title={title}
+        startAt={startAt}
+        endAt={endAt}
+        inviteeNames={inviteeNames}
+        channelNames={channelNames}
       />
     </MeetingDialogShell>
   );
@@ -334,23 +428,7 @@ function DateTimeFields({
             className="w-full rounded-lg border border-gray-300 bg-white py-2 pl-9 pr-2 text-sm text-gray-900 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
           />
         </div>
-        <div className="relative">
-          <Clock
-            size={15}
-            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-accent"
-          />
-          <input
-            type="time"
-            aria-label={`${label} time`}
-            value={time}
-            onChange={(e) => onTimeChange(e.target.value)}
-            className="w-full rounded-lg border border-gray-300 bg-white py-2 pl-9 pr-7 text-sm text-gray-900 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-          />
-          <ChevronDown
-            size={14}
-            className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400"
-          />
-        </div>
+        <TimePicker label={label} value={time} onChange={onTimeChange} />
       </div>
       {error && <span className="text-xs text-danger">{error}</span>}
     </div>

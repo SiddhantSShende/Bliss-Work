@@ -34,7 +34,7 @@ import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
 import { useUserLabels } from "../lib/userLabel";
-import { startOfDay } from "../lib/meetingTime";
+import { startOfDay, whenOf } from "../lib/meetingTime";
 import { openCallTab } from "../lib/callWindow";
 import { useMeetingSession } from "../lib/MeetingSession";
 import {
@@ -111,6 +111,20 @@ export function MeetingsCalendar() {
 
   const selectMeeting = (call: CallDTO) => {
     const next = new URLSearchParams(params);
+    next.set("view", bucketFor(call));
+    setParams(next, { replace: true });
+    setSelectedMeetingId(call.id);
+  };
+
+  /** NewMeetingDialog's confirmation "View in Calendar" — the grid, not just
+   *  the list, so the anchor moves onto the week the new meeting is actually
+   *  in first. One combined URLSearchParams update rather than setView() +
+   *  selectMeeting() back to back: both build their next params off the same
+   *  stale `params` closure, so the second call would overwrite the first's
+   *  `d` change before either had re-rendered. */
+  const viewMeetingInCalendar = (call: CallDTO) => {
+    const next = new URLSearchParams(params);
+    next.set("d", anchorParam(startOfDay(whenOf(call))));
     next.set("view", bucketFor(call));
     setParams(next, { replace: true });
     setSelectedMeetingId(call.id);
@@ -242,6 +256,10 @@ export function MeetingsCalendar() {
           onStarted={(call) => {
             setScheduleOpen(false);
             openRoom(call);
+          }}
+          onViewInCalendar={(call) => {
+            setScheduleOpen(false);
+            viewMeetingInCalendar(call);
           }}
         />
       )}

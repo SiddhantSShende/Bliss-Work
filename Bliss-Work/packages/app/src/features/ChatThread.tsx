@@ -34,7 +34,9 @@ export interface ThreadMessage {
     | "screenshot_attempt"
     | "attachment_opened"
     | "attachment_downloaded"
-    | "channel_renamed";
+    | "channel_renamed"
+    | "channel_created"
+    | "channel_member_added";
   /** Sender-side delivery state. Set only on the caller's own messages. */
   status?: MessageDTO["status"];
   /** The message this one quotes. Rendered as a strip above the body. */
@@ -465,7 +467,7 @@ export function ChatThread({
               );
             }
 
-            if (m.kind === "channel_renamed") {
+            if (m.kind === "channel_renamed" || m.kind === "channel_created" || m.kind === "channel_member_added") {
               return (
                 <div key={m.id}>
                   {dayChip}

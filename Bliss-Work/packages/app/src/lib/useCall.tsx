@@ -466,7 +466,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       // two people, so on a deployment with no SFU the honest outcome is to add
       // nobody, rather than to add someone into a room the other two can never
       // move to.
-      await api.callToken(record);
+      await api.checkCallReady(record);
       for (const id of userIds) await api.addCallParticipant(record, id);
       // Take the peer across, then move ourselves. Whoever was added is rung by
       // the server and joins the same room from their side.

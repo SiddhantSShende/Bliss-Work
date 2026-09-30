@@ -18,6 +18,7 @@ export type ErrorCode =
   | "forbidden"
   | "not_found"
   | "conflict"
+  | "call_session_active"
   | "validation_error"
   | "rate_limited"
   | "internal_error"

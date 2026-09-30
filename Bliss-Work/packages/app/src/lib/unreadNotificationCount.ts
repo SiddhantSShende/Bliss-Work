@@ -11,6 +11,11 @@ import { qk } from "./queryKeys";
 /** The cached shape of `api.notificationsUnreadCount()`. */
 type UnreadCount = { unreadCount: number };
 
+export function unreadBadgeLabel(count: number): string | null {
+  if (count <= 0) return null;
+  return count >= 100 ? "99+" : String(count);
+}
+
 /**
  * Optimistically lower the badge by `by`, never below zero. A no-op until the
  * count has loaded — the refresh below then fetches it.

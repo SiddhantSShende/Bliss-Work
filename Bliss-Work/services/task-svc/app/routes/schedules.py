@@ -19,7 +19,7 @@ async def list_schedules(principal: Principal = PrincipalDep) -> list[ScheduledT
         rows = (
             await db.execute(
                 text(
-                    "SELECT s.id, s.org_id, s.title_enc, s.description_enc, s.kind, s.scheduled_for, "
+                    "SELECT s.id, s.org_id, s.title_enc, s.description_enc, s.channel_id, s.kind, s.scheduled_for, "
                     "s.start_at, s.next_run_at, s.frequency, s.frequency_interval, s.weekdays, s.monthly_rule, "
                     "s.monthly_day, s.monthly_ordinal, s.monthly_weekday, s.end_condition, s.end_at, "
                     "s.occurrence_limit, s.occurrence_count, s.assignee_ids, "

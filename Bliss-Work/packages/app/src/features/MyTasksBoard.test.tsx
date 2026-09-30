@@ -52,7 +52,7 @@ const sentTasks = [
     ],
   },
   {
-    taskId: "t3", title: "Fix the flaky test", description: "", createdAt: at(3),
+    taskId: "t3", title: "Fix the flaky test", description: "", createdAt: at(3), participants: [],
     assignees: [{ assigneeId: "u-alice", assigneeUsername: "alice", status: "SENT", assignedAt: at(12) }],
   },
 ] as unknown as SentTaskDTO[];

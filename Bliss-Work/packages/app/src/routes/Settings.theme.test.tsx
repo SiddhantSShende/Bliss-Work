@@ -23,7 +23,7 @@ import { Settings } from "./Settings";
 function renderSettings() {
   render(
     <MemoryRouter>
-      <ThemeProvider>
+      <ThemeProvider authenticated>
         <Settings />
       </ThemeProvider>
     </MemoryRouter>,
@@ -60,8 +60,8 @@ describe("Theme menu selection", () => {
   it("checks only the active preset (plus the Light/Dark mode)", async () => {
     const user = renderSettings();
     await openMenu(user);
-    // Default theme is Blue + Purple, in Light mode.
-    expect(checkedRows()).toEqual(["Light", "Blue + Purple"]);
+    // Default theme is Iris Wave, in Light mode.
+    expect(checkedRows()).toEqual(["Light", "Iris Wave"]);
   });
 
   it("moves the ✓ to Custom and off the previous preset when Custom is chosen", async () => {
@@ -75,18 +75,18 @@ describe("Theme menu selection", () => {
     const user = renderSettings();
     await createCustomTheme(user);
     await openMenu(user);
-    await user.click(screen.getByRole("menuitemradio", { name: "Purple" }));
+    await user.click(screen.getByRole("menuitemradio", { name: "Amethyst" }));
     await openMenu(user);
-    expect(checkedRows()).toEqual(["Light", "Purple"]);
+    expect(checkedRows()).toEqual(["Light", "Amethyst"]);
   });
 
   it("re-selecting the saved Custom row activates it again without a second ✓", async () => {
     const user = renderSettings();
     await createCustomTheme(user);
     await openMenu(user);
-    await user.click(screen.getByRole("menuitemradio", { name: "Cyan / Teal" }));
+    await user.click(screen.getByRole("menuitemradio", { name: "Electric Turquoise" }));
     await openMenu(user);
-    expect(checkedRows()).toEqual(["Light", "Cyan / Teal"]);
+    expect(checkedRows()).toEqual(["Light", "Electric Turquoise"]);
     await user.click(screen.getByRole("menuitemradio", { name: "Custom" }));
     await openMenu(user);
     expect(checkedRows()).toEqual(["Light", "Custom"]);
@@ -103,9 +103,36 @@ describe("Theme menu selection", () => {
 
   it("names the active theme 'Custom' in the row description", async () => {
     const user = renderSettings();
-    expect(screen.getByText("Currently using Blue + Purple.")).toBeInTheDocument();
+    expect(screen.getByText("Currently using Iris Wave.")).toBeInTheDocument();
     await createCustomTheme(user);
     expect(screen.getByText("Currently using Custom.")).toBeInTheDocument();
+  });
+
+  it("renders every preset preview from its static palette while Custom is active", async () => {
+    localStorage.setItem("tb-theme", "rose-dark");
+    localStorage.setItem("tb-custom-theme", JSON.stringify({ colors: ["#123456"] }));
+    localStorage.setItem("tb-custom-theme-active", "true");
+    const user = renderSettings();
+    await openMenu(user);
+
+    const expectedPreviews = [
+      ["Amethyst", "#c084fc", "#7c3aed"],
+      ["Crimson Dust", "#fb7185", "#e11d48"],
+      ["Deep Periwinkle", "#60a5fa", "#2563eb"],
+      ["Electric Turquoise", "#22d3ee", "#06b6d4"],
+      ["Acid Green", "#a3e635", "#65a30d"],
+      ["Iris Wave", "#3b82f6", "#a855f7"],
+    ];
+
+    for (const [label, brandFrom, brandTo] of expectedPreviews) {
+      const swatch = screen.getByRole("menuitemradio", { name: label }).firstElementChild;
+      expect(swatch).toHaveStyle({ backgroundColor: "#fafafa", borderColor: "#e4e4e7" });
+      expect(swatch?.firstElementChild).toHaveStyle({ backgroundColor: "#f4f4f5" });
+      expect(swatch?.lastElementChild).toHaveStyle({ backgroundColor: "#ffffff" });
+      expect(swatch?.lastElementChild?.firstElementChild).toHaveStyle({
+        background: `linear-gradient(135deg, ${brandFrom}, ${brandTo})`,
+      });
+    }
   });
 });
 
@@ -114,9 +141,9 @@ describe("Selection is explicit, never inferred from the palette", () => {
     // e.g. the palette entry was cleared or corrupted while the flag survived.
     localStorage.setItem("tb-custom-theme-active", "true");
     const user = renderSettings();
-    expect(screen.getByText("Currently using Blue + Purple.")).toBeInTheDocument();
+    expect(screen.getByText("Currently using Iris Wave.")).toBeInTheDocument();
     await openMenu(user);
-    expect(checkedRows()).toEqual(["Light", "Blue + Purple"]);
+    expect(checkedRows()).toEqual(["Light", "Iris Wave"]);
     expect(screen.queryByRole("menuitemradio", { name: "Custom" })).not.toBeInTheDocument();
   });
 
@@ -125,7 +152,7 @@ describe("Selection is explicit, never inferred from the palette", () => {
     localStorage.setItem("tb-custom-theme-active", "true");
     const user = renderSettings();
     await openMenu(user);
-    expect(checkedRows()).toEqual(["Light", "Blue + Purple"]);
+    expect(checkedRows()).toEqual(["Light", "Iris Wave"]);
   });
 
   it("selects Custom by the active flag alone: a palette equal to a preset's colour does not select that preset", async () => {
@@ -145,7 +172,7 @@ describe("Selection is explicit, never inferred from the palette", () => {
     localStorage.setItem("tb-custom-theme-active", "false");
     const user = renderSettings();
     await openMenu(user);
-    expect(checkedRows()).toEqual(["Light", "Red / Rose"]);
+    expect(checkedRows()).toEqual(["Light", "Crimson Dust"]);
   });
 });
 
@@ -169,5 +196,20 @@ describe("Custom theme editor", () => {
     // Shown as "Custom" — the old name is gone from the UI, not just hidden.
     expect(checkedRows()).toEqual(["Light", "Custom"]);
     expect(screen.queryByText("Sunset")).not.toBeInTheDocument();
+  });
+
+  it("deletes the saved custom theme from the editor", async () => {
+    localStorage.setItem("tb-custom-theme", JSON.stringify({ colors: ["#ff8800"] }));
+    localStorage.setItem("tb-custom-theme-active", "true");
+    const user = renderSettings();
+    await openMenu(user);
+    await user.click(screen.getByRole("button", { name: "Edit custom theme" }));
+    await user.click(screen.getByRole("button", { name: "Delete custom theme" }));
+
+    expect(localStorage.getItem("tb-custom-theme")).toBeNull();
+    expect(localStorage.getItem("tb-custom-theme-active")).toBe("false");
+    expect(screen.getByText("Currently using Iris Wave.")).toBeInTheDocument();
+    await openMenu(user);
+    expect(screen.queryByRole("menuitemradio", { name: "Custom" })).not.toBeInTheDocument();
   });
 });

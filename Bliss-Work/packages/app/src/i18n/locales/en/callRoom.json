@@ -40,6 +40,11 @@
     "startNow": "Start now"
   },
   "joinFailed": {
+    "anotherDeviceTitle": "You’re already in this meeting on another device",
+    "anotherDeviceHint": "You’re currently connected to this meeting from another device.",
+    "switchHere": "Switch here",
+    "displacedTitle": "You joined this meeting on another device",
+    "displacedHint": "This meeting is now active on another device.",
     "tokenTitle": "Unable to obtain meeting credentials",
     "disconnectedTitle": "Disconnected from the meeting",
     "genericTitle": "Unable to connect to the meeting",
@@ -66,6 +71,7 @@
     },
     "stage": {
       "speaking": "Speaking",
+      "presenting": "Presenting",
       "connectingPlaceholder": "Connecting…"
     },
     "toasts": {

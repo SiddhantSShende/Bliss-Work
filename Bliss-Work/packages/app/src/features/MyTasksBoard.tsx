@@ -215,7 +215,7 @@ export function MyTasksBoard() {
                   </div>
                   {t.description && <p className="mt-1 min-w-0 line-clamp-3 break-words text-sm text-muted">{t.description}</p>}
                   <TaskParticipants
-                    participants={t.participants ?? assignees.map((a) => ({ userId: a.assigneeId, username: a.assigneeUsername, status: a.status }))}
+                    participants={t.participants?.length ? t.participants : assignees.map((a) => ({ userId: a.assigneeId, username: a.assigneeUsername, status: a.status }))}
                     currentUserId={currentUserId}
                     allocatorId={currentUserId}
                     layout="list"

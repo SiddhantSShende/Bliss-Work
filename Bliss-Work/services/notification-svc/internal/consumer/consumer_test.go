@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -127,5 +128,90 @@ func TestChannelMemberJoined_InvalidUUIDFields_AreDeadLettered(t *testing.T) {
 				t.Fatalf("channelMemberJoined(%s) = %v, want errMalformed", tc.name, err)
 			}
 		})
+	}
+}
+
+func TestChannelAddedTextIncludesActorAndChannel(t *testing.T) {
+	if got, want := channelAddedText("Jordan Doe", "project room"), "Jordan Doe added you to the channel project room"; got != want {
+		t.Fatalf("channelAddedText() = %q, want %q", got, want)
+	}
+	if got, want := channelAddedText("Jordan Doe", ""), "Jordan Doe added you to a channel"; got != want {
+		t.Fatalf("channelAddedText() without channel = %q, want %q", got, want)
+	}
+	if got, want := channelAddedText("", "project room"), "You were added to #project room"; got != want {
+		t.Fatalf("legacy channelAddedText() = %q, want %q", got, want)
+	}
+}
+
+func TestChannelCreatedTextIncludesActorAndChannel(t *testing.T) {
+	if got, want := channelCreatedText("Mayank", "Engineering"), "Mayank created the channel Engineering"; got != want {
+		t.Fatalf("channelCreatedText() = %q, want %q", got, want)
+	}
+	if got, want := channelCreatedText("", ""), "Someone created a channel"; got != want {
+		t.Fatalf("channelCreatedText() without names = %q, want %q", got, want)
+	}
+}
+
+func TestTaskAssignedTextIncludesSenderAndTitle(t *testing.T) {
+	if got, want := taskAssignedText("Mayank", "Prepare release notes"), "New task from Mayank: Prepare release notes"; got != want {
+		t.Fatalf("taskAssignedText() = %q, want %q", got, want)
+	}
+	if got, want := taskAssignedText("", ""), "New task from Someone"; got != want {
+		t.Fatalf("taskAssignedText() without names = %q, want %q", got, want)
+	}
+}
+
+func TestMessageCreatedSuppressesSelfMailAndSystemMessages(t *testing.T) {
+	c := newTestConsumer()
+	orgID, userID := uuid.NewString(), uuid.NewString()
+	cases := []struct {
+		name string
+		ev   events.MessageCreated
+	}{
+		{
+			name: "self message",
+			ev: events.MessageCreated{
+				Type: events.TypeMessageCreated, EventID: uuid.NewString(), OrgID: orgID,
+				SenderID: userID, RecipientID: userID,
+			},
+		},
+		{
+			name: "mail thread",
+			ev: events.MessageCreated{
+				Type: events.TypeMessageCreated, EventID: uuid.NewString(), OrgID: orgID,
+				SenderID: uuid.NewString(), RecipientID: userID, Origin: "mail",
+			},
+		},
+		{
+			name: "system message",
+			ev: events.MessageCreated{
+				Type: events.TypeMessageCreated, EventID: uuid.NewString(), OrgID: orgID,
+				SenderID: uuid.NewString(), RecipientID: userID, Kind: "call_missed",
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			value, err := json.Marshal(tc.ev)
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+			if err := c.messageCreated(context.Background(), nil, value); err != nil {
+				t.Fatalf("messageCreated() = %v, want nil", err)
+			}
+		})
+	}
+}
+
+func TestMessagePreviewRemovesStructuredPayloadAndBoundsText(t *testing.T) {
+	if got, want := messagePreview("Hello\x1f{\"kind\":\"media\"}"), "Hello"; got != want {
+		t.Fatalf("messagePreview() = %q, want %q", got, want)
+	}
+	if got, want := messagePreview("\x1f{\"kind\":\"fileOffer\"}"), "Sent an attachment"; got != want {
+		t.Fatalf("empty messagePreview() = %q, want %q", got, want)
+	}
+	if got := messagePreview(strings.Repeat("a", 160)); len([]rune(got)) != 140 || !strings.HasSuffix(got, "…") {
+		t.Fatalf("long message preview length/content = %d/%q", len([]rune(got)), got)
 	}
 }

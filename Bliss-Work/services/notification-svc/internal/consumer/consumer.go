@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -46,9 +47,8 @@ type Consumer struct {
 // Each secondary topic is read for exactly one message type:
 //   - auth.events → org.deleted. Notifications carry task titles and message
 //     previews, so an erased workspace has to take them with it.
-//   - messaging.events.v1 → channel.member.joined. Being added to a channel by
-//     someone else is a notification, and messaging-svc is the only service
-//     that knows it happened.
+//   - messaging.events.v1 → channel.member.joined and message-created events.
+//     messaging-svc is the source of these notification-worthy events.
 //
 // GroupTopics rather than one reader each — a single consumer group covering
 // all three keeps offset management and rebalancing in one place.
@@ -343,9 +343,21 @@ func (c *Consumer) handle(ctx context.Context, tx pgx.Tx, value []byte) error {
 	if ev.Type == events.TypeChannelMemberJoined {
 		return c.channelMemberJoined(ctx, tx, value)
 	}
+	if ev.Type == events.TypeMessageCreated {
+		return c.messageCreated(ctx, tx, value)
+	}
+	if ev.Type == events.TypeChannelMessageCreated {
+		return c.channelMessageCreated(ctx, tx, value)
+	}
+	if ev.Type == events.TypeCallScheduled || ev.Type == events.TypeCallRing || ev.Type == events.TypeCallParticipantAdded {
+		return c.callNotification(ctx, tx, value)
+	}
 
 	var kind, text string
 	switch ev.Type {
+	case events.TypeTaskAssigned:
+		kind = events.KindTaskAssigned
+		text = taskAssignedText(ev.SenderUsername, ev.Title)
 	case events.TypeTaskAcknowledged:
 		kind = events.KindTaskAcknowledged
 		text = "Task acknowledged by " + ev.AssigneeUsername
@@ -372,6 +384,9 @@ func (c *Consumer) handle(ctx context.Context, tx pgx.Tx, value []byte) error {
 	}
 
 	recipientID := ev.SenderID
+	if ev.Type == events.TypeTaskAssigned {
+		recipientID = ev.AssigneeID
+	}
 	if ev.Type == events.TypeTaskWithdrawn {
 		recipientID = ev.AssigneeID
 	}
@@ -384,6 +399,16 @@ func (c *Consumer) handle(ctx context.Context, tx pgx.Tx, value []byte) error {
 		text:          text,
 		taskID:        taskID,
 	})
+}
+
+func taskAssignedText(sender, title string) string {
+	if sender == "" {
+		sender = "Someone"
+	}
+	if title == "" {
+		return "New task from " + sender
+	}
+	return "New task from " + sender + ": " + title
 }
 
 // channelMemberJoined turns "somebody added you to a channel" into a
@@ -415,20 +440,213 @@ func (c *Consumer) channelMemberJoined(ctx context.Context, tx pgx.Tx, value []b
 		orgID:         ev.OrgID,
 		recipientID:   ev.UserID,
 		kind:          events.KindChannelAdded,
-		text:          channelAddedText(ev.ChannelName),
+		text:          channelAddedText(ev.ActorDisplayName, ev.ChannelName),
+		channelID:     &ev.ChannelID,
 	})
 }
 
 // channelAddedText is what the user reads in the bell.
 //
-// The name is a snapshot taken by the producer, and is absent only from a
-// producer that predates the field — worth a vaguer sentence, not worth
-// dropping a notification the user is entitled to.
-func channelAddedText(channelName string) string {
+// Actor and channel names are snapshots taken by the producer. Older events
+// can lack the actor name, so retain a backward-compatible fallback.
+func channelAddedText(actorDisplayName, channelName string) string {
+	if actorDisplayName != "" && channelName != "" {
+		return actorDisplayName + " added you to the channel " + channelName
+	}
+	if actorDisplayName != "" {
+		return actorDisplayName + " added you to a channel"
+	}
 	if channelName == "" {
 		return "You were added to a channel"
 	}
 	return "You were added to #" + channelName
+}
+
+func (c *Consumer) messageCreated(ctx context.Context, tx pgx.Tx, value []byte) error {
+	var ev events.MessageCreated
+	if err := json.Unmarshal(value, &ev); err != nil {
+		c.log.Warn("unparseable message.created", "error", err)
+		return errMalformed
+	}
+	if ev.Origin == "mail" || ev.Kind != "" || ev.SenderID == "" || ev.RecipientID == "" || ev.SenderID == ev.RecipientID {
+		return nil
+	}
+	name := ev.SenderDisplayName
+	if name == "" {
+		name = ev.SenderUsername
+	}
+	conversationID, messageID := ev.ConversationID, ev.MessageID
+	return c.create(ctx, tx, notification{
+		sourceEventID:  ev.EventID,
+		sourceType:     ev.Type,
+		orgID:          ev.OrgID,
+		recipientID:    ev.RecipientID,
+		kind:           events.KindDMMessage,
+		text:           messageText(name, ev.Body),
+		conversationID: &conversationID,
+		messageID:      &messageID,
+	})
+}
+
+func (c *Consumer) channelMessageCreated(ctx context.Context, tx pgx.Tx, value []byte) error {
+	var ev events.ChannelMessageCreated
+	if err := json.Unmarshal(value, &ev); err != nil {
+		c.log.Warn("unparseable channel.message.created", "error", err)
+		return errMalformed
+	}
+	if ev.Kind == "channel_created" {
+		return c.channelCreated(ctx, tx, ev)
+	}
+	if ev.Kind != "" || ev.SenderID == "" {
+		return nil
+	}
+	name := ev.SenderDisplayName
+	if name == "" {
+		name = ev.SenderUsername
+	}
+	text := channelMessageText(name, ev.ChannelName, ev.Body)
+	for _, memberID := range ev.Members {
+		if memberID == "" || memberID == ev.SenderID {
+			continue
+		}
+		channelID, messageID := ev.ChannelID, ev.MessageID
+		dedupID := uuid.NewSHA1(uuid.NameSpaceURL, []byte(ev.EventID+":"+memberID)).String()
+		if err := c.create(ctx, tx, notification{
+			sourceEventID: ev.EventID,
+			dedupEventID:  dedupID,
+			sourceType:    ev.Type,
+			orgID:         ev.OrgID,
+			recipientID:   memberID,
+			kind:          events.KindChannelMessage,
+			text:          text,
+			channelID:     &channelID,
+			messageID:     &messageID,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *Consumer) channelCreated(ctx context.Context, tx pgx.Tx, ev events.ChannelMessageCreated) error {
+	if ev.SenderID == "" {
+		return nil
+	}
+	name := ev.SenderDisplayName
+	if name == "" {
+		name = ev.SenderUsername
+	}
+	channelID, messageID := ev.ChannelID, ev.MessageID
+	for _, memberID := range ev.Members {
+		if memberID == "" || memberID == ev.SenderID {
+			continue
+		}
+		dedupID := uuid.NewSHA1(uuid.NameSpaceURL, []byte(ev.EventID+":"+memberID)).String()
+		if err := c.create(ctx, tx, notification{
+			sourceEventID: ev.EventID,
+			dedupEventID:  dedupID,
+			sourceType:    ev.Type,
+			orgID:         ev.OrgID,
+			recipientID:   memberID,
+			kind:          events.KindChannelCreated,
+			text:          channelCreatedText(name, ev.ChannelName),
+			channelID:     &channelID,
+			messageID:     &messageID,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func channelCreatedText(actor, channel string) string {
+	if actor == "" {
+		actor = "Someone"
+	}
+	if channel == "" {
+		return actor + " created a channel"
+	}
+	return actor + " created the channel " + channel
+}
+
+func (c *Consumer) callNotification(ctx context.Context, tx pgx.Tx, value []byte) error {
+	var ev events.CallLifecycle
+	if err := json.Unmarshal(value, &ev); err != nil {
+		c.log.Warn("unparseable call notification event", "error", err)
+		return errMalformed
+	}
+	if ev.CallID == "" || ev.Kind == "" {
+		return errMalformed
+	}
+	kind := events.KindMeetingInvite
+	if ev.Type == events.TypeCallScheduled {
+		kind = events.KindMeetingScheduled
+	}
+	callID := ev.CallID
+	text := callNotificationText(ev.Title, ev.ScheduledAt)
+	for _, recipientID := range ev.Members {
+		if recipientID == "" || recipientID == ev.ActorID {
+			continue
+		}
+		dedupID := uuid.NewSHA1(uuid.NameSpaceURL, []byte(ev.EventID+":"+recipientID)).String()
+		if err := c.create(ctx, tx, notification{
+			sourceEventID: ev.EventID,
+			dedupEventID:  dedupID,
+			sourceType:    ev.Type,
+			orgID:         ev.OrgID,
+			recipientID:   recipientID,
+			kind:          kind,
+			text:          text,
+			callID:        &callID,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func callNotificationText(title, scheduledAt string) string {
+	if title == "" {
+		title = "Meeting"
+	}
+	if scheduledAt != "" {
+		return "Meeting scheduled: " + title + " · " + scheduledAt
+	}
+	return "Meeting invitation: " + title
+}
+
+func messageText(sender, body string) string {
+	if sender == "" {
+		return "New message: " + messagePreview(body)
+	}
+	return sender + ": " + messagePreview(body)
+}
+
+func channelMessageText(sender, channel, body string) string {
+	if channel == "" {
+		channel = "a channel"
+	} else {
+		channel = "#" + channel
+	}
+	if sender == "" {
+		return "New message in " + channel + ": " + messagePreview(body)
+	}
+	return sender + " in " + channel + ": " + messagePreview(body)
+}
+
+func messagePreview(body string) string {
+	if index := strings.IndexByte(body, 0x1f); index >= 0 {
+		body = body[:index]
+	}
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return "Sent an attachment"
+	}
+	runes := []rune(body)
+	if len(runes) > 140 {
+		return string(runes[:139]) + "…"
+	}
+	return body
 }
 
 // notification is one row to write plus the outbox event that announces it.
@@ -436,13 +654,18 @@ type notification struct {
 	// sourceEventID is the id of the event that caused this, and is what the
 	// dedup claims — NOT the notification's own id, which is minted here and is
 	// therefore different on every redelivery.
-	sourceEventID string
-	sourceType    string
-	orgID         string
-	recipientID   string
-	kind          string
-	text          string
-	taskID        *string
+	sourceEventID  string
+	sourceType     string
+	dedupEventID   string
+	orgID          string
+	recipientID    string
+	kind           string
+	text           string
+	taskID         *string
+	channelID      *string
+	conversationID *string
+	messageID      *string
+	callID         *string
 }
 
 // create writes the notification row and its outbox event onto the caller's
@@ -486,13 +709,45 @@ func (c *Consumer) create(ctx context.Context, tx pgx.Tx, n notification) error 
 			return errMalformed
 		}
 	}
+	if n.channelID != nil {
+		if _, err := uuid.Parse(*n.channelID); err != nil {
+			c.log.Warn("invalid channelId, dead-lettering", "eventId", n.sourceEventID, "channelId", *n.channelID)
+			return errMalformed
+		}
+	}
+	if n.conversationID != nil {
+		if _, err := uuid.Parse(*n.conversationID); err != nil {
+			c.log.Warn("invalid conversationId, dead-lettering", "eventId", n.sourceEventID, "conversationId", *n.conversationID)
+			return errMalformed
+		}
+	}
+	if n.messageID != nil {
+		if _, err := uuid.Parse(*n.messageID); err != nil {
+			c.log.Warn("invalid messageId, dead-lettering", "eventId", n.sourceEventID, "messageId", *n.messageID)
+			return errMalformed
+		}
+	}
+	if n.callID != nil {
+		if _, err := uuid.Parse(*n.callID); err != nil {
+			c.log.Warn("invalid callId, dead-lettering", "eventId", n.sourceEventID, "callId", *n.callID)
+			return errMalformed
+		}
+	}
+	dedupID := eventID
+	if n.dedupEventID != "" {
+		dedupID, err = uuid.Parse(n.dedupEventID)
+		if err != nil {
+			c.log.Warn("invalid dedup event id, dead-lettering", "eventId", n.sourceEventID)
+			return errMalformed
+		}
+	}
 
 	// Dedup: claim this event id. If it already exists, skip. Within a batch
 	// this also catches a duplicate that arrived twice in the SAME tx, because
 	// the insert is visible to its own transaction.
 	tag, err := tx.Exec(ctx,
 		`INSERT INTO consumed_events (event_id) VALUES ($1) ON CONFLICT DO NOTHING`,
-		eventID)
+		dedupID)
 	if err != nil {
 		return err
 	}
@@ -506,9 +761,9 @@ func (c *Consumer) create(ctx context.Context, tx pgx.Tx, n notification) error 
 		return err
 	}
 	_, err = tx.Exec(ctx,
-		`INSERT INTO notifications (id, org_id, recipient_id, kind, text, task_id)
-		 VALUES ($1, $2, $3, $4, $5, $6)`,
-		notifID, n.orgID, n.recipientID, n.kind, n.text, n.taskID)
+		`INSERT INTO notifications (id, org_id, recipient_id, kind, text, task_id, channel_id, conversation_id, message_id, call_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+		notifID, n.orgID, n.recipientID, n.kind, n.text, n.taskID, n.channelID, n.conversationID, n.messageID, n.callID)
 	if err != nil {
 		return err
 	}
@@ -527,6 +782,10 @@ func (c *Consumer) create(ctx context.Context, tx pgx.Tx, n notification) error 
 		Kind:           n.kind,
 		Text:           n.text,
 		TaskID:         n.taskID,
+		ChannelID:      n.channelID,
+		ConversationID: n.conversationID,
+		MessageID:      n.messageID,
+		CallID:         n.callID,
 	}
 	payload, err := json.Marshal(nc)
 	if err != nil {

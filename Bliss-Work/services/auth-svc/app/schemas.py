@@ -75,9 +75,11 @@ class AcceptInviteRequest(BaseModel):
 
 
 class ThemePrefs(BaseModel):
-    """The account's UI theme (packages/ui ThemePrefs) — stored as-is in
-    users.theme_prefs and echoed back on /auth/me so every client resolves to
-    the same active theme."""
+    """Legacy account theme payload returned for backward compatibility.
+
+    Current clients synchronize only the custom palette definition; selected
+    theme and custom activation remain local to each device.
+    """
 
     theme: str = Field(pattern=_THEME_ID_PATTERN)
     # The single custom palette (1-3 #rrggbb colours), kept even while a preset
@@ -88,6 +90,14 @@ class ThemePrefs(BaseModel):
     customActive: bool = False
 
 
+class CustomThemeDefinition(BaseModel):
+    """The single custom palette shared across a user's authenticated clients."""
+
+    colors: list[Annotated[str, Field(pattern=_HEX_COLOR_PATTERN)]] = Field(
+        min_length=1, max_length=3
+    )
+
+
 class UpdateProfileRequest(BaseModel):
     # Both optional and independently settable: a display-name save and an
     # avatar upload are two different actions in the UI that happen to share
@@ -96,6 +106,7 @@ class UpdateProfileRequest(BaseModel):
     displayName: str | None = Field(default=None, min_length=1, max_length=80)
     avatarUrl: str | None = Field(default=None, max_length=MAX_AVATAR_DATA_URL_LENGTH)
     themePrefs: ThemePrefs | None = None
+    customTheme: CustomThemeDefinition | None = None
 
     @field_validator("avatarUrl")
     @classmethod
@@ -154,6 +165,10 @@ class UserDTO(BaseModel):
     # profile, the directory, the session returned at login/refresh — leaves it
     # None, so one member's preference is never served to another.
     themePrefs: ThemePrefs | None = None
+    # Shared definition and monotonic revision. A null definition with a
+    # revision is an explicit deletion; a missing revision is legacy state.
+    customTheme: CustomThemeDefinition | None = None
+    customThemeRevision: int | None = None
 
 
 class OrgMembershipDTO(BaseModel):

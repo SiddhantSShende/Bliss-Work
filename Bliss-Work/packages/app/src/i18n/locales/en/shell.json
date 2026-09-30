@@ -46,7 +46,9 @@
       "markRead": "Mark read"
     },
     "toggleHideRead": "Hide read",
-    "toggleShowRead": "Show read ({{count}})"
+    "toggleShowRead": "Show read ({{count}})",
+    "loadMore": "Load more",
+    "loadingMore": "Loading…"
   },
   "profileMenu": {
     "accountMenuTitle": "{{name}} — account menu",

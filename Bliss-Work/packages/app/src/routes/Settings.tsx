@@ -14,7 +14,7 @@ import { useEffect, useState } from "react";
 import { Palette, MoreVertical, Check, Bell, BellOff, Info, RefreshCw, Eye, ShieldCheck, MonitorSmartphone, Sun, Moon } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { Button, PageHeader, useTheme, THEMES, customThemeGradient, themeClasses, themeName, darkCounterpart, type CustomTheme, type ThemeId } from "@taskboard/ui";
+import { Button, PageHeader, useTheme, THEMES, customThemeGradient, themeName, darkCounterpart, type CustomTheme, type ThemeDef, type ThemeId } from "@taskboard/ui";
 import { Link } from "react-router-dom";
 import { BUILD_SHA } from "../lib/buildInfo";
 import { useRuntime } from "../lib/runtime";
@@ -126,7 +126,7 @@ export function Settings() {
  *  theme.css instead of a colour list duplicated here. */
 function ThemeMenu() {
   const { t } = useTranslation("settings");
-  const { theme, isDark, toggle, setTheme, customTheme, customThemeActive, saveCustomTheme } = useTheme();
+  const { theme, isDark, toggle, setTheme, customTheme, customThemeActive, saveCustomTheme, clearCustomTheme } = useTheme();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const close = () => setOpen(false);
@@ -158,6 +158,10 @@ function ThemeMenu() {
         <CustomThemeBuilder
           initial={customTheme}
           onCancel={cancelEditing}
+          onDelete={() => {
+            clearCustomTheme();
+            setEditing(false);
+          }}
           onSave={(next) => {
             saveCustomTheme(next);
             setEditing(false);
@@ -205,7 +209,7 @@ function ThemeMenu() {
               }}
               className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-surface-2"
             >
-              <ThemeSwatch themeId={opt.id} />
+              <ThemeSwatch theme={opt} />
               <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg">{opt.name}</span>
               {opt.id === activeFamily && <Check size={16} className="shrink-0 text-accent" />}
             </button>
@@ -240,10 +244,12 @@ function ThemeMenu() {
 function CustomThemeBuilder({
   initial,
   onCancel,
+  onDelete,
   onSave,
 }: {
   initial: CustomTheme | null;
   onCancel: () => void;
+  onDelete: () => void;
   onSave: (theme: CustomTheme) => void;
 }) {
   const { t } = useTranslation("settings");
@@ -292,6 +298,11 @@ function CustomThemeBuilder({
       </div>
       <div className="mt-3 h-16 rounded-lg border border-border" style={{ background: customThemeGradient(colors) }} aria-label={t("settings:theme.custom.preview")} />
       <div className="mt-3 flex justify-end gap-2">
+        {initial && (
+          <Button type="button" variant="subtle" size="sm" className="mr-auto text-danger" onClick={onDelete}>
+            {t("settings:theme.custom.delete")}
+          </Button>
+        )}
         <Button type="button" variant="subtle" size="sm" onClick={onCancel}>{t("settings:theme.custom.cancel")}</Button>
         <Button type="submit" size="sm">{t("settings:theme.custom.save")}</Button>
       </div>
@@ -329,23 +340,19 @@ function AppearanceOption({
   );
 }
 
-/** Miniature bg/sidebar/surface/accent preview for one theme, independent of
- *  whichever theme is currently active on <html> — it carries its own theme
- *  classes so the CSS variables it reads resolve to that theme's palette.
- *  The accent swatch is the family's brand-from→brand-to gradient rather
- *  than a flat dot, so a blended family like Blue + Purple reads correctly
- *  as a mix rather than a single flat colour. */
-function ThemeSwatch({ themeId }: { themeId: ThemeId }) {
+/** Miniature preview uses the preset's static palette, not inherited CSS vars. */
+function ThemeSwatch({ theme }: { theme: ThemeDef }) {
+  const { background, surface, surface2, border, brandFrom, brandTo } = theme.preview;
   return (
     <span
-      className={`flex h-9 w-14 shrink-0 overflow-hidden rounded-md border border-border ${themeClasses(themeId).join(" ")}`}
-      style={{ background: "var(--color-bg)" }}
+      className="flex h-9 w-14 shrink-0 overflow-hidden rounded-md border"
+      style={{ backgroundColor: background, borderColor: border }}
     >
-      <span className="h-full w-3 shrink-0" style={{ background: "var(--color-surface-2)" }} />
-      <span className="flex flex-1 items-end justify-end p-1" style={{ background: "var(--color-surface)" }}>
+      <span className="h-full w-3 shrink-0" style={{ backgroundColor: surface2 }} />
+      <span className="flex flex-1 items-end justify-end p-1" style={{ backgroundColor: surface }}>
         <span
           className="h-2 w-2 rounded-full"
-          style={{ background: "linear-gradient(135deg, var(--color-brand-from), var(--color-brand-to))" }}
+          style={{ background: `linear-gradient(135deg, ${brandFrom}, ${brandTo})` }}
         />
       </span>
     </span>

@@ -29,10 +29,20 @@ export function useCallInviteLink(callId: string) {
     onError: () => toast.error(t("inviteLink.couldNotCreate")),
   });
 
+  /** Mint the link if there isn't one yet, without copying it anywhere —
+   *  what a caller that wants the real link ON SCREEN before any copy click
+   *  (MeetingScheduledDialog) calls directly. copyLink below is just this
+   *  plus the clipboard write. */
+  const ensureLink = async (): Promise<string | null> => {
+    if (link) return link;
+    const url = await mint.mutateAsync().catch(() => null);
+    if (url) setLink(url);
+    return url;
+  };
+
   const copyLink = async (): Promise<boolean> => {
-    const url = link ?? (await mint.mutateAsync().catch(() => null));
+    const url = await ensureLink();
     if (!url) return false;
-    setLink(url);
     if (await copyText(url)) return true;
     // The link is on screen by now, so there is something to select rather
     // than nothing.
@@ -40,5 +50,5 @@ export function useCallInviteLink(callId: string) {
     return false;
   };
 
-  return { link, isPending: mint.isPending, copyLink };
+  return { link, isPending: mint.isPending, copyLink, ensureLink };
 }

@@ -56,6 +56,122 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe("WsClient socket replacement", () => {
+  it("does not send frames or pings unless the current socket is open", async () => {
+    const { client } = makeClient();
+    await client.connect();
+    const socket = FakeSocket.instances[0]!;
+    const frame = { type: "typing", toUserId: "peer", conversationId: "conversation", state: "start" } as const;
+
+    client.sendFrame(frame);
+    expect(socket.sent).toHaveLength(0);
+
+    socket.open();
+    expect(socket.sent).toHaveLength(1); // hello
+    socket.readyState = 2;
+    client.sendFrame(frame);
+    await vi.advanceTimersByTimeAsync(20_000);
+
+    expect(socket.sent).toHaveLength(1);
+  });
+
+  it("keeps message acknowledgements queued until a replacement socket opens", async () => {
+    const { client } = makeClient();
+    await client.connect();
+    const oldSocket = FakeSocket.instances[0]!;
+    oldSocket.open();
+    oldSocket.onmessage?.({
+      data: JSON.stringify({
+        type: "message.created",
+        eventId: "00000000-0000-4000-8000-000000000001",
+        orgId: "00000000-0000-4000-8000-000000000002",
+        occurredAt: "2026-09-30T09:00:00.000Z",
+        conversationId: "00000000-0000-4000-8000-000000000003",
+        messageId: "00000000-0000-4000-8000-000000000004",
+        seq: 1,
+        senderId: "00000000-0000-4000-8000-000000000005",
+        recipientId: "00000000-0000-4000-8000-000000000006",
+        body: "hello",
+        clientMsgId: "00000000-0000-4000-8000-000000000007",
+      }),
+    });
+
+    oldSocket.readyState = 2;
+    await vi.advanceTimersByTimeAsync(500);
+    expect(oldSocket.sent).toHaveLength(1); // hello only
+
+    oldSocket.finishClose();
+    await client.connect();
+    const newSocket = FakeSocket.instances[1]!;
+    newSocket.open();
+
+    expect(newSocket.sent.map((frame) => JSON.parse(frame).type)).toEqual(["hello", "message.ack"]);
+    client.close();
+  });
+
+  it("recognizes integration activity events emitted by integrations-svc", async () => {
+    const { client } = makeClient();
+    const socketEvents: string[] = [];
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    client.on((event) => socketEvents.push(event.type));
+    await client.connect();
+    const socket = FakeSocket.instances[0]!;
+    socket.open();
+
+    socket.onmessage?.({
+      data: JSON.stringify({
+        type: "integration.activity.created",
+        eventId: "00000000-0000-4000-8000-000000000001",
+        orgId: "00000000-0000-4000-8000-000000000002",
+        occurredAt: "2026-09-30T09:00:00.000Z",
+        recipientId: "00000000-0000-4000-8000-000000000003",
+        activityId: "00000000-0000-4000-8000-000000000004",
+        connectionId: "00000000-0000-4000-8000-000000000005",
+        provider: "gmail",
+        kind: "email",
+        direction: "outbound",
+      }),
+    });
+    socket.onmessage?.({
+      data: JSON.stringify({
+        type: "message.created",
+        eventId: "00000000-0000-4000-8000-000000000006",
+        orgId: "00000000-0000-4000-8000-000000000002",
+        occurredAt: "2026-09-30T09:00:00.000Z",
+        conversationId: "00000000-0000-4000-8000-000000000007",
+        messageId: "00000000-0000-4000-8000-000000000008",
+        seq: 1,
+        senderId: "00000000-0000-4000-8000-000000000009",
+        recipientId: "00000000-0000-4000-8000-000000000003",
+        body: "hello",
+        clientMsgId: "00000000-0000-4000-8000-000000000010",
+      }),
+    });
+
+    expect(socketEvents).toContain("integration.activity.created");
+    expect(socketEvents).toContain("message.created");
+    expect(warning).not.toHaveBeenCalled();
+    warning.mockRestore();
+    client.close();
+  });
+
+  it("does not create competing sockets when close/connect overlap token lookup", async () => {
+    let resolveToken!: (token: string) => void;
+    const token = new Promise<string>((resolve) => { resolveToken = resolve; });
+    const client = new WsClient({
+      url: "wss://gateway.test/ws",
+      getToken: () => token,
+      WebSocketImpl: FakeSocket as unknown as typeof WebSocket,
+    });
+
+    const firstConnect = client.connect();
+    client.close();
+    const secondConnect = client.connect();
+    resolveToken("token");
+    await Promise.all([firstConnect, secondConnect]);
+
+    expect(FakeSocket.instances).toHaveLength(1);
+  });
+
   it("is not disturbed by the late close of the socket it replaced", async () => {
     const { client, statuses } = makeClient();
     await client.connect();

@@ -16,6 +16,7 @@ import {
   actionsFor,
 } from "@taskboard/shared";
 import { useRuntime } from "./runtime";
+import { useActiveThread } from "./activeThread";
 import { announceIncomingMeeting, dismissIncomingMeeting } from "./MeetingSession";
 import i18n from "../i18n";
 import {
@@ -39,6 +40,8 @@ import {
   patchThreadOnMessage,
   patchThreadOnRead,
 } from "./inboxPatch";
+import { addRealtimeNotification, markNotificationPagesRead } from "./notificationPages";
+import { decrementUnreadCount } from "./unreadNotificationCount";
 
 /** qk: canonical query keys. NOTE: `qk.inbox` stays task-only for back-compat
  *  with sticky-widget code; the unified inbox uses `qk.unifiedInbox`. */
@@ -59,7 +62,7 @@ function meetingTitle(e: { title?: string; kind: "DIRECT" | "CHANNEL" | "MEETING
  */
 export function WsEventBridge() {
   const qc = useQueryClient();
-  const { ws, config } = useRuntime();
+  const { ws, config, api } = useRuntime();
   // Held in a ref, not a dependency: the effect below is deliberately keyed on
   // orgId alone (it opens the socket), and adding navigate would tear the
   // connection down and back up on every navigation.
@@ -98,6 +101,7 @@ export function WsEventBridge() {
         live,
         config,
         navigate: navRef.current,
+        api,
       };
       // Pure dispatch: every domain's actual cache-patch/toast/side-effect
       // logic lives in its handler function below (grouped by what the event
@@ -146,8 +150,12 @@ export function WsEventBridge() {
           handleTaskEvent(e, ctx);
           break;
         case EventType.NotificationCreated:
+        case EventType.NotificationRead:
         case EventType.StickyRefresh:
           handleNotificationEvent(e, ctx);
+          break;
+        case EventType.IntegrationActivityCreated:
+          // Signal-only; this app has no integration activity feed to refresh.
           break;
         case EventType.MailDelivered:
           handleMailEvent(e, ctx);
@@ -187,6 +195,7 @@ interface EventHandlerContext {
   live: boolean;
   config: PlatformConfig;
   navigate: ReturnType<typeof useNavigate>;
+  api: ReturnType<typeof useRuntime>["api"];
 }
 
 // ── Calls ─────────────────────────────────────────────────────────────────
@@ -717,13 +726,49 @@ function handleTaskEvent(e: ServerEvent, ctx: EventHandlerContext) {
 
 // ── Notifications + desktop-note repair ──────────────────────────────────
 function handleNotificationEvent(e: ServerEvent, ctx: EventHandlerContext) {
-  const { invalidate, me } = ctx;
+  const { qc, invalidate, me, api } = ctx;
   switch (e.type) {
     case EventType.NotificationCreated: {
       if (e.recipientId === me) {
-        invalidate(qk.notifications);
+        const notificationPagesLoaded = qc.getQueryData(qk.notifications) !== undefined;
+        addRealtimeNotification(qc, {
+          id: e.notificationId,
+          kind: e.kind,
+          text: e.text,
+          taskId: e.taskId ?? null,
+          channelId: e.channelId ?? null,
+          conversationId: e.conversationId ?? null,
+          messageId: e.messageId ?? null,
+          callId: e.callId ?? null,
+          read: false,
+          createdAt: e.occurredAt,
+        });
+        // If the bell's first page is still in flight, there is no page to
+        // patch yet. Invalidate only that empty/initial query so a racing
+        // response cannot strand the just-created persisted notification.
+        if (!notificationPagesLoaded) invalidate(qk.notifications);
         invalidate(qk.notificationsUnreadCount);
+        const active = useActiveThread.getState().thread;
+        const isActiveThread =
+          (e.kind === "DM_MESSAGE" && active?.kind === "chat" && active.conversationId === e.conversationId) ||
+          (e.kind === "CHANNEL_MESSAGE" && active?.kind === "channel" && active.channelId === e.channelId);
+        if (isActiveThread) {
+          void api.markNotificationRead(e.notificationId).then(
+            () => {
+              const flipped = markNotificationPagesRead(qc, (n) => n.id === e.notificationId);
+              decrementUnreadCount(qc, flipped);
+              invalidate(qk.notificationsUnreadCount);
+            },
+            () => {},
+          );
+        }
       }
+      break;
+    }
+    case EventType.NotificationRead: {
+      if (e.recipientId !== me) break;
+      markNotificationPagesRead(qc, (n) => !e.notificationId || n.id === e.notificationId);
+      invalidate(qk.notificationsUnreadCount);
       break;
     }
     case EventType.StickyRefresh: {

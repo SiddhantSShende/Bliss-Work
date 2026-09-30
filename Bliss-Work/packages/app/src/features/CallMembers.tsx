@@ -28,7 +28,7 @@ import { cn } from "@taskboard/ui";
 import type { RoomParticipant } from "../lib/useCallRoom";
 import { fitTiles, membersPerPage } from "../lib/tileLayout";
 import { useElementSize } from "../lib/useElementSize";
-import { CallTile } from "./CallTile";
+import { CallTileSlot } from "./CallTileHost";
 
 /** A full page of the member grid. */
 const MEMBERS_PER_PAGE = 12;
@@ -114,15 +114,14 @@ export function CallMembers({
           fit, that is what the pager is for. */}
       <div ref={areaRef} className="relative min-h-0 flex-1 overflow-hidden">
         {solo ? (
-          <div className="absolute inset-0">
-            <CallTile
-              p={shown[0]!}
-              size="stage"
-              pinned={pinned === shown[0]!.identity}
-              handRaised={hands.has(shown[0]!.identity)}
-              onTogglePin={() => onTogglePin(shown[0]!.identity)}
-            />
-          </div>
+          <CallTileSlot
+            className="absolute inset-0"
+            p={shown[0]!}
+            size="stage"
+            pinned={pinned === shown[0]!.identity}
+            handRaised={hands.has(shown[0]!.identity)}
+            onTogglePin={() => onTogglePin(shown[0]!.identity)}
+          />
         ) : (
           fit && (
             // Row by row, each centred, so a last row with fewer tiles sits in
@@ -134,15 +133,16 @@ export function CallMembers({
               {chunk(shown, fit.cols).map((row) => (
                 <div key={row[0]!.identity} className="flex justify-center" style={{ gap: GAP }}>
                   {row.map((p) => (
-                    <div key={p.identity} className="shrink-0" style={{ width: fit.width, height: fit.height }}>
-                      <CallTile
-                        p={p}
-                        size={tileSize}
-                        pinned={pinned === p.identity}
-                        handRaised={hands.has(p.identity)}
-                        onTogglePin={() => onTogglePin(p.identity)}
-                      />
-                    </div>
+                    <CallTileSlot
+                      key={p.identity}
+                      className="shrink-0"
+                      style={{ width: fit.width, height: fit.height }}
+                      p={p}
+                      size={tileSize}
+                      pinned={pinned === p.identity}
+                      handRaised={hands.has(p.identity)}
+                      onTogglePin={() => onTogglePin(p.identity)}
+                    />
                   ))}
                 </div>
               ))}

@@ -16,18 +16,21 @@
  * appear here only if the caller is a member; open channels they aren't in
  * are intentionally excluded — the assigner has to join first.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { Check, Hash, Lock, Search, Users } from "lucide-react";
+import { CalendarClock, Check, Hash, Lock, Repeat, Search, Users, Zap, type LucideIcon } from "lucide-react";
 import { Avatar, Button, Input, Textarea } from "@taskboard/ui";
 import { toast } from "sonner";
 import type { ChannelDTO, UserDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { usePeopleSearch } from "../lib/usePeopleCandidates";
+import { dayLabel, timeLabel } from "../lib/meetingTime";
 import { Modal } from "./Modal";
 import { Field } from "../routes/Onboarding";
+import { SelectionField, type SelectionChip } from "./SelectionField";
+import { TimePicker } from "./TimePicker";
 
 type Mode = "people" | "channel";
 type Allocation = "NOW" | "SCHEDULED" | "RECURRING";
@@ -86,12 +89,57 @@ export function CreateTaskDialog({
   // includeSelf: the People tab allows sending a task to yourself, same as
   // channel mode already allows fanning a task to a channel you're a member
   // of (see task-svc's create_task).
-  const { q, setQ, candidates, me } = usePeopleSearch(undefined, true);
+  const { q, setQ, all, candidates, me } = usePeopleSearch(undefined, true);
   const { data: channels = [] } = useQuery({
     queryKey: qk.channels,
     queryFn: () => api.channels(),
     enabled: open,
   });
+  const selectedChannelObj = channels.find((c) => c.id === selectedChannel);
+
+  // Chips for the People/Channel SelectionFields below. Built from `all` (the
+  // UNFILTERED directory/channel list), not `candidates`/`shown` — those are
+  // search-filtered, so a person or channel picked before the query narrowed
+  // them out would otherwise vanish from its own chip.
+  const memberChips: SelectionChip[] = useMemo(() => {
+    const byId = new Map(all.map((u) => [u.id, u]));
+    return [...selectedPeople].map((id) => {
+      const u = byId.get(id);
+      const label = u?.displayName ?? t("createTaskDialog.fields.unknownPerson");
+      return {
+        id,
+        label: id === me.id ? `${label} ${t("createTaskDialog.fields.you")}` : label,
+        leading: (
+          <span aria-hidden="true" className="flex">
+            <Avatar name={label} src={u?.avatarUrl} size="sm" />
+          </span>
+        ),
+      };
+    });
+  }, [selectedPeople, all, me.id, t]);
+  const channelChips: SelectionChip[] = selectedChannelObj
+    ? [
+        {
+          id: selectedChannelObj.id,
+          label: selectedChannelObj.name,
+          leading: <Hash size={13} className="ml-1 shrink-0 text-muted" aria-hidden />,
+        },
+      ]
+    : [];
+
+  // "Schedule for later"'s small allocation summary — who, and the real
+  // combined start moment (same localDateTimeWithOffset the request itself
+  // is built from, so the summary can never say something the request doesn't).
+  const summaryWho =
+    mode === "channel"
+      ? selectedChannelObj
+        ? `#${selectedChannelObj.name}`
+        : t("createTaskDialog.allocation.noTargetYet")
+      : t("createTaskDialog.allocation.peopleCount", { count: selectedPeople.size });
+  const summaryStartIso = localDateTimeWithOffset(scheduledDate, scheduledTime);
+  const summaryWhen = summaryStartIso
+    ? `${dayLabel(new Date(summaryStartIso).getTime())} · ${timeLabel(new Date(summaryStartIso).getTime())}`
+    : null;
 
   useEffect(() => {
     if (open) {
@@ -253,12 +301,15 @@ export function CreateTaskDialog({
         </div>
 
         {mode === "people" ? (
-          <Field
-            label={
-              selectedPeople.size
-                ? t("createTaskDialog.fields.assignToWithCount", { count: selectedPeople.size })
-                : t("createTaskDialog.fields.assignTo")
-            }
+          <SelectionField
+            tone="theme"
+            label={t("createTaskDialog.fields.assignTo")}
+            chips={memberChips}
+            onRemove={togglePerson}
+            removeLabel={(chip) => t("createTaskDialog.fields.removePerson", { name: chip.label })}
+            emptyLabel={t("createTaskDialog.fields.assignToEmpty")}
+            addLabel={t("createTaskDialog.fields.addPeople")}
+            doneLabel={t("createTaskDialog.fields.done")}
           >
             <div className="relative mb-2">
               <Search
@@ -270,6 +321,7 @@ export function CreateTaskDialog({
                 placeholder={t("createTaskDialog.fields.searchPeoplePlaceholder")}
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
+                autoFocus
               />
             </div>
             <div className="max-h-44 overflow-auto rounded-xl border border-border p-1">
@@ -283,6 +335,7 @@ export function CreateTaskDialog({
                     type="button"
                     key={u.id}
                     onClick={() => togglePerson(u.id)}
+                    aria-pressed={on}
                     className={`flex w-full items-center gap-2.5 rounded-lg p-2 text-left ${
                       on ? "bg-accent-soft" : "hover:bg-surface-2"
                     }`}
@@ -299,9 +352,19 @@ export function CreateTaskDialog({
                 );
               })}
             </div>
-          </Field>
+          </SelectionField>
         ) : (
-          <Field label={t("createTaskDialog.fields.assignToChannel")}>
+          <SelectionField
+            tone="theme"
+            label={t("createTaskDialog.fields.assignToChannel")}
+            hint={t("createTaskDialog.fields.channelHint")}
+            chips={channelChips}
+            onRemove={() => setSelectedChannel("")}
+            removeLabel={(chip) => t("createTaskDialog.fields.removeChannel", { name: chip.label })}
+            emptyLabel={t("createTaskDialog.fields.assignToChannelEmpty")}
+            addLabel={t("createTaskDialog.fields.chooseChannel")}
+            doneLabel={t("createTaskDialog.fields.done")}
+          >
             {channels.length === 0 ? (
               <p className="rounded-xl border border-border p-3 text-sm text-muted">
                 {t("createTaskDialog.fields.noChannels")}
@@ -316,6 +379,7 @@ export function CreateTaskDialog({
                       type="button"
                       key={c.id}
                       onClick={() => setSelectedChannel(c.id)}
+                      aria-pressed={on}
                       className={`flex w-full items-center gap-2.5 rounded-lg p-2 text-left ${
                         on ? "bg-accent-soft" : "hover:bg-surface-2"
                       }`}
@@ -335,20 +399,36 @@ export function CreateTaskDialog({
                 })}
               </div>
             )}
-            <p className="mt-1.5 text-[11px] text-muted">
-              {t("createTaskDialog.fields.channelHint")}
-            </p>
-          </Field>
+          </SelectionField>
         )}
 
-        <Field label={t("createTaskDialog.allocation.title")}>
-          <div className="flex flex-wrap gap-3 text-sm">
-            {(["NOW", "SCHEDULED", "RECURRING"] as const).map((kind) => (
-              <label key={kind} className="inline-flex items-center gap-1.5 text-fg">
-                <input type="radio" name="allocation" checked={allocation === kind} onChange={() => setAllocation(kind)} />
-                {t(`createTaskDialog.allocation.${kind.toLowerCase()}`)}
-              </label>
-            ))}
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[13px] font-medium text-fg/80">{t("createTaskDialog.allocation.title")}</span>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <AllocationCard
+              name="allocation"
+              checked={allocation === "NOW"}
+              onChange={() => setAllocation("NOW")}
+              icon={Zap}
+              title={t("createTaskDialog.allocation.now")}
+              description={t("createTaskDialog.allocation.nowDescription")}
+            />
+            <AllocationCard
+              name="allocation"
+              checked={allocation === "SCHEDULED"}
+              onChange={() => setAllocation("SCHEDULED")}
+              icon={CalendarClock}
+              title={t("createTaskDialog.allocation.scheduled")}
+              description={t("createTaskDialog.allocation.scheduledDescription")}
+            />
+            <AllocationCard
+              name="allocation"
+              checked={allocation === "RECURRING"}
+              onChange={() => setAllocation("RECURRING")}
+              icon={Repeat}
+              title={t("createTaskDialog.allocation.recurring")}
+              description={t("createTaskDialog.allocation.recurringDescription")}
+            />
           </div>
           {allocation !== "NOW" && (
             <div className="mt-3 flex flex-col gap-3 rounded-xl border border-border/60 p-3">
@@ -357,9 +437,19 @@ export function CreateTaskDialog({
                   <Input type="date" value={scheduledDate} min={new Date().toISOString().slice(0, 10)} onChange={(e) => setScheduledDate(e.target.value)} required />
                 </Field>
                 <Field label={t("createTaskDialog.allocation.startTime")}>
-                  <Input type="time" value={scheduledTime} onChange={(e) => setScheduledTime(e.target.value)} required />
+                  <TimePicker
+                    tone="theme"
+                    label={t("createTaskDialog.allocation.startTime")}
+                    value={scheduledTime}
+                    onChange={setScheduledTime}
+                  />
                 </Field>
               </div>
+              {allocation === "SCHEDULED" && summaryWhen && (
+                <p className="rounded-lg bg-surface-2 px-3 py-2 text-xs text-muted">
+                  {t("createTaskDialog.allocation.summary", { who: summaryWho, when: summaryWhen })}
+                </p>
+              )}
               {allocation === "RECURRING" && (
                 <>
                   <div className="flex flex-wrap gap-2">
@@ -416,18 +506,57 @@ export function CreateTaskDialog({
               )}
             </div>
           )}
-        </Field>
+        </div>
 
-        <div className="mt-2 flex justify-end gap-2">
+        {/* Sticky rather than a separate prop on the shared Modal (used by ~14
+            other dialogs): position:sticky pins within Modal's own scrolling
+            body, so a tall form (Recurring, with every control open) never
+            pushes Cancel/Create Task out of reach without touching Modal at all. */}
+        <div className="sticky bottom-0 -mx-6 -mb-6 mt-2 flex justify-end gap-2 border-t border-border bg-surface px-6 py-3">
           <Button type="button" variant="ghost" onClick={onClose}>
             {t("createTaskDialog.actions.cancel")}
           </Button>
           <Button type="submit" loading={create.isPending}>
-            {create.isPending ? t("createTaskDialog.actions.sending") : t("createTaskDialog.actions.send")}
+            {create.isPending ? t("createTaskDialog.actions.creating") : t("createTaskDialog.actions.create")}
           </Button>
         </div>
       </form>
     </Modal>
+  );
+}
+
+function AllocationCard({
+  name,
+  checked,
+  onChange,
+  icon: Icon,
+  title,
+  description,
+}: {
+  name: string;
+  checked: boolean;
+  onChange: () => void;
+  icon: LucideIcon;
+  title: string;
+  description: string;
+}) {
+  return (
+    <label
+      className={`flex cursor-pointer flex-col gap-2 rounded-xl border p-3 transition-colors has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent ${
+        checked ? "border-accent bg-accent-soft" : "border-border bg-surface hover:bg-surface-2"
+      }`}
+    >
+      <input type="radio" name={name} checked={checked} onChange={onChange} className="sr-only" />
+      <span
+        className={`flex h-8 w-8 items-center justify-center rounded-lg ${
+          checked ? "bg-accent text-accent-fg" : "bg-surface-2 text-muted"
+        }`}
+      >
+        <Icon size={16} aria-hidden />
+      </span>
+      <span className="text-sm font-semibold text-fg">{title}</span>
+      <span className="text-xs text-muted">{description}</span>
+    </label>
   );
 }
 

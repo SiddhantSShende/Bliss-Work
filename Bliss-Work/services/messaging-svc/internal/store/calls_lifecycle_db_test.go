@@ -47,9 +47,11 @@ package store
 
 import (
 	"context"
+	"errors"
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -185,6 +187,57 @@ func seedLiveCall(t *testing.T, s *Store, endsAt *time.Time) liveCall {
 		})
 	})
 	return c
+}
+
+func TestCallLifecycleSessionClaim_SerializesRapidJoinsAndAllowsTakeover(t *testing.T) {
+	s := lifecycleStore(t)
+	ctx := context.Background()
+	c := seedLiveCall(t, s, nil)
+	if err := s.withBypass(ctx, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
+			UPDATE call_participants SET joined_at = NULL, left_at = NULL
+			WHERE call_id = $1 AND user_id = $2`, c.id, c.guest)
+		return err
+	}); err != nil {
+		t.Fatalf("reset guest to unjoined: %v", err)
+	}
+
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	var wg sync.WaitGroup
+	for contender := 0; contender < 2; contender++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			results <- s.ClaimCallSession(ctx, c.orgID, c.guest, c.id, false)
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+
+	succeeded, conflicted := 0, 0
+	for err := range results {
+		switch {
+		case err == nil:
+			succeeded++
+		case errors.Is(err, ErrCallSessionActive):
+			conflicted++
+		default:
+			t.Fatalf("concurrent claim: %v", err)
+		}
+	}
+	if succeeded != 1 || conflicted != 1 {
+		t.Fatalf("concurrent claims: %d succeeded, %d conflicted; want one of each", succeeded, conflicted)
+	}
+
+	if err := s.ClaimCallSession(ctx, c.orgID, c.guest, c.id, true); err != nil {
+		t.Fatalf("confirmed takeover: %v", err)
+	}
+	if err := s.ClaimCallSession(ctx, c.orgID, c.guest, c.id, false); !errors.Is(err, ErrCallSessionActive) {
+		t.Fatalf("unconfirmed join after takeover = %v, want ErrCallSessionActive", err)
+	}
 }
 
 func callStatus(t *testing.T, s *Store, callID string) string {

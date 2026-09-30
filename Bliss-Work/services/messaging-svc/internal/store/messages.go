@@ -611,6 +611,10 @@ func (s *Store) appendMessageTx(
 	parentForEvent := parentArg
 	rootForEvent := isThreadRoot
 	threadIDForEvent := threadID
+	senderUsername, senderDisplayName, err := s.cachedUserNames(ctx, tx, orgID, senderID)
+	if err != nil {
+		return nil, err
+	}
 	evt := events.MessageCreated{
 		Type:            events.TypeMessageCreated,
 		EventID:         uuid.Must(uuid.NewV7()).String(),
@@ -631,10 +635,12 @@ func (s *Store) appendMessageTx(
 		// client optimistically inserts an inbox row on MessageCreated, and
 		// without the origin it would put back exactly the rows we stopped
 		// writing above.
-		Origin:          origin,
-		ReplyToID:       opts.replyToID,
-		IsForward:       opts.isForward,
-		ForwardPlatform: opts.forwardPlatform,
+		Origin:            origin,
+		ReplyToID:         opts.replyToID,
+		IsForward:         opts.isForward,
+		ForwardPlatform:   opts.forwardPlatform,
+		SenderUsername:    senderUsername,
+		SenderDisplayName: senderDisplayName,
 	}
 	if err := insertOutbox(ctx, tx, convID, evt); err != nil {
 		return nil, err

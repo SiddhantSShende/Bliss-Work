@@ -1,0 +1,90 @@
+import type { InfiniteData, QueryClient } from "@tanstack/react-query";
+import type { NotificationDTO, NotificationPageDTO } from "@taskboard/shared";
+import { qk } from "./queryKeys";
+
+export type NotificationPages = InfiniteData<NotificationPageDTO, unknown>;
+
+export function flattenNotificationPages(data: NotificationPages | undefined): NotificationDTO[] {
+  if (!data) return [];
+  const byId = new Map<string, NotificationDTO>();
+  for (const page of data.pages) {
+    for (const notification of page.items) {
+      const existing = byId.get(notification.id);
+      byId.set(
+        notification.id,
+        existing ? { ...notification, read: existing.read || notification.read } : notification,
+      );
+    }
+  }
+  return [...byId.values()].sort((a, b) =>
+    b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id),
+  );
+}
+
+export function mapNotificationPages(
+  data: NotificationPages | undefined,
+  update: (notification: NotificationDTO) => NotificationDTO,
+): NotificationPages | undefined {
+  if (!data) return data;
+  return {
+    ...data,
+    pages: data.pages.map((page) => ({
+      ...page,
+      items: page.items.map(update),
+    })),
+  };
+}
+
+export function insertNotificationIntoPages(
+  data: NotificationPages | undefined,
+  notification: NotificationDTO,
+): NotificationPages | undefined {
+  if (!data || data.pages.some((page) => page.items.some((item) => item.id === notification.id))) {
+    return data;
+  }
+  const first = data.pages[0];
+  if (!first) return data;
+  const rest = data.pages.slice(1);
+  return {
+    ...data,
+    pages: [
+      {
+        ...first,
+        items: [notification, ...first.items].sort((a, b) =>
+          b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id),
+        ),
+      },
+      ...rest,
+    ],
+  };
+}
+
+export function addRealtimeNotification(qc: QueryClient, notification: NotificationDTO): void {
+  const current = qc.getQueryData<NotificationPages>(qk.notifications);
+  const alreadyLoaded = current?.pages.some((page) => page.items.some((item) => item.id === notification.id));
+  const seen = qc.getQueryData<string[]>(qk.notificationEventIds) ?? [];
+  if (alreadyLoaded || seen.includes(notification.id)) return;
+
+  qc.setQueryData(qk.notificationEventIds, [...seen.slice(-499), notification.id]);
+  qc.setQueryData<NotificationPages>(qk.notifications, (previous) =>
+    insertNotificationIntoPages(previous, notification),
+  );
+  qc.setQueryData<{ unreadCount: number }>(qk.notificationsUnreadCount, (previous) =>
+    previous && { unreadCount: previous.unreadCount + 1 },
+  );
+}
+
+export function markNotificationPagesRead(
+  qc: QueryClient,
+  predicate: (notification: NotificationDTO) => boolean,
+): number {
+  let flipped = 0;
+  qc.setQueryData<NotificationPages>(qk.notifications, (previous) =>
+    mapNotificationPages(previous, (notification) => {
+      if (notification.read || !predicate(notification)) return notification;
+      flipped++;
+      return { ...notification, read: true };
+    }),
+  );
+  return flipped;
+}

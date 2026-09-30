@@ -121,7 +121,6 @@
       "description": "Description",
       "descriptionPlaceholder": "Add details…",
       "assignTo": "Assign to",
-      "assignToWithCount": "Assign to ({{count}})",
       "you": "(You)",
       "searchPeoplePlaceholder": "Search people…",
       "noMatches": "No matches.",
@@ -129,7 +128,15 @@
       "noChannels": "You aren't in any channels yet. Create one from the Channels sidebar.",
       "memberCount_one": "({{count}} member)",
       "memberCount_other": "({{count}} members)",
-      "channelHint": "Every member of the channel receives the task with the same Acknowledge / Ignore flow."
+      "channelHint": "Every member of the channel receives the task with the same Acknowledge / Ignore flow.",
+      "unknownPerson": "Unknown person",
+      "assignToEmpty": "No one assigned yet.",
+      "addPeople": "Add people",
+      "removePerson": "Remove {{name}}",
+      "done": "Done",
+      "assignToChannelEmpty": "No channel chosen yet.",
+      "chooseChannel": "Choose channel",
+      "removeChannel": "Remove {{name}}"
     },
     "modes": {
       "people": "People",
@@ -156,14 +163,17 @@
     },
     "actions": {
       "cancel": "Cancel",
-      "send": "Send task",
-      "sending": "Sending…"
+      "create": "Create Task",
+      "creating": "Creating…"
     },
     "allocation": {
       "title": "Allocation",
       "now": "Now",
       "scheduled": "Schedule for later",
       "recurring": "Recurring task",
+      "nowDescription": "Assign immediately",
+      "scheduledDescription": "Set date and time",
+      "recurringDescription": "Repeat automatically",
       "startDate": "Start date",
       "startTime": "Start time",
       "daily": "Daily",
@@ -174,7 +184,11 @@
       "everyMonth": "Every N month(s)",
       "noEnd": "No end date",
       "afterOccurrences": "End after N occurrences",
-      "onDate": "End on specific date"
+      "onDate": "End on specific date",
+      "peopleCount_one": "{{count}} person",
+      "peopleCount_other": "{{count}} people",
+      "noTargetYet": "no target chosen yet",
+      "summary": "This task will be assigned to {{who}} on {{when}}."
     }
   },
   "exportTasksDialog": {

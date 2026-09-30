@@ -8,7 +8,7 @@
     "description": "Currently using {{theme}}.",
     "changeTheme": "Change theme",
     "menuLabel": "Theme",
-    "syncFailed": "Theme changed on this device only. We couldn't save it to your account and will keep trying.",
+    "syncFailed": "Custom theme changed on this device only. We couldn't save it to your account and will keep trying.",
     "light": "Light",
     "dark": "Dark",
     "custom": {
@@ -20,7 +20,8 @@
       "create": "Create custom theme",
       "edit": "Edit custom theme",
       "cancel": "Cancel",
-      "save": "Save theme"
+      "save": "Save theme",
+      "delete": "Delete custom theme"
     }
   },
   "twoFactor": {

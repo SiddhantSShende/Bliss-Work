@@ -9,9 +9,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
-import type { ApiClient, NotificationDTO } from "@taskboard/shared";
+import type { ApiClient, NotificationDTO, NotificationPageDTO } from "@taskboard/shared";
 import { qk } from "./queryKeys";
 import { useMarkTaskNotificationsRead } from "./useMarkTaskNotificationsRead";
+import { flattenNotificationPages } from "./notificationPages";
 
 const TASK_A = "018f0000-0000-7000-8000-0000000000a1";
 const TASK_B = "018f0000-0000-7000-8000-0000000000a2";
@@ -55,6 +56,7 @@ function setup({ notifications, taskIds, read = async () => {}, cachedCount, ins
   const serverUnread = () => notifications.filter((n) => !serverRead.has(n.id)).length;
   const fns = {
     notifications: vi.fn(async () => notifications),
+    notificationPage: vi.fn(async (): Promise<NotificationPageDTO> => ({ items: notifications, nextCursor: null })),
     notificationsUnreadCount: vi.fn(async () => ({ unreadCount: serverUnread() })),
     markNotificationRead: vi.fn(async (id: string) => {
       await read(id);
@@ -64,7 +66,7 @@ function setup({ notifications, taskIds, read = async () => {}, cachedCount, ins
   const api = fns as unknown as ApiClient;
 
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
-  qc.setQueryData(qk.notifications, notifications);
+  qc.setQueryData(qk.notifications, { pages: [{ items: notifications, nextCursor: null }], pageParams: [undefined] });
   qc.setQueryData(qk.notificationsUnreadCount, { unreadCount: cachedCount ?? serverUnread() });
 
   renderHook(
@@ -81,7 +83,7 @@ function setup({ notifications, taskIds, read = async () => {}, cachedCount, ins
   );
 
   const badge = () => qc.getQueryData<{ unreadCount: number }>(qk.notificationsUnreadCount)?.unreadCount;
-  const listRead = (id: string) => qc.getQueryData<NotificationDTO[]>(qk.notifications)?.find((n) => n.id === id)?.read;
+  const listRead = (id: string) => flattenNotificationPages(qc.getQueryData(qk.notifications)).find((n) => n.id === id)?.read;
   return { fns, badge, listRead };
 }
 

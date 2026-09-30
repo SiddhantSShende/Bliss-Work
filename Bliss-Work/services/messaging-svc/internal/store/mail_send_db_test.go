@@ -96,7 +96,7 @@ func mailDeliveryFor(t *testing.T, s *Store, orgID, mailID, userID string) (mail
 	return row, found
 }
 
-func unreadCountFor(t *testing.T, s *Store, orgID, mailID, ownerID string) int64 {
+func unreadCountFor(t *testing.T, s *Store, mailID, ownerID string) int64 {
 	t.Helper()
 	ctx := context.Background()
 	var n int64
@@ -160,7 +160,7 @@ func TestSendMail_InternalRecipients_DeliverToInboxAndSent(t *testing.T) {
 		if row.read {
 			t.Errorf("recipient %s: delivery already read_at, want unread on arrival", recipient)
 		}
-		if n := unreadCountFor(t, s, orgID, res.MailID, recipient); n != 1 {
+		if n := unreadCountFor(t, s, res.MailID, recipient); n != 1 {
 			t.Errorf("recipient %s: unread_count = %d, want 1", recipient, n)
 		}
 	}
@@ -349,7 +349,7 @@ func TestMarkMailRead_DoesNotTouchTheSendersOwnCopy(t *testing.T) {
 	if !rowB.read {
 		t.Errorf("Bee's delivery still unread after MarkMailRead")
 	}
-	if n := unreadCountFor(t, s, orgID, res.MailID, b); n != 0 {
+	if n := unreadCountFor(t, s, res.MailID, b); n != 0 {
 		t.Errorf("Bee's unread_count = %d, want 0 after reading", n)
 	}
 
@@ -460,7 +460,7 @@ func TestSendMail_ResendingAnAlreadySentDraft_Fails(t *testing.T) {
 		mailID, b); n != 1 {
 		t.Errorf("Bee's delivery rows = %d, want exactly 1", n)
 	}
-	if n := unreadCountFor(t, s, orgID, mailID, b); n != 1 {
+	if n := unreadCountFor(t, s, mailID, b); n != 1 {
 		t.Errorf("Bee's unread_count = %d, want 1 (not incremented twice)", n)
 	}
 	if n := countRows(t, s, `SELECT count(*) FROM outbox WHERE kafka_key = $1 AND payload->>'type' = 'mail.delivered'`,

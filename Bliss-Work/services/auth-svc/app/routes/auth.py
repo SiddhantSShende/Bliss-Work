@@ -643,6 +643,12 @@ async def update_me(
             await service.update_avatar(conn, principal.org_id, principal.user_id, body.avatarUrl)
         if body.themePrefs is not None:
             await service.update_theme_prefs(conn, principal.user_id, body.themePrefs)
+        if "customTheme" in body.model_fields_set:
+            await service.update_custom_theme(
+                conn,
+                principal.user_id,
+                body.customTheme.colors if body.customTheme is not None else None,
+            )
         if body.displayName is not None or body.avatarUrl is not None:
             await service.write_audit(
                 conn,

@@ -73,6 +73,16 @@ func (s *Store) CreateChannel(ctx context.Context, orgID, creatorID, name string
 				return err
 			}
 		}
+		creatorUsername, creatorDisplayName, err := s.cachedUserNames(ctx, tx, orgID, creatorID)
+		if err != nil {
+			return err
+		}
+		body := fmt.Sprintf("%s created channel %s", userDisplayName(creatorDisplayName, creatorUsername), name)
+		clientMsgID := uuid.NewMD5(uuid.Nil, []byte("channel-created:"+chanID)).String()
+		if _, err := s.appendChannelMessageTx(ctx, tx, orgID, chanID, creatorID, body, clientMsgID,
+			channelAppendOpts{kind: MessageKindChannelCreated}); err != nil {
+			return err
+		}
 
 		return tx.Commit(ctx)
 	})
@@ -113,7 +123,7 @@ func (s *Store) RenameChannel(ctx context.Context, orgID, channelID, callerID st
 			if displayName == "" {
 				displayName = username
 			}
-			clientMsgID := uuid.NewMD5(uuid.Nil, []byte(fmt.Sprintf("channel-rename:%s:%s:%s", channelID, oldName, name)))
+			clientMsgID := uuid.NewMD5(uuid.Nil, fmt.Appendf(nil, "channel-rename:%s:%s:%s", channelID, oldName, name))
 			body := fmt.Sprintf("%s renamed channel from %s to %s", displayName, oldName, name)
 			if _, err := s.appendChannelMessageTx(
 				ctx,
@@ -310,13 +320,29 @@ func (s *Store) AddChannelMembers(ctx context.Context, orgID, channelID, callerI
 		if err != nil {
 			return err
 		}
+		actorUsername, actorDisplay, err := s.cachedUserNames(ctx, tx, orgID, callerID)
+		if err != nil {
+			return err
+		}
+		actorName := userDisplayName(actorDisplay, actorUsername)
+		bodies := make([]string, 0, len(added))
+		clientMsgIDs := make([]string, 0, len(added))
+		for _, uid := range added {
+			addedName := userDisplayName(names[uid].displayName, names[uid].username)
+			bodies = append(bodies, fmt.Sprintf("%s added %s to the channel", actorName, addedName))
+			clientMsgIDs = append(clientMsgIDs, uuid.Must(uuid.NewV7()).String())
+		}
+		if err := s.appendChannelMessagesTx(ctx, tx, orgID, channelID, callerID,
+			bodies, clientMsgIDs, MessageKindChannelMemberAdded); err != nil {
+			return err
+		}
 
 		// 4. One outbox row per genuinely-new member, inserted together. The events
 		//    stay individual — each names one person, and a consumer that had to
 		//    unpack a batch would be a contract change for no benefit — but they no
 		//    longer cost a round trip each.
 		if err := insertOutboxBatch(ctx, tx, channelID,
-			memberJoinedEvents(orgID, channelID, channelName, callerID, added, names)); err != nil {
+			memberJoinedEvents(orgID, channelID, channelName, callerID, actorName, added, names)); err != nil {
 			return err
 		}
 		return tx.Commit(ctx)
@@ -327,19 +353,20 @@ func (s *Store) AddChannelMembers(ctx context.Context, orgID, channelID, callerI
 //
 // `actorID` is the caller who added them, and is what makes this path
 // notifiable where the self-join path is not — see the event's doc comment.
-func memberJoinedEvents(orgID, channelID, channelName, actorID string, userIDs []string, names map[string]string) []any {
+func memberJoinedEvents(orgID, channelID, channelName, actorID, actorDisplayName string, userIDs []string, names map[string]projectedUserNames) []any {
 	out := make([]any, 0, len(userIDs))
 	for _, uid := range userIDs {
 		out = append(out, events.ChannelMemberJoined{
-			Type:        events.TypeChannelMemberJoined,
-			EventID:     uuid.Must(uuid.NewV7()).String(),
-			OrgID:       orgID,
-			OccurredAt:  nowISO(),
-			ChannelID:   channelID,
-			ChannelName: channelName,
-			UserID:      uid,
-			Username:    names[uid],
-			ActorID:     actorID,
+			Type:             events.TypeChannelMemberJoined,
+			EventID:          uuid.Must(uuid.NewV7()).String(),
+			OrgID:            orgID,
+			OccurredAt:       nowISO(),
+			ChannelID:        channelID,
+			ChannelName:      channelName,
+			UserID:           uid,
+			Username:         names[uid].username,
+			ActorID:          actorID,
+			ActorDisplayName: actorDisplayName,
 		})
 	}
 	return out
@@ -492,6 +519,10 @@ func (s *Store) SendChannelMessage(ctx context.Context, orgID, channelID, sender
 		if err != nil {
 			return err
 		}
+		var channelName string
+		if err := tx.QueryRow(ctx, `SELECT name FROM channels WHERE id = $1`, channelID).Scan(&channelName); err != nil {
+			return err
+		}
 
 		evt := events.ChannelMessageCreated{
 			Type:              events.TypeChannelMessageCreated,
@@ -504,6 +535,7 @@ func (s *Store) SendChannelMessage(ctx context.Context, orgID, channelID, sender
 			SenderID:          senderID,
 			SenderUsername:    senderName,
 			SenderDisplayName: senderDisplay,
+			ChannelName:       channelName,
 			Body:              body,
 			Members:           members,
 			Kind:              kind,
@@ -815,31 +847,47 @@ func userNames(ctx context.Context, tx pgx.Tx, userID string) (uname, display st
 	return uname, display, err
 }
 
-// usernames resolves many projected usernames in one round trip.
+// usernames resolves the username and display-name snapshot for many users in one round trip.
 //
 // The batch form of `username`, and it exists for the same reason
 // AddChannelMembers is now set-based: resolving a name per member turned a bulk
 // membership change into one query per person. Users with no projection row are
 // simply absent from the map, and callers read a missing key as "" — the same
 // answer `username` gives for an unknown user.
-func usernames(ctx context.Context, tx pgx.Tx, userIDs []string) (map[string]string, error) {
-	out := make(map[string]string, len(userIDs))
+type projectedUserNames struct {
+	username    string
+	displayName string
+}
+
+func userDisplayName(displayName, username string) string {
+	if displayName != "" {
+		return displayName
+	}
+	if username != "" {
+		return username
+	}
+	return "Someone"
+}
+
+func usernames(ctx context.Context, tx pgx.Tx, userIDs []string) (map[string]projectedUserNames, error) {
+	out := make(map[string]projectedUserNames, len(userIDs))
 	if len(userIDs) == 0 {
 		return out, nil
 	}
 	rows, err := tx.Query(ctx,
-		`SELECT user_id::text, COALESCE(username, '')
+		`SELECT user_id::text, COALESCE(username, ''), COALESCE(display_name, '')
 		   FROM user_projection WHERE user_id = ANY($1)`, userIDs)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var id, name string
-		if err := rows.Scan(&id, &name); err != nil {
+		var id string
+		var names projectedUserNames
+		if err := rows.Scan(&id, &names.username, &names.displayName); err != nil {
 			return nil, err
 		}
-		out[id] = name
+		out[id] = names
 	}
 	return out, rows.Err()
 }

@@ -36,6 +36,7 @@ import {
   type ChannelRole,
   ChannelMessageDTO,
   ChannelReadReceiptDTO,
+    CustomThemeDTO,
   ConversationDTO,
   ReactionDTO,
   type Role,
@@ -58,6 +59,7 @@ import {
   MfaTotpEnrollStartResult,
   type ThreadOrigin,
   NotificationDTO,
+  NotificationPageDTO,
   OrgMembershipDTO,
   OrgLifecycleDTO,
   OrgMfaSettingsDTO,
@@ -177,6 +179,7 @@ function asErrorCode(code: string | undefined): ErrorCode | undefined {
     "forbidden",
     "not_found",
     "conflict",
+    "call_session_active",
     "validation_error",
     "rate_limited",
     "internal_error",
@@ -630,12 +633,15 @@ export class ApiClient {
   i18nCatalog(locale: string) {
     return this.req(this.cfg.authBase, `/i18n/catalog?locale=${encodeURIComponent(locale)}`, {}, I18nCatalogDTO);
   }
-  /** Both fields are independently optional — the Profile page saves a
-   *  display-name edit and an avatar upload as two separate actions that
-   *  happen to share this endpoint. `avatarUrl` is a client-resized
-   *  `data:image/(jpeg|png|webp);base64,...` URI (see lib/thumbnail.ts).
-   *  `themePrefs` is the account's synced UI theme (see lib/themeSync). */
-  updateProfile(body: { displayName?: string; avatarUrl?: string; themePrefs?: ThemePrefsDTO }) {
+  /** These fields are independently optional. `customTheme` synchronizes the
+   *  shared palette; theme selection stays local. `themePrefs` is retained for
+   *  legacy clients. */
+  updateProfile(body: {
+    displayName?: string;
+    avatarUrl?: string;
+    themePrefs?: ThemePrefsDTO;
+    customTheme?: CustomThemeDTO | null;
+  }) {
     return this.req(this.cfg.authBase, "/auth/me", {
       method: "PATCH",
       body: JSON.stringify(body),
@@ -2182,6 +2188,16 @@ export class ApiClient {
   notifications() {
     return this.req(this.cfg.notificationBase, "/api/v1/notifications", {}, z.array(NotificationDTO));
   }
+  notificationPage(cursor?: string, limit = 10) {
+    const q = new URLSearchParams({ limit: String(limit) });
+    if (cursor) q.set("cursor", cursor);
+    return this.req(
+      this.cfg.notificationBase,
+      `/api/v1/notifications?${q.toString()}`,
+      {},
+      NotificationPageDTO,
+    );
+  }
   /** The notification bell's badge count — every unread notification, not
    *  just the (up to 200) most recent ones handleList/notifications() caps
    *  at, so this is actually MORE accurate than summing that list's !read
@@ -2584,7 +2600,12 @@ export class ApiClient {
   /** Ask to enter a call. POST, not GET: it mints a short-lived credential and
    *  re-checks access every time, so it must never be cached.
    *
-   *  TWO outcomes, discriminated by `state`:
+  *  JOIN is the ordinary entry, SWITCH is an explicit takeover, and REFRESH
+  *  renews the current room's credentials without claiming another session.
+  *  The separate checkCallReady() is for access/readiness probes that must
+  *  not mint a token or reserve the participant slot.
+  *
+  *  TWO outcomes, discriminated by `state`:
    *
    *    JOINED   a room token. The call is under way.
    *    WAITING  the waiting room, and no token, because the call has not been
@@ -2598,24 +2619,41 @@ export class ApiClient {
    *  The absence of a token in the WAITING case is the actual enforcement, not
    *  the lobby screen: there is nothing to open the room with until someone
    *  starts the call. */
-  callToken(callId: string) {
+  callToken(callId: string, mode: "JOIN" | "SWITCH" | "REFRESH" = "JOIN") {
     return this.req(
       this.cfg.messagingBase,
       `/api/v1/calls/${callId}/token`,
-      { method: "POST" },
+      { method: "POST", body: JSON.stringify({ mode }) },
       CallJoinDTO,
     );
   }
 
-  /** Reports a client-observed WebRTC reconnect after a transient disruption
-   *  (LiveKit's `Reconnected` room event) — see messaging-svc's
-   *  metrics/calls.go for why this cannot be derived server-side. Fire-and-
-   *  forget from the caller's point of view: a failed telemetry POST must
-   *  never affect the call itself. */
-  callTelemetryReconnected(callId: string) {
+  /** Check call authorization and server readiness without minting a token or
+   *  reserving the participant's active session. */
+  checkCallReady(callId: string) {
+    return this.req<void>(
+      this.cfg.messagingBase,
+      `/api/v1/calls/${callId}/token`,
+      { method: "POST", body: JSON.stringify({ mode: "CHECK" }) },
+    );
+  }
+
+  /** Reports a client-observed reconnect, by a bounded reason — see
+   *  messaging-svc's metrics/calls.go for why this cannot be derived
+   *  server-side and for the full ReconnectReason* taxonomy this is scoped
+   *  to. Fire-and-forget from the caller's point of view: a failed telemetry
+   *  POST must never affect the call itself.
+   *
+   *  "media": a transient ICE/signal disruption LiveKit recovered from on its
+   *  own (the Room `Reconnected` event). "token_refresh": the client's own
+   *  scheduled disconnect()+connect() to renew its room token before it
+   *  expires (useCallRoom.ts's scheduleRefresh) — deliberately NOT something
+   *  LiveKit surfaces as `Reconnected`, which is why this needs its own
+   *  reason rather than being folded into the same call. */
+  callTelemetryReconnected(callId: string, reason: "media" | "token_refresh") {
     return this.req<void>(this.cfg.messagingBase, `/api/v1/calls/${callId}/telemetry`, {
       method: "POST",
-      body: JSON.stringify({ event: "reconnected" }),
+      body: JSON.stringify({ event: "reconnected", reason }),
     });
   }
 

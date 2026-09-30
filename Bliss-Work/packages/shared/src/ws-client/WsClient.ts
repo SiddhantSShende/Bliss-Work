@@ -89,6 +89,8 @@ export class WsClient {
    *  handle is dangerous even with that cancellation in place. */
   private reconnectTimer?: ReturnType<typeof setTimeout>;
   private stopped = false;
+  private generation = 0;
+  private openingGeneration?: number;
   /** ackBuf: bucketed by (threadId ?? conversationId) so a single composer
    *  catching up on a backlog flushes one frame per bucket per ACK_FLUSH_MS. */
   private readonly ackBuf = new Map<string, Set<string>>();
@@ -137,11 +139,7 @@ export class WsClient {
 
   /** Send a client frame (rtc.* signaling). Best-effort: dropped if not open. */
   sendFrame(frame: ClientFrame): void {
-    try {
-      this.ws?.send(JSON.stringify(frame));
-    } catch {
-      /* socket not ready; caller may retry on reconnect */
-    }
+    this.sendIfOpen(this.ws, JSON.stringify(frame));
   }
 
   /** Subscribe to a single event type; returns an unsubscribe fn. */
@@ -165,19 +163,25 @@ export class WsClient {
     // (the "messages stop arriving live until I restart" bug). A genuine
     // reconnect still runs via onclose → scheduleReconnect → open(), which picks
     // up the freshest token. readyState: 0=CONNECTING, 1=OPEN.
-    if (this.hasLiveSocket()) return;
-    await this.open();
+    const generation = this.generation;
+    if (this.hasLiveSocket() || this.openingGeneration === generation) return;
+    await this.open(generation);
   }
 
   close(): void {
     this.stopped = true;
+    this.generation += 1;
     if (this.pingTimer) clearInterval(this.pingTimer);
     if (this.pongTimer) clearTimeout(this.pongTimer);
     if (this.replayTimer) clearTimeout(this.replayTimer);
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    if (this.ackFlushTimer) clearTimeout(this.ackFlushTimer);
     // Best-effort drain: ack any buffered messageIds before the socket goes.
     this.flushAcks();
-    this.ws?.close();
+    const socket = this.ws;
+    this.ws = undefined;
+    this.setStatus("closed");
+    if (socket && socket.readyState < 2) socket.close();
   }
 
   /** readyState: 0=CONNECTING, 1=OPEN — see connect()'s comment for why a
@@ -193,8 +197,18 @@ export class WsClient {
     for (const h of this.statusHandlers) h(s);
   }
 
-  private async open(): Promise<void> {
-    if (this.stopped) return;
+  private async open(generation = this.generation): Promise<void> {
+    if (this.stopped || generation !== this.generation || this.openingGeneration === generation) return;
+    this.openingGeneration = generation;
+    try {
+      await this.openSocket(generation);
+    } finally {
+      if (this.openingGeneration === generation) this.openingGeneration = undefined;
+    }
+  }
+
+  private async openSocket(generation: number): Promise<void> {
+    if (this.stopped || generation !== this.generation) return;
     // A terminal session cannot be revived by dialing again: the gateway will
     // reject every handshake, so park rather than reconnect. Without this the
     // onclose → scheduleReconnect → open() cycle re-dials at the capped backoff
@@ -216,7 +230,7 @@ export class WsClient {
     // constructing and assigning a socket that close() already told to stop —
     // nothing could ever close it again. No WebSocket has been constructed yet
     // at this point, so returning here is enough; no teardown needed.
-    if (this.stopped) return;
+    if (this.stopped || generation !== this.generation) return;
     // The gateway authenticates the token at the WS HANDSHAKE and rejects an
     // expired one (401). The access token lives ~15 min; an already-open socket
     // survives expiry, but a RECONNECT after expiry (sleep/network blip/app
@@ -233,7 +247,7 @@ export class WsClient {
         // Refresh failed (e.g. dead refresh cookie) — attempt with what we have;
         // the rejected handshake reschedules a reconnect.
       }
-      if (this.stopped) return;
+      if (this.stopped || generation !== this.generation) return;
     }
     // The refresh above is what LEARNS the session is terminal (it reads the
     // 'reused'/'expired'/'deactivated' code off the 401), so re-check after it
@@ -265,17 +279,24 @@ export class WsClient {
 
     ws.onopen = () => {
       clearTimeout(connectTimer);
+      if (this.ws !== ws || this.stopped || generation !== this.generation) {
+        if (ws.readyState < 2) ws.close();
+        return;
+      }
       this.attempt = 0;
       this.setStatus("open");
       // Prefer our own high-water mark over the host's initial hint: within a
       // session it is always the more advanced of the two.
       const lastSeenSeq = this.highWaterMs || this.opts.lastSeenSeq?.();
       this.startReplay();
-      ws.send(JSON.stringify({ type: "hello", lastSeenSeq }));
-      this.startPing();
+      this.sendIfOpen(ws, JSON.stringify({ type: "hello", lastSeenSeq }));
+      this.flushAcks();
+      this.startPing(ws);
     };
 
-    ws.onmessage = (ev: MessageEvent) => this.handleMessage(ev.data);
+    ws.onmessage = (ev: MessageEvent) => {
+      if (this.ws === ws && generation === this.generation) void this.handleMessage(ev.data, ws);
+    };
 
     ws.onclose = () => {
       clearTimeout(connectTimer);
@@ -283,6 +304,7 @@ export class WsClient {
       // closing LATER. Acting on it would report "closed" while the new socket is
       // up, stop that socket's heartbeat, and queue a reconnect.
       if (this.ws !== ws) return;
+      this.ws = undefined;
       this.setStatus("closed");
       if (this.pingTimer) clearInterval(this.pingTimer);
       if (this.pongTimer) clearTimeout(this.pongTimer);
@@ -309,15 +331,11 @@ export class WsClient {
     }
   }
 
-  private startPing() {
+  private startPing(ws: WebSocket) {
     if (this.pingTimer) clearInterval(this.pingTimer);
     this.pingTimer = setInterval(() => {
-      try {
-        this.ws?.send(JSON.stringify({ type: "ping" }));
-        this.armPongTimeout();
-      } catch {
-        /* ignore */
-      }
+      if (this.ws !== ws || !this.sendIfOpen(ws, JSON.stringify({ type: "ping" }))) return;
+      this.armPongTimeout(ws);
     }, PING_INTERVAL_MS);
   }
 
@@ -325,14 +343,14 @@ export class WsClient {
    *  clears it within PONG_TIMEOUT_MS, the socket is forced closed — the
    *  ordinary onclose -> scheduleReconnect() path then recovers it exactly as
    *  it would for any other disconnect. */
-  private armPongTimeout() {
+  private armPongTimeout(ws: WebSocket) {
     if (this.pongTimer) clearTimeout(this.pongTimer);
     this.pongTimer = setTimeout(() => {
-      this.ws?.close();
+      if (this.ws === ws && ws.readyState === 1) ws.close();
     }, PONG_TIMEOUT_MS);
   }
 
-  private async handleMessage(raw: unknown) {
+  private async handleMessage(raw: unknown, ws: WebSocket) {
     let parsed: unknown;
     try {
       parsed = JSON.parse(typeof raw === "string" ? raw : String(raw));
@@ -358,7 +376,7 @@ export class WsClient {
         this.setStatus("reauth");
         try {
           const token = await this.opts.refreshToken();
-          this.ws?.send(JSON.stringify({ type: "auth.renew", token }));
+          if (this.ws === ws) this.sendIfOpen(ws, JSON.stringify({ type: "auth.renew", token }));
         } catch {
           // Refresh failed (e.g. dead refresh cookie) — same as open()'s
           // identical call. Unlike there, this socket is already open with no
@@ -366,7 +384,7 @@ export class WsClient {
           // out of "reauth": force it closed and let the ordinary
           // onclose -> scheduleReconnect() -> open() path recover it, the
           // same backstop armPongTimeout uses for a zombie connection.
-          this.ws?.close();
+          if (this.ws === ws && ws.readyState < 2) ws.close();
         }
       }
       // Catch-up is over; everything from here is genuinely new.
@@ -434,16 +452,24 @@ export class WsClient {
       clearTimeout(this.ackFlushTimer);
       this.ackFlushTimer = undefined;
     }
-    if (!this.ws || this.ackBuf.size === 0) return;
-    for (const [, ids] of this.ackBuf) {
+    const ws = this.ws;
+    if (!ws || ws.readyState !== 1 || this.ackBuf.size === 0) return;
+    for (const [bucket, ids] of this.ackBuf) {
       if (ids.size === 0) continue;
-      try {
-        this.ws.send(JSON.stringify({ type: "message.ack", messageIds: [...ids] }));
-      } catch {
-        // best-effort; next message.created will rebuild the batch
+      if (this.sendIfOpen(ws, JSON.stringify({ type: "message.ack", messageIds: [...ids] }))) {
+        this.ackBuf.delete(bucket);
       }
     }
-    this.ackBuf.clear();
+  }
+
+  private sendIfOpen(ws: WebSocket | undefined, data: string): boolean {
+    if (!ws || ws !== this.ws || ws.readyState !== 1) return false;
+    try {
+      ws.send(data);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private scheduleReconnect() {

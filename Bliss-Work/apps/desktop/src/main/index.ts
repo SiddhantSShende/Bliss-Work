@@ -30,7 +30,7 @@ import {
 } from "./session-token";
 import * as notificationPrefs from "./notification-prefs";
 import { flushSync as flushStickyState, initStickyState } from "./sticky-state";
-import { trayIcon } from "./assets";
+import { appIcon, trayIcon } from "./assets";
 import { buildAppMenu } from "./menu";
 import { registerFileSink } from "./file-sink";
 import { registerAttachmentOpen } from "./attachment-open";
@@ -40,7 +40,7 @@ import { locationSettingsUrl } from "../shared/location-settings";
 import { mediaSettingsUrl } from "../shared/media-settings";
 import { initScreenshotGuard } from "./screenshot-guard";
 import { initWindowStateGuard } from "./window-state-guard";
-import { popupFor, raise, shouldNotify, userIdFromToken, windowStateOf } from "./notifier";
+import { incomingCallPopup, popupFor, raise, shouldNotify, userIdFromToken, windowStateOf } from "./notifier";
 import { resolveEndpointsFromEnv } from "../shared/endpoints";
 import { findDeepLink, parseDeepLink } from "../shared/deeplink";
 import { openExternalSafely } from "./harden";
@@ -739,13 +739,18 @@ ipcMain.on("incoming-call:show", (e, payload: unknown) => {
   if (!ElectronNotification.isSupported()) return;
 
   closeIncomingCallNotification();
+  const popup = incomingCallPopup(caller, media);
   const notification = new ElectronNotification({
-    title: caller,
-    body: media === "video" ? "Incoming video call" : "Incoming voice call",
-    actions: [
-      { type: "button", text: "ACCEPT" },
-      { type: "button", text: "REJECT" },
-    ],
+    title: popup.title,
+    body: popup.body,
+    // The bundled BlissWork mark (assets.ts, already used for the window/tray
+    // icons) rather than leaving Windows' toast image slot blank — see
+    // incomingCallPopup's own doc for why this is the one image the plain
+    // (non-toastXml) toast template has room for.
+    icon: appIcon(),
+    groupId: popup.groupId,
+    groupTitle: popup.groupTitle,
+    actions: popup.actions,
     timeoutType: "never",
     urgency: "critical",
     silent: false,

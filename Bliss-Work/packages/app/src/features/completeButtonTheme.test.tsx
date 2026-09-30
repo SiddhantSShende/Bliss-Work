@@ -41,4 +41,32 @@ describe("Complete button", () => {
     render(<StickyWidget task={{ ...task, myStatus: "SENT", actions: ["ACKNOWLEDGE", "IGNORE"] }} onAction={vi.fn()} />);
     expect(screen.getByRole("button", { name: /acknowledge/i })).toHaveClass("bg-accent", "text-accent-fg");
   });
+
+  it("shows Add member for an active assigned card even when its participant array is empty", () => {
+    render(
+      <StickyWidget
+        task={task}
+        onAction={vi.fn()}
+        currentUserId="assignee"
+        participantLayout="list"
+        onAddParticipants={vi.fn(async () => {})}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Add member" })).toBeInTheDocument();
+  });
+
+  it("does not show Add member for a completed assigned card", () => {
+    render(
+      <StickyWidget
+        task={{ ...task, myStatus: "COMPLETED" }}
+        onAction={vi.fn()}
+        currentUserId="assignee"
+        participantLayout="list"
+        onAddParticipants={vi.fn(async () => {})}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Add member" })).not.toBeInTheDocument();
+  });
 });

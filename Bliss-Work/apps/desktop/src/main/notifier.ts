@@ -28,6 +28,7 @@ import { readablePrefix } from "@taskboard/app/chatEnvelope";
 type WireEvent = Record<string, unknown>;
 
 export interface Popup {
+  notificationId: string;
   title: string;
   body: string;
 }
@@ -87,8 +88,9 @@ function preview(body: string): string {
  * sync, so without it the app would pop a notification for every message the
  * user themselves sent.
  *
- * Only events a person would want interrupting for are listed. Read receipts,
- * reactions, presence and the rest are traffic, not news.
+ * Only persisted notification.created records are eligible. The bell and the
+ * native popup therefore name the same server-owned row instead of each
+ * independently turning the underlying message event into an alert.
  */
 export function popupFor(event: unknown, meId: string | null): Popup | null {
   if (!event || typeof event !== "object") return null;
@@ -96,40 +98,39 @@ export function popupFor(event: unknown, meId: string | null): Popup | null {
   const str = (k: string): string => (typeof e[k] === "string" ? (e[k] as string) : "");
 
   switch (e.type) {
-    case "message.created": {
-      // No `meId` means no session yet (or a signed-out app). Staying silent is
-      // the right failure: the alternative is announcing the user's own
-      // outgoing messages back at them.
-      if (!meId || str("senderId") === meId) return null;
-      // MessageCreated carries no sender name — the DM surfaces resolve it from
-      // the conversation, which this process has no client for. The preview is
-      // what makes the popup actionable anyway.
-      return { title: "New message", body: preview(str("body")) };
-    }
-    case "channel.message.created": {
-      if (!meId || str("senderId") === meId) return null;
-      // `senderUsername` is the email local-part (see lib/userLabel), so it is
-      // the FALLBACK — never the first choice — exactly as in ChannelView.
-      const who = str("senderDisplayName") || str("senderUsername");
-      return { title: who || "New channel message", body: preview(str("body")) };
-    }
-    case "task.assigned": {
-      // Routed to the assignee alone, so it is always for this user.
-      // Deliberately not "New task from <senderUsername>": that field is an
-      // email local-part, and "New task from j.okafor" is not a name.
-      return { title: "New task", body: str("title") || "You were allocated a task" };
-    }
-    case "channel.member.joined": {
-      // actorId === userId is an open-channel self-join: they clicked Join and
-      // do not need telling. An ABSENT actorId is a server older than the
-      // field — stay quiet rather than risk announcing someone's own click.
-      const actor = str("actorId");
-      if (!actor || actor === str("userId")) return null;
-      const channel = str("channelName");
-      return {
-        title: "Added to a channel",
-        body: channel ? `You were added to #${channel}` : "You were added to a channel",
-      };
+    case "notification.created": {
+      if (!meId || str("recipientId") !== meId) return null;
+      const notificationId = str("notificationId");
+      const kind = str("kind");
+      const text = str("text");
+      if (!notificationId || !text) return null;
+
+      if (kind === "DM_MESSAGE") {
+        const split = text.indexOf(": ");
+        return split > 0
+          ? { notificationId, title: text.slice(0, split), body: preview(text.slice(split + 2)) }
+          : { notificationId, title: "New message", body: preview(text) };
+      }
+      if (kind === "CHANNEL_MESSAGE") {
+        const split = text.indexOf(": ");
+        if (split > 0) {
+          const attribution = text.slice(0, split);
+          const channelMarker = attribution.indexOf(" in #");
+          return {
+            notificationId,
+            title: channelMarker > 0 ? attribution.slice(0, channelMarker) : attribution,
+            body: `${channelMarker > 0 ? `#${attribution.slice(channelMarker + 5)}: ` : ""}${preview(text.slice(split + 2))}`,
+          };
+        }
+      }
+      const title = kind.startsWith("TASK_")
+        ? "Task update"
+        : kind.startsWith("MEETING_")
+          ? "Meeting"
+        : kind.startsWith("CHANNEL_")
+          ? "Channel update"
+          : "BlissWork";
+      return { notificationId, title, body: preview(text) };
     }
     // call.started / call.waiting / call.ring deliberately have NO case here.
     // They already get their own dedicated, always-on-top popup window (see
@@ -173,4 +174,54 @@ export function raise(popup: Popup, onClick: () => void): void {
   const n = new Notification({ title: popup.title, body: popup.body });
   n.on("click", onClick);
   n.show();
+}
+
+export interface IncomingCallPopup {
+  title: string;
+  body: string;
+  /** Windows only: both must be set together for the OS to draw a header
+   *  above the toast (see NotificationConstructorOptions.groupTitle) — the
+   *  one piece of native chrome this toast can carry actual BlissWork
+   *  branding in, short of a custom toastXml template. */
+  groupId: string;
+  groupTitle: string;
+  actions: { type: "button"; text: string }[];
+}
+
+/**
+ * The content for a ringing 1:1 call's native toast — everything worth
+ * getting right and testing about it, as distinct from the three lines in
+ * main/index.ts that actually touch `Notification` (the app icon included:
+ * that comes from assets.ts's `appIcon()`, a `NativeImage`, which is a
+ * different kind of thing to unit-test than the plain data this returns; see
+ * `raise` above for the same split on the generic-event popup).
+ *
+ * The plain, default (non-toastXml) Windows toast has exactly one image slot
+ * — already spent here on the BlissWork mark — so a second, per-caller
+ * avatar image is a genuine native-notification limitation, not an oversight:
+ * showing one would mean either replacing the branding image with it (a
+ * worse trade) or hand-building the toast's full XML, which would also have
+ * to reimplement the `action` event's index-based accept/reject wiring
+ * in main/index.ts that this is deliberately not disturbing. The caller's
+ * name carries their identity instead, exactly as it does today.
+ *
+ * "Decline" (not "Reject") to read the same as the in-app incoming-call
+ * button (callRoom.json's callUi.decline) — the two are the same action on
+ * two different surfaces, and calling it something else here is the kind of
+ * needless inconsistency a viewer should not have to notice.
+ */
+export function incomingCallPopup(caller: string, media: "audio" | "video"): IncomingCallPopup {
+  return {
+    title: caller,
+    // A leading glyph is the one call/video indicator a plain-text Windows
+    // toast body can carry without a custom template — Windows 10/11 render
+    // emoji in notification text natively, no image asset required.
+    body: media === "video" ? "📹 Incoming video call" : "📞 Incoming voice call",
+    groupId: "blisswork-calls",
+    groupTitle: "BlissWork",
+    actions: [
+      { type: "button", text: "Accept" },
+      { type: "button", text: "Decline" },
+    ],
+  };
 }

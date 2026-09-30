@@ -133,3 +133,75 @@ func (s *Store) appendChannelMessageTx(
 	}
 	return msgID, nil
 }
+
+// appendChannelMessagesTx appends server-authored messages in one bounded set
+// of SQL operations. The messages remain individual so each added member gets
+// a correctly attributed live event; only their storage and outbox writes are
+// batched. It does NOT commit.
+func (s *Store) appendChannelMessagesTx(
+	ctx context.Context, tx pgx.Tx, orgID, channelID, senderID string,
+	bodies, clientMsgIDs []string, kind string,
+) error {
+	if len(bodies) != len(clientMsgIDs) {
+		return errors.New("channel message bodies and client ids must have equal lengths")
+	}
+	if len(bodies) == 0 {
+		return nil
+	}
+
+	var lastSeq int64
+	if err := tx.QueryRow(ctx,
+		`UPDATE channels SET seq_counter = seq_counter + $2, last_msg_at = now()
+		 WHERE id = $1 RETURNING seq_counter`, channelID, len(bodies)).Scan(&lastSeq); err != nil {
+		return err
+	}
+	startSeq := lastSeq - int64(len(bodies)) + 1
+	messageIDs := make([]string, len(bodies))
+	sequences := make([]int64, len(bodies))
+	bodyEncs := make([][]byte, len(bodies))
+	for i, body := range bodies {
+		messageIDs[i] = uuid.Must(uuid.NewV7()).String()
+		sequences[i] = startSeq + int64(i)
+		bodyEnc, err := s.crypto.Encrypt(ctx, tx, orgID, body)
+		if err != nil {
+			return err
+		}
+		bodyEncs[i] = bodyEnc
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO channel_messages
+		   (id, org_id, channel_id, seq, sender_id, body, body_enc, client_msg_id, kind, is_forward)
+		 SELECT batch.id, $2, $3, batch.seq, $5, NULL, batch.body_enc, batch.client_msg_id, $8, false
+		   FROM unnest($1::uuid[], $4::bigint[], $6::bytea[], $7::uuid[])
+		        AS batch(id, seq, body_enc, client_msg_id)`,
+		messageIDs, orgID, channelID, sequences, senderID, bodyEncs, clientMsgIDs, kind); err != nil {
+		return err
+	}
+
+	members, err := channelMemberIDs(ctx, tx, channelID)
+	if err != nil {
+		return err
+	}
+	senderName, err := username(ctx, tx, senderID)
+	if err != nil {
+		return err
+	}
+	eventsOut := make([]any, len(bodies))
+	for i, body := range bodies {
+		eventsOut[i] = events.ChannelMessageCreated{
+			Type:           events.TypeChannelMessageCreated,
+			EventID:        uuid.Must(uuid.NewV7()).String(),
+			OrgID:          orgID,
+			OccurredAt:     nowISO(),
+			ChannelID:      channelID,
+			MessageID:      messageIDs[i],
+			Seq:            sequences[i],
+			SenderID:       senderID,
+			SenderUsername: senderName,
+			Body:           body,
+			Members:        members,
+			Kind:           kind,
+		}
+	}
+	return insertOutboxBatch(ctx, tx, channelID, eventsOut)
+}

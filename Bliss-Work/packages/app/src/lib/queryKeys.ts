@@ -85,6 +85,9 @@ export const qk = {
    *  from the call rows) and a different lifetime. */
   onCall: ["onCall"] as const,
   notifications: ["notifications"] as const,
+  /** Bounded IDs used to suppress replayed notification.created frames when
+   *  the corresponding row is not in the currently loaded pages. */
+  notificationEventIds: ["notifications", "realtimeIds"] as const,
   /** The bell badge count alone — see api.notificationsUnreadCount(). Separate
    *  key from `notifications` (the full list) so the badge and the opened
    *  panel are independent cache entries with independent lifetimes. */

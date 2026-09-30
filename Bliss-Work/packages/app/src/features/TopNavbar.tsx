@@ -7,6 +7,7 @@ import { ProfileMenu } from "./ProfileMenu";
 import { GetAppButton } from "./GetAppButton";
 import { OrgSwitcher } from "./OrgSwitcher";
 import { LanguageSwitcher } from "../i18n/LanguageSwitcher";
+import { unreadBadgeLabel } from "../lib/unreadNotificationCount";
 
 /**
  * Global top navbar: brand · search · invite · notifications · account.
@@ -29,6 +30,7 @@ export function TopNavbar({
   const { t } = useTranslation("appShell");
   const nav = useNavigate();
   const [q, setQ] = useState("");
+  const badge = unreadBadgeLabel(unread);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -105,9 +107,9 @@ export function TopNavbar({
           <IconButton onClick={onOpenNotifs} title={t("topNavbar.notifications")}>
             <Bell size={18} />
           </IconButton>
-          {unread > 0 && (
+          {badge && (
             <span className="pointer-events-none absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[9px] font-semibold text-white">
-              {unread}
+              {badge}
             </span>
           )}
         </div>

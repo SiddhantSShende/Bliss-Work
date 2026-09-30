@@ -85,7 +85,7 @@ func (s *Server) reverseGeocode(w http.ResponseWriter, r *http.Request) {
 	// not change over a metre, and the coarser key means more shared hits.
 	latS := strconv.FormatFloat(lat, 'f', 4, 64)
 	lngS := strconv.FormatFloat(lng, 'f', 4, 64)
-	sum := sha256.Sum256([]byte(fmt.Sprintf("rev|%s|%s|%s", s.mapsCfg.Provider, latS, lngS)))
+	sum := sha256.Sum256(fmt.Appendf(nil, "rev|%s|%s|%s", s.mapsCfg.Provider, latS, lngS))
 	key := hex.EncodeToString(sum[:])
 
 	if label, ok := s.cachedLabel(key); ok {

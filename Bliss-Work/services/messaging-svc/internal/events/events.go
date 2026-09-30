@@ -115,7 +115,9 @@ type MessageCreated struct {
 	// to the normalized destination (store.PlatformWhatsApp today) — mirrors
 	// store.MessageDTO.ForwardPlatform so a live-pushed pill renders the same
 	// generic "Message forwarded to X" line a page-load would.
-	ForwardPlatform string `json:"forwardPlatform,omitempty"`
+	ForwardPlatform   string `json:"forwardPlatform,omitempty"`
+	SenderDisplayName string `json:"senderDisplayName,omitempty"`
+	SenderUsername    string `json:"senderUsername,omitempty"`
 }
 
 // ConversationIgnored is emitted when a participant ignores (hides) a conversation
@@ -304,6 +306,7 @@ type ChannelMessageCreated struct {
 	// has no display_name, so consumers that predate it are unaffected and
 	// clients fall back to senderUsername (the email local-part).
 	SenderDisplayName string `json:"senderDisplayName,omitempty"`
+	ChannelName       string `json:"channelName,omitempty"`
 	// Kind mirrors MessageCreated.Kind — omitted for ordinary text so the wire
 	// shape is unchanged for consumers that predate channel system entries.
 	Kind string `json:"kind,omitempty"`
@@ -401,7 +404,8 @@ type ChannelMemberJoined struct {
 	// ActorID is who performed the add. Equal to UserID for an open-channel
 	// self-join. Omitted by producers that predate it, which consumers must
 	// treat as "unknown actor", NOT as a self-join.
-	ActorID string `json:"actorId,omitempty"`
+	ActorID          string `json:"actorId,omitempty"`
+	ActorDisplayName string `json:"actorDisplayName,omitempty"`
 }
 
 // UserCreated is consumed from auth.events to maintain the user_projection.

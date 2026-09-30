@@ -40,13 +40,15 @@
  * channel is: the same audience, the same lifetime, and no table anywhere.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertCircle, Circle, Clock, Globe, Mic, MicOff, Video, VideoOff } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { AlertCircle, Circle, Clock, Globe, Mic, MicOff, ScreenShare, Video, VideoOff } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { Button, cn } from "@taskboard/ui";
 import { type CallDTO } from "@taskboard/shared";
 import { useSession } from "../store/session";
 import { useRuntime } from "../lib/runtime";
+import { qk } from "../lib/queryBridge";
 import { isGetUserMediaDenied, useCallRoom } from "../lib/useCallRoom";
 import { CAMERA_PREVIEW_CONSTRAINTS } from "../lib/mediaConstraints";
 import { useVideoAspect } from "../lib/useVideoAspect";
@@ -89,7 +91,8 @@ import { MiniMeeting } from "./MiniMeeting";
 import { BracketFrame } from "./BracketFrame";
 import { CallSidebar } from "./CallSidebar";
 import { CallAudioSinks } from "./CallAudioSinks";
-import { CallTile, UnpinButton } from "./CallTile";
+import { UnpinButton } from "./CallTile";
+import { CallTileHostProvider, CallTileSlot } from "./CallTileHost";
 import { CallMembers } from "./CallMembers";
 import { CallSpeakerFilmstrip } from "./CallSpeakerFilmstrip";
 import { SpeakingWave } from "./SpeakingWave";
@@ -140,7 +143,7 @@ const SIDE_PANEL_OPEN = `${SIDE_PANEL_SHEET} opacity-100 md:min-h-52 md:max-h-[m
 const SIDE_PANEL_CLOSED = `${SIDE_PANEL_SHEET} pointer-events-none opacity-0 md:max-h-0 lg:w-0`;
 
 export function CallRoom({
-  call,
+  call: initialCall,
   onClose,
   autoJoin,
 }: {
@@ -154,7 +157,7 @@ export function CallRoom({
   autoJoin?: "video" | "voice";
 }) {
   const { t, i18n } = useTranslation("callRoom");
-  const room = useCallRoom(call.id);
+  const room = useCallRoom(initialCall.id);
   const {
     join,
     leave,
@@ -177,6 +180,28 @@ export function CallRoom({
     identity,
   } = room;
   const { api, config } = useRuntime();
+  /**
+   * `initialCall` is a snapshot from whenever the caller opened this meeting
+   * (MeetingSession's `enter()` sets it once and never again — see its own
+   * doc). A meeting opened while still SCHEDULED keeps that frozen copy, with
+   * no `startedAt`, for as long as this room stays mounted — even once the
+   * host starts it and the meeting is genuinely LIVE.
+   *
+   * `qk.call(id)` is the same cache entry queryBridge.tsx already refreshes
+   * on CallStarted/CallEnded/CallShareStarted/… (see handleCallEvent) for
+   * every other surface (Meetings, MeetingDetail); this just adds the
+   * observer that was missing here, so the room picks up that refresh too
+   * instead of only whoever happens to revisit one of those. `initialData`
+   * means the very first render is identical to before — nothing to load —
+   * and it is ignored once the cache holds anything newer, so a late join or
+   * a remount can never regress an already-fresher `startedAt` back to this
+   * stale snapshot.
+   */
+  const { data: call } = useQuery({
+    queryKey: qk.call(initialCall.id),
+    queryFn: () => api.call(initialCall.id),
+    initialData: initialCall,
+  });
   const me = useSession((s) => s.user);
   /**
    * Optional so this component can still be rendered on its own — the dev
@@ -238,20 +263,32 @@ export function CallRoom({
   const [recording, setRecording] = useState(false);
 
   /**
-   * Who is on the stage: the viewer's own pin if they made one, otherwise
-   * whoever the room is listening to.
+   * A shared screen takes the stage over everything else, including a pin —
+   * it is what the room is now looking at, not a suggestion. Read fresh from
+   * `participants` on every render rather than latched into state anywhere:
+   * there is then nothing about "who is sharing" that can go stale, and
+   * nothing to restore once it stops — the stage just falls through to
+   * `pinned`/the active speaker again on its own, taking with it whatever the
+   * viewer had chosen before the share started. See CallSpeakerFilmstrip for
+   * the other half (the sharer keeps a seat there too, showing their camera).
+   */
+  const sharer = participants.find((p) => p.sharing)?.identity ?? null;
+
+  /**
+   * Who is on the stage: a live screen share first, then the viewer's own
+   * pin if they made one, otherwise whoever the room is listening to.
    *
-   * The pin WINS, and that is the whole distinction — someone who chose a tile
-   * deliberately should not lose it every time another person speaks. Unpinning
-   * falls through to the active speaker again with no extra state, and because
-   * `pinned` is this component's own state, one viewer's choice is invisible to
-   * everybody else in the meeting.
+   * The pin WINS over the active speaker, and that is the whole distinction —
+   * someone who chose a tile deliberately should not lose it every time
+   * another person speaks. Unpinning falls through to the active speaker again
+   * with no extra state, and because `pinned` is this component's own state,
+   * one viewer's choice is invisible to everybody else in the meeting.
    *
    * Computed here, ahead of the "waiting" early return below, because
    * useMeetingPiP (a hook) needs it and hooks cannot follow a conditional
    * return.
    */
-  const stageId = pinned ?? speakers.active;
+  const stageId = sharer ?? pinned ?? speakers.active;
   const stage = stageId ? participants.find((p) => p.identity === stageId) : undefined;
 
   // What Picture-in-Picture follows: the same track CallTile would show on
@@ -286,9 +323,9 @@ export function CallRoom({
   const title = call.title || (call.kind === "CHANNEL" ? t("room.defaultTitleChannel") : t("room.defaultTitleMeeting"));
   // The MEETING's own start time, not this client's own connectedAt — every
   // participant's timer must read the same number regardless of when THEY
-  // joined. call.startedAt is server-authoritative and already kept fresh via
-  // the CallStarted WS event (see queryBridge.tsx), same source the Meetings
-  // list/detail duration already reads (lib/meetingView.ts's durationMsOf).
+  // joined. call.startedAt is server-authoritative and kept fresh by the
+  // live-refreshed `call` above, same source the Meetings list/detail
+  // duration already reads (lib/meetingView.ts's durationMsOf).
   const meetingStartedAt = call.startedAt ? new Date(call.startedAt).getTime() : undefined;
   const meetingDuration = useCallDuration(meetingStartedAt);
 
@@ -621,23 +658,6 @@ export function CallRoom({
     const heldChat = chatRef.current.filter((c) => c.to === null);
     if (heldChat.length) sendData({ t: "chat-sync", msgs: heldChat.slice(-CHAT_SYNC_MAX) });
   }, [status, sendData]);
-
-  /**
-   * A shared screen takes the stage by itself.
-   *
-   * Only when the SHARER changes, so it is a one-time claim rather than a
-   * policy: pin something else, or unpin, and the room leaves it alone until
-   * somebody starts sharing next. When the share ends the stage is released —
-   * but only if the share was what was on it, since by then the pin may be
-   * somebody the viewer chose deliberately.
-   */
-  const sharer = participants.find((p) => p.sharing)?.identity ?? null;
-  const lastSharer = useRef<string | null>(null);
-  useEffect(() => {
-    if (sharer && sharer !== lastSharer.current) setPinned(sharer);
-    if (!sharer && lastSharer.current && pinnedRef.current === lastSharer.current) setPinned(null);
-    lastSharer.current = sharer;
-  }, [sharer]);
 
   // Someone pinned can leave. Their tile is gone; the pin must go with it, or
   // the stage renders nothing and the members stay squeezed into a strip.
@@ -1008,6 +1028,28 @@ export function CallRoom({
    * directly — the hook already resets `roomRef`/`joining` on the failure path
    * (see useCallRoom.ts), so a second call is a clean re-attempt.
    */
+  if (status === "switch_required") {
+    return (
+      <div className="meeting-theme meeting-mesh fixed inset-0 z-[100] flex flex-col items-center justify-center gap-5 p-6 text-center">
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent-soft text-accent">
+          <AlertCircle size={24} />
+        </div>
+        <div className="max-w-sm">
+          <div className="text-lg font-semibold text-fg">{t("joinFailed.anotherDeviceTitle")}</div>
+          <p className="mt-1 text-sm text-muted">{t("joinFailed.anotherDeviceHint")}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={() => void hangUp()}>
+            {t("joinFailed.leave")}
+          </Button>
+          <Button size="sm" onClick={() => void join({ switchHere: true })}>
+            {t("joinFailed.switchHere")}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   if (status === "failed") {
     const retry = () => {
       setRetrying(true);
@@ -1018,13 +1060,17 @@ export function CallRoom({
         ? t("joinFailed.tokenTitle")
         : failStage === "disconnected"
           ? t("joinFailed.disconnectedTitle")
-          : t("joinFailed.genericTitle");
+          : failStage === "displaced"
+            ? t("joinFailed.displacedTitle")
+            : t("joinFailed.genericTitle");
     const failHint =
       failStage === "token"
         ? t("joinFailed.tokenHint")
         : failStage === "disconnected"
           ? t("joinFailed.disconnectedHint")
-          : t("joinFailed.genericHint");
+          : failStage === "displaced"
+            ? t("joinFailed.displacedHint")
+            : t("joinFailed.genericHint");
     return (
       <div className="meeting-theme meeting-mesh fixed inset-0 z-[100] flex flex-col items-center justify-center gap-5 p-6 text-center">
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-danger/10 text-danger">
@@ -1038,9 +1084,11 @@ export function CallRoom({
           <Button variant="ghost" size="sm" onClick={() => void hangUp()}>
             {t("joinFailed.leave")}
           </Button>
-          <Button size="sm" onClick={retry} disabled={retrying}>
-            {retrying ? t("joinFailed.retrying") : t("joinFailed.retry")}
-          </Button>
+          {failStage !== "displaced" && (
+            <Button size="sm" onClick={retry} disabled={retrying}>
+              {retrying ? t("joinFailed.retrying") : t("joinFailed.retry")}
+            </Button>
+          )}
         </div>
       </div>
     );
@@ -1180,6 +1228,12 @@ export function CallRoom({
             {/* min-w-0: becomes a flex-ROW sibling of CallSidePanel at lg:,
                 same shrink-below-content-width reason as above. */}
             <main className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden">
+              {/* One provider for the whole video area: the stage, the grid
+                  and the filmstrip below all need to share it so a tile can
+                  move between them (active speaker, pin, a share starting)
+                  without remounting its <video> — see CallTileHost's own
+                  doc for why. */}
+              <CallTileHostProvider>
               {participants.length === 0 ? (
                 <BracketFrame className={cn("glass min-h-0 flex-1", stageUnderSheet)}>
                   <div className="flex h-full items-center justify-center text-sm text-muted">
@@ -1197,10 +1251,18 @@ export function CallRoom({
                   <div className={cn("absolute inset-0 flex gap-3", stage.sharing ? "flex-col" : "flex-col @xl:flex-row")}>
                     <BracketFrame className="glass relative min-h-0 flex-1">
                       {/* Offered only for a pin somebody MADE. The stage following
-                          the speaker is the room's normal behaviour, and "unpin"
-                          over a tile nobody pinned is a control with nothing to
-                          undo. */}
-                      {pinned ? (
+                          the speaker — or a screen share taking it over, which
+                          outranks a pin entirely (see the `sharer` doc comment
+                          above `stageId`) — is the room's normal behaviour, and
+                          "unpin" over a tile nobody pinned is a control with
+                          nothing to undo; it also couldn't move a share off the
+                          stage even if it were offered. */}
+                      {stage.sharing ? (
+                        <span className="pointer-events-none absolute left-3 top-3 z-10 inline-flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur">
+                          <ScreenShare size={12} className="text-accent" />
+                          {t("room.stage.presenting")}
+                        </span>
+                      ) : pinned === stage.identity ? (
                         <UnpinButton name={stage.name} onClick={() => setPinned(null)} />
                       ) : (
                         <span className="pointer-events-none absolute left-3 top-3 z-10 inline-flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur">
@@ -1213,7 +1275,7 @@ export function CallRoom({
                           speaking or by a manual pin — gets the highlight for as
                           long as they hold it, not just the instants they're
                           actually making sound. */}
-                      <CallTile p={stage} size="stage" active />
+                      <CallTileSlot className="h-full w-full" p={stage} size="stage" active />
                     </BracketFrame>
                     {/* Everyone else, small. Skipped when the stage participant
                         is the only one here: a thumbnail of the same lone face
@@ -1242,6 +1304,7 @@ export function CallRoom({
                   />
                 </BracketFrame>
               )}
+              </CallTileHostProvider>
             </main>
 
             {/* Chat, Notes, or Participants — one panel, three tabs (see

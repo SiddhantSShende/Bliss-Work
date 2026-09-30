@@ -42,7 +42,7 @@ export function customThemeGradient(colors: readonly string[]): string {
  *  near-black: 0.179 is only the crossover for pure black, and it is what
  *  guarantees the better of the two never drops below 4.5:1 (WCAG AA) for any
  *  background. Kept in lock-step with the copy in
- *  apps/{web/public,desktop/src/renderer/public}/theme-init.js. */
+ */
 export function readableForeground(background: string): string {
   const [r, g, b] = [1, 3, 5].map((start) => {
     const channel = parseInt(background.slice(start, start + 2), 16) / 255;
@@ -90,6 +90,14 @@ export function persistCustomTheme(theme: CustomTheme): void {
     localStorage.setItem(CUSTOM_THEME_KEY, JSON.stringify(theme));
   } catch {
     // The manual choice still applies for this session.
+  }
+}
+
+export function removeStoredCustomTheme(): void {
+  try {
+    localStorage.removeItem(CUSTOM_THEME_KEY);
+  } catch {
+    // The in-memory removal still applies for this session.
   }
 }
 

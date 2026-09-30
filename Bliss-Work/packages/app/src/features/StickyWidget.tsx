@@ -37,6 +37,7 @@ export function StickyWidget({
   currentUserId,
   onAddParticipants,
   onWithdrawParticipant,
+  participantLayout = "chips",
 }: {
   task: StickyTaskDTO;
   onAction: (action: TaskAction) => void;
@@ -57,6 +58,7 @@ export function StickyWidget({
   currentUserId?: string;
   onAddParticipants?: (userIds: string[]) => Promise<void>;
   onWithdrawParticipant?: (userId: string) => Promise<void>;
+  participantLayout?: "chips" | "list";
 }) {
   const { t } = useTranslation("stickies");
   // senderUsername is the email local-part, so "from j.okafor" is what a note
@@ -64,6 +66,8 @@ export function StickyWidget({
   // window, which has no directory query — hence the field on the DTO rather
   // than a lookup here.
   const senderName = task.senderDisplayName || task.senderUsername;
+  const activeTask = task.myStatus === "SENT" || task.myStatus === "ACKNOWLEDGED";
+  const showCardAdd = participantLayout === "list" && activeTask && !!currentUserId && !!onAddParticipants;
 
   // Whole surface is the OS-window drag region so the user can grab the note
   // from anywhere — title, body, even the empty space below the description.
@@ -90,7 +94,7 @@ export function StickyWidget({
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center gap-2">
               <div className="min-w-0 line-clamp-2 font-semibold leading-tight text-fg">{task.title}</div>
-              {currentUserId && onAddParticipants && task.participants.some((p) => p.status === "SENT" || p.status === "ACKNOWLEDGED") && (
+              {participantLayout === "chips" && currentUserId && onAddParticipants && task.participants.some((p) => p.status === "SENT" || p.status === "ACKNOWLEDGED") && (
                 <TaskParticipantAdd participants={task.participants} onAdd={onAddParticipants} />
               )}
             </div>
@@ -174,10 +178,16 @@ export function StickyWidget({
           participants={task.participants}
           currentUserId={currentUserId}
           allocatorId={task.senderId}
-          onAdd={onAddParticipants}
+          onAdd={participantLayout === "chips" ? onAddParticipants : undefined}
           onWithdraw={onWithdrawParticipant}
           addPlacement="name"
+          layout={participantLayout}
         />
+      )}
+      {showCardAdd && (
+        <div className={`mt-3 flex justify-end ${task.participants.length === 0 ? "border-t border-border/50 pt-3" : ""}`}>
+          <TaskParticipantAdd participants={task.participants} onAdd={onAddParticipants!} prominent />
+        </div>
       )}
 
       {/* Every action is LABELLED, including on the compact floating note. It

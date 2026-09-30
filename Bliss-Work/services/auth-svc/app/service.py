@@ -17,7 +17,7 @@ from .config import settings
 from crypto import cryptor
 from .db import engine
 from .logging_config import log
-from .schemas import SessionDTO, ThemePrefs, UserDTO
+from .schemas import CustomThemeDefinition, SessionDTO, ThemePrefs, UserDTO
 from .security.keys import mint_access_token
 from .security.passwords import hash_password_async, verify_password_async
 
@@ -131,6 +131,16 @@ async def user_dto(
     email = await c.decrypt(conn, org_id, row.email_enc)
     display_name = await c.decrypt(conn, org_id, row.display_name_enc)
     avatar_url = await c.decrypt(conn, org_id, row.avatar_enc)
+    theme_document = (
+        json.loads(row.theme_prefs) if isinstance(row.theme_prefs, str) else row.theme_prefs
+    )
+    theme_prefs = _theme_prefs_from_row(theme_document) if with_theme_prefs else None
+    custom_colors = theme_prefs.customColors if theme_prefs else None
+    custom_theme_revision = (
+        theme_document.get("customThemeRevision")
+        if with_theme_prefs and isinstance(theme_document, dict)
+        else None
+    )
     return UserDTO(
         id=str(row.id),
         orgId=org_id,
@@ -147,7 +157,9 @@ async def user_dto(
         orgMfaGracePeriodEndsAt=(
             row.mfa_grace_period_ends_at.isoformat() if row.mfa_grace_period_ends_at else None
         ),
-        themePrefs=_theme_prefs_from_row(row.theme_prefs) if with_theme_prefs else None,
+        themePrefs=theme_prefs,
+        customTheme=(CustomThemeDefinition(colors=custom_colors) if custom_colors else None),
+        customThemeRevision=custom_theme_revision,
     )
 
 
@@ -342,8 +354,38 @@ async def update_theme_prefs(conn: AsyncConnection, user_id: str, prefs: ThemePr
     display-name or avatar change): it is a colour preference that changes with
     a single click, and each row in the hash-chained audit_log is permanent."""
     await conn.execute(
-        text("UPDATE users SET theme_prefs = CAST(:tp AS jsonb) WHERE id = :id"),
+        text(
+            """
+            UPDATE users
+            SET theme_prefs = CAST(:tp AS jsonb) || jsonb_build_object(
+                'customThemeRevision', theme_prefs->'customThemeRevision'
+            )
+            WHERE id = :id
+            """
+        ),
         {"tp": prefs.model_dump_json(), "id": user_id},
+    )
+
+
+async def update_custom_theme(
+    conn: AsyncConnection, user_id: str, colors: list[str] | None
+) -> None:
+    """Merge the shared custom palette without changing legacy/device selection fields."""
+    await conn.execute(
+        text(
+            """
+            UPDATE users
+            SET theme_prefs = COALESCE(
+                theme_prefs,
+                '{"theme":"bluePurple","customColors":null,"customActive":false}'::jsonb
+            ) || jsonb_build_object(
+                'customColors', CAST(:colors AS jsonb),
+                'customThemeRevision', COALESCE((theme_prefs->>'customThemeRevision')::int, 0) + 1
+            )
+            WHERE id = :id
+            """
+        ),
+        {"colors": json.dumps(colors), "id": user_id},
     )
 
 

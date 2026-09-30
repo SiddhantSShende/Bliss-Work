@@ -13,9 +13,11 @@ import { useSession } from "../store/session";
 import { ADA, CHANNELS, DIRECTORY, GRACE, LINUS, ME } from "../test/meetingFixtures";
 
 const h = vi.hoisted(() => ({
-  api: { scheduleMeeting: vi.fn(), directory: vi.fn(), channels: vi.fn() },
+  api: { scheduleMeeting: vi.fn(), createCallInvite: vi.fn(), directory: vi.fn(), channels: vi.fn() },
 }));
-vi.mock("../lib/runtime", () => ({ useRuntime: () => ({ api: h.api, config: {} }) }));
+vi.mock("../lib/runtime", () => ({
+  useRuntime: () => ({ api: h.api, config: { webBaseUrl: "https://app.test" } }),
+}));
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
 import { NewMeetingDialog } from "./NewMeetingDialog";
@@ -39,9 +41,9 @@ function sent() {
   return h.api.scheduleMeeting.mock.calls[0]![0] as Record<string, unknown>;
 }
 
-async function startNow(user: ReturnType<typeof userEvent.setup>) {
+async function submitMeeting(user: ReturnType<typeof userEvent.setup>) {
   await user.type(screen.getByPlaceholderText("Enter meeting title"), "Standup");
-  await user.click(screen.getByRole("button", { name: "Start Now" }));
+  await user.click(screen.getByRole("button", { name: "Schedule Meeting" }));
 }
 
 const membersGroup = () => screen.getByRole("group", { name: "Members" });
@@ -50,6 +52,9 @@ const channelsGroup = () => screen.getByRole("group", { name: "Channels" });
 beforeEach(() => {
   useSession.setState({ user: ME });
   h.api.scheduleMeeting.mockReset().mockResolvedValue({ id: "call-1" });
+  h.api.createCallInvite
+    .mockReset()
+    .mockResolvedValue({ id: "invite-1", callId: "call-1", token: "tok_abc", expiresAt: "2026-09-16T10:00:00.000Z" });
   h.api.directory.mockReset().mockResolvedValue(DIRECTORY);
   h.api.channels.mockReset().mockResolvedValue(CHANNELS);
   onClose.mockReset();
@@ -61,7 +66,7 @@ describe("a plain meeting", () => {
   // Every existing client sends exactly this; it must not grow fields.
   it("sends no members, channels or recurrence", async () => {
     const user = openDialog();
-    await startNow(user);
+    await submitMeeting(user);
     const body = sent();
     expect(body.inviteeIds).toBeUndefined();
     expect(body.channelIds).toBeUndefined();
@@ -82,7 +87,7 @@ describe("members", () => {
     await user.click(await screen.findByRole("button", { name: /Ada Lovelace/ }));
 
     expect(within(membersGroup()).getByRole("list", { name: "Members" })).toHaveTextContent("Ada Lovelace");
-    await startNow(user);
+    await submitMeeting(user);
     expect(sent().inviteeIds).toEqual([ADA.id]);
   });
 
@@ -100,7 +105,7 @@ describe("members", () => {
     expect(chips[2]).toHaveTextContent("Linus Torvalds");
     // The avatar's initials are decoration: the chip's accessible name is the name.
     expect(within(chips[0]!).getByText("Grace Hopper")).toBeVisible();
-    await startNow(user);
+    await submitMeeting(user);
     expect(sent().inviteeIds).toEqual([GRACE.id, ADA.id, LINUS.id]);
   });
 
@@ -142,7 +147,7 @@ describe("members", () => {
     expect(within(membersGroup()).getAllByRole("listitem")).toHaveLength(1);
     // The picker row un-highlights too: one selection, shown in both places.
     expect(screen.getByRole("button", { name: /Ada Lovelace/ })).toHaveAttribute("aria-pressed", "false");
-    await startNow(user);
+    await submitMeeting(user);
     expect(sent().inviteeIds).toEqual([GRACE.id]);
   });
 
@@ -192,7 +197,7 @@ describe("channels", () => {
     await user.click(await screen.findByRole("button", { name: /general/ }));
 
     expect(within(channelsGroup()).getByRole("list", { name: "Channels" })).toHaveTextContent("general");
-    await startNow(user);
+    await submitMeeting(user);
     expect(sent().channelIds).toEqual([CHANNELS[0]!.id]);
   });
 
@@ -201,7 +206,7 @@ describe("channels", () => {
     await user.click(within(channelsGroup()).getByRole("button", { name: "Add channels" }));
     await user.click(await screen.findByRole("button", { name: /design/ }));
     await user.click(screen.getByRole("button", { name: /general/ }));
-    await startNow(user);
+    await submitMeeting(user);
     expect(sent().channelIds).toEqual([CHANNELS[1]!.id, CHANNELS[0]!.id]);
   });
 
@@ -234,7 +239,7 @@ describe("channels", () => {
     await user.click(within(channelsGroup()).getByRole("button", { name: "Remove general" }));
 
     expect(within(channelsGroup()).getAllByRole("listitem")).toHaveLength(1);
-    await startNow(user);
+    await submitMeeting(user);
     expect(sent().channelIds).toEqual([CHANNELS[1]!.id]);
   });
 
@@ -283,7 +288,7 @@ describe("both together", () => {
     await user.click(await screen.findByRole("button", { name: /Ada Lovelace/ }));
     await user.click(within(channelsGroup()).getByRole("button", { name: "Add channels" }));
     await user.click(await screen.findByRole("button", { name: /general/ }));
-    await startNow(user);
+    await submitMeeting(user);
     const body = sent();
     expect(body.inviteeIds).toEqual([ADA.id]);
     expect(body.channelIds).toEqual([CHANNELS[0]!.id]);
@@ -295,9 +300,9 @@ describe("saving", () => {
     h.api.scheduleMeeting.mockReturnValue(new Promise(() => {}));
     const user = openDialog();
     await user.type(screen.getByPlaceholderText("Enter meeting title"), "Standup");
-    const go = screen.getByRole("button", { name: "Start Now" });
+    const go = screen.getByRole("button", { name: "Schedule Meeting" });
     await user.click(go);
-    const busy = await screen.findByRole("button", { name: "Starting…" });
+    const busy = await screen.findByRole("button", { name: "Scheduling…" });
     expect(busy).toBeDisabled();
     await user.click(busy);
     await user.keyboard("{Enter}");
@@ -307,7 +312,7 @@ describe("saving", () => {
   it("explains a 403 — a member or channel that is gone — rather than a generic failure", async () => {
     h.api.scheduleMeeting.mockRejectedValue(new ApiError(403, "forbidden"));
     const user = openDialog();
-    await startNow(user);
+    await submitMeeting(user);
     await waitFor(() =>
       expect(toast.error).toHaveBeenCalledWith(
         "Some of the members or channels you picked are no longer available.",
@@ -319,8 +324,8 @@ describe("saving", () => {
   it("keeps the generic message for anything else, and stays open to retry", async () => {
     h.api.scheduleMeeting.mockRejectedValue(new ApiError(500, "internal error"));
     const user = openDialog();
-    await startNow(user);
+    await submitMeeting(user);
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Couldn't schedule that meeting"));
-    expect(screen.getByRole("button", { name: "Start Now" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Schedule Meeting" })).toBeEnabled();
   });
 });

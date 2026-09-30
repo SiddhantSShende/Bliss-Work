@@ -1,10 +1,14 @@
 /**
- * Everyone besides (or including) the stage, small, capped so it never grows
- * to compete with the stage for space. Whoever the stage is currently
- * following always has a seat in it — bumped to the front if their natural
- * position would otherwise fall past the cap — so "who's the active speaker"
- * reads the same way here as it does above, instead of sometimes being
- * off-screen in this row.
+ * Everyone besides the stage, small, capped so it never grows to compete with
+ * the stage for space. The stage participant is deliberately left OUT —
+ * their tile is already the big one — with one exception: while they are
+ * SHARING, the big tile is showing their screen, not their face, so they get
+ * a seat here too (first, so a full row can never push it out), showing their
+ * camera instead (see CallTile's `source` prop). Leaving them in
+ * unconditionally, the way this component used to, spent one of the strip's
+ * limited seats on a second copy of the exact picture already on the stage —
+ * with four participants and a cap of three, that meant only two of the other
+ * three were ever reachable.
  *
  * Three orientations, chosen by the caller to match which of the redesign's
  * main-content layouts is showing: a VERTICAL stack beside a speaking
@@ -19,7 +23,7 @@
 import { Users } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@taskboard/ui";
-import { CallTile } from "./CallTile";
+import { CallTileSlot } from "./CallTileHost";
 import type { RoomParticipant } from "../lib/useCallRoom";
 
 export function CallSpeakerFilmstrip({
@@ -35,8 +39,8 @@ export function CallSpeakerFilmstrip({
   limit = orientation === "vertical" ? 3 : 5,
 }: {
   participants: RoomParticipant[];
-  /** Whoever is on the big stage right now — always kept visible and given
-   *  the highlight, wherever they'd otherwise fall in the row. */
+  /** Whoever is on the big stage right now — left out of this row entirely,
+   *  except as the camera-only entry described in the module doc above. */
   activeId: string | null;
   hands: Set<string>;
   pinned: string | null;
@@ -45,10 +49,14 @@ export function CallSpeakerFilmstrip({
   limit?: number;
 }) {
   const { t } = useTranslation("calls");
-  const active = participants.filter((p) => p.identity === activeId);
+  const stage = participants.find((p) => p.identity === activeId);
   const rest = participants.filter((p) => p.identity !== activeId);
-  const shown = [...active, ...rest].slice(0, limit);
-  const overflow = participants.length - shown.length;
+  // See the module doc above: the stage rejoins the pool, camera-only, only
+  // while it is a screen share — anyone just speaking or pinned already has
+  // their one and only tile up on the big stage.
+  const pool = stage?.sharing ? [stage, ...rest] : rest;
+  const shown = pool.slice(0, limit);
+  const overflow = pool.length - shown.length;
   const vertical = orientation === "vertical";
   const auto = orientation === "auto";
 
@@ -74,16 +82,20 @@ export function CallSpeakerFilmstrip({
       aria-label={t("filmstrip.ariaLabel")}
     >
       {shown.map((p) => (
-        <div key={p.identity} className={cn("shrink-0", thumb)}>
-          <CallTile
-            p={p}
-            size="strip"
-            pinned={pinned === p.identity}
-            active={p.identity === activeId}
-            handRaised={hands.has(p.identity)}
-            onTogglePin={() => onTogglePin(p.identity)}
-          />
-        </div>
+        <CallTileSlot
+          key={p.identity}
+          className={cn("shrink-0", thumb)}
+          p={p}
+          size="strip"
+          pinned={pinned === p.identity}
+          active={p.identity === activeId}
+          // Only the stage's own re-included entry (see `pool` above) is
+          // ever the sharer — everyone else here already shows auto's
+          // ordinary camera-or-screen picture.
+          source={p.identity === activeId ? "camera" : "auto"}
+          handRaised={hands.has(p.identity)}
+          onTogglePin={() => onTogglePin(p.identity)}
+        />
       ))}
       {overflow > 0 && (
         <div

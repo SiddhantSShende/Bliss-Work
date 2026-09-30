@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -584,6 +585,10 @@ type callWaitingResp struct {
 	CanStart bool `json:"canStart"`
 }
 
+type callTokenReq struct {
+	Mode string `json:"mode"`
+}
+
 // callToken serves POST /api/v1/calls/{id}/token — the gate in front of media,
 // and the door of the waiting room.
 //
@@ -599,13 +604,27 @@ type callWaitingResp struct {
 // late host should cost approximately nothing, not five hundred access
 // decisions per poll interval.
 //
-// Two outcomes, and the status code distinguishes them:
+// Join mode is JOIN (the default), SWITCH (an explicit takeover), REFRESH (the
+// current room renewing its token), or CHECK (authorization/readiness only,
+// with no token or participant claim).
+//
+// Three outcomes, and the status code distinguishes them:
 //
 //	200  a token. The call is under way and the caller is in it.
 //	202  the waiting room. The caller belongs here, but the call has not been
 //	     started by anyone entitled to start it, so no token exists yet.
+//	204  CHECK succeeded; no room token was minted.
 func (s *Server) callToken(w http.ResponseWriter, r *http.Request) {
 	claims, _ := auth.FromContext(r.Context())
+	var req callTokenReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if req.Mode != "" && req.Mode != "SWITCH" && req.Mode != "REFRESH" && req.Mode != "CHECK" {
+		writeErr(w, http.StatusBadRequest, "invalid join mode")
+		return
+	}
 	callID := chi.URLParam(r, "id")
 	if !validUUID(callID) {
 		writeErr(w, http.StatusBadRequest, "invalid call id")
@@ -623,6 +642,10 @@ func (s *Server) callToken(w http.ResponseWriter, r *http.Request) {
 		metrics.CallAttemptTotal.WithLabelValues(metrics.CallTypeUnknown).Inc()
 		metrics.CallFailedTotal.WithLabelValues(metrics.CallTypeUnknown, callFailReason(err)).Inc()
 		s.mapErrR(w, r, err)
+		return
+	}
+	if req.Mode == "CHECK" {
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	if access.Waiting {
@@ -677,10 +700,16 @@ func (s *Server) callToken(w http.ResponseWriter, r *http.Request) {
 		s.mapErrR(w, r, err)
 		return
 	}
-	if err := s.store.MarkJoined(r.Context(), claims.OrgID, claims.UserID, callID); err != nil {
+	var markErr error
+	if req.Mode == "REFRESH" {
+		markErr = s.store.MarkJoined(r.Context(), claims.OrgID, claims.UserID, callID)
+	} else {
+		markErr = s.store.ClaimCallSession(r.Context(), claims.OrgID, claims.UserID, callID, req.Mode == "SWITCH")
+	}
+	if markErr != nil {
 		metrics.CallAttemptTotal.WithLabelValues(callType).Inc()
-		metrics.CallFailedTotal.WithLabelValues(callType, callFailReason(err)).Inc()
-		s.mapErrR(w, r, err)
+		metrics.CallFailedTotal.WithLabelValues(callType, callFailReason(markErr)).Inc()
+		s.mapErrR(w, r, markErr)
 		return
 	}
 	metrics.CallAttemptTotal.WithLabelValues(callType).Inc()
@@ -702,6 +731,13 @@ func (s *Server) callToken(w http.ResponseWriter, r *http.Request) {
 type callTelemetryReq struct {
 	// Event is "reconnected" or "setup_complete" — see callTelemetry.
 	Event string `json:"event"`
+	// Reason is "reconnected"'s own bounded sub-taxonomy: "media" (LiveKit's
+	// own auto-recovery) or "token_refresh" (the client's scheduled
+	// disconnect()+connect() to renew its room token) — see
+	// metrics.ReconnectReason*. Empty/omitted defaults to "media" so an older
+	// client that predates this field keeps recording exactly what it always
+	// did. Ignored for "setup_complete".
+	Reason string `json:"reason,omitempty"`
 	// SetupMs is required for "setup_complete", ignored otherwise: the
 	// client's own measured milliseconds from requesting this call's token to
 	// its LiveKit Room reporting Connected.
@@ -747,7 +783,15 @@ func (s *Server) callTelemetry(w http.ResponseWriter, r *http.Request) {
 	callType := metrics.CallTypeFor(call.Kind)
 	switch req.Event {
 	case "reconnected":
-		metrics.CallReconnectTotal.WithLabelValues(callType).Inc()
+		reason := req.Reason
+		if reason == "" {
+			reason = metrics.ReconnectReasonMedia
+		}
+		if reason != metrics.ReconnectReasonMedia && reason != metrics.ReconnectReasonTokenRefresh {
+			writeErr(w, http.StatusBadRequest, "unknown reconnect reason")
+			return
+		}
+		metrics.CallReconnectTotal.WithLabelValues(callType, reason).Inc()
 	case "setup_complete":
 		if req.SetupMs == nil || *req.SetupMs < 0 || *req.SetupMs > maxCallSetupMs {
 			writeErr(w, http.StatusBadRequest, "setupMs out of range")

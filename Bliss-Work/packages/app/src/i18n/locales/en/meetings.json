@@ -149,9 +149,8 @@
       "peopleUnavailable": "Some of the members or channels you picked are no longer available."
     },
     "cancel": "Cancel",
-    "starting": "Starting…",
-    "schedule": "Schedule",
-    "startNow": "Start Now",
+    "scheduleMeeting": "Schedule Meeting",
+    "scheduling": "Scheduling…",
     "scheduleError": "Couldn't schedule that meeting",
     "membersLabel": "Members",
     "membersAdd": "Add members",
@@ -212,6 +211,35 @@
         "occurrenceCount": "Enter a whole number from 1 to {{max}}."
       },
       "monthlyHint": "Repeats on day {{day}} of the month. Months without that day are skipped."
+    },
+    "time": {
+      "chooseHour": "Choose hour",
+      "chooseMinutes": "Choose minutes",
+      "am": "AM",
+      "pm": "PM",
+      "hourAria": "{{hour}} o'clock",
+      "minuteAria": "{{minute}} minutes",
+      "pickerAriaLabel": "{{label}} time picker",
+      "cancel": "Cancel",
+      "ok": "OK"
+    },
+    "preview": {
+      "sectionTitle": "Meeting Preview",
+      "untitled": "Untitled meeting",
+      "pickATime": "Pick a date and time",
+      "noInvitees": "No one invited yet",
+      "onlineMeeting": "Online meeting"
+    },
+    "confirmation": {
+      "title": "Meeting Scheduled!",
+      "subtitle": "Your meeting has been added to the calendar.",
+      "dismiss": "Dismiss",
+      "close": "Close",
+      "copyLink": "Copy Link",
+      "linkCopied": "Copied!",
+      "generatingLink": "Generating link…",
+      "viewInCalendar": "View in Calendar",
+      "startNow": "Start Meeting Now"
     }
   },
   "schedule": {

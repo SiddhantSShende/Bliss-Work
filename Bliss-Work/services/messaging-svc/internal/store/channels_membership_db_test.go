@@ -25,6 +25,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/task-board/messaging-svc/internal/events"
 )
 
 func TestListOpenChannels(t *testing.T) {
@@ -100,6 +102,133 @@ func TestListOpenChannels(t *testing.T) {
 	}
 	if c.IsLocked {
 		t.Error("IsLocked = true for a channel seeded as unlocked")
+	}
+}
+
+func TestCreateChannelPersistsSystemMessage(t *testing.T) {
+	s := lifecycleStore(t)
+	ctx := context.Background()
+	orgID := uuid.Must(uuid.NewV7()).String()
+	creatorID := uuid.Must(uuid.NewV7()).String()
+	memberID := uuid.Must(uuid.NewV7()).String()
+	seedUser(t, s, orgID, creatorID, "j.doe", "Jordan Doe")
+	seedUser(t, s, orgID, memberID, "a.lee", "Alex Lee")
+
+	channel, err := s.CreateChannel(ctx, orgID, creatorID, "project room", false, []string{memberID})
+	if err != nil {
+		t.Fatalf("CreateChannel: %v", err)
+	}
+
+	var messageID, senderID, kind string
+	if err := s.withBypass(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT id::text, sender_id::text, kind FROM channel_messages WHERE channel_id = $1`, channel.ID).
+			Scan(&messageID, &senderID, &kind)
+	}); err != nil {
+		t.Fatalf("read system message: %v", err)
+	}
+	if got := decryptedBody(t, s, orgID, "channel_messages", "id", messageID); got != "Jordan Doe created channel project room" {
+		t.Errorf("system message = %q", got)
+	}
+	if senderID != creatorID || kind != MessageKindChannelCreated {
+		t.Errorf("sender/kind = %q/%q, want %q/%q", senderID, kind, creatorID, MessageKindChannelCreated)
+	}
+	var memberCount int
+	if err := s.withBypass(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT count(*) FROM channel_members WHERE channel_id = $1`, channel.ID).Scan(&memberCount)
+	}); err != nil {
+		t.Fatalf("count channel members: %v", err)
+	}
+	if memberCount != 2 {
+		t.Errorf("channel members = %d, want creator and seeded member", memberCount)
+	}
+	var fanoutCount int
+	if err := s.withBypass(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT count(*) FROM outbox
+			  WHERE kafka_key = $1 AND payload->>'type' = $2 AND payload->>'messageId' = $3
+		    AND payload->'members' @> jsonb_build_array($4::text)
+	    AND payload->'members' @> jsonb_build_array($5::text)`,
+			channel.ID, events.TypeChannelMessageCreated, messageID, creatorID, memberID).Scan(&fanoutCount)
+	}); err != nil {
+		t.Fatalf("read creation-message fanout: %v", err)
+	}
+	if fanoutCount != 1 {
+		t.Errorf("creation message fanout rows = %d, want one reaching every channel member", fanoutCount)
+	}
+}
+
+func TestAddChannelMembersPersistsSingleSystemMessageAndJoinedEvent(t *testing.T) {
+	s := lifecycleStore(t)
+	ctx := context.Background()
+	orgID := uuid.Must(uuid.NewV7()).String()
+	actorID := uuid.Must(uuid.NewV7()).String()
+	addedID := uuid.Must(uuid.NewV7()).String()
+	seedUser(t, s, orgID, actorID, "j.doe", "Jordan Doe")
+	seedUser(t, s, orgID, addedID, "a.lee", "Alex Lee")
+
+	channel, err := s.CreateChannel(ctx, orgID, actorID, "project room", true, nil)
+	if err != nil {
+		t.Fatalf("CreateChannel: %v", err)
+	}
+	if err := s.AddChannelMembers(ctx, orgID, channel.ID, actorID, nil, []string{addedID}); err != nil {
+		t.Fatalf("AddChannelMembers: %v", err)
+	}
+	if err := s.AddChannelMembers(ctx, orgID, channel.ID, actorID, nil, []string{addedID}); err != nil {
+		t.Fatalf("duplicate AddChannelMembers: %v", err)
+	}
+
+	var messageID, senderID, kind string
+	if err := s.withBypass(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT id::text, sender_id::text, kind FROM channel_messages
+			  WHERE channel_id = $1 AND kind = $2`, channel.ID, MessageKindChannelMemberAdded).
+			Scan(&messageID, &senderID, &kind)
+	}); err != nil {
+		t.Fatalf("read member-added system message: %v", err)
+	}
+	if got := decryptedBody(t, s, orgID, "channel_messages", "id", messageID); got != "Jordan Doe added Alex Lee to the channel" {
+		t.Errorf("system message = %q", got)
+	}
+	if senderID != actorID || kind != MessageKindChannelMemberAdded {
+		t.Errorf("sender/kind = %q/%q, want %q/%q", senderID, kind, actorID, MessageKindChannelMemberAdded)
+	}
+	var messageCount, joinedCount, fanoutCount int
+	var actorIDFromEvent, actorDisplayName, userIDFromEvent, channelName string
+	if err := s.withBypass(ctx, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(ctx,
+			`SELECT count(*) FROM channel_messages WHERE channel_id = $1 AND kind = $2`,
+			channel.ID, MessageKindChannelMemberAdded).Scan(&messageCount); err != nil {
+			return err
+		}
+		if err := tx.QueryRow(ctx,
+			`SELECT count(*) FROM outbox WHERE kafka_key = $1 AND payload->>'type' = $2`,
+			channel.ID, events.TypeChannelMemberJoined).Scan(&joinedCount); err != nil {
+			return err
+		}
+		if err := tx.QueryRow(ctx,
+			`SELECT count(*) FROM outbox
+			  WHERE kafka_key = $1 AND payload->>'type' = $2 AND payload->>'messageId' = $3
+		    AND payload->'members' @> jsonb_build_array($4::text)
+	    AND payload->'members' @> jsonb_build_array($5::text)`,
+			channel.ID, events.TypeChannelMessageCreated, messageID, actorID, addedID).Scan(&fanoutCount); err != nil {
+			return err
+		}
+		return tx.QueryRow(ctx,
+			`SELECT payload->>'actorId', payload->>'actorDisplayName', payload->>'userId', payload->>'channelName' FROM outbox
+			  WHERE kafka_key = $1 AND payload->>'type' = $2`, channel.ID, events.TypeChannelMemberJoined).
+			Scan(&actorIDFromEvent, &actorDisplayName, &userIDFromEvent, &channelName)
+	}); err != nil {
+		t.Fatalf("read member-added event state: %v", err)
+	}
+	if messageCount != 1 || joinedCount != 1 {
+		t.Errorf("duplicate add wrote %d system messages and %d member events; want one each", messageCount, joinedCount)
+	}
+	if fanoutCount != 1 {
+		t.Errorf("member-added message fanout rows = %d, want one reaching all channel members", fanoutCount)
+	}
+	if actorIDFromEvent != actorID || actorDisplayName != "Jordan Doe" || userIDFromEvent != addedID || channelName != "project room" {
+		t.Errorf("event actor/name/user/channel = %q/%q/%q/%q", actorIDFromEvent, actorDisplayName, userIDFromEvent, channelName)
 	}
 }
 

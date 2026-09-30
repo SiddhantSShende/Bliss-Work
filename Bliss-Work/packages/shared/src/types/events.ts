@@ -53,6 +53,8 @@ export const EventType = {
    *  bypassed the normal lifecycle. */
   TaskDeleted: "task.deleted",
   NotificationCreated: "notification.created",
+  NotificationRead: "notification.read",
+  IntegrationActivityCreated: "integration.activity.created",
   /** Emitted by services/sticky-relay: "you have desktop notes you may never
    *  have received — re-fetch". A repair signal, not news; see StickyRefresh. */
   StickyRefresh: "sticky.refresh",
@@ -128,6 +130,8 @@ export const MessageCreated = z.object({
   seq: z.number().int().nonnegative(),
   senderId: z.string().uuid(),
   recipientId: z.string().uuid(),
+  senderUsername: z.string().optional(),
+  senderDisplayName: z.string().optional(),
   body: z.string(),
   clientMsgId: z.string().uuid(),
   /** Inbox thread the message belongs to. Default consumer-side: conversationId. */
@@ -384,6 +388,7 @@ export const ChannelMessageCreated = z.object({
    * `senderUsername` (the email local-part).
    */
   senderDisplayName: z.string().optional(),
+  channelName: z.string().optional(),
   body: z.string(),
   /**
    * All channel members — the gateway pushes to each, then DROPS this field.
@@ -444,6 +449,8 @@ export const ChannelMemberJoined = z.object({
    *  which is how a client tells "you were added" from "you joined". Absent
    *  from older producers — treat as unknown, NOT as a self-join. */
   actorId: z.string().uuid().optional(),
+  /** Display-name snapshot for the actor, used by notification-svc. */
+  actorDisplayName: z.string().optional(),
   /** The joiner's handle. Present for parity with the server event; the client
    *  has no use for it (and it is the email local-part — see lib/userLabel). */
   username: z.string().optional(),
@@ -561,9 +568,45 @@ export const NotificationCreated = z.object({
   ...envelope,
   notificationId: z.string().uuid(),
   recipientId: z.string().uuid(),
-  kind: z.enum(["TASK_ACKNOWLEDGED", "TASK_COMPLETED", "TASK_IGNORED", "TASK_LEFT", "TASK_WITHDRAWN", "CHANNEL_ADDED"]),
+  kind: z.enum([
+    "TASK_ASSIGNED",
+    "TASK_ACKNOWLEDGED",
+    "TASK_COMPLETED",
+    "TASK_IGNORED",
+    "TASK_LEFT",
+    "TASK_WITHDRAWN",
+    "CHANNEL_ADDED",
+    "CHANNEL_CREATED",
+    "DM_MESSAGE",
+    "CHANNEL_MESSAGE",
+    "MEETING_SCHEDULED",
+    "MEETING_INVITATION",
+  ]),
   text: z.string(),
   taskId: z.string().uuid().optional(),
+  channelId: z.string().uuid().optional(),
+  conversationId: z.string().uuid().optional(),
+  messageId: z.string().uuid().optional(),
+  callId: z.string().uuid().optional(),
+});
+
+export const NotificationRead = z.object({
+  type: z.literal(EventType.NotificationRead),
+  ...envelope,
+  recipientId: z.string().uuid(),
+  notificationId: z.string().uuid().optional(),
+});
+
+/** Activity recorded by integrations-svc; signal-only, with no message body. */
+export const IntegrationActivityCreated = z.object({
+  type: z.literal(EventType.IntegrationActivityCreated),
+  ...envelope,
+  recipientId: z.string().uuid(),
+  activityId: z.string().uuid(),
+  connectionId: z.string().uuid(),
+  provider: z.string(),
+  kind: z.string(),
+  direction: z.enum(["inbound", "outbound"]),
 });
 
 /**
@@ -905,6 +948,8 @@ export const ServerEvent = z.discriminatedUnion("type", [
   TaskLeft,
   TaskReviewed,
   NotificationCreated,
+  NotificationRead,
+  IntegrationActivityCreated,
   StickyRefresh,
   MailDelivered,
   PresenceOnline,
@@ -941,6 +986,8 @@ export type TaskLeft = z.infer<typeof TaskLeft>;
 export type TaskDeleted = z.infer<typeof TaskDeleted>;
 export type TaskReviewed = z.infer<typeof TaskReviewed>;
 export type NotificationCreated = z.infer<typeof NotificationCreated>;
+export type NotificationRead = z.infer<typeof NotificationRead>;
+export type IntegrationActivityCreated = z.infer<typeof IntegrationActivityCreated>;
 export type StickyRefresh = z.infer<typeof StickyRefresh>;
 export type MailDelivered = z.infer<typeof MailDelivered>;
 export type PresenceOnline = z.infer<typeof PresenceOnline>;

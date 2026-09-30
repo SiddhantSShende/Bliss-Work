@@ -53,6 +53,9 @@ var ErrInviteInvalid = errors.New("invite link is not valid")
 // ErrCallEnded is returned when a join arrives after the call is over.
 var ErrCallEnded = errors.New("call has ended")
 
+// ErrCallSessionActive means this user already has an active session in the call.
+var ErrCallSessionActive = errors.New("call session is already active")
+
 // ErrNoInviteForKind is returned when someone tries to mint a link for a call
 // that is not a MEETING. Channel calls have no link BY DESIGN — you are in the
 // call because you are in the channel — so this is a product rule, not a
@@ -581,6 +584,45 @@ func (s *Store) MarkJoined(ctx context.Context, orgID, userID, callID string) er
 			return ErrForbidden
 		}
 		return nil
+	})
+}
+
+// ClaimCallSession atomically reserves this user's one active session in a
+// call. A confirmed takeover may replace the existing claim; ordinary joins
+// cannot. The conditional UPDATE locks and rechecks the roster row, so two
+// near-simultaneous initial joins cannot both pass before either connects to
+// the SFU.
+func (s *Store) ClaimCallSession(ctx context.Context, orgID, userID, callID string, takeover bool) error {
+	return s.withCaller(ctx, orgID, userID, func(tx pgx.Tx) error {
+		ct, err := tx.Exec(ctx, `
+			UPDATE call_participants cp
+			SET joined_at = COALESCE(cp.joined_at, now()), left_at = NULL, waiting_since = NULL
+			FROM calls c
+			WHERE cp.call_id = $1 AND cp.user_id = $2
+			  AND c.id = cp.call_id AND c.status = 'LIVE'
+			  AND ($3 OR cp.joined_at IS NULL OR cp.left_at IS NOT NULL)`,
+			callID, userID, takeover)
+		if err != nil {
+			return err
+		}
+		if ct.RowsAffected() > 0 {
+			return nil
+		}
+		var active bool
+		if err := tx.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM call_participants cp
+				JOIN calls c ON c.id = cp.call_id
+				WHERE cp.call_id = $1 AND cp.user_id = $2
+				  AND cp.joined_at IS NOT NULL AND cp.left_at IS NULL
+				  AND c.status = 'LIVE'
+			)`, callID, userID).Scan(&active); err != nil {
+			return err
+		}
+		if active && !takeover {
+			return ErrCallSessionActive
+		}
+		return ErrForbidden
 	})
 }
 

@@ -22,6 +22,8 @@ import { TasksList } from "./TasksList";
 import { ChannelsList } from "./ChannelsList";
 import { MembersList } from "./MembersList";
 import { MailFolders } from "./MailFolders";
+import { flattenNotificationPages } from "../lib/notificationPages";
+import { useNotificationPages } from "../lib/useCursorPagination";
 
 export function AppShell() {
   const { api } = useRuntime();
@@ -59,11 +61,8 @@ export function AppShell() {
 
   // The bell's own list — unlike the badge count above, this genuinely only
   // needs to exist once the panel is actually opened.
-  const { data: notifications = [] } = useQuery({
-    queryKey: qk.notifications,
-    queryFn: () => api.notifications(),
-    enabled: notifOpen,
-  });
+  const notificationPages = useNotificationPages(api, notifOpen);
+  const notifications = flattenNotificationPages(notificationPages.data);
 
   const railBadges: Record<string, number> = {
     mail: unreadCounts?.inboxPeers ?? 0,
@@ -150,6 +149,9 @@ export function AppShell() {
         open={notifOpen}
         onClose={() => setNotifOpen(false)}
         notifications={notifications}
+        hasNextPage={notificationPages.hasNextPage}
+        isFetchingNextPage={notificationPages.isFetchingNextPage}
+        onLoadMore={() => void notificationPages.fetchNextPage()}
       />
       <MobileNavDrawer
         open={drawerOpen}

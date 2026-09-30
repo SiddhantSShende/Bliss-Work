@@ -67,6 +67,17 @@ func TestAlreadyRecordingIsConflictNotServiceUnavailable(t *testing.T) {
 	}
 }
 
+func TestActiveCallSessionIsARecognizedConflict(t *testing.T) {
+	status, code, msg := mapStoreError(store.ErrCallSessionActive)
+
+	if status != http.StatusConflict || code != CodeCallSessionActive {
+		t.Fatalf("active session mapped to (%d, %q), want (409, %q)", status, code, CodeCallSessionActive)
+	}
+	if msg != "this call is active on another device" {
+		t.Errorf("message = %q", msg)
+	}
+}
+
 // The mapping must survive wrapping: handlers add context as the error travels
 // up, and a table matching on equality rather than errors.Is would quietly
 // start returning 500s again the first time someone wrapped one.
@@ -106,6 +117,7 @@ func TestCallFailReasonClassifiesEveryKnownCallError(t *testing.T) {
 		{"forbidden", store.ErrForbidden, metrics.FailReasonPermissionDenied},
 		{"call ended", store.ErrCallEnded, metrics.FailReasonCallUnavailable},
 		{"call not started", store.ErrCallNotStarted, metrics.FailReasonCallUnavailable},
+		{"active call session", store.ErrCallSessionActive, metrics.FailReasonCallUnavailable},
 		{"livekit not configured", livekit.ErrNotConfigured, metrics.FailReasonLiveKitConnection},
 		{"wrapped forbidden", fmt.Errorf("authorize: %w", store.ErrForbidden), metrics.FailReasonPermissionDenied},
 		{"unknown", errors.New("something nobody has seen before"), metrics.FailReasonServerError},

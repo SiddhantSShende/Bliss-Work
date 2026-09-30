@@ -609,6 +609,8 @@ const (
 	MessageKindAttachmentOpened     = "attachment_opened"
 	MessageKindAttachmentDownloaded = "attachment_downloaded"
 	MessageKindChannelRenamed       = "channel_renamed"
+	MessageKindChannelCreated       = "channel_created"
+	MessageKindChannelMemberAdded   = "channel_member_added"
 )
 
 // ValidMessageKind reports whether a CLIENT-SUPPLIED kind is one we accept on

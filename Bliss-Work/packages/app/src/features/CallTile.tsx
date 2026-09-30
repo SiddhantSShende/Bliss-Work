@@ -41,6 +41,7 @@ export function CallTile({
   active = false,
   handRaised = false,
   onTogglePin,
+  source = "auto",
 }: {
   p: RoomParticipant;
   size?: TileSize;
@@ -57,23 +58,41 @@ export function CallTile({
   /** Omitted where pinning makes no sense (the stage's own tile has its own
    *  unpin control). */
   onTogglePin?: () => void;
+  /**
+   * Which of `p`'s tracks this copy of them shows. "auto" (the default)
+   * follows `p.sharing`, same as ever — the shape every OTHER caller wants.
+   * "camera" forces the camera feed even while they are sharing: the
+   * filmstrip's own copy of an on-stage sharer uses this, so their face stays
+   * reachable alongside the big tile's screen instead of rendering the same
+   * screen twice over.
+   */
+  source?: "auto" | "camera";
 }) {
   const { t } = useTranslation("callRoom");
   const videoRef = useRef<HTMLVideoElement>(null);
+  const camera = source === "camera";
   // A shared screen wins the tile: it is what the room is looking at, and it is
   // the one picture that is useless cropped, so it is letterboxed rather than
-  // filled.
-  const shown = p.sharing ? p.screenTrack : p.videoTrack;
+  // filled. Unless THIS copy was asked to show the camera regardless — see
+  // the `source` prop above.
+  const shown = camera ? p.videoTrack : p.sharing ? p.screenTrack : p.videoTrack;
+  // Whether THIS tile is actually showing the screen — as opposed to `p.sharing`
+  // on its own, which a "camera" copy overrides. Everything below that used to
+  // read `p.sharing` directly reads this instead, so a "camera" copy of a
+  // sharer never inherits the screen-only styling (the black letterbox, the
+  // un-mirrored picture, the feedback-loop placeholder).
+  const showingScreen = !camera && p.sharing;
   // Mirrors the condition the <video> element is rendered under, below.
-  const showVideo = p.camOn || p.sharing;
+  const showVideo = camera ? p.camOn : p.camOn || p.sharing;
   // The sharer's OWN capture, played back to themselves, is a video-feedback
   // loop rather than a picture: "Entire screen" (or a window/tab that includes
   // this app) captures the very tile that is showing the capture, so every
   // frame contains the previous one — a mirror that gets worse, not better,
   // once native Picture-in-Picture puts a second copy on top (see CallRoom's
   // pipTrack, which excludes this same case). A static reminder replaces the
-  // live feed instead; everyone else still sees the real thing.
-  const selfSharePreview = p.isLocal && p.sharing;
+  // live feed instead; everyone else still sees the real thing. Moot for a
+  // "camera" copy — it was never going to show the screen at all.
+  const selfSharePreview = p.isLocal && showingScreen;
 
   // ── Why these deps, and not just the track ──────────────────────────────────
   // The <video> element is CONDITIONALLY RENDERED. Turning the camera off
@@ -121,7 +140,7 @@ export function CallTile({
           <Monitor size={size === "strip" ? 18 : 28} className="text-red-400" />
           <span className={cn("font-medium", NAME_TEXT[size])}>{t("tile.presentingScreen")}</span>
         </div>
-      ) : p.camOn || p.sharing ? (
+      ) : showVideo ? (
         <video
           ref={videoRef}
           autoPlay
@@ -144,13 +163,13 @@ export function CallTile({
             // (lib/tileLayout) are chosen to match cameras, so a 16:9 camera has
             // no bars at all; the odd-shaped ones get bars, never a crop.
             "absolute inset-0 h-full w-full object-contain",
-            p.sharing && "bg-black",
+            showingScreen && "bg-black",
             // Only the local camera is mirrored, so the tile reads naturally to
             // the person looking at themselves — never a remote participant's
             // camera (they see the raw, un-mirrored track LiveKit publishes,
             // same as everyone else in the room), and never a screen share
             // (mirroring text on someone's screen would make it unreadable).
-            p.isLocal && !p.sharing && "-scale-x-100",
+            p.isLocal && !showingScreen && "-scale-x-100",
           )}
         />
       ) : (

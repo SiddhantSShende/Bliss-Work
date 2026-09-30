@@ -315,6 +315,7 @@ function AssignedBucket({ view }: { view: string }) {
                 busy={(act.isPending && act.variables?.taskId === task.taskId) || membership.isPending || withdrawal.isPending}
                 locked={floatable}
                 currentUserId={currentUserId}
+                participantLayout="list"
                 onAddParticipants={(userIds) => membership.mutateAsync({ taskId: task.taskId, userIds }).then(() => undefined)}
                 onWithdrawParticipant={(userId) => withdrawal.mutateAsync({ taskId: task.taskId, userId }).then(() => undefined)}
               />

@@ -15,6 +15,11 @@ export const ThemePrefsDTO = z.object({
 });
 export type ThemePrefsDTO = z.infer<typeof ThemePrefsDTO>;
 
+export const CustomThemeDTO = z.object({
+  colors: z.array(z.string().regex(/^#[\da-fA-F]{6}$/)).min(1).max(3),
+});
+export type CustomThemeDTO = z.infer<typeof CustomThemeDTO>;
+
 export const UserDTO = z.object({
   id: z.string().uuid(),
   orgId: z.string().uuid(),
@@ -43,6 +48,8 @@ export const UserDTO = z.object({
    *  first publishes one. Only the caller's OWN user carries it (`/auth/me`,
    *  the profile PATCH); member/directory listings leave it null. */
   themePrefs: ThemePrefsDTO.nullable().default(null),
+  customTheme: CustomThemeDTO.nullable().optional(),
+  customThemeRevision: z.number().int().nullable().optional(),
 });
 export type UserDTO = z.infer<typeof UserDTO>;
 
@@ -433,6 +440,8 @@ export const MessageKind = z.enum([
   "attachment_opened",
   "attachment_downloaded",
   "channel_renamed",
+  "channel_created",
+  "channel_member_added",
 ]);
 export type MessageKind = z.infer<typeof MessageKind>;
 
@@ -919,24 +928,38 @@ export type AvailabilityDTO = z.infer<typeof AvailabilityDTO>;
 // ── Notifications ────────────────────────────────────────────────────────────
 export const NotificationDTO = z.object({
   id: z.string().uuid(),
-  /** CHANNEL_ADDED is the one non-task kind: notification-svc writes it when
-   *  someone adds you to a channel. Kept an enum rather than a bare string so a
-   *  server that starts emitting a kind this client cannot render fails loudly
-   *  in one place instead of rendering a blank row. */
+  /** Kept an enum rather than a bare string so a server that starts emitting
+   *  a kind this client cannot render fails loudly in one place. */
   kind: z.enum([
+    "TASK_ASSIGNED",
     "TASK_ACKNOWLEDGED",
     "TASK_COMPLETED",
     "TASK_IGNORED",
     "TASK_LEFT",
     "TASK_WITHDRAWN",
     "CHANNEL_ADDED",
+    "CHANNEL_CREATED",
+    "DM_MESSAGE",
+    "CHANNEL_MESSAGE",
+    "MEETING_SCHEDULED",
+    "MEETING_INVITATION",
   ]),
   text: z.string(),
   taskId: z.string().uuid().nullable(),
+  channelId: z.string().uuid().nullable().optional(),
+  conversationId: z.string().uuid().nullable().optional(),
+  messageId: z.string().uuid().nullable().optional(),
+  callId: z.string().uuid().nullable().optional(),
   read: z.boolean(),
   createdAt: z.string(),
 });
 export type NotificationDTO = z.infer<typeof NotificationDTO>;
+
+export const NotificationPageDTO = z.object({
+  items: z.array(NotificationDTO),
+  nextCursor: z.string().nullable(),
+});
+export type NotificationPageDTO = z.infer<typeof NotificationPageDTO>;
 
 // ── Channels (group chat / teams) ───────────────────────────────────────────────
 export const ChannelDTO = z.object({

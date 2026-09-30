@@ -87,8 +87,8 @@ func (s *Server) staticMap(w http.ResponseWriter, r *http.Request) {
 	latS := strconv.FormatFloat(lat, 'f', 5, 64)
 	lngS := strconv.FormatFloat(lng, 'f', 5, 64)
 
-	sum := sha256.Sum256([]byte(fmt.Sprintf("%s|%d|%dx%d|%s|%s",
-		s.mapsCfg.Provider, zoom, staticMapWidth, staticMapHeight, latS, lngS)))
+	sum := sha256.Sum256(fmt.Appendf(nil, "%s|%d|%dx%d|%s|%s",
+		s.mapsCfg.Provider, zoom, staticMapWidth, staticMapHeight, latS, lngS))
 	key := hex.EncodeToString(sum[:])
 
 	if f, err := s.blobs.CacheGet("maps", key); err == nil {

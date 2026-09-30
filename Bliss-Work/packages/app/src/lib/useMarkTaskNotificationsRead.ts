@@ -1,8 +1,9 @@
 import { useEffect, useRef } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import type { ApiClient, NotificationDTO } from "@taskboard/shared";
 import { qk } from "./queryBridge";
 import { decrementUnreadCount, refreshUnreadCount } from "./unreadNotificationCount";
+import { flattenNotificationPages, markNotificationPagesRead } from "./notificationPages";
 
 /**
  * Mark-as-read on view: when a set of tasks becomes visible on the Tasks page,
@@ -25,10 +26,14 @@ export function useMarkTaskNotificationsRead(api: ApiClient, tasks: { taskId: st
   // task already in `tasks`: nothing here re-rendered on a cache update it
   // wasn't subscribed to, so the bell stayed lit until the view was closed
   // and reopened.
-  const { data: notifications = [] } = useQuery({
+  const { data } = useInfiniteQuery({
     queryKey: qk.notifications,
-    queryFn: () => api.notifications(),
+    queryFn: ({ pageParam }) => api.notificationPage(pageParam as string | undefined, 10),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    enabled: false,
   });
+  const notifications = flattenNotificationPages(data);
   const taskIds = new Set(tasks.map((t) => t.taskId));
   const unreadForTasks = notifications.filter((n) => n.taskId && taskIds.has(n.taskId) && !n.read);
   // Changes whenever the SET of relevant unread ids does — not just when
@@ -45,14 +50,7 @@ export function useMarkTaskNotificationsRead(api: ApiClient, tasks: { taskId: st
 
     unread.forEach((n) => markedRef.current.add(n.id));
     const unreadIds = new Set(unread.map((n) => n.id));
-    let flipped = 0;
-    qc.setQueryData<NotificationDTO[]>(qk.notifications, (prev) =>
-      (prev ?? []).map((n) => {
-        if (!unreadIds.has(n.id) || n.read) return n;
-        flipped++;
-        return { ...n, read: true };
-      }),
-    );
+    const flipped = markNotificationPagesRead(qc, (n) => unreadIds.has(n.id));
     // The badge is a separate server-side count (see unreadNotificationCount.ts):
     // patching the list above does not move it. Counted off what actually flipped
     // in the cache, not `unread`: TasksList runs this hook twice and a

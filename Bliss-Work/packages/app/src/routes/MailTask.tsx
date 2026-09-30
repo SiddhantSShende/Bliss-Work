@@ -3,12 +3,13 @@ import { useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { ApiError, type NotificationDTO, type StickyTaskDTO, type TaskAction } from "@taskboard/shared";
+import { ApiError, type StickyTaskDTO, type TaskAction } from "@taskboard/shared";
 import { EmptyState } from "@taskboard/ui";
 import { ListTodo } from "lucide-react";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { decrementUnreadCount, refreshUnreadCount } from "../lib/unreadNotificationCount";
+import { flattenNotificationPages, markNotificationPagesRead } from "../lib/notificationPages";
 import { StickyWidget } from "../features/StickyWidget";
 
 /**
@@ -100,14 +101,12 @@ export function MailTask() {
     // opened and reviewed here. Opening IS reading it, for the bell — but only
     // for the bell. The floating note is a commitment, not a notification, and
     // is deliberately left alone (see above).
-    const unreadForTask = (qc.getQueryData<NotificationDTO[]>(qk.notifications) ?? []).filter(
+    const unreadForTask = flattenNotificationPages(qc.getQueryData(qk.notifications)).filter(
       (n) => n.taskId === taskId && !n.read,
     );
     if (unreadForTask.length > 0) {
-      qc.setQueryData<NotificationDTO[]>(qk.notifications, (prev) =>
-        (prev ?? []).map((n) => (n.taskId === taskId ? { ...n, read: true } : n)),
-      );
-      decrementUnreadCount(qc, unreadForTask.length);
+      const flipped = markNotificationPagesRead(qc, (n) => n.taskId === taskId);
+      decrementUnreadCount(qc, flipped);
       void Promise.all(unreadForTask.map((n) => api.markNotificationRead(n.id).catch(() => {}))).then(() =>
         refreshUnreadCount(qc),
       );

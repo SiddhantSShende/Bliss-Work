@@ -1,32 +1,17 @@
 /**
- * Keeps the account's theme in step across devices — web and desktop.
+ * Synchronizes the user's single custom-theme definition across web and
+ * desktop. The authenticated account's customTheme field is the cross-device
+ * source of truth; selected preset, appearance, and custom activation remain
+ * local to each device. Legacy themePrefs records are read only for migration.
  *
- * The theme itself is still owned by ThemeProvider (packages/ui) and still
- * cached in localStorage, which the FOUC scripts read before React exists. What
- * this adds is the account copy (`themePrefs` on auth-svc's /auth/me, the same
- * endpoint the profile name and avatar already travel through) so a second
- * device, whose localStorage is a different one, can follow:
- *
- *   • PUSH — every change made in Settings / Profile → Dark Mode is reported by
- *     ThemeProvider's `onPrefsChange` and sent by `publishThemePrefs`.
- *   • PULL — `ThemeSync` reads /auth/me when the session starts and whenever
- *     the window regains focus, and adopts what it finds. There is no realtime
- *     push (no `user.*` event exists for profile changes), so a change made on
- *     one device shows on the other the next time it is looked at.
- *
- * Initial load, so both clients resolve to the same theme: the account copy
- * wins when there is one. When there is none yet (NULL — nobody has published)
- * a device that already has a choice of its own publishes it, and a device
- * that has only ever shown the default stays quiet rather than overwrite what
- * another device is about to publish.
- *
- * State is module-level rather than component state because a push is started
- * from ThemeProvider's callback and read again by the pull, in different
- * components; there is exactly one signed-in session per window.
+ * Pulls happen after authentication and on focus because the account profile
+ * has no realtime update event. A revision distinguishes an explicit deletion
+ * from a never-synchronized definition, preventing stale local cache from
+ * resurrecting a removed palette.
  */
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
-import { hasStoredThemeChoice, useTheme, type ThemePrefs } from "@taskboard/ui";
+import { readStoredCustomTheme, useTheme, type CustomTheme } from "@taskboard/ui";
 import { ApiError, type ApiClient } from "@taskboard/shared";
 import i18n from "../i18n";
 import { useSession } from "../store/session";
@@ -36,20 +21,15 @@ import { useRuntime } from "./runtime";
 const MIN_PULL_INTERVAL_MS = 10_000;
 
 let sending = false;
-let queued: ThemePrefs | null = null;
-/** The last push failed (offline, 5xx). The account copy is now OLDER than this
- *  device, so the next pull must retry the push instead of adopting it. Mirrored
- *  to localStorage (see UNSYNCED_KEY) so a reload does not forget it. */
+let queued: { customTheme: CustomTheme | null } | null = null;
+/** Retry an unsynced definition instead of adopting an older account copy. */
 let unsynced = false;
 /** A person-made change is waiting to be sent; if it fails they are told. A
  *  background retry or first-run publish never sets this — nobody asked for it,
  *  so its failure is not worth interrupting anyone over. */
 let notifyOnFailure = false;
 
-/** Holds the id of the user whose latest theme change has NOT reached the
- *  account. Without it the flag above dies on reload, and the next pull adopts
- *  the older account copy — silently undoing a change the person made while
- *  offline. Keyed by user so it is never sent into someone else's account. */
+/** Holds the user id for an unsynced custom definition across reloads. */
 const UNSYNCED_KEY = "tb-theme-unsynced";
 
 function unsyncedUser(): string | null {
@@ -81,17 +61,13 @@ function wasRefused(e: unknown): boolean {
  *  its result, because what it read no longer reflects the latest choice. */
 let localVersion = 0;
 
-/** Send this device's choice to the account. Sequential and latest-wins: two
- *  quick changes must not reach the server out of order and leave the older
- *  one stored. The change already applies locally; when a person-made one
- *  (`notify`) cannot be saved they are told so, because otherwise the other
- *  device silently never follows and nothing on screen says why. */
-export function publishThemePrefs(api: ApiClient, prefs: ThemePrefs, opts: { notify?: boolean } = {}): void {
+/** Send custom-definition updates sequentially; the latest queued change wins. */
+export function publishCustomTheme(api: ApiClient, customTheme: CustomTheme | null, opts: { notify?: boolean } = {}): void {
   const { status, user } = useSession.getState();
   if (status !== "authed" || !user) return;
   const userId = user.id;
   localVersion++;
-  queued = prefs;
+  queued = { customTheme: customTheme ? { colors: [...customTheme.colors] } : null };
   if (opts.notify) notifyOnFailure = true;
   if (sending) return;
   sending = true;
@@ -101,7 +77,7 @@ export function publishThemePrefs(api: ApiClient, prefs: ThemePrefs, opts: { not
         const next = queued;
         queued = null;
         try {
-          await api.updateProfile({ themePrefs: next });
+          await api.updateProfile({ customTheme: next.customTheme });
           setUnsynced(userId, false);
         } catch (e) {
           setUnsynced(userId, !wasRefused(e));
@@ -118,43 +94,53 @@ export function publishThemePrefs(api: ApiClient, prefs: ThemePrefs, opts: { not
   })();
 }
 
-function samePrefs(a: ThemePrefs, b: ThemePrefs): boolean {
-  return (
-    a.theme === b.theme &&
-    a.customActive === b.customActive &&
-    JSON.stringify(a.customColors) === JSON.stringify(b.customColors)
-  );
+function sameCustomTheme(a: CustomTheme | null, b: CustomTheme | null): boolean {
+  return JSON.stringify(a?.colors ?? null) === JSON.stringify(b?.colors ?? null);
 }
 
-async function pullThemePrefs(
+async function pullCustomTheme(
   api: ApiClient,
-  local: () => ThemePrefs,
-  applyRemote: (prefs: ThemePrefs) => void,
+  local: () => CustomTheme | null,
+  applyRemote: (theme: CustomTheme | null) => void,
 ): Promise<void> {
   const startedAt = localVersion;
-  const { themePrefs: remote } = await api.me();
+  const { customTheme, customThemeRevision, themePrefs } = await api.me();
   // A change made while this read was in flight (or still on its way up) makes
   // what came back stale; adopting it would snap the choice back.
   if (localVersion !== startedAt || sending || queued) return;
-  if (unsynced || remote === null) {
-    if (unsynced || hasStoredThemeChoice()) publishThemePrefs(api, local());
+  const localTheme = local();
+  if (unsynced) {
+    publishCustomTheme(api, localTheme);
     return;
   }
-  if (!samePrefs(remote, local())) applyRemote(remote);
+
+  if (customThemeRevision != null) {
+    const remoteTheme = customTheme ?? null;
+    if (!sameCustomTheme(remoteTheme, localTheme)) applyRemote(remoteTheme);
+    return;
+  }
+
+  // Older rows/servers only have the combined themePrefs shape. Migrate its
+  // definition without ever adopting its device-specific theme/active fields.
+  const legacyTheme = themePrefs?.customColors ? { colors: themePrefs.customColors } : null;
+  if (legacyTheme) applyRemote(legacyTheme);
+  else if (themePrefs === null && localTheme) publishCustomTheme(api, localTheme);
+  else if (!sameCustomTheme(null, localTheme)) applyRemote(null);
 }
 
 /** Renders nothing; mount once inside ThemeProvider and the session. */
 export function ThemeSync() {
   const { api } = useRuntime();
   const userId = useSession((s) => s.user?.id);
-  const { prefs, applyRemote } = useTheme();
+  const status = useSession((s) => s.status);
+  const { customTheme, applyRemoteCustomTheme } = useTheme();
   // Read through refs so the listeners below always see the current values
   // without being torn down and re-registered on every theme change.
-  const latest = useRef({ prefs, applyRemote });
-  latest.current = { prefs, applyRemote };
+  const latest = useRef({ customTheme, applyRemoteCustomTheme });
+  latest.current = { customTheme, applyRemoteCustomTheme };
 
   useEffect(() => {
-    if (!userId) return;
+    if (status !== "authed" || !userId) return;
     // A different account (or a re-login) must not inherit the previous one's
     // pending push. The failure flag is the exception: it survives a reload for
     // the SAME user (their unsent change is still what this device shows), but
@@ -172,7 +158,11 @@ export function ThemeSync() {
       const now = Date.now();
       if (now - lastPull < MIN_PULL_INTERVAL_MS) return;
       lastPull = now;
-      pullThemePrefs(api, () => latest.current.prefs, (p) => latest.current.applyRemote(p)).catch(() => {
+      pullCustomTheme(
+        api,
+        () => latest.current.customTheme,
+        (theme) => latest.current.applyRemoteCustomTheme(theme),
+      ).catch(() => {
         // Offline or a transient error — the next focus tries again.
       });
     };
@@ -187,7 +177,7 @@ export function ThemeSync() {
       window.removeEventListener("focus", pull);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [api, userId]);
+  }, [api, status, userId]);
 
   return null;
 }

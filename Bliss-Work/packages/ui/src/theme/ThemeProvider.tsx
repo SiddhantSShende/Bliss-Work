@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useLayoutEffect, useState } from "react";
 import { type ThemeId, isThemeId, themeClasses, darkCounterpart, defaultThemeFor, ALL_THEME_CLASSES } from "./themes";
 import {
   CUSTOM_THEME_CLASS,
@@ -8,17 +8,14 @@ import {
   isCustomThemeActive,
   persistCustomTheme,
   persistCustomThemeActive,
+  removeStoredCustomTheme,
   readStoredCustomTheme,
   type CustomTheme,
 } from "./customTheme";
 
 export type { ThemeId as Theme };
 
-/** Everything that decides which theme is on screen, in the shape it travels
- *  between devices (auth-svc's `themePrefs`). `theme` is the full id, so the
- *  Light/Dark choice syncs along with the colour family; it is a bare string
- *  here because a newer client may have written an id this build does not know
- *  yet — `applyRemote` ignores what `isThemeId` rejects. */
+/** Legacy combined account preference, read only to migrate custom palettes. */
 export interface ThemePrefs {
   theme: string;
   customColors: string[] | null;
@@ -33,12 +30,9 @@ const ThemeCtx = createContext<{
   customTheme: CustomTheme | null;
   customThemeActive: boolean;
   saveCustomTheme: (theme: CustomTheme) => void;
-  /** The current selection, in the shape `onPrefsChange` reports it. */
-  prefs: ThemePrefs;
-  /** Adopt a selection made on another device. Applies and caches it exactly
-   *  like a local pick, but does NOT report it back through `onPrefsChange` —
-   *  that would echo it straight back to the server it came from. */
-  applyRemote: (prefs: ThemePrefs) => void;
+  clearCustomTheme: () => void;
+  /** Update only the shared definition; the selected theme remains device-local. */
+  applyRemoteCustomTheme: (theme: CustomTheme | null) => void;
 }>({
   theme: defaultThemeFor(false),
   isDark: false,
@@ -47,16 +41,13 @@ const ThemeCtx = createContext<{
   customTheme: null,
   customThemeActive: false,
   saveCustomTheme: () => {},
-  prefs: { theme: defaultThemeFor(false), customColors: null, customActive: false },
-  applyRemote: () => {},
+  clearCustomTheme: () => {},
+  applyRemoteCustomTheme: () => {},
 });
 
 const THEME_KEY = "tb-theme";
 
-/** True once this browser has ever recorded a theme choice of its own (as
- *  opposed to just showing the default). Cross-device sync uses it to tell a
- *  device with a real preference to publish from one that merely hasn't picked
- *  anything and should adopt whatever the account already has. */
+/** True when this device has a cached theme choice or custom definition. */
 export function hasStoredThemeChoice(): boolean {
   try {
     return localStorage.getItem(THEME_KEY) !== null || localStorage.getItem(CUSTOM_THEME_KEY) !== null;
@@ -91,20 +82,15 @@ function persistTheme(theme: ThemeId) {
   }
 }
 
-function toPrefs(theme: ThemeId, customTheme: CustomTheme | null, customThemeActive: boolean): ThemePrefs {
-  return {
-    theme,
-    customColors: customTheme?.colors ?? null,
-    customActive: customThemeActive && customTheme !== null,
-  };
-}
-
 export function ThemeProvider({
   children,
+  authenticated = false,
   forceDefault = false,
-  onPrefsChange,
+  onCustomThemeChange,
 }: {
   children: React.ReactNode;
+  /** Persisted user preferences are not read or applied until auth is confirmed. */
+  authenticated?: boolean;
   /**
    * True while the current screen must always show the fixed Light + Blue/
    * Purple default regardless of what's stored — e.g. the caller's
@@ -114,27 +100,21 @@ export function ThemeProvider({
    * itself (it lives in a route-agnostic package); the caller decides when to
    * pass this, from wherever it does know the current route.
    *
-   * The stored/selected theme keeps being tracked normally underneath —
-   * `setTheme`/`toggle` still work exactly as before, and `theme`/`isDark`
-   * in the context value still report the REAL selection — only the DOM
-   * classes the effect below writes are affected. That's what makes leaving
-   * a forced-default screen automatic: the moment the caller passes
-   * `forceDefault={false}` again, this effect re-runs and the real theme is
-   * back on screen with no separate restoration step anywhere.
+  * For an authenticated caller, the selected theme continues to be tracked
+  * underneath — `setTheme`/`toggle` still work, and context values report the
+  * real selection — while only the DOM classes use the default. Leaving a
+  * forced-default route restores the real theme without a separate step.
    */
   forceDefault?: boolean;
   /**
-   * Called with the new selection after every change the person makes here
-   * (an accent pick, Light/Dark, saving or activating the custom theme) — the
-   * hook the caller uses to mirror it to the account so their other devices
-   * follow. This provider lives in a package with no API client, so it only
-   * reports; where the report goes is the caller's business.
+    * Called only when the shared custom palette definition changes or is
+    * deleted. Preset selection, appearance, and Custom activation are local.
    */
-  onPrefsChange?: (prefs: ThemePrefs) => void;
+    onCustomThemeChange?: (theme: CustomTheme | null) => void;
 }) {
-  const [theme, setThemeState] = useState<ThemeId>(readStoredTheme);
-  const [customTheme, setCustomTheme] = useState<CustomTheme | null>(readStoredCustomTheme);
-  const [customThemeSelected, setCustomThemeActive] = useState(isCustomThemeActive);
+  const [theme, setThemeState] = useState<ThemeId>(() => authenticated ? readStoredTheme() : defaultThemeFor(false));
+  const [customTheme, setCustomTheme] = useState<CustomTheme | null>(() => authenticated ? readStoredCustomTheme() : null);
+  const [customThemeSelected, setCustomThemeActive] = useState(() => authenticated && isCustomThemeActive());
   // "Custom" is the active theme only while there is a valid palette to be
   // active. The selection is the explicit flag above — never inferred from the
   // palette's colours — but a flag left behind with no (or an unreadable)
@@ -142,9 +122,22 @@ export function ThemeProvider({
   // in the Settings description while checking nothing in the menu at all.
   const customThemeActive = customThemeSelected && customTheme !== null;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (!authenticated) {
+      setThemeState(defaultThemeFor(false));
+      setCustomTheme(null);
+      setCustomThemeActive(false);
+      return;
+    }
+    setThemeState(readStoredTheme());
+    setCustomTheme(readStoredCustomTheme());
+    setCustomThemeActive(isCustomThemeActive());
+  }, [authenticated]);
+
+  useLayoutEffect(() => {
     const root = document.documentElement;
-    const effective = forceDefault ? defaultThemeFor(false) : theme;
+    const useDefault = !authenticated || forceDefault;
+    const effective = useDefault ? defaultThemeFor(false) : theme;
     root.classList.remove(...ALL_THEME_CLASSES);
     root.classList.add(...themeClasses(effective));
     root.classList.remove(CUSTOM_THEME_CLASS);
@@ -160,32 +153,40 @@ export function ThemeProvider({
     ]) {
       root.style.removeProperty(property);
     }
-    if (!forceDefault && customThemeActive && customTheme) {
+    if (!useDefault && customThemeActive && customTheme) {
       root.classList.add(CUSTOM_THEME_CLASS);
       for (const [property, value] of Object.entries(customThemeStyle(customTheme))) {
         root.style.setProperty(property, value);
       }
     }
-  }, [customTheme, customThemeActive, forceDefault, theme]);
-
-  const publish = (next: { theme: ThemeId; customTheme: CustomTheme | null; customThemeActive: boolean }) => {
-    onPrefsChange?.(toPrefs(next.theme, next.customTheme, next.customThemeActive));
-  };
+  }, [authenticated, customTheme, customThemeActive, forceDefault, theme]);
 
   const setTheme = (next: ThemeId) => {
+    if (!authenticated) return;
     persistTheme(next);
     setThemeState(next);
     persistCustomThemeActive(false);
     setCustomThemeActive(false);
-    publish({ theme: next, customTheme, customThemeActive: false });
   };
 
   const saveCustomTheme = (next: CustomTheme) => {
+    if (!authenticated) return;
+    const changed = !customTheme || customTheme.colors.length !== next.colors.length ||
+      customTheme.colors.some((color, index) => color !== next.colors[index]);
     persistCustomTheme(next);
     persistCustomThemeActive(true);
     setCustomTheme(next);
     setCustomThemeActive(true);
-    publish({ theme, customTheme: next, customThemeActive: true });
+    if (changed) onCustomThemeChange?.({ colors: [...next.colors] });
+  };
+
+  const clearCustomTheme = () => {
+    if (!authenticated) return;
+    removeStoredCustomTheme();
+    persistCustomThemeActive(false);
+    setCustomTheme(null);
+    setCustomThemeActive(false);
+    onCustomThemeChange?.(null);
   };
 
   /** Profile → Dark Mode / Settings → Theme: flips the CURRENT family's own
@@ -193,30 +194,29 @@ export function ThemeProvider({
    *  (toggled again) → Purple Light again, exactly whichever family was
    *  selected. */
   const toggle = () => {
+    if (!authenticated) return;
     const next = darkCounterpart(theme);
     persistTheme(next);
     setThemeState(next);
-    publish({ theme: next, customTheme, customThemeActive });
   };
 
-  const applyRemote = (remote: ThemePrefs) => {
-    const nextTheme = isThemeId(remote.theme) ? remote.theme : theme;
-    const nextCustom = isCustomColors(remote.customColors) ? { colors: remote.customColors } : null;
-    const nextActive = remote.customActive && nextCustom !== null;
-    persistTheme(nextTheme);
-    setThemeState(nextTheme);
+  const applyRemoteCustomTheme = (remote: CustomTheme | null) => {
+    if (!authenticated) return;
+    const nextCustom = remote && isCustomColors(remote.colors) ? { colors: [...remote.colors] } : null;
     if (nextCustom) persistCustomTheme(nextCustom);
+    else removeStoredCustomTheme();
     setCustomTheme(nextCustom);
-    persistCustomThemeActive(nextActive);
-    setCustomThemeActive(nextActive);
+    if (!nextCustom) {
+      persistCustomThemeActive(false);
+      setCustomThemeActive(false);
+    }
   };
 
   const isDark = theme.endsWith("-dark");
-  const prefs = toPrefs(theme, customTheme, customThemeActive);
 
   return (
     <ThemeCtx.Provider
-      value={{ theme, isDark, setTheme, toggle, customTheme, customThemeActive, saveCustomTheme, prefs, applyRemote }}
+      value={{ theme, isDark, setTheme, toggle, customTheme, customThemeActive, saveCustomTheme, clearCustomTheme, applyRemoteCustomTheme }}
     >
       {children}
     </ThemeCtx.Provider>

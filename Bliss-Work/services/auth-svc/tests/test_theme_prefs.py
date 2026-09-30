@@ -56,6 +56,15 @@ def test_profile_request_takes_theme_prefs_independently_of_name_and_avatar():
     assert UpdateProfileRequest(displayName="Ada").themePrefs is None
 
 
+def test_profile_request_accepts_custom_theme_updates_and_explicit_deletion():
+    saved = UpdateProfileRequest(customTheme={"colors": ["#65a30d"]})
+    deleted = UpdateProfileRequest(customTheme=None)
+    omitted = UpdateProfileRequest()
+    assert saved.customTheme.colors == ["#65a30d"]
+    assert "customTheme" in deleted.model_fields_set
+    assert "customTheme" not in omitted.model_fields_set
+
+
 def test_user_dto_defaults_theme_prefs_to_none_for_listings():
     dto = UserDTO(id="u", orgId="o", username="ada", displayName="Ada", email="a@x.io", roles=["member"])
     assert dto.themePrefs is None
@@ -76,7 +85,11 @@ def _client():
 
     @app.patch("/me")
     async def patch_me(body: UpdateProfileRequest):
-        return {"themePrefs": body.themePrefs.model_dump() if body.themePrefs else None}
+        return {
+            "themePrefs": body.themePrefs.model_dump() if body.themePrefs else None,
+            "customTheme": body.customTheme.model_dump() if body.customTheme else None,
+            "customThemeWasSent": "customTheme" in body.model_fields_set,
+        }
 
     return testclient.TestClient(app, raise_server_exceptions=False)
 
@@ -106,6 +119,23 @@ def test_good_theme_prefs_round_trip_through_the_endpoint():
     assert res.json()["themePrefs"] == good
 
 
+@pytest.mark.parametrize("body", [{"colors": ["#112233"]}, None])
+def test_custom_theme_definition_round_trips_through_the_endpoint(body):
+    res = _client().patch("/me", json={"customTheme": body})
+    assert res.status_code == 200
+    assert res.json()["customTheme"] == body
+    assert res.json()["customThemeWasSent"] is True
+
+
+@pytest.mark.parametrize(
+    "custom_theme",
+    [{"colors": []}, {"colors": ["red"]}, {"colors": ["#112233"] * 4}],
+)
+def test_custom_theme_definition_rejects_invalid_palettes(custom_theme):
+    res = _client().patch("/me", json={"customTheme": custom_theme})
+    assert res.status_code == 422, res.text
+
+
 # ── Only /auth/me may carry it ───────────────────────────────────────────────
 # service.user_dto also backs GET /auth/users/{id} for colleagues, so attaching
 # themePrefs is opt-in. Probed live: the endpoint used to return it.
@@ -118,7 +148,12 @@ class _Row:
     avatar_enc = None
     email_verified = True
     mfa_enrolled = False
-    theme_prefs = {"theme": "rose", "customColors": None, "customActive": False}
+    theme_prefs = {
+        "theme": "rose",
+        "customColors": ["#112233"],
+        "customActive": False,
+        "customThemeRevision": 2,
+    }
     plan = "free"
     org_name = "Acme"
     require_mfa_for_admins = False
@@ -159,8 +194,29 @@ async def test_user_dto_omits_theme_prefs_unless_asked(service):
 async def test_user_dto_includes_theme_prefs_for_me(service):
     dto = await service.user_dto(_Conn(), "u1", with_theme_prefs=True)
     assert dto.themePrefs.theme == "rose"
+    assert dto.customTheme.colors == ["#112233"]
+    assert dto.customThemeRevision == 2
 
 
 async def test_user_dto_with_no_stored_prefs_is_none_even_when_asked(service, monkeypatch):
     monkeypatch.setattr(_Row, "theme_prefs", None)
     assert (await service.user_dto(_Conn(), "u1", with_theme_prefs=True)).themePrefs is None
+
+
+async def test_update_custom_theme_merges_palette_into_legacy_preferences(service):
+    class RecordingConn:
+        async def execute(self, statement, params):
+            self.statement = str(statement)
+            self.params = params
+
+    conn = RecordingConn()
+    await service.update_custom_theme(conn, "u1", ["#112233"])
+    assert "COALESCE" in conn.statement
+    assert "jsonb_build_object" in conn.statement
+    assert "customColors" in conn.statement
+    assert "customThemeRevision" in conn.statement
+    assert conn.params["id"] == "u1"
+    assert conn.params["colors"] == '["#112233"]'
+
+    await service.update_custom_theme(conn, "u1", None)
+    assert conn.params["colors"] == "null"
