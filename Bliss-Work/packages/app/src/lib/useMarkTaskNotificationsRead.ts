@@ -28,7 +28,7 @@ export function useMarkTaskNotificationsRead(api: ApiClient, tasks: { taskId: st
   // and reopened.
   const { data } = useInfiniteQuery({
     queryKey: qk.notifications,
-    queryFn: ({ pageParam }) => api.notificationPage(pageParam as string | undefined, 10),
+    queryFn: ({ pageParam }) => api.notificationPage(pageParam as string | undefined, 10, false),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     enabled: false,

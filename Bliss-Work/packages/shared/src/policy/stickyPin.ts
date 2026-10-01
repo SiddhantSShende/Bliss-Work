@@ -5,8 +5,9 @@ import type { AssigneeStatus, StickyTaskDTO } from "../types/domain";
  *
  * Kept free of Electron/React/IO so it is trivially unit-testable and shared by
  * both the Electron main process (which floats the windows) and the renderer
- * (which offers the "Pin to desktop" button). "pinned" is a desktop-local set
- * the caller owns; these functions never read or write it.
+ * (which offers the "Pin to desktop" button). "pinned" is the caller's set —
+ * on the desktop a local mirror of the durable per-user pin state in sticky-svc,
+ * which is the authority; these functions never read or write it.
  */
 
 /** Result of a pin request, returned from the Electron main process to the
@@ -15,7 +16,10 @@ import type { AssigneeStatus, StickyTaskDTO } from "../types/domain";
 export interface PinResult {
   ok: boolean;
   /** Why the pin was refused (only set when ok === false). "unpinned" means the
-   *  user explicitly unpinned this task, which no automatic path may undo. */
+   *  user's shared pin state for this task (sticky-svc) is UNPINNED, so an
+   *  AUTOMATIC pin request — acknowledging a task is not a request to re-pin —
+   *  must not float it. It is not permanent: the user's own explicit Pin
+   *  (ApiClient.stickyPin) clears it, on any device, and the note comes back. */
   reason?: "limit" | "invalid" | "unpinned";
   /** The pinned set after the request (the renderer seeds its cache from this). */
   pinned: string[];

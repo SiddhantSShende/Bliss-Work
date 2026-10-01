@@ -104,6 +104,10 @@ async def undelivered(
                     " WHERE (org_id, assignee_id, task_id) IN ("
                     "     SELECT org_id, assignee_id, task_id FROM sticky_pins"
                     "      WHERE status = 'OPEN'"
+                    # An UNPINNED note is one the user deliberately took off
+                    # their desktop: it is not "lost in transit", and nudging
+                    # about it would be the service fighting the user.
+                    "        AND pin_state = 'PINNED'"
                     "        AND last_delivered_at IS NULL"
                     "        AND opened_at < now() - make_interval(secs => :age)"
                     "        AND next_eligible_at <= now()"

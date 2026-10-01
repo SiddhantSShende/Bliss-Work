@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Check, Hash, Loader2, Search } from "lucide-react";
+import { Check, Hash, Loader2, Lock, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
@@ -88,6 +88,7 @@ export function ChannelPicker({
         ) : (
           shown.map((ch) => {
             const on = selected.has(ch.id);
+            const Icon = ch.isLocked ? Lock : Hash;
             return (
               <button
                 type="button"
@@ -96,7 +97,7 @@ export function ChannelPicker({
                 aria-pressed={on}
                 className={`flex w-full items-center gap-2.5 rounded-lg p-2 text-left ${on ? c.on : c.off}`}
               >
-                <Hash size={15} className={`shrink-0 ${c.muted}`} aria-hidden />
+                <Icon size={15} className={`shrink-0 ${c.muted}`} aria-hidden />
                 <span className={`min-w-0 flex-1 truncate text-sm ${c.text}`}>{ch.name}</span>
                 <span className={`shrink-0 text-xs ${c.muted}`}>
                   {t("newMeeting.channelPicker.members", { count: ch.memberCount })}

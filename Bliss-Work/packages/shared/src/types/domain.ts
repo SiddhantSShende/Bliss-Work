@@ -274,6 +274,12 @@ export const OrgMembershipDTO = z.object({
 });
 export type OrgMembershipDTO = z.infer<typeof OrgMembershipDTO>;
 
+export const OrgMembershipPageDTO = z.object({
+  items: z.array(OrgMembershipDTO),
+  hasMore: z.boolean(),
+});
+export type OrgMembershipPageDTO = z.infer<typeof OrgMembershipPageDTO>;
+
 /**
  * The current organization plus any pending deletion.
  *
@@ -848,7 +854,9 @@ export const ScheduledTaskDTO = z.object({
   scheduleId: z.string().uuid(),
   title: z.string(),
   description: z.string(),
+  /** The first channel only; `channelIds` is the full list. */
   channelId: z.string().nullable().optional(),
+  channelIds: z.array(z.string()).default([]),
   kind: z.enum(["SCHEDULED", "RECURRING"]),
   scheduledFor: z.string().nullable().optional(),
   startAt: z.string(),

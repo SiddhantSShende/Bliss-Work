@@ -354,6 +354,15 @@ class StickyConsumer:
                         # up to an hour in its new one.
                         "  next_eligible_at = CASE WHEN :is_assign THEN now() "
                         "                          ELSE next_eligible_at END, "
+                        # The one lifecycle event allowed to touch the user's
+                        # choice: a fresh assignment (the only UPDATE an
+                        # ASSIGNED event ever reaches is a CLOSED -> OPEN reopen)
+                        # is a new commitment and starts PINNED. Every other
+                        # event leaves pin_state exactly as the user set it.
+                        "  pin_state = CASE WHEN :is_assign THEN 'PINNED' "
+                        "                   ELSE pin_state END, "
+                        "  pin_state_updated_at = CASE WHEN :is_assign AND pin_state <> 'PINNED' "
+                        "                              THEN now() ELSE pin_state_updated_at END, "
                         "  last_event_at = now() "
                         " WHERE org_id = :org AND assignee_id = :me AND task_id = :task"
                     ),

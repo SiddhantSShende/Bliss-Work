@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
@@ -191,6 +191,13 @@ export function NewMeetingDialog({
    *  See the component doc comment's "Confirmation, not an immediate
    *  redirect". */
   const [scheduledCall, setScheduledCall] = useState<CallDTO | null>(null);
+  /** The clock, re-read twice a minute so the primary button's label and the
+   *  past-start check follow real time while the popup sits open. */
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 15_000);
+    return () => window.clearInterval(id);
+  }, []);
 
   // Names for the Meeting Preview (and, after success, the confirmation's
   // recap of the same thing) — same directory/channel queries
@@ -240,8 +247,13 @@ export function NewMeetingDialog({
    *  either way. This alone decides what is actually sent to the server —
    *  `scheduledAt` present or omitted — the button itself no longer varies
    *  by it. */
-  const isFuture = startEdited && !!startAt && startAt.getTime() - Date.now() > GRACE_MS;
+  const isFuture = startEdited && !!startAt && startAt.getTime() - now > GRACE_MS;
   const scheduled = isFuture || repeating;
+  /** A picked start that has slipped into the past: shown at once and blocks
+   *  the primary action, rather than waiting for a submit attempt. */
+  const startInPast = errors.start === t("newMeeting.errors.startInPast");
+  const today = localDate(new Date(now));
+  const sameDayAsStart = endDate === startDate;
 
   const create = useMutation({
     mutationFn: (vars: { startAt: Date; endAt: Date; scheduled: boolean }) =>
@@ -262,8 +274,15 @@ export function NewMeetingDialog({
         channelIds: channels.selected.size ? [...channels.selected] : undefined,
         recurrence: toRecurrenceInput(recurrence, startDate, browserTimeZone()),
       }),
-    onSuccess: (call) => {
+    onSuccess: (call, vars) => {
       void qc.invalidateQueries({ queryKey: qk.calls });
+      // Start now goes straight into the meeting; only a scheduled one gets
+      // the confirmation.
+      if (!vars.scheduled) {
+        onStarted?.(call);
+        onClose();
+        return;
+      }
       setScheduledCall(call);
     },
     // 403 is the server's one answer for a member who is gone, a channel that is
@@ -312,6 +331,7 @@ export function NewMeetingDialog({
       title={t("newMeeting.title")}
       closeLabel={t("newMeeting.close")}
       onClose={onClose}
+      wide
       footer={
         <>
           <button
@@ -324,74 +344,92 @@ export function NewMeetingDialog({
           <button
             type="button"
             onClick={submit}
-            disabled={create.isPending}
+            disabled={create.isPending || startInPast}
             className="flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-fg transition hover:brightness-105 disabled:opacity-60"
           >
             <Video size={15} />
-            {create.isPending ? t("newMeeting.scheduling") : t("newMeeting.scheduleMeeting")}
+            {scheduled
+              ? create.isPending
+                ? t("newMeeting.scheduling")
+                : t("newMeeting.scheduleMeeting")
+              : create.isPending
+                ? t("newMeeting.starting")
+                : t("newMeeting.startMeeting")}
           </button>
         </>
       }
     >
-      <label className="flex flex-col gap-1.5">
-        <span className="text-sm font-medium text-gray-700">{t("newMeeting.titleLabel")}</span>
-        <input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder={t("newMeeting.titlePlaceholder")}
-          maxLength={200}
-          className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none placeholder:text-gray-400 focus:border-accent focus:ring-1 focus:ring-accent"
-        />
-        {attempted && errors.title && <span className="text-xs text-danger">{errors.title}</span>}
-      </label>
+      {/* grid-cols-1: without it the single mobile column is an implicit auto track
+          that grows to fit its widest content, so a long people list or many chips
+          pushed the whole form past the dialog's edge. */}
+      <div className="grid grid-cols-1 gap-5 md:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] md:gap-6">
+        <div className="flex flex-col gap-4">
+          <label className="flex flex-col gap-1.5">
+            <span className="text-sm font-medium text-gray-700">{t("newMeeting.titleLabel")}</span>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder={t("newMeeting.titlePlaceholder")}
+              maxLength={200}
+              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none placeholder:text-gray-400 focus:border-accent focus:ring-1 focus:ring-accent"
+            />
+            {attempted && errors.title && <span className="text-xs text-danger">{errors.title}</span>}
+          </label>
 
-      <DateTimeFields
-        label={t("newMeeting.startTimeLabel")}
-        date={startDate}
-        time={startTime}
-        onDateChange={(v) => {
-          setStartEdited(true);
-          setStartDate(v);
-          resetEndAfterStartChange(v, startTime);
-        }}
-        onTimeChange={(v) => {
-          setStartEdited(true);
-          setStartTime(v);
-          resetEndAfterStartChange(startDate, v);
-        }}
-        error={attempted ? errors.start : undefined}
-      />
+          <DateTimeFields
+            label={t("newMeeting.startTimeLabel")}
+            date={startDate}
+            time={startTime}
+            onDateChange={(v) => {
+              setStartEdited(true);
+              setStartDate(v);
+              resetEndAfterStartChange(v, startTime);
+            }}
+            onTimeChange={(v) => {
+              setStartEdited(true);
+              setStartTime(v);
+              resetEndAfterStartChange(startDate, v);
+            }}
+            error={attempted || startInPast ? errors.start : undefined}
+            minDate={today}
+            minTime={startDate === today ? localTime(new Date(now)) : undefined}
+          />
 
-      <DateTimeFields
-        label={t("newMeeting.endTimeLabel")}
-        date={endDate}
-        time={endTime}
-        onDateChange={setEndDate}
-        onTimeChange={setEndTime}
-        error={attempted ? errors.end : undefined}
-      />
+          <DateTimeFields
+            label={t("newMeeting.endTimeLabel")}
+            date={endDate}
+            time={endTime}
+            onDateChange={setEndDate}
+            onTimeChange={setEndTime}
+            error={attempted ? errors.end : undefined}
+            minDate={startDate}
+            minTime={sameDayAsStart ? startTime : undefined}
+          />
 
-      <MeetingRepeatField
-        value={recurrence}
-        onChange={setRecurrence}
-        startDate={startDate}
-        errors={attempted ? recurrenceErrors : undefined}
-      />
+          <MeetingRepeatField
+            value={recurrence}
+            onChange={setRecurrence}
+            startDate={startDate}
+            errors={attempted ? recurrenceErrors : undefined}
+          />
 
-      <MeetingAudienceFields
-        invitees={invitees.selected}
-        onToggleInvitee={invitees.toggle}
-        channels={channels.selected}
-        onToggleChannel={channels.toggle}
-      />
-
-      <MeetingPreview
-        title={title}
-        startAt={startAt}
-        endAt={endAt}
-        inviteeNames={inviteeNames}
-        channelNames={channelNames}
-      />
+          <MeetingAudienceFields
+            invitees={invitees.selected}
+            onToggleInvitee={invitees.toggle}
+            channels={channels.selected}
+            onToggleChannel={channels.toggle}
+          />
+        </div>
+        <div className="md:self-center">
+          <MeetingPreview
+            title={title}
+            startAt={startAt}
+            endAt={endAt}
+            inviteeNames={inviteeNames}
+            channelNames={channelNames}
+          />
+        </div>
+      </div>
     </MeetingDialogShell>
   );
 }
@@ -403,6 +441,8 @@ function DateTimeFields({
   onDateChange,
   onTimeChange,
   error,
+  minDate,
+  minTime,
 }: {
   label: string;
   date: string;
@@ -410,6 +450,8 @@ function DateTimeFields({
   onDateChange: (v: string) => void;
   onTimeChange: (v: string) => void;
   error?: string;
+  minDate?: string;
+  minTime?: string;
 }) {
   return (
     <div className="flex flex-col gap-1.5">
@@ -424,11 +466,12 @@ function DateTimeFields({
             type="date"
             aria-label={`${label} date`}
             value={date}
+            min={minDate}
             onChange={(e) => onDateChange(e.target.value)}
             className="w-full rounded-lg border border-gray-300 bg-white py-2 pl-9 pr-2 text-sm text-gray-900 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
           />
         </div>
-        <TimePicker label={label} value={time} onChange={onTimeChange} />
+        <TimePicker label={label} value={time} onChange={onTimeChange} minTime={minTime} />
       </div>
       {error && <span className="text-xs text-danger">{error}</span>}
     </div>

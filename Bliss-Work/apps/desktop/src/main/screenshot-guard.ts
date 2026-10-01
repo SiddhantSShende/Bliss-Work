@@ -46,7 +46,7 @@ import { app, BrowserWindow, globalShortcut, type WebContents } from "electron";
  * the renderer always reports the attempt through its own session beacon,
  * which is what keeps the control leaving a server-side trace.
  */
-type AttemptListener = (source: string, recorded: boolean) => void;
+type AttemptListener = (source: string, recorded: boolean, route?: string) => void;
 
 let notify: AttemptListener = () => {};
 
@@ -67,7 +67,21 @@ let registered = false;
  * Best-effort and must not throw into an input handler: the renderer may be
  * mid-reload.
  */
-function onAttempt(source: string): void {
+function routeOf(contents?: WebContents): string | undefined {
+  if (!contents || contents.isDestroyed()) return undefined;
+  try {
+    const url = new URL(contents.getURL());
+    const candidate = url.hash.startsWith("#/") ? url.hash.slice(1) : url.pathname;
+    const route = candidate.split("?")[0] ?? "";
+    return route === "/app" || route.startsWith("/app/") || route.startsWith("/call/")
+      ? route
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function onAttempt(source: string, origin?: WebContents): void {
   const now = Date.now();
   if (now - lastAttemptAt < ATTEMPT_COALESCE_MS) return;
   lastAttemptAt = now;
@@ -80,7 +94,7 @@ function onAttempt(source: string): void {
   const recorded = false;
 
   try {
-    notify(source, recorded);
+    notify(source, recorded, routeOf(origin ?? BrowserWindow.getFocusedWindow()?.webContents));
   } catch (err) {
     console.error("[security] failed to notify renderer of screenshot attempt", err);
   }
@@ -132,7 +146,7 @@ export function watchCaptureKeys(wc: WebContents, label: string): void {
     // preventDefault stops the keystroke reaching our own page. It does NOT
     // stop the OS-level capture on macOS, which happens before we see it.
     event.preventDefault();
-    onAttempt(`${label}:${chord}`);
+    onAttempt(`${label}:${chord}`, wc);
   });
 }
 

@@ -67,6 +67,46 @@ async def _resolve_channel_members(channel_id: str, org_id: str, caller_id: str)
     return list(body.get("memberIds") or [])
 
 
+async def _resolve_recipients(
+    named_ids: list[str], channel_ids: list[str], org_id: str, caller_id: str
+) -> list[str]:
+    """Everyone a task goes to: the people named, then the current members of every
+    channel named — each person ONCE.
+
+    This is what makes "A, plus #Engineering (which A is in)" one recipient, not
+    two. Ids are compared as canonical UUIDs because the two sources spell them
+    differently (the request accepts any UUID casing, messaging-svc returns
+    lowercase), and task_assignees is keyed (task_id, assignee_id): a duplicate
+    would not just double-notify, it would fail the whole INSERT.
+    """
+    recipients = list(named_ids)
+    for channel_id in channel_ids:
+        recipients.extend(await _resolve_channel_members(channel_id, org_id, caller_id))
+    return list(dict.fromkeys(str(uuid.UUID(r)) for r in recipients))
+
+
+async def _insert_task_channels(
+    db: AsyncSession, *, org_id: str, task_id: str, channel_ids: list[str]
+) -> None:
+    """Record the channels a task is allocated to (one row each, one statement).
+    No-op for a people-only task. A repeated channel is ignored rather than raised:
+    the schedule worker calls this, and a raise there is retried forever."""
+    if not channel_ids:
+        return
+    params: dict[str, str] = {"tid": task_id, "org": org_id}
+    values: list[str] = []
+    for i, channel_id in enumerate(channel_ids):
+        values.append(f"(:tid, :org, :ch{i})")
+        params[f"ch{i}"] = channel_id
+    await db.execute(
+        text(
+            f"INSERT INTO task_channels (task_id, org_id, channel_id) VALUES {', '.join(values)} "
+            "ON CONFLICT (task_id, channel_id) DO NOTHING"
+        ),
+        params,
+    )
+
+
 async def _require_org_members(db: AsyncSession, org_id: str, user_ids: list[str]) -> None:
     """Every assignee the CLIENT named must be an active member of the caller's org.
 
@@ -171,7 +211,7 @@ async def _insert_schedule(
     sender_id: str,
     title_enc: bytes,
     description_enc: bytes,
-    channel_id: str | None,
+    channel_ids: list[str],
     assignee_ids: list[str],
     body: CreateTaskRequest,
 ) -> None:
@@ -180,12 +220,13 @@ async def _insert_schedule(
     await db.execute(
         text(
             "INSERT INTO task_schedules ("
-            "id, org_id, sender_id, title_enc, description_enc, channel_id, assignee_ids, "
+            "id, org_id, sender_id, title_enc, description_enc, channel_id, channel_ids, assignee_ids, "
             "kind, scheduled_for, start_at, frequency, frequency_interval, weekdays, "
             "monthly_rule, monthly_day, monthly_ordinal, monthly_weekday, end_condition, "
             "end_at, occurrence_limit, next_run_at"
             ") VALUES ("
-            ":id, :org, :sender, :title, :description, :channel, CAST(:assignees AS uuid[]), "
+            ":id, :org, :sender, :title, :description, :channel, CAST(:channels AS uuid[]), "
+            "CAST(:assignees AS uuid[]), "
             ":kind, :scheduled, :start, :frequency, :interval, :weekdays, :monthly_rule, "
             ":monthly_day, :monthly_ordinal, :monthly_weekday, :end_condition, :end_at, "
             ":occurrence_limit, :next_run"
@@ -197,7 +238,9 @@ async def _insert_schedule(
             "sender": sender_id,
             "title": title_enc,
             "description": description_enc,
-            "channel": channel_id,
+            # channel_id is the legacy single-channel column (see 012): the first one.
+            "channel": channel_ids[0] if channel_ids else None,
+            "channels": channel_ids,
             "assignees": assignee_ids,
             "kind": body.allocation,
             "scheduled": body.scheduledFor,
@@ -224,34 +267,30 @@ async def create_task(
     org_id = principal.org_id
     sender_id = principal.user_id
 
-    # Allocation surface: either explicit assignees OR a channelId. When a
-    # channelId is supplied, we resolve its current members server-side so
-    # the client can't lie about the recipient list AND so future joiners
-    # can be auto-fanned via the ChannelMemberJoined consumer (using the
-    # tasks.channel_id we persist below).
-    channel_id = body.channelId
-    if channel_id:
-        assignee_ids = [
-            a
-            for a in dict.fromkeys(
-                await _resolve_channel_members(channel_id, org_id, sender_id)
-            )
-        ]
-    else:
-        # Self-assignment is allowed here, same as it already is via channel
-        # mode above when the caller happens to be a member of the target
-        # channel: the Acknowledge/Ignore lifecycle (transitions.py) only ever
-        # looks up the real sender_id to stamp events with, it never assumes
-        # that id differs from the assignee, so a self-assigned task flows
-        # through unchanged.
-        assignee_ids = [a for a in dict.fromkeys(body.assigneeIds)]
+    # Allocation surface: explicit people, channels, or both — ONE task either way.
+    # Each channel's current members are resolved server-side so the client can't
+    # lie about the recipient list, and the channels stay attached to the task
+    # (task_channels) so future joiners can be auto-fanned via the
+    # ChannelMemberJoined consumer.
+    #
+    # Self-assignment is allowed, same as it is via a channel the caller is a
+    # member of: the Acknowledge/Ignore lifecycle (transitions.py) only ever looks
+    # up the real sender_id to stamp events with, it never assumes that id differs
+    # from the assignee, so a self-assigned task flows through unchanged.
+    named_ids = list(dict.fromkeys(str(uuid.UUID(a)) for a in body.assigneeIds))
+    channel_ids = body.target_channel_ids()
+    if not named_ids and not channel_ids:
+        raise HTTPException(status_code=400, detail="at least one assignee required")
+    assignee_ids = await _resolve_recipients(named_ids, channel_ids, org_id, sender_id)
     if not assignee_ids:
+        # Only channels, and they are all empty.
         raise HTTPException(status_code=400, detail="at least one assignee required")
     if len(assignee_ids) > MAX_ASSIGNEES:
-        # Channel mode is the realistic way to hit this — an explicit
-        # assigneeIds list this long is already rejected at the pydantic
-        # boundary (schemas.py). Fail clearly here rather than accepting a
-        # request whose insert transaction would only time out later.
+        # Channels are the realistic way to hit this — an explicit assigneeIds list
+        # this long is already rejected at the pydantic boundary (schemas.py), and
+        # the union of several channels is bounded by nothing else. Fail clearly
+        # here rather than accepting a request whose insert transaction would only
+        # time out later.
         raise HTTPException(
             status_code=400,
             detail=(
@@ -307,8 +346,10 @@ async def create_task(
         # Only a task actually being created gets here (an idempotent replay has
         # already returned), and it runs before encrypt() so a rejected request
         # never creates the org's key.
-        if not channel_id:
-            await _require_org_members(db, org_id, assignee_ids)
+        # Only the people the CLIENT named are checked; channel members were
+        # resolved within the org by messaging-svc.
+        if named_ids:
+            await _require_org_members(db, org_id, named_ids)
 
         # Encrypt PII (title/description) at rest under the org's DEK. The DEK is
         # created lazily inside THIS write transaction on first use for the org.
@@ -321,7 +362,8 @@ async def create_task(
         if body.allocation != "NOW":
             # A deferred task stores the same assignment target, but does not
             # create task_assignees or emit task.assigned until the worker sees
-            # next_run_at. Channel membership is resolved again at that point.
+            # next_run_at. The named people are stored as given; channel membership
+            # is resolved again at that point.
             await _insert_schedule(
                 db,
                 schedule_id=task_id,
@@ -329,8 +371,8 @@ async def create_task(
                 sender_id=sender_id,
                 title_enc=title_enc,
                 description_enc=desc_enc,
-                channel_id=channel_id,
-                assignee_ids=[] if channel_id else assignee_ids,
+                channel_ids=channel_ids,
+                assignee_ids=named_ids,
                 body=body,
             )
             await db.commit()
@@ -348,9 +390,11 @@ async def create_task(
                 "sender": sender_id,
                 "title_enc": title_enc,
                 "desc_enc": desc_enc,
-                "ch": channel_id,
+                # Legacy single-channel column (see 012): the first channel.
+                "ch": channel_ids[0] if channel_ids else None,
             },
         )
+        await _insert_task_channels(db, org_id=org_id, task_id=task_id, channel_ids=channel_ids)
 
         await _insert_task_assignees(
             db,
@@ -368,7 +412,7 @@ async def create_task(
             "task_created",
             task_id=task_id,
             assignees=len(assignee_ids),
-            channel_id=channel_id,
+            channel_ids=channel_ids,
         )
         return CreateTaskResponse(taskId=task_id)
 

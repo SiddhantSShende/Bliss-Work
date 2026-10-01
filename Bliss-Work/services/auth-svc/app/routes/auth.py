@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
@@ -21,6 +21,7 @@ from ..schemas import (
     LoginRequest,
     MfaPendingDTO,
     OrgMembershipDTO,
+    OrgMembershipPageDTO,
     RefreshRequest,
     SessionDTO,
     UpdateProfileRequest,
@@ -473,12 +474,49 @@ async def logout(
     return response
 
 
-@router.get("/orgs/mine", response_model=list[OrgMembershipDTO])
-async def my_orgs(principal: Principal = Depends(get_principal)) -> list[OrgMembershipDTO]:
+@router.get("/orgs/mine", response_model=list[OrgMembershipDTO] | OrgMembershipPageDTO)
+async def my_orgs(
+    principal: Principal = Depends(get_principal),
+    limit: int | None = Query(default=None, ge=1, le=50),
+    offset: int = Query(default=0, ge=0),
+    search: str = Query(default="", max_length=100),
+) -> list[OrgMembershipDTO] | OrgMembershipPageDTO:
     """Every organization the caller's identity belongs to (for the switcher)."""
     async with engine.connect() as conn:
         await service.set_bypass_rls(conn)  # cross-org membership list
         iid = await service.identity_id_for_user(conn, principal.user_id)
+        if limit is not None:
+            memberships, has_more = (
+                await service.membership_page_for_identity(
+                    conn, iid, search=search, limit=limit, offset=offset
+                )
+                if iid
+                else ([], False)
+            )
+            if not memberships and offset == 0 and not search.strip():
+                return OrgMembershipPageDTO(
+                    items=[
+                        OrgMembershipDTO(
+                            orgId=principal.org_id,
+                            orgName="",
+                            roles=principal.roles,
+                            active=True,
+                        )
+                    ],
+                    hasMore=False,
+                )
+            return OrgMembershipPageDTO(
+                items=[
+                    OrgMembershipDTO(
+                        orgId=m["orgId"],
+                        orgName=m["orgName"],
+                        roles=m["roles"],
+                        active=(m["orgId"] == principal.org_id),
+                    )
+                    for m in memberships
+                ],
+                hasMore=has_more,
+            )
         memberships = await service.memberships_for_identity(conn, iid) if iid else []
     if not memberships:
         # Legacy fallback (a token minted before the identity link): expose just

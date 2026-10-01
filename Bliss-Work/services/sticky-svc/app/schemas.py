@@ -25,6 +25,26 @@ class StickyPinDTO(BaseModel):
     openedAt: str
     #: NULL until a client confirms the note actually reached a screen.
     lastDeliveredAt: str | None = None
+    #: The user's own choice: PINNED | UNPINNED. Independent of the lifecycle —
+    #: this list only ever contains OPEN pins, so an UNPINNED row here is an
+    #: outstanding commitment whose note the user took off their desktop, and a
+    #: client must not float it until the user pins it again.
+    pinState: str = "PINNED"
+    pinStateUpdatedAt: str | None = None
+
+
+class PinStateDTO(BaseModel):
+    """The authoritative answer to PUT/DELETE /sticky/pins/{task_id}."""
+
+    taskId: str
+    #: PINNED | UNPINNED for an open commitment; CLOSED once the task reached a
+    #: terminal status (the lifecycle owns that — it is never an Unpin).
+    state: str
+    pinState: str
+    #: OPEN | CLOSED — the lifecycle axis, shown so a client can tell apart
+    #: "you unpinned it" from "the task is finished".
+    status: str
+    updatedAt: str
 
 
 class UndeliveredPinDTO(BaseModel):

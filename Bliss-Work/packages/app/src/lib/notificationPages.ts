@@ -21,6 +21,23 @@ export function flattenNotificationPages(data: NotificationPages | undefined): N
   );
 }
 
+/** The unread and read feeds as one newest-first list, one row per id. A row
+ *  marked read locally can sit in the unread feed's cache until it refetches
+ *  while the read feed also returns it; `read` wins so it is never shown twice
+ *  or as unread. */
+export function mergeNotificationFeeds(
+  ...feeds: (NotificationPages | undefined)[]
+): NotificationDTO[] {
+  const byId = new Map<string, NotificationDTO>();
+  for (const n of feeds.flatMap(flattenNotificationPages)) {
+    const existing = byId.get(n.id);
+    byId.set(n.id, existing ? { ...n, read: existing.read || n.read } : n);
+  }
+  return [...byId.values()].sort((a, b) =>
+    b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id),
+  );
+}
+
 export function mapNotificationPages(
   data: NotificationPages | undefined,
   update: (notification: NotificationDTO) => NotificationDTO,

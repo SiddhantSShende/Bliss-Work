@@ -40,7 +40,8 @@
       "noMatches": "No matches.",
       "noneToInvite": "No one else to invite."
     },
-    "loading": "Loading people…"
+    "loading": "Loading people…",
+    "you": "(You)"
   },
   "orgPage": {
     "header": {
@@ -110,6 +111,11 @@
     "switchTitle": "Switch organization",
     "workspaceFallback": "Workspace",
     "yourOrganizations": "Your organizations",
+    "searchPlaceholder": "Search organizations...",
+    "loadMore": "Load more",
+    "loading": "Loading organizations...",
+    "empty": "No organizations found",
+    "loadFailed": "Couldn't load organizations. Click to retry.",
     "roleLabel": {
       "admin": "Admin",
       "member": "Member"

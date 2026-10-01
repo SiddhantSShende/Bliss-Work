@@ -99,6 +99,8 @@ export class StickyManager {
   /** Which entry of `visible` the carousel currently shows. */
   private currentIndex = 0;
   private tasks: StickyTaskDTO[] = [];
+  /** A just-re-pinned task the carousel should page to as soon as it can. */
+  private pendingFocus: string | undefined;
 
   /** Latest known actionable task list (server returns only SENT/ACKNOWLEDGED).
    *  Stored whole so taskCount()/tray reflect ALL active tasks, while only the
@@ -112,6 +114,10 @@ export class StickyManager {
     this.tasks = tasks;
     if (opts.live) this.autopinActionable();
     this.reconcile();
+    if (this.pendingFocus) {
+      this.showTask(this.pendingFocus);
+      this.pendingFocus = undefined;
+    }
   }
 
   /**
@@ -134,34 +140,60 @@ export class StickyManager {
   }
 
   /**
-   * Adopt the durable pin set from sticky-svc.
+   * Mirror the user's durable pin state from sticky-svc onto this machine.
    *
-   * Purely ADDITIVE, and that is the whole safety property: this can restore a
-   * pin this machine has never seen — a fresh install, a second device, a
-   * cleared profile — but it can never remove one. Only prunePinned, driven by
-   * task-svc's live actionable list, takes a note away.
+   * sticky-svc is the authority on what the USER chose, because it is the one
+   * thing every device of theirs shares: a pin made on the web, or on a second
+   * desktop, lands here as PINNED, and an Unpin made anywhere lands as UNPINNED.
+   * The local pinned/unpinned sets (./sticky-state) are only the mirror that lets
+   * windows restore offline — they never overrule a successful server read:
    *
-   * So a sticky-svc outage, a lagging consumer, or a build with no stickyBase
-   * configured degrades to exactly the behaviour that shipped before the
-   * service existed, rather than wiping someone's desktop.
+   *   server UNPINNED → drop the note and remember it as unpinned, so no
+   *                     automatic path (autopin, acknowledge) puts it back;
+   *   server PINNED   → clear any local unpin and float it. A task going from
+   *                     unpinned to pinned is an explicit RE-pin, so the carousel
+   *                     pages to it (as pin() does for a newly pinned task).
    *
-   * An explicit Unpin is respected: the server still counts the task as an open
-   * commitment, but the user's decision about where its note lives is theirs.
+   * Ids the server says nothing about are left alone — a task with no sticky-svc
+   * row yet still auto-pins locally — and a failed or unconfigured read never
+   * reaches this (the caller passes nothing), degrading to the local mirror
+   * instead of wiping anyone's desktop. Completion/leave/ignore still only ever
+   * removes a note through prunePinned, driven by task-svc's actionable list.
    */
-  adoptServerPins(taskIds: readonly string[]): void {
-    for (const id of taskIds) {
+  applyServerPinState(state: { pinned: readonly string[]; unpinned: readonly string[] }): void {
+    for (const id of state.unpinned) {
       if (typeof id !== "string" || !id) continue;
-      if (!isPinned(id) && !isUnpinned(id)) addPinned(id);
+      removePinned(id);
+      addUnpinned(id);
+    }
+    let repinned: string | undefined;
+    for (const id of state.pinned) {
+      if (typeof id !== "string" || !id) continue;
+      if (isUnpinned(id)) {
+        removeUnpinned(id);
+        repinned = id;
+      }
+      addPinned(id);
     }
     this.reconcile();
+    if (repinned) {
+      this.showTask(repinned);
+      // The task list this push belongs with usually arrives right after (see
+      // index.ts), and a freshly pinned task may not be in the list we hold yet.
+      // Remember it so setTasks can page to it once it is.
+      this.pendingFocus = repinned;
+    }
   }
 
   /**
    * Explicit Unpin, from the note's own Unpin button — and from nowhere else.
    *
-   * Removes the task from the persisted pinned set AND records the veto that
-   * keeps auto-pin from putting it straight back on the next server push (see
-   * ./sticky-state). The task itself is untouched: this is about where its note
+   * This is the LOCAL half, applied at once so the note goes the instant the
+   * button is pressed. The caller (index.ts) also writes it to sticky-svc, which
+   * is what makes it durable and shared; the next server read confirms it. It
+   * removes the task from the pinned set AND records the veto that keeps auto-pin
+   * from putting it straight back on the next push (see ./sticky-state). The task
+   * itself is untouched: this is about where its note
    * lives, not the commitment, so it stays in the in-app Tasks list with all its
    * actions.
    *
@@ -192,8 +224,11 @@ export class StickyManager {
    *   minimized window / expanding a collapsed pill) rather than duplicating it.
   * - There is no carousel-size cap: every actionable task can be pinned and
   *   the renderer receives only the current lazy window.
-   * - Refuses (reason "unpinned") a task the user explicitly unpinned: nothing
-   *   automatic may undo an Unpin, and acknowledging is not a request to re-pin.
+   * - Refuses (reason "unpinned") a task the user's shared pin state says is
+   *   UNPINNED: acknowledging is not a request to re-pin. This is the AUTOMATIC
+   *   path only. The user's own explicit Pin goes to sticky-svc
+   *   (ApiClient.stickyPin), which clears the unpin on every device and arrives
+   *   here through applyServerPinState — so an Unpin is never permanent.
    * - The note floats with whatever real status the task has (SENT → Acknowledge
    *   / Ignore; ACKNOWLEDGED → Complete); the next list fills in any lag.
    */

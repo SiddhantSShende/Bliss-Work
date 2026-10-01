@@ -143,13 +143,15 @@
     "errors": {
       "titleRequired": "Meeting title is required.",
       "startRequired": "Start date and time are required.",
-      "startInPast": "Start time can't be in the past.",
+      "startInPast": "Start time cannot be in the past.",
       "endRequired": "End date and time are required.",
       "endBeforeStart": "End time must be later than the start time.",
       "peopleUnavailable": "Some of the members or channels you picked are no longer available."
     },
     "cancel": "Cancel",
     "scheduleMeeting": "Schedule Meeting",
+    "startMeeting": "Start Meeting",
+    "starting": "Starting…",
     "scheduling": "Scheduling…",
     "scheduleError": "Couldn't schedule that meeting",
     "membersLabel": "Members",

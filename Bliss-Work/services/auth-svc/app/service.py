@@ -929,6 +929,39 @@ async def memberships_for_identity(conn: AsyncConnection, identity_id: str) -> l
     return out
 
 
+async def membership_page_for_identity(
+    conn: AsyncConnection, identity_id: str, *, search: str, limit: int, offset: int
+) -> tuple[list[dict], bool]:
+    rows = (
+        await conn.execute(
+            text(
+                "SELECT u.id AS user_id, u.org_id, o.name AS org_name FROM users u "
+                "JOIN orgs o ON o.id = u.org_id "
+                "WHERE u.identity_id = :iid AND u.status = 'active' "
+                "AND (:search = '' OR strpos(lower(o.name), lower(:search)) > 0) "
+                "ORDER BY lower(o.name), o.id LIMIT :fetch_limit OFFSET :offset"
+            ),
+            {
+                "iid": identity_id,
+                "search": search.strip(),
+                "fetch_limit": limit + 1,
+                "offset": offset,
+            },
+        )
+    ).all()
+    has_more = len(rows) > limit
+    items = [
+        {
+            "userId": str(row.user_id),
+            "orgId": str(row.org_id),
+            "orgName": row.org_name,
+            "roles": await roles_for_user(conn, str(row.user_id)),
+        }
+        for row in rows[:limit]
+    ]
+    return items, has_more
+
+
 async def touch_last_user(conn: AsyncConnection, identity_id: str, user_id: str) -> None:
     await conn.execute(
         text("UPDATE identities SET last_user_id = :u WHERE id = :iid"),

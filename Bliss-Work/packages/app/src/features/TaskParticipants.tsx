@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Badge, Button, IconButton } from "@taskboard/ui";
 import type { TaskParticipantDTO } from "@taskboard/shared";
 import { Modal } from "./Modal";
-import { MemberPicker } from "./MemberPicker";
+import { AddParticipantsPicker, type ParticipantTargets } from "./AddParticipantsPicker";
 
 /** Only an open assignment can be extended or withdrawn; COMPLETED, LEFT and
  *  IGNORED are history. The server enforces the same rule (participants.py). */
@@ -22,7 +22,7 @@ export function TaskParticipants({
   participants: TaskParticipantDTO[];
   currentUserId: string;
   allocatorId: string;
-  onAdd?: (userIds: string[]) => Promise<void>;
+  onAdd?: (targets: ParticipantTargets) => Promise<void>;
   onWithdraw?: (userId: string) => Promise<void>;
   addPlacement?: "name" | "participants";
   /** "chips" (default) is the compact pill row with an icon-only Withdraw, for
@@ -67,8 +67,10 @@ export function TaskParticipants({
           {participants.map((participant) => {
             const name = participant.username || participant.userId;
             return (
-              <li key={participant.userId} className="flex min-w-0 items-center justify-between gap-2 py-1.5 first:pt-0 last:pb-0">
-                <span className="inline-flex min-w-0 items-center gap-2 text-sm font-medium text-fg">
+              <li key={participant.userId} className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1 py-1.5 first:pt-0 last:pb-0">
+                {/* A floor on the name's width, so in a narrow card the Withdraw button
+                    wraps onto its own line instead of squeezing the name to nothing. */}
+                <span className="inline-flex min-w-[min(8rem,100%)] flex-1 items-center gap-2 text-sm font-medium text-fg">
                   <span className="min-w-0 truncate">{name}</span>
                   <Badge tone={participantTone(participant.status)}>{participant.status.toLowerCase()}</Badge>
                 </span>
@@ -128,7 +130,7 @@ export function TaskParticipantAdd({
   prominent = false,
 }: {
   participants: TaskParticipantDTO[];
-  onAdd: (userIds: string[]) => Promise<void>;
+  onAdd: (targets: ParticipantTargets) => Promise<void>;
   /** A full-size secondary "Add member" button instead of the compact ghost "Add". */
   prominent?: boolean;
 }) {
@@ -139,10 +141,10 @@ export function TaskParticipantAdd({
   // Called fire-and-forget from the picker, so as with Withdraw a rejection would
   // be unhandled. The caller's mutation already toasts it; the dialog stays open
   // (it only closes on success) and, once not busy, can be submitted again.
-  const add = async (userIds: string[]) => {
+  const add = async (targets: ParticipantTargets) => {
     setBusy(true);
     try {
-      await onAdd(userIds);
+      await onAdd(targets);
       setOpen(false);
     } catch {
       // Reported by the caller.
@@ -161,7 +163,13 @@ export function TaskParticipantAdd({
         <Plus size={prominent ? 14 : 13} /> {t(prominent ? "participants.addMember" : "participants.add")}
       </Button>
       <Modal open={open} onClose={busy ? () => {} : () => setOpen(false)} title={t("participants.addTitle")}>
-        <MemberPicker exclude={exclude} busy={busy} onConfirm={(ids) => void add(ids)} onCancel={() => setOpen(false)} confirmLabel={t("participants.add")} />
+        <AddParticipantsPicker
+          excludeUserIds={exclude}
+          busy={busy}
+          onConfirm={(targets) => void add(targets)}
+          onCancel={() => setOpen(false)}
+          confirmLabel={t("participants.add")}
+        />
       </Modal>
     </>
   );

@@ -1,38 +1,30 @@
 /**
  * "New task" modal.
  *
- * Two assignment modes — picked via a small tab at the top:
+ * Who it goes to is a People group and a Channels group, shown together
+ * (MeetingAudienceFields, the same control the meeting form uses); either, or
+ * both, may be filled. One Create is one request and one task: task-svc takes
+ * `assigneeIds` and `channelIds` together, resolves each channel's members, and
+ * keeps the channels attached to the task so a later joiner is added too.
  *
- *   • People    — choose one or more teammates by name. (Original behaviour.)
- *   • Channel   — choose a single channel; on submit we expand the channel
- *                 into its current member ids and create one multi-assignee
- *                 task. Every member receives the task in their inbox and a
- *                 sticky note pops up on their screen exactly the same as
- *                 a personally-allocated task. (Same flow per the product
- *                 requirement.)
- *
- * Channel mode requires fetching member ids at submit time so a member who
- * joined since the dialog opened still receives the task. Locked channels
- * appear here only if the caller is a member; open channels they aren't in
- * are intentionally excluded — the assigner has to join first.
+ * Locked channels appear here only if the caller is a member; open channels they
+ * aren't in are intentionally excluded — the assigner has to join first.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { CalendarClock, Check, Hash, Lock, Repeat, Search, Users, Zap, type LucideIcon } from "lucide-react";
-import { Avatar, Button, Input, Textarea } from "@taskboard/ui";
+import { CalendarClock, Repeat, Zap, type LucideIcon } from "lucide-react";
+import { Button, Input, Textarea } from "@taskboard/ui";
 import { toast } from "sonner";
-import type { ChannelDTO, UserDTO } from "@taskboard/shared";
+import type { UserDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
-import { usePeopleSearch } from "../lib/usePeopleCandidates";
 import { dayLabel, timeLabel } from "../lib/meetingTime";
 import { Modal } from "./Modal";
 import { Field } from "../routes/Onboarding";
-import { SelectionField, type SelectionChip } from "./SelectionField";
+import { MeetingAudienceFields, type AudienceCopy } from "./MeetingAudienceFields";
 import { TimePicker } from "./TimePicker";
 
-type Mode = "people" | "channel";
 type Allocation = "NOW" | "SCHEDULED" | "RECURRING";
 type Frequency = "DAILY" | "WEEKLY" | "MONTHLY";
 type EndCondition = "NO_END" | "AFTER_OCCURRENCES" | "ON_DATE";
@@ -67,11 +59,10 @@ export function CreateTaskDialog({
   const { t } = useTranslation("tasks");
   const { api } = useRuntime();
   const qc = useQueryClient();
-  const [mode, setMode] = useState<Mode>("people");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [selectedPeople, setSelectedPeople] = useState<Set<string>>(new Set());
-  const [selectedChannel, setSelectedChannel] = useState<string>("");
+  const [selectedChannels, setSelectedChannels] = useState<Set<string>>(new Set());
   const [allocation, setAllocation] = useState<Allocation>("NOW");
   const [scheduledDate, setScheduledDate] = useState("");
   const [scheduledTime, setScheduledTime] = useState("");
@@ -86,67 +77,47 @@ export function CreateTaskDialog({
   const [endDate, setEndDate] = useState("");
   const [occurrenceCount, setOccurrenceCount] = useState("1");
 
-  // includeSelf: the People tab allows sending a task to yourself, same as
-  // channel mode already allows fanning a task to a channel you're a member
-  // of (see task-svc's create_task).
-  const { q, setQ, all, candidates, me } = usePeopleSearch(undefined, true);
   const { data: channels = [] } = useQuery({
     queryKey: qk.channels,
     queryFn: () => api.channels(),
     enabled: open,
   });
-  const selectedChannelObj = channels.find((c) => c.id === selectedChannel);
-
-  // Chips for the People/Channel SelectionFields below. Built from `all` (the
-  // UNFILTERED directory/channel list), not `candidates`/`shown` — those are
-  // search-filtered, so a person or channel picked before the query narrowed
-  // them out would otherwise vanish from its own chip.
-  const memberChips: SelectionChip[] = useMemo(() => {
-    const byId = new Map(all.map((u) => [u.id, u]));
-    return [...selectedPeople].map((id) => {
-      const u = byId.get(id);
-      const label = u?.displayName ?? t("createTaskDialog.fields.unknownPerson");
-      return {
-        id,
-        label: id === me.id ? `${label} ${t("createTaskDialog.fields.you")}` : label,
-        leading: (
-          <span aria-hidden="true" className="flex">
-            <Avatar name={label} src={u?.avatarUrl} size="sm" />
-          </span>
-        ),
-      };
-    });
-  }, [selectedPeople, all, me.id, t]);
-  const channelChips: SelectionChip[] = selectedChannelObj
-    ? [
-        {
-          id: selectedChannelObj.id,
-          label: selectedChannelObj.name,
-          leading: <Hash size={13} className="ml-1 shrink-0 text-muted" aria-hidden />,
-        },
-      ]
-    : [];
 
   // "Schedule for later"'s small allocation summary — who, and the real
   // combined start moment (same localDateTimeWithOffset the request itself
   // is built from, so the summary can never say something the request doesn't).
-  const summaryWho =
-    mode === "channel"
-      ? selectedChannelObj
-        ? `#${selectedChannelObj.name}`
-        : t("createTaskDialog.allocation.noTargetYet")
-      : t("createTaskDialog.allocation.peopleCount", { count: selectedPeople.size });
+  const summaryTargets = [
+    ...(selectedPeople.size > 0 ? [t("createTaskDialog.allocation.peopleCount", { count: selectedPeople.size })] : []),
+    ...channels.filter((c) => selectedChannels.has(c.id)).map((c) => `#${c.name}`),
+  ];
+  const summaryWho = summaryTargets.length > 0 ? summaryTargets.join(", ") : t("createTaskDialog.allocation.noTargetYet");
   const summaryStartIso = localDateTimeWithOffset(scheduledDate, scheduledTime);
   const summaryWhen = summaryStartIso
     ? `${dayLabel(new Date(summaryStartIso).getTime())} · ${timeLabel(new Date(summaryStartIso).getTime())}`
     : null;
 
+  const assignToId = useId();
+  const audienceCopy: AudienceCopy = {
+    peopleLabel: t("createTaskDialog.fields.peopleLabel"),
+    peopleNone: t("createTaskDialog.fields.assignToEmpty"),
+    peopleAdd: t("createTaskDialog.fields.addPeople"),
+    peopleDone: t("createTaskDialog.fields.done"),
+    peopleRemove: (name) => t("createTaskDialog.fields.removePerson", { name }),
+    unknownPerson: t("createTaskDialog.fields.unknownPerson"),
+    you: t("createTaskDialog.fields.you"),
+    channelsLabel: t("createTaskDialog.fields.channelsLabel"),
+    channelsHint: t("createTaskDialog.fields.channelHint"),
+    channelsNone: t("createTaskDialog.fields.assignToChannelEmpty"),
+    channelsAdd: t("createTaskDialog.fields.addChannels"),
+    channelsDone: t("createTaskDialog.fields.done"),
+    channelsRemove: (name) => t("createTaskDialog.fields.removeChannel", { name }),
+    unknownChannel: t("createTaskDialog.fields.unknownChannel"),
+  };
+
   useEffect(() => {
     if (open) {
-      setMode("people");
       setSelectedPeople(new Set(preselect.map((u) => u.id)));
-      setSelectedChannel("");
-      setQ("");
+      setSelectedChannels(new Set());
       setAllocation("NOW");
       setScheduledDate("");
       setScheduledTime("");
@@ -165,40 +136,34 @@ export function CreateTaskDialog({
   }, [open]);
 
   const create = useMutation({
-    mutationFn: async (): Promise<{ taskId: string; assigneeCount: number }> => {
-      const common = { title, description, allocation } as const;
-      if (mode === "channel") {
-        if (!selectedChannel) throw new Error(t("createTaskDialog.errors.pickChannel"));
-        // Send the channelId — task-svc resolves the membership server-side
-        // and persists tasks.channel_id so a member who joins later is
-        // auto-added by the ChannelMemberJoined consumer.
-        const res = await api.createTask({
-          ...common,
-          channelId: selectedChannel,
-          ...(allocation === "SCHEDULED" ? { scheduledFor: localDateTimeWithOffset(scheduledDate, scheduledTime)! } : {}),
-          ...(allocation === "RECURRING" ? { recurrence: recurrencePayload() } : {}),
-        });
-        // The dialog uses the snapshot count for the success toast only —
-        // server is the source of truth.
-        const ch = channels.find((c) => c.id === selectedChannel);
-        return { ...res, assigneeCount: ch?.memberCount ?? 0 };
-      }
-      const ids = [...selectedPeople];
-      const res = await api.createTask({
-        ...common,
-        assigneeIds: ids,
+    // ONE request for the whole selection, whatever mix of people and channels it
+    // is. task-svc resolves each channel's members (so someone both picked and in a
+    // picked channel is still one recipient) and keeps the channels attached to the
+    // task, so a member who joins one later is added to it.
+    mutationFn: () =>
+      api.createTask({
+        title,
+        description,
+        allocation,
+        ...(selectedPeople.size > 0 ? { assigneeIds: [...selectedPeople] } : {}),
+        ...(selectedChannels.size > 0 ? { channelIds: [...selectedChannels] } : {}),
         ...(allocation === "SCHEDULED" ? { scheduledFor: localDateTimeWithOffset(scheduledDate, scheduledTime)! } : {}),
         ...(allocation === "RECURRING" ? { recurrence: recurrencePayload() } : {}),
-      });
-      return { ...res, assigneeCount: ids.length };
-    },
-    onSuccess: ({ assigneeCount }) => {
-      const channel = channels.find((c) => c.id === selectedChannel);
+      }),
+    onSuccess: () => {
+      // Only a lone channel gets the channel-specific toast: with people (or other
+      // channels) alongside it, "sent to #general — 12 members" would undercount.
+      const lone =
+        selectedPeople.size === 0 && selectedChannels.size === 1
+          ? channels.find((c) => selectedChannels.has(c.id))
+          : undefined;
       toast.success(
-        mode === "channel"
+        lone
           ? t("createTaskDialog.toasts.sentToChannel", {
-              channelName: channel?.name ?? t("createTaskDialog.toasts.genericChannelFallback"),
-              count: assigneeCount,
+              channelName: lone.name,
+              // The dialog uses the snapshot count for the success toast only —
+              // server is the source of truth.
+              count: lone.memberCount,
             })
           : allocation === "NOW"
             ? t("createTaskDialog.toasts.sentPlain")
@@ -216,25 +181,20 @@ export function CreateTaskDialog({
       setTitle("");
       setDescription("");
       setSelectedPeople(new Set());
-      setSelectedChannel("");
+      setSelectedChannels(new Set());
       onClose();
     },
     onError: (e) => toast.error(t("createTaskDialog.errors.createFailed"), { description: String(e) }),
   });
 
-  const togglePerson = (id: string) =>
-    setSelectedPeople((s) => {
-      const next = new Set(s);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
+  const togglePerson = (id: string) => setSelectedPeople((s) => toggled(s, id));
+  const toggleChannel = (id: string) => setSelectedChannels((s) => toggled(s, id));
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return toast.error(t("createTaskDialog.errors.needTitle"));
-    if (mode === "people" && selectedPeople.size === 0)
+    if (selectedPeople.size === 0 && selectedChannels.size === 0)
       return toast.error(t("createTaskDialog.errors.needAssignee"));
-    if (mode === "channel" && !selectedChannel) return toast.error(t("createTaskDialog.errors.pickChannel"));
     if (allocation === "SCHEDULED") {
       const at = localDateTimeWithOffset(scheduledDate, scheduledTime);
       if (!at || Date.parse(at) <= Date.now()) return toast.error(t("createTaskDialog.errors.invalidSchedule"));
@@ -291,116 +251,22 @@ export function CreateTaskDialog({
           />
         </Field>
 
-        <div className="flex gap-1">
-          <ModeTab active={mode === "people"} onClick={() => setMode("people")}>
-            <Users size={13} /> {t("createTaskDialog.modes.people")}
-          </ModeTab>
-          <ModeTab active={mode === "channel"} onClick={() => setMode("channel")}>
-            <Hash size={13} /> {t("createTaskDialog.modes.channel")}
-          </ModeTab>
+        <div role="group" aria-labelledby={assignToId} className="flex flex-col gap-3">
+          <span id={assignToId} className="text-sm font-medium text-fg">
+            {t("createTaskDialog.fields.assignTo")}
+          </span>
+          {/* includeSelf: task assignment allows sending a task to yourself, same as
+              fanning one to a channel you are a member of (see task-svc's create_task). */}
+          <MeetingAudienceFields
+            tone="theme"
+            includeSelf
+            invitees={selectedPeople}
+            onToggleInvitee={togglePerson}
+            channels={selectedChannels}
+            onToggleChannel={toggleChannel}
+            copy={audienceCopy}
+          />
         </div>
-
-        {mode === "people" ? (
-          <SelectionField
-            tone="theme"
-            label={t("createTaskDialog.fields.assignTo")}
-            chips={memberChips}
-            onRemove={togglePerson}
-            removeLabel={(chip) => t("createTaskDialog.fields.removePerson", { name: chip.label })}
-            emptyLabel={t("createTaskDialog.fields.assignToEmpty")}
-            addLabel={t("createTaskDialog.fields.addPeople")}
-            doneLabel={t("createTaskDialog.fields.done")}
-          >
-            <div className="relative mb-2">
-              <Search
-                size={15}
-                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted"
-              />
-              <Input
-                className="h-10 pl-9"
-                placeholder={t("createTaskDialog.fields.searchPeoplePlaceholder")}
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                autoFocus
-              />
-            </div>
-            <div className="max-h-44 overflow-auto rounded-xl border border-border p-1">
-              {candidates.length === 0 && (
-                <p className="px-2 py-3 text-sm text-muted">{t("createTaskDialog.fields.noMatches")}</p>
-              )}
-              {candidates.map((u) => {
-                const on = selectedPeople.has(u.id);
-                return (
-                  <button
-                    type="button"
-                    key={u.id}
-                    onClick={() => togglePerson(u.id)}
-                    aria-pressed={on}
-                    className={`flex w-full items-center gap-2.5 rounded-lg p-2 text-left ${
-                      on ? "bg-accent-soft" : "hover:bg-surface-2"
-                    }`}
-                  >
-                    <Avatar name={u.displayName} src={u.avatarUrl} size="sm" />
-                    <span className="flex-1 truncate text-sm text-fg">
-                      {u.displayName}
-                      {u.id === me.id && (
-                        <span className="ml-1 text-muted">{t("createTaskDialog.fields.you")}</span>
-                      )}
-                    </span>
-                    {on && <Check size={15} className="text-accent" />}
-                  </button>
-                );
-              })}
-            </div>
-          </SelectionField>
-        ) : (
-          <SelectionField
-            tone="theme"
-            label={t("createTaskDialog.fields.assignToChannel")}
-            hint={t("createTaskDialog.fields.channelHint")}
-            chips={channelChips}
-            onRemove={() => setSelectedChannel("")}
-            removeLabel={(chip) => t("createTaskDialog.fields.removeChannel", { name: chip.label })}
-            emptyLabel={t("createTaskDialog.fields.assignToChannelEmpty")}
-            addLabel={t("createTaskDialog.fields.chooseChannel")}
-            doneLabel={t("createTaskDialog.fields.done")}
-          >
-            {channels.length === 0 ? (
-              <p className="rounded-xl border border-border p-3 text-sm text-muted">
-                {t("createTaskDialog.fields.noChannels")}
-              </p>
-            ) : (
-              <div className="max-h-44 overflow-auto rounded-xl border border-border p-1">
-                {channels.map((c: ChannelDTO) => {
-                  const on = selectedChannel === c.id;
-                  const Icon = c.isLocked ? Lock : Hash;
-                  return (
-                    <button
-                      type="button"
-                      key={c.id}
-                      onClick={() => setSelectedChannel(c.id)}
-                      aria-pressed={on}
-                      className={`flex w-full items-center gap-2.5 rounded-lg p-2 text-left ${
-                        on ? "bg-accent-soft" : "hover:bg-surface-2"
-                      }`}
-                    >
-                      <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-surface-2 text-accent">
-                        <Icon size={14} />
-                      </span>
-                      <span className="flex-1 truncate text-sm text-fg">
-                        {c.name}
-                        <span className="ml-1.5 text-xs text-muted">
-                          {t("createTaskDialog.fields.memberCount", { count: c.memberCount })}
-                        </span>
-                      </span>
-                      {on && <Check size={15} className="text-accent" />}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </SelectionField>
-        )}
 
         <div className="flex flex-col gap-1.5">
           <span className="text-[13px] font-medium text-fg/80">{t("createTaskDialog.allocation.title")}</span>

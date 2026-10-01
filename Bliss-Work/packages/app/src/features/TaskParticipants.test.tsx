@@ -4,11 +4,11 @@ import userEvent from "@testing-library/user-event";
 import type { TaskParticipantDTO } from "@taskboard/shared";
 import { trackUnhandledRejections } from "../test/unhandledRejections";
 
-// The picker searches the directory over the network; what matters here is
-// what TaskParticipants does with the ids it hands back.
-vi.mock("./MemberPicker", () => ({
-  MemberPicker: (p: { onConfirm: (ids: string[]) => void; busy?: boolean }) => (
-    <button type="button" disabled={p.busy} onClick={() => p.onConfirm(["u-new"])}>
+// The picker searches the directory and channels over the network; what matters
+// here is what TaskParticipants does with the targets it hands back.
+vi.mock("./AddParticipantsPicker", () => ({
+  AddParticipantsPicker: (p: { onConfirm: (targets: { userIds: string[]; channelIds: string[] }) => void; busy?: boolean }) => (
+    <button type="button" disabled={p.busy} onClick={() => p.onConfirm({ userIds: ["u-new"], channelIds: ["c-new"] })}>
       pick a member
     </button>
   ),
@@ -77,7 +77,7 @@ describe("TaskParticipants list layout", () => {
 
     await user.click(screen.getByRole("button", { name: "Add member" }));
     await user.click(await screen.findByRole("button", { name: "pick a member" }));
-    expect(onAdd).toHaveBeenCalledExactlyOnceWith(["u-new"]);
+    expect(onAdd).toHaveBeenCalledExactlyOnceWith({ userIds: ["u-new"], channelIds: ["c-new"] });
   });
 
   it("offers neither once nobody is on an open assignment", () => {
@@ -133,7 +133,7 @@ describe("TaskParticipants when Add member fails", () => {
 
       await user.click(screen.getByRole("button", { name: addLabel }));
       await user.click(await screen.findByRole("button", { name: "pick a member" }));
-      expect(onAdd).toHaveBeenCalledExactlyOnceWith(["u-new"]);
+      expect(onAdd).toHaveBeenCalledExactlyOnceWith({ userIds: ["u-new"], channelIds: ["c-new"] });
       // In flight: the picker is busy, so it cannot be submitted twice.
       expect(screen.getByRole("button", { name: "pick a member" })).toBeDisabled();
 

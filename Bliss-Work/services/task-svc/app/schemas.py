@@ -16,6 +16,9 @@ TaskActionT = Literal["ACKNOWLEDGE", "IGNORE", "COMPLETE", "LEAVE"]
 # same bound enforced explicitly rather than inheriting it for free. Public
 # (no leading underscore): it's imported by tasks_write.py for that reason.
 MAX_ASSIGNEES = 500
+# Channels one task may be allocated to. Each is resolved against messaging-svc at
+# creation (and again at every scheduled occurrence), so this bounds that fan-out.
+MAX_CHANNELS_PER_TASK = 20
 
 
 class RecurrenceSpec(BaseModel):
@@ -86,11 +89,17 @@ class CreateTaskRequest(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     description: str = Field(default="", max_length=10_000)
     assigneeIds: list[str] = Field(default_factory=list, max_length=MAX_ASSIGNEES)
-    # When set, task-svc resolves the channel's current members via
-    # messaging-svc's internal endpoint and fans out at server side. The
-    # task is tagged with channel_id so future joiners can be auto-added
-    # via the ChannelMemberJoined event consumer.
+    # Channels the task is allocated to, alongside `assigneeIds` (either, or both).
+    # task-svc resolves each channel's current members via messaging-svc's
+    # internal endpoint and fans out server-side; the task stays tagged with its
+    # channels (task_channels) so future joiners are auto-added via the
+    # ChannelMemberJoined consumer. Everyone — named or via a channel — ends up
+    # as ONE task_assignees row, so overlap never duplicates a recipient.
+    #
+    # `channelId` is the original single-channel field and is still accepted;
+    # it is simply one more entry of `channelIds`.
     channelId: str | None = None
+    channelIds: list[str] = Field(default_factory=list, max_length=MAX_CHANNELS_PER_TASK)
     allocation: Literal["NOW", "SCHEDULED", "RECURRING"] = "NOW"
     scheduledFor: datetime | None = None
     recurrence: RecurrenceSpec | None = None
@@ -131,6 +140,16 @@ class CreateTaskRequest(BaseModel):
             raise ValueError("channelId must be a valid UUID") from exc
         return v
 
+    @field_validator("channelIds")
+    @classmethod
+    def _channel_ids_are_uuids(cls, v: list[str]) -> list[str]:
+        for c in v:
+            try:
+                uuid.UUID(c)
+            except (ValueError, AttributeError) as exc:
+                raise ValueError("channelIds must all be valid UUIDs") from exc
+        return v
+
     @field_validator("assigneeIds")
     @classmethod
     def _assignee_ids_are_uuids(cls, v: list[str]) -> list[str]:
@@ -140,6 +159,13 @@ class CreateTaskRequest(BaseModel):
             except (ValueError, AttributeError) as exc:
                 raise ValueError("assigneeIds must all be valid UUIDs") from exc
         return v
+
+    def target_channel_ids(self) -> list[str]:
+        """Every channel named, once each, in the order given (`channelId` first).
+        Compared as canonical UUIDs: the same channel in two spellings is one."""
+        return list(dict.fromkeys(
+            str(uuid.UUID(c)) for c in ([self.channelId] if self.channelId else []) + self.channelIds
+        ))
 
 
 class CreateTaskResponse(BaseModel):
@@ -156,7 +182,9 @@ class ScheduledTaskDTO(BaseModel):
     scheduleId: str
     title: str
     description: str
+    # First channel only, kept for existing readers; `channelIds` is the full list.
     channelId: str | None = None
+    channelIds: list[str] = []
     kind: Literal["SCHEDULED", "RECURRING"]
     scheduledFor: str | None = None
     startAt: str
@@ -189,7 +217,12 @@ class UpdateScheduleRequest(BaseModel):
 
 
 class AddTaskAssigneesRequest(BaseModel):
-    userIds: list[str] = Field(min_length=1, max_length=MAX_ASSIGNEES)
+    """People and/or channels to add to an existing task — the same two target
+    kinds `CreateTaskRequest` takes. A channel's current members join the task and
+    the channel is attached (task_channels), so later joiners are added too."""
+
+    userIds: list[str] = Field(default_factory=list, max_length=MAX_ASSIGNEES)
+    channelIds: list[str] = Field(default_factory=list, max_length=MAX_CHANNELS_PER_TASK)
 
     @field_validator("userIds")
     @classmethod
@@ -200,6 +233,14 @@ class AddTaskAssigneesRequest(BaseModel):
             except (ValueError, AttributeError) as exc:
                 raise ValueError("userIds must all be valid UUIDs") from exc
         return list(dict.fromkeys(v))
+
+    @field_validator("channelIds")
+    @classmethod
+    def _channel_ids_are_uuids(cls, v: list[str]) -> list[str]:
+        try:
+            return list(dict.fromkeys(str(uuid.UUID(c)) for c in v))
+        except (ValueError, AttributeError) as exc:
+            raise ValueError("channelIds must all be valid UUIDs") from exc
 
 
 class StickyTaskDTO(BaseModel):

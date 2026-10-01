@@ -61,6 +61,7 @@ import {
   NotificationDTO,
   NotificationPageDTO,
   OrgMembershipDTO,
+  OrgMembershipPageDTO,
   OrgLifecycleDTO,
   OrgMfaSettingsDTO,
   ReviewResponse,
@@ -199,6 +200,15 @@ function asErrorCode(code: string | undefined): ErrorCode | undefined {
  */
 const CHANNEL_RECEIPT_IDS_MAX = 100;
 
+const StickyPinStateSchema = z.enum(["PINNED", "UNPINNED"]);
+/** sticky-svc's answer to PUT/DELETE /sticky/pins/{taskId}. `state` is CLOSED
+ *  once the task has finished — the lifecycle's doing, never an Unpin. */
+const StickyPinStateResult = z.object({
+  taskId: z.string(),
+  state: z.enum(["PINNED", "UNPINNED", "CLOSED"]),
+  updatedAt: z.string(),
+});
+export type StickyPinStateResult = z.infer<typeof StickyPinStateResult>;
 /** Mirrors the largest page task-svc will serve (_MAX_LIMIT in tasks_read.py). */
 const TASK_LIST_PAGE_SIZE = 100;
 /** 2,000 tasks; past that the list is truncated rather than fetched without end. */
@@ -663,6 +673,14 @@ export class ApiClient {
   /** Organizations the signed-in identity belongs to (for the switcher). */
   myOrgs() {
     return this.req(this.cfg.authBase, "/auth/orgs/mine", {}, z.array(OrgMembershipDTO));
+  }
+  myOrgsPage(params: { search: string; offset: number; limit: number }) {
+    const query = new URLSearchParams({
+      search: params.search,
+      offset: String(params.offset),
+      limit: String(params.limit),
+    });
+    return this.req(this.cfg.authBase, `/auth/orgs/mine?${query}`, {}, OrgMembershipPageDTO);
   }
   /** The current org plus any pending deletion. Admin-only. */
   org() {
@@ -1746,10 +1764,13 @@ export class ApiClient {
     title: string;
     description: string;
     assigneeIds?: string[];
-    /** Optional: allocate to a channel. Server resolves the channel's
-     *  current members and fans the task out to each. Future joiners are
-     *  auto-added via the ChannelMemberJoined consumer in task-svc.
-     *  When set, `assigneeIds` is ignored — server is the source of truth. */
+    /** Optional: allocate to channels, with or without `assigneeIds` — all of it
+     *  ONE task. The server resolves each channel's current members, counts a
+     *  person named here and also in a channel once, and keeps the channels
+     *  attached to the task so future joiners are auto-added via the
+     *  ChannelMemberJoined consumer. At least one of the two must be non-empty. */
+    channelIds?: string[];
+    /** The original single-channel form; equivalent to `channelIds: [id]`. */
     channelId?: string;
     allocation?: "NOW" | "SCHEDULED" | "RECURRING";
     scheduledFor?: string;
@@ -1827,6 +1848,57 @@ export class ApiClient {
     return rows.map((r) => r.taskId);
   }
   /**
+   * The caller's open pins WITH the user's own choice on each: the ids the user
+   * has PINNED and the ids they have explicitly UNPINNED. Authoritative server
+   * state — what Web and Desktop both render from, so a pin made on one is the
+   * pin on the other.
+   *
+   * Walks the pages (bounded like taskListAllPages) so a user past one page of
+   * commitments does not silently lose the rest. Null when no stickyBase is
+   * configured, so a caller can tell "not deployed" from "no pins".
+   */
+  async stickyPinStates(): Promise<{ pinned: string[]; unpinned: string[] } | null> {
+    const base = this.cfg.stickyBase;
+    if (!base) return null;
+    const pinned: string[] = [];
+    const unpinned: string[] = [];
+    for (let page = 0; page < TASK_LIST_MAX_PAGES; page++) {
+      const batch = await this.req(
+        base,
+        `/api/v1/sticky/pins?includeUnpinned=true&limit=${TASK_LIST_PAGE_SIZE}&offset=${page * TASK_LIST_PAGE_SIZE}`,
+        {},
+        z.array(z.object({ taskId: z.string(), pinState: StickyPinStateSchema.default("PINNED") })),
+      );
+      for (const r of batch) (r.pinState === "UNPINNED" ? unpinned : pinned).push(r.taskId);
+      if (batch.length < TASK_LIST_PAGE_SIZE) break;
+    }
+    return { pinned, unpinned };
+  }
+  /**
+   * Pin — or RE-pin — a task: the user's explicit choice, stored server-side and
+   * pushed to all their devices. Idempotent (a target state, not a toggle), so a
+   * retry cannot invert it. 409 when the task has already finished; 404 when it
+   * is not assigned to the caller. Rejects when no stickyBase is configured —
+   * there is deliberately no local fallback, since a pin only one device knows
+   * about is the bug this exists to fix.
+   */
+  stickyPin(taskId: string) {
+    return this.stickyPinWrite(taskId, "PUT");
+  }
+  /** Unpin a task. The commitment is untouched; `stickyPin` brings the note back. */
+  stickyUnpin(taskId: string) {
+    return this.stickyPinWrite(taskId, "DELETE");
+  }
+  private stickyPinWrite(taskId: string, method: "PUT" | "DELETE") {
+    if (!this.cfg.stickyBase) return Promise.reject(new Error("sticky service is not configured"));
+    return this.req(
+      this.cfg.stickyBase,
+      `/api/v1/sticky/pins/${encodeURIComponent(taskId)}`,
+      { method },
+      StickyPinStateResult,
+    );
+  }
+  /**
    * Confirm a note actually reached this user's screen.
    *
    * This is what stops services/sticky-relay nudging forever: an open pin with
@@ -1896,16 +1968,23 @@ export class ApiClient {
       z.object({ status: z.string(), statusVersion: z.number() }),
     );
   }
-  addTaskParticipants(taskId: string, userIds: string[], idempotencyKey?: string) {
+  /** Add people and/or channels to an existing task. A channel's current members
+   *  join it and the channel stays attached, so a later joiner is added too —
+   *  the same two target kinds `createTask` takes. */
+  addTaskParticipants(
+    taskId: string,
+    targets: { userIds?: string[]; channelIds?: string[] },
+    idempotencyKey?: string,
+  ) {
     return this.req(
       this.cfg.taskBase,
       `/api/v1/tasks/${taskId}/assignees`,
       {
         method: "POST",
         headers: { "idempotency-key": idempotencyKey ?? uuid() },
-        body: JSON.stringify({ userIds }),
+        body: JSON.stringify({ userIds: targets.userIds ?? [], channelIds: targets.channelIds ?? [] }),
       },
-      z.object({ addedUserIds: z.array(z.string()) }),
+      z.object({ addedUserIds: z.array(z.string()), addedChannelIds: z.array(z.string()).default([]) }),
     );
   }
   withdrawTaskParticipant(taskId: string, userId: string, idempotencyKey?: string) {
@@ -2188,9 +2267,12 @@ export class ApiClient {
   notifications() {
     return this.req(this.cfg.notificationBase, "/api/v1/notifications", {}, z.array(NotificationDTO));
   }
-  notificationPage(cursor?: string, limit = 10) {
+  /** `read` filters on the server (true = only read, false = only unread), so a
+   *  page is a page of the rows asked for; omit it for both. */
+  notificationPage(cursor?: string, limit = 10, read?: boolean) {
     const q = new URLSearchParams({ limit: String(limit) });
     if (cursor) q.set("cursor", cursor);
+    if (read !== undefined) q.set("read", String(read));
     return this.req(
       this.cfg.notificationBase,
       `/api/v1/notifications?${q.toString()}`,

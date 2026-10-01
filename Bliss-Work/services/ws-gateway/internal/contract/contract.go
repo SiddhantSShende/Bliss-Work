@@ -117,6 +117,12 @@ func (e *Event) RecipientsOf() []string {
 		// person's clients to re-fetch their pins. Carries no task content, so
 		// there is nobody else to deliver it to.
 		return dedupe([]string{e.AssigneeID})
+	case "sticky.pin.changed":
+		// sticky-svc: this user pinned or unpinned one of their own tasks.
+		// AssigneeID is that user. It goes to them alone — every device they
+		// own (Web and Desktop), and never to the task's sender or other
+		// assignees: a pin is private to the person who made it.
+		return dedupe([]string{e.AssigneeID})
 	case "task.acknowledged", "task.completed", "task.ignored", "task.left", "task.withdrawn", "task.reviewed":
 		if e.Type == "task.withdrawn" && len(e.Members) > 0 {
 			return dedupe(e.Members)

@@ -103,6 +103,7 @@ function Row({ entry }: { entry: TimelineEntry }) {
   const src = sourceLabel(entry.source, t);
   const duration = formatDuration(entry.durationMs);
   const preview = entry.detail?.preview;
+  const context = entry.action === "screenshot.attempted" ? entry.detail?.context : undefined;
 
   return (
     <li className="flex items-start gap-3 rounded-xl px-2 py-2 hover:bg-surface-2">
@@ -128,7 +129,10 @@ function Row({ entry }: { entry: TimelineEntry }) {
             </span>
           )}
         </div>
-        {preview && (
+        {context && (
+          <p className="mt-0.5 truncate text-sm text-muted" title={context}>{context}</p>
+        )}
+        {!context && preview && (
           <p className="mt-0.5 truncate text-sm text-muted" title={preview}>“{preview}”</p>
         )}
       </div>

@@ -22,6 +22,7 @@ export function InviteePicker({
   exclude,
   tone = "theme",
   autoFocus = false,
+  includeSelf = false,
 }: {
   selected: Set<string>;
   onToggle: (userId: string) => void;
@@ -31,9 +32,12 @@ export function InviteePicker({
   tone?: PickerTone;
   /** Focus the search box on mount — for a picker the user has just opened. */
   autoFocus?: boolean;
+  /** Offer the caller too — only for a flow that may legitimately target oneself
+   *  (task assignment). Marked "(You)" in the list. */
+  includeSelf?: boolean;
 }) {
   const { t } = useTranslation("org");
-  const { q, setQ, candidates, isLoading } = usePeopleSearch(exclude);
+  const { q, setQ, candidates, isLoading, me } = usePeopleSearch(exclude, includeSelf);
   const c = PICKER_TONES[tone];
 
   return (
@@ -75,7 +79,10 @@ export function InviteePicker({
                 }`}
               >
                 <Avatar name={u.displayName} src={u.avatarUrl} size="sm" className={c.avatar} />
-                <span className={`min-w-0 flex-1 truncate text-sm ${c.text}`}>{u.displayName}</span>
+                <span className={`min-w-0 flex-1 truncate text-sm ${c.text}`}>
+                  {u.displayName}
+                  {u.id === me.id && <span className={`ml-1 ${c.muted}`}>{t("org:inviteePicker.you")}</span>}
+                </span>
                 <span className={`shrink-0 truncate text-xs ${c.muted}`}>@{u.username}</span>
                 {on && <Check size={15} className="shrink-0 text-accent" />}
               </button>

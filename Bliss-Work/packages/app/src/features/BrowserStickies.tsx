@@ -11,10 +11,11 @@
  *                   + notification + inbox update. Sticky vanishes locally.
  *   2. **Acknowledged** (status: ACKNOWLEDGED) → sticky stays put with a
  *      single PinOff button.
- *        • PinOff → Unpin (client-side only). The task remains
- *          ACKNOWLEDGED on the server and still appears in /app/tasks. The
- *          sticky disappears from the overlay until the user explicitly
- *          re-acknowledges (rare).
+ *        • PinOff → Unpin. Recorded in sticky-svc, so it holds across
+ *          reloads and on the user's other devices (the desktop note goes too).
+ *          The task remains ACKNOWLEDGED on the server and still appears in
+ *          /app/tasks. It is reversible: pinning the task again brings the
+ *          note back everywhere.
  *   3. **Completed** (from /app/tasks → "Allocated to me" card → Complete)
  *      → task drops out of /tasks/sticky on the server, so the next refetch
  *      removes any lingering sticky. Notification fires to the allocator
@@ -30,8 +31,9 @@
  * Source of truth
  * ----------------
  * `qk.sticky` cache. The server returns SENT + ACKNOWLEDGED rows; we show
- * both, filtered by the local "unpinned" set so a user-clicked Unpin
- * survives across refresh.
+ * both, minus the tasks the user's shared pin state (sticky-svc, via
+ * `qk.stickyPinStates`) marks UNPINNED. The session-local hide set below only
+ * backs the header X; it never overrules that server state.
  *
  * Theming + drag
  * --------------
@@ -51,6 +53,7 @@ import { actionsFor, ApiError, type StickyTaskDTO } from "@taskboard/shared";
 import { IconButton as SharedIconButton } from "@taskboard/ui";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
+import { isUnpinned, useSetStickyPin, useStickyPinStates } from "../lib/stickyPinState";
 import { useSession } from "../store/session";
 import {
   consumeBrowserTaskSelection,
@@ -152,6 +155,11 @@ export function BrowserStickies() {
     refetchOnWindowFocus: true,
     staleTime: 5_000,
   });
+  // The user's durable pin choice, shared with the desktop app. `null`/absent
+  // (service not configured, or the read failed) vetoes nothing: the notes then
+  // behave exactly as before this existed rather than disappearing.
+  const { data: pinStates } = useStickyPinStates(enabled);
+  const setStickyPin = useSetStickyPin();
 
   const [positionMap, setPositionMap] = useState<PositionMap>(() =>
     readJSON(POSITION_KEY, {}),
@@ -185,10 +193,11 @@ export function BrowserStickies() {
       tasks.filter(
         (task) =>
           (task.myStatus === "SENT" || task.myStatus === "ACKNOWLEDGED") &&
+          !isUnpinned(pinStates, task.taskId) &&
           !unpinned[task.taskId] &&
           !settledRef.current.has(task.taskId),
       ),
-    [tasks, unpinned],
+    [tasks, unpinned, pinStates],
   );
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const previousEligibleIds = useRef<string[]>([]);
@@ -310,17 +319,25 @@ export function BrowserStickies() {
     },
   });
 
-  // ── Unpin (client-side only) ───────────────────────────────────────────
-  // The task stays ACKNOWLEDGED on the server; it just stops floating on
-  // this client. No network call. The user completes it from /app/tasks.
-  const unpinLocally = useCallback(
+  // ── Unpin ──────────────────────────────────────────────────────────────
+  // Written to sticky-svc (the user's shared pin state), so it survives a reload
+  // and the desktop note leaves too. The task stays ACKNOWLEDGED on the server;
+  // the user completes it from /app/tasks, and can pin it again from there.
+  // Optimistic: the note goes at once and comes back if the write fails.
+  const unpin = useCallback(
     (taskId: string) => {
-      unpinBrowserTask(taskId);
-      toast(t("toasts.noteUnpinned"), {
-        description: t("toasts.noteUnpinnedDescription"),
-      });
+      setStickyPin(taskId, false).then(
+        () => {
+          toast(t("toasts.noteUnpinned"), {
+            description: t("toasts.noteUnpinnedDescription"),
+          });
+        },
+        (err) => {
+          toast.error(err instanceof ApiError ? err.message : t("toasts.unpinFailed"));
+        },
+      );
     },
-    [t],
+    [setStickyPin, t],
   );
 
   // ── Force-close (safety net) ───────────────────────────────────────────
@@ -328,7 +345,8 @@ export function BrowserStickies() {
   // missed, a sticky from a session whose access token has since expired)
   // can leave a note that the normal Acknowledge / Ignore / Unpin buttons
   // can't address. The X in the header always removes the note locally
-  // without server side-effects, so the user is never trapped.
+  // without server side-effects (it is NOT an Unpin and never reaches
+  // sticky-svc), so the user is never trapped.
   const hideLocally = useCallback(
     (taskId: string) => {
       unpinBrowserTask(taskId);
@@ -366,7 +384,7 @@ export function BrowserStickies() {
           onExpand={() => patchState(activeTask.taskId, { collapsed: false })}
           onAcknowledge={() => ackMut.mutate(activeTask.taskId)}
           onIgnore={() => ignoreMut.mutate(activeTask.taskId)}
-          onUnpin={() => unpinLocally(activeTask.taskId)}
+          onUnpin={() => unpin(activeTask.taskId)}
           onHide={() => hideLocally(activeTask.taskId)}
           hasMultiple={eligibleTasks.length > 1}
           onPrevious={() => switchTask(-1)}

@@ -128,7 +128,8 @@ async def db_app(database_url):
         await conn.execute(text("SELECT set_config('app.bypass_rls', 'on', true)"))
         for table in (
             "task_assignees",
-            "tasks",
+            "tasks",  # cascades to task_channels
+            "task_schedules",
             "idempotency_keys",
             "org_keys",
             "user_projection",

@@ -1,16 +1,15 @@
 /**
  * "New task" modal end to end: Now -> Schedule for later -> Recurring task ->
- * time picker -> task creation. No test existed for this dialog before —
- * this covers the redesigned allocation cards, the chip-based People/Channel
- * assignment, and the clock TimePicker, while asserting the request payload
- * shape is exactly what the (unchanged) validation/mutation code already sent.
+ * time picker -> task creation. Covers the allocation cards, the grouped
+ * People + Channels assignment, and the clock TimePicker, and asserts the
+ * request payloads are the shapes task-svc already accepts.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useSession } from "../store/session";
-import { ADA, CHANNELS, DIRECTORY, GENERAL, GRACE, ME } from "../test/meetingFixtures";
+import { ADA, CHANNELS, DESIGN, DIRECTORY, GENERAL, GRACE, ME } from "../test/meetingFixtures";
 import { setClockTime } from "../test/timePicker";
 
 const h = vi.hoisted(() => ({
@@ -48,6 +47,14 @@ async function title(user: ReturnType<typeof userEvent.setup>, text = "Ship the 
 async function pickAssignee(user: ReturnType<typeof userEvent.setup>, name: RegExp) {
   await user.click(screen.getByRole("button", { name: "Add people" }));
   await user.click(await screen.findByRole("button", { name }));
+}
+
+const peopleGroup = () => screen.getByRole("group", { name: "People" });
+const channelsGroup = () => screen.getByRole("group", { name: "Channels" });
+
+async function pickChannel(user: ReturnType<typeof userEvent.setup>, name: RegExp) {
+  await user.click(within(channelsGroup()).getByRole("button", { name: "Add channels" }));
+  await user.click(await within(channelsGroup()).findByRole("button", { name }));
 }
 
 /** A start on Wednesday 16 Sep 2026, 09:00 — always in the future relative to
@@ -91,7 +98,7 @@ describe("Now", () => {
     await title(user);
     await pickAssignee(user, /Ada Lovelace/);
 
-    expect(within(screen.getByRole("list", { name: "Assign to" })).getByText("Ada Lovelace")).toBeInTheDocument();
+    expect(within(screen.getByRole("list", { name: "People" })).getByText("Ada Lovelace")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Create Task" }));
 
@@ -109,7 +116,7 @@ describe("Now", () => {
     await pickAssignee(user, /Ada Lovelace/);
     await user.click(screen.getByRole("button", { name: /Grace Hopper/ }));
 
-    const group = screen.getByRole("group", { name: "Assign to" });
+    const group = peopleGroup();
     expect(within(group).getAllByRole("listitem")).toHaveLength(2);
     await user.click(within(group).getByRole("button", { name: "Remove Ada Lovelace" }));
     const list = within(group).getByRole("list");
@@ -125,30 +132,204 @@ describe("Now", () => {
     expect(h.api.createTask).not.toHaveBeenCalled();
   });
 
-  it("switching to Channel mode and picking one shows it as a chip and sends channelId", async () => {
+  it("a channel alone is shown as a chip and sent as channelIds only", async () => {
     const user = openDialog();
     await title(user);
-    await user.click(screen.getByRole("button", { name: "Channel" }));
-    await user.click(screen.getByRole("button", { name: "Choose channel" }));
-    await user.click(await screen.findByRole("button", { name: /general/ }));
+    await pickChannel(user, /general/);
 
-    expect(within(screen.getByRole("list", { name: "Assign to channel" })).getByText("general")).toBeInTheDocument();
+    expect(within(screen.getByRole("list", { name: "Channels" })).getByText("general")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Create Task" }));
     const body = sent();
-    expect(body.channelId).toBe(GENERAL.id);
+    expect(body.channelIds).toEqual([GENERAL.id]);
+    expect(body.channelId).toBeUndefined();
     expect(body.assigneeIds).toBeUndefined();
+    expect(toast.success).toHaveBeenCalledWith("Task sent to #general — 12 members");
   });
 
   it("a channel chip's remove button clears the pick", async () => {
     const user = openDialog();
-    await user.click(screen.getByRole("button", { name: "Channel" }));
-    await user.click(screen.getByRole("button", { name: "Choose channel" }));
-    await user.click(await screen.findByRole("button", { name: /general/ }));
+    await pickChannel(user, /general/);
 
-    const group = screen.getByRole("group", { name: "Assign to channel" });
-    await user.click(within(group).getByRole("button", { name: "Remove general" }));
-    expect(within(group).getByText("No channel chosen yet.")).toBeInTheDocument();
+    await user.click(within(channelsGroup()).getByRole("button", { name: "Remove general" }));
+    expect(within(channelsGroup()).getByText("No channels added yet.")).toBeInTheDocument();
+  });
+});
+
+describe("People + Channels together", () => {
+  it("shows both groups at all times, and opening one picker never hides the other", async () => {
+    const user = openDialog();
+    await pickAssignee(user, /Ada Lovelace/);
+    await pickChannel(user, /general/);
+
+    // Both pickers are open and both groups' chips are still on screen.
+    expect(within(peopleGroup()).getByRole("textbox", { name: "Search your organisation" })).toBeInTheDocument();
+    expect(within(channelsGroup()).getByRole("textbox", { name: "Search your channels" })).toBeInTheDocument();
+    expect(within(peopleGroup()).getByRole("list")).toHaveTextContent("Ada Lovelace");
+    expect(within(channelsGroup()).getByRole("list")).toHaveTextContent("general");
+
+    // Closing People leaves Channels exactly as it was.
+    await user.click(within(peopleGroup()).getByRole("button", { name: "Done" }));
+    expect(within(channelsGroup()).getByRole("textbox", { name: "Search your channels" })).toBeInTheDocument();
+    expect(within(channelsGroup()).getByRole("list")).toHaveTextContent("general");
+    expect(within(peopleGroup()).getByRole("list")).toHaveTextContent("Ada Lovelace");
+  });
+
+  it("keeps chips, list state and counts in step as people and channels are toggled", async () => {
+    const user = openDialog();
+    expect(within(peopleGroup()).getByText("(0)")).toBeInTheDocument();
+    expect(within(channelsGroup()).getByText("(0)")).toBeInTheDocument();
+
+    await pickAssignee(user, /Ada Lovelace/);
+    await user.click(within(peopleGroup()).getByRole("button", { name: /Grace Hopper/ }));
+    await pickChannel(user, /general/);
+    await user.click(within(channelsGroup()).getByRole("button", { name: /design/ }));
+
+    expect(within(peopleGroup()).getByText("(2)")).toBeInTheDocument();
+    expect(within(channelsGroup()).getByText("(2)")).toBeInTheDocument();
+    expect(within(peopleGroup()).getByRole("button", { name: /Ada Lovelace/, pressed: true })).toBeInTheDocument();
+
+    // Un-toggle in the list -> the chip and the count follow.
+    await user.click(within(peopleGroup()).getByRole("button", { name: /Ada Lovelace/, pressed: true }));
+    expect(within(peopleGroup()).getByText("(1)")).toBeInTheDocument();
+    expect(within(peopleGroup()).getByRole("list")).not.toHaveTextContent("Ada Lovelace");
+
+    // Remove a chip -> the list row un-checks and the count follows.
+    await user.click(within(channelsGroup()).getByRole("button", { name: "Remove design" }));
+    expect(within(channelsGroup()).getByText("(1)")).toBeInTheDocument();
+    expect(within(channelsGroup()).getByRole("button", { name: /design/, pressed: false })).toBeInTheDocument();
+  });
+
+  it("searches people and channels independently", async () => {
+    const user = openDialog();
+    await user.click(screen.getByRole("button", { name: "Add people" }));
+    await user.click(within(channelsGroup()).getByRole("button", { name: "Add channels" }));
+
+    await user.type(screen.getByRole("textbox", { name: "Search your organisation" }), "grace");
+    expect(within(peopleGroup()).getByRole("button", { name: /Grace Hopper/ })).toBeInTheDocument();
+    expect(within(peopleGroup()).queryByRole("button", { name: /Ada Lovelace/ })).not.toBeInTheDocument();
+    // The channel list is untouched by the people query.
+    expect(within(channelsGroup()).getByRole("button", { name: /general/ })).toBeInTheDocument();
+
+    await user.type(screen.getByRole("textbox", { name: "Search your channels" }), "des");
+    expect(within(channelsGroup()).queryByRole("button", { name: /general/ })).not.toBeInTheDocument();
+    expect(within(channelsGroup()).getByRole("button", { name: /design/ })).toBeInTheDocument();
+  });
+
+  it("offers the caller as an assignee, marked (You)", async () => {
+    const user = openDialog();
+    await pickAssignee(user, /Me Myself/);
+    expect(within(peopleGroup()).getAllByText(/\(You\)/).length).toBeGreaterThan(0);
+  });
+
+  it("people + channel is ONE request carrying both, with the channel left as a channel", async () => {
+    const user = openDialog();
+    await title(user);
+    await pickAssignee(user, /Ada Lovelace/);
+    await user.click(within(peopleGroup()).getByRole("button", { name: /Grace Hopper/ }));
+    await pickChannel(user, /general/);
+    await user.click(screen.getByRole("button", { name: "Create Task" }));
+
+    const body = sent();
+    expect(body.assigneeIds.sort()).toEqual([ADA.id, GRACE.id].sort());
+    // Not expanded into the channel's members: the server owns that, so a later
+    // joiner still reaches the task.
+    expect(body.channelIds).toEqual([GENERAL.id]);
+    expect(body.title).toBe("Ship the report");
+    expect(body.allocation).toBe("NOW");
+    expect(toast.success).toHaveBeenCalledWith("Task sent");
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("several channels are still one request, listing each channel once", async () => {
+    const user = openDialog();
+    await title(user);
+    await pickChannel(user, /general/);
+    await user.click(within(channelsGroup()).getByRole("button", { name: /design/ }));
+    await user.click(screen.getByRole("button", { name: "Create Task" }));
+
+    const body = sent();
+    expect(body.channelIds.sort()).toEqual([GENERAL.id, DESIGN.id].sort());
+    expect(body.assigneeIds).toBeUndefined();
+  });
+
+  it("people + several channels is still ONE request carrying all of them", async () => {
+    const user = openDialog();
+    await title(user);
+    await pickAssignee(user, /Ada Lovelace/);
+    await user.click(within(peopleGroup()).getByRole("button", { name: /Grace Hopper/ }));
+    await pickChannel(user, /general/);
+    await user.click(within(channelsGroup()).getByRole("button", { name: /design/ }));
+    await user.click(screen.getByRole("button", { name: "Create Task" }));
+
+    const body = sent();
+    expect(body.assigneeIds.sort()).toEqual([ADA.id, GRACE.id].sort());
+    expect(body.channelIds.sort()).toEqual([GENERAL.id, DESIGN.id].sort());
+    expect(body.channelId).toBeUndefined();
+  });
+
+  it("a person who may also be in the picked channel is sent once, as picked — one request, no client-side merging", async () => {
+    const user = openDialog();
+    await title(user);
+    // Everyone is in #general in real life; the client cannot and must not decide that.
+    await pickAssignee(user, /Ada Lovelace/);
+    await pickChannel(user, /general/);
+    await user.click(screen.getByRole("button", { name: "Create Task" }));
+
+    const body = sent();
+    expect(body.assigneeIds).toEqual([ADA.id]);
+    expect(body.channelIds).toEqual([GENERAL.id]);
+  });
+
+  it("a mixed selection keeps the schedule payload exactly as before", async () => {
+    const user = openDialog();
+    await title(user);
+    await pickAssignee(user, /Ada Lovelace/);
+    await pickChannel(user, /general/);
+    await user.click(screen.getByRole("radio", { name: /Schedule for later/ }));
+    await pickFutureStart(user);
+    expect(screen.getByText(/1 person, #general/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Create Task" }));
+
+    const body = sent();
+    expect(body).toMatchObject({ allocation: "SCHEDULED", assigneeIds: [ADA.id], channelIds: [GENERAL.id] });
+    expect(body.scheduledFor).toContain("2026-09-16T09:00:00");
+    expect(body.recurrence).toBeUndefined();
+    expect(toast.success).toHaveBeenCalledWith("Task scheduled");
+  });
+
+  it("a mixed selection keeps the recurrence payload exactly as before", async () => {
+    const user = openDialog();
+    await title(user);
+    await pickAssignee(user, /Ada Lovelace/);
+    await pickChannel(user, /general/);
+    await user.click(screen.getByRole("radio", { name: /Recurring task/ }));
+    await pickFutureStart(user);
+    await user.click(screen.getByRole("button", { name: "Create Task" }));
+
+    const body = sent();
+    expect(body).toMatchObject({ allocation: "RECURRING", assigneeIds: [ADA.id], channelIds: [GENERAL.id] });
+    expect(body.recurrence).toMatchObject({ frequency: "DAILY", interval: 1, endCondition: "NO_END" });
+    expect(body.scheduledFor).toBeUndefined();
+  });
+
+  it("a failed create keeps the dialog and the whole selection, and retrying sends one request again", async () => {
+    h.api.createTask.mockRejectedValueOnce(new Error("boom"));
+    const user = openDialog();
+    await title(user);
+    await pickAssignee(user, /Ada Lovelace/);
+    await pickChannel(user, /general/);
+    await user.click(screen.getByRole("button", { name: "Create Task" }));
+
+    await vi.waitFor(() => expect(toast.error).toHaveBeenCalledWith("Could not create task", expect.anything()));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(within(peopleGroup()).getByText("(1)")).toBeInTheDocument();
+    expect(within(channelsGroup()).getByText("(1)")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Create Task" }));
+    await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(h.api.createTask).toHaveBeenCalledTimes(2);
+    expect(h.api.createTask.mock.calls[1]![0]).toMatchObject({ assigneeIds: [ADA.id], channelIds: [GENERAL.id] });
   });
 });
 

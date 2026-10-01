@@ -413,7 +413,8 @@ class TaskSvcConsumer:
     async def _handle_channel_member_joined(self, event: dict) -> None:
         """Retroactive task assignment.
 
-        Every ACTIVE task that was allocated to this channel and that the new
+        Every ACTIVE task that was allocated to this channel (one of possibly
+        several — see task_channels) and that the new
         member isn't yet an assignee on gets a fresh task_assignees row plus
         a task.assigned event so the sticky-note flow fires for them just as
         if the task had been allocated after they joined.
@@ -459,7 +460,14 @@ class TaskSvcConsumer:
                         LEFT JOIN user_projection up
                                ON up.user_id = t.sender_id AND up.org_id = t.org_id
                         WHERE t.org_id = :org
-                          AND t.channel_id = :ch
+                          AND t.id IN (
+                              SELECT task_id FROM task_channels
+                              WHERE org_id = :org AND channel_id = :ch
+                              UNION
+                              -- written before 012 (or by the release before it)
+                              SELECT id FROM tasks
+                              WHERE org_id = :org AND channel_id = :ch
+                          )
                           AND EXISTS (
                               SELECT 1 FROM task_assignees a
                               WHERE a.task_id = t.id

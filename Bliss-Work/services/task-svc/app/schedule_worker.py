@@ -2,20 +2,47 @@ from __future__ import annotations
 
 import asyncio
 import calendar
+import time
+import uuid
 from datetime import datetime, timedelta
+from typing import Any
 
 import uuid6
+from fastapi import HTTPException
 from sqlalchemy import text
 
 from .db import set_bypass_rls, session
 from .logging_setup import log
-from .routes.tasks_write import _insert_task_assignees, _resolve_channel_members
+from .routes.tasks_write import _insert_task_assignees, _insert_task_channels, _resolve_channel_members
 from .routes.helpers import resolve_username
 from crypto import cryptor
 
 
 POLL_SECONDS = 1.0
 BATCH_SIZE = 50
+
+# A schedule that cannot run RIGHT NOW (its channel members cannot be fetched, it
+# has nobody left to assign, or materializing it raised) is parked for this long
+# and skipped by the claim query. Without that, it stays the oldest due row, is
+# claimed first on every poll and ends the batch — so one stuck schedule starves
+# every schedule behind it. Parking changes nothing persistent: the schedule stays
+# ACTIVE (still listed, still cancellable) and is simply retried after the delay.
+# In memory on purpose: a restart or another replica retries sooner, which is
+# harmless.
+PARK_SECONDS = 60.0
+_parked_until: dict[str, float] = {}
+_PARKED = object()  # _claim_due_schedule's "this one was parked; carry on" result
+
+
+def _park(schedule_id: object) -> None:
+    _parked_until[str(schedule_id)] = time.monotonic() + PARK_SECONDS
+
+
+def _parked_ids() -> list[str]:
+    now = time.monotonic()
+    for schedule_id in [i for i, until in _parked_until.items() if until <= now]:
+        del _parked_until[schedule_id]
+    return list(_parked_until)
 
 
 def _month_add(value: datetime, months: int) -> tuple[int, int]:
@@ -113,121 +140,183 @@ def first_occurrence(
     return start_at
 
 
+async def _resolve_targets(row: Any) -> tuple[list[str], list[str]]:
+    """Who this occurrence goes to, and which of its channels still exist.
+
+    The named people plus the CURRENT members of every channel that can still be
+    resolved, each person once. A channel messaging-svc answers 404 for — deleted,
+    or the sender is no longer in it — is skipped and logged: it contributes no
+    members and is not attached to the occurrence, but stays on the schedule, so
+    a later occurrence picks it up again if it becomes resolvable. Any other
+    failure (messaging-svc down) is raised, never skipped: dropping recipients
+    because of an outage would be silent data loss, so the schedule is parked and
+    retried whole instead.
+
+    A schedule written before 012 has only the legacy single channel_id.
+    """
+    org_id, sender_id = str(row.org_id), str(row.sender_id)
+    declared = [str(value) for value in (row.channel_ids or [])] or (
+        [str(row.channel_id)] if row.channel_id is not None else []
+    )
+    recipients = [str(value) for value in (row.assignee_ids or [])]
+    live: list[str] = []
+    for channel_id in declared:
+        try:
+            members = await _resolve_channel_members(channel_id, org_id, sender_id)
+        except HTTPException as exc:
+            if exc.status_code != 404:
+                raise
+            log.warning(
+                "task_schedule_channel_unresolvable",
+                schedule_id=str(row.id),
+                channel_id=channel_id,
+            )
+            continue
+        live.append(channel_id)
+        recipients.extend(members)
+    # Canonical UUIDs: the two sources spell them differently, and task_assignees
+    # is keyed (task_id, assignee_id) — see tasks_write._resolve_recipients.
+    return list(dict.fromkeys(str(uuid.UUID(r)) for r in recipients)), live
+
+
 async def _claim_due_schedule() -> object | None:
     async with session() as db:
         await set_bypass_rls(db)
         row = (
             await db.execute(
                 text(
-                    "SELECT id, org_id, sender_id, title_enc, description_enc, channel_id, assignee_ids, "
+                    "SELECT id, org_id, sender_id, title_enc, description_enc, channel_id, channel_ids, assignee_ids, "
                     "kind, scheduled_for, start_at, frequency, frequency_interval, weekdays, monthly_rule, "
                     "monthly_day, monthly_ordinal, monthly_weekday, end_condition, end_at, occurrence_limit, "
                     "occurrence_count, next_run_at "
                     "FROM task_schedules "
                     "WHERE status = 'ACTIVE' AND next_run_at <= now() "
+                    "AND id <> ALL(CAST(:parked AS uuid[])) "
                     "ORDER BY next_run_at, id LIMIT 1 FOR UPDATE SKIP LOCKED"
-                )
+                ),
+                {"parked": _parked_ids()},
             )
         ).first()
         if row is None:
             await db.rollback()
             return None
-
-        assignee_ids = [str(value) for value in (row.assignee_ids or [])]
-        if row.channel_id is not None:
-            assignee_ids = await _resolve_channel_members(str(row.channel_id), str(row.org_id), str(row.sender_id))
-        assignee_ids = list(dict.fromkeys(assignee_ids))
-        if not assignee_ids:
+        try:
+            return await _materialize(db, row)
+        except Exception:
+            # Nothing of this occurrence is persisted (one transaction), and the
+            # schedule must not block the ones behind it.
             await db.rollback()
+            _park(row.id)
+            log.exception("task_schedule_materialization_failed", schedule_id=str(row.id))
+            return _PARKED
+
+
+async def _materialize(db: Any, row: Any) -> object | None:
+    """Turn one claimed, due schedule into a task occurrence (the transaction is
+    the caller's). Returns the schedule id once materialized, None when the run
+    only moved a recurring schedule to its real first occurrence, or _PARKED."""
+    # Resolved FIRST and outside any write, so a failure leaves nothing behind.
+    assignee_ids, channel_ids = await _resolve_targets(row)
+    if not assignee_ids:
+        # Nobody left to assign (every channel unresolvable or empty, and no named
+        # people). The schedule is left exactly as it was — ACTIVE, listed, and
+        # cancellable by its sender — and retried after PARK_SECONDS in case a
+        # channel or its members come back. It is just no longer allowed to hold
+        # up the queue while it waits.
+        await db.rollback()
+        log.warning("task_schedule_unassignable", schedule_id=str(row.id))
+        _park(row.id)
+        return _PARKED
+
+    run_at = row.next_run_at
+    if row.kind == "RECURRING" and row.occurrence_count == 0:
+        run_at = first_occurrence(
+            row.start_at,
+            frequency=row.frequency,
+            weekdays=[int(day) for day in (row.weekdays or [])],
+            monthly_rule=row.monthly_rule,
+            monthly_day=row.monthly_day,
+            monthly_ordinal=row.monthly_ordinal,
+            monthly_weekday=row.monthly_weekday,
+        )
+        if run_at is None or run_at > row.next_run_at:
+            await db.execute(
+                text("UPDATE task_schedules SET next_run_at = :next_run, updated_at = now() WHERE id = :id"),
+                {"next_run": run_at or row.next_run_at, "id": row.id},
+            )
+            await db.commit()
             return None
 
-        run_at = row.next_run_at
-        if row.kind == "RECURRING" and row.occurrence_count == 0:
-            run_at = first_occurrence(
-                row.start_at,
-                frequency=row.frequency,
-                weekdays=[int(day) for day in (row.weekdays or [])],
-                monthly_rule=row.monthly_rule,
-                monthly_day=row.monthly_day,
-                monthly_ordinal=row.monthly_ordinal,
-                monthly_weekday=row.monthly_weekday,
-            )
-            if run_at is None or run_at > row.next_run_at:
-                await db.execute(
-                    text("UPDATE task_schedules SET next_run_at = :next_run, updated_at = now() WHERE id = :id"),
-                    {"next_run": run_at or row.next_run_at, "id": row.id},
-                )
-                await db.commit()
-                return None
+    title = await cryptor().decrypt(db, str(row.org_id), row.title_enc) or ""
+    description = await cryptor().decrypt(db, str(row.org_id), row.description_enc) or ""
+    sender_username = await resolve_username(db, str(row.org_id), str(row.sender_id)) or ""
+    occurrence_number = int(row.occurrence_count) + 1
+    task_id = str(uuid6.uuid7())
+    await db.execute(
+        text(
+            "INSERT INTO tasks (id, org_id, sender_id, title_enc, description_enc, channel_id, schedule_id, occurrence_number) "
+            "VALUES (:id, :org, :sender, :title, :description, :channel, :schedule, :occurrence)"
+        ),
+        {
+            "id": task_id,
+            "org": row.org_id,
+            "sender": row.sender_id,
+            "title": row.title_enc,
+            "description": row.description_enc,
+            # Legacy single-channel column (see 012): the first channel.
+            "channel": channel_ids[0] if channel_ids else None,
+            "schedule": row.id,
+            "occurrence": occurrence_number,
+        },
+    )
+    await _insert_task_channels(db, org_id=str(row.org_id), task_id=task_id, channel_ids=channel_ids)
+    await _insert_task_assignees(
+        db,
+        org_id=str(row.org_id),
+        task_id=task_id,
+        assignee_ids=assignee_ids,
+        sender_id=str(row.sender_id),
+        sender_username=sender_username,
+        title=title,
+        description=description,
+    )
 
-        title = await cryptor().decrypt(db, str(row.org_id), row.title_enc) or ""
-        description = await cryptor().decrypt(db, str(row.org_id), row.description_enc) or ""
-        sender_username = await resolve_username(db, str(row.org_id), str(row.sender_id)) or ""
-        occurrence_number = int(row.occurrence_count) + 1
-        task_id = str(uuid6.uuid7())
+    if row.kind == "SCHEDULED":
+        await db.execute(
+            text("UPDATE task_schedules SET occurrence_count = :count, status = 'COMPLETED', updated_at = now() WHERE id = :id"),
+            {"count": occurrence_number, "id": row.id},
+        )
+    else:
+        next_run = next_occurrence(
+            run_at,
+            start_at=row.start_at,
+            frequency=row.frequency,
+            interval=int(row.frequency_interval),
+            weekdays=[int(day) for day in (row.weekdays or [])],
+            monthly_rule=row.monthly_rule,
+            monthly_day=row.monthly_day,
+            monthly_ordinal=row.monthly_ordinal,
+            monthly_weekday=row.monthly_weekday,
+        )
+        should_end = (
+            next_run is None
+            or row.end_condition == "AFTER_OCCURRENCES" and occurrence_number >= int(row.occurrence_limit)
+            or row.end_condition == "ON_DATE" and next_run > row.end_at
+        )
         await db.execute(
             text(
-                "INSERT INTO tasks (id, org_id, sender_id, title_enc, description_enc, channel_id, schedule_id, occurrence_number) "
-                "VALUES (:id, :org, :sender, :title, :description, :channel, :schedule, :occurrence)"
+                "UPDATE task_schedules SET occurrence_count = :count, next_run_at = :next_run, "
+                "status = CASE WHEN :ended THEN 'COMPLETED' ELSE 'ACTIVE' END, updated_at = now() WHERE id = :id"
             ),
             {
-                "id": task_id,
-                "org": row.org_id,
-                "sender": row.sender_id,
-                "title": row.title_enc,
-                "description": row.description_enc,
-                "channel": row.channel_id,
-                "schedule": row.id,
-                "occurrence": occurrence_number,
+                "count": occurrence_number,
+                "next_run": next_run or row.next_run_at,
+                "ended": should_end,
+                "id": row.id,
             },
         )
-        await _insert_task_assignees(
-            db,
-            org_id=str(row.org_id),
-            task_id=task_id,
-            assignee_ids=assignee_ids,
-            sender_id=str(row.sender_id),
-            sender_username=sender_username,
-            title=title,
-            description=description,
-        )
-
-        if row.kind == "SCHEDULED":
-            await db.execute(
-                text("UPDATE task_schedules SET occurrence_count = :count, status = 'COMPLETED', updated_at = now() WHERE id = :id"),
-                {"count": occurrence_number, "id": row.id},
-            )
-        else:
-            next_run = next_occurrence(
-                run_at,
-                start_at=row.start_at,
-                frequency=row.frequency,
-                interval=int(row.frequency_interval),
-                weekdays=[int(day) for day in (row.weekdays or [])],
-                monthly_rule=row.monthly_rule,
-                monthly_day=row.monthly_day,
-                monthly_ordinal=row.monthly_ordinal,
-                monthly_weekday=row.monthly_weekday,
-            )
-            should_end = (
-                next_run is None
-                or row.end_condition == "AFTER_OCCURRENCES" and occurrence_number >= int(row.occurrence_limit)
-                or row.end_condition == "ON_DATE" and next_run > row.end_at
-            )
-            await db.execute(
-                text(
-                    "UPDATE task_schedules SET occurrence_count = :count, next_run_at = :next_run, "
-                    "status = CASE WHEN :ended THEN 'COMPLETED' ELSE 'ACTIVE' END, updated_at = now() WHERE id = :id"
-                ),
-                {
-                    "count": occurrence_number,
-                    "next_run": next_run or row.next_run_at,
-                    "ended": should_end,
-                    "id": row.id,
-                },
-            )
-        await db.commit()
-        return row.id
+    await db.commit()
+    return row.id
 
 
 async def run_due_schedules_once() -> int:
@@ -240,6 +329,8 @@ async def run_due_schedules_once() -> int:
             break
         if schedule_id is None:
             break
+        if schedule_id is _PARKED:
+            continue  # it cannot run now; the ones behind it still can
         processed += 1
         log.info("task_schedule_materialized", schedule_id=str(schedule_id))
     return processed

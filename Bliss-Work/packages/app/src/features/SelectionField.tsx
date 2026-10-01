@@ -54,6 +54,7 @@ const SELECTION_FIELD_TONES: Record<SelectionFieldTone, {
  */
 export function SelectionField({
   label,
+  count,
   hint,
   chips,
   onRemove,
@@ -65,6 +66,9 @@ export function SelectionField({
   tone = "light",
 }: {
   label: string;
+  /** Shown beside the label — "People (3)". Kept outside the label element so the
+   *  group's accessible name stays just "People". */
+  count?: number;
   hint?: string;
   chips: SelectionChip[];
   onRemove: (id: string) => void;
@@ -85,14 +89,20 @@ export function SelectionField({
 
   return (
     <div role="group" aria-labelledby={labelId} className="flex flex-col gap-1.5">
-      <span id={labelId} className={`text-sm font-medium ${c.label}`}>
-        {label}
-      </span>
+      <div className="flex items-baseline gap-1.5">
+        <span id={labelId} className={`text-sm font-medium ${c.label}`}>
+          {label}
+        </span>
+        {count !== undefined && <span className={`text-xs ${c.empty}`}>({count})</span>}
+      </div>
 
       {chips.length === 0 ? (
         <p className={`text-xs ${c.empty}`}>{emptyLabel}</p>
       ) : (
-        <ul className="flex flex-wrap gap-1.5" aria-label={label}>
+        // Capped, and scrolling inside itself: dozens of chips would otherwise push
+        // the form's own footer off a short viewport. The padding keeps a focused
+        // remove button's outline from being clipped by the scroll box.
+        <ul className="-m-0.5 flex max-h-24 flex-wrap gap-1.5 overflow-y-auto p-0.5" aria-label={label}>
           {chips.map((chip) => (
             <li
               key={chip.id}

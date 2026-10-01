@@ -22,7 +22,7 @@ import { TasksList } from "./TasksList";
 import { ChannelsList } from "./ChannelsList";
 import { MembersList } from "./MembersList";
 import { MailFolders } from "./MailFolders";
-import { flattenNotificationPages } from "../lib/notificationPages";
+import { mergeNotificationFeeds } from "../lib/notificationPages";
 import { useNotificationPages } from "../lib/useCursorPagination";
 
 export function AppShell() {
@@ -61,8 +61,12 @@ export function AppShell() {
 
   // The bell's own list — unlike the badge count above, this genuinely only
   // needs to exist once the panel is actually opened.
-  const notificationPages = useNotificationPages(api, notifOpen);
-  const notifications = flattenNotificationPages(notificationPages.data);
+  // Two server-filtered feeds: unread (the default view) and read ("View read").
+  // Both load on open so the unread view is complete without browsing read pages,
+  // and the read count is known.
+  const unreadPages = useNotificationPages(api, notifOpen, false);
+  const readPages = useNotificationPages(api, notifOpen, true);
+  const notifications = mergeNotificationFeeds(unreadPages.data, readPages.data);
 
   const railBadges: Record<string, number> = {
     mail: unreadCounts?.inboxPeers ?? 0,
@@ -149,9 +153,18 @@ export function AppShell() {
         open={notifOpen}
         onClose={() => setNotifOpen(false)}
         notifications={notifications}
-        hasNextPage={notificationPages.hasNextPage}
-        isFetchingNextPage={notificationPages.isFetchingNextPage}
-        onLoadMore={() => void notificationPages.fetchNextPage()}
+        unreadFeed={{
+          loading: unreadPages.isPending,
+          hasNextPage: unreadPages.hasNextPage,
+          isFetchingNextPage: unreadPages.isFetchingNextPage,
+          loadMore: () => void unreadPages.fetchNextPage(),
+        }}
+        readFeed={{
+          loading: readPages.isPending,
+          hasNextPage: readPages.hasNextPage,
+          isFetchingNextPage: readPages.isFetchingNextPage,
+          loadMore: () => void readPages.fetchNextPage(),
+        }}
       />
       <MobileNavDrawer
         open={drawerOpen}

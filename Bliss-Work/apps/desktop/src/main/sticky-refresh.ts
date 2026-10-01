@@ -33,7 +33,18 @@ const TASK_LIFECYCLE = [
  */
 const STICKY_REFRESH = "sticky.refresh";
 
-const REFRESH_ON: ReadonlySet<string> = new Set<string>([...TASK_LIFECYCLE, STICKY_REFRESH]);
+/**
+ * The user pinned or unpinned a task, on ANY of their devices (sticky-svc).
+ * This is how a pin made on the web reaches the desktop note and the other way
+ * round, so it re-reads the shared state rather than patching local state.
+ */
+const STICKY_PIN_CHANGED = "sticky.pin.changed";
+
+const REFRESH_ON: ReadonlySet<string> = new Set<string>([
+  ...TASK_LIFECYCLE,
+  STICKY_REFRESH,
+  STICKY_PIN_CHANGED,
+]);
 
 /**
  * Should this event trigger a re-fetch of /tasks/sticky?
@@ -100,4 +111,37 @@ export function createRefreshGate<T>() {
       spare = undefined;
     },
   };
+}
+
+
+/** The user's pin choice per task, as sticky-svc holds it. */
+export interface PinStates {
+  pinned: readonly string[];
+  unpinned: readonly string[];
+}
+
+/**
+ * Lay the user's in-flight pin/unpin requests over a server read.
+ *
+ * The server is the authority, but a read that started before the user's own
+ * request committed would still say the OLD thing — and applying it would flick
+ * the note back on screen for the instant before the request lands, then off
+ * again. Until a request settles, the user's intent wins for THAT task only; the
+ * moment it settles (success or failure) the entry is dropped and the next read
+ * is plain server truth again. Nothing here persists: it is a view of requests
+ * already on the wire, not a second record of the pin.
+ */
+export function overlayPendingPins(
+  read: PinStates,
+  pending: ReadonlyMap<string, "PINNED" | "UNPINNED">,
+): PinStates {
+  if (pending.size === 0) return read;
+  const pinned = new Set(read.pinned);
+  const unpinned = new Set(read.unpinned);
+  for (const [id, want] of pending) {
+    pinned.delete(id);
+    unpinned.delete(id);
+    (want === "PINNED" ? pinned : unpinned).add(id);
+  }
+  return { pinned: [...pinned], unpinned: [...unpinned] };
 }

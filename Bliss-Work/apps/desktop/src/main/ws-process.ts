@@ -8,8 +8,13 @@
  *   out: {type:'event', event}, {type:'sticky', tasks}, {type:'need-token'}
  */
 import { WebSocket as NodeWebSocket } from "ws";
-import { ApiClient, WsClient, type ServerEvent, type StickyTaskDTO, type ClientFrame, type WsEventMeta } from "@taskboard/shared";
-import { createRefreshGate, shouldRefreshSticky } from "./sticky-refresh";
+import { ApiClient, ApiError, WsClient, type ServerEvent, type StickyTaskDTO, type ClientFrame, type WsEventMeta } from "@taskboard/shared";
+import {
+  createRefreshGate,
+  overlayPendingPins,
+  shouldRefreshSticky,
+  type PinStates,
+} from "./sticky-refresh";
 
 const parent = (process as unknown as { parentPort: NodeJS.EventEmitter & { postMessage: (m: unknown) => void } }).parentPort;
 
@@ -110,23 +115,30 @@ const STICKY_REFRESH_RETRY_DELAYS_MS = [500, 1500];
 /** What one successful /tasks/sticky + /sticky/pins read produced. */
 interface StickyRead {
   tasks: StickyTaskDTO[];
-  /** null when sticky-svc is unconfigured or was unreachable. */
-  openPins: string[] | null;
+  /** The user's pinned / explicitly-unpinned task ids as sticky-svc holds them.
+   *  null when sticky-svc is unconfigured or was unreachable. */
+  pins: PinStates | null;
 }
+
+/**
+ * Pin/unpin requests this process has sent and not yet seen settle, by task.
+ * Only ever overlaid on a read (see overlayPendingPins); never persisted.
+ */
+const pendingPinWrites = new Map<string, "PINNED" | "UNPINNED">();
 
 /** Only the newest refresh may publish — see createRefreshGate. */
 const stickyRefreshGate = createRefreshGate<StickyRead>();
 
 /** Hand a read to main, and tell sticky-svc these reached a screen. */
-function publishSticky({ tasks, openPins }: StickyRead) {
-  send({ type: "sticky", tasks, openPins: openPins ?? undefined });
+function publishSticky({ tasks, pins }: StickyRead) {
+  send({ type: "sticky", tasks, pins: pins ?? undefined });
 
   // Tell sticky-svc these reached a screen, so the delivery watchdog stops
   // nudging about them. Fire-and-forget: a failure costs one redundant
   // nudge, which is far cheaper than letting it break the notes.
-  if (openPins) {
+  if (pins) {
     const actionable = new Set(tasks.map((t) => t.taskId));
-    for (const taskId of openPins) {
+    for (const taskId of pins.pinned) {
       if (actionable.has(taskId)) void api?.stickyAckDelivery(taskId).catch(() => {});
     }
   }
@@ -135,18 +147,19 @@ function publishSticky({ tasks, openPins }: StickyRead) {
 /**
  * Re-read which task notes belong on this desktop, and tell main.
  *
- * ── Two sources, and only one of them may ever REMOVE a note ─────────────────
+ * ── Two sources, with two different jobs ────────────────────────────────────
  * task-svc's /tasks/sticky is the content source and the authority on what is
- * actionable. sticky-svc's /sticky/pins is a durable record of open
- * commitments, which is what makes a pin survive a reinstall and show up on a
- * second machine.
+ * actionable: only it can take a note away for good (completed / ignored /
+ * left), via `prunePinned` in the main process.
  *
- * They are merged as a UNION, never subtractively: every actionable task from
- * task-svc floats, plus anything sticky-svc still considers open. So a
- * sticky-svc outage, an unconsumed Kafka event or a build with no stickyBase
- * configured at all degrades to exactly the behaviour that shipped before it
- * existed — it can never take a note away. `prunePinned` in the main process
- * likewise stays driven by the task-svc list alone.
+ * sticky-svc's /sticky/pins is the authority on what the USER chose — pinned or
+ * explicitly unpinned — because it is the one record every device of theirs
+ * shares. Main mirrors it onto this machine (StickyManager.applyServerPinState)
+ * and it overrules the local files, which are only an offline cache.
+ *
+ * The pin read is advisory in one direction only: a sticky-svc outage, an
+ * unconfigured build or a failed read yields `pins: null`, and main then keeps
+ * whatever it has — it never wipes a desktop off an absent answer.
  */
 async function refreshSticky() {
   if (!api || !token) return;
@@ -155,7 +168,7 @@ async function refreshSticky() {
     try {
       const [tasksResult, pinsResult] = await Promise.allSettled([
         api.tasksSticky(),
-        api.stickyPins(),
+        api.stickyPinStates(),
       ]);
       // The task list is load-bearing; a failure here is a real failure and
       // takes the retry path below.
@@ -171,7 +184,10 @@ async function refreshSticky() {
       }
       const read: StickyRead = {
         tasks: tasksResult.value,
-        openPins: pinsResult.status === "fulfilled" ? pinsResult.value : null,
+        pins:
+          pinsResult.status === "fulfilled" && pinsResult.value
+            ? overlayPendingPins(pinsResult.value, pendingPinWrites)
+            : null,
       };
 
       // Only the newest refresh publishes: a slower older one landing after it
@@ -197,6 +213,45 @@ async function refreshSticky() {
       }
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
+  }
+}
+
+/** Retry delays for the user's own pin/unpin write. Short and few, like the
+ *  refresh retries: the note is already gone locally, this makes it durable. */
+const PIN_WRITE_RETRY_DELAYS_MS = [500, 1500];
+
+/**
+ * Send the user's explicit pin/unpin to sticky-svc — what makes it durable and
+ * shared — then re-read.
+ *
+ * If every attempt fails (offline, service down) nothing is queued: the next
+ * read is server truth and puts the note back. That is the honest outcome, since
+ * the other devices never heard about the Unpin, and the alternative — a
+ * device-local choice nothing else knows about — is the bug this replaces.
+ */
+async function writePin(taskId: string, pinned: boolean) {
+  if (!api) return;
+  pendingPinWrites.set(taskId, pinned ? "PINNED" : "UNPINNED");
+  try {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await (pinned ? api.stickyPin(taskId) : api.stickyUnpin(taskId));
+        return;
+      } catch (e) {
+        // A 4xx is an answer (not assigned to me / already finished), not a
+        // blip: retrying cannot change it.
+        const definitive = e instanceof ApiError && e.status >= 400 && e.status < 500;
+        const delay = definitive ? undefined : PIN_WRITE_RETRY_DELAYS_MS[attempt];
+        if (delay === undefined) {
+          console.error("[sticky] pin write failed after retries:", e instanceof Error ? e.message : e);
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+  } finally {
+    pendingPinWrites.delete(taskId);
+    await refreshSticky();
   }
 }
 
@@ -254,6 +309,7 @@ parent.on("message", async (raw: unknown) => {
       ws?.close();
       // Drop any refresh still in flight for the user who just left.
       stickyRefreshGate.cancel();
+      pendingPinWrites.clear();
       break;
     }
     case "intent": {
@@ -264,6 +320,12 @@ parent.on("message", async (raw: unknown) => {
           /* surfaced via event refetch */
         }
         await refreshSticky();
+      }
+      break;
+    }
+    case "pin-write": {
+      if (typeof m.taskId === "string" && m.taskId && typeof m.pinned === "boolean") {
+        await writePin(m.taskId, m.pinned);
       }
       break;
     }

@@ -181,14 +181,16 @@ describe("Unpin", () => {
     expect(state.getPinned()).not.toContain("a");
   });
 
-  it("is NOT undone by the server's open-pin set", async () => {
+  it("is NOT undone by a server read that also says UNPINNED", async () => {
     const { manager, state } = await launch();
     manager.setTasks([task("a")], { live: true });
     manager.unpin("a");
 
-    manager.adoptServerPins(["a"]);
+    manager.applyServerPinState({ pinned: [], unpinned: ["a"] });
+    manager.setTasks([task("a")], { live: true });
 
     expect(state.getPinned()).toEqual([]);
+    expect(shown()).toEqual([]);
   });
 
   it("is NOT undone by an acknowledge-driven pin request", async () => {
@@ -259,5 +261,97 @@ describe("Unpin", () => {
     manager.setTasks(six, { live: true });
 
     expect(shown()).toEqual(["b", "c", "d", "e", "f"]);
+  });
+});
+
+describe("shared pin state (sticky-svc is the authority)", () => {
+  it("an Unpin made on ANOTHER device takes the note off this one", async () => {
+    const { manager, state } = await launch();
+    manager.setTasks([task("a"), task("b")], { live: true });
+    expect(shown()).toEqual(["a", "b"]);
+
+    manager.applyServerPinState({ pinned: ["b"], unpinned: ["a"] });
+
+    expect(shown()).toEqual(["b"]);
+    expect(state.getPinned()).toEqual(["b"]);
+    expect(state.isUnpinned("a")).toBe(true);
+  });
+
+  it("an Unpin from another device is not undone by this one's auto-pin on the next push", async () => {
+    const { manager } = await launch();
+    manager.setTasks([task("a")], { live: true });
+    manager.applyServerPinState({ pinned: [], unpinned: ["a"] });
+
+    manager.setTasks([task("a")], { live: true });
+
+    expect(shown()).toEqual([]);
+  });
+
+  it("an explicit RE-pin (server PINNED after UNPINNED) clears the unpin and floats the note again", async () => {
+    const { manager, state } = await launch();
+    manager.setTasks([task("a"), task("b")], { live: true });
+    manager.unpin("a");
+    expect(shown()).toEqual(["b"]);
+
+    manager.applyServerPinState({ pinned: ["a", "b"], unpinned: [] });
+
+    expect(state.isUnpinned("a")).toBe(false);
+    expect(shown()).toEqual(["b", "a"].sort());
+    expect(state.getPinned()).toContain("a");
+  });
+
+  it("an acknowledge-driven pin request works again after an explicit re-pin", async () => {
+    const { manager } = await launch();
+    manager.setTasks([task("a")], { live: true });
+    manager.unpin("a");
+    expect(manager.pin("a")).toMatchObject({ ok: false, reason: "unpinned" });
+
+    manager.applyServerPinState({ pinned: ["a"], unpinned: [] });
+
+    expect(manager.pin("a")).toMatchObject({ ok: true });
+    expect(shown()).toEqual(["a"]);
+  });
+
+  it("restores a pin this machine has never seen (second device / reinstall)", async () => {
+    const { manager, state } = await launch();
+    manager.setTasks([task("a")]); // bootstrap, nothing pinned yet
+
+    manager.applyServerPinState({ pinned: ["a"], unpinned: [] });
+
+    expect(state.getPinned()).toEqual(["a"]);
+    expect(shown()).toEqual(["a"]);
+  });
+
+  it("says nothing about a task -> leaves it exactly as the local mirror has it", async () => {
+    const { manager, state } = await launch();
+    manager.setTasks([task("a"), task("b")], { live: true });
+    manager.unpin("b");
+
+    manager.applyServerPinState({ pinned: [], unpinned: [] });
+
+    expect(state.getPinned()).toEqual(["a"]);
+    expect(state.isUnpinned("b")).toBe(true);
+  });
+
+  it("a re-pin arriving BEFORE its task list pages the carousel to it once the list lands", async () => {
+    const { manager } = await launch();
+    manager.setTasks([task("a"), task("b")], { live: true });
+    manager.unpin("a");
+
+    manager.applyServerPinState({ pinned: ["a", "b"], unpinned: [] });
+    manager.setTasks([task("a"), task("b")], { live: true });
+
+    expect(shown()).toContain("a");
+  });
+
+  it("never removes a note because a task finished -> only prunePinned does", async () => {
+    const { manager, state } = await launch();
+    manager.setTasks([task("a")], { live: true });
+
+    manager.applyServerPinState({ pinned: [], unpinned: [] });
+    expect(state.getPinned()).toEqual(["a"]);
+
+    manager.prunePinned([]);
+    expect(state.getPinned()).toEqual([]);
   });
 });

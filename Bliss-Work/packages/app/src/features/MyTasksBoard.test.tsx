@@ -2,23 +2,28 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { SentTaskDTO } from "@taskboard/shared";
+import type { ChannelDTO, ScheduledTaskDTO, SentTaskDTO } from "@taskboard/shared";
 import { toast } from "sonner";
 import { useSession } from "../store/session";
 import { trackUnhandledRejections } from "../test/unhandledRejections";
+import { CHANNELS, DESIGN, GENERAL } from "../test/meetingFixtures";
 
 const api = {
   tasksSent: vi.fn(async () => [] as SentTaskDTO[]),
   directory: vi.fn(async () => []),
-  taskSchedules: vi.fn(async () => []),
-  addTaskParticipants: vi.fn(async (_taskId: string, userIds: string[]) => ({ addedUserIds: userIds })),
+  taskSchedules: vi.fn(async () => [] as ScheduledTaskDTO[]),
+  channels: vi.fn(async () => CHANNELS as ChannelDTO[]),
+  addTaskParticipants: vi.fn(async (_taskId: string, targets: { userIds?: string[]; channelIds?: string[] }) => ({
+    addedUserIds: targets.userIds ?? [],
+    addedChannelIds: targets.channelIds ?? [],
+  })),
   withdrawTaskParticipant: vi.fn(async (_taskId: string, userId: string) => ({ withdrawnUserId: userId, statusVersion: 1 })),
 };
 vi.mock("../lib/runtime", () => ({ useRuntime: () => ({ api, config: {} }) }));
 // The picker searches the directory; the board only cares which ids come back.
-vi.mock("./MemberPicker", () => ({
-  MemberPicker: (p: { onConfirm: (ids: string[]) => void; busy?: boolean }) => (
-    <button type="button" disabled={p.busy} onClick={() => p.onConfirm(["u-new"])}>
+vi.mock("./AddParticipantsPicker", () => ({
+  AddParticipantsPicker: (p: { onConfirm: (targets: { userIds: string[]; channelIds: string[] }) => void; busy?: boolean }) => (
+    <button type="button" disabled={p.busy} onClick={() => p.onConfirm({ userIds: ["u-new"], channelIds: ["c-new"] })}>
       pick a member
     </button>
   ),
@@ -209,7 +214,7 @@ describe("MyTasksBoard participants", () => {
     await user.click(screen.getByRole("button", { name: "Add member" }));
     await user.click(await screen.findByRole("button", { name: "pick a member" }));
 
-    expect(api.addTaskParticipants).toHaveBeenCalledWith("t3", ["u-new"]);
+    expect(api.addTaskParticipants).toHaveBeenCalledWith("t3", { userIds: ["u-new"], channelIds: ["c-new"] });
     await waitFor(() => expect(api.tasksSent.mock.calls.length).toBeGreaterThan(before));
     await waitFor(() => expect(screen.queryByRole("button", { name: "pick a member" })).not.toBeInTheDocument());
   });
@@ -260,5 +265,62 @@ describe("MyTasksBoard participants", () => {
       rejections.stop();
       toastError.mockRestore();
     }
+  });
+});
+
+describe("MyTasksBoard scheduled assignments", () => {
+  const scheduled = (over: Partial<ScheduledTaskDTO>): ScheduledTaskDTO => ({
+    scheduleId: "00000000-0000-4000-8000-0000000000a1",
+    title: "Weekly report",
+    description: "",
+    channelIds: [],
+    kind: "SCHEDULED",
+    scheduledFor: at(20),
+    startAt: at(20),
+    nextRunAt: at(20),
+    weekdays: [],
+    endCondition: "NO_END",
+    occurrenceCount: 0,
+    assignees: [],
+    ...over,
+  });
+  const people = [
+    { userId: "u-alice", username: "alice" },
+    { userId: "u-bob", username: "bob" },
+  ];
+
+  async function showScheduled(schedule: ScheduledTaskDTO) {
+    api.taskSchedules.mockResolvedValue([schedule]);
+    renderBoard();
+    await userEvent.setup().click(await screen.findByRole("button", { name: "scheduled" }));
+    return await screen.findByText("Weekly report");
+  }
+
+  it("shows the named people AND every channel of a mixed assignment, by name", async () => {
+    await showScheduled(scheduled({ assignees: people, channelId: GENERAL.id, channelIds: [GENERAL.id, DESIGN.id] }));
+
+    expect(screen.getByText("alice, bob")).toBeInTheDocument();
+    expect(screen.getByText("Channels: #general, #design")).toBeInTheDocument();
+  });
+
+  it("shows a channel-only assignment with no people line", async () => {
+    await showScheduled(scheduled({ channelId: DESIGN.id, channelIds: [DESIGN.id] }));
+
+    expect(screen.getByText("Channels: #design")).toBeInTheDocument();
+    expect(screen.queryByText("alice, bob")).not.toBeInTheDocument();
+  });
+
+  it("counts the channels instead of dropping any when one is not visible to the caller", async () => {
+    await showScheduled(scheduled({ assignees: people, channelIds: [GENERAL.id, "00000000-0000-4000-8000-0000000009ff"] }));
+
+    expect(screen.getByText("2 channels")).toBeInTheDocument();
+    expect(screen.queryByText(/#general/)).not.toBeInTheDocument();
+  });
+
+  it("says nothing about channels for a people-only schedule", async () => {
+    await showScheduled(scheduled({ assignees: people }));
+
+    expect(screen.getByText("alice, bob")).toBeInTheDocument();
+    expect(screen.queryByText(/channel/i)).not.toBeInTheDocument();
   });
 });

@@ -347,15 +347,15 @@ export interface PlatformConfig {
    *  attempt.
    *
    *  `chord` names what was pressed, and `recorded` says whether main has
-   *  ALREADY written the attempt to the activity record — it has, for a user
-   *  who consented to the activity agent, and the renderer must not report it a
-   *  second time.
+    *  ALREADY written the attempt to the activity record, so the renderer must
+    *  not report it a second time. `route` is the originating window's
+    *  normalized app route when it can be determined.
    *
    *  Its ABSENCE is the capability check the web build depends on: no desktop
    *  host means the page installs its own key watcher instead (lib/screenGuard).
    *  Returns an unsubscribe fn. */
   onScreenshotBlocked?: (
-    cb: (info: { chord: string; recorded: boolean }) => void,
+    cb: (info: { chord: string; recorded: boolean; route?: string }) => void,
   ) => () => void;
 }
 

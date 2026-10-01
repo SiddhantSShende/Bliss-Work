@@ -58,6 +58,9 @@ export const EventType = {
   /** Emitted by services/sticky-relay: "you have desktop notes you may never
    *  have received — re-fetch". A repair signal, not news; see StickyRefresh. */
   StickyRefresh: "sticky.refresh",
+  /** Emitted by services/sticky-svc: this user pinned or unpinned one of their
+   *  own tasks, on any device. See StickyPinChanged. */
+  StickyPinChanged: "sticky.pin.changed",
   /** A mail landed in someone's Inbox. Signal-only — see MailDelivered. */
   MailDelivered: "mail.delivered",
   PresenceOnline: "presence.online",
@@ -563,6 +566,26 @@ export const StickyRefresh = z.object({
   pinCount: z.number().int().nonnegative(),
 });
 
+/**
+ * The user pinned or unpinned a task (services/sticky-svc, PUT/DELETE
+ * /sticky/pins/{taskId}). Delivered to every device that user owns, so a pin
+ * made on the web moves the desktop note and the other way round.
+ *
+ * `pinState` is the state AFTER the change. It is a USER choice only — a task
+ * finishing closes its pin through the ordinary task.* events and never arrives
+ * as UNPINNED. Carries ids and state, no task content.
+ */
+export const StickyPinChanged = z.object({
+  type: z.literal(EventType.StickyPinChanged),
+  eventId: z.string(),
+  orgId: z.string(),
+  occurredAt: z.string(),
+  /** The user whose pin changed — and the only recipient. */
+  assigneeId: z.string(),
+  taskId: z.string(),
+  pinState: z.enum(["PINNED", "UNPINNED"]),
+});
+
 export const NotificationCreated = z.object({
   type: z.literal(EventType.NotificationCreated),
   ...envelope,
@@ -951,6 +974,7 @@ export const ServerEvent = z.discriminatedUnion("type", [
   NotificationRead,
   IntegrationActivityCreated,
   StickyRefresh,
+  StickyPinChanged,
   MailDelivered,
   PresenceOnline,
   PresenceOffline,
@@ -989,6 +1013,7 @@ export type NotificationCreated = z.infer<typeof NotificationCreated>;
 export type NotificationRead = z.infer<typeof NotificationRead>;
 export type IntegrationActivityCreated = z.infer<typeof IntegrationActivityCreated>;
 export type StickyRefresh = z.infer<typeof StickyRefresh>;
+export type StickyPinChanged = z.infer<typeof StickyPinChanged>;
 export type MailDelivered = z.infer<typeof MailDelivered>;
 export type PresenceOnline = z.infer<typeof PresenceOnline>;
 export type PresenceOffline = z.infer<typeof PresenceOffline>;

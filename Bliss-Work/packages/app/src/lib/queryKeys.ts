@@ -84,7 +84,11 @@ export const qk = {
    *  Separate from `presence` because it has a different source (messaging-svc,
    *  from the call rows) and a different lifetime. */
   onCall: ["onCall"] as const,
+  /** The panel's UNREAD feed (server-filtered). */
   notifications: ["notifications"] as const,
+  /** The panel's READ feed — fetched separately so unread rows are never
+   *  hidden behind pages of read ones. */
+  notificationsRead: ["notifications", "read"] as const,
   /** Bounded IDs used to suppress replayed notification.created frames when
    *  the corresponding row is not in the currently loaded pages. */
   notificationEventIds: ["notifications", "realtimeIds"] as const,
@@ -135,10 +139,14 @@ export const qk = {
   mailDrafts: ["mailDrafts"] as const,
   /** Organizations the signed-in identity belongs to (org switcher). */
   myOrgs: ["myOrgs"] as const,
+  myOrgsPage: (search: string) => ["myOrgs", "page", search] as const,
   /** The current org plus any pending deletion (admin-only). */
   org: ["org"] as const,
   /** The org's mandatory-MFA-for-admins policy + grace-period deadline (admin-only). */
   orgMfaSettings: ["orgMfaSettings"] as const,
   /** Task ids pinned to the desktop (Electron-only; empty on web). */
   taskPins: ["taskPins"] as const,
+  /** The user's pin / explicit-unpin choice per task, from sticky-svc — the
+   *  shared state Web and Desktop both follow (see lib/stickyPinState). */
+  stickyPinStates: ["stickyPinStates"] as const,
 };

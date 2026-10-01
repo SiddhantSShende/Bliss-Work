@@ -180,6 +180,11 @@ class OrgMembershipDTO(BaseModel):
     active: bool = False
 
 
+class OrgMembershipPageDTO(BaseModel):
+    items: list[OrgMembershipDTO]
+    hasMore: bool
+
+
 class MessageResponse(BaseModel):
     """Deliberately generic — used by non-enumerable flows (forgot-password,
     resend-verification) so the response never reveals whether an account exists."""

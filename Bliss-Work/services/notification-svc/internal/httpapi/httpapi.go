@@ -161,6 +161,16 @@ const (
 	maxNotificationPageSize     = 50
 )
 
+// listNotificationsSQL: $1 recipient, $2/$3 keyset cursor, $4 limit, $5 optional
+// read-state filter (NULL = both).
+const listNotificationsSQL = `SELECT id, kind, text, task_id, channel_id, conversation_id, message_id, call_id, read_at, created_at
+		   FROM notifications
+		  WHERE recipient_id = $1
+		    AND ($2::timestamptz IS NULL OR (created_at, id) < ($2::timestamptz, $3::uuid))
+		    AND ($5::boolean IS NULL OR (read_at IS NOT NULL) = $5::boolean)
+		  ORDER BY created_at DESC, id DESC
+		  LIMIT $4`
+
 func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 	claims, ok := auth.FromContext(r.Context())
 	if !ok {
@@ -182,6 +192,19 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 		limit = parsedLimit
 	}
 
+	// Optional state filter, applied in SQL so a page is a page of the rows the
+	// caller asked for: filtering a fetched page client-side would show "nothing
+	// unread" for a first page of read rows with unread ones further down.
+	var readFilter interface{}
+	switch rawRead := r.URL.Query().Get("read"); rawRead {
+	case "":
+	case "true", "false":
+		readFilter = rawRead == "true"
+	default:
+		writeError(w, http.StatusBadRequest, "invalid read filter")
+		return
+	}
+
 	var cursorTime, cursorID interface{}
 	if rawCursor := r.URL.Query().Get("cursor"); rawCursor != "" {
 		createdAt, id, err := decodeNotificationCursor(rawCursor)
@@ -192,14 +215,8 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 		cursorTime, cursorID = createdAt, id
 	}
 
-	rows, err := s.pool.Query(r.Context(),
-		`SELECT id, kind, text, task_id, channel_id, conversation_id, message_id, call_id, read_at, created_at
-		   FROM notifications
-		  WHERE recipient_id = $1
-		    AND ($2::timestamptz IS NULL OR (created_at, id) < ($2::timestamptz, $3::uuid))
-		  ORDER BY created_at DESC, id DESC
-		  LIMIT $4`,
-		claims.UserID, cursorTime, cursorID, limit+1)
+	rows, err := s.pool.Query(r.Context(), listNotificationsSQL,
+		claims.UserID, cursorTime, cursorID, limit+1, readFilter)
 	if err != nil {
 		s.log.Error("list notifications query failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal error")

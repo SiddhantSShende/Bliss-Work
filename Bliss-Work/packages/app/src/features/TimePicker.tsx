@@ -125,6 +125,7 @@ export function TimePicker({
   value,
   onChange,
   tone = "light",
+  minTime,
 }: {
   /** The field's own label ("Start Time" / "End Time") — composed into the
    *  trigger's accessible name, same convention the native input used. */
@@ -133,6 +134,8 @@ export function TimePicker({
   value: string;
   onChange: (next: string) => void;
   tone?: TimePickerTone;
+  /** 24-hour "HH:mm": earlier times are disabled on the dial. */
+  minTime?: string;
 }) {
   const { t } = useTranslation("meetings");
   const c = TIME_PICKER_TONES[tone];
@@ -157,7 +160,17 @@ export function TimePicker({
     setOpen(true);
   };
 
+  const minTotal = minTime ? parse(minTime).h * 60 + parse(minTime).m : 0;
+  const draftTotal = to24(hour12, period) * 60 + minute;
+  const draftTooEarly = draftTotal < minTotal;
+  const periodDisabled = (p: "AM" | "PM") => (p === "AM" ? 12 * 60 : 24 * 60) <= minTotal;
+  const optionDisabled = (v: number) =>
+    mode === "hour"
+      ? to24(v, period) * 60 + 59 < minTotal
+      : to24(hour12, period) * 60 + v < minTotal;
+
   const confirm = () => {
+    if (draftTooEarly) return;
     onChange(format(to24(hour12, period), minute));
     setOpen(false);
   };
@@ -228,16 +241,18 @@ export function TimePicker({
                 <button
                   type="button"
                   aria-pressed={period === "AM"}
+                  disabled={periodDisabled("AM")}
                   onClick={() => setPeriod("AM")}
-                  className={`px-1.5 py-0.5 ${period === "AM" ? "bg-accent text-accent-fg" : c.periodOff}`}
+                  className={`px-1.5 py-0.5 disabled:cursor-not-allowed disabled:opacity-40 ${period === "AM" ? "bg-accent text-accent-fg" : c.periodOff}`}
                 >
                   {t("newMeeting.time.am")}
                 </button>
                 <button
                   type="button"
                   aria-pressed={period === "PM"}
+                  disabled={periodDisabled("PM")}
                   onClick={() => setPeriod("PM")}
-                  className={`px-1.5 py-0.5 ${period === "PM" ? "bg-accent text-accent-fg" : c.periodOff}`}
+                  className={`px-1.5 py-0.5 disabled:cursor-not-allowed disabled:opacity-40 ${period === "PM" ? "bg-accent text-accent-fg" : c.periodOff}`}
                 >
                   {t("newMeeting.time.pm")}
                 </button>
@@ -271,8 +286,9 @@ export function TimePicker({
                         : t("newMeeting.time.minuteAria", { minute: String(v).padStart(2, "0") })
                     }
                     onClick={() => pick(v)}
+                    disabled={optionDisabled(v)}
                     style={{ left: p.x, top: p.y, transform: "translate(-50%, -50%)" }}
-                    className={`absolute flex h-8 w-8 items-center justify-center rounded-full text-xs font-medium transition-colors ${
+                    className={`absolute flex h-8 w-8 items-center justify-center rounded-full text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-30 ${
                       isSelected ? "bg-accent text-accent-fg" : c.numberOff
                     }`}
                   >
@@ -293,7 +309,8 @@ export function TimePicker({
               <button
                 type="button"
                 onClick={confirm}
-                className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-accent-fg transition hover:brightness-105"
+                disabled={draftTooEarly}
+                className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-accent-fg transition hover:brightness-105 disabled:opacity-40"
               >
                 {t("newMeeting.time.ok")}
               </button>

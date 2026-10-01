@@ -39,14 +39,14 @@
     "empty": {
       "noneYet": "No notifications yet",
       "allCaughtUp": "You're all caught up",
-      "hintTaskUpdates": "Task updates will show up here.",
-      "hintNothingUnread": "Nothing unread. Earlier notifications are under “Show read”."
+      "hint": "Updates and activity will show up here.",
+      "hintNothingUnread": "Nothing unread. Earlier notifications are under “View read”."
     },
     "row": {
       "markRead": "Mark read"
     },
     "toggleHideRead": "Hide read",
-    "toggleShowRead": "Show read ({{count}})",
+    "toggleShowRead": "View read ({{total}})",
     "loadMore": "Load more",
     "loadingMore": "Loading…"
   },

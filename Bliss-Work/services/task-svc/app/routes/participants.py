@@ -10,8 +10,9 @@ from crypto import cryptor
 from .. import events
 from ..auth import Principal, PrincipalDep
 from ..db import session, set_org_context
-from ..schemas import AddTaskAssigneesRequest
+from ..schemas import MAX_ASSIGNEES, AddTaskAssigneesRequest
 from .helpers import enqueue_outbox, resolve_username
+from .tasks_write import _insert_task_channels, _resolve_channel_members
 
 router = APIRouter()
 _ACTIVE = ("SENT", "ACKNOWLEDGED")
@@ -55,6 +56,15 @@ async def add_participants(
 ) -> dict:
     del idempotency_key  # The unique assignment key makes retries idempotent.
     org_id, me = principal.org_id, principal.user_id
+    if not body.userIds and not body.channelIds:
+        raise HTTPException(status_code=400, detail="at least one person or channel required")
+    # Each channel's current members, resolved server-side (and only for a channel
+    # the caller is in — messaging-svc answers 404 otherwise) exactly as on create,
+    # so the client cannot name a recipient list of its own. Done before the
+    # transaction opens: it is a network call.
+    channel_member_ids: list[str] = []
+    for channel_id in body.channelIds:
+        channel_member_ids.extend(await _resolve_channel_members(channel_id, org_id, me))
     async with session() as db:
         await set_org_context(db, org_id)
         task = await _task_context(db, org_id, task_id)
@@ -69,9 +79,16 @@ async def add_participants(
                 {"org": org_id, "ids": body.userIds},
             )
         ).all()
-        valid_ids = [str(row.user_id) for row in active_members]
-        if len(valid_ids) != len(set(body.userIds)):
+        if len(active_members) != len(set(body.userIds)):
             raise HTTPException(status_code=400, detail="every participant must be an active member of your organisation")
+        # Named people and channel members, each person once (canonical UUIDs: the
+        # request accepts any casing, messaging-svc returns lowercase).
+        valid_ids = list(dict.fromkeys(str(uuid.UUID(u)) for u in [*body.userIds, *channel_member_ids]))
+        if len(valid_ids) > MAX_ASSIGNEES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"too many participants ({len(valid_ids)}); maximum is {MAX_ASSIGNEES} per add",
+            )
 
         existing = (
             await db.execute(
@@ -94,9 +111,9 @@ async def add_participants(
         ).all()
         member_ids = [str(row.assignee_id) for row in current_members]
         add_ids = [user_id for user_id in valid_ids if user_id not in existing_ids]
-        if not add_ids:
+        if not add_ids and not body.channelIds:
             await db.rollback()
-            return {"addedUserIds": []}
+            return {"addedUserIds": [], "addedChannelIds": []}
 
         # A completed task has no active assignment to extend. A task with at
         # least one active participant remains open even if another participant
@@ -112,6 +129,10 @@ async def add_participants(
         ).first()
         if open_task is None:
             raise HTTPException(status_code=409, detail="cannot add participants to a completed task")
+
+        # Attach the channels so a member who joins one later is added as well
+        # (the ChannelMemberJoined consumer). Re-attaching one is a no-op.
+        await _insert_task_channels(db, org_id=org_id, task_id=task_id, channel_ids=body.channelIds)
 
         sender_username = await resolve_username(db, org_id, str(task.sender_id)) or principal.username
         title = await cryptor().decrypt(db, org_id, task.title_enc) or ""
@@ -147,7 +168,7 @@ async def add_participants(
                 ),
             )
         await db.commit()
-        return {"addedUserIds": added_ids}
+        return {"addedUserIds": added_ids, "addedChannelIds": body.channelIds}
 
 
 @router.delete("/tasks/{task_id}/assignees/{assignee_id}")

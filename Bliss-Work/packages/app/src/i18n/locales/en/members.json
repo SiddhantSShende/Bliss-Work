@@ -261,7 +261,7 @@
       "focus": "Came back to {{brand}}",
       "blur": "Switched away from {{brand}}",
       "idle": { "start": "Went idle", "end": "Became active" },
-      "screenshot": { "attempted": "Attempted a screenshot" }
+      "screenshot": { "attempted": "Screenshot attempt blocked" }
     },
     "surfaces": {
       "mail": "Mail",

@@ -43,7 +43,7 @@ function sent() {
 
 async function submitMeeting(user: ReturnType<typeof userEvent.setup>) {
   await user.type(screen.getByPlaceholderText("Enter meeting title"), "Standup");
-  await user.click(screen.getByRole("button", { name: "Schedule Meeting" }));
+  await user.click(screen.getByRole("button", { name: /^(Start|Schedule) Meeting$/ }));
 }
 
 const membersGroup = () => screen.getByRole("group", { name: "Members" });
@@ -300,9 +300,9 @@ describe("saving", () => {
     h.api.scheduleMeeting.mockReturnValue(new Promise(() => {}));
     const user = openDialog();
     await user.type(screen.getByPlaceholderText("Enter meeting title"), "Standup");
-    const go = screen.getByRole("button", { name: "Schedule Meeting" });
+    const go = screen.getByRole("button", { name: /^(Start|Schedule) Meeting$/ });
     await user.click(go);
-    const busy = await screen.findByRole("button", { name: "Scheduling…" });
+    const busy = await screen.findByRole("button", { name: "Starting…" });
     expect(busy).toBeDisabled();
     await user.click(busy);
     await user.keyboard("{Enter}");
@@ -326,6 +326,6 @@ describe("saving", () => {
     const user = openDialog();
     await submitMeeting(user);
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Couldn't schedule that meeting"));
-    expect(screen.getByRole("button", { name: "Schedule Meeting" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /^(Start|Schedule) Meeting$/ })).toBeEnabled();
   });
 });

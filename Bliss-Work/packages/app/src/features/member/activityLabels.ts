@@ -41,7 +41,7 @@ const ACTIONS: Record<string, string> = {
   blur: "Switched away from BlissWork",
   "idle.start": "Went idle",
   "idle.end": "Became active",
-  "screenshot.attempted": "Attempted a screenshot",
+  "screenshot.attempted": "Screenshot attempt blocked",
 };
 
 const SURFACES: Record<string, string> = {

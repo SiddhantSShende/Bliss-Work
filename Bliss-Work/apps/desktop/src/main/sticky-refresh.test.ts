@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createRefreshGate } from "./sticky-refresh";
+import { createRefreshGate, overlayPendingPins, shouldRefreshSticky } from "./sticky-refresh";
 
 /**
  * Every task.* event starts its own /tasks/sticky read, so several are in flight
@@ -108,5 +108,51 @@ describe("createRefreshGate", () => {
     expect([gate.isCurrent(older), gate.isCurrent(newest)]).toEqual([false, true]);
     gate.cancel();
     expect(gate.isCurrent(newest)).toBe(false);
+  });
+});
+
+describe("shouldRefreshSticky", () => {
+  it("re-reads the shared pin state when the user pins or unpins on any device", () => {
+    expect(shouldRefreshSticky("sticky.pin.changed")).toBe(true);
+  });
+
+  it("still re-reads on task lifecycle events and the watchdog nudge", () => {
+    for (const t of ["task.assigned", "task.acknowledged", "task.completed", "task.ignored", "task.left", "sticky.refresh"]) {
+      expect(shouldRefreshSticky(t)).toBe(true);
+    }
+  });
+
+  it("ignores unrelated events", () => {
+    expect(shouldRefreshSticky("message.created")).toBe(false);
+  });
+});
+
+/**
+ * A read that began before the user's own pin/unpin committed still reports the
+ * old state. Until that request settles the user's intent wins for that task —
+ * and only that task — so the note does not flick back for an instant.
+ */
+describe("overlayPendingPins", () => {
+  const read = { pinned: ["a", "b"], unpinned: ["c"] };
+
+  it("returns the server read untouched when nothing is in flight", () => {
+    expect(overlayPendingPins(read, new Map())).toBe(read);
+  });
+
+  it("an in-flight Unpin beats a stale PINNED read, for that task only", () => {
+    const out = overlayPendingPins(read, new Map([["a", "UNPINNED" as const]]));
+    expect(out.pinned).toEqual(["b"]);
+    expect([...out.unpinned].sort()).toEqual(["a", "c"]);
+  });
+
+  it("an in-flight Pin beats a stale UNPINNED read", () => {
+    const out = overlayPendingPins(read, new Map([["c", "PINNED" as const]]));
+    expect([...out.pinned].sort()).toEqual(["a", "b", "c"]);
+    expect(out.unpinned).toEqual([]);
+  });
+
+  it("applies to a task the read does not mention at all", () => {
+    const out = overlayPendingPins({ pinned: [], unpinned: [] }, new Map([["z", "UNPINNED" as const]]));
+    expect(out).toEqual({ pinned: [], unpinned: ["z"] });
   });
 });

@@ -20,6 +20,7 @@ export function MeetingDialogShell({
   closeLabel,
   onClose,
   footer,
+  wide,
   children,
 }: {
   title: string;
@@ -27,6 +28,8 @@ export function MeetingDialogShell({
   onClose: () => void;
   /** The button row, pinned below the body. Omit for a dialog with no actions. */
   footer?: React.ReactNode;
+  /** Two-column forms: a wider card on screens that fit one. */
+  wide?: boolean;
   children: React.ReactNode;
 }) {
   const panelRef = useDialogBehavior(true, onClose);
@@ -42,7 +45,7 @@ export function MeetingDialogShell({
         aria-label={title}
         tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
-        className="flex max-h-[calc(100dvh-2rem)] w-full max-w-md flex-col overflow-y-auto rounded-2xl border border-gray-200 bg-white px-4 py-6 shadow-lg min-[400px]:px-6"
+        className={`flex max-h-[calc(100dvh-2rem)] w-full ${wide ? "max-w-4xl" : "max-w-md"} flex-col overflow-y-auto rounded-2xl border border-gray-200 bg-white px-4 py-6 shadow-lg min-[400px]:px-6`}
       >
         <div className="mb-5 flex shrink-0 items-center justify-between">
           <h2 className="text-lg font-semibold text-gray-900">{title}</h2>

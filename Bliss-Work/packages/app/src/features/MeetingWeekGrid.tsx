@@ -33,6 +33,12 @@ import {
  *  stretching the page, so this is a real height and not a fraction. */
 const HOUR_HEIGHT_REM = 3.5;
 
+/** Hour labels are 1rem tall and centred on the line they name, so a label sits
+ *  this far above its line. The label for the window's END line (12 AM after
+ *  11 PM) has no row of its own, so the scroll body gets this much tail below
+ *  that line — enough to show the label, not an extra hour. */
+const LABEL_LIFT_REM = 0.5;
+
 export function MeetingWeekGrid({
   days,
   calls,
@@ -67,7 +73,7 @@ export function MeetingWeekGrid({
 
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="flex" style={{ height: bodyHeight }}>
-            <div className="w-14 shrink-0">
+            <div className="relative w-14 shrink-0">
               {hours.map((h, index) => (
                 <div
                   key={h}
@@ -91,6 +97,12 @@ export function MeetingWeekGrid({
                   </span>
                 </div>
               ))}
+              <span
+                className="absolute right-2 text-[11px] font-medium leading-4 text-muted"
+                style={{ top: `calc(100% - ${LABEL_LIFT_REM}rem)` }}
+              >
+                {hourLabel(win.endHour % 24, i18n.language)}
+              </span>
             </div>
 
             {days.map((day) => (
@@ -105,6 +117,7 @@ export function MeetingWeekGrid({
               />
             ))}
           </div>
+          <div aria-hidden style={{ height: `${LABEL_LIFT_REM}rem` }} />
         </div>
       </div>
     </div>

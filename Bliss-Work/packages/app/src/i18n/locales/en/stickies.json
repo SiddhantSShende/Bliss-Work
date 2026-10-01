@@ -31,6 +31,7 @@
     "taskIgnored": "Task ignored — the sender has been notified.",
     "noteUnpinned": "Note unpinned",
     "noteUnpinnedDescription": "It's still in your Tasks list — complete it from there.",
+    "unpinFailed": "Couldn't unpin the note",
     "desktopFull": "Couldn't pin this task to the desktop."
   }
 }

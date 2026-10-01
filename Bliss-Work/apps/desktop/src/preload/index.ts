@@ -184,9 +184,10 @@ const api = {
    *  always false — main no longer records anything itself (see
    *  screenshot-guard.ts) — so the renderer reports every attempt itself
    *  through its own session beacon, which is what leaves the server-side
-   *  trace of a refused capture. */
-  onScreenshotBlocked: (cb: (info: { chord: string; recorded: boolean }) => void) => {
-    const handler = (_: unknown, info: { chord: string; recorded: boolean }) => cb(info);
+   *  trace of a refused capture. `route`, when present, comes from the window
+   *  that actually received the capture attempt. */
+  onScreenshotBlocked: (cb: (info: { chord: string; recorded: boolean; route?: string }) => void) => {
+    const handler = (_: unknown, info: { chord: string; recorded: boolean; route?: string }) => cb(info);
     ipcRenderer.on("security:screenshot-blocked", handler);
     return () => ipcRenderer.removeListener("security:screenshot-blocked", handler);
   },

@@ -11,7 +11,7 @@
  * past.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { setClockTime } from "../test/timePicker";
@@ -70,29 +70,54 @@ afterEach(() => {
 });
 
 describe("NewMeetingDialog", () => {
-  it("still schedules an untouched (now) start after the popup has sat open for minutes", async () => {
+  it("still starts an untouched (now) start after the popup has sat open for minutes, straight into the meeting", async () => {
     const user = openDialog();
 
     vi.setSystemTime(minutesLater(5));
     await user.type(screen.getByPlaceholderText("Enter meeting title"), "Standup");
-    await user.click(screen.getByRole("button", { name: "Schedule Meeting" }));
+    await user.click(screen.getByRole("button", { name: "Start Meeting" }));
 
-    expect(screen.queryByText("Start time can't be in the past.")).not.toBeInTheDocument();
-    expect(await screen.findByRole("heading", { name: "Meeting Scheduled!" })).toBeInTheDocument();
+    expect(screen.queryByText("Start time cannot be in the past.")).not.toBeInTheDocument();
+    await waitFor(() => expect(onStarted).toHaveBeenCalledWith(expect.objectContaining({ id: "call-1" })));
+    expect(onClose).toHaveBeenCalled();
+    expect(screen.queryByRole("heading", { name: "Meeting Scheduled!" })).not.toBeInTheDocument();
     expect(h.api.scheduleMeeting).toHaveBeenCalledWith(
       expect.objectContaining({ title: "Standup", scheduledAt: undefined }),
     );
   });
 
-  it("refuses a start time the user picked in the past", async () => {
+  it("says Start Meeting for now and Schedule Meeting for a future start", async () => {
+    const user = openDialog();
+    expect(screen.getByRole("button", { name: "Start Meeting" })).toBeInTheDocument();
+
+    await setClockTime(user, "Start Time", 14, 0);
+
+    expect(screen.getByRole("button", { name: "Schedule Meeting" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Start Meeting" })).not.toBeInTheDocument();
+  });
+
+  it("blocks a start the user picked in the past, with the message shown at once", async () => {
     const user = openDialog();
     await user.type(screen.getByPlaceholderText("Enter meeting title"), "Standup");
 
-    await setClockTime(user, "Start Time", 9, 0);
-    await user.click(screen.getByRole("button", { name: "Schedule Meeting" }));
+    // The dial itself disables earlier times today, so reach the past via the date.
+    fireEvent.change(screen.getByLabelText("Start Time date"), { target: { value: "2026-09-14" } });
 
-    expect(await screen.findByText("Start time can't be in the past.")).toBeInTheDocument();
+    expect(screen.getByText("Start time cannot be in the past.")).toBeInTheDocument();
+    const primary = screen.getByRole("button", { name: "Start Meeting" });
+    expect(primary).toBeDisabled();
+    await user.click(primary);
     expect(h.api.scheduleMeeting).not.toHaveBeenCalled();
+  });
+
+  it("disables dial times earlier than now on today's date", async () => {
+    const user = openDialog();
+
+    await user.click(screen.getByRole("button", { name: "Start Time time" }));
+
+    // Opened at 10:00 AM: 9 o'clock has passed, 11 has not.
+    expect(screen.getByRole("button", { name: "9 o'clock" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "11 o'clock" })).toBeEnabled();
   });
 
   it("sends scheduledAt + durationMinutes for a start time pushed into the future", async () => {
@@ -120,6 +145,8 @@ describe("NewMeetingDialog", () => {
 describe("the confirmation dialog", () => {
   async function schedule(user: ReturnType<typeof userEvent.setup>, title = "Standup") {
     await user.type(screen.getByPlaceholderText("Enter meeting title"), title);
+    // A future start: only a scheduled meeting gets the confirmation.
+    await setClockTime(user, "Start Time", 14, 0);
     await user.click(screen.getByRole("button", { name: "Schedule Meeting" }));
     await screen.findByRole("heading", { name: "Meeting Scheduled!" });
   }

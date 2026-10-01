@@ -60,3 +60,30 @@ func TestRecipientsOf_IntegrationActivityCreated_NoRecipient_DropsCleanly(t *tes
 		t.Fatalf("RecipientsOf() with no recipientId = %v, want empty", got)
 	}
 }
+
+// TestRecipientsOf_StickyPinChanged proves a pin/unpin reaches exactly the user
+// whose pin it is (AssigneeID / JSON "assigneeId") and nobody else — their Web
+// and Desktop sessions are both that one user, which is the whole sync. The
+// other identity fields are populated to prove they are ignored: a pin is
+// private, so it must never fan out to the task's sender or co-assignees.
+func TestRecipientsOf_StickyPinChanged(t *testing.T) {
+	ev := &Event{
+		Type:       "sticky.pin.changed",
+		EventID:    "evt-1",
+		AssigneeID: "user-pinner",
+		SenderID:   "user-sender",
+		UserID:     "user-other",
+		Members:    []string{"user-sender", "user-other", "user-pinner"},
+	}
+	got := ev.RecipientsOf()
+	if len(got) != 1 || got[0] != "user-pinner" {
+		t.Fatalf("RecipientsOf() = %v, want exactly [\"user-pinner\"]", got)
+	}
+}
+
+func TestRecipientsOf_StickyPinChanged_NoAssignee_DropsCleanly(t *testing.T) {
+	ev := &Event{Type: "sticky.pin.changed"}
+	if got := ev.RecipientsOf(); len(got) != 0 {
+		t.Fatalf("RecipientsOf() with no assigneeId = %v, want empty", got)
+	}
+}

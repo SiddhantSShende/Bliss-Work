@@ -272,10 +272,10 @@ if (!app.requestSingleInstanceLock()) {
     // prevention.
     initWindowStateGuard(() => mainWindow);
 
-    initScreenshotGuard((chord, recorded) => {
+    initScreenshotGuard((chord, recorded, route) => {
       // `recorded` travels with the notice so the renderer reports the attempt
       // to the server only when main could not — see screenshot-guard.ts.
-      sendToMain("security:screenshot-blocked", { chord, recorded });
+      sendToMain("security:screenshot-blocked", { chord, recorded, route });
     });
   });
 }
@@ -515,10 +515,10 @@ function startWsProcess() {
       /** True for the connect-time catch-up burst — see WsEventMeta. */
       replayed?: boolean;
       tasks?: StickyTaskDTO[];
-      /** Task ids sticky-svc still considers open commitments for this user.
-       *  Absent when that service is not configured or was unreachable, which
-       *  is the signal to keep today's task-svc-only behaviour. */
-      openPins?: string[];
+      /** The user's pinned / explicitly-unpinned task ids from sticky-svc (the
+       *  shared, durable pin state). Absent when that service is not configured
+       *  or was unreachable, which is the signal to keep the local mirror as is. */
+      pins?: { pinned: string[]; unpinned: string[] };
       // Phase 8: ws-process drives sticky-chat fan-out for pinned threads.
       threadId?: string;
       payload?: unknown;
@@ -540,11 +540,13 @@ function startWsProcess() {
         case "sticky": {
           const live = m.tasks ?? [];
           setTasks(live);
-          // Durable pin set from sticky-svc, when it is deployed and reachable.
-          // Purely ADDITIVE: it can restore a pin this machine has never seen
-          // (a reinstall, or a second device), and it can never remove one —
-          // prunePinned below still answers only to the task-svc list.
-          if (m.openPins) sticky.adoptServerPins(m.openPins);
+          // The user's durable pin state from sticky-svc, when it is deployed and
+          // reachable. It is the authority on what the user chose and overrules
+          // the local mirror in BOTH directions (a pin or Unpin made on another
+          // device lands here); only prunePinned below — driven by the task-svc
+          // list — takes a note away because its task finished. Applied BEFORE
+          // the auto-pin so an Unpin made elsewhere is already known to it.
+          if (m.pins) sticky.applyServerPinState(m.pins);
           // Live server push: auto-pin newly actionable tasks so an allocation
           // pops up on the desktop on its own.
           sticky.setTasks(live, { live: true });
@@ -862,8 +864,9 @@ ipcMain.handle("task:list-pinned", () => {
 });
 // Unpin a task from the desktop popup. Sent ONLY by the note's own Unpin button
 // — not by opening the task, which is reading it, not dealing with it. The
-// unpin is persisted, so it holds across server pushes and restarts; the task
-// itself is untouched and stays in the in-app Tasks list.
+// unpin is written to sticky-svc, so it holds across server pushes, restarts and
+// devices (and is reversible: the user can pin the task again); the task itself
+// is untouched and stays in the in-app Tasks list.
 ipcMain.on("sticky:unpin", (_e, taskId: unknown) => {
   if (typeof taskId !== "string" || !taskId) return;
   try {
@@ -872,6 +875,10 @@ ipcMain.on("sticky:unpin", (_e, taskId: unknown) => {
   } catch (err) {
     console.error("[sticky] sticky:unpin failed", err);
   }
+  // Local first, so the note goes the instant the button is pressed; then make
+  // it durable and shared. ws-process owns the API client and the retries, and
+  // re-reads afterwards so the mirror settles on server truth.
+  wsProc?.postMessage({ type: "pin-write", taskId, pinned: false });
 });
 // The carousel window's renderer has subscribed to "sticky:tasks" and is
 // ready for the current page. Re-push it so a did-finish-load push that

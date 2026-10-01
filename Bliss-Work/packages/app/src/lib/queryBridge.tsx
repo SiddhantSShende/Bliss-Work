@@ -26,6 +26,7 @@ import {
 import type { PlatformConfig } from "../platform";
 import { useSession } from "../store/session";
 import { qk } from "./queryKeys";
+import { applyStickyPinChanged } from "./stickyPinState";
 // Re-exported for back-compat: every existing web import site pulls `qk`
 // from here (queryBridge used to define it locally). queryKeys.ts is the
 // canonical, platform-neutral source now (apps/mobile imports it directly,
@@ -153,6 +154,14 @@ export function WsEventBridge() {
         case EventType.NotificationRead:
         case EventType.StickyRefresh:
           handleNotificationEvent(e, ctx);
+          break;
+        case EventType.StickyPinChanged:
+          applyStickyPinChanged(e, {
+            qc,
+            invalidate,
+            me,
+            hasDesktopBridge: !!config.pinTask,
+          });
           break;
         case EventType.IntegrationActivityCreated:
           // Signal-only; this app has no integration activity feed to refresh.
@@ -595,6 +604,9 @@ function handleTaskEvent(e: ServerEvent, ctx: EventHandlerContext) {
         invalidate(qk.assigned);
         invalidate(qk.inbox);
         invalidate(qk.sticky);
+        // A task assigned afresh starts PINNED server-side with no pin event of
+        // its own, so a cached UNPINNED from the previous assignment is stale.
+        invalidate(qk.stickyPinStates);
         // New TASK row lands in the unified inbox / People sidebar.
         invalidate(qk.unifiedInbox);
         refreshInboxSidebars(invalidate);

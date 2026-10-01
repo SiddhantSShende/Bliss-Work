@@ -2,6 +2,7 @@ import { Check, X, Flag, LogOut, PinOff, Minus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Avatar, Badge } from "@taskboard/ui";
 import type { StickyTaskDTO, TaskAction } from "@taskboard/shared";
+import type { ParticipantTargets } from "./AddParticipantsPicker";
 import { TaskParticipantAdd, TaskParticipants } from "./TaskParticipants";
 
 /**
@@ -38,6 +39,7 @@ export function StickyWidget({
   onAddParticipants,
   onWithdrawParticipant,
   participantLayout = "chips",
+  headerPin,
 }: {
   task: StickyTaskDTO;
   onAction: (action: TaskAction) => void;
@@ -56,9 +58,18 @@ export function StickyWidget({
    */
   onUnpin?: () => void;
   currentUserId?: string;
-  onAddParticipants?: (userIds: string[]) => Promise<void>;
+  onAddParticipants?: (targets: ParticipantTargets) => Promise<void>;
   onWithdrawParticipant?: (userId: string) => Promise<void>;
   participantLayout?: "chips" | "list";
+  /**
+   * In-app cards only: a Pin / Unpin control for the header's top-right slot.
+   * When given it REPLACES whatever would sit there (the Ignore X on a SENT
+   * card, the collapse/unpin pair on a locked one), so the corner is only ever a
+   * pin control. Ignore and Leave stay in the button row below. Omitted, the
+   * header is exactly as it was — the floating desktop note and the inbox card
+   * do not pass it.
+   */
+  headerPin?: React.ReactNode;
 }) {
   const { t } = useTranslation("stickies");
   // senderUsername is the email local-part, so "from j.okafor" is what a note
@@ -68,6 +79,27 @@ export function StickyWidget({
   const senderName = task.senderDisplayName || task.senderUsername;
   const activeTask = task.myStatus === "SENT" || task.myStatus === "ACKNOWLEDGED";
   const showCardAdd = participantLayout === "list" && activeTask && !!currentUserId && !!onAddParticipants;
+
+  const avatar = <Avatar name={senderName} size="sm" />;
+  const titleBlock = (
+    <div className="min-w-0 flex-1">
+      <div className="flex min-w-0 items-center gap-2">
+        <div className="min-w-0 line-clamp-2 font-semibold leading-tight text-fg">{task.title}</div>
+        {participantLayout === "chips" && currentUserId && onAddParticipants && task.participants.some((p) => p.status === "SENT" || p.status === "ACKNOWLEDGED") && (
+          <TaskParticipantAdd participants={task.participants} onAdd={onAddParticipants} />
+        )}
+      </div>
+      {/* Unlike the title above it, kept single-line: left to wrap, a
+          two-word sender name turned into three lines on a narrow note
+          and the header alone ate the room the action row needed. */}
+      <div className="truncate text-xs text-muted">{t("card.from", { name: senderName })}</div>
+    </div>
+  );
+  const statusBadge = (
+    <Badge tone={task.myStatus === "ACKNOWLEDGED" ? "accent" : "neutral"}>
+      {task.myStatus.toLowerCase()}
+    </Badge>
+  );
 
   // Whole surface is the OS-window drag region so the user can grab the note
   // from anywhere — title, body, even the empty space below the description.
@@ -88,21 +120,47 @@ export function StickyWidget({
         compact ? "max-h-full min-h-0 shadow-widget" : "shadow-soft"
       }`}
     >
+      {headerPin ? (
+        // ── Header with the Pin / Unpin control ────────────────────────────────
+        // The pin takes a fixed 24px beside an avatar (28px) and the status badge
+        // (up to ~112px for "acknowledged"), which in a narrow card left the title
+        // with 0px. So the header is laid out by how wide THIS CARD is (an
+        // `@container` query, not the viewport — it follows column count and
+        // browser zoom for free), in three steps:
+        //   wide   (>= 19rem)  avatar | title | badge | pin      — one row
+        //   medium (>= 11rem)  avatar | title | pin, badge below the title (it may
+        //                      run under the pin column too — never ellipsized here)
+        //   narrow             avatar … pin, then title and badge each full width
+        // The pin stays in the top-right corner in every step, and each step
+        // leaves the title at least ~6.5rem (~104px) — or the whole row.
+        <div className="@container shrink-0">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 gap-y-1.5 @min-[11rem]:grid-cols-[auto_minmax(0,1fr)_auto] @min-[19rem]:grid-cols-[auto_minmax(0,1fr)_auto_auto]">
+            <div className="col-start-1 row-start-1">{avatar}</div>
+            <div className="col-span-2 col-start-1 row-start-2 min-w-0 @min-[11rem]:col-span-1 @min-[11rem]:col-start-2 @min-[11rem]:row-start-1 @min-[11rem]:ml-0.5">
+              {titleBlock}
+            </div>
+            <div className="app-no-drag col-span-2 col-start-1 row-start-3 flex min-w-0 items-center @min-[11rem]:col-span-2 @min-[11rem]:col-start-2 @min-[11rem]:row-start-2 @min-[11rem]:ml-0.5 @min-[19rem]:col-span-1 @min-[19rem]:col-start-3 @min-[19rem]:row-start-1 @min-[19rem]:ml-0 @min-[19rem]:h-6">
+              {/* Allowed to shrink and ellipsize: in the narrowest step it has the
+                  card's whole inner width, and "acknowledged" is wider than that
+                  in a very narrow card (e.g. 2 columns at 150% zoom). Tighter
+                  padding there keeps it from truncating until it truly must. */}
+              <Badge
+                tone={task.myStatus === "ACKNOWLEDGED" ? "accent" : "neutral"}
+                className="min-w-0 max-w-full px-1.5 tracking-normal @min-[11rem]:px-2 @min-[11rem]:tracking-wide"
+              >
+                <span className="truncate">{task.myStatus.toLowerCase()}</span>
+              </Badge>
+            </div>
+            <div className="app-no-drag col-start-2 row-start-1 flex h-6 items-center justify-self-end @min-[11rem]:col-start-3 @min-[19rem]:col-start-4 @min-[19rem]:-ml-0.5">
+              {headerPin}
+            </div>
+          </div>
+        </div>
+      ) : (
       <div className="flex shrink-0 items-start justify-between gap-2">
         <div className="flex min-w-0 flex-1 items-start gap-2.5">
-          <Avatar name={senderName} size="sm" />
-          <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 items-center gap-2">
-              <div className="min-w-0 line-clamp-2 font-semibold leading-tight text-fg">{task.title}</div>
-              {participantLayout === "chips" && currentUserId && onAddParticipants && task.participants.some((p) => p.status === "SENT" || p.status === "ACKNOWLEDGED") && (
-                <TaskParticipantAdd participants={task.participants} onAdd={onAddParticipants} />
-              )}
-            </div>
-            {/* Unlike the title above it, kept single-line: left to wrap, a
-                two-word sender name turned into three lines on a narrow note
-                and the header alone ate the room the action row needed. */}
-            <div className="truncate text-xs text-muted">{t("card.from", { name: senderName })}</div>
-          </div>
+          {avatar}
+          {titleBlock}
         </div>
         {/* `shrink-0`: on a narrow note the long status word ("acknowledged")
             otherwise wraps this cluster onto a second line, nearly doubling the
@@ -110,9 +168,7 @@ export function StickyWidget({
             title beside it is already `min-w-0` + `line-clamp-2`, so it is the
             one that should give way. */}
         <div className="app-no-drag flex shrink-0 items-center gap-1.5">
-          <Badge tone={task.myStatus === "ACKNOWLEDGED" ? "accent" : "neutral"}>
-            {task.myStatus.toLowerCase()}
-          </Badge>
+          {statusBadge}
           {locked || compact ? (
             // Floating note: Ignore lives in the button row, so the header gets
             // a collapse-to-pill control — plus Unpin.
@@ -156,6 +212,7 @@ export function StickyWidget({
           ) : null}
         </div>
       </div>
+      )}
 
       {/* Keep the card and its actions stable while allowing the full
           description to be read in place. `app-no-drag` is required here: the

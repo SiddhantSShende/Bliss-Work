@@ -7,7 +7,7 @@
  * known day. Only Date is faked, so user-event and react-query keep real timers.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useSession } from "../store/session";
@@ -123,12 +123,11 @@ describe("the Repeat control", () => {
     expect(screen.getByText("weeks")).toBeInTheDocument();
   });
 
-  // The submit button used to swap between "Start Now" and "Schedule" depending
-  // on Repeat — it no longer varies at all (always "Schedule Meeting"); what
-  // Repeat still changes is what gets SENT (see "what is sent" below).
-  it("does not change the submit button's label", async () => {
+  // A one-off opens as "Start Meeting"; Repeat makes it a series, which is
+  // always scheduled, so the button follows.
+  it("switches the submit button to Schedule Meeting once Repeat is on", async () => {
     const user = openDialog();
-    expect(screen.getByRole("button", { name: "Schedule Meeting" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start Meeting" })).toBeInTheDocument();
     await chooseRepeat(user, "Weekly");
     expect(screen.getByRole("button", { name: "Schedule Meeting" })).toBeInTheDocument();
   });
@@ -193,8 +192,8 @@ describe("what is sent", () => {
   it("does not repeat: no recurrence, and schedules 'now' with no fixed start", async () => {
     const user = openDialog();
     await title(user);
-    await user.click(screen.getByRole("button", { name: "Schedule Meeting" }));
-    await screen.findByRole("heading", { name: "Meeting Scheduled!" });
+    await user.click(screen.getByRole("button", { name: /^(Start|Schedule) Meeting$/ }));
+    await waitFor(() => expect(onStarted).toHaveBeenCalled());
     const body = sent();
     expect(body.recurrence).toBeUndefined();
     expect(body.scheduledAt).toBeUndefined();
@@ -208,7 +207,7 @@ describe("what is sent", () => {
     await startOnMonday(user);
     await user.click(day("Wednesday"));
     await user.click(day("Friday"));
-    await user.click(screen.getByRole("button", { name: "Schedule Meeting" }));
+    await user.click(screen.getByRole("button", { name: /^(Start|Schedule) Meeting$/ }));
 
     const body = sent();
     expect(body.scheduledAt).toBe(new Date(2026, 8, 21, 10, 0).toISOString());
@@ -235,7 +234,7 @@ describe("what is sent", () => {
     const every = screen.getByLabelText("Repeat every");
     await user.clear(every);
     await user.type(every, "2");
-    await user.click(screen.getByRole("button", { name: "Schedule Meeting" }));
+    await user.click(screen.getByRole("button", { name: /^(Start|Schedule) Meeting$/ }));
 
     expect(sent().recurrence).toMatchObject({ frequency: "WEEKLY", interval: 2, weekdays: [1, 3] });
   });
@@ -247,7 +246,7 @@ describe("what is sent", () => {
       await title(user);
       await chooseRepeat(user, option);
       await startOnMonday(user);
-      await user.click(screen.getByRole("button", { name: "Schedule Meeting" }));
+      await user.click(screen.getByRole("button", { name: /^(Start|Schedule) Meeting$/ }));
       expect(sent().recurrence.frequency).toBe(frequency);
       expect(sent().recurrence).not.toHaveProperty("weekdays");
       document.body.innerHTML = "";
@@ -263,7 +262,7 @@ describe("what is sent", () => {
     await user.selectOptions(screen.getByLabelText("Ends"), "On date");
     expect(screen.getByLabelText("End date")).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("End date"), { target: { value: "2026-12-31" } });
-    await user.click(screen.getByRole("button", { name: "Schedule Meeting" }));
+    await user.click(screen.getByRole("button", { name: /^(Start|Schedule) Meeting$/ }));
     expect(sent().recurrence).toMatchObject({ endCondition: "ON_DATE", endDate: "2026-12-31" });
     expect(sent().recurrence).not.toHaveProperty("occurrenceCount");
   });
@@ -278,7 +277,7 @@ describe("what is sent", () => {
     await user.clear(count);
     await user.type(count, "12");
     expect(screen.getByText("occurrences")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Schedule Meeting" }));
+    await user.click(screen.getByRole("button", { name: /^(Start|Schedule) Meeting$/ }));
     expect(sent().recurrence).toMatchObject({ endCondition: "AFTER_OCCURRENCES", occurrenceCount: 12 });
     expect(sent().recurrence).not.toHaveProperty("endDate");
   });
@@ -289,7 +288,7 @@ describe("what is sent", () => {
     await chooseRepeat(user, "Weekly");
     // The start time was never touched: for a one-off that means "now", but there
     // is nothing to repeat from "now", so it is still sent as a scheduled time.
-    await user.click(screen.getByRole("button", { name: "Schedule Meeting" }));
+    await user.click(screen.getByRole("button", { name: /^(Start|Schedule) Meeting$/ }));
     expect(sent().scheduledAt).toBeDefined();
   });
 });
@@ -303,13 +302,13 @@ describe("validation", () => {
     await user.click(day("Monday")); // deselect the only day
     expect(screen.queryByText("Pick at least one day.")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Schedule Meeting" }));
+    await user.click(screen.getByRole("button", { name: /^(Start|Schedule) Meeting$/ }));
     expect(await screen.findByText("Pick at least one day.")).toBeInTheDocument();
     expect(h.api.scheduleMeeting).not.toHaveBeenCalled();
 
     await user.click(day("Friday"));
     expect(screen.queryByText("Pick at least one day.")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Schedule Meeting" }));
+    await user.click(screen.getByRole("button", { name: /^(Start|Schedule) Meeting$/ }));
     expect(h.api.scheduleMeeting).toHaveBeenCalledTimes(1);
   });
 
@@ -320,7 +319,7 @@ describe("validation", () => {
     await startOnMonday(user);
     const every = screen.getByLabelText("Repeat every");
     fireEvent.change(every, { target: { value } });
-    await user.click(screen.getByRole("button", { name: "Schedule Meeting" }));
+    await user.click(screen.getByRole("button", { name: /^(Start|Schedule) Meeting$/ }));
     expect(await screen.findByText("Enter a whole number from 1 to 99.")).toBeInTheDocument();
     expect(every).toHaveAttribute("aria-invalid", "true");
     expect(h.api.scheduleMeeting).not.toHaveBeenCalled();
@@ -332,7 +331,7 @@ describe("validation", () => {
     await chooseRepeat(user, "Daily");
     await startOnMonday(user);
     await user.clear(screen.getByLabelText("Repeat every"));
-    await user.click(screen.getByRole("button", { name: "Schedule Meeting" }));
+    await user.click(screen.getByRole("button", { name: /^(Start|Schedule) Meeting$/ }));
     expect(await screen.findByText("Enter a whole number from 1 to 99.")).toBeInTheDocument();
   });
 
@@ -343,7 +342,7 @@ describe("validation", () => {
     await startOnMonday(user);
     await user.selectOptions(screen.getByLabelText("Ends"), "On date");
 
-    await user.click(screen.getByRole("button", { name: "Schedule Meeting" }));
+    await user.click(screen.getByRole("button", { name: /^(Start|Schedule) Meeting$/ }));
     expect(await screen.findByText("Choose an end date.")).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("End date"), { target: { value: "2026-09-20" } });
@@ -358,7 +357,7 @@ describe("validation", () => {
     await startOnMonday(user);
     await user.selectOptions(screen.getByLabelText("Ends"), "After occurrences");
     fireEvent.change(screen.getByLabelText("Number of occurrences"), { target: { value } });
-    await user.click(screen.getByRole("button", { name: "Schedule Meeting" }));
+    await user.click(screen.getByRole("button", { name: /^(Start|Schedule) Meeting$/ }));
     expect(await screen.findByText("Enter a whole number from 1 to 999.")).toBeInTheDocument();
     expect(h.api.scheduleMeeting).not.toHaveBeenCalled();
   });
@@ -370,8 +369,8 @@ describe("validation", () => {
     await title(user);
     await chooseRepeat(user, "Weekly");
     vi.setSystemTime(new Date(OPENED_AT.getTime() + 5 * 60_000)); // the popup sat open
-    await user.click(screen.getByRole("button", { name: "Schedule Meeting" }));
-    expect(await screen.findByText("Start time can't be in the past.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /^(Start|Schedule) Meeting$/ }));
+    expect(await screen.findByText("Start time cannot be in the past.")).toBeInTheDocument();
     expect(h.api.scheduleMeeting).not.toHaveBeenCalled();
   });
 
@@ -379,7 +378,7 @@ describe("validation", () => {
     const user = openDialog();
     await title(user);
     vi.setSystemTime(new Date(OPENED_AT.getTime() + 5 * 60_000));
-    await user.click(screen.getByRole("button", { name: "Schedule Meeting" }));
+    await user.click(screen.getByRole("button", { name: /^(Start|Schedule) Meeting$/ }));
     expect(h.api.scheduleMeeting).toHaveBeenCalledTimes(1);
   });
 });

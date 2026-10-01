@@ -4,19 +4,20 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { Plus, ListTodo, Download, PinOff } from "lucide-react";
-import { Button, GlassCard, EmptyState, IconButton } from "@taskboard/ui";
-import { actionsFor, type StickyTaskDTO, type TaskAction, type UserDTO } from "@taskboard/shared";
+import { Plus, ListTodo, Download } from "lucide-react";
+import { Button, GlassCard, EmptyState } from "@taskboard/ui";
+import { actionsFor, canPinTask, type StickyTaskDTO, type TaskAction, type UserDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
 import { qk } from "../lib/queryBridge";
-import { autoPinAssignedTask, unpinAssignedTask, useAssignedTaskPin } from "../lib/taskPinPrefs";
 import { TERMINAL_VIEW_LIMIT, isTerminalView, terminalAt } from "./tasksBuckets";
+import type { ParticipantTargets } from "../features/AddParticipantsPicker";
 import { AvailablePeople } from "../features/AvailablePeople";
 import { CreateTaskDialog } from "../features/CreateTaskDialog";
 import { ExportTasksDialog } from "../features/ExportTasksDialog";
 import { MyTasksBoard } from "../features/MyTasksBoard";
 import { StickyWidget } from "../features/StickyWidget";
+import { TaskPinToggle } from "../features/TaskPinToggle";
 
 const verb: Record<TaskAction, "acknowledge" | "complete" | "ignore" | "leave"> = {
   ACKNOWLEDGE: "acknowledge", COMPLETE: "complete", IGNORE: "ignore", LEAVE: "leave",
@@ -105,23 +106,10 @@ function AssignedBucket({ view }: { view: string }) {
   const qc = useQueryClient();
   const { data: all = [] } = useQuery({ queryKey: qk.assigned, queryFn: () => api.taskAssigned() });
   const [page, setPage] = useState(1);
-  const isDesktop = config.kind === "electron";
-  const { isPinned } = useAssignedTaskPin();
 
   useEffect(() => {
     setPage(1);
   }, [view]);
-
-  // Desktop-only, device-local "pinned" marker: the first time an assigned
-  // task shows up here, mark it pinned so it carries an Unpin control. Purely
-  // client-side (see lib/taskPinPrefs) — unrelated to the Electron desktop
-  // popup (the always-on-top sticky note), which is main-process backed.
-  useEffect(() => {
-    if (!isDesktop) return;
-    for (const t of all as StickyTaskDTO[]) {
-      if (t.myStatus === "SENT" || t.myStatus === "ACKNOWLEDGED") autoPinAssignedTask(t.taskId);
-    }
-  }, [all, isDesktop]);
 
   // Desktop-only: which tasks the user has pinned to the desktop. Source of
   // truth is the Electron main process; absent on web so the button hides.
@@ -254,7 +242,7 @@ function AssignedBucket({ view }: { view: string }) {
     },
   });
   const membership = useMutation({
-    mutationFn: ({ taskId, userIds }: { taskId: string; userIds: string[] }) => api.addTaskParticipants(taskId, userIds),
+    mutationFn: ({ taskId, targets }: { taskId: string; targets: ParticipantTargets }) => api.addTaskParticipants(taskId, targets),
     onSuccess: () => {
       toast.success(t("participants.added"));
       for (const key of [qk.assigned, qk.sticky, qk.inbox, qk.sent]) void qc.invalidateQueries({ queryKey: key });
@@ -286,10 +274,8 @@ function AssignedBucket({ view }: { view: string }) {
           {tasks.map((task) => {
           // The lock tracks exactly what floats: pinned AND still acknowledged.
           // Keeps the in-app card in lockstep with the desktop note and avoids a
-          // dead/locked card for a non-acknowledged status. Pinning itself is
-          // automatic, so the card shows no pin control.
+          // dead/locked card for a non-acknowledged status.
           const floatable = pinnedIds.includes(task.taskId) && task.myStatus === "ACKNOWLEDGED";
-          const desktopPinned = isDesktop && isPinned(task.taskId);
           return (
             <motion.div
               key={task.taskId}
@@ -299,16 +285,6 @@ function AssignedBucket({ view }: { view: string }) {
               exit={{ opacity: 0, scale: 0.97 }}
               className="relative"
             >
-              {desktopPinned && (
-                <IconButton
-                  className="absolute right-2 top-2 z-10 bg-surface/90 shadow-soft"
-                  title={t("tasksPage.unpin")}
-                  aria-label={t("tasksPage.unpin")}
-                  onClick={() => unpinAssignedTask(task.taskId)}
-                >
-                  <PinOff size={15} />
-                </IconButton>
-              )}
               <StickyWidget
                 task={task}
                 onAction={(a) => act.mutate({ taskId: task.taskId, action: a })}
@@ -316,7 +292,11 @@ function AssignedBucket({ view }: { view: string }) {
                 locked={floatable}
                 currentUserId={currentUserId}
                 participantLayout="list"
-                onAddParticipants={(userIds) => membership.mutateAsync({ taskId: task.taskId, userIds }).then(() => undefined)}
+                // The top-right corner is the user's shared Pin / Unpin — only for
+                // a task that can still float. Ignore and Leave stay in the
+                // button row.
+                headerPin={canPinTask(task.myStatus) ? <TaskPinToggle taskId={task.taskId} /> : undefined}
+                onAddParticipants={(targets) => membership.mutateAsync({ taskId: task.taskId, targets }).then(() => undefined)}
                 onWithdrawParticipant={(userId) => withdrawal.mutateAsync({ taskId: task.taskId, userId }).then(() => undefined)}
               />
             </motion.div>

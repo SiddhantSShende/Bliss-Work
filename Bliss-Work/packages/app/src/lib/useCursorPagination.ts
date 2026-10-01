@@ -17,10 +17,13 @@ import { flattenNotificationPages } from "./notificationPages";
 export const THREAD_PAGE_SIZE = 12;
 export const NOTIFICATION_PAGE_SIZE = 10;
 
-export function useNotificationPages(api: ApiClient, enabled: boolean) {
+/** `read` false = the unread feed (default, `qk.notifications`); true = the read
+ *  feed (`qk.notificationsRead`). The filter runs on the server. */
+export function useNotificationPages(api: ApiClient, enabled: boolean, read = false) {
   return useInfiniteQuery({
-    queryKey: qk.notifications,
-    queryFn: ({ pageParam }) => api.notificationPage(pageParam as string | undefined, NOTIFICATION_PAGE_SIZE),
+    queryKey: read ? qk.notificationsRead : qk.notifications,
+    queryFn: ({ pageParam }) =>
+      api.notificationPage(pageParam as string | undefined, NOTIFICATION_PAGE_SIZE, read),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage: NotificationPageDTO) => lastPage.nextCursor ?? undefined,
     enabled,

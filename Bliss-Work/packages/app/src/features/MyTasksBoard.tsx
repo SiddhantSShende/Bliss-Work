@@ -8,6 +8,7 @@ import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { useUserLabels } from "../lib/userLabel";
 import { useSession } from "../store/session";
+import type { ParticipantTargets } from "./AddParticipantsPicker";
 import { TaskParticipants } from "./TaskParticipants";
 import {
   NO_SENT_FILTER,
@@ -72,7 +73,7 @@ export function MyTasksBoard() {
   const [visibleCount, setVisibleCount] = useState(VISIBLE_BATCH_SIZE);
   const [reviewTarget, setReviewTarget] = useState<{ taskId: string; assignee: SentAssignee } | null>(null);
   const membership = useMutation({
-    mutationFn: ({ taskId, userIds }: { taskId: string; userIds: string[] }) => api.addTaskParticipants(taskId, userIds),
+    mutationFn: ({ taskId, targets }: { taskId: string; targets: ParticipantTargets }) => api.addTaskParticipants(taskId, targets),
     onSuccess: () => void qc.invalidateQueries({ queryKey: qk.sent }),
     onError: (err) => toast.error(t("participants.failed"), { description: String(err) }),
   });
@@ -219,7 +220,7 @@ export function MyTasksBoard() {
                     currentUserId={currentUserId}
                     allocatorId={currentUserId}
                     layout="list"
-                    onAdd={(userIds) => membership.mutateAsync({ taskId: t.taskId, userIds }).then(() => undefined)}
+                    onAdd={(targets) => membership.mutateAsync({ taskId: t.taskId, targets }).then(() => undefined)}
                     onWithdraw={(userId) => withdrawal.mutateAsync({ taskId: t.taskId, userId }).then(() => undefined)}
                   />
                   <div className="mt-3 flex min-w-0 flex-col divide-y divide-border/50">
@@ -291,6 +292,13 @@ function ScheduledTaskCard({
     dateStyle: "medium",
     timeStyle: "short",
   });
+  // Names where the caller can still see the channel; a count when any is not
+  // (they left it, or it is gone) — never a silently shorter list.
+  const { data: channelList } = useQuery({ queryKey: qk.channels, queryFn: () => api.channels() });
+  const channelNames = schedule.channelIds.map((id) => channelList?.find((c) => c.id === id)?.name);
+  const channelsLine = channelNames.every((name) => name !== undefined)
+    ? t("myTasksBoard.scheduledChannels", { names: channelNames.map((name) => `#${name}`).join(", ") })
+    : t("myTasksBoard.scheduledChannelCount", { count: schedule.channelIds.length });
   const recurrence = schedule.kind === "RECURRING"
     ? `${schedule.frequency?.toLowerCase()} · ${schedule.interval ?? 1}x`
     : null;
@@ -310,8 +318,8 @@ function ScheduledTaskCard({
           {schedule.assignees.length > 0 && (
             <div className="mt-2 line-clamp-2 break-words text-sm text-fg">{schedule.assignees.map((assignee) => assignee.username).join(", ")}</div>
           )}
-          {schedule.assignees.length === 0 && schedule.channelId && (
-            <div className="mt-2 text-sm text-fg">Channel assignment</div>
+          {schedule.channelIds.length > 0 && (
+            <div className="mt-2 line-clamp-2 break-words text-sm text-fg">{channelsLine}</div>
           )}
           <div className="mt-3 flex flex-wrap gap-2">
             {editing ? (
