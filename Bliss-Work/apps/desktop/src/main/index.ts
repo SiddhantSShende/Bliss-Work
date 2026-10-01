@@ -40,7 +40,8 @@ import { locationSettingsUrl } from "../shared/location-settings";
 import { mediaSettingsUrl } from "../shared/media-settings";
 import { initScreenshotGuard } from "./screenshot-guard";
 import { initWindowStateGuard } from "./window-state-guard";
-import { incomingCallPopup, popupFor, raise, shouldNotify, userIdFromToken, windowStateOf } from "./notifier";
+import { incomingCallPopup, notificationPathFor, popupFor, raise, shouldNotify, userIdFromToken, windowStateOf } from "./notifier";
+import { openNotificationTarget } from "./notification-open";
 import { resolveEndpointsFromEnv } from "../shared/endpoints";
 import { findDeepLink, parseDeepLink } from "../shared/deeplink";
 import { openExternalSafely } from "./harden";
@@ -583,7 +584,11 @@ function maybeNotify(event: unknown) {
   if (!notificationPrefs.getDesktopEnabled()) return;
   if (!shouldNotify(windowStateOf(mainWindow))) return;
   const popup = popupFor(event, sessionUserId);
-  if (popup) raise(popup, focusMain);
+  // Clicking brings the app forward AND shows this notification's own target —
+  // computed now, from this event, so a later click on an older popup cannot
+  // reuse a newer one's destination.
+  const path = notificationPathFor(event, sessionUserId);
+  if (popup) raise(popup, () => openNotificationTarget(path, focusMain, () => mainWindow));
 }
 
 function quitApp() {

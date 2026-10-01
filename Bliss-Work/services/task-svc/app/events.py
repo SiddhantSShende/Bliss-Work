@@ -120,6 +120,24 @@ def task_left(
     }
 
 
+def task_missed(
+    *, org_id: str, task_id: str, assignee_id: str, sender_id: str,
+    status_version: int, assignee_username: str,
+) -> dict:
+    # Emitted by task-svc itself (never a client action) when an assignment's
+    # deadline passed before it was completed — see app/deadlines.py. Routed to
+    # [senderId, assigneeId] like the other outcomes, so the assignee's cards move
+    # to Missed live and the allocator's board refreshes.
+    return {
+        **_envelope(org_id, "task.missed"),
+        "taskId": task_id,
+        "assigneeId": assignee_id,
+        "senderId": sender_id,
+        "statusVersion": status_version,
+        "assigneeUsername": assignee_username,
+    }
+
+
 def task_deleted(
     *, org_id: str, task_id: str, assignee_id: str, sender_id: str,
     status_version: int,

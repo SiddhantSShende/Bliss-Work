@@ -4,6 +4,7 @@ import { Avatar, Badge } from "@taskboard/ui";
 import type { StickyTaskDTO, TaskAction } from "@taskboard/shared";
 import type { ParticipantTargets } from "./AddParticipantsPicker";
 import { TaskParticipantAdd, TaskParticipants } from "./TaskParticipants";
+import { TaskTimes } from "./TaskTimes";
 
 /**
  * Presentational task card. Used inline in the Tasks/Inbox screens and as the
@@ -97,7 +98,14 @@ export function StickyWidget({
   // buttons would otherwise stack into a second row there. Below 15rem of row width
   // the (decorative) icons give way instead, so the labels stay whole and the
   // buttons stay on one line. Only the compact note: an in-app card just grows.
-  const rowIcon = compact ? "@max-[15rem]/actions:hidden" : "";
+  //
+  // The in-app card has the same ladder one step lower: a label is only ever
+  // squeezed once the row is narrower than the longest one, and then in order —
+  // icons go (<9rem), then padding (see ActionBtn), then, below what the longest
+  // label can fit in at all (<7rem), each button takes its own line and the word
+  // may finally break rather than leave its button and the card. Above 9rem
+  // nothing here applies, so a card that fits looks exactly as before.
+  const rowIcon = compact ? "@max-[15rem]/actions:hidden" : "@max-[9rem]/actions:hidden";
 
   const avatar = <Avatar name={senderName} size="sm" />;
   const titleBlock = (
@@ -114,11 +122,10 @@ export function StickyWidget({
       <div className="truncate text-xs text-muted">{t("card.from", { name: senderName })}</div>
     </div>
   );
-  const statusBadge = (
-    <Badge tone={task.myStatus === "ACKNOWLEDGED" ? "accent" : "neutral"}>
-      {task.myStatus.toLowerCase()}
-    </Badge>
-  );
+  // A missed task reads as such at a glance: danger badge here, danger "Missed" chip
+  // and a danger-tinted border below.
+  const badgeTone = task.myStatus === "ACKNOWLEDGED" ? "accent" : task.myStatus === "MISSED" ? "danger" : "neutral";
+  const statusBadge = <Badge tone={badgeTone}>{task.myStatus.toLowerCase()}</Badge>;
 
   // Whole surface is the OS-window drag region so the user can grab the note
   // from anywhere — title, body, even the empty space below the description.
@@ -128,7 +135,9 @@ export function StickyWidget({
   // expected to be a bug.
   return (
     <div
-      className={`app-drag flex min-w-0 flex-col gap-3 rounded-2xl border border-border bg-surface p-4 ${
+      className={`app-drag flex min-w-0 flex-col gap-3 rounded-2xl border bg-surface p-4 ${
+        task.myStatus === "MISSED" ? "border-danger/40" : "border-border"
+      } ${
         // The floating note lives in a fixed-size, user-resizable OS window
         // whose document is `overflow: hidden` — anything taller than the window
         // is not scrolled, it is silently cut off. Capping the card at the
@@ -164,7 +173,7 @@ export function StickyWidget({
                   in a very narrow card (e.g. 2 columns at 150% zoom). Tighter
                   padding there keeps it from truncating until it truly must. */}
               <Badge
-                tone={task.myStatus === "ACKNOWLEDGED" ? "accent" : "neutral"}
+                tone={badgeTone}
                 className="min-w-0 max-w-full px-1.5 tracking-normal @min-[11rem]:px-2 @min-[11rem]:tracking-wide"
               >
                 <span className="truncate">{task.myStatus.toLowerCase()}</span>
@@ -249,6 +258,8 @@ export function StickyWidget({
         </p>
       )}
 
+      <TaskTimes assignedAt={task.assignedAt} deadlineAt={task.deadlineAt} missedAt={task.missedAt} />
+
       {currentUserId && task.participants.length > 0 && (
         <TaskParticipants
           participants={task.participants}
@@ -284,7 +295,7 @@ export function StickyWidget({
           is never split; `max-w-full` caps that at the card's width. Do NOT add
           `overflow-wrap: anywhere` here: it shrinks min-content to one letter and
           lets "Acknowledge" break mid-word. */}
-      <div className={`app-no-drag flex min-w-0 shrink-0 flex-wrap gap-2 ${compact ? "@container/actions" : ""}`}>
+      <div className="app-no-drag @container/actions flex min-w-0 shrink-0 flex-wrap gap-2">
         {task.actions.includes("ACKNOWLEDGE") && !locked && (
           <ActionBtn tight={compact} tone="accent" label={t("card.acknowledge")} disabled={busy} onClick={() => onAction("ACKNOWLEDGE")}>
             <Check size={15} className={rowIcon} /> {t("card.acknowledge")}
@@ -343,7 +354,7 @@ function ActionBtn({
       onClick={onClick}
       disabled={disabled}
       title={label}
-      className={`inline-flex max-w-full flex-1 basis-0 items-center justify-center gap-1.5 whitespace-normal rounded-xl px-2.5 py-2 text-center text-sm font-medium transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 ${tight ? "@max-[15rem]/actions:px-2" : ""} ${tones[tone]}`}
+      className={`inline-flex max-w-full flex-1 basis-0 items-center justify-center gap-1.5 whitespace-normal rounded-xl px-2.5 py-2 text-center text-sm font-medium transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 @max-[9rem]/actions:px-1.5 @max-[7rem]/actions:basis-full @max-[7rem]/actions:[overflow-wrap:anywhere] ${tight ? "@max-[15rem]/actions:px-2" : ""} ${tones[tone]}`}
     >
       {children}
     </button>

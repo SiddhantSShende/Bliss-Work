@@ -14,14 +14,18 @@ import {
   NO_SENT_FILTER,
   STATUS_FILTERS,
   filterSentTasks,
+  isCompletedTask,
   isFiltering,
   markedDays,
   personOptions,
   type SentAssignee,
   type SentTaskFilter,
 } from "../lib/sentTaskFilter";
+import { describeDeadlineRule } from "../lib/taskDates";
 import { CreateReviewDialog } from "./CreateReviewDialog";
+import { TaskTimes } from "./TaskTimes";
 import { MiniTaskCalendar } from "./MiniTaskCalendar";
+import { ReassignTaskButton } from "./ReassignTaskButton";
 
 /** Tasks fetched per request — the server's maximum page. */
 const PAGE_SIZE = 100;
@@ -44,7 +48,7 @@ function fmtTs(iso?: string | null, lang?: string): string {
 
 type BadgeTone = "success" | "accent" | "danger" | "neutral";
 const statusTone = (s: string): BadgeTone =>
-  s === "COMPLETED" ? "success" : s === "ACKNOWLEDGED" ? "accent" : s === "IGNORED" || s === "LEFT" ? "danger" : "neutral";
+  s === "COMPLETED" ? "success" : s === "ACKNOWLEDGED" ? "accent" : s === "IGNORED" || s === "LEFT" || s === "MISSED" ? "danger" : "neutral";
 
 /** Toggle `value` in an immutable set. */
 function toggled<T>(set: ReadonlySet<T>, value: T): Set<T> {
@@ -215,6 +219,9 @@ export function MyTasksBoard() {
                     <div className="min-w-0 flex-1 line-clamp-2 break-words font-semibold text-fg">{t.title}</div>
                   </div>
                   {t.description && <p className="mt-1 min-w-0 line-clamp-3 break-words text-sm text-muted">{t.description}</p>}
+                  {/* Only a task that has a deadline shows one; each assignee's own
+                      allocation time is in their timeline below. */}
+                  <TaskTimes deadlineAt={t.deadlineAt} className="mt-2" />
                   <TaskParticipants
                     participants={t.participants?.length ? t.participants : assignees.map((a) => ({ userId: a.assigneeId, username: a.assigneeUsername, status: a.status }))}
                     currentUserId={currentUserId}
@@ -232,6 +239,8 @@ export function MyTasksBoard() {
                       />
                     ))}
                   </div>
+                  {/* Judged on the task's own rows, not the filtered `assignees`. */}
+                  {isCompletedTask(t) && <ReassignTaskButton taskId={t.taskId} />}
                 </GlassCard>
               ))}
             </div>
@@ -315,6 +324,14 @@ function ScheduledTaskCard({
             <div className="mt-1 text-sm text-muted">{date}</div>
           )}
           {recurrence && <div className="mt-1 text-xs text-muted">{recurrence}</div>}
+          {/* A one-off schedule has its absolute deadline; a series has the rule each
+              occurrence's deadline is worked out from. Neither ⇒ nothing is shown. */}
+          {schedule.deadlineAt && <TaskTimes deadlineAt={schedule.deadlineAt} className="mt-2" />}
+          {schedule.deadlineRule && (
+            <div className="mt-1 break-words text-xs text-muted">
+              {t("deadline.label")}: {describeDeadlineRule(schedule.deadlineRule)}
+            </div>
+          )}
           {schedule.assignees.length > 0 && (
             <div className="mt-2 line-clamp-2 break-words text-sm text-fg">{schedule.assignees.map((assignee) => assignee.username).join(", ")}</div>
           )}
@@ -349,6 +366,7 @@ function AssigneeTimeline({ assignee: a, onReview }: { assignee: SentAssignee; o
     { label: t("myTasksBoard.milestones.ignored"), at: a.ignoredAt },
     { label: t("myTasksBoard.milestones.completed"), at: a.completedAt },
     { label: t("myTasksBoard.milestones.left"), at: a.leftAt },
+    { label: t("myTasksBoard.milestones.missed"), at: a.missedAt },
     { label: t("myTasksBoard.milestones.reviewed"), at: a.reviewedAt },
   ].filter((m) => m.at);
 

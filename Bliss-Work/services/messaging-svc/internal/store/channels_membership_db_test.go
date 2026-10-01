@@ -119,15 +119,18 @@ func TestCreateChannelPersistsSystemMessage(t *testing.T) {
 		t.Fatalf("CreateChannel: %v", err)
 	}
 
+	// The creation message only: the seeded member's "was added" message is its
+	// own kind and is covered in channels_system_messages_db_test.go.
 	var messageID, senderID, kind string
 	if err := s.withBypass(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx,
-			`SELECT id::text, sender_id::text, kind FROM channel_messages WHERE channel_id = $1`, channel.ID).
+			`SELECT id::text, sender_id::text, kind FROM channel_messages WHERE channel_id = $1 AND kind = $2`,
+			channel.ID, MessageKindChannelCreated).
 			Scan(&messageID, &senderID, &kind)
 	}); err != nil {
 		t.Fatalf("read system message: %v", err)
 	}
-	if got := decryptedBody(t, s, orgID, "channel_messages", "id", messageID); got != "Jordan Doe created channel project room" {
+	if got := decryptedBody(t, s, orgID, "channel_messages", "id", messageID); got != "Jordan Doe created the channel project room" {
 		t.Errorf("system message = %q", got)
 	}
 	if senderID != creatorID || kind != MessageKindChannelCreated {
@@ -187,7 +190,7 @@ func TestAddChannelMembersPersistsSingleSystemMessageAndJoinedEvent(t *testing.T
 	}); err != nil {
 		t.Fatalf("read member-added system message: %v", err)
 	}
-	if got := decryptedBody(t, s, orgID, "channel_messages", "id", messageID); got != "Jordan Doe added Alex Lee to the channel" {
+	if got := decryptedBody(t, s, orgID, "channel_messages", "id", messageID); got != "Alex Lee joined the channel" {
 		t.Errorf("system message = %q", got)
 	}
 	if senderID != actorID || kind != MessageKindChannelMemberAdded {

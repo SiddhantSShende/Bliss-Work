@@ -30,7 +30,7 @@ from kafka_security import kafka_security_kwargs
 
 from .config import settings
 from .db import session, set_bypass_rls
-from .event_map import MAPPINGS, preview_of
+from .event_map import MAPPINGS, detail_value_of, preview_of
 from .ingest import ActivityRow, clamp_occurred_at, insert_events
 from .logging_setup import log
 from .org_purge import purge_org
@@ -329,6 +329,10 @@ def to_activity_row(event: object) -> ActivityRow | None:
         preview = preview_of(event.get(mapping.preview_field))
         if preview:
             detail["preview"] = preview
+    for detail_key, event_key in mapping.detail_fields:
+        value = detail_value_of(event.get(event_key))
+        if value is not None:
+            detail[detail_key] = value
 
     return ActivityRow(
         org_id=org_id,

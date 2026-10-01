@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import datetime, timezone
+from datetime import time as time_of_day_t
 from typing import Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-AssigneeStatus = Literal["SENT", "IGNORED", "ACKNOWLEDGED", "COMPLETED", "LEFT"]
+AssigneeStatus = Literal["SENT", "IGNORED", "ACKNOWLEDGED", "COMPLETED", "LEFT", "MISSED"]
 TaskActionT = Literal["ACKNOWLEDGE", "IGNORE", "COMPLETE", "LEAVE"]
 
 # Cap on how many people one task-create request can fan out to. Applied here
@@ -21,6 +24,66 @@ MAX_ASSIGNEES = 500
 MAX_CHANNELS_PER_TASK = 20
 
 
+# Longest "N after each occurrence" a recurring deadline may be, in minutes. A
+# deadline a year out is a plausible annual review; beyond that it is a typo.
+MAX_RELATIVE_DEADLINE_MINUTES = 366 * 24 * 60
+_UNIT_MINUTES = {"MINUTES": 1, "HOURS": 60, "DAYS": 24 * 60}
+_TIME_OF_DAY = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
+
+
+class DeadlineRuleSpec(BaseModel):
+    """How a recurring series derives the deadline of each occurrence.
+
+    A series has no single deadline — every occurrence needs its own — so the
+    series stores this RULE and task-svc resolves it against each occurrence's own
+    time (app/deadlines.py). Also the shape the rule is read back in.
+
+      RELATIVE    `amount` `unit` after the occurrence. MINUTES and HOURS are
+                  elapsed time; DAYS are calendar days on the wall clock of
+                  `timeZone` (so "1 day after Monday 10:00" is Tuesday 10:00 even
+                  across a DST change).
+      FIXED_TIME  `time` ("HH:MM") on the occurrence's own date, in `timeZone`.
+    """
+
+    kind: Literal["RELATIVE", "FIXED_TIME"]
+    amount: int | None = Field(default=None, ge=1, le=MAX_RELATIVE_DEADLINE_MINUTES)
+    unit: Literal["MINUTES", "HOURS", "DAYS"] | None = None
+    time: str | None = None
+    # IANA zone the rule is read in (e.g. "America/New_York"), sent by the client
+    # because an offset alone cannot say what a wall-clock time means after a DST
+    # change.
+    timeZone: str = Field(min_length=1, max_length=64)
+
+    @field_validator("timeZone")
+    @classmethod
+    def _time_zone_is_known(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError, OSError) as exc:
+            raise ValueError("timeZone must be a valid IANA time zone") from exc
+        return value
+
+    @model_validator(mode="after")
+    def _validate_rule(self) -> "DeadlineRuleSpec":
+        if self.kind == "RELATIVE":
+            if self.amount is None or self.unit is None:
+                raise ValueError("a relative deadline requires amount and unit")
+            if self.time is not None:
+                raise ValueError("time is only valid for a fixed-time deadline")
+            if self.amount * _UNIT_MINUTES[self.unit] > MAX_RELATIVE_DEADLINE_MINUTES:
+                raise ValueError("a relative deadline may be at most 366 days")
+        else:
+            if self.time is None or not _TIME_OF_DAY.match(self.time):
+                raise ValueError("a fixed-time deadline requires time as HH:MM")
+            if self.amount is not None or self.unit is not None:
+                raise ValueError("amount and unit are only valid for a relative deadline")
+        return self
+
+    def time_of_day(self) -> time_of_day_t:
+        hour, minute = (int(part) for part in (self.time or "00:00").split(":"))
+        return time_of_day_t(hour, minute)
+
+
 class RecurrenceSpec(BaseModel):
     startAt: datetime
     frequency: Literal["DAILY", "WEEKLY", "MONTHLY"]
@@ -33,6 +96,8 @@ class RecurrenceSpec(BaseModel):
     endCondition: Literal["NO_END", "AFTER_OCCURRENCES", "ON_DATE"] = "NO_END"
     endAt: datetime | None = None
     occurrenceCount: int | None = Field(default=None, ge=1, le=100_000)
+    # Absent = no deadline, exactly as before this field existed.
+    deadline: DeadlineRuleSpec | None = None
 
     @field_validator("startAt", "endAt")
     @classmethod
@@ -76,6 +141,13 @@ class RecurrenceSpec(BaseModel):
                 raise ValueError("endAt must be after startAt")
         elif self.endAt is not None or self.occurrenceCount is not None:
             raise ValueError("endAt and occurrenceCount must match endCondition")
+        if self.deadline is not None and self.deadline.kind == "FIXED_TIME":
+            # Every occurrence happens at the start's time of day, so a fixed time
+            # that is not later than it would put each deadline at or before its
+            # own occurrence — every task born already missed.
+            start_local = self.startAt.astimezone(ZoneInfo(self.deadline.timeZone)).time()
+            if self.deadline.time_of_day() <= start_local.replace(second=0, microsecond=0):
+                raise ValueError("a fixed deadline time must be later than the recurrence's start time")
         return self
 
 
@@ -103,12 +175,15 @@ class CreateTaskRequest(BaseModel):
     allocation: Literal["NOW", "SCHEDULED", "RECURRING"] = "NOW"
     scheduledFor: datetime | None = None
     recurrence: RecurrenceSpec | None = None
+    # One concrete deadline, for an immediate or one-off scheduled task. A
+    # recurring series carries a RULE instead (`recurrence.deadline`).
+    deadlineAt: datetime | None = None
 
-    @field_validator("scheduledFor")
+    @field_validator("scheduledFor", "deadlineAt")
     @classmethod
     def _scheduled_for_is_aware(cls, value: datetime | None) -> datetime | None:
         if value is not None and value.tzinfo is None:
-            raise ValueError("scheduledFor must include a timezone")
+            raise ValueError("datetimes must include a timezone")
         return value
 
     @model_validator(mode="after")
@@ -127,6 +202,13 @@ class CreateTaskRequest(BaseModel):
             raise ValueError("recurrence is required")
         if self.allocation == "RECURRING" and self.scheduledFor is not None:
             raise ValueError("scheduledFor is only valid for scheduled allocation")
+        if self.deadlineAt is not None:
+            if self.allocation == "RECURRING":
+                raise ValueError("a recurring task takes a deadline rule (recurrence.deadline), not deadlineAt")
+            # The deadline must be after the moment the task actually lands.
+            starts_at = self.scheduledFor if self.allocation == "SCHEDULED" else datetime.now(timezone.utc)
+            if self.deadlineAt <= starts_at:
+                raise ValueError("deadlineAt must be in the future and after the task is allocated")
         return self
 
     @field_validator("channelId")
@@ -201,6 +283,10 @@ class ScheduledTaskDTO(BaseModel):
     occurrenceLimit: int | None = None
     occurrenceCount: int
     assignees: list[ScheduledAssignee]
+    # SCHEDULED: the one absolute deadline. RECURRING: the rule each occurrence's
+    # deadline is resolved from. Both null when the task has no deadline.
+    deadlineAt: str | None = None
+    deadlineRule: DeadlineRuleSpec | None = None
 
 
 class UpdateScheduleRequest(BaseModel):
@@ -268,6 +354,11 @@ class StickyTaskDTO(BaseModel):
     reviewedAt: str | None = None
     review: str | None = None
     reviewRating: int | None = None
+    # When this task is due (null = no deadline) and, once the deadline passed
+    # before it was done, when it became MISSED. `assignedAt` above is the other
+    # half of the pair a card shows.
+    deadlineAt: str | None = None
+    missedAt: str | None = None
     participants: list[dict]
 
 
@@ -286,6 +377,7 @@ class SentAssignee(BaseModel):
     reviewedAt: str | None = None
     review: str | None = None
     reviewRating: int | None = None
+    missedAt: str | None = None
 
 
 class SentTaskDTO(BaseModel):
@@ -293,6 +385,7 @@ class SentTaskDTO(BaseModel):
     title: str
     description: str
     createdAt: str
+    deadlineAt: str | None = None
     assignees: list[SentAssignee]
     participants: list[dict]
 
@@ -334,6 +427,8 @@ class TaskExportRow(BaseModel):
     reviewedAt: str | None = None
     review: str | None = None
     reviewRating: int | None = None
+    deadlineAt: str | None = None
+    missedAt: str | None = None
 
 
 # ── Availability roster ───────────────────────────────────────────────────────

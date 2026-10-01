@@ -34,6 +34,10 @@ from dataclasses import dataclass
 # even though the raw body rides the Kafka event in the clear.
 ENVELOPE_SENTINEL = "\x1f"
 PREVIEW_MAX_CHARS = 120
+# Longest a copied detail value may be. Filenames are the longest thing mapped
+# (a sanitised filename is already short); the cap is what stops a hostile or
+# buggy producer parking a megabyte in an encrypted-but-still-stored column.
+DETAIL_VALUE_MAX_CHARS = 255
 
 
 @dataclass(frozen=True)
@@ -49,6 +53,12 @@ class Mapping:
     # Event key whose value becomes the encrypted preview. Only message bodies
     # qualify; task titles are already reachable from the target id.
     preview_field: str | None = None
+    # (detail key, event key) pairs copied into the same encrypted detail. For
+    # events that carry a few scalar facts worth keeping beside the row — a
+    # downloaded file's name and type — rather than one message body. Values are
+    # stored as bounded strings (see detail_value_of): the timeline contract is
+    # dict[str, str], and nothing an aggregate needs to GROUP BY belongs here.
+    detail_fields: tuple[tuple[str, str], ...] = ()
 
 
 MAPPINGS: dict[str, Mapping] = {
@@ -73,6 +83,21 @@ MAPPINGS: dict[str, Mapping] = {
     ),
     "conversation.unblocked": Mapping(
         "unblockedBy", "moderation", "user.unblocked", "chats", "conversation", "conversationId",
+    ),
+    # A reader explicitly started a download of a mail's file ("download
+    # initiated" — the bytes are served by GET /media, which this never sees).
+    # Emitted by messaging-svc in the same transaction that validated the reader,
+    # the mail and the file, so the row is server-observed like every other one
+    # here. Preview and Open never emit it. Nothing is sent to the mail's sender.
+    "mail.attachment.downloaded": Mapping(
+        "actorId", "engagement", "mail.attachment.downloaded", "mail", "attachment",
+        "attachmentId",
+        detail_fields=(
+            ("filename", "filename"),
+            ("mime", "mime"),
+            ("sizeBytes", "sizeBytes"),
+            ("mailId", "mailId"),
+        ),
     ),
     # ── tasks ──────────────────────────────────────────────────────────────────
     # task.assigned is attributed to the ALLOCATOR (senderId) — they performed it.
@@ -100,6 +125,24 @@ MAPPINGS: dict[str, Mapping] = {
     "user.session.ended": Mapping("userId", "auth", "logout"),
     "user.org_switched": Mapping("userId", "auth", "org.switched"),
 }
+
+
+def detail_value_of(value: object) -> str | None:
+    """A scalar event field as a bounded, non-empty string, or None to omit it.
+
+    Strings and ints only: a bool, a list or a nested object is not a fact this
+    mapping knows how to store safely, so it is dropped rather than repr()'d.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return str(value)
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    return text[:DETAIL_VALUE_MAX_CHARS]
 
 
 def preview_of(body: object) -> str | None:

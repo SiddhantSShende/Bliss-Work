@@ -215,3 +215,53 @@ func TestMessagePreviewRemovesStructuredPayloadAndBoundsText(t *testing.T) {
 		t.Fatalf("long message preview length/content = %d/%q", len([]rune(got)), got)
 	}
 }
+
+// A nil tx is deliberate in the next two tests: each case must return before
+// create() touches the database, so a regression that starts notifying would
+// panic here instead of quietly passing.
+func TestChannelMemberJoinedSkipsSelfJoinAndUnknownActor(t *testing.T) {
+	c := newTestConsumer()
+	orgID, userID := uuid.NewString(), uuid.NewString()
+	cases := []struct {
+		name    string
+		actorID string
+	}{
+		{"self join", userID},
+		{"producer without actorId", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			value, err := json.Marshal(events.ChannelMemberJoined{
+				Type: events.TypeChannelMemberJoined, EventID: uuid.NewString(), OrgID: orgID,
+				ChannelID: uuid.NewString(), ChannelName: "project room", UserID: userID, ActorID: tc.actorID,
+			})
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+			if err := c.channelMemberJoined(context.Background(), nil, value); err != nil {
+				t.Fatalf("channelMemberJoined() = %v, want nil (no notification)", err)
+			}
+		})
+	}
+}
+
+// The "<actor> added <user> to the channel" system message is fanned out to the
+// whole roster as a channel.message.created event. It must not also become a
+// CHANNEL_MESSAGE notification — the added user's single notification is the
+// CHANNEL_ADDED row from channel.member.joined.
+func TestChannelMessageCreatedIgnoresMemberAddedSystemMessage(t *testing.T) {
+	c := newTestConsumer()
+	actorID, addedID := uuid.NewString(), uuid.NewString()
+	value, err := json.Marshal(events.ChannelMessageCreated{
+		Type: events.TypeChannelMessageCreated, EventID: uuid.NewString(), OrgID: uuid.NewString(),
+		ChannelID: uuid.NewString(), MessageID: uuid.NewString(), SenderID: actorID,
+		ChannelName: "project room", Body: "Jordan Doe added Alex Lee to the channel project room",
+		Kind: "channel_member_added", Members: []string{actorID, addedID, uuid.NewString()},
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if err := c.channelMessageCreated(context.Background(), nil, value); err != nil {
+		t.Fatalf("channelMessageCreated() = %v, want nil (no notification)", err)
+	}
+}

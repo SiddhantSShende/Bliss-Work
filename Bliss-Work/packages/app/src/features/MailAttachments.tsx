@@ -4,6 +4,7 @@ import {
   X,
   Loader2,
   AlertCircle,
+  Download,
   ExternalLink,
   Eye,
   File as FileIcon,
@@ -14,6 +15,7 @@ import {
 import type { AttachmentDTO, MailAttachmentDTO } from "@taskboard/shared";
 import { useTranslation } from "react-i18next";
 import { useAttachmentLinks } from "../lib/useAttachmentLinks";
+import { useMailAttachmentDownload } from "../lib/useMailAttachmentDownload";
 import { toast } from "sonner";
 import { useRuntime } from "../lib/runtime";
 import { errorText } from "../lib/errorText";
@@ -262,6 +264,10 @@ export function MailAttachmentTray({
   );
 }
 
+/** Shared look of the Preview / Open / Download actions on a card. */
+const ACTION_CLASS =
+  "inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 font-medium text-accent hover:bg-accent-soft";
+
 /** MailAttachmentDTO, reshaped for the same Lightbox chat attachments preview
  *  in — Lightbox only needs the fields it actually renders. */
 function toMediaItem(a: MailAttachmentDTO): MediaItem {
@@ -293,11 +299,12 @@ function toMediaItem(a: MailAttachmentDTO): MediaItem {
  * file itself rather than on the system browser. Web has no such capability
  * and keeps the `target="_blank"` anchor exactly as before.
  */
-export function MailAttachmentCards({ attachments }: { attachments: MailAttachmentDTO[] }) {
+export function MailAttachmentCards({ mailId, attachments }: { mailId: string; attachments: MailAttachmentDTO[] }) {
   const { t } = useTranslation("mail");
   const { config } = useRuntime();
   const ids = useMemo(() => attachments.map((a) => a.id), [attachments]);
   const links = useAttachmentLinks(ids);
+  const download = useMailAttachmentDownload(mailId);
   const [preview, setPreview] = useState<MailAttachmentDTO | null>(null);
   if (attachments.length === 0) return null;
 
@@ -316,12 +323,12 @@ export function MailAttachmentCards({ attachments }: { attachments: MailAttachme
           return (
             <li
               key={a.id}
-              className="flex items-center gap-2.5 rounded-xl border border-border bg-surface px-3 py-2.5 text-xs transition-colors hover:border-accent/40"
+              className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 rounded-xl border border-border bg-surface px-3 py-2.5 text-xs transition-colors hover:border-accent/40"
             >
               <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${tone}`}>
                 <Icon size={17} />
               </span>
-              <span className="min-w-0 flex-1">
+              <span className="min-w-[7rem] flex-1">
                 <span className="block truncate font-medium text-fg">{a.filename}</span>
                 <span className="block truncate text-muted">{formatBytes(a.sizeBytes)}</span>
               </span>
@@ -331,7 +338,7 @@ export function MailAttachmentCards({ attachments }: { attachments: MailAttachme
                   onClick={() => setPreview(a)}
                   title={t("attachments.previewFile", { filename: a.filename })}
                   aria-label={t("attachments.previewFile", { filename: a.filename })}
-                  className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 font-medium text-accent hover:bg-accent-soft"
+                  className={ACTION_CLASS}
                 >
                   <Eye size={14} /> {t("attachments.preview")}
                 </button>
@@ -341,7 +348,7 @@ export function MailAttachmentCards({ attachments }: { attachments: MailAttachme
                   onClick={() => void openNatively(a.filename, url)}
                   title={t("attachments.openFile", { filename: a.filename })}
                   aria-label={t("attachments.openFile", { filename: a.filename })}
-                  className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 font-medium text-accent hover:bg-accent-soft"
+                  className={ACTION_CLASS}
                 >
                   <ExternalLink size={14} /> {t("attachments.open")}
                 </button>
@@ -352,7 +359,7 @@ export function MailAttachmentCards({ attachments }: { attachments: MailAttachme
                   rel="noopener noreferrer"
                   title={t("attachments.openFile", { filename: a.filename })}
                   aria-label={t("attachments.openFile", { filename: a.filename })}
-                  className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 font-medium text-accent hover:bg-accent-soft"
+                  className={ACTION_CLASS}
                 >
                   <ExternalLink size={14} /> {t("attachments.open")}
                 </a>
@@ -363,6 +370,20 @@ export function MailAttachmentCards({ attachments }: { attachments: MailAttachme
                 <span className="shrink-0 text-muted">
                   {links.isLoading ? t("attachments.preparing") : t("attachments.unavailable")}
                 </span>
+              )}
+              {/* The one explicit download, for every type — images and other
+                  previewable files included. Separate from Preview/Open above,
+                  which never save and are never counted as downloads. */}
+              {url && (
+                <button
+                  type="button"
+                  onClick={() => download({ id: a.id, name: a.filename }, url)}
+                  title={t("attachments.downloadFile", { filename: a.filename })}
+                  aria-label={t("attachments.downloadFile", { filename: a.filename })}
+                  className={ACTION_CLASS}
+                >
+                  <Download size={14} /> {t("attachments.download")}
+                </button>
               )}
             </li>
           );

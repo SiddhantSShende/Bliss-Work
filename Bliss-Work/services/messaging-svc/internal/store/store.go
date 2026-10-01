@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -611,14 +612,38 @@ const (
 	MessageKindChannelRenamed       = "channel_renamed"
 	MessageKindChannelCreated       = "channel_created"
 	MessageKindChannelMemberAdded   = "channel_member_added"
+	// MessageKindChannelForwardNotice is posted into a LOCKED channel when a
+	// message that originated there is forwarded (see forward_notice.go). Server
+	// only: the body names the forwarder, so it stays out of ValidMessageKind for
+	// the same reason MessageKindForwardExternal does.
+	MessageKindChannelForwardNotice = "channel_forward_notice"
 )
 
 // ValidMessageKind reports whether a CLIENT-SUPPLIED kind is one we accept on
 // the send path. Server-derived kinds are set through appendOpts.kind and are
 // intentionally absent here — see MessageKindForwardExternal.
 func ValidMessageKind(kind string) bool {
-	return kind == MessageKindText || kind == MessageKindCallMissed || kind == MessageKindScreenshotAttempt ||
-		kind == MessageKindAttachmentOpened || kind == MessageKindAttachmentDownloaded
+	return slices.Contains(clientMessageKinds, kind)
+}
+
+// clientMessageKinds is the one list of kinds a client may trigger — the
+// complement of which is everything the server alone authors.
+var clientMessageKinds = []string{
+	MessageKindText, MessageKindCallMissed, MessageKindScreenshotAttempt,
+	MessageKindAttachmentOpened, MessageKindAttachmentDownloaded,
+}
+
+// IsServerAuthoredKind reports whether a stored message's kind is one only the
+// server writes: channel_created / channel_renamed / channel_member_added,
+// channel_forward_notice, forward_external, and any kind added later that has
+// not been put on the client list. It is the complement of ValidMessageKind
+// rather than a second list, so a new server-only kind is protected by default.
+//
+// The sender_id of such a row is the principal that caused the write, not an
+// author in the sense of someone who said it — so authorship must never grant
+// the right to retract it (see DeleteChannelMessageForAll).
+func IsServerAuthoredKind(kind string) bool {
+	return !ValidMessageKind(kind)
 }
 
 // screenshotAttemptBody is the ONLY text a MessageKindScreenshotAttempt

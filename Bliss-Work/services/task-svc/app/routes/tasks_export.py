@@ -87,7 +87,7 @@ async def export_tasks(
                     "SELECT t.id, t.org_id, t.title_enc, t.description_enc, "
                     "       t.sender_id, ta.assignee_id, ta.status, "
                     "       ta.assigned_at, ta.acknowledged_at, ta.ignored_at, "
-                    "       ta.completed_at, ta.left_at, ta.reviewed_at, "
+                    "       ta.completed_at, ta.left_at, ta.missed_at, t.deadline_at, ta.reviewed_at, "
                     "       ta.review_enc, ta.review_rating, "
                     "       CASE WHEN ta.completed_at IS NOT NULL "
                     "            THEN EXTRACT(EPOCH FROM (ta.completed_at - ta.assigned_at))::bigint "
@@ -131,6 +131,8 @@ async def export_tasks(
                     ignoredAt=iso(r.ignored_at),
                     completedAt=iso(r.completed_at),
                     leftAt=iso(r.left_at),
+                    deadlineAt=iso(r.deadline_at),
+                    missedAt=iso(r.missed_at),
                     timeTakenSeconds=(
                         int(r.time_taken_seconds)
                         if r.time_taken_seconds is not None

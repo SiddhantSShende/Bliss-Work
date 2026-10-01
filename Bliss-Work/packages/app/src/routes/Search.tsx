@@ -21,7 +21,7 @@ import { useGoBack } from "../lib/useGoBack";
 import { CHATS_PATH, useSelectedChat } from "../lib/selectedChat";
 
 const bucket = (s: string) =>
-  s === "IGNORED" ? "ignored" : s === "COMPLETED" || s === "LEFT" ? "completed" : "allocated";
+  s === "IGNORED" ? "ignored" : s === "MISSED" ? "missed" : s === "COMPLETED" || s === "LEFT" ? "completed" : "allocated";
 
 export function Search() {
   const { t } = useTranslation("shell");

@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { App, useSession, refreshSession, type PlatformConfig, type ServerEvent, type RtcTransport, type FileSink, type ChatStickyHost, type MeetingWindowStatus, installChunkReloadRecovery } from "@taskboard/app";
 import type { PinResult, WsEventMeta } from "@taskboard/shared";
 import { resolveEndpointsFromEnv } from "../shared/endpoints";
+import { hashForRoute } from "../shared/open-route";
 import "@taskboard/ui/styles.css";
 import "./index.css";
 
@@ -24,6 +25,7 @@ declare global {
       onTokenRequest: (cb: () => void) => () => void;
       onInviteDeepLink: (cb: (token: string) => void) => () => void;
       onMeetingDeepLink: (cb: (token: string) => void) => () => void;
+      onOpenRoute: (cb: (path: string) => void) => () => void;
       showMeetingInvitePopup: (callId: string, title: string, organizer: string) => void;
       dismissMeetingInvitePopup: (callId: string) => void;
       onMeetingInviteAction: (cb: (callId: string, media: "video" | "voice") => void) => () => void;
@@ -228,6 +230,15 @@ bridge.onInviteDeepLink((token) => {
 // Meeting deep-link → the same /join route the web app's own links use.
 bridge.onMeetingDeepLink((token) => {
   location.hash = `#/join?t=${encodeURIComponent(token)}`;
+});
+
+// OS-notification click → show that notification's own target. An explicit
+// navigation: it replaces whatever page the window was on, and does nothing when
+// the target is already open. hashForRoute refuses any path the app would not
+// itself have produced.
+bridge.onOpenRoute((path) => {
+  const next = hashForRoute(path, location.hash);
+  if (next) location.hash = next;
 });
 
 createRoot(document.getElementById("root")!).render(

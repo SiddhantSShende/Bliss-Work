@@ -87,3 +87,21 @@ func TestRecipientsOf_StickyPinChanged_NoAssignee_DropsCleanly(t *testing.T) {
 		t.Fatalf("RecipientsOf() with no assigneeId = %v, want empty", got)
 	}
 }
+
+// TestRecipientsOf_TaskMissed proves a missed deadline reaches exactly the
+// assignee (their cards move to Missed) and the allocator (their board
+// refreshes), like every other per-assignee task outcome, and nobody else.
+func TestRecipientsOf_TaskMissed(t *testing.T) {
+	ev := &Event{
+		Type:       "task.missed",
+		EventID:    "evt-1",
+		AssigneeID: "user-assignee",
+		SenderID:   "user-sender",
+		UserID:     "user-other",
+		Members:    []string{"user-other"},
+	}
+	got := ev.RecipientsOf()
+	if len(got) != 2 || got[0] != "user-sender" || got[1] != "user-assignee" {
+		t.Fatalf("RecipientsOf() = %v, want [\"user-sender\" \"user-assignee\"]", got)
+	}
+}

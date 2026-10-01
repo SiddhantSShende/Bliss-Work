@@ -6,10 +6,29 @@ from sqlalchemy import text
 from .. import events
 from ..auth import Principal, PrincipalDep
 from ..db import session, set_org_context
+from ..deadlines import NOT_PAST_DEADLINE, expire_if_due
 from ..schemas import TransitionResponse
 from .helpers import current_assignee, enqueue_outbox, resolve_username, task_sender
 
 router = APIRouter()
+
+
+async def _missed_by_deadline(db, task_id: str, current) -> bool:
+    """Tail of a failed transition: was it refused because the deadline passed?
+
+    The UPDATEs below carry NOT_PAST_DEADLINE, so an action that arrives after the
+    deadline matches nothing — even in the window before the sweeper's next poll.
+    When that is why, resolve it the way the sweeper would (the assignment becomes
+    MISSED, with its event) and commit, so the caller can answer 409 and the
+    client's refetch shows the task in Missed. Runs BEFORE the caller's rollback,
+    which would clear the transaction-scoped org context RLS depends on.
+    """
+    if current is None or current.status not in ("SENT", "ACKNOWLEDGED"):
+        return False
+    if not await expire_if_due(db, task_id):
+        return False
+    await db.commit()
+    return True
 
 
 @router.post("/tasks/{task_id}/assignees/me/acknowledge", response_model=TransitionResponse)
@@ -30,6 +49,7 @@ async def acknowledge(task_id: str, principal: Principal = PrincipalDep) -> Tran
                 "SET status = 'ACKNOWLEDGED', status_version = status_version + 1, "
                 "    acknowledged_at = now() "
                 "WHERE org_id = :org AND task_id = :tid AND assignee_id = :me AND status = 'SENT' "
+                f"{NOT_PAST_DEADLINE} "
                 "RETURNING status, status_version"
             ),
             {"org": org_id, "tid": task_id, "me": me},
@@ -53,6 +73,8 @@ async def acknowledge(task_id: str, principal: Principal = PrincipalDep) -> Tran
             # snapshot per statement, so this still-open transaction sees the
             # other request's commit without needing to roll back first.
             current = await current_assignee(db, org_id, task_id, me)
+            if await _missed_by_deadline(db, task_id, current):
+                raise HTTPException(status_code=409, detail="the task's deadline has passed")
             await db.rollback()
             if current is None:
                 raise HTTPException(status_code=404, detail="assignment not found")
@@ -91,6 +113,7 @@ async def complete(task_id: str, principal: Principal = PrincipalDep) -> Transit
                 "    completed_at = now() "
                 "WHERE org_id = :org AND task_id = :tid AND assignee_id = :me "
                 "      AND status = 'ACKNOWLEDGED' "
+                f"{NOT_PAST_DEADLINE} "
                 "RETURNING status, status_version"
             ),
             {"org": org_id, "tid": task_id, "me": me},
@@ -102,6 +125,8 @@ async def complete(task_id: str, principal: Principal = PrincipalDep) -> Transit
             # RLS context), or this would silently see no rows instead of the
             # real status.
             current = await current_assignee(db, org_id, task_id, me)
+            if await _missed_by_deadline(db, task_id, current):
+                raise HTTPException(status_code=409, detail="the task's deadline has passed")
             await db.rollback()
             if current is None:
                 raise HTTPException(status_code=404, detail="assignment not found")
@@ -138,6 +163,7 @@ async def ignore(task_id: str, principal: Principal = PrincipalDep) -> Transitio
                 "SET status = 'IGNORED', status_version = status_version + 1, "
                 "    sender_dismissed = true, ignored_at = now() "
                 "WHERE org_id = :org AND task_id = :tid AND assignee_id = :me AND status = 'SENT' "
+                f"{NOT_PAST_DEADLINE} "
                 "RETURNING status, status_version"
             ),
             {"org": org_id, "tid": task_id, "me": me},
@@ -149,6 +175,8 @@ async def ignore(task_id: str, principal: Principal = PrincipalDep) -> Transitio
             # RLS context), or this would silently see no rows instead of the
             # real status.
             current = await current_assignee(db, org_id, task_id, me)
+            if await _missed_by_deadline(db, task_id, current):
+                raise HTTPException(status_code=409, detail="the task's deadline has passed")
             await db.rollback()
             if current is None:
                 raise HTTPException(status_code=404, detail="assignment not found")
@@ -185,6 +213,7 @@ async def leave(task_id: str, principal: Principal = PrincipalDep) -> Transition
                 "SET status = 'LEFT', status_version = status_version + 1, left_at = now() "
                 "WHERE org_id = :org AND task_id = :tid AND assignee_id = :me "
                 "      AND status = 'ACKNOWLEDGED' "
+                f"{NOT_PAST_DEADLINE} "
                 "RETURNING status, status_version"
             ),
             {"org": org_id, "tid": task_id, "me": me},
@@ -196,6 +225,8 @@ async def leave(task_id: str, principal: Principal = PrincipalDep) -> Transition
             # RLS context), or this would silently see no rows instead of the
             # real status.
             current = await current_assignee(db, org_id, task_id, me)
+            if await _missed_by_deadline(db, task_id, current):
+                raise HTTPException(status_code=409, detail="the task's deadline has passed")
             await db.rollback()
             if current is None:
                 raise HTTPException(status_code=404, detail="assignment not found")

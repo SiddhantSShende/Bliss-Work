@@ -136,6 +136,8 @@
     "previewFile": "Preview {{filename}}",
     "open": "Open",
     "openFile": "Open {{filename}}",
+    "download": "Download",
+    "downloadFile": "Download {{filename}}",
     "preparing": "Preparing…",
     "unavailable": "Unavailable"
   },

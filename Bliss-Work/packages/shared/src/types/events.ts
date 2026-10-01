@@ -45,6 +45,9 @@ export const EventType = {
   TaskCompleted: "task.completed",
   TaskIgnored: "task.ignored",
   TaskLeft: "task.left",
+  /** Emitted by task-svc's deadline sweeper (never a client action): this
+   *  assignment's deadline passed before it was completed. */
+  TaskMissed: "task.missed",
   TaskReviewed: "task.reviewed",
   /** Internal-only, like OrgDeleted below: an admin hard-deleted the task via
    *  task-svc's internal by-title endpoint. Never pushed to a client socket —
@@ -525,6 +528,15 @@ export const TaskLeft = z.object({
   assigneeUsername: z.string(),
 });
 
+/** The assignment's deadline passed before it was completed. Fanned out to
+ *  [senderId, assigneeId] like the other outcomes: the assignee's card moves from
+ *  Allocated to Missed, and the allocator's board refreshes. */
+export const TaskMissed = z.object({
+  type: z.literal(EventType.TaskMissed),
+  ...taskBase,
+  assigneeUsername: z.string(),
+});
+
 /** Admin hard-delete via task-svc's internal by-title endpoint. INTERNAL-ONLY
  *  (see EventType.TaskDeleted) — carries only taskBase, no username field: it
  *  is never rendered as a toast, only consumed to close a stale projection. */
@@ -969,6 +981,7 @@ export const ServerEvent = z.discriminatedUnion("type", [
   TaskCompleted,
   TaskIgnored,
   TaskLeft,
+  TaskMissed,
   TaskReviewed,
   NotificationCreated,
   NotificationRead,
@@ -1007,6 +1020,7 @@ export type TaskAcknowledged = z.infer<typeof TaskAcknowledged>;
 export type TaskCompleted = z.infer<typeof TaskCompleted>;
 export type TaskIgnored = z.infer<typeof TaskIgnored>;
 export type TaskLeft = z.infer<typeof TaskLeft>;
+export type TaskMissed = z.infer<typeof TaskMissed>;
 export type TaskDeleted = z.infer<typeof TaskDeleted>;
 export type TaskReviewed = z.infer<typeof TaskReviewed>;
 export type NotificationCreated = z.infer<typeof NotificationCreated>;

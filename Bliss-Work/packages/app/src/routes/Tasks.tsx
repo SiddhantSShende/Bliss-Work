@@ -24,7 +24,7 @@ const verb: Record<TaskAction, "acknowledge" | "complete" | "ignore" | "leave"> 
 };
 // Bucket switcher shown only on phones (the TasksList side pane is hidden < md).
 // Keep this order in lockstep with CATS in TasksList.
-const BUCKET_VIEWS = ["allocated", "available", "mine", "completed", "left", "ignored"] as const;
+const BUCKET_VIEWS = ["allocated", "available", "mine", "completed", "left", "ignored", "missed"] as const;
 
 export function Tasks() {
   const { t } = useTranslation("tasks");
@@ -49,6 +49,7 @@ export function Tasks() {
     completed: t("tasksPage.titles.completed"),
     left: t("tasksPage.titles.left"),
     ignored: t("tasksPage.titles.ignored"),
+    missed: t("tasksPage.titles.missed"),
   };
   const bucketLabel: Record<(typeof BUCKET_VIEWS)[number], string> = {
     allocated: t("tasksPage.buckets.allocated"),
@@ -57,6 +58,7 @@ export function Tasks() {
     completed: t("tasksPage.buckets.completed"),
     left: t("tasksPage.buckets.left"),
     ignored: t("tasksPage.buckets.ignored"),
+    missed: t("tasksPage.buckets.missed"),
   };
 
   return (
@@ -120,6 +122,8 @@ function AssignedBucket({ view }: { view: string }) {
     refetchOnWindowFocus: true,
   });
 
+  // MISSED likewise: a task whose deadline passed unmet is neither completed nor
+  // something the user chose to drop, and it leaves Allocated to me for good.
   // LEFT is its OWN terminal bucket — never folded into "Completed". Leaving a
   // task is a distinct outcome from completing it, and the user must see it
   // labelled "left" (to both parties), not "completed".
@@ -127,8 +131,9 @@ function AssignedBucket({ view }: { view: string }) {
     const matched = all.filter((t: StickyTaskDTO) =>
       view === "ignored" ? t.myStatus === "IGNORED"
         : view === "left" ? t.myStatus === "LEFT"
-          : view === "completed" ? t.myStatus === "COMPLETED"
-            : t.myStatus === "SENT" || t.myStatus === "ACKNOWLEDGED",
+          : view === "missed" ? t.myStatus === "MISSED"
+            : view === "completed" ? t.myStatus === "COMPLETED"
+              : t.myStatus === "SENT" || t.myStatus === "ACKNOWLEDGED",
     );
     if (!isTerminalView(view)) return matched;
     // Terminal buckets are history, and history only grows. Show the most
@@ -273,7 +278,7 @@ function AssignedBucket({ view }: { view: string }) {
       <EmptyState
         icon={<ListTodo size={24} />}
         title={t("tasksPage.empty.title")}
-        hint={t("tasksPage.empty.hint")}
+        hint={view === "missed" ? t("tasksPage.empty.missedHint") : t("tasksPage.empty.hint")}
       />
     );
 
@@ -293,7 +298,10 @@ function AssignedBucket({ view }: { view: string }) {
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.97 }}
-              className="relative"
+              // min-w-0: a grid item's automatic minimum width is its content's
+              // min-content, so without it a card whose content cannot shrink is not
+              // narrowed to its column — it sticks out of it.
+              className="relative min-w-0"
             >
               <StickyWidget
                 task={task}

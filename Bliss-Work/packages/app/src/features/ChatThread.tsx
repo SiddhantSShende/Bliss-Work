@@ -36,7 +36,8 @@ export interface ThreadMessage {
     | "attachment_downloaded"
     | "channel_renamed"
     | "channel_created"
-    | "channel_member_added";
+    | "channel_member_added"
+    | "channel_forward_notice";
   /** Sender-side delivery state. Set only on the caller's own messages. */
   status?: MessageDTO["status"];
   /** The message this one quotes. Rendered as a strip above the body. */
@@ -472,6 +473,19 @@ export function ChatThread({
                 <div key={m.id}>
                   {dayChip}
                   <SystemPill icon={<Hash size={12} className="text-accent" />} at={m.at}>
+                    {m.body}
+                  </SystemPill>
+                </div>
+              );
+            }
+
+            // A forward out of a private channel. Server-authored: the body names
+            // the forwarder, and deliberately nothing about where it went.
+            if (m.kind === "channel_forward_notice") {
+              return (
+                <div key={m.id}>
+                  {dayChip}
+                  <SystemPill icon={<Forward size={12} className="text-warning" />} at={m.at}>
                     {m.body}
                   </SystemPill>
                 </div>

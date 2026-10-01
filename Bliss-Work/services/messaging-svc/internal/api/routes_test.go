@@ -147,6 +147,10 @@ var cappedRoutes = map[string]string{
 	// runs under the same cap.
 	"PATCH /api/v1/mail/drafts/{id}": "small",
 	"POST /api/v1/mail/{id}/read":    "small",
+	// Recording that a reader started a download of a mail's file. No body at
+	// all — both ids are in the path — and it sits in the same /api/v1 group,
+	// so the cap is inherited.
+	"POST /api/v1/mail/{id}/attachments/{attachmentId}/downloaded": "small",
 
 	// Calls. Every one of these sits inside the same /api/v1 small-body group,
 	// so the cap is inherited. The bodies are a title, a timestamp and at most

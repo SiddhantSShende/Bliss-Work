@@ -56,9 +56,26 @@ describe("task card action row", () => {
       expect(button).toHaveTextContent(label); // visible text, not clipped or icon-only
       expect(button).toHaveClass("flex-1", "basis-0", "max-w-full");
       // Width floors at the button's own min-content (the default `min-width: auto` of a
-      // flex item) — nothing may override it or let a word break.
+      // flex item) — nothing may override it.
       expect(button.className).not.toMatch(/(^|\s)min-w-/);
-      expect(button.className).not.toMatch(/overflow-wrap|break-(words|all)|\[word-break/);
+      // …and no word may break UNCONDITIONALLY: every break-anywhere class must sit behind
+      // the narrow-row variant below, never at the top level.
+      expect(button.className).not.toMatch(/(^|\s)(overflow-wrap|break-(words|all)|\[overflow-wrap|\[word-break)/);
+    }
+  });
+
+  it("breaks a word only as a last resort: below 7rem a button takes its own line first", () => {
+    // Below the width the longest label fits in (the Electron minimum window at 200%
+    // zoom), "Acknowledge" would otherwise spill out of its button and the card. The break
+    // is only allowed together with `basis-full`: on its own, break-anywhere shrinks a
+    // button's min-content to one letter and two buttons squeeze side by side, splitting
+    // words that would have fitted had they simply stacked — the earlier regression.
+    render(<StickyWidget task={task("SENT")} onAction={vi.fn()} />);
+
+    for (const name of [/Acknowledge/, /Ignore/]) {
+      const button = screen.getByRole("button", { name });
+      expect(button).toHaveClass("@max-[7rem]/actions:basis-full", "@max-[7rem]/actions:[overflow-wrap:anywhere]");
+      expect(button).toHaveClass("@max-[9rem]/actions:px-1.5"); // padding gives way before that
     }
   });
 
@@ -72,7 +89,7 @@ describe("task card action row", () => {
     }
   });
 
-  it("the floating note hides the decorative icons when its row is narrow; an in-app card never does", () => {
+  it("each surface hides the decorative icons at its own width: the floating note under 15rem, an in-app card under 9rem", () => {
     const { container, rerender } = render(<StickyWidget task={task("SENT")} onAction={vi.fn()} compact />);
     const row = screen.getByRole("button", { name: /Acknowledge/ }).parentElement!;
 
@@ -82,8 +99,14 @@ describe("task card action row", () => {
 
     rerender(<StickyWidget task={task("SENT")} onAction={vi.fn()} />);
     const cardRow = screen.getByRole("button", { name: /Acknowledge/ }).parentElement!;
-    expect(cardRow).not.toHaveClass("@container/actions");
-    for (const icon of cardRow.querySelectorAll("svg")) expect(icon.getAttribute("class") ?? "").not.toContain("/actions");
+    // The in-app card measures ITS OWN row too, but only gives anything up at the narrow end;
+    // above 9rem it renders exactly as it always did.
+    expect(cardRow).toHaveClass("@container/actions");
+    for (const icon of cardRow.querySelectorAll("svg")) {
+      expect(icon).toHaveClass("@max-[9rem]/actions:hidden");
+      expect(icon.getAttribute("class") ?? "").not.toContain("@max-[15rem]");
+    }
+    expect(screen.getByRole("button", { name: /Acknowledge/ }).className).not.toContain("@max-[15rem]");
     expect(container.querySelectorAll("button svg").length).toBeGreaterThan(0); // icons still rendered, just not hidden
   });
 

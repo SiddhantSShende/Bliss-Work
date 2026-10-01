@@ -36,6 +36,10 @@ ACKNOWLEDGED = "task.acknowledged"
 COMPLETED = "task.completed"
 IGNORED = "task.ignored"
 LEFT = "task.left"
+# task-svc's deadline sweeper: the assignment's deadline passed before it was
+# completed. Terminal for that assignee — a pin must not float for work that is
+# now in the Missed bucket.
+MISSED = "task.missed"
 # An admin hard-deleted the task via task-svc's internal by-title endpoint.
 # Terminal like the others above: the task is gone, so any pin for it must
 # close rather than sit open forever waiting for a lifecycle event that will
@@ -47,6 +51,7 @@ TERMINAL_REASONS = {
     COMPLETED: "COMPLETED",
     IGNORED: "IGNORED",
     LEFT: "LEFT",
+    MISSED: "MISSED",
     DELETED: "DELETED",
 }
 

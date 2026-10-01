@@ -473,6 +473,9 @@ class TaskSvcConsumer:
                               WHERE a.task_id = t.id
                                 AND a.status IN ('SENT', 'ACKNOWLEDGED')
                           )
+                          -- A task past its deadline is as good as finished: a late
+                          -- joiner would be handed it already missed.
+                          AND (t.deadline_at IS NULL OR t.deadline_at > now())
                         LIMIT :limit
                         """
                     ),

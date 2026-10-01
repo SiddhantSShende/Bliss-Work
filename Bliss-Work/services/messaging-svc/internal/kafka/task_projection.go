@@ -22,6 +22,9 @@ const (
 	typeTaskCompleted    = "task.completed"
 	typeTaskIgnored      = "task.ignored"
 	typeTaskLeft         = "task.left"
+	// task-svc's deadline sweeper: the deadline passed before the assignment was
+	// completed. Shown on the inbox row as a MISSED badge.
+	typeTaskMissed = "task.missed"
 	// Internal-only (see packages/shared/src/types/events.ts's TaskDeleted):
 	// an admin hard-deleted the task via task-svc's internal by-title endpoint.
 	typeTaskDeleted = "task.deleted"
@@ -135,7 +138,7 @@ func (c *TaskProjectionConsumer) handle(ctx context.Context, value []byte) bool 
 		return true
 	}
 	switch evt.Type {
-	case typeTaskAssigned, typeTaskWithdrawn, typeTaskAcknowledged, typeTaskCompleted, typeTaskIgnored, typeTaskLeft, typeTaskDeleted:
+	case typeTaskAssigned, typeTaskWithdrawn, typeTaskAcknowledged, typeTaskCompleted, typeTaskIgnored, typeTaskLeft, typeTaskMissed, typeTaskDeleted:
 		// supported
 	default:
 		return true
@@ -175,6 +178,8 @@ func (c *TaskProjectionConsumer) handle(ctx context.Context, value []byte) bool 
 		werr = c.updateBadge(ctx, evt, occurred, "COMPLETED")
 	case typeTaskLeft:
 		werr = c.updateBadge(ctx, evt, occurred, "LEFT")
+	case typeTaskMissed:
+		werr = c.updateBadge(ctx, evt, occurred, "MISSED")
 	case typeTaskIgnored:
 		werr = c.store.HideTaskInboxItem(ctx, evt.AssigneeID, evt.TaskID, occurred)
 	case typeTaskDeleted:

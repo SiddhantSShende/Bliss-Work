@@ -117,7 +117,7 @@ describe("shouldRefreshSticky", () => {
   });
 
   it("still re-reads on task lifecycle events and the watchdog nudge", () => {
-    for (const t of ["task.assigned", "task.acknowledged", "task.completed", "task.ignored", "task.left", "sticky.refresh"]) {
+    for (const t of ["task.assigned", "task.acknowledged", "task.completed", "task.ignored", "task.left", "task.missed", "sticky.refresh"]) {
       expect(shouldRefreshSticky(t)).toBe(true);
     }
   });

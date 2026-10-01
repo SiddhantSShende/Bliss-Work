@@ -47,7 +47,7 @@ const checkedRows = () =>
 async function createCustomTheme(user: ReturnType<typeof userEvent.setup>) {
   await openMenu(user);
   await user.click(screen.getByRole("button", { name: "Create custom theme" }));
-  await user.click(screen.getByRole("button", { name: "Save theme" }));
+  await user.click(screen.getByRole("button", { name: "Save" }));
 }
 
 beforeEach(() => {
@@ -183,8 +183,8 @@ describe("Custom theme editor", () => {
     await user.click(screen.getByRole("button", { name: "Create custom theme" }));
     expect(screen.queryByPlaceholderText("Theme name")).not.toBeInTheDocument();
     // Saving needs nothing typed — the old name field gated the button.
-    expect(screen.getByRole("button", { name: "Save theme" })).toBeEnabled();
-    await user.click(screen.getByRole("button", { name: "Save theme" }));
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Save" }));
     expect(JSON.parse(localStorage.getItem("tb-custom-theme")!)).toEqual({ colors: ["#6366f1"] });
   });
 
@@ -196,20 +196,5 @@ describe("Custom theme editor", () => {
     // Shown as "Custom" — the old name is gone from the UI, not just hidden.
     expect(checkedRows()).toEqual(["Light", "Custom"]);
     expect(screen.queryByText("Sunset")).not.toBeInTheDocument();
-  });
-
-  it("deletes the saved custom theme from the editor", async () => {
-    localStorage.setItem("tb-custom-theme", JSON.stringify({ colors: ["#ff8800"] }));
-    localStorage.setItem("tb-custom-theme-active", "true");
-    const user = renderSettings();
-    await openMenu(user);
-    await user.click(screen.getByRole("button", { name: "Edit custom theme" }));
-    await user.click(screen.getByRole("button", { name: "Delete custom theme" }));
-
-    expect(localStorage.getItem("tb-custom-theme")).toBeNull();
-    expect(localStorage.getItem("tb-custom-theme-active")).toBe("false");
-    expect(screen.getByText("Currently using Iris Wave.")).toBeInTheDocument();
-    await openMenu(user);
-    expect(screen.queryByRole("menuitemradio", { name: "Custom" })).not.toBeInTheDocument();
   });
 });

@@ -5,9 +5,9 @@ export type SentAssignee = SentTaskDTO["assignees"][number];
 type AssigneeStatus = SentAssignee["status"];
 export type SentStatus = AssigneeStatus | "SCHEDULED";
 
-/** The four statuses My Tasks offers as filters. SENT (allocated, not yet
+/** The statuses My Tasks offers as filters. SENT (allocated, not yet
  *  acknowledged) has no chip: it is shown whenever no status is selected. */
-export const STATUS_FILTERS: readonly SentStatus[] = ["COMPLETED", "ACKNOWLEDGED", "LEFT", "IGNORED", "SCHEDULED"];
+export const STATUS_FILTERS: readonly SentStatus[] = ["COMPLETED", "ACKNOWLEDGED", "LEFT", "IGNORED", "MISSED", "SCHEDULED"];
 
 export interface SentTaskFilter {
   /** OR within the set; empty = every status, SENT included. */
@@ -76,6 +76,19 @@ export function markedDays(tasks: readonly SentTaskDTO[], f: SentTaskFilter): Se
       if (!Number.isNaN(day)) days.add(day);
     }
   return days;
+}
+
+/**
+ * A sent task is Completed as a whole when somebody completed it and nobody is still
+ * on it — the same rule task-svc applies to `POST /tasks/{id}/reassign`, which is
+ * what makes a card eligible for "Reassign". LEFT / IGNORED / MISSED rows do not
+ * count either way. Judged on ALL of the task's rows, never a filtered subset.
+ */
+export function isCompletedTask(task: Pick<SentTaskDTO, "assignees">): boolean {
+  return (
+    task.assignees.some((a) => a.status === "COMPLETED") &&
+    !task.assignees.some((a) => a.status === "SENT" || a.status === "ACKNOWLEDGED")
+  );
 }
 
 export interface PersonOption {

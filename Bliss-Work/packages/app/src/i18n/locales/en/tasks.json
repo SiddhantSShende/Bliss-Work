@@ -6,8 +6,23 @@
     "taskIgnoredBy": "Task ignored by {{assignee}}",
     "taskReviewed": "{{reviewer}} reviewed your task",
     "taskAcknowledgedBy": "Task acknowledged by {{assignee}}",
-    "taskCompletedBy": "Task completed by {{assignee}}"
-    ,"taskWithdrawn": "Task allocation withdrawn"
+    "taskCompletedBy": "Task completed by {{assignee}}",
+    "taskMissedBy": "Task missed by {{assignee}}",
+    "taskMissed": "A task's deadline passed. It moved to Missed.",
+    "taskWithdrawn": "Task allocation withdrawn"
+  },
+  "deadline": {
+    "label": "Deadline",
+    "relative": "{{amount}} {{unit}} after each occurrence",
+    "fixed": "{{time}} on each occurrence's date",
+    "unit": {
+      "MINUTES_one": "minute",
+      "MINUTES_other": "minutes",
+      "HOURS_one": "hour",
+      "HOURS_other": "hours",
+      "DAYS_one": "day",
+      "DAYS_other": "days"
+    }
   },
   "tasksList": {
     "header": "Tasks",
@@ -17,7 +32,8 @@
       "available": "Available",
       "completed": "Completed",
       "left": "Left",
-      "ignored": "Ignored"
+      "ignored": "Ignored",
+      "missed": "Missed"
     }
   },
   "tasksPage": {
@@ -28,6 +44,7 @@
       "completed": "Completed",
       "left": "Left",
       "ignored": "Ignored",
+      "missed": "Missed",
       "default": "Tasks"
     },
     "buckets": {
@@ -36,7 +53,8 @@
       "mine": "My tasks",
       "completed": "Completed",
       "left": "Left",
-      "ignored": "Ignored"
+      "ignored": "Ignored",
+      "missed": "Missed"
     },
     "export": {
       "title": "Export tasks to Excel",
@@ -45,7 +63,8 @@
     "newTask": "New task",
     "empty": {
       "title": "Nothing here",
-      "hint": "Tasks appear here as they arrive."
+      "hint": "Tasks appear here as they arrive.",
+      "missedHint": "A task whose deadline passes before you finish it moves here."
     },
     "actionVerbs": {
       "acknowledge": "acknowledge",
@@ -113,12 +132,20 @@
     },
     "loadMore": "Load more",
     "loadingMore": "Loading...",
+    "reassign": {
+      "label": "Reassign",
+      "pending": "Reassigning…",
+      "done_one": "Task sent back to {{count}} person",
+      "done_other": "Task sent back to {{count}} people",
+      "failed": "Couldn't reassign this task"
+    },
     "milestones": {
       "allocated": "Allocated",
       "acknowledged": "Acknowledged",
       "ignored": "Ignored",
       "completed": "Completed",
       "left": "Left",
+      "missed": "Missed",
       "reviewed": "Reviewed"
     },
     "review": {
@@ -151,6 +178,25 @@
       "unknownChannel": "Unavailable channel",
       "removeChannel": "Remove {{name}}"
     },
+    "deadline": {
+      "label": "Deadline",
+      "none": "No deadline",
+      "at": "Date & time",
+      "relative": "Relative",
+      "fixed": "Fixed time",
+      "amount": "Deadline amount",
+      "unit": "Deadline unit",
+      "units": {
+        "MINUTES": "Minutes",
+        "HOURS": "Hours",
+        "DAYS": "Days"
+      },
+      "afterEach": "after each occurrence",
+      "fixedTime": "Deadline time",
+      "onEachDate": "on each occurrence's date",
+      "date": "Deadline date",
+      "time": "Deadline time"
+    },
     "errors": {
       "needTitle": "Give the task a title",
       "needAssignee": "Pick at least one assignee",
@@ -160,6 +206,12 @@
       "invalidMonthlyRule": "Choose a valid monthly day",
       "invalidOccurrences": "Occurrences must be greater than zero",
       "invalidEndDate": "The end date must be after the start",
+      "needDeadlineAt": "Choose a deadline date and time",
+      "deadlineNotFuture": "The deadline must be in the future",
+      "deadlineBeforeStart": "The deadline must be after the task is scheduled",
+      "invalidDeadlineAmount": "Enter a whole number for how long after each occurrence",
+      "needDeadlineTime": "Choose a deadline time",
+      "fixedDeadlineBeforeStart": "The fixed deadline time must be later than the start time",
       "createFailed": "Could not create task"
     },
     "toasts": {

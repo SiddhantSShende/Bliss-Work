@@ -22,6 +22,7 @@ from .errors import register_exception_handlers
 from .logging_setup import configure_logging, log
 from .middleware import BodySizeLimitMiddleware, PrincipalMiddleware, RequestIDMiddleware, SecurityHeadersMiddleware
 from .outbox import poller
+from .deadlines import worker as deadline_worker
 from .schedule_worker import worker as schedule_worker
 from .rate_limit import limiter, rate_limit_handler
 from .routes import router
@@ -45,10 +46,12 @@ async def lifespan(app: FastAPI):
     await poller.start()
     await consumer.start()
     await schedule_worker.start()
+    await deadline_worker.start()
     log.info("task_svc_started", port=settings.port)
     try:
         yield
     finally:
+        await deadline_worker.stop()
         await schedule_worker.stop()
         await consumer.stop()
         await poller.stop()

@@ -25,8 +25,11 @@ export type AttachmentActivityKind = "attachment_opened" | "attachment_downloade
  * the open/download that triggered it — that action already succeeded.
  *
  * Only chat (scope "conversation") and channel (scope "channel") attachments
- * get an activity trail, matching the feature's scope — mail threads (scope
- * "thread") do not participate, so scopes outside these two are a no-op.
+ * get an in-conversation activity notice, so scopes outside these two are a
+ * no-op. Mail attachments (scope "mail") are deliberately NOT handled here: a
+ * mail has no conversation to post a notice into, and a mail download is
+ * recorded in the admin activity timeline instead — see
+ * useMailAttachmentDownload.
  *
  * DMs post through `api.reply`, the SAME endpoint an ordinary chat reply
  * uses, rather than `api.sendMessage` — whose top-level-send path mints a

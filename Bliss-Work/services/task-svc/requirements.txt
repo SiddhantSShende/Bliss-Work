@@ -17,6 +17,11 @@ slowapi==0.1.9
 # when the driver is missing — so the service crash-loops wherever REDIS_URL is
 # set, which is production and nowhere else. auth-svc pins the same version.
 redis==5.2.1
+# IANA zone database for zoneinfo. Deadline rules ("17:00 on the occurrence's date")
+# are resolved in the zone the sender chose (app/deadlines.py); the slim runtime
+# image cannot be trusted to ship /usr/share/zoneinfo, and a missing zone would make
+# every recurring-deadline occurrence fail to materialize.
+tzdata==2025.2
 prometheus-fastapi-instrumentator==8.0.2
 opentelemetry-sdk==1.44.0
 opentelemetry-exporter-otlp-proto-grpc==1.44.0

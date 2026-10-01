@@ -46,3 +46,17 @@ def test_task_withdrawn_routes_to_all_affected_participants() -> None:
     _common(evt, "task.withdrawn")
     assert evt["assigneeUsername"] == "alice"
     assert evt["members"] == ["s", "a", "b"]
+
+
+def test_task_missed_carries_what_every_consumer_needs() -> None:
+    """task.missed is emitted by task-svc's deadline sweeper, never by a client.
+    ws-gateway routes it to [senderId, assigneeId] (so both fields are required), the
+    web client names the assignee in the allocator's toast (assigneeUsername), and
+    sticky-svc / messaging-svc order it by statusVersion."""
+    evt = events.task_missed(
+        org_id="org", task_id="t", assignee_id="a", sender_id="s",
+        status_version=4, assignee_username="carol",
+    )
+    _common(evt, "task.missed")
+    assert evt["assigneeUsername"] == "carol"
+    assert evt["statusVersion"] == 4

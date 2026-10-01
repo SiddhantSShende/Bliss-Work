@@ -75,6 +75,10 @@ const (
 	// is never delivered to a client at all (see ws-gateway's contract package).
 	TypeMailDelivered = "mail.delivered"
 	TypeMailOutbound  = "mail.outbound"
+	// TypeMailAttachmentDownloaded records that a reader explicitly started a
+	// download of a mail's file. Consumed by telemetry-svc only — see
+	// MailAttachmentDownloaded.
+	TypeMailAttachmentDownloaded = "mail.attachment.downloaded"
 )
 
 // MessageCreated is emitted when a new message is appended to a conversation.
@@ -498,6 +502,33 @@ type CallLifecycle struct {
 	// Members is who should RECEIVE this, which is usually but not always the
 	// roster — call.waiting goes only to the people who could start the call.
 	Members []string `json:"members"`
+}
+
+// MailAttachmentDownloaded says ActorID explicitly started a download of one of
+// a mail's files. It exists for the admin-facing activity timeline
+// (telemetry-svc's event_map) and for nothing else: no `members`, so the
+// ws-gateway routes it nowhere, and notification-svc / email-worker ignore the
+// type. In particular nothing tells the mail's sender — see the product call on
+// that in store.RecordMailAttachmentDownload.
+//
+// It is "download INITIATED", not "bytes delivered": the client reports it as
+// it triggers the browser's download, and the file itself is served by the
+// separate signed GET /media route, which this event never touches.
+//
+// Filename rides the event in the clear, like a message body does on this topic
+// (telemetry-svc re-encrypts it into activity_events.detail_enc). Mime and
+// SizeBytes are the attachment's own server-recorded values.
+type MailAttachmentDownloaded struct {
+	Type         string `json:"type"`
+	EventID      string `json:"eventId"`
+	OrgID        string `json:"orgId"`
+	OccurredAt   string `json:"occurredAt"`
+	ActorID      string `json:"actorId"`
+	MailID       string `json:"mailId"`
+	AttachmentID string `json:"attachmentId"`
+	Filename     string `json:"filename,omitempty"`
+	Mime         string `json:"mime,omitempty"`
+	SizeBytes    int64  `json:"sizeBytes"`
 }
 
 // MailDelivered announces that a mail was delivered into one or more people's

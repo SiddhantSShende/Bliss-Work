@@ -1,10 +1,11 @@
 import { useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   EventType,
   type ServerEvent,
+  type NotificationCreated as NotificationCreatedEvent,
   type CallLifecycle,
   type StickyTaskDTO,
   type ConversationDTO,
@@ -43,6 +44,7 @@ import {
   patchThreadOnRead,
 } from "./inboxPatch";
 import { addRealtimeNotification, markNotificationPagesRead } from "./notificationPages";
+import { notificationDestination, openNotificationRoute } from "./notificationDestination";
 import { decrementUnreadCount } from "./unreadNotificationCount";
 
 /** qk: canonical query keys. NOTE: `qk.inbox` stays task-only for back-compat
@@ -71,6 +73,11 @@ export function WsEventBridge() {
   const navigate = useNavigate();
   const navRef = useRef(navigate);
   navRef.current = navigate;
+  // Where the user is when a toast is CLICKED, which can be long after the event
+  // arrived — so a ref, read at click time, not a value captured with the event.
+  const { pathname } = useLocation();
+  const pathRef = useRef(pathname);
+  pathRef.current = pathname;
   // Re-run the connect/subscribe effect when the active org changes (org switch)
   // so the socket reconnects under the new token and re-subscribes for that org.
   const orgId = useSession((s) => s.user?.orgId);
@@ -103,6 +110,7 @@ export function WsEventBridge() {
         live,
         config,
         navigate: navRef.current,
+        currentPath: () => pathRef.current,
         api,
       };
       // Pure dispatch: every domain's actual cache-patch/toast/side-effect
@@ -148,6 +156,7 @@ export function WsEventBridge() {
         case EventType.TaskCompleted:
         case EventType.TaskIgnored:
         case EventType.TaskLeft:
+        case EventType.TaskMissed:
         case EventType.TaskReviewed:
           handleTaskEvent(e, ctx);
           break;
@@ -205,6 +214,8 @@ interface EventHandlerContext {
   live: boolean;
   config: PlatformConfig;
   navigate: ReturnType<typeof useNavigate>;
+  /** The router's current path, read when called (see WsEventBridge). */
+  currentPath: () => string;
   api: ReturnType<typeof useRuntime>["api"];
 }
 
@@ -470,15 +481,11 @@ function handleChannelEvent(e: ServerEvent, ctx: EventHandlerContext) {
       invalidate(qk.unreadCounts);
       // It also just left the "channels I could join" directory.
       invalidate(qk.openChannels);
-      // `actorId === userId` is an open-channel self-join: I clicked Join,
-      // and announcing my own click back at me is noise. An ABSENT actorId
-      // is a server older than the field — stay quiet there too rather than
-      // risk telling someone they were added to a channel they joined.
-      // The durable copy in the bell is notification-svc's job and applies
-      // the same rule; this is only the live toast.
-      if (live && e.actorId && e.actorId !== e.userId) {
-        toast(e.channelName ? `You were added to #${e.channelName}` : "You were added to a channel");
-      }
+      // No toast here. The live announcement of "X added you to the channel Y"
+      // is raised from the persisted CHANNEL_ADDED notification (see
+      // handleNotificationEvent), so the toast, the bell row and the desktop
+      // popup all name the same server-owned row. A toast from this event too
+      // would show the user two for one add.
       break;
     }
     case EventType.ChannelMemberRemoved:
@@ -730,6 +737,34 @@ function handleTaskEvent(e: ServerEvent, ctx: EventHandlerContext) {
       invalidate(qk.availability);
       break;
     }
+    case EventType.TaskMissed: {
+      // The deadline passed before this assignment was completed (task-svc's
+      // sweeper; the event reaches only the assignee and the allocator).
+      if (e.assigneeId === me) {
+        // Out of Allocated to me and the desktop notes, into Missed — patched into
+        // the assigned cache so the card moves and the Missed count changes in the
+        // same render, then refetched (clearTaskForMe) for the authoritative row.
+        clearTaskForMe(qc, invalidate, e.taskId);
+        qc.setQueryData<StickyTaskDTO[]>(qk.assigned, (prev) =>
+          prev?.map((t) =>
+            t.taskId === e.taskId && e.statusVersion >= t.statusVersion
+              ? { ...t, myStatus: "MISSED" as const, actions: [], statusVersion: e.statusVersion, missedAt: e.occurredAt }
+              : t,
+          ),
+        );
+        if (live) toast(i18n.t("tasks:liveEvents.taskMissed"));
+        invalidate(qk.unifiedInbox);
+        refreshInboxSidebars(invalidate);
+      } else if (e.senderId === me) {
+        if (live) toast(i18n.t("tasks:liveEvents.taskMissedBy", { assignee: e.assigneeUsername }));
+        invalidate(qk.unifiedInbox);
+        refreshInboxSidebars(invalidate);
+      }
+      invalidate(qk.sent);
+      // Acknowledged work stops counting against availability once it is missed.
+      invalidate(qk.availability);
+      break;
+    }
     case EventType.TaskReviewed: {
       // Sender's other devices see the review they left; the assignee sees
       // a review land on their completed task. Refetch the affected surfaces.
@@ -745,13 +780,37 @@ function handleTaskEvent(e: ServerEvent, ctx: EventHandlerContext) {
 }
 
 // ── Notifications + desktop-note repair ──────────────────────────────────
+
+/**
+ * The live toast for a CHANNEL_ADDED notification. The text is the one the bell
+ * shows ("<Actor> added you to the channel <Name>"), composed by notification-svc.
+ * Clicking View opens the channel by the same rule as a click on the bell row:
+ * the destination is built from the record's own channelId (never from its text),
+ * and it goes there even if the user is in another channel or on another page.
+ *
+ * `id` makes sonner replace, not stack, a toast it already has for this
+ * notification.
+ */
+function announceChannelAdded(e: NotificationCreatedEvent, { navigate, currentPath }: EventHandlerContext) {
+  const target = notificationDestination({ kind: "CHANNEL_ADDED", channelId: e.channelId });
+  toast(e.text, {
+    id: e.notificationId,
+    ...(e.channelId && {
+      action: {
+        label: i18n.t("common:buttons.view"),
+        onClick: () => openNotificationRoute(navigate, currentPath(), target),
+      },
+    }),
+  });
+}
+
 function handleNotificationEvent(e: ServerEvent, ctx: EventHandlerContext) {
-  const { qc, invalidate, me, api } = ctx;
+  const { qc, invalidate, me, live, api } = ctx;
   switch (e.type) {
     case EventType.NotificationCreated: {
       if (e.recipientId === me) {
         const notificationPagesLoaded = qc.getQueryData(qk.notifications) !== undefined;
-        addRealtimeNotification(qc, {
+        const isNew = addRealtimeNotification(qc, {
           id: e.notificationId,
           kind: e.kind,
           text: e.text,
@@ -768,6 +827,10 @@ function handleNotificationEvent(e: ServerEvent, ctx: EventHandlerContext) {
         // response cannot strand the just-created persisted notification.
         if (!notificationPagesLoaded) invalidate(qk.notifications);
         invalidate(qk.notificationsUnreadCount);
+        // Only a notification this call actually inserted is announced, so a
+        // redelivered frame (isNew is false) cannot toast twice, and never from
+        // the reconnect replay — "added to a channel" hours ago is not news.
+        if (live && isNew && e.kind === "CHANNEL_ADDED") announceChannelAdded(e, ctx);
         const active = useActiveThread.getState().thread;
         const isActiveThread =
           (e.kind === "DM_MESSAGE" && active?.kind === "chat" && active.conversationId === e.conversationId) ||

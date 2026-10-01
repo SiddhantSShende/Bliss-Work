@@ -81,6 +81,7 @@ export function handleEvent(e: ServerEvent, qc: QueryClient) {
     case EventType.TaskCompleted:
     case EventType.TaskIgnored:
     case EventType.TaskLeft:
+    case EventType.TaskMissed:
     case EventType.TaskReviewed:
       invalidate(qk.tasksAssigned);
       invalidate(qk.tasksSent);

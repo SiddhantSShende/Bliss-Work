@@ -213,21 +213,28 @@ func (s *Store) JoinChannel(ctx context.Context, orgID, channelID, callerID stri
 			return ErrForbidden
 		}
 
-		// Detect "actually new" so we only emit on a real join (idempotent retries
-		// don't re-fan-out tasks).
-		var alreadyMember bool
-		err = tx.QueryRow(ctx,
-			`SELECT EXISTS (SELECT 1 FROM channel_members WHERE channel_id = $1 AND user_id = $2)`,
-			channelID, callerID).Scan(&alreadyMember)
+		// Self-join is always an ordinary member — joining an open channel is not
+		// a claim on it. Whether the membership is NEW comes from the INSERT's own
+		// affected-row count, so a retry, a double click or two racing requests
+		// emit the fan-out event and the "joined" message exactly once.
+		isNew, err := s.insertChannelMemberIfNew(ctx, tx, channelID, orgID, callerID, RoleMember)
 		if err != nil {
 			return err
 		}
-		// Self-join is always an ordinary member — joining an open channel is not
-		// a claim on it.
-		if err := s.insertChannelMember(ctx, tx, channelID, orgID, callerID, RoleMember); err != nil {
-			return err
-		}
-		if !alreadyMember {
+		if isNew {
+			// Appended in this same transaction as the membership row, with a fresh
+			// client_msg_id each time: leaving and joining again is a genuinely new
+			// join and gets its own message.
+			uname, display, err := s.cachedUserNames(ctx, tx, orgID, callerID)
+			if err != nil {
+				return err
+			}
+			if _, err := s.appendChannelMessageTx(ctx, tx, orgID, channelID, callerID,
+				userDisplayName(display, uname)+" joined the channel",
+				uuid.Must(uuid.NewV7()).String(),
+				channelAppendOpts{kind: MessageKindChannelMemberAdded}); err != nil {
+				return err
+			}
 			// actor == caller: this is a self-join, which notification-svc uses to
 			// stay quiet. Nobody needs telling about a button they just pressed.
 			if err := emitChannelMemberJoined(ctx, tx, orgID, channelID, cName, callerID, callerID); err != nil {

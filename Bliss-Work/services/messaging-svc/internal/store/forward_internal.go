@@ -93,6 +93,13 @@ func (s *Store) ForwardMessage(
 			return err
 		}
 		out = res
+		// Tell the PRIVATE channel this originated in, on the same transaction —
+		// after the clone and its edge are written, so a refused forward (which
+		// returned above) never posts one. A retry re-runs this and dedupes.
+		if err := s.writeForwardNotices(ctx, tx, orgID, forwarderID, target.channelID(),
+			"forward:"+clientMsgID, fc); err != nil {
+			return err
+		}
 		// forwardToUser/forwardToChannel no longer commit themselves — see
 		// their own doc comments — so this is the one place that does, for
 		// both the ordinary success path and the idempotent-retry

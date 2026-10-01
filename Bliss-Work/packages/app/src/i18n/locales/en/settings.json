@@ -20,8 +20,7 @@
       "create": "Create custom theme",
       "edit": "Edit custom theme",
       "cancel": "Cancel",
-      "save": "Save theme",
-      "delete": "Delete custom theme"
+      "save": "Save"
     }
   },
   "twoFactor": {

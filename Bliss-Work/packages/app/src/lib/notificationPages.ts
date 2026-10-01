@@ -76,11 +76,17 @@ export function insertNotificationIntoPages(
   };
 }
 
-export function addRealtimeNotification(qc: QueryClient, notification: NotificationDTO): void {
+/**
+ * Returns true when this call inserted the notification, false when it was
+ * already known (loaded in a page, or seen on an earlier frame). Callers that
+ * announce a notification live use it so a redelivered frame cannot announce
+ * twice.
+ */
+export function addRealtimeNotification(qc: QueryClient, notification: NotificationDTO): boolean {
   const current = qc.getQueryData<NotificationPages>(qk.notifications);
   const alreadyLoaded = current?.pages.some((page) => page.items.some((item) => item.id === notification.id));
   const seen = qc.getQueryData<string[]>(qk.notificationEventIds) ?? [];
-  if (alreadyLoaded || seen.includes(notification.id)) return;
+  if (alreadyLoaded || seen.includes(notification.id)) return false;
 
   qc.setQueryData(qk.notificationEventIds, [...seen.slice(-499), notification.id]);
   qc.setQueryData<NotificationPages>(qk.notifications, (previous) =>
@@ -89,6 +95,7 @@ export function addRealtimeNotification(qc: QueryClient, notification: Notificat
   qc.setQueryData<{ unreadCount: number }>(qk.notificationsUnreadCount, (previous) =>
     previous && { unreadCount: previous.unreadCount + 1 },
   );
+  return true;
 }
 
 export function markNotificationPagesRead(

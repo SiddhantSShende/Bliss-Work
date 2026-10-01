@@ -1,11 +1,12 @@
 import { NavLink } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { Send, Inbox, CheckCircle2, Ban, LogOut, UserCheck } from "lucide-react";
+import { Send, Inbox, CheckCircle2, Ban, LogOut, UserCheck, AlarmClockOff } from "lucide-react";
 import type { StickyTaskDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { useAvailability } from "../lib/useAvailability";
+import { useDeadlineRefetch } from "../lib/useDeadlineRefetch";
 import { useMarkTaskNotificationsRead } from "../lib/useMarkTaskNotificationsRead";
 import { ListHeader, rowClass } from "../features/ListPane";
 
@@ -16,6 +17,7 @@ const CATS = [
   { view: "completed", icon: CheckCircle2 },
   { view: "left", icon: LogOut },
   { view: "ignored", icon: Ban },
+  { view: "missed", icon: AlarmClockOff },
 ] as const;
 
 export function TasksList() {
@@ -36,6 +38,8 @@ export function TasksList() {
   // assignee-directed kind.
   useMarkTaskNotificationsRead(api, sent);
   useMarkTaskNotificationsRead(api, assigned);
+  // A deadline passing moves a card to Missed even if the realtime push is lost.
+  useDeadlineRefetch(assigned);
 
   const active = (t: StickyTaskDTO) => t.myStatus === "SENT" || t.myStatus === "ACKNOWLEDGED";
   const counts: Record<string, number> = {
@@ -45,6 +49,7 @@ export function TasksList() {
     completed: assigned.filter((t) => t.myStatus === "COMPLETED").length,
     left: assigned.filter((t) => t.myStatus === "LEFT").length,
     ignored: assigned.filter((t) => t.myStatus === "IGNORED").length,
+    missed: assigned.filter((t) => t.myStatus === "MISSED").length,
   };
 
   const categoryLabel: Record<(typeof CATS)[number]["view"], string> = {
@@ -54,6 +59,7 @@ export function TasksList() {
     completed: t("tasksList.categories.completed"),
     left: t("tasksList.categories.left"),
     ignored: t("tasksList.categories.ignored"),
+    missed: t("tasksList.categories.missed"),
   };
 
   return (

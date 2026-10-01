@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { CheckCheck, Bell, CalendarDays, Hash, MessageSquare } from "lucide-react";
 import { EmptyState } from "@taskboard/ui";
@@ -9,6 +9,10 @@ import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { decrementUnreadCount, refreshUnreadCount } from "../lib/unreadNotificationCount";
 import { markNotificationPagesRead } from "../lib/notificationPages";
+import { notificationDestination, openNotificationRoute } from "../lib/notificationDestination";
+
+// Kept exported from here: it is where callers have always imported it from.
+export { notificationDestination };
 import { Sheet } from "./Modal";
 
 /** One server-filtered feed (unread or read): whether its first page is still in
@@ -43,6 +47,7 @@ export function NotificationsPanel({
   const { t, i18n } = useTranslation("shell");
   const { api } = useRuntime();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const qc = useQueryClient();
   const [showRead, setShowRead] = useState(false);
 
@@ -52,39 +57,12 @@ export function NotificationsPanel({
     if (!open) setShowRead(false);
   }, [open]);
 
-  // Mark everything read when the panel CLOSES — not when it opens. Flipping
-  // every row on open emptied the unread list on the same render, so the
-  // notifications the user opened the bell to read had already moved into
-  // "View read". Closing is the honest moment to call them seen.
-  //
-  // The server owns the truth about unread state and its count can include rows
-  // that were never paged in, so the badge is zeroed directly and the bulk
-  // endpoint updates every persisted row; the refresh afterwards puts the badge
-  // right if that request failed. Best-effort + idempotent.
-  useEffect(() => {
-    if (!open) return;
-    return () => {
-      qc.setQueryData<{ unreadCount: number }>(qk.notificationsUnreadCount, (prev) =>
-        prev && { ...prev, unreadCount: 0 },
-      );
-      markNotificationPagesRead(qc, () => true);
-      void api
-        .readAllNotifications()
-        .catch(() => {})
-        .then(() => {
-          // What was unread is read now: both feeds are out of date for the next open.
-          void qc.invalidateQueries({ queryKey: qk.notifications, exact: true });
-          void qc.invalidateQueries({ queryKey: qk.notificationsRead, exact: true });
-          return refreshUnreadCount(qc);
-        });
-    };
-  }, [open, api, qc]);
-
+  // Opening or closing the panel never changes read state. A notification only
+  // becomes read when the user acts on it (clicks the row or "Mark read"); the
+  // badge is the server's unread count and moves only through those actions.
   const markRead = async (id: string) => {
-    // Flip the row and lower the badge BEFORE the request, not after it. If the
-    // panel closes while the request is out, the close handler's read-all counts
-    // the unread rows in the cache — this one has to be read there already, or
-    // it comes off the badge twice.
+    // Flip the row and lower the badge BEFORE the request, so the UI answers the
+    // click immediately; the refresh below lets the server have the last word.
     const flipped = markNotificationPagesRead(qc, (n) => n.id === id);
     decrementUnreadCount(qc, flipped);
 
@@ -100,7 +78,7 @@ export function NotificationsPanel({
   const openNotification = (notification: NotificationDTO) => {
     void markRead(notification.id);
     onClose();
-    navigate(notificationDestination(notification));
+    openNotificationRoute(navigate, pathname, notificationDestination(notification));
   };
 
   // Read notifications are HISTORY, not news: unread by default, the rest one
@@ -231,29 +209,4 @@ function NotificationText({ notification }: { notification: NotificationDTO }) {
     }
   }
   return <span className="block break-words text-sm text-fg">{text}</span>;
-}
-
-export function notificationDestination(notification: NotificationDTO): string {
-  switch (notification.kind) {
-    case "CHANNEL_ADDED":
-    case "CHANNEL_CREATED":
-    case "CHANNEL_MESSAGE":
-      return notification.channelId ? `/app/channels/${notification.channelId}` : "/app/channels";
-    case "DM_MESSAGE":
-      return notification.conversationId ? `/app/chats/${notification.conversationId}` : "/app/chats";
-    case "MEETING_SCHEDULED":
-    case "MEETING_INVITATION":
-      return notification.callId ? `/app/meetings/${notification.callId}` : "/app/meetings";
-    case "TASK_ACKNOWLEDGED":
-    case "TASK_ASSIGNED":
-    case "TASK_COMPLETED":
-    case "TASK_IGNORED":
-    case "TASK_LEFT":
-    case "TASK_WITHDRAWN":
-      return notification.taskId ? `/app/mail/task/${notification.taskId}` : "/app/tasks/allocated";
-    default: {
-      const exhaustive: never = notification.kind;
-      return exhaustive;
-    }
-  }
 }

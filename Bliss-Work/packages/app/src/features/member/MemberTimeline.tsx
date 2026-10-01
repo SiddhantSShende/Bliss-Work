@@ -103,7 +103,14 @@ function Row({ entry }: { entry: TimelineEntry }) {
   const src = sourceLabel(entry.source, t);
   const duration = formatDuration(entry.durationMs);
   const preview = entry.detail?.preview;
-  const context = entry.action === "screenshot.attempted" ? entry.detail?.context : undefined;
+  // The one-line subtitle under the action: the screenshot's context, or the
+  // name of the mail attachment that was downloaded.
+  const context =
+    entry.action === "screenshot.attempted"
+      ? entry.detail?.context
+      : entry.action === "mail.attachment.downloaded"
+        ? entry.detail?.filename
+        : undefined;
 
   return (
     <li className="flex items-start gap-3 rounded-xl px-2 py-2 hover:bg-surface-2">

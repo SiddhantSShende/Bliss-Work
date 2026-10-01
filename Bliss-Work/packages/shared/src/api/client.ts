@@ -65,6 +65,7 @@ import {
   OrgLifecycleDTO,
   OrgMfaSettingsDTO,
   ReviewResponse,
+  DeadlineRule,
   ScheduledTaskDTO,
   SentTaskDTO,
   StickyTaskDTO,
@@ -1217,6 +1218,20 @@ export class ApiClient {
     });
   }
 
+  /**
+   * Records, in the admin-facing activity timeline, that the caller pressed
+   * Download on one of this mail's files. "Download initiated" only — the bytes
+   * come from the signed /media URL, and Preview/Open never call this. The
+   * acting user is the token's; nothing is sent to the mail's sender.
+   */
+  recordMailAttachmentDownload(mailId: string, attachmentId: string) {
+    return this.req<void>(
+      this.cfg.messagingBase,
+      `/api/v1/mail/${mailId}/attachments/${attachmentId}/downloaded`,
+      { method: "POST" },
+    );
+  }
+
   // ── chat attachments ────────────────────────────────────────────────────────
 
   /**
@@ -1774,6 +1789,9 @@ export class ApiClient {
     channelId?: string;
     allocation?: "NOW" | "SCHEDULED" | "RECURRING";
     scheduledFor?: string;
+    /** One concrete deadline (instant or one-off scheduled task). A recurring task
+     *  takes `recurrence.deadline` instead. Omitted = no deadline. */
+    deadlineAt?: string;
     recurrence?: {
       startAt: string;
       frequency: "DAILY" | "WEEKLY" | "MONTHLY";
@@ -1786,6 +1804,8 @@ export class ApiClient {
       endCondition: "NO_END" | "AFTER_OCCURRENCES" | "ON_DATE";
       endAt?: string;
       occurrenceCount?: number;
+      /** How each occurrence's deadline is derived. Omitted = no deadline. */
+      deadline?: DeadlineRule;
     };
   }, idempotencyKey?: string) {
     return this.req(this.cfg.taskBase, "/api/v1/tasks", {
@@ -1993,6 +2013,16 @@ export class ApiClient {
       `/api/v1/tasks/${taskId}/assignees/${userId}`,
       { method: "DELETE", headers: { "idempotency-key": idempotencyKey ?? uuid() } },
       z.object({ withdrawnUserId: z.string(), statusVersion: z.number() }),
+    );
+  }
+  /** Allocator reopens a COMPLETED task for the people who completed it. No body:
+   *  the server restores exactly those assignments (SENT again), never a new set. */
+  reassignTask(taskId: string) {
+    return this.req(
+      this.cfg.taskBase,
+      `/api/v1/tasks/${taskId}/reassign`,
+      { method: "POST" },
+      z.object({ taskId: z.string(), reassignedUserIds: z.array(z.string()) }),
     );
   }
   /** Allocator writes/updates a review on a COMPLETED assignee. Sender-only;
@@ -2298,8 +2328,9 @@ export class ApiClient {
       method: "POST",
     });
   }
-  /** Mark every unread notification read in one call — used to auto-clear the
-   *  bell when the notifications panel is opened. Idempotent + best-effort. */
+  /** Mark every unread notification read in one call. Only for an explicit
+   *  "mark all read" action — opening or closing the bell must never call it.
+   *  Idempotent. */
   readAllNotifications() {
     return this.req<void>(this.cfg.notificationBase, "/api/v1/notifications/read-all", {
       method: "POST",

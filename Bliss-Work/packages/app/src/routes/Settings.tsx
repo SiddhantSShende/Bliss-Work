@@ -126,7 +126,7 @@ export function Settings() {
  *  theme.css instead of a colour list duplicated here. */
 function ThemeMenu() {
   const { t } = useTranslation("settings");
-  const { theme, isDark, toggle, setTheme, customTheme, customThemeActive, saveCustomTheme, clearCustomTheme } = useTheme();
+  const { theme, isDark, toggle, setTheme, customTheme, customThemeActive, saveCustomTheme } = useTheme();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const close = () => setOpen(false);
@@ -158,10 +158,6 @@ function ThemeMenu() {
         <CustomThemeBuilder
           initial={customTheme}
           onCancel={cancelEditing}
-          onDelete={() => {
-            clearCustomTheme();
-            setEditing(false);
-          }}
           onSave={(next) => {
             saveCustomTheme(next);
             setEditing(false);
@@ -244,12 +240,10 @@ function ThemeMenu() {
 function CustomThemeBuilder({
   initial,
   onCancel,
-  onDelete,
   onSave,
 }: {
   initial: CustomTheme | null;
   onCancel: () => void;
-  onDelete: () => void;
   onSave: (theme: CustomTheme) => void;
 }) {
   const { t } = useTranslation("settings");
@@ -298,11 +292,6 @@ function CustomThemeBuilder({
       </div>
       <div className="mt-3 h-16 rounded-lg border border-border" style={{ background: customThemeGradient(colors) }} aria-label={t("settings:theme.custom.preview")} />
       <div className="mt-3 flex justify-end gap-2">
-        {initial && (
-          <Button type="button" variant="subtle" size="sm" className="mr-auto text-danger" onClick={onDelete}>
-            {t("settings:theme.custom.delete")}
-          </Button>
-        )}
         <Button type="button" variant="subtle" size="sm" onClick={onCancel}>{t("settings:theme.custom.cancel")}</Button>
         <Button type="submit" size="sm">{t("settings:theme.custom.save")}</Button>
       </div>

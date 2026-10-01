@@ -123,7 +123,7 @@ func (e *Event) RecipientsOf() []string {
 		// own (Web and Desktop), and never to the task's sender or other
 		// assignees: a pin is private to the person who made it.
 		return dedupe([]string{e.AssigneeID})
-	case "task.acknowledged", "task.completed", "task.ignored", "task.left", "task.withdrawn", "task.reviewed":
+	case "task.acknowledged", "task.completed", "task.ignored", "task.left", "task.missed", "task.withdrawn", "task.reviewed":
 		if e.Type == "task.withdrawn" && len(e.Members) > 0 {
 			return dedupe(e.Members)
 		}

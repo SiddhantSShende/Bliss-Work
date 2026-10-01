@@ -90,10 +90,11 @@ func (s *Store) ClearChannel(ctx context.Context, orgID, channelID, callerID str
 
 // DeleteChannelMessageForAll tombstones a channel message for everyone.
 //
-// Permitted to the AUTHOR or to anyone who moderates the channel. The author
-// clause is checked first and separately from `requireChannelManager` so an
-// ordinary member can always retract their own message without being able to
-// touch anybody else's.
+// Permitted to the AUTHOR or to anyone who moderates the channel — for messages
+// a person wrote. Server-authored notices (IsServerAuthoredKind) are refused for
+// everyone. The author clause is checked first and separately from
+// `requireChannelManager` so an ordinary member can always retract their own
+// message without being able to touch anybody else's.
 func (s *Store) DeleteChannelMessageForAll(
 	ctx context.Context, orgID, callerID, messageID string, claimRoles []string,
 ) error {
@@ -110,15 +111,25 @@ func (s *Store) DeleteChannelMessageForAll(
 		// Read the row FIRST — an org_admin moderating a channel they are not in is
 		// explicitly supported (see requireChannelManager), so membership cannot be
 		// the gate here the way it is for hide and react.
-		var channelID, senderID string
+		var channelID, senderID, kind string
 		err = tx.QueryRow(ctx,
-			`SELECT channel_id, sender_id FROM channel_messages WHERE id = $1 AND org_id = $2`,
-			messageID, orgID).Scan(&channelID, &senderID)
+			`SELECT channel_id, sender_id, kind FROM channel_messages WHERE id = $1 AND org_id = $2`,
+			messageID, orgID).Scan(&channelID, &senderID, &kind)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrForbidden
 		}
 		if err != nil {
 			return err
+		}
+
+		// A server-authored notice (created / renamed / member added / forward
+		// notice …) is a record of what happened, not something its sender said:
+		// sender_id on it is only who caused the write, so neither being that
+		// sender NOR moderating the channel lets anyone erase it through this
+		// path. ErrForbidden is the same answer a missing id gets, so the
+		// response does not reveal which ids are notices.
+		if IsServerAuthoredKind(kind) {
+			return ErrForbidden
 		}
 
 		if senderID != callerID {
@@ -248,6 +259,13 @@ func (s *Store) DeleteChannelMessagesForAll(
 				  AND channel_id = $2
 				  AND org_id = $3
 				  AND ($4::boolean OR sender_id = $5)
+				  -- Server-authored notices are never deletable here, whoever the
+				  -- sender is and whether or not the caller moderates: ids that
+				  -- fail this land in Skipped like any other id the caller may
+				  -- not delete. The client list is the single source of truth
+				  -- (clientMessageKinds), so a new server-only kind is protected
+				  -- without touching this query.
+				  AND kind = ANY($6::text[])
 				FOR UPDATE
 			), upd AS (
 				UPDATE channel_messages m
@@ -259,7 +277,7 @@ func (s *Store) DeleteChannelMessagesForAll(
 				WHERE m.id = t.id
 			)
 			SELECT t.id::text, t.was_deleted FROM target t`,
-			messageIDs, channelID, orgID, isManager, callerID)
+			messageIDs, channelID, orgID, isManager, callerID, clientMessageKinds)
 		if err != nil {
 			return err
 		}

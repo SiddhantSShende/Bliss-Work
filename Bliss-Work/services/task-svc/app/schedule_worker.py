@@ -13,6 +13,7 @@ from sqlalchemy import text
 
 from .db import set_bypass_rls, session
 from .logging_setup import log
+from .deadlines import resolve_deadline, rule_from_row
 from .routes.tasks_write import _insert_task_assignees, _insert_task_channels, _resolve_channel_members
 from .routes.helpers import resolve_username
 from crypto import cryptor
@@ -188,7 +189,8 @@ async def _claim_due_schedule() -> object | None:
                     "SELECT id, org_id, sender_id, title_enc, description_enc, channel_id, channel_ids, assignee_ids, "
                     "kind, scheduled_for, start_at, frequency, frequency_interval, weekdays, monthly_rule, "
                     "monthly_day, monthly_ordinal, monthly_weekday, end_condition, end_at, occurrence_limit, "
-                    "occurrence_count, next_run_at "
+                    "occurrence_count, next_run_at, "
+                    "deadline_at, deadline_kind, deadline_amount, deadline_unit, deadline_time, deadline_tz "
                     "FROM task_schedules "
                     "WHERE status = 'ACTIVE' AND next_run_at <= now() "
                     "AND id <> ALL(CAST(:parked AS uuid[])) "
@@ -247,6 +249,12 @@ async def _materialize(db: Any, row: Any) -> object | None:
             await db.commit()
             return None
 
+    # The concrete deadline of THIS occurrence, resolved against the moment it was
+    # due (`run_at`), not the moment a busy or restarted worker got to it. A
+    # one-off schedule carries it as an absolute instant; a series as a rule.
+    rule = rule_from_row(row)
+    deadline_at = resolve_deadline(rule, run_at) if rule is not None else row.deadline_at
+
     title = await cryptor().decrypt(db, str(row.org_id), row.title_enc) or ""
     description = await cryptor().decrypt(db, str(row.org_id), row.description_enc) or ""
     sender_username = await resolve_username(db, str(row.org_id), str(row.sender_id)) or ""
@@ -254,10 +262,12 @@ async def _materialize(db: Any, row: Any) -> object | None:
     task_id = str(uuid6.uuid7())
     await db.execute(
         text(
-            "INSERT INTO tasks (id, org_id, sender_id, title_enc, description_enc, channel_id, schedule_id, occurrence_number) "
-            "VALUES (:id, :org, :sender, :title, :description, :channel, :schedule, :occurrence)"
+            "INSERT INTO tasks (id, org_id, sender_id, title_enc, description_enc, channel_id, schedule_id, "
+            "occurrence_number, deadline_at) "
+            "VALUES (:id, :org, :sender, :title, :description, :channel, :schedule, :occurrence, :deadline)"
         ),
         {
+            "deadline": deadline_at,
             "id": task_id,
             "org": row.org_id,
             "sender": row.sender_id,

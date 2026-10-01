@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -77,11 +78,33 @@ func (s *Store) CreateChannel(ctx context.Context, orgID, creatorID, name string
 		if err != nil {
 			return err
 		}
-		body := fmt.Sprintf("%s created channel %s", userDisplayName(creatorDisplayName, creatorUsername), name)
+		body := fmt.Sprintf("%s created the channel %s", userDisplayName(creatorDisplayName, creatorUsername), name)
 		clientMsgID := uuid.NewMD5(uuid.Nil, []byte("channel-created:"+chanID)).String()
 		if _, err := s.appendChannelMessageTx(ctx, tx, orgID, chanID, creatorID, body, clientMsgID,
 			channelAppendOpts{kind: MessageKindChannelCreated}); err != nil {
 			return err
+		}
+
+		// One message naming everyone seeded with the channel, appended AFTER the
+		// creation message in this same transaction — appendChannelMessageTx hands
+		// out seq in call order, so "created" always sorts before "added". The
+		// creator is members[0] (see dedupeMembers) and is not "added" to their own
+		// channel; a creator-only channel gets no second message.
+		//
+		// Its sender_id is the CREATOR, not the people it names: it is one row about
+		// several users, and sender_id is the principal who caused the write (see
+		// the note in AddChannelMembers for what that column drives).
+		if initial := members[1:]; len(initial) > 0 {
+			names, err := usernames(ctx, tx, initial)
+			if err != nil {
+				return err
+			}
+			addedBody := initialMembersBody(initial, names)
+			addedClientMsgID := uuid.NewMD5(uuid.Nil, []byte("channel-members-added:"+chanID)).String()
+			if _, err := s.appendChannelMessageTx(ctx, tx, orgID, chanID, creatorID, addedBody, addedClientMsgID,
+				channelAppendOpts{kind: MessageKindChannelMemberAdded}); err != nil {
+				return err
+			}
 		}
 
 		return tx.Commit(ctx)
@@ -327,9 +350,19 @@ func (s *Store) AddChannelMembers(ctx context.Context, orgID, channelID, callerI
 		actorName := userDisplayName(actorDisplay, actorUsername)
 		bodies := make([]string, 0, len(added))
 		clientMsgIDs := make([]string, 0, len(added))
+		// The text names the user who joined; sender_id stays the CALLER who added
+		// them, deliberately. sender_id is the authenticated principal that caused
+		// the write, and everything keyed on it assumes that: telemetry records a
+		// "channel.message.sent" for the sender (a member who was merely added would
+		// be credited with an action they never took), delete-for-all lets a
+		// message's sender retract it without moderator rights (an added member
+		// could erase the notice of their own addition), and the unread/last-sender
+		// queries treat the sender as the one who just acted. The joined user is
+		// still named in the body, and the ChannelMemberJoined event below carries
+		// userId (who joined) and actorId (who added them) separately.
 		for _, uid := range added {
 			addedName := userDisplayName(names[uid].displayName, names[uid].username)
-			bodies = append(bodies, fmt.Sprintf("%s added %s to the channel", actorName, addedName))
+			bodies = append(bodies, fmt.Sprintf("%s joined the channel", addedName))
 			clientMsgIDs = append(clientMsgIDs, uuid.Must(uuid.NewV7()).String())
 		}
 		if err := s.appendChannelMessagesTx(ctx, tx, orgID, channelID, callerID,
@@ -347,6 +380,23 @@ func (s *Store) AddChannelMembers(ctx context.Context, orgID, channelID, callerI
 		}
 		return tx.Commit(ctx)
 	})
+}
+
+// initialMembersBody is the text of the single system message that names every
+// user a channel was created with: "A was added to the channel" for one,
+// "A, B, C were added to the channel" for several. The names follow the request
+// order and are never truncated. A user with no projection row yet reads as
+// "Someone", the same fallback every other system message uses.
+func initialMembersBody(userIDs []string, names map[string]projectedUserNames) string {
+	display := make([]string, len(userIDs))
+	for i, uid := range userIDs {
+		display[i] = userDisplayName(names[uid].displayName, names[uid].username)
+	}
+	verb := "were"
+	if len(display) == 1 {
+		verb = "was"
+	}
+	return fmt.Sprintf("%s %s added to the channel", strings.Join(display, ", "), verb)
 }
 
 // memberJoinedEvents builds one ChannelMemberJoined per newly-added member.
@@ -568,11 +618,25 @@ func (s *Store) SendChannelMessage(ctx context.Context, orgID, channelID, sender
 // 0012_channel_roles with nobody able to moderate it. A default is easy to
 // forget; an argument is not.
 func (s *Store) insertChannelMember(ctx context.Context, tx pgx.Tx, channelID, orgID, userID, role string) error {
-	_, err := tx.Exec(ctx,
+	_, err := s.insertChannelMemberIfNew(ctx, tx, channelID, orgID, userID, role)
+	return err
+}
+
+// insertChannelMemberIfNew is insertChannelMember that also reports whether the
+// row was actually created. The answer comes from the INSERT's own affected-row
+// count, not from a prior SELECT: under READ COMMITTED two concurrent inserts of
+// the same (channel, user) both pass any earlier existence check, but the
+// second blocks on the first's unique-key entry and, once it commits, takes the
+// DO NOTHING branch with zero rows affected. Exactly one caller sees true.
+func (s *Store) insertChannelMemberIfNew(ctx context.Context, tx pgx.Tx, channelID, orgID, userID, role string) (bool, error) {
+	tag, err := tx.Exec(ctx,
 		`INSERT INTO channel_members (channel_id, org_id, user_id, role) VALUES ($1, $2, $3, $4)
 		 ON CONFLICT (channel_id, user_id) DO NOTHING`,
 		channelID, orgID, userID, role)
-	return err
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() == 1, nil
 }
 
 // classifyChannelOrgLookup turns the result of a `SELECT org_id ... FROM

@@ -1,11 +1,11 @@
 /**
  * Notification-center contract tests.
  *
- * The panel opens on the unread notifications, keeps read ones behind "View
- * read", and clears the server-side unread count when it CLOSES (not on open,
- * which emptied the unread list before it could be read).
+ * The panel opens on the unread notifications and keeps read ones behind "View
+ * read". Opening or closing it never changes read state: a notification becomes
+ * read only when the user acts on it, and the badge is the server's unread count.
  */
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
@@ -114,7 +114,7 @@ function Harness({ open = false }: { open?: boolean }) {
   );
 }
 
-function setup(list: NotificationDTO[] | null, cachedCount: number, open = false, nextCursor: string | null = null) {
+function setup(list: NotificationDTO[] | null, cachedCount: number | null, open = false, nextCursor: string | null = null) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
   if (list) {
     qc.setQueryData<NotificationPages>(qk.notifications, {
@@ -122,7 +122,7 @@ function setup(list: NotificationDTO[] | null, cachedCount: number, open = false
       pageParams: [undefined],
     });
   }
-  qc.setQueryData(qk.notificationsUnreadCount, { unreadCount: cachedCount });
+  if (cachedCount !== null) qc.setQueryData(qk.notificationsUnreadCount, { unreadCount: cachedCount });
   const wrapper = ({ children }: { children: React.ReactNode }) => (
     <QueryClientProvider client={qc}>
       <MemoryRouter initialEntries={["/app"]}>{children}</MemoryRouter>
@@ -148,14 +148,64 @@ describe("NotificationsPanel", () => {
     expect(badge()).toBe(2);
   });
 
-  it("marks everything read on close, even rows outside the loaded page", async () => {
+  it("keeps the badge and unread rows after the bell is opened and closed", async () => {
     const user = userEvent.setup();
     const { badge } = setup([notification("loaded-one")], 87);
     await openBell(user);
     await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByText("Task loaded-one completed")).not.toBeInTheDocument());
+    await openBell(user);
 
-    await waitFor(() => expect(api.readAllNotifications).toHaveBeenCalledTimes(1));
-    expect(badge()).toBe(0);
+    expect(api.readAllNotifications).not.toHaveBeenCalled();
+    expect(api.markNotificationRead).not.toHaveBeenCalled();
+    expect(badge()).toBe(87);
+    expect(screen.getByTestId("unread-count")).toHaveTextContent("87");
+    expect(screen.getByText("Task loaded-one completed")).toBeInTheDocument();
+  });
+
+  it("lowers the badge by one when a notification is explicitly marked read", async () => {
+    const user = userEvent.setup();
+    api.notificationsUnreadCount.mockResolvedValue({ unreadCount: 1 });
+    const { badge } = setup([notification("n1"), notification("n2")], 2);
+    await openBell(user);
+    await user.click(screen.getAllByRole("button", { name: "Mark read" })[0]!);
+
+    expect(api.markNotificationRead).toHaveBeenCalledTimes(1);
+    expect(badge()).toBe(1);
+    // The other row is untouched and still unread.
+    expect(screen.getAllByRole("button", { name: "Mark read" })).toHaveLength(1);
+    await waitFor(() => expect(screen.getByTestId("unread-count")).toHaveTextContent("1"));
+  });
+
+  it("keeps a row read after refresh: the server's read state, not the cache, decides", async () => {
+    const user = userEvent.setup();
+    // A tiny stateful server behind the mocked API, shared by both mounts.
+    const rows = [notification("keep-unread"), notification("will-read")];
+    const isRead = new Set<string>();
+    api.markNotificationRead.mockImplementation(async (id) => void isRead.add(id));
+    api.notificationsUnreadCount.mockImplementation(async () => ({
+      unreadCount: rows.filter((n) => !isRead.has(n.id)).length,
+    }));
+    api.notificationPage.mockImplementation(async (_cursor, _limit, wantRead) => ({
+      items: rows.filter((n) => isRead.has(n.id) === Boolean(wantRead)).map((n) => ({ ...n, read: isRead.has(n.id) })),
+      nextCursor: null,
+    }));
+
+    const first = setup(null, 2);
+    await openBell(user);
+    const row = (await screen.findByText("Task will-read completed")).closest("li")!;
+    await user.click(within(row).getByRole("button", { name: "Mark read" }));
+    await waitFor(() => expect(isRead.has("will-read")).toBe(true));
+    first.view.unmount();
+
+    // "Refresh": a brand-new client with an empty cache.
+    setup(null, null);
+    await waitFor(() => expect(screen.getByTestId("unread-count")).toHaveTextContent("1"));
+    await openBell(user);
+    expect(await screen.findByText("Task keep-unread completed")).toBeInTheDocument();
+    expect(screen.queryByText("Task will-read completed")).not.toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: "View read (1)" }));
+    expect(screen.getByText("Task will-read completed")).toBeInTheDocument();
   });
 
   it("hides read notifications behind View read, and offers nothing when there are none", async () => {
@@ -471,6 +521,20 @@ describe("NotificationsPanel", () => {
 
     expect(badge()).toBe(5);
     expect(flattenNotificationPages(qc.getQueryData(qk.notifications))).toHaveLength(2);
+  });
+
+  it("shows a new notification in the open panel and raises the badge", async () => {
+    const user = userEvent.setup();
+    const { qc, badge } = setup([notification("existing")], 1, true);
+    expect(screen.getByText("Task existing completed")).toBeInTheDocument();
+
+    act(() => {
+      addRealtimeNotification(qc, { ...notification("fresh", "CHANNEL_MESSAGE", null), text: "Ann in #dev: ping", createdAt: "2026-08-01T10:00:00.000Z" });
+    });
+
+    expect(badge()).toBe(2);
+    expect(await screen.findByText("ping")).toBeInTheDocument();
+    expect(screen.getByText("Task existing completed")).toBeInTheDocument();
   });
 
   it("renders every currently persisted notification kind", async () => {

@@ -57,7 +57,7 @@ async def _sticky_list(
                     "SELECT t.id, t.org_id, t.title_enc, t.description_enc, t.sender_id, "
                     "       ta.status, ta.status_version, ta.assigned_at, ta.acknowledged_at, "
                     "       ta.completed_at, ta.ignored_at, ta.left_at, ta.reviewed_at, "
-                    "       ta.review_enc, ta.review_rating, "
+                    "       ta.review_enc, ta.review_rating, ta.missed_at, t.deadline_at, "
                     "       COALESCE(up.username, '') AS sender_username, "
                     "       COALESCE(up.display_name, '') AS sender_display_name, "
                     "       COALESCE((SELECT json_agg(json_build_object("
@@ -123,6 +123,8 @@ async def _sticky_list(
                 reviewedAt=iso(r.reviewed_at),
                 review=review,
                 reviewRating=r.review_rating,
+                deadlineAt=iso(r.deadline_at),
+                missedAt=iso(r.missed_at),
                 participants=r.participants or [],
             )
         )
@@ -168,7 +170,7 @@ async def task_detail(
                     "SELECT t.id, t.org_id, t.title_enc, t.description_enc, t.sender_id, "
                     "       ta.status, ta.status_version, ta.assigned_at, ta.acknowledged_at, "
                     "       ta.completed_at, ta.ignored_at, ta.left_at, ta.reviewed_at, "
-                    "       ta.review_enc, ta.review_rating, "
+                    "       ta.review_enc, ta.review_rating, ta.missed_at, t.deadline_at, "
                     "       COALESCE(up.username, '') AS sender_username, "
                     "       COALESCE(up.display_name, '') AS sender_display_name, "
                     "       COALESCE((SELECT json_agg(json_build_object("
@@ -213,6 +215,8 @@ async def task_detail(
             reviewedAt=iso(row.reviewed_at),
             review=review,
             reviewRating=row.review_rating,
+            deadlineAt=iso(row.deadline_at),
+            missedAt=iso(row.missed_at),
             participants=row.participants or [],
         )
 
@@ -226,7 +230,7 @@ async def assigned(
     """All tasks assigned to me, any status (frontend buckets into the views)."""
     return await _sticky_list(
         principal,
-        ("SENT", "ACKNOWLEDGED", "IGNORED", "COMPLETED", "LEFT"),
+        ("SENT", "ACKNOWLEDGED", "IGNORED", "COMPLETED", "LEFT", "MISSED"),
         limit=limit,
         offset=offset,
     )
@@ -278,10 +282,10 @@ async def sent(
         rows = (
             await db.execute(
                 text(
-                    "SELECT t.id, t.org_id, t.title_enc, t.description_enc, t.created_at, "
+                    "SELECT t.id, t.org_id, t.title_enc, t.description_enc, t.created_at, t.deadline_at, "
                     "       ta.assignee_id, ta.status, "
                     "       ta.assigned_at, ta.acknowledged_at, ta.completed_at, "
-                    "       ta.ignored_at, ta.left_at, ta.reviewed_at, "
+                    "       ta.ignored_at, ta.left_at, ta.missed_at, ta.reviewed_at, "
                     "       ta.review_enc, ta.review_rating, "
                     "       COALESCE(up.username, '') AS assignee_username "
                     "FROM tasks t "
@@ -313,6 +317,7 @@ async def sent(
                     title=await cryptor().decrypt(db, org, r.title_enc) or "",
                     description=await cryptor().decrypt(db, org, r.description_enc) or "",
                     createdAt=iso(r.created_at),
+                    deadlineAt=iso(r.deadline_at),
                     assignees=[],
                     participants=[],
                 )
@@ -332,6 +337,7 @@ async def sent(
                     completedAt=iso(r.completed_at),
                     ignoredAt=iso(r.ignored_at),
                     leftAt=iso(r.left_at),
+                    missedAt=iso(r.missed_at),
                     reviewedAt=iso(r.reviewed_at),
                     review=review,
                     reviewRating=r.review_rating,

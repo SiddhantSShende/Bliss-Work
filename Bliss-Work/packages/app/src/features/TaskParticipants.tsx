@@ -72,7 +72,8 @@ export function TaskParticipants({
   return (
     <div className="mt-3 min-w-0 border-t border-border/50 pt-3">
       <div className="flex min-w-0 items-center gap-2">
-        <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted">{t("participants.label")}</span>
+        {/* min-w-0 + truncate rather than shrink-0: at the narrowest a card gets (a 320px window at 200% zoom) a rigid label was wider than the card's own inner width. */}
+        <span className="min-w-0 truncate text-xs font-semibold uppercase tracking-wide text-muted">{t("participants.label")}</span>
         {showAdd && layout === "chips" && <TaskParticipantAdd participants={participants} onAdd={onAdd!} />}
       </div>
       {layout === "list" ? (
@@ -84,9 +85,13 @@ export function TaskParticipants({
               <li key={participant.userId} className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1 py-1.5 first:pt-0 last:pb-0">
                 {/* A floor on the name's width, so in a narrow card the Withdraw button
                     wraps onto its own line instead of squeezing the name to nothing. */}
-                <span className="inline-flex min-w-[min(8rem,100%)] flex-1 items-center gap-2 text-sm font-medium text-fg">
+                <span className="inline-flex min-w-[min(8rem,100%)] max-w-full flex-1 flex-wrap items-center gap-x-2 gap-y-0.5 text-sm font-medium text-fg">
                   <span className="min-w-0 truncate">{name}</span>
-                  <Badge tone={participantTone(participant.status)}>{participant.status.toLowerCase()}</Badge>
+                  {/* Can give way and ellipsize, so a long status word never leaves a card
+                      narrower than it. Unchanged wherever the badge fits. */}
+                  <Badge tone={participantTone(participant.status)} className="min-w-0 max-w-full">
+                    <span className="truncate">{participant.status.toLowerCase()}</span>
+                  </Badge>
                 </span>
                 {removable(participant) && (
                   <Button

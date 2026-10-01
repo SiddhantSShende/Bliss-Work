@@ -261,7 +261,7 @@ function MailDetailContent({ mailId }: { mailId: string }) {
 
           {/* The same cards the composer's tray renders, so a file looks the
               same on both ends of the send. Renders nothing when there are none. */}
-          <MailAttachmentCards attachments={mail.attachments} />
+          <MailAttachmentCards mailId={mail.mailId} attachments={mail.attachments} />
         </div>
       </div>
     </div>

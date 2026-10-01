@@ -16,6 +16,7 @@ from app.transitions import (
     COMPLETED,
     IGNORED,
     LEFT,
+    MISSED,
     OPEN,
     PinRow,
     plan_transition,
@@ -41,7 +42,7 @@ def test_acknowledging_does_NOT_close_the_pin():
 
 @pytest.mark.parametrize(
     ("event", "reason"),
-    [(COMPLETED, "COMPLETED"), (IGNORED, "IGNORED"), (LEFT, "LEFT")],
+    [(COMPLETED, "COMPLETED"), (IGNORED, "IGNORED"), (LEFT, "LEFT"), (MISSED, "MISSED")],
 )
 def test_only_a_terminal_status_closes_a_pin(event, reason):
     t = plan_transition(PinRow(OPEN, "ACKNOWLEDGED", 1), event, 2)
@@ -85,7 +86,7 @@ class TestRedeliveryIsSafe:
 class TestPinsAreNotInventedFromNothing:
     """A pin may only be created by an assignment we actually saw."""
 
-    @pytest.mark.parametrize("event", [ACKNOWLEDGED, COMPLETED, IGNORED, LEFT])
+    @pytest.mark.parametrize("event", [ACKNOWLEDGED, COMPLETED, IGNORED, LEFT, MISSED])
     def test_a_non_assignment_event_for_an_unknown_task_creates_nothing(self, event):
         # Otherwise a missed assignment plus a completion would put a note on
         # someone's desktop for a task they have already finished.

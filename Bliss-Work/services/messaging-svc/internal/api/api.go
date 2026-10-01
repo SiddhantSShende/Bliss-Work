@@ -503,6 +503,9 @@ func (s *Server) Router(webOrigin string) http.Handler {
 			r.Delete("/mail/drafts/{id}", s.discardMailDraft)
 			r.Delete("/mail/drafts/{id}/attachments/{attachmentId}", s.removeDraftAttachment)
 			r.Get("/mail/{id}", s.getMail)
+			// A reader pressed Download on one of this mail's files. Not in the
+			// idempotency group on purpose: two downloads are two events.
+			r.Post("/mail/{id}/attachments/{attachmentId}/downloaded", s.recordMailAttachmentDownload)
 			r.Get("/threads/{id}", s.getThread)
 			r.Get("/threads/{id}/messages", s.listThreadMessages)
 			r.Post("/threads/{id}/reply", s.replyToThread)

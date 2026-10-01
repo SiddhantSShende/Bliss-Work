@@ -1,6 +1,9 @@
 {
   "card": {
     "from": "from {{name}}",
+    "assigned": "Assigned",
+    "deadline": "Deadline",
+    "missedOn": "Missed",
     "collapseToPill": "Collapse to a pill",
     "unpinNoteTitle": "Unpin (the task stays)",
     "unpin": "Unpin",

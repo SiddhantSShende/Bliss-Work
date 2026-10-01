@@ -115,6 +115,16 @@ const api = {
     return () => ipcRenderer.removeListener("deeplink:meeting", handler);
   },
 
+  /** Emitted when the user clicks an OS notification: the in-app route that
+   *  notification leads to. Same channel name as main/notification-open.ts's
+   *  OPEN_ROUTE_CHANNEL (preload cannot import from main). The renderer
+   *  re-validates the path before navigating. */
+  onOpenRoute: (cb: (path: string) => void) => {
+    const handler = (_: unknown, path: string) => cb(path);
+    ipcRenderer.on("notification:open-route", handler);
+    return () => ipcRenderer.removeListener("notification:open-route", handler);
+  },
+
   /** Open an https URL in the system browser. Used for OAuth: Google rejects
    *  embedded webviews, so the consent screen has to leave the app. Main
    *  re-validates the scheme — never trust the renderer with a shell call. */

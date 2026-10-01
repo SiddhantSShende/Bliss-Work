@@ -25,6 +25,7 @@ const ACTIONS: Record<string, string> = {
   logout: "Signed out",
   "org.switched": "Switched workspace",
   "message.sent": "Sent a message",
+  "mail.attachment.downloaded": "Downloaded a mail attachment",
   "channel.message.sent": "Posted in a channel",
   "conversation.ignored": "Ignored a conversation",
   "user.blocked": "Blocked someone",

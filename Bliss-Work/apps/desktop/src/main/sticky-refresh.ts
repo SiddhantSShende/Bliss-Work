@@ -24,6 +24,8 @@ const TASK_LIFECYCLE = [
   "task.completed",
   "task.ignored",
   "task.left",
+  // The deadline passed: terminal, so the note must come off the desktop.
+  "task.missed",
 ] as const;
 
 /**

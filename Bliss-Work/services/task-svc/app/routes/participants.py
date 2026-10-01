@@ -21,7 +21,11 @@ _ACTIVE = ("SENT", "ACKNOWLEDGED")
 async def _task_context(db, org_id: str, task_id: str):
     row = (
         await db.execute(
-            text("SELECT sender_id, title_enc, description_enc FROM tasks WHERE id = :tid AND org_id = :org"),
+            text(
+                "SELECT sender_id, title_enc, description_enc, "
+                "       COALESCE(deadline_at <= now(), false) AS past_deadline "
+                "FROM tasks WHERE id = :tid AND org_id = :org"
+            ),
             {"tid": task_id, "org": org_id},
         )
     ).first()
@@ -129,6 +133,9 @@ async def add_participants(
         ).first()
         if open_task is None:
             raise HTTPException(status_code=409, detail="cannot add participants to a completed task")
+        # Someone added now would receive a task that is already missed.
+        if task.past_deadline:
+            raise HTTPException(status_code=409, detail="cannot add participants after the task's deadline")
 
         # Attach the channels so a member who joins one later is added as well
         # (the ChannelMemberJoined consumer). Re-attaching one is a no-op.

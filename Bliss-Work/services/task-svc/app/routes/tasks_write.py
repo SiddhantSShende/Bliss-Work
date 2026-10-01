@@ -217,19 +217,24 @@ async def _insert_schedule(
 ) -> None:
     recurrence = body.recurrence
     start_at = body.scheduledFor if body.allocation == "SCHEDULED" else recurrence.startAt  # type: ignore[union-attr]
+    # A scheduled task carries one absolute deadline; a recurring series carries the
+    # RULE its occurrences' deadlines are resolved from (app/deadlines.py).
+    rule = recurrence.deadline if recurrence else None
     await db.execute(
         text(
             "INSERT INTO task_schedules ("
             "id, org_id, sender_id, title_enc, description_enc, channel_id, channel_ids, assignee_ids, "
             "kind, scheduled_for, start_at, frequency, frequency_interval, weekdays, "
             "monthly_rule, monthly_day, monthly_ordinal, monthly_weekday, end_condition, "
-            "end_at, occurrence_limit, next_run_at"
+            "end_at, occurrence_limit, next_run_at, "
+            "deadline_at, deadline_kind, deadline_amount, deadline_unit, deadline_time, deadline_tz"
             ") VALUES ("
             ":id, :org, :sender, :title, :description, :channel, CAST(:channels AS uuid[]), "
             "CAST(:assignees AS uuid[]), "
             ":kind, :scheduled, :start, :frequency, :interval, :weekdays, :monthly_rule, "
             ":monthly_day, :monthly_ordinal, :monthly_weekday, :end_condition, :end_at, "
-            ":occurrence_limit, :next_run"
+            ":occurrence_limit, :next_run, "
+            ":deadline_at, :deadline_kind, :deadline_amount, :deadline_unit, :deadline_time, :deadline_tz"
             ")"
         ),
         {
@@ -256,8 +261,16 @@ async def _insert_schedule(
             "end_at": recurrence.endAt if recurrence else None,
             "occurrence_limit": recurrence.occurrenceCount if recurrence else None,
             "next_run": start_at,
+            "deadline_at": body.deadlineAt,
+            "deadline_kind": rule.kind if rule else None,
+            "deadline_amount": rule.amount if rule else None,
+            "deadline_unit": rule.unit if rule else None,
+            "deadline_time": rule.time_of_day() if rule and rule.kind == "FIXED_TIME" else None,
+            "deadline_tz": rule.timeZone if rule else None,
         },
     )
+
+
 @router.post("/tasks", response_model=CreateTaskResponse, status_code=status.HTTP_201_CREATED)
 async def create_task(
     body: CreateTaskRequest,
@@ -381,10 +394,11 @@ async def create_task(
 
         await db.execute(
             text(
-                "INSERT INTO tasks (id, org_id, sender_id, title_enc, description_enc, channel_id) "
-                "VALUES (:id, :org, :sender, :title_enc, :desc_enc, :ch)"
+                "INSERT INTO tasks (id, org_id, sender_id, title_enc, description_enc, channel_id, deadline_at) "
+                "VALUES (:id, :org, :sender, :title_enc, :desc_enc, :ch, :deadline)"
             ),
             {
+                "deadline": body.deadlineAt,
                 "id": task_id,
                 "org": org_id,
                 "sender": sender_id,

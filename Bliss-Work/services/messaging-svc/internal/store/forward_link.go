@@ -79,6 +79,13 @@ type ForwardSourceCtx struct {
 	RootAuthorID  string
 	Depth         int
 	Path          []string
+
+	// NoticeChannelID is the LOCKED channel the chain's ROOT message originated
+	// in, or "" when it did not originate in one. It is the channel that gets the
+	// "forwarded a message from this channel" notice (forward_notice.go) — which
+	// is not necessarily the channel this source lives in: a clone forwarded out
+	// of a DM still points home through RootMessageID.
+	NoticeChannelID string
 }
 
 // LinkForwardResult is what the handler echoes back to the client.
@@ -265,7 +272,9 @@ func resolveForwardProvenance(ctx context.Context, tx pgx.Tx, sourceMessageID, s
 		return err
 	}
 	out.Depth = srcDepth + 1
-	return nil
+
+	out.NoticeChannelID, err = resolveForwardNoticeChannel(ctx, tx, out.RootMessageID)
+	return err
 }
 
 // linkPillDetail is the OPTIONAL recipient fragment stored as the system

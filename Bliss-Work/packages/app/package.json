@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./chatEnvelope": "./src/lib/chatEnvelope.ts",
+    "./lib/notificationDestination": "./src/lib/notificationDestination.ts",
     "./platform": "./src/platform.ts",
     "./lib/runtime": "./src/lib/runtime.tsx",
     "./lib/refresh": "./src/lib/refresh.ts",

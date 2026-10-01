@@ -76,6 +76,7 @@ class TestAssignmentSticksUntilTerminal:
             ("task.completed", "COMPLETED"),
             ("task.ignored", "IGNORED"),
             ("task.left", "LEFT"),
+            ("task.missed", "MISSED"),
         ],
     )
     async def test_a_terminal_status_closes_it(self, db_app, kind, reason):

@@ -20,14 +20,26 @@ import type { UserDTO } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
 import { dayLabel, timeLabel } from "../lib/meetingTime";
+import { localDateTimeWithOffset } from "../lib/taskDates";
+import { deadlineProblem, deadlineRequest, emptyDeadline, type Allocation, type DeadlineForm, type DeadlineProblem } from "../lib/taskDeadline";
 import { Modal } from "./Modal";
 import { Field } from "../routes/Onboarding";
 import { MeetingAudienceFields, type AudienceCopy } from "./MeetingAudienceFields";
+import { TaskDeadlineField } from "./TaskDeadlineField";
 import { TimePicker } from "./TimePicker";
 
-type Allocation = "NOW" | "SCHEDULED" | "RECURRING";
+
 type Frequency = "DAILY" | "WEEKLY" | "MONTHLY";
 type EndCondition = "NO_END" | "AFTER_OCCURRENCES" | "ON_DATE";
+
+const DEADLINE_ERRORS: Record<DeadlineProblem, string> = {
+  needAt: "createTaskDialog.errors.needDeadlineAt",
+  notFuture: "createTaskDialog.errors.deadlineNotFuture",
+  beforeStart: "createTaskDialog.errors.deadlineBeforeStart",
+  amount: "createTaskDialog.errors.invalidDeadlineAmount",
+  needFixedTime: "createTaskDialog.errors.needDeadlineTime",
+  fixedBeforeStart: "createTaskDialog.errors.fixedDeadlineBeforeStart",
+};
 
 const weekdayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -35,16 +47,6 @@ function toggled<T>(set: ReadonlySet<T>, value: T): Set<T> {
   const next = new Set(set);
   if (!next.delete(value)) next.add(value);
   return next;
-}
-
-function localDateTimeWithOffset(date: string, time: string): string | null {
-  const value = new Date(`${date}T${time}`);
-  if (Number.isNaN(value.getTime())) return null;
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const offset = -value.getTimezoneOffset();
-  const sign = offset >= 0 ? "+" : "-";
-  const minutes = Math.abs(offset);
-  return `${date}T${time}:00${sign}${pad(Math.floor(minutes / 60))}:${pad(minutes % 60)}`;
 }
 
 export function CreateTaskDialog({
@@ -76,6 +78,7 @@ export function CreateTaskDialog({
   const [endCondition, setEndCondition] = useState<EndCondition>("NO_END");
   const [endDate, setEndDate] = useState("");
   const [occurrenceCount, setOccurrenceCount] = useState("1");
+  const [deadline, setDeadline] = useState<DeadlineForm>(emptyDeadline);
 
   const { data: channels = [] } = useQuery({
     queryKey: qk.channels,
@@ -132,9 +135,13 @@ export function CreateTaskDialog({
       setEndCondition("NO_END");
       setEndDate("");
       setOccurrenceCount("1");
+      setDeadline(emptyDeadline());
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // A deadline is optional: with none, the request is exactly what it always was.
+  const { deadlineAt, recurrenceDeadline } = deadlineRequest(deadline, allocation);
 
   const create = useMutation({
     // ONE request for the whole selection, whatever mix of people and channels it
@@ -150,6 +157,7 @@ export function CreateTaskDialog({
         ...(selectedChannels.size > 0 ? { channelIds: [...selectedChannels] } : {}),
         ...(allocation === "SCHEDULED" ? { scheduledFor: localDateTimeWithOffset(scheduledDate, scheduledTime)! } : {}),
         ...(allocation === "RECURRING" ? { recurrence: recurrencePayload() } : {}),
+        ...(deadlineAt ? { deadlineAt } : {}),
       }),
     onSuccess: () => {
       // Only a lone channel gets the channel-specific toast: with people (or other
@@ -211,6 +219,8 @@ export function CreateTaskDialog({
       if (endCondition === "ON_DATE" && (!endDate || Date.parse(`${endDate}T00:00:00`) <= Date.parse(startAt)))
         return toast.error(t("createTaskDialog.errors.invalidEndDate"));
     }
+    const problem = deadlineProblem(deadline, allocation, { date: scheduledDate, time: scheduledTime }, Date.now());
+    if (problem) return toast.error(t(DEADLINE_ERRORS[problem]));
     create.mutate();
   };
 
@@ -229,6 +239,7 @@ export function CreateTaskDialog({
       endCondition,
       ...(endCondition === "ON_DATE" ? { endAt: localDateTimeWithOffset(endDate, scheduledTime)! } : {}),
       ...(endCondition === "AFTER_OCCURRENCES" ? { occurrenceCount: Number(occurrenceCount) } : {}),
+      ...(recurrenceDeadline ? { deadline: recurrenceDeadline } : {}),
     } as const;
   };
 
@@ -390,6 +401,14 @@ export function CreateTaskDialog({
             </div>
           )}
         </div>
+
+        <TaskDeadlineField
+          allocation={allocation}
+          value={deadline}
+          onChange={setDeadline}
+          startDate={scheduledDate}
+          startTime={scheduledTime}
+        />
       </form>
     </Modal>
   );

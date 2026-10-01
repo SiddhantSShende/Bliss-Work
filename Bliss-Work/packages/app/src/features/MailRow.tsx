@@ -253,8 +253,9 @@ export function MailRow({
   );
 }
 
-function statusTone(s: string): "accent" | "success" | "neutral" {
+function statusTone(s: string): "accent" | "success" | "danger" | "neutral" {
   if (s === "SEEN" || s === "COMPLETED") return "success";
+  if (s === "MISSED") return "danger"; // the deadline passed before the task was done
   if (s === "ACKNOWLEDGED" || s === "DELIVERED") return "accent";
   return "neutral";
 }
