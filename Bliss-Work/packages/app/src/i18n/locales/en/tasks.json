@@ -84,6 +84,7 @@
     "unknownChannel": "Unknown channel",
     "withdraw": "Withdraw",
     "withdrawUser": "Withdraw {{name}}",
+    "withdrawSelf": "Withdraw from this task",
     "added": "Participants added",
     "withdrawn": "Participant withdrawn",
     "failed": "Could not update participants"

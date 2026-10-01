@@ -16,6 +16,8 @@ export function TaskParticipants({
   allocatorId,
   onAdd,
   onWithdraw,
+  onWithdrawSelf,
+  selfWithdrawDisabled = false,
   addPlacement = "participants",
   layout = "chips",
 }: {
@@ -24,6 +26,14 @@ export function TaskParticipants({
   allocatorId: string;
   onAdd?: (targets: ParticipantTargets) => Promise<void>;
   onWithdraw?: (userId: string) => Promise<void>;
+  /** Withdraw from your OWN open assignment: a button on the current user's own
+   *  row, "list" layout only. Distinct from `onWithdraw`, which is the
+   *  allocator removing someone else. The caller maps it onto the existing
+   *  self-removal action (Ignore before acknowledging, Leave after), so this
+   *  component adds no operation of its own. */
+  onWithdrawSelf?: () => void;
+  /** True while that action is in flight, so it cannot be submitted twice. */
+  selfWithdrawDisabled?: boolean;
   addPlacement?: "name" | "participants";
   /** "chips" (default) is the compact pill row with an icon-only Withdraw, for
    *  the small sticky note. "list" is one row per person with a labelled
@@ -41,6 +51,9 @@ export function TaskParticipants({
   // Withdrawing yourself is Leave, which is a different action with its own button.
   const removable = (participant: TaskParticipantDTO) =>
     canWithdraw && participant.userId !== currentUserId && isActive(participant);
+  // The mirror image of `removable`: only the viewer's own, still-open row.
+  const selfWithdrawable = (participant: TaskParticipantDTO) =>
+    !!onWithdrawSelf && participant.userId === currentUserId && isActive(participant);
 
   // Called fire-and-forget from onClick, so a rejection has nowhere to go: it
   // would surface as an unhandled promise rejection. Every caller's mutation
@@ -66,6 +79,7 @@ export function TaskParticipants({
         <ul className="mt-2 flex min-w-0 flex-col divide-y divide-border/50">
           {participants.map((participant) => {
             const name = participant.username || participant.userId;
+            const withdrawLabel = t("participants.withdrawUser", { name });
             return (
               <li key={participant.userId} className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1 py-1.5 first:pt-0 last:pb-0">
                 {/* A floor on the name's width, so in a narrow card the Withdraw button
@@ -78,10 +92,27 @@ export function TaskParticipants({
                   <Button
                     variant="secondary"
                     size="sm"
-                    className="shrink-0 text-danger"
-                    aria-label={t("participants.withdrawUser", { name })}
+                    className="max-w-full text-danger"
+                    aria-label={withdrawLabel}
                     disabled={busy}
                     onClick={() => void run(() => onWithdraw!(participant.userId))}
+                  >
+                    {/* Names the person on screen as well as to a screen reader (the visible
+                        text IS the accessible name): on a card where the viewer also has their
+                        own plain "Withdraw", the two must not read alike. One truncating span, so
+                        a long name ends in an ellipsis and "Withdraw" itself is never lost. */}
+                    <UserMinus size={14} className="shrink-0" />
+                    <span className="min-w-0 truncate">{withdrawLabel}</span>
+                  </Button>
+                )}
+                {selfWithdrawable(participant) && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="max-w-full text-danger"
+                    aria-label={t("participants.withdrawSelf")}
+                    disabled={selfWithdrawDisabled}
+                    onClick={() => onWithdrawSelf!()}
                   >
                     <UserMinus size={14} /> {t("participants.withdraw")}
                   </Button>
@@ -157,7 +188,7 @@ export function TaskParticipantAdd({
       <Button
         variant={prominent ? "secondary" : "ghost"}
         size="sm"
-        className={prominent ? "shrink-0" : "h-7 shrink-0 px-2 text-xs"}
+        className={prominent ? "max-w-full whitespace-normal text-center" : "h-7 shrink-0 px-2 text-xs"}
         onClick={() => setOpen(true)}
       >
         <Plus size={prominent ? 14 : 13} /> {t(prominent ? "participants.addMember" : "participants.add")}

@@ -39,6 +39,7 @@ export function StickyWidget({
   onAddParticipants,
   onWithdrawParticipant,
   participantLayout = "chips",
+  onWithdrawSelf,
   headerPin,
 }: {
   task: StickyTaskDTO;
@@ -62,6 +63,14 @@ export function StickyWidget({
   onWithdrawParticipant?: (userId: string) => Promise<void>;
   participantLayout?: "chips" | "list";
   /**
+   * "list" layout only: giving this shows a labelled Withdraw on the viewer's OWN
+   * row of the participants list. It is not a new operation — it is called with
+   * the existing self-removal action that `task.actions` currently allows:
+   * IGNORE while the task is still SENT, LEAVE once it is ACKNOWLEDGED. Omitted
+   * (the floating desktop note, the inbox card) the card is unchanged.
+   */
+  onWithdrawSelf?: (action: Extract<TaskAction, "IGNORE" | "LEAVE">) => void;
+  /**
    * In-app cards only: a Pin / Unpin control for the header's top-right slot.
    * When given it REPLACES whatever would sit there (the Ignore X on a SENT
    * card, the collapse/unpin pair on a locked one), so the corner is only ever a
@@ -79,6 +88,16 @@ export function StickyWidget({
   const senderName = task.senderDisplayName || task.senderUsername;
   const activeTask = task.myStatus === "SENT" || task.myStatus === "ACKNOWLEDGED";
   const showCardAdd = participantLayout === "list" && activeTask && !!currentUserId && !!onAddParticipants;
+  // Withdrawing from your own assignment is Leave once acknowledged and Ignore
+  // before — the card already knows which is valid, so offer exactly that one.
+  const selfWithdrawAction = task.actions.includes("LEAVE") ? "LEAVE" : task.actions.includes("IGNORE") ? "IGNORE" : null;
+  const withdrawSelf = onWithdrawSelf && selfWithdrawAction ? () => onWithdrawSelf(selfWithdrawAction) : undefined;
+
+  // The floating note is a fixed-size window that clips what does not fit, and its
+  // buttons would otherwise stack into a second row there. Below 15rem of row width
+  // the (decorative) icons give way instead, so the labels stay whole and the
+  // buttons stay on one line. Only the compact note: an in-app card just grows.
+  const rowIcon = compact ? "@max-[15rem]/actions:hidden" : "";
 
   const avatar = <Avatar name={senderName} size="sm" />;
   const titleBlock = (
@@ -237,6 +256,8 @@ export function StickyWidget({
           allocatorId={task.senderId}
           onAdd={participantLayout === "chips" ? onAddParticipants : undefined}
           onWithdraw={onWithdrawParticipant}
+          onWithdrawSelf={withdrawSelf}
+          selfWithdrawDisabled={busy}
           addPlacement="name"
           layout={participantLayout}
         />
@@ -255,10 +276,18 @@ export function StickyWidget({
           `shrink-0` keeps that fix effective: labelled buttons are taller and
           wider than glyphs, so on a short note this row is exactly what a
           content-sized card pushed past the window edge. */}
-      <div className="app-no-drag flex min-w-0 shrink-0 flex-nowrap gap-2">
+      {/* `flex-wrap`: on a narrow card the buttons drop onto their own lines
+          instead of squeezing each other until a label ("Acknowledge") spills out
+          of its button. They stay side by side, equal width, whenever they fit.
+          A button's width is never below its own min-content (the longest word
+          plus its icon — the default `min-width: auto` of a flex item), so a word
+          is never split; `max-w-full` caps that at the card's width. Do NOT add
+          `overflow-wrap: anywhere` here: it shrinks min-content to one letter and
+          lets "Acknowledge" break mid-word. */}
+      <div className={`app-no-drag flex min-w-0 shrink-0 flex-wrap gap-2 ${compact ? "@container/actions" : ""}`}>
         {task.actions.includes("ACKNOWLEDGE") && !locked && (
-          <ActionBtn tone="accent" label={t("card.acknowledge")} disabled={busy} onClick={() => onAction("ACKNOWLEDGE")}>
-            <Check size={15} /> {t("card.acknowledge")}
+          <ActionBtn tight={compact} tone="accent" label={t("card.acknowledge")} disabled={busy} onClick={() => onAction("ACKNOWLEDGE")}>
+            <Check size={15} className={rowIcon} /> {t("card.acknowledge")}
           </ActionBtn>
         )}
         {/* Explicit Ignore button next to Acknowledge for every SENT card. On
@@ -267,18 +296,18 @@ export function StickyWidget({
             expect (and asked for) a clearly-labelled Ignore button beside
             Acknowledge rather than only a corner ✗ — so render it in both. */}
         {task.actions.includes("IGNORE") && !locked && (
-          <ActionBtn tone="danger" label={t("card.ignore")} disabled={busy} onClick={() => onAction("IGNORE")}>
-            <X size={15} /> {t("card.ignore")}
+          <ActionBtn tight={compact} tone="danger" label={t("card.ignore")} disabled={busy} onClick={() => onAction("IGNORE")}>
+            <X size={15} className={rowIcon} /> {t("card.ignore")}
           </ActionBtn>
         )}
         {task.actions.includes("COMPLETE") && (
-          <ActionBtn tone="accent" label={t("card.complete")} disabled={busy} onClick={() => onAction("COMPLETE")}>
-            <Flag size={15} /> {t("card.complete")}
+          <ActionBtn tight={compact} tone="accent" label={t("card.complete")} disabled={busy} onClick={() => onAction("COMPLETE")}>
+            <Flag size={15} className={rowIcon} /> {t("card.complete")}
           </ActionBtn>
         )}
         {task.actions.includes("LEAVE") && (
-          <ActionBtn tone="ghost" label={t("card.leave")} disabled={busy} onClick={() => onAction("LEAVE")}>
-            <LogOut size={15} /> {t("card.leave")}
+          <ActionBtn tight={compact} tone="ghost" label={t("card.leave")} disabled={busy} onClick={() => onAction("LEAVE")}>
+            <LogOut size={15} className={rowIcon} /> {t("card.leave")}
           </ActionBtn>
         )}
       </div>
@@ -292,10 +321,14 @@ function ActionBtn({
   tone,
   label,
   disabled = false,
+  tight = false,
 }: {
   children: React.ReactNode;
   onClick: () => void;
   tone: "accent" | "ghost" | "danger";
+  /** Compact (floating) note only: 2px less horizontal padding when the row is under
+   *  15rem, so a one-line pair still fits instead of stacking into a taller row. */
+  tight?: boolean;
   /** Tooltip text. The visible label is the button's own children. */
   label?: string;
   disabled?: boolean;
@@ -310,7 +343,7 @@ function ActionBtn({
       onClick={onClick}
       disabled={disabled}
       title={label}
-      className={`inline-flex min-w-0 flex-1 basis-0 items-center justify-center gap-1.5 whitespace-normal rounded-xl px-3 py-2 text-center text-sm font-medium transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 ${tones[tone]}`}
+      className={`inline-flex max-w-full flex-1 basis-0 items-center justify-center gap-1.5 whitespace-normal rounded-xl px-2.5 py-2 text-center text-sm font-medium transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 ${tight ? "@max-[15rem]/actions:px-2" : ""} ${tones[tone]}`}
     >
       {children}
     </button>

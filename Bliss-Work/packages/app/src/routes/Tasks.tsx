@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, NavLink } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
@@ -241,6 +241,16 @@ function AssignedBucket({ view }: { view: string }) {
       void qc.invalidateQueries({ queryKey: qk.availability });
     },
   });
+  // Withdraw from your own assignment is the Ignore / Leave mutation above, not a
+  // new one — same request, same optimistic update, same reconciliation. What it
+  // adds is a latch: `act.isPending` reaches a click a render late, so two quick
+  // clicks would each send a request. Held per task until that request settles.
+  const withdrawing = useRef(new Set<string>());
+  const withdrawSelf = (taskId: string, action: Extract<TaskAction, "IGNORE" | "LEAVE">) => {
+    if (withdrawing.current.has(taskId)) return;
+    withdrawing.current.add(taskId);
+    act.mutate({ taskId, action }, { onSettled: () => withdrawing.current.delete(taskId) });
+  };
   const membership = useMutation({
     mutationFn: ({ taskId, targets }: { taskId: string; targets: ParticipantTargets }) => api.addTaskParticipants(taskId, targets),
     onSuccess: () => {
@@ -269,7 +279,7 @@ function AssignedBucket({ view }: { view: string }) {
 
   return (
     <>
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,13rem),1fr))] gap-4">
         <AnimatePresence initial={false}>
           {tasks.map((task) => {
           // The lock tracks exactly what floats: pinned AND still acknowledged.
@@ -292,6 +302,7 @@ function AssignedBucket({ view }: { view: string }) {
                 locked={floatable}
                 currentUserId={currentUserId}
                 participantLayout="list"
+                onWithdrawSelf={(action) => withdrawSelf(task.taskId, action)}
                 // The top-right corner is the user's shared Pin / Unpin — only for
                 // a task that can still float. Ignore and Leave stay in the
                 // button row.

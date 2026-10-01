@@ -205,7 +205,7 @@ export function MyTasksBoard() {
               hint={sent.hasNextPage ? t("myTasksBoard.noMatch.hint") : undefined}
             />
           ) : (
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,13rem),1fr))] gap-3">
               {visibleSchedules.map((schedule) => (
                 <ScheduledTaskCard key={schedule.scheduleId} schedule={schedule} onCancelled={() => void schedules.refetch()} />
               ))}
@@ -354,13 +354,13 @@ function AssigneeTimeline({ assignee: a, onReview }: { assignee: SentAssignee; o
 
   return (
     <div className="py-3 first:pt-0 last:pb-0">
-      <div className="flex min-w-0 items-center justify-between gap-2">
-        <span className="inline-flex min-w-0 items-center gap-2 text-sm font-medium text-fg">
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1">
+        <span className="inline-flex min-w-[min(8rem,100%)] items-center gap-2 text-sm font-medium text-fg">
           <span className="min-w-0 truncate">{a.assigneeUsername}</span>
           <Badge tone={statusTone(a.status)}>{a.status.toLowerCase()}</Badge>
         </span>
         {a.status === "COMPLETED" && (
-          <Button variant="ghost" size="sm" className="shrink-0" onClick={onReview}>
+          <Button variant="ghost" size="sm" className="max-w-full" onClick={onReview}>
             <MessageSquarePlus size={14} /> {a.review ? t("myTasksBoard.review.edit") : t("myTasksBoard.review.write")}
           </Button>
         )}
