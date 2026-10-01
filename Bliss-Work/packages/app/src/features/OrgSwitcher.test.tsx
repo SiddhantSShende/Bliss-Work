@@ -86,4 +86,39 @@ describe("OrgSwitcher", () => {
     fireEvent.click(screen.getByRole("button", { name: /Organization 1/ }));
     expect(await screen.findByText("No organizations found")).toBeInTheDocument();
   });
+
+  it("shows the load-failed state and genuinely retries the request on click", async () => {
+    h.api.myOrgsPage.mockRejectedValueOnce(new Error("boom"));
+    renderSwitcher();
+    fireEvent.click(screen.getByRole("button", { name: /Organization 1/ }));
+    const retry = await screen.findByRole("button", { name: "Couldn't load organizations. Click to retry." });
+    expect(h.api.myOrgsPage).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(retry);
+    expect(await screen.findByText("Organization 2")).toBeInTheDocument();
+    expect(h.api.myOrgsPage).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText(/Couldn't load organizations/)).not.toBeInTheDocument();
+  });
+
+  it("lists every org the user belongs to and marks only the current one", async () => {
+    h.api.myOrgsPage.mockResolvedValue({ items: [org(1), org(2), org(3)], hasMore: false });
+    renderSwitcher();
+    fireEvent.click(screen.getByRole("button", { name: /Organization 1/ }));
+    await screen.findByText("Organization 3");
+    // The list row is the last match (the first is the top-bar trigger); the check
+    // mark must sit only in the row of the session's own org.
+    const rows = ["Organization 1", "Organization 2", "Organization 3"].map(
+      (name) => screen.getAllByText(name).map((el) => el.closest("button")!).at(-1)!,
+    );
+    expect(rows.map((r) => r.querySelector("svg.lucide-check") !== null)).toEqual([true, false, false]);
+  });
+
+  it("offers only what the server returned — an org the user cannot access never appears", async () => {
+    h.api.myOrgsPage.mockResolvedValue({ items: [org(1), org(2)], hasMore: false });
+    renderSwitcher();
+    fireEvent.click(screen.getByRole("button", { name: /Organization 1/ }));
+    await screen.findByText("Organization 2");
+    expect(screen.queryByText("Organization 3")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Load more" })).not.toBeInTheDocument();
+  });
 });

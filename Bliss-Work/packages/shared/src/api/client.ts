@@ -675,13 +675,31 @@ export class ApiClient {
   myOrgs() {
     return this.req(this.cfg.authBase, "/auth/orgs/mine", {}, z.array(OrgMembershipDTO));
   }
-  myOrgsPage(params: { search: string; offset: number; limit: number }) {
+  async myOrgsPage(params: { search: string; offset: number; limit: number }): Promise<OrgMembershipPageDTO> {
     const query = new URLSearchParams({
       search: params.search,
       offset: String(params.offset),
       limit: String(params.limit),
     });
-    return this.req(this.cfg.authBase, `/auth/orgs/mine?${query}`, {}, OrgMembershipPageDTO);
+    const res = await this.req(
+      this.cfg.authBase,
+      `/auth/orgs/mine?${query}`,
+      {},
+      z.union([OrgMembershipPageDTO, z.array(OrgMembershipDTO)]),
+    );
+    if (!Array.isArray(res)) return res;
+    // An auth-svc that predates paging ignores limit/offset/search and answers
+    // with the whole (already server-authorized) list — the route's response
+    // model is `list | page`. Page it here the way the paged path does:
+    // case-insensitive name match, ordered by name then id.
+    const needle = params.search.trim().toLowerCase();
+    const matches = res
+      .filter((o) => !needle || o.orgName.toLowerCase().includes(needle))
+      .sort((a, b) => a.orgName.toLowerCase().localeCompare(b.orgName.toLowerCase()) || a.orgId.localeCompare(b.orgId));
+    return {
+      items: matches.slice(params.offset, params.offset + params.limit),
+      hasMore: matches.length > params.offset + params.limit,
+    };
   }
   /** The current org plus any pending deletion. Admin-only. */
   org() {
