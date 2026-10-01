@@ -97,6 +97,7 @@ export function CreateTaskDialog({
     : null;
 
   const assignToId = useId();
+  const formId = useId();
   const audienceCopy: AudienceCopy = {
     peopleLabel: t("createTaskDialog.fields.peopleLabel"),
     peopleNone: t("createTaskDialog.fields.assignToEmpty"),
@@ -232,8 +233,24 @@ export function CreateTaskDialog({
   };
 
   return (
-    <Modal open={open} onClose={onClose} title={t("createTaskDialog.title")}>
-      <form onSubmit={submit} className="flex flex-col gap-3.5">
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={t("createTaskDialog.title")}
+      // Modal's pinned footer sits outside the scrolling body, so the submit
+      // button reaches this form through the `form` attribute, not by nesting.
+      footer={
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="ghost" onClick={onClose}>
+            {t("createTaskDialog.actions.cancel")}
+          </Button>
+          <Button type="submit" form={formId} loading={create.isPending}>
+            {create.isPending ? t("createTaskDialog.actions.creating") : t("createTaskDialog.actions.create")}
+          </Button>
+        </div>
+      }
+    >
+      <form id={formId} onSubmit={submit} className="flex flex-col gap-3.5">
         <Field label={t("createTaskDialog.fields.title")}>
           <Input
             value={title}
@@ -373,19 +390,6 @@ export function CreateTaskDialog({
             </div>
           )}
         </div>
-
-        {/* Sticky rather than a separate prop on the shared Modal (used by ~14
-            other dialogs): position:sticky pins within Modal's own scrolling
-            body, so a tall form (Recurring, with every control open) never
-            pushes Cancel/Create Task out of reach without touching Modal at all. */}
-        <div className="sticky bottom-0 -mx-6 -mb-6 mt-2 flex justify-end gap-2 border-t border-border bg-surface px-6 py-3">
-          <Button type="button" variant="ghost" onClick={onClose}>
-            {t("createTaskDialog.actions.cancel")}
-          </Button>
-          <Button type="submit" loading={create.isPending}>
-            {create.isPending ? t("createTaskDialog.actions.creating") : t("createTaskDialog.actions.create")}
-          </Button>
-        </div>
       </form>
     </Modal>
   );
@@ -407,12 +411,24 @@ function AllocationCard({
   description: string;
 }) {
   return (
+    // relative + a card-sized (not 1px) invisible radio: the radio is
+    // position:absolute, so without a positioned ancestor INSIDE the modal's
+    // scrolling body it is placed against the page — it stops scrolling with
+    // the form and Tab-focusing it never scrolls the card into view. And a 1px
+    // radio counts as "in view" while the card body is still clipped, so the
+    // radio covers the whole card and focus scrolls all of it into view.
     <label
-      className={`flex cursor-pointer flex-col gap-2 rounded-xl border p-3 transition-colors has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent ${
+      className={`relative flex cursor-pointer flex-col gap-2 rounded-xl border p-3 transition-colors has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent ${
         checked ? "border-accent bg-accent-soft" : "border-border bg-surface hover:bg-surface-2"
       }`}
     >
-      <input type="radio" name={name} checked={checked} onChange={onChange} className="sr-only" />
+      <input
+        type="radio"
+        name={name}
+        checked={checked}
+        onChange={onChange}
+        className="absolute inset-0 m-0 h-full w-full cursor-pointer opacity-0"
+      />
       <span
         className={`flex h-8 w-8 items-center justify-center rounded-lg ${
           checked ? "bg-accent text-accent-fg" : "bg-surface-2 text-muted"

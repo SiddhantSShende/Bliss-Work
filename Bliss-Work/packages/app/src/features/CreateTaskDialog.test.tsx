@@ -90,6 +90,28 @@ describe("layout", () => {
     expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create Task" })).toBeInTheDocument();
   });
+
+  // jsdom has no layout engine, so the next two pin the STRUCTURE the real-browser
+  // fix relies on (see Modal's FOOTER note), not pixels. Both were verified
+  // against Chrome: a sticky footer inside the scroller let the Allocation cards
+  // show through beneath it, and an unpositioned sr-only radio stopped scrolling
+  // with the form, so Tab-focusing a card never brought it into view.
+  it("keeps Create Task and Cancel outside the scrolling body, still bound to the form", () => {
+    openDialog();
+    const form = document.querySelector("form")!;
+    const scroller = form.closest<HTMLElement>(".overflow-y-auto")!;
+    const create = screen.getByRole<HTMLButtonElement>("button", { name: "Create Task" });
+    expect(scroller).not.toContainElement(create);
+    expect(scroller).not.toContainElement(screen.getByRole("button", { name: "Cancel" }));
+    expect(create.form).toBe(form);
+  });
+
+  it("positions every allocation card so its hidden radio scrolls with the form", () => {
+    openDialog();
+    const radios = screen.getAllByRole("radio");
+    expect(radios).toHaveLength(3);
+    for (const radio of radios) expect(radio.closest("label")).toHaveClass("relative");
+  });
 });
 
 describe("Now", () => {

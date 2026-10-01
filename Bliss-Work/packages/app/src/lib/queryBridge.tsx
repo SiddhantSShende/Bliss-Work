@@ -18,6 +18,7 @@ import {
 import { useRuntime } from "./runtime";
 import { useActiveThread } from "./activeThread";
 import { announceIncomingMeeting, dismissIncomingMeeting } from "./MeetingSession";
+import { announceScheduledMeeting } from "./scheduledMeetingNotice";
 import i18n from "../i18n";
 import {
   createCoalescedInvalidator,
@@ -243,9 +244,16 @@ function handleCallEvent(e: CallLifecycle, ctx: EventHandlerContext) {
         invalidate(qk.channelCalls(e.channelId));
       }
       // Only announce a scheduling someone ELSE did, and never from the
-      // reconnect replay — otherwise every launch re-toasts old meetings.
+      // reconnect replay — otherwise every launch re-announces old meetings.
+      // Raised as a card (features/ScheduledMeetingNotice), not a toast: it
+      // carries a time and a way into the meeting.
       if (live && e.type === EventType.CallScheduled && e.actorId !== me) {
-        toast(e.title ? `Call scheduled: ${e.title}` : "A call was scheduled");
+        announceScheduledMeeting({
+          eventId: e.eventId,
+          callId: e.callId,
+          title: meetingTitle(e),
+          scheduledAt: e.scheduledAt,
+        });
       }
       // The call this event is about just ended, or gained a new
       // participant — either way, if IncomingMeetingNotice is still

@@ -156,6 +156,14 @@
     "joinVoiceOnly": "Join with voice only",
     "leave": "Leave"
   },
+  "scheduledNotice": {
+    "untitledMeeting": "Meeting",
+    "ariaLabel": "Meeting scheduled: {{title}}",
+    "heading": "Meeting scheduled",
+    "hostedBy": "Hosted by {{organizer}}",
+    "join": "Join Meeting",
+    "dismiss": "Dismiss"
+  },
   "miniMeeting": {
     "ariaLabel": "{{title}} — meeting in progress",
     "reconnecting": "Reconnecting…",

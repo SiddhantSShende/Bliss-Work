@@ -22,6 +22,7 @@ import { closeMeetingTab } from "../lib/callWindow";
 import { useSession } from "../store/session";
 import { CallRoom } from "./CallRoomLazy";
 import { IncomingMeetingNotice } from "./IncomingMeetingNotice";
+import { ScheduledMeetingNotice } from "./ScheduledMeetingNotice";
 
 export function MeetingHost() {
   const { t } = useTranslation("meetings");
@@ -58,6 +59,9 @@ export function MeetingHost() {
     <>
       {call && <CallRoom call={call} onClose={exit} autoJoin={autoJoinMedia ?? undefined} />}
       {!call && <RejoinPrompt />}
+      {/* Before IncomingMeetingNotice: same z-index, so on the rare overlap the
+          meeting that is starting NOW paints over the one merely scheduled. */}
+      <ScheduledMeetingNotice />
       <IncomingMeetingNotice />
     </>
   );
