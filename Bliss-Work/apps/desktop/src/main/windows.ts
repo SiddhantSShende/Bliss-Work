@@ -31,6 +31,24 @@ function isOnSomeDisplay(b: { x: number; y: number; width: number; height: numbe
   });
 }
 
+/**
+ * The OS title bar is hidden and the app's own top bar (TopNavbar) takes its
+ * place, so there is ONE header instead of two. The native min/max/close
+ * buttons are kept — Electron draws them over the right edge of that bar
+ * (`titleBarOverlay`), so they stay the real OS controls, snap layouts and all.
+ * This height must equal TopNavbar's own height (h-12 = 48px) or the controls
+ * and the bar disagree. macOS has no right-hand overlay: its traffic lights stay
+ * at the left, inside the bar, and TopNavbar leaves room for them.
+ */
+export const MAIN_TITLE_BAR_HEIGHT = 48;
+
+/** Narrowest main window the top bar can lay out in (see minWidth below). */
+export const MAIN_MIN_WIDTH = 480;
+
+/** Colours the overlay is drawn in until the renderer reports the active
+ *  theme's (main/index.ts "window:title-bar-theme") — matches backgroundColor. */
+const INITIAL_OVERLAY = { color: "#16181f", symbolColor: "#e5e7eb" };
+
 export function createMainWindow(startHidden = false): BrowserWindow {
   // Restore where the user left the window. Without this every launch was a
   // fresh 1180×800 at the OS default position, which is why an OS shutdown
@@ -43,14 +61,22 @@ export function createMainWindow(startHidden = false): BrowserWindow {
     width: usable?.width ?? 1440,
     height: usable?.height ?? 900,
     // Lowered from 1280x700 so the window can be shrunk into the app's
-    // tablet/mobile responsive layouts too, not just the desktop one.
-    minWidth: 320,
+    // tablet/mobile responsive layouts too, not just the desktop one. Not below
+    // 480: the single top bar (TopNavbar) must hold its seven controls PLUS the
+    // native window controls drawn over it — 138px on Windows — and measured
+    // against the real bar that is ~470px at its most compact. Narrower and the
+    // language/profile buttons would slide under the native controls.
+    minWidth: MAIN_MIN_WIDTH,
     minHeight: 480,
     show: false,
     autoHideMenuBar: true,
     backgroundColor: "#16181f",
     icon: appIcon(),
     title: "BlissWork",
+    titleBarStyle: "hidden",
+    ...(process.platform === "darwin"
+      ? { trafficLightPosition: { x: 16, y: (MAIN_TITLE_BAR_HEIGHT - 14) / 2 } }
+      : { titleBarOverlay: { ...INITIAL_OVERLAY, height: MAIN_TITLE_BAR_HEIGHT } }),
     webPreferences: {
       preload: preloadMain,
       contextIsolation: true,

@@ -37,6 +37,9 @@
     }
   },
   "tasksPage": {
+    "count_one": "{{count}} task",
+    "count_other": "{{count}} tasks",
+    "countMore": "{{count}}+ tasks",
     "titles": {
       "mine": "My tasks",
       "allocated": "Allocated to me",
@@ -122,9 +125,26 @@
       "hint": "Create one with “New task”."
     },
     "filters": {
+      "title": "Filters",
       "statusHeading": "Status",
       "peopleHeading": "People",
+      "searchPeople": "Search people…",
+      "selectedPeople": "Selected people",
+      "removePerson": "Remove {{name}}",
+      "showFewer": "Show fewer",
+      "noPeople": "No people match",
       "clear": "Clear filters"
+    },
+    "details": "Details",
+    "summary": {
+      "pending": "pending",
+      "inProgress": "in progress",
+      "completed": "completed",
+      "left": "left",
+      "ignored": "ignored",
+      "missed": "missed",
+      "closed": "closed",
+      "doneOf": "{{done}}/{{total}} done"
     },
     "noMatch": {
       "title": "No tasks match these filters",
@@ -234,6 +254,7 @@
       "nowDescription": "Assign immediately",
       "scheduledDescription": "Set date and time",
       "recurringDescription": "Repeat automatically",
+      "repeat": "Repeat",
       "startDate": "Start date",
       "startTime": "Start time",
       "daily": "Daily",
@@ -286,6 +307,7 @@
     }
   },
   "miniTaskCalendar": {
+    "today": "Today",
     "previousMonth": "Previous month",
     "nextMonth": "Next month"
   },

@@ -1,0 +1,78 @@
+{
+  "_comment": "Captured 2026-10-05 from the real dev stack: events produced by real task-svc and messaging-svc APIs, consumed by the current notification-svc build, served by GET /api/v1/notifications?limit=50. Served order (newest first).",
+  "items": [
+    {
+      "id": "01a10b51-0176-70bf-8592-c8d259fc6ec7",
+      "kind": "MEETING_INVITATION",
+      "text": "Meeting invitation: Ad hoc muv106ok",
+      "taskId": null,
+      "channelId": null,
+      "conversationId": null,
+      "messageId": null,
+      "callId": "01a10b50-ff4c-79d3-b11d-393bc8b4a0f0",
+      "read": false,
+      "createdAt": "2026-10-05T09:07:00.597Z"
+    },
+    {
+      "id": "01a10b50-ffed-797c-85b7-3b572fdea196",
+      "kind": "TASK_ASSIGNED",
+      "text": "New task from alloc-muuwuztk: Kinds check muv106ok",
+      "taskId": "01a10b50-fede-7e20-a9a1-9ebb00c22b90",
+      "channelId": null,
+      "conversationId": null,
+      "messageId": null,
+      "callId": null,
+      "read": false,
+      "createdAt": "2026-10-05T09:07:00.204Z"
+    },
+    {
+      "id": "01a10b50-ff8a-7ca0-a138-f0394ca7ec5d",
+      "kind": "CHANNEL_ADDED",
+      "text": "You were added to #adds-muv106ok",
+      "taskId": null,
+      "channelId": "01a10b50-ff11-7d50-a751-15e44740e0bc",
+      "conversationId": null,
+      "messageId": null,
+      "callId": null,
+      "read": false,
+      "createdAt": "2026-10-05T09:07:00.100Z"
+    },
+    {
+      "id": "01a10b50-ff89-7d12-b2ab-38dce2297277",
+      "kind": "DM_MESSAGE",
+      "text": "New message: Lunch at one? muv106ok",
+      "taskId": null,
+      "channelId": null,
+      "conversationId": "01a10ae6-d525-797c-8446-658ef21085c2",
+      "messageId": "01a10b50-fefe-7a02-bfaf-f56f6d44926c",
+      "callId": null,
+      "read": false,
+      "createdAt": "2026-10-05T09:07:00.100Z"
+    },
+    {
+      "id": "01a10b50-ff88-76fa-8b2d-1cc8bd979ea6",
+      "kind": "MEETING_SCHEDULED",
+      "text": "Meeting scheduled: Sprint planning muv106ok \u00b7 2026-10-06T09:07:00.010Z",
+      "taskId": null,
+      "channelId": null,
+      "conversationId": null,
+      "messageId": null,
+      "callId": "01a10b50-ff32-76e7-ab00-115279aad937",
+      "read": false,
+      "createdAt": "2026-10-05T09:07:00.100Z"
+    },
+    {
+      "id": "01a10b50-ff85-7e65-958f-e3ca97cbe368",
+      "kind": "CHANNEL_MESSAGE",
+      "text": "Alloc Owner in a channel: Review is ready muv106ok",
+      "taskId": null,
+      "channelId": "01a10b50-ff08-7ead-b526-ab62047b5f95",
+      "conversationId": null,
+      "messageId": "01a10b50-ff26-7ba7-b1b2-78cc82bffca8",
+      "callId": null,
+      "read": false,
+      "createdAt": "2026-10-05T09:07:00.100Z"
+    }
+  ],
+  "nextCursor": null
+}

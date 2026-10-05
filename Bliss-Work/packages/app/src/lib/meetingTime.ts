@@ -10,6 +10,7 @@
 import type { CallDTO } from "@taskboard/shared";
 import { dayLabel as _dayLabel, startOfDay } from "./dayLabel";
 import { groupConsecutiveByLabel } from "./groupConsecutive";
+import type { TFunction } from "i18next";
 import i18n from "../i18n";
 
 export { startOfDay };
@@ -31,6 +32,23 @@ export function dayLabel(t: number): string {
 
 export function timeLabel(t: number): string {
   return new Date(t).toLocaleTimeString(i18n.language, { hour: "numeric", minute: "2-digit" });
+}
+
+/** "45 min", "1 hour", "1 hour 30 min", "2 days 3 hours" — how long a meeting runs. Empty
+ *  for a span that is not positive, so a half-filled form never prints "0 min". */
+export function durationLabel(t: TFunction, startMs: number, endMs: number): string {
+  const total = Math.round((endMs - startMs) / 60_000);
+  if (!(total > 0)) return "";
+  const days = Math.floor(total / 1440);
+  const hours = Math.floor((total % 1440) / 60);
+  const minutes = total % 60;
+  return [
+    days ? t("newMeeting.preview.duration.days", { count: days }) : "",
+    hours ? t("newMeeting.preview.duration.hours", { count: hours }) : "",
+    minutes ? t("newMeeting.preview.duration.minutes", { count: minutes }) : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 /** Consecutive runs of the same day, in the order the caller sorted them. */

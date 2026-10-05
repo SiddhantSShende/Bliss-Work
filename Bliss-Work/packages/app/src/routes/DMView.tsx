@@ -43,7 +43,7 @@ export function DMView() {
   // is still one conversation's worth of state, it is just told which one by
   // the shell rather than by the router.
   const { t } = useTranslation("chatThread");
-  const { selectedId, closeChat } = useSelectedChat();
+  const { selectedId, closeChat, focusMessageId = null, clearFocus } = useSelectedChat();
   const conversationId = selectedId ?? "";
   const { api, config } = useRuntime();
   const qc = useQueryClient();
@@ -636,6 +636,8 @@ export function DMView() {
         onLoadOlder={loadOlder}
         loadingOlder={loadingOlder}
         hasOlder={hasOlder}
+        focusMessageId={focusMessageId}
+        onFocusHandled={clearFocus}
         // flushStaged, not reply.mutate: Send must emit the attachment tray as
         // well as the text, and must tolerate an empty text (attachments only).
         // Sending drops out of search: a filtered thread would swallow the

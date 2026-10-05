@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { isNotificationRoute, notificationDestination, openNotificationRoute } from "./notificationDestination";
+import { NOTIFICATION_KINDS } from "@taskboard/shared";
+import { isNotificationRoute, notificationCategory, notificationDestination, notificationRoute, openNotificationRoute } from "./notificationDestination";
 
 const A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
@@ -67,5 +68,86 @@ describe("openNotificationRoute", () => {
     const navigate = vi.fn();
     openNotificationRoute(navigate, `/app/channels/${A}`, `/app/channels/${A}`);
     expect(navigate).toHaveBeenCalledWith(`/app/channels/${A}`, { replace: true });
+  });
+});
+
+describe("notificationCategory", () => {
+  it.each([
+    ["TASK_ASSIGNED", "task"],
+    ["TASK_ACKNOWLEDGED", "task"],
+    ["TASK_COMPLETED", "task"],
+    ["TASK_IGNORED", "task"],
+    ["TASK_LEFT", "task"],
+    ["TASK_WITHDRAWN", "task"],
+    ["DM_MESSAGE", "chat"],
+    ["CHANNEL_MESSAGE", "chat"], // a message in a channel is chat, not a channel event
+    ["CHANNEL_ADDED", "channel"],
+    ["CHANNEL_CREATED", "channel"],
+    ["MEETING_SCHEDULED", "meeting"],
+    ["MEETING_INVITATION", "meeting"],
+  ] as const)("%s is a %s notification", (kind, category) => {
+    expect(notificationCategory(kind)).toBe(category);
+  });
+
+  it("gives every kind notification-svc produces a real category — none falls through to 'other'", () => {
+    for (const kind of NOTIFICATION_KINDS) expect(notificationCategory(kind), kind).not.toBe("other");
+  });
+
+  it("puts a sibling a newer server adds into its family, and anything else in 'other'", () => {
+    expect(notificationCategory("TASK_REOPENED")).toBe("task");
+    expect(notificationCategory("CALL_MISSED")).toBe("meeting");
+    expect(notificationCategory("MEETING_CANCELLED")).toBe("meeting");
+    expect(notificationCategory("BILLING_ALERT")).toBe("other");
+  });
+});
+
+describe("a kind this build does not know", () => {
+  it("opens the app's home — never a made-up path — even when it carries ids", () => {
+    expect(notificationDestination({ kind: "BILLING_ALERT", taskId: A, channelId: A, conversationId: A, callId: A })).toBe("/app");
+  });
+});
+
+describe("landing on a message", () => {
+  const M = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+
+  it("puts the message id on the channel and chat routes only", () => {
+    expect(notificationDestination({ kind: "CHANNEL_MESSAGE", channelId: A, messageId: M })).toBe(`/app/channels/${A}?m=${M}`);
+    expect(notificationDestination({ kind: "DM_MESSAGE", conversationId: A, messageId: M })).toBe(`/app/chats/${A}?m=${M}`);
+    expect(notificationDestination({ kind: "CHANNEL_CREATED", channelId: A, messageId: M })).toBe(`/app/channels/${A}`);
+    expect(notificationDestination({ kind: "TASK_ASSIGNED", taskId: A, messageId: M })).toBe(`/app/mail/task/${A}`);
+  });
+
+  it("opens the thread without a message when the id is missing or not a UUID", () => {
+    for (const messageId of [null, undefined, "", "x", `${M}&x=1`, "../x"]) {
+      expect(notificationDestination({ kind: "CHANNEL_MESSAGE", channelId: A, messageId })).toBe(`/app/channels/${A}`);
+    }
+  });
+
+  it("drops the message id when there is no thread to put it in", () => {
+    expect(notificationDestination({ kind: "CHANNEL_MESSAGE", channelId: null, messageId: M })).toBe("/app/channels");
+    expect(notificationDestination({ kind: "DM_MESSAGE", messageId: M })).toBe("/app/chats");
+  });
+
+  it("accepts exactly those routes", () => {
+    expect(isNotificationRoute(`/app/channels/${A}?m=${M}`)).toBe(true);
+    expect(isNotificationRoute(`/app/chats/${A}?m=${M}`)).toBe(true);
+    for (const bad of [`/app/channels/${A}?m=x`, `/app/channels/${A}?m=${M}&x=1`, `/app/channels/${A}?x=${M}`, `/app/meetings/${A}?m=${M}`, `/app/channels?m=${M}`]) {
+      expect(isNotificationRoute(bad), bad).toBe(false);
+    }
+  });
+
+  it("replaces rather than stacks when the thread is already open", () => {
+    const navigate = vi.fn();
+    openNotificationRoute(navigate, `/app/channels/${A}`, `/app/channels/${A}?m=${M}`);
+    expect(navigate).toHaveBeenCalledWith(`/app/channels/${A}?m=${M}`, { replace: true });
+    openNotificationRoute(navigate, "/app/mail", `/app/channels/${A}?m=${M}`);
+    expect(navigate).toHaveBeenLastCalledWith(`/app/channels/${A}?m=${M}`, { replace: false });
+  });
+});
+
+describe("notificationRoute", () => {
+  it("is the destination, or null when the notification leads nowhere", () => {
+    expect(notificationRoute({ kind: "TASK_ASSIGNED", taskId: A })).toBe(`/app/mail/task/${A}`);
+    expect(notificationRoute({ kind: "A_KIND_FROM_THE_FUTURE" })).toBeNull();
   });
 });

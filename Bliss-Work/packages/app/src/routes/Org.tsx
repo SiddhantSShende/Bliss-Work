@@ -21,7 +21,7 @@ import { MfaPolicySection } from "../features/MfaPolicySection";
 
 export function Org() {
   const { t } = useTranslation("org");
-  const { api } = useRuntime();
+  const { api, config } = useRuntime();
   const nav = useNavigate();
   const goBack = useGoBack();
   const user = useSession((s) => s.user);
@@ -134,9 +134,12 @@ export function Org() {
               <Button variant="subtle" size="sm" onClick={() => nav("/app/members")}>
                 <Users size={15} /> {t("org:orgPage.membersButton")}
               </Button>
-              <Button variant="subtle" size="sm" onClick={() => nav("/app/invite")}>
-                <UserPlus size={15} /> {t("org:orgPage.invitePeopleButton")}
-              </Button>
+              {/* Inviting is not offered in the desktop app. */}
+              {config.kind !== "electron" && (
+                <Button variant="subtle" size="sm" onClick={() => nav("/app/invite")}>
+                  <UserPlus size={15} /> {t("org:orgPage.invitePeopleButton")}
+                </Button>
+              )}
             </div>
           </section>
 

@@ -21,8 +21,10 @@ const SELECTION_FIELD_TONES: Record<SelectionFieldTone, {
   chip: string;
   chipRemove: string;
   toggle: string;
+  card: string;
 }> = {
   light: {
+    card: "border-gray-200 bg-white",
     label: "text-gray-700",
     empty: "text-gray-500",
     chip: "border-gray-200 bg-gray-50 text-gray-800",
@@ -30,6 +32,7 @@ const SELECTION_FIELD_TONES: Record<SelectionFieldTone, {
     toggle: "border-gray-300 bg-white text-gray-700 hover:bg-gray-50",
   },
   theme: {
+    card: "border-border bg-surface",
     label: "text-fg",
     empty: "text-muted",
     chip: "border-border bg-surface-2 text-fg",
@@ -64,6 +67,9 @@ export function SelectionField({
   doneLabel,
   children,
   tone = "light",
+  variant = "stacked",
+  description,
+  emptyHint,
 }: {
   label: string;
   /** Shown beside the label — "People (3)". Kept outside the label element so the
@@ -81,23 +87,70 @@ export function SelectionField({
   /** The picker. Rendered only while open. */
   children: React.ReactNode;
   tone?: SelectionFieldTone;
+  /** "stacked" (default) is the plain labelled field. "card" is the compact bordered
+   *  panel the New Meeting form uses beside its preview: the add button sits in the
+   *  header row, and nothing selected shows a small centred empty state. */
+  variant?: "stacked" | "card";
+  /** Card only: one line under the header saying what the group is for. */
+  description?: string;
+  /** Card only: the second line of the empty state, under `emptyLabel`. */
+  emptyHint?: string;
 }) {
   const [open, setOpen] = useState(false);
   const labelId = useId();
   const panelId = useId();
   const c = SELECTION_FIELD_TONES[tone];
+  const card = variant === "card";
+
+  const toggle = (
+    <button
+      type="button"
+      onClick={() => setOpen((v) => !v)}
+      aria-expanded={open}
+      aria-controls={panelId}
+      className={`flex w-fit shrink-0 items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors ${c.toggle}`}
+    >
+      {open ? <ChevronUp size={14} aria-hidden /> : <Plus size={14} aria-hidden />}
+      {open ? doneLabel : addLabel}
+    </button>
+  );
+
+  const heading = (
+    <div className="flex items-baseline gap-1.5">
+      <span id={labelId} className={`text-sm font-medium ${c.label}`}>
+        {label}
+      </span>
+      {count !== undefined && <span className={`text-xs ${c.empty}`}>({count})</span>}
+    </div>
+  );
 
   return (
-    <div role="group" aria-labelledby={labelId} className="flex flex-col gap-1.5">
-      <div className="flex items-baseline gap-1.5">
-        <span id={labelId} className={`text-sm font-medium ${c.label}`}>
-          {label}
-        </span>
-        {count !== undefined && <span className={`text-xs ${c.empty}`}>({count})</span>}
-      </div>
+    <div
+      role="group"
+      aria-labelledby={labelId}
+      className={card ? `flex flex-col gap-1.5 rounded-xl border px-3 py-2.5 ${c.card}` : "flex flex-col gap-1.5"}
+    >
+      {card ? (
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex min-w-0 flex-col">
+            {heading}
+            {description && <p className={`text-xs ${c.empty}`}>{description}</p>}
+          </div>
+          {toggle}
+        </div>
+      ) : (
+        heading
+      )}
 
       {chips.length === 0 ? (
-        <p className={`text-xs ${c.empty}`}>{emptyLabel}</p>
+        card ? (
+          <div className="flex flex-col items-center gap-0.5 py-1 text-center">
+            <p className={`text-xs font-medium ${c.label}`}>{emptyLabel}</p>
+            {emptyHint && <p className={`text-xs ${c.empty}`}>{emptyHint}</p>}
+          </div>
+        ) : (
+          <p className={`text-xs ${c.empty}`}>{emptyLabel}</p>
+        )
       ) : (
         // Capped, and scrolling inside itself: dozens of chips would otherwise push
         // the form's own footer off a short viewport. The padding keeps a focused
@@ -124,18 +177,11 @@ export function SelectionField({
         </ul>
       )}
 
-      {hint && <p className={`text-xs ${c.empty}`}>{hint}</p>}
+      {/* In the card, the empty state already carries the hint; with chips it is the
+          reminder of what a selection means. */}
+      {hint && !(card && chips.length === 0) && <p className={`text-xs ${c.empty}`}>{hint}</p>}
 
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        aria-controls={panelId}
-        className={`flex w-fit items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors ${c.toggle}`}
-      >
-        {open ? <ChevronUp size={14} aria-hidden /> : <Plus size={14} aria-hidden />}
-        {open ? doneLabel : addLabel}
-      </button>
+      {!card && toggle}
 
       <div id={panelId}>{open && children}</div>
     </div>

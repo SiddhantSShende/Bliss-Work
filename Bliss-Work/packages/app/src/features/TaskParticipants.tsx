@@ -20,6 +20,7 @@ export function TaskParticipants({
   selfWithdrawDisabled = false,
   addPlacement = "participants",
   layout = "chips",
+  className = "mt-3 border-t border-border/50 pt-3",
 }: {
   participants: TaskParticipantDTO[];
   currentUserId: string;
@@ -40,6 +41,9 @@ export function TaskParticipants({
    *  Withdraw button and an "Add member" button underneath, for the
    *  allocator's My Tasks card, where the controls have to be discoverable. */
   layout?: "chips" | "list";
+  /** Outer spacing and divider. The default is the stacked card's "rule above, room
+   *  around"; a card that lays this block out beside its main column passes its own. */
+  className?: string;
 }) {
   const { t } = useTranslation("tasks");
   const [busy, setBusy] = useState(false);
@@ -70,7 +74,7 @@ export function TaskParticipants({
   };
 
   return (
-    <div className="mt-3 min-w-0 border-t border-border/50 pt-3">
+    <div className={`min-w-0 ${className}`}>
       <div className="flex min-w-0 items-center gap-2">
         {/* min-w-0 + truncate rather than shrink-0: at the narrowest a card gets (a 320px window at 200% zoom) a rigid label was wider than the card's own inner width. */}
         <span className="min-w-0 truncate text-xs font-semibold uppercase tracking-wide text-muted">{t("participants.label")}</span>
@@ -164,11 +168,14 @@ export function TaskParticipantAdd({
   participants,
   onAdd,
   prominent = false,
+  fullWidth = false,
 }: {
   participants: TaskParticipantDTO[];
   onAdd: (targets: ParticipantTargets) => Promise<void>;
   /** A full-size secondary "Add member" button instead of the compact ghost "Add". */
   prominent?: boolean;
+  /** Stretch the (prominent) button across its container, e.g. under a row of action buttons. */
+  fullWidth?: boolean;
 }) {
   const { t } = useTranslation("tasks");
   const [open, setOpen] = useState(false);
@@ -193,7 +200,7 @@ export function TaskParticipantAdd({
       <Button
         variant={prominent ? "secondary" : "ghost"}
         size="sm"
-        className={prominent ? "max-w-full whitespace-normal text-center" : "h-7 shrink-0 px-2 text-xs"}
+        className={prominent ? `max-w-full whitespace-normal text-center ${fullWidth ? "w-full" : ""}` : "h-7 shrink-0 px-2 text-xs"}
         onClick={() => setOpen(true)}
       >
         <Plus size={prominent ? 14 : 13} /> {t(prominent ? "participants.addMember" : "participants.add")}

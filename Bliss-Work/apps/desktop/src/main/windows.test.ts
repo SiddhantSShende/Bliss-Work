@@ -137,6 +137,39 @@ describe.each<NodeJS.Platform>(["win32", "darwin", "linux"])("pinned popup on %s
   });
 });
 
+describe.each<NodeJS.Platform>(["win32", "linux", "darwin"])("main window on %s", (platform) => {
+  async function createMain(): Promise<Recorded> {
+    Object.defineProperty(process, "platform", { value: platform });
+    vi.resetModules();
+    const { createMainWindow } = await import("./windows");
+    createMainWindow();
+    return h.last as Recorded;
+  }
+
+  it("hides the OS title bar so the app's own bar is the only header", async () => {
+    const rec = await createMain();
+
+    expect(rec.options.titleBarStyle).toBe("hidden");
+  });
+
+  it("cannot be narrower than the top bar can lay out in (480px)", async () => {
+    const rec = await createMain();
+
+    expect(rec.options.minWidth).toBe(480);
+  });
+
+  it("keeps the native window controls, sized to the app bar (48px)", async () => {
+    const rec = await createMain();
+
+    if (platform === "darwin") {
+      expect(rec.options).not.toHaveProperty("titleBarOverlay");
+      expect(rec.options.trafficLightPosition).toEqual({ x: 16, y: 17 });
+    } else {
+      expect(rec.options.titleBarOverlay).toMatchObject({ height: 48 });
+    }
+  });
+});
+
 describe("pinned popup size", () => {
   it("is tall enough to show the description beside the Assigned row and the action buttons", async () => {
     const rec = await createFor("linux");

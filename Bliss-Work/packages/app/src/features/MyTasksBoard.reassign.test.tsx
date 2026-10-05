@@ -13,6 +13,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ApiError, type SentTaskDTO } from "@taskboard/shared";
 import { toast } from "sonner";
 import { useSession } from "../store/session";
+import { expandAllDetails } from "../test/expandDetails";
 import { isCompletedTask } from "../lib/sentTaskFilter";
 
 const api = {
@@ -45,7 +46,7 @@ const task = (id: string, title: string, rows: Row[]) =>
     assignees: rows.map((r) => ({ assigneeId: `u-${r.id}`, assigneeUsername: r.id, status: r.status, assignedAt: AT })),
   }) as unknown as SentTaskDTO;
 
-const cardOf = (title: string) => screen.getByText(title).closest("div.flex-col.p-4") as HTMLElement;
+const cardOf = (title: string) => screen.getByText(title).closest("[data-testid=\"task-card\"]") as HTMLElement;
 const reassignIn = (title: string) => within(cardOf(title)).queryByRole("button", { name: /^Reassign/ });
 
 function renderBoard() {
@@ -107,6 +108,7 @@ describe("where Reassign appears", () => {
     await screen.findByText("Half done");
 
     await user.click(screen.getByRole("button", { name: "completed" }));
+    await expandAllDetails();
 
     expect(within(cardOf("Half done")).queryByText("bob")).not.toBeInTheDocument();
     expect(reassignIn("Half done")).not.toBeInTheDocument();
@@ -143,6 +145,7 @@ describe("clicking Reassign", () => {
 
     await waitFor(() => expect(api.tasksSent.mock.calls.length).toBeGreaterThan(before));
     await waitFor(() => expect(reassignIn("Ship it")).not.toBeInTheDocument());
+    await expandAllDetails();
     expect(within(cardOf("Ship it")).getAllByText("sent").length).toBeGreaterThan(0);
     expect(within(cardOf("Ship it")).queryAllByText("completed")).toEqual([]);
   });

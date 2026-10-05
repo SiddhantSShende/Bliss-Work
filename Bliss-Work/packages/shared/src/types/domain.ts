@@ -970,24 +970,32 @@ export const AvailabilityDTO = z.object({
 export type AvailabilityDTO = z.infer<typeof AvailabilityDTO>;
 
 // ── Notifications ────────────────────────────────────────────────────────────
+/** The kinds notification-svc produces today (services/notification-svc/internal/events).
+ *  A reference for renderers and a parity test — NOT a gate: the wire `kind` below accepts
+ *  any non-empty string, so a kind a newer server starts emitting shows up in the feed
+ *  (with a generic presentation) instead of failing the whole page. */
+export const NOTIFICATION_KINDS = [
+  "TASK_ASSIGNED",
+  "TASK_ACKNOWLEDGED",
+  "TASK_COMPLETED",
+  "TASK_IGNORED",
+  "TASK_LEFT",
+  "TASK_WITHDRAWN",
+  "CHANNEL_ADDED",
+  "CHANNEL_CREATED",
+  "DM_MESSAGE",
+  "CHANNEL_MESSAGE",
+  "MEETING_SCHEDULED",
+  "MEETING_INVITATION",
+] as const;
+export type KnownNotificationKind = (typeof NOTIFICATION_KINDS)[number];
+
 export const NotificationDTO = z.object({
   id: z.string().uuid(),
-  /** Kept an enum rather than a bare string so a server that starts emitting
-   *  a kind this client cannot render fails loudly in one place. */
-  kind: z.enum([
-    "TASK_ASSIGNED",
-    "TASK_ACKNOWLEDGED",
-    "TASK_COMPLETED",
-    "TASK_IGNORED",
-    "TASK_LEFT",
-    "TASK_WITHDRAWN",
-    "CHANNEL_ADDED",
-    "CHANNEL_CREATED",
-    "DM_MESSAGE",
-    "CHANNEL_MESSAGE",
-    "MEETING_SCHEDULED",
-    "MEETING_INVITATION",
-  ]),
+  /** Deliberately NOT an enum: the feed is the user's whole history, and one record of a
+   *  kind this build has never heard of must not reject the page that holds the rest of
+   *  it. Renderers branch on the known kinds and fall back for anything else. */
+  kind: z.string().min(1),
   text: z.string(),
   taskId: z.string().uuid().nullable(),
   channelId: z.string().uuid().nullable().optional(),

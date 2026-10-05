@@ -9,3 +9,19 @@
 .app-no-drag {
   -webkit-app-region: no-drag;
 }
+
+/* The desktop app's top bar (TopNavbar / DesktopDragStrip) is one big drag
+   region, and a drag region swallows clicks on EVERYTHING layered over it that
+   is not itself no-drag — including a dialog's own buttons. So while any modal
+   dialog is open the bar stops being a drag handle. */
+body:has([aria-modal="true"]) .app-titlebar {
+  -webkit-app-region: no-drag;
+}
+
+/* Desktop only (the renderer sets data-titlebar): the hidden OS title bar is
+   replaced by the app's own 3rem bar, with the native window controls drawn over
+   its right edge. Full-height overlays that have controls in their top corner
+   (side sheets, the lightbox) start below it rather than under those controls. */
+:root[data-titlebar] {
+  --titlebar-inset: 3rem;
+}

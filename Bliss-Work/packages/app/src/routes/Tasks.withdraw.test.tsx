@@ -32,6 +32,14 @@ vi.mock("sonner", () => ({
   toast: Object.assign(vi.fn(), { error: mocks.toastError, success: vi.fn() }),
 }));
 
+// Stand-in for the people/channel picker (it has its own tests): it hands back one fixed
+// target when confirmed, so the test follows Add member all the way to the API call.
+vi.mock("../features/AddParticipantsPicker", () => ({
+  AddParticipantsPicker: ({ onConfirm }: { onConfirm: (t: { userIds: string[]; channelIds: string[] }) => void }) => (
+    <button onClick={() => onConfirm({ userIds: ["55555555-5555-4555-8555-555555555555"], channelIds: [] })}>confirm picker</button>
+  ),
+}));
+
 import { Tasks } from "./Tasks";
 
 const person = (userId: string, username: string, status: AssigneeStatus) => ({ userId, username, status }) as TaskParticipantDTO;
@@ -75,7 +83,6 @@ function mount(view = "allocated") {
 }
 
 const card = (title: string) => screen.getByText(title).closest(".app-drag") as HTMLElement;
-const selfWithdraw = (title: string) => within(card(title)).getByRole("button", { name: "Withdraw from this task" });
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -103,156 +110,167 @@ beforeEach(() => {
   mocks.api.stickyPinStates.mockResolvedValue({ pinned: [], unpinned: [A, B, C] });
 });
 
-describe("Allocated to me — Withdraw from your own assignment", () => {
-  it("SENT: Withdraw runs the existing Ignore flow, then the card leaves the view via the usual refetch", async () => {
+describe("Allocated to me — Add member only, no participants block", () => {
+  const TITLES = ["Write the report", "Review the deck", "Plan the offsite"];
+  // The one status a card legitimately shows is its own, in the header badge.
+  const OWN: Record<string, string> = { "Write the report": "sent", "Review the deck": "acknowledged", "Plan the offsite": "acknowledged" };
+  const STATUS_WORDS = ["sent", "acknowledged", "completed", "ignored", "left", "missed"];
+
+  it("renders Add member on every card, enabled", async () => {
     mount();
     await screen.findByText("Write the report");
-    const fetchesBefore = mocks.api.taskAssigned.mock.calls.length;
 
-    expect(selfWithdraw("Write the report").textContent?.trim()).toBe("Withdraw");
-    fireEvent.click(selfWithdraw("Write the report"));
-
-    await waitFor(() => expect(mocks.api.taskAction).toHaveBeenCalledExactlyOnceWith(A, "ignore"));
-    await waitFor(() => expect(screen.queryByText("Write the report")).toBeNull());
-    // Reconciliation is the existing onSettled invalidation, not anything new.
-    await waitFor(() => expect(mocks.api.taskAssigned.mock.calls.length).toBeGreaterThan(fetchesBefore));
-    expect(mocks.api.withdrawTaskParticipant).not.toHaveBeenCalled();
-    // The other cards are untouched.
-    expect(screen.getByText("Review the deck")).toBeInTheDocument();
+    for (const title of TITLES) {
+      expect(within(card(title)).getByRole("button", { name: "Add member" })).toBeEnabled();
+    }
   });
 
-  it("ACKNOWLEDGED: Withdraw runs the existing Leave flow, then the card leaves the view", async () => {
+  it("clicking Add member opens the picker, and confirming it adds the people to THAT task", async () => {
     mount();
-    await screen.findByText("Review the deck");
-    const fetchesBefore = mocks.api.taskAssigned.mock.calls.length;
+    await screen.findByText("Write the report");
 
-    expect(selfWithdraw("Review the deck").textContent?.trim()).toBe("Withdraw");
-    fireEvent.click(selfWithdraw("Review the deck"));
+    fireEvent.click(within(card("Review the deck")).getByRole("button", { name: "Add member" }));
+    fireEvent.click(await screen.findByRole("button", { name: "confirm picker" }));
 
-    await waitFor(() => expect(mocks.api.taskAction).toHaveBeenCalledExactlyOnceWith(B, "leave"));
-    await waitFor(() => expect(screen.queryByText("Review the deck")).toBeNull());
-    await waitFor(() => expect(mocks.api.taskAssigned.mock.calls.length).toBeGreaterThan(fetchesBefore));
+    await waitFor(() =>
+      expect(mocks.api.addTaskParticipants).toHaveBeenCalledExactlyOnceWith(B, {
+        userIds: ["55555555-5555-4555-8555-555555555555"],
+        channelIds: [],
+      }),
+    );
+    expect(mocks.api.taskAction).not.toHaveBeenCalled();
     expect(mocks.api.withdrawTaskParticipant).not.toHaveBeenCalled();
-    expect(screen.getByText("Write the report")).toBeInTheDocument();
   });
 
-  it("every active card offers it once, on the viewer's own row", async () => {
+  it("renders no participants: no heading, names, list or the viewer's own row", async () => {
+    mount();
+    await screen.findByText("Write the report");
+
+    for (const title of TITLES) {
+      const c = within(card(title));
+      expect(c.queryByText(/participants/i)).toBeNull();
+      expect(c.queryByText("piyush")).toBeNull();
+      expect(c.queryByText("me")).toBeNull();
+      expect(c.queryByRole("list")).toBeNull();
+    }
+    expect(screen.queryByText("piyush")).toBeNull();
+  });
+
+  it("renders no Withdraw — neither the viewer's own nor Withdraw <person>", async () => {
+    mount();
+    await screen.findByText("Write the report");
+
+    for (const title of TITLES) {
+      expect(within(card(title)).queryByRole("button", { name: /withdraw/i })).toBeNull();
+    }
+    expect(screen.queryByRole("button", { name: /withdraw/i })).toBeNull();
+  });
+
+  it("renders no participant status: the only status word on a card is its own header badge", async () => {
+    mount();
+    await screen.findByText("Write the report");
+
+    for (const title of TITLES) {
+      const c = within(card(title));
+      for (const word of STATUS_WORDS) {
+        // piyush is "acknowledged" on one card and "sent" on another; neither may show up.
+        expect(c.queryAllByText(word, { selector: "span" })).toHaveLength(word === OWN[title] ? 1 : 0);
+      }
+    }
+  });
+
+  it("keeps the title, assigned time and deadline on every card", async () => {
+    server = server.map((t) => ({ ...t, deadlineAt: "2099-01-01T10:00:00.000Z" }));
     mount();
     await screen.findByText("Write the report");
 
     for (const title of ["Write the report", "Review the deck", "Plan the offsite"]) {
-      const own = within(card(title)).getAllByRole("button", { name: "Withdraw from this task" });
-      expect(own).toHaveLength(1);
-      const [button] = own;
-      expect(button).toHaveTextContent("Withdraw");
-      expect(button!.closest("li")).toHaveTextContent("me");
+      const times = within(card(title)).getByTestId("task-times");
+      expect(times).toHaveTextContent(/assigned/i);
+      expect(times).toHaveTextContent(/deadline/i);
     }
   });
 
-  it("never puts a control on another participant's row, on a card someone else allocated", async () => {
+  it("uses the slim two-column body: the side column is the actions, then Add member under them", async () => {
     mount();
     await screen.findByText("Write the report");
 
-    for (const title of ["Write the report", "Review the deck"]) {
-      expect(within(card(title)).getByText("piyush").closest("li")!.querySelector("button")).toBeNull();
-      expect(within(card(title)).getAllByRole("button", { name: /withdraw/i })).toHaveLength(1);
-    }
+    const body = card("Review the deck").firstElementChild as HTMLElement;
+    expect(body.className).toContain("14rem");
+    const side = body.lastElementChild as HTMLElement;
+    expect(within(side).getAllByRole("button").map((b) => b.textContent?.trim())).toEqual(["Complete", "Leave", "Add member"]);
+
+    const sent = card("Write the report").firstElementChild!.lastElementChild as HTMLElement;
+    expect(within(sent).getAllByRole("button").map((b) => b.textContent?.trim())).toEqual(["Acknowledge", "Ignore", "Add member"]);
+    // Full width, so it reads as part of the action area rather than a stray link.
+    expect(within(side).getByRole("button", { name: "Add member" })).toHaveClass("w-full");
   });
 
-  it("is submitted once however many times it is clicked while the request is in flight", async () => {
-    let finish: (v: unknown) => void = () => {};
-    mocks.api.taskAction.mockImplementation(() => new Promise((resolve) => (finish = resolve)));
-    mount();
-    await screen.findByText("Write the report");
-
-    const button = selfWithdraw("Write the report");
-    fireEvent.click(button);
-    fireEvent.click(button);
-    fireEvent.click(button);
-
-    await waitFor(() => expect(mocks.api.taskAction).toHaveBeenCalledTimes(1));
-    await new Promise((r) => setTimeout(r, 30));
-    expect(mocks.api.taskAction).toHaveBeenCalledTimes(1);
-    finish({ status: "IGNORED", statusVersion: 2 });
-  });
-
-  it("a rejected withdrawal rolls the card back, tells the user, and can be retried", async () => {
-    mocks.api.taskAction.mockRejectedValueOnce(new ApiError(409, "cannot leave from SENT"));
+  it("Leave runs the existing Leave flow and the card leaves the view", async () => {
     mount();
     await screen.findByText("Review the deck");
 
-    fireEvent.click(selfWithdraw("Review the deck"));
+    fireEvent.click(within(card("Review the deck")).getByRole("button", { name: "Leave" }));
 
+    await waitFor(() => expect(mocks.api.taskAction).toHaveBeenCalledExactlyOnceWith(B, "leave"));
+    await waitFor(() => expect(screen.queryByText("Review the deck")).toBeNull());
+    expect(mocks.api.withdrawTaskParticipant).not.toHaveBeenCalled();
+    expect(screen.getByText("Write the report")).toBeInTheDocument();
+  });
+
+  it("Complete runs the existing Complete flow", async () => {
+    mount();
+    await screen.findByText("Review the deck");
+
+    fireEvent.click(within(card("Review the deck")).getByRole("button", { name: "Complete" }));
+
+    await waitFor(() => expect(mocks.api.taskAction).toHaveBeenCalledExactlyOnceWith(B, "complete"));
+    await waitFor(() => expect(screen.queryByText("Review the deck")).toBeNull());
+  });
+
+  it("a rejected Leave rolls the card back, tells the user, and can be retried", async () => {
+    mocks.api.taskAction.mockRejectedValueOnce(new ApiError(409, "cannot leave"));
+    mount();
+    await screen.findByText("Review the deck");
+
+    fireEvent.click(within(card("Review the deck")).getByRole("button", { name: "Leave" }));
     await waitFor(() => expect(mocks.toastError).toHaveBeenCalledOnce());
-    await waitFor(() => expect(selfWithdraw("Review the deck")).toBeEnabled());
     expect(screen.getByText("Review the deck")).toBeInTheDocument();
 
-    fireEvent.click(selfWithdraw("Review the deck"));
+    await waitFor(() => expect(within(card("Review the deck")).getByRole("button", { name: "Leave" })).toBeEnabled());
+    fireEvent.click(within(card("Review the deck")).getByRole("button", { name: "Leave" }));
     await waitFor(() => expect(mocks.api.taskAction).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(screen.queryByText("Review the deck")).toBeNull());
   });
 
-  it("finished-task views offer nothing: there is no assignment left to withdraw from", async () => {
-    server = [task(A, "Old job", "COMPLETED")];
-    mount("completed");
-    await screen.findByText("Old job");
-
-    expect(screen.queryByRole("button", { name: /withdraw/i })).toBeNull();
-  });
-
-  it("leaves Acknowledge, Ignore, Complete and Leave working", async () => {
+  it("a SENT card keeps Acknowledge and Ignore", async () => {
     mount();
     await screen.findByText("Write the report");
 
     fireEvent.click(within(card("Write the report")).getByRole("button", { name: "Acknowledge" }));
     await waitFor(() => expect(mocks.api.taskAction).toHaveBeenCalledWith(A, "acknowledge"));
-    fireEvent.click(within(card("Review the deck")).getByRole("button", { name: "Complete" }));
-    await waitFor(() => expect(mocks.api.taskAction).toHaveBeenCalledWith(B, "complete"));
+    expect(within(card("Write the report")).getByRole("button", { name: "Ignore" })).toBeInTheDocument();
   });
 });
 
-describe("Allocated to me — allocator withdrawal is unchanged", () => {
-  it("on a card the viewer allocated, Withdraw <person> still calls withdrawTaskParticipant and never a self action", async () => {
-    mount();
-    await screen.findByText("Plan the offsite");
+describe("Other task views keep their participants", () => {
+  it("Completed still lists participants with their status pills", async () => {
+    server = [task(A, "Old job", "COMPLETED")];
+    mount("completed");
+    await screen.findByText("Old job");
 
-    fireEvent.click(within(card("Plan the offsite")).getByRole("button", { name: "Withdraw piyush" }));
-
-    await waitFor(() => expect(mocks.api.withdrawTaskParticipant).toHaveBeenCalledExactlyOnceWith(C, PIYUSH));
-    expect(mocks.api.taskAction).not.toHaveBeenCalled();
+    const c = within(card("Old job"));
+    expect(c.getByText(/participants/i)).toBeInTheDocument();
+    expect(c.getByText("piyush")).toBeInTheDocument();
+    // History: there is no assignment left to withdraw from or extend.
+    expect(c.queryByRole("button", { name: /withdraw/i })).toBeNull();
   });
 
-  it("cards allocated by someone else give the viewer no Withdraw-someone-else", async () => {
-    mount();
-    await screen.findByText("Write the report");
+  it("the card's body is the full two-column one there, not the slim one", async () => {
+    server = [task(A, "Old job", "COMPLETED")];
+    mount("completed");
+    await screen.findByText("Old job");
 
-    expect(within(card("Write the report")).queryByRole("button", { name: "Withdraw piyush" })).toBeNull();
-    expect(within(card("Review the deck")).queryByRole("button", { name: "Withdraw piyush" })).toBeNull();
-  });
-
-  it("an allocator's own self-withdraw is still the self flow (Leave), not a participant withdrawal", async () => {
-    mount();
-    await screen.findByText("Plan the offsite");
-
-    fireEvent.click(selfWithdraw("Plan the offsite"));
-
-    await waitFor(() => expect(mocks.api.taskAction).toHaveBeenCalledExactlyOnceWith(C, "leave"));
-    expect(mocks.api.withdrawTaskParticipant).not.toHaveBeenCalled();
-  });
-
-  it("the two Withdraws read differently on screen and each still hits its own API: own -> Leave, other -> DELETE participant", async () => {
-    mount();
-    await screen.findByText("Plan the offsite");
-    const buttons = () => within(card("Plan the offsite")).getAllByRole("button", { name: /withdraw/i });
-
-    expect(buttons().map((b) => b.textContent?.trim())).toEqual(["Withdraw", "Withdraw piyush"]);
-
-    fireEvent.click(within(card("Plan the offsite")).getByRole("button", { name: "Withdraw piyush" }));
-    await waitFor(() => expect(mocks.api.withdrawTaskParticipant).toHaveBeenCalledExactlyOnceWith(C, PIYUSH));
-    expect(mocks.api.taskAction).not.toHaveBeenCalled();
-
-    fireEvent.click(selfWithdraw("Plan the offsite"));
-    await waitFor(() => expect(mocks.api.taskAction).toHaveBeenCalledExactlyOnceWith(C, "leave"));
-    expect(mocks.api.withdrawTaskParticipant).toHaveBeenCalledOnce();
+    expect((card("Old job").firstElementChild as HTMLElement).className).not.toContain("14rem");
   });
 });

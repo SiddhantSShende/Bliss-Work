@@ -71,7 +71,7 @@ export function Lightbox({
       role="dialog"
       aria-modal="true"
       aria-label={current.name}
-      className="fixed inset-0 z-[100] flex flex-col bg-black/95 backdrop-blur-sm"
+      className="fixed inset-x-0 bottom-0 top-[var(--titlebar-inset,0px)] z-[100] flex flex-col bg-black/95 backdrop-blur-sm"
       // Clicking the backdrop closes; clicks inside the media do not bubble.
       onClick={onClose}
     >

@@ -223,3 +223,36 @@ export function describeRecurrence(t: TFunction, r: RecurrenceDTO): string {
   }
   return every;
 }
+
+/**
+ * One line for the New Meeting preview — "Does not repeat", "Repeats every 2 weeks on
+ * Tue, Thu, until 31 Dec 2026". Built from the same summary a saved meeting's page
+ * prints (describeRecurrence), so the two cannot word the same rule differently.
+ *
+ * A form that does not validate yet (an interval being retyped, no weekday ticked) has
+ * no rule to describe, so it falls back to the bare frequency rather than printing
+ * "every 0 weeks".
+ */
+export function describeRecurrenceForm(t: TFunction, form: RecurrenceForm, startDate: string): string {
+  if (form.repeat === "NONE") return t("newMeeting.repeat.none");
+  if (Object.keys(validateRecurrence(t, form, startDate)).length > 0) {
+    return t(`newMeeting.repeat.${UNIT_NOUN[form.repeat]}`);
+  }
+  const input = toRecurrenceInput(form, startDate, browserTimeZone());
+  if (!input) return t("newMeeting.repeat.none");
+  return describeRecurrence(t, {
+    frequency: input.frequency,
+    interval: input.interval,
+    weekdays: input.weekdays ?? [],
+    endCondition: input.endCondition,
+    endDate: input.endDate,
+    occurrenceCount: input.occurrenceCount,
+    timeZone: input.timeZone,
+  });
+}
+
+const UNIT_NOUN: Record<RecurrenceFrequency, string> = {
+  DAILY: "daily",
+  WEEKLY: "weekly",
+  MONTHLY: "monthly",
+};

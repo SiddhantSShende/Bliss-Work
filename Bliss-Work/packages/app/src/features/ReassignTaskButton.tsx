@@ -14,7 +14,7 @@ import { qk } from "../lib/queryBridge";
  * exactly those assignments (task-svc `POST /tasks/{id}/reassign`), and enforces
  * that the caller is the allocator and that the task really is completed.
  */
-export function ReassignTaskButton({ taskId }: { taskId: string }) {
+export function ReassignTaskButton({ taskId, className = "mt-3 self-start" }: { taskId: string; className?: string }) {
   const { t } = useTranslation("tasks");
   const { api } = useRuntime();
   const qc = useQueryClient();
@@ -38,7 +38,7 @@ export function ReassignTaskButton({ taskId }: { taskId: string }) {
     <Button
       variant="secondary"
       size="sm"
-      className="mt-3 self-start"
+      className={className}
       disabled={reassign.isPending}
       onClick={() => {
         if (inFlight.current) return;

@@ -10,32 +10,50 @@
  *
  * Pure and dependency-free so the desktop main process can import it too.
  */
-import type { NotificationDTO } from "@taskboard/shared";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** The fields of a notification record that decide where it leads. */
 export interface NotificationTarget {
-  kind: NotificationDTO["kind"];
+  /** A string, not a closed union: the feed carries kinds this build may not know. */
+  kind: string;
   taskId?: string | null;
   channelId?: string | null;
   conversationId?: string | null;
+  /** The message to land on, for the two kinds that point at one. */
+  messageId?: string | null;
   callId?: string | null;
 }
 
 const id = (value: string | null | undefined): string | null => (value && UUID.test(value) ? value : null);
 
+/** The value if it is a UUID, else null. For ids read back out of a URL or an IPC message. */
+export const validUuid = (value: string | null | undefined): string | null => id(value);
+
+/** The query parameter that carries the message a thread should scroll to and highlight. */
+export const NOTIFICATION_MESSAGE_PARAM = "m";
+
+/** `?m=<messageId>` when the id is usable, else nothing — the thread still opens. */
+const messageQuery = (messageId: string | null | undefined): string => {
+  const valid = id(messageId);
+  return valid ? `?${NOTIFICATION_MESSAGE_PARAM}=${valid}` : "";
+};
+
 export function notificationDestination(notification: NotificationTarget): string {
   switch (notification.kind) {
     case "CHANNEL_ADDED":
-    case "CHANNEL_CREATED":
-    case "CHANNEL_MESSAGE": {
+    case "CHANNEL_CREATED": {
       const channelId = id(notification.channelId);
       return channelId ? `/app/channels/${channelId}` : "/app/channels";
     }
+    case "CHANNEL_MESSAGE": {
+      const channelId = id(notification.channelId);
+      // A message id means nothing without the channel it lives in.
+      return channelId ? `/app/channels/${channelId}${messageQuery(notification.messageId)}` : "/app/channels";
+    }
     case "DM_MESSAGE": {
       const conversationId = id(notification.conversationId);
-      return conversationId ? `/app/chats/${conversationId}` : "/app/chats";
+      return conversationId ? `/app/chats/${conversationId}${messageQuery(notification.messageId)}` : "/app/chats";
     }
     case "MEETING_SCHEDULED":
     case "MEETING_INVITATION": {
@@ -51,14 +69,38 @@ export function notificationDestination(notification: NotificationTarget): strin
       const taskId = id(notification.taskId);
       return taskId ? `/app/mail/task/${taskId}` : "/app/tasks/allocated";
     }
-    default: {
-      // Compile-time: a new kind must be handled above. Run-time: a kind this
-      // build has never heard of opens the app's home, not a made-up path.
-      const exhaustive: never = notification.kind;
-      void exhaustive;
+    default:
+      // A kind this build has never heard of (a newer server wrote it) opens the
+      // app's home, not a made-up path. Which kinds exist is pinned against
+      // notification-svc's own list by shared/notification.kinds.test.ts.
       return "/app";
-    }
   }
+}
+
+/** The path a notification leads to, or null when it leads nowhere. A kind this build
+ *  does not know falls back to "/app" above; that is "no destination" — clicking it
+ *  should mark it read and leave the user where they are, not throw them to home. */
+export function notificationRoute(notification: NotificationTarget): string | null {
+  const path = notificationDestination(notification);
+  return path !== "/app" && isNotificationRoute(path) ? path : null;
+}
+
+/** The family a notification belongs to — what its icon and grouping are drawn from. */
+export type NotificationCategory = "task" | "chat" | "channel" | "meeting" | "other";
+
+/**
+ * Task → task, DM / channel message → chat, channel added / created → channel,
+ * meeting scheduled / invitation (a ringing call is persisted as an invitation) →
+ * meeting. Anything else is "other": shown, with a generic presentation, never dropped.
+ * The kind families (TASK_, MEETING_, CHANNEL_) are matched by prefix so a sibling a
+ * newer server adds lands in the right family; CHANNEL_MESSAGE is the one exception.
+ */
+export function notificationCategory(kind: string): NotificationCategory {
+  if (kind === "DM_MESSAGE" || kind === "CHANNEL_MESSAGE") return "chat";
+  if (kind.startsWith("TASK_")) return "task";
+  if (kind.startsWith("CHANNEL_")) return "channel";
+  if (kind.startsWith("MEETING_") || kind.startsWith("CALL_")) return "meeting";
+  return "other";
 }
 
 const UUID_SOURCE = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
@@ -66,7 +108,9 @@ const ROUTES = [
   /^\/app$/,
   /^\/app\/(channels|chats|meetings)$/,
   /^\/app\/tasks\/allocated$/,
-  new RegExp(`^/app/(channels|chats|meetings)/${UUID_SOURCE}$`, "i"),
+  new RegExp(`^/app/meetings/${UUID_SOURCE}$`, "i"),
+  // Channel and chat threads may carry the message to land on.
+  new RegExp(`^/app/(channels|chats)/${UUID_SOURCE}(\\?${NOTIFICATION_MESSAGE_PARAM}=${UUID_SOURCE})?$`, "i"),
   new RegExp(`^/app/mail/task/${UUID_SOURCE}$`, "i"),
 ];
 
@@ -93,5 +137,6 @@ export function openNotificationRoute(
   currentPath: string,
   target: string,
 ): void {
-  navigate(target, { replace: currentPath === target });
+  // The thread's own path decides "already here"; its ?m= does not.
+  navigate(target, { replace: currentPath === target.split("?")[0] });
 }

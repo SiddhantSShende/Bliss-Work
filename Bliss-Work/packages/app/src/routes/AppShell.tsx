@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
+import { NotificationClickBridge } from "../features/NotificationClickBridge";
 import { qk, WsEventBridge } from "../lib/queryBridge";
 import { listSectionOf, railSectionOf } from "../lib/section";
 import { useSelectedChat } from "../lib/selectedChat";
@@ -24,6 +25,10 @@ import { MembersList } from "./MembersList";
 import { MailFolders } from "./MailFolders";
 import { mergeNotificationFeeds } from "../lib/notificationPages";
 import { useNotificationPages } from "../lib/useCursorPagination";
+
+/** Sections whose list pane holds conversation/person rows rather than
+ *  navigation labels — see the width comment on the <aside> below. */
+const ROW_LIST_SECTIONS = new Set<string>(["chats", "channels", "members"]);
 
 export function AppShell() {
   const { api } = useRuntime();
@@ -107,6 +112,7 @@ export function AppShell() {
     <CallProvider>
     <div className="flex flex-col overflow-hidden brand-mesh" style={{ position: "fixed", inset: 0 }}>
       <WsEventBridge />
+      <NotificationClickBridge />
       <TelemetryBridge />
       <CallUI />
       <VerifyEmailBanner />
@@ -117,12 +123,13 @@ export function AppShell() {
         <Rail section={railSection} variant="side" className="hidden md:flex" badges={railBadges} />
         {section && (
           <aside
+            // Pure navigation panes (Tasks categories, Mail folders) are short
+            // labels + a count and fit 208px. Chats/Channels/Members rows carry
+            // an avatar, a name, a timestamp, a preview, an unread badge and a
+            // ⋮ menu — below ~280px the name collapses to "J…" — so those get
+            // a wider pane. Both are md+ only; below md the pane is full width.
             className={`glass min-h-0 w-full shrink-0 flex-col overflow-hidden rounded-2xl md:my-0 ${
-              // Mail's main pane is itself two columns (list + reading pane,
-              // see MailLayout), so its first column is narrower — three panes
-              // at 24rem each leaves the thing being read nothing to be read
-              // in. Every other section fills the pane.
-              section === "mail" ? "md:w-72 lg:w-80" : "md:w-80 lg:w-96"
+              ROW_LIST_SECTIONS.has(section) ? "md:w-[280px]" : "md:w-[208px]"
             } ${showListOnMobile ? "flex" : "hidden"} md:flex`}
           >
             {section === "mail" && <MailFolders />}

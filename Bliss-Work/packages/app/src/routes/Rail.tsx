@@ -29,6 +29,10 @@ const ITEMS = [
   { key: "settings", icon: Settings, to: "/app/settings" },
 ] as const;
 
+/** Icon size in the icon-only side rail. 24px keeps a 72px rail from reading as
+ *  empty; the bottom bar and the drawer keep their own 20px icon + label. */
+const SIDE_ICON_SIZE = 24;
+
 /** The bottom tab bar only has room for a handful of icons+labels before it
  *  reads as cramped rather than compact — these five are the ones a phone
  *  user reaches for constantly; the rest live behind "More". */
@@ -72,14 +76,16 @@ export function Rail({
     nav(to);
     onSelect?.();
   };
+  const side = !bottom && !drawer;
   const buttons = (items: readonly (typeof ITEMS)[number][]) =>
     items.map((it) => (
       <RailBtn
         key={it.key}
-        icon={<it.icon size={20} />}
+        icon={<it.icon size={side ? SIDE_ICON_SIZE : 20} />}
         label={t(`nav.${it.key}`)}
         active={section === it.key}
         bottom={bottom}
+        iconOnly={side}
         badge={badges[it.key] ?? 0}
         onClick={() => go(it.to)}
       />
@@ -98,15 +104,21 @@ export function Rail({
 
   return (
     <nav
-      className={`glass relative z-30 flex min-h-0 shrink-0 flex-col items-center overflow-hidden px-2 py-4 ${
-        drawer ? "w-full rounded-none" : "w-[160px] rounded-2xl"
+      className={`glass relative z-30 flex min-h-0 shrink-0 flex-col items-center overflow-hidden py-4 ${
+        drawer ? "w-full rounded-none px-2" : "w-[72px] rounded-2xl px-3"
       } ${className}`}
     >
-      <div className="min-h-0 w-full flex-1 space-y-1 overflow-y-auto overscroll-contain [scrollbar-color:var(--color-border)_transparent] [scrollbar-width:thin]">
+      <div
+        className={`min-h-0 w-full flex-1 overflow-y-auto overscroll-contain [scrollbar-color:var(--color-border)_transparent] [scrollbar-width:thin] ${
+          // -mx-2/px-2 gives the active item's glow room inside the scroller
+          // instead of being sliced at the 48px button edge.
+          side ? "-mx-2 flex w-[calc(100%+1rem)] flex-col items-center gap-1 px-2" : "space-y-1"
+        }`}
+      >
         {buttons(ITEMS)}
       </div>
       {!drawer && (
-        <div className="w-full shrink-0 pt-5">
+        <div className="flex w-full shrink-0 justify-center pt-5">
           <ProfileMenu variant="rail" />
         </div>
       )}
@@ -171,6 +183,7 @@ function RailBtn({
   label,
   active,
   bottom,
+  iconOnly = false,
   badge = 0,
   onClick,
 }: {
@@ -178,18 +191,29 @@ function RailBtn({
   label: string;
   active: boolean;
   bottom: boolean;
+  /** The desktop side rail: icon only. The label survives as the tooltip and
+   *  the accessible name, so nothing about the control is lost to a screen
+   *  reader or a hover. */
+  iconOnly?: boolean;
   badge?: number;
   onClick: () => void;
 }) {
   const { t } = useTranslation("shell");
+  const title = badge > 0 ? t("railBtn.titleWithBadge", { label, count: badge }) : label;
   return (
     <button
       onClick={onClick}
-      title={badge > 0 ? t("railBtn.titleWithBadge", { label, count: badge }) : label}
+      title={title}
+      aria-label={iconOnly ? title : undefined}
+      aria-current={active ? "page" : undefined}
       className={`relative flex flex-col items-center gap-1 rounded-xl transition-all active:scale-95 ${
         bottom ? "text-[11px] font-bold" : "text-sm font-semibold"
       } ${
-        bottom ? "flex-1 py-1.5" : "w-full flex-row justify-start gap-3 px-3 py-3 text-left"
+        bottom
+          ? "flex-1 py-1.5"
+          : iconOnly
+            ? "h-12 w-12 shrink-0 justify-center"
+            : "w-full flex-row justify-start gap-3 px-3 py-3 text-left"
       } ${
         active
           ? "bg-gradient-to-br from-brand-from to-brand-to text-accent-fg shadow-[0_6px_18px_-6px_var(--color-accent)] hover:brightness-105"
@@ -207,7 +231,7 @@ function RailBtn({
           </span>
         )}
       </span>
-      {label}
+      {!iconOnly && label}
     </button>
   );
 }

@@ -248,6 +248,8 @@ export function CreateTaskDialog({
       open={open}
       onClose={onClose}
       title={t("createTaskDialog.title")}
+      wide
+      showClose
       // Modal's pinned footer sits outside the scrolling body, so the submit
       // button reaches this form through the `form` attribute, not by nesting.
       footer={
@@ -261,154 +263,164 @@ export function CreateTaskDialog({
         </div>
       }
     >
-      <form id={formId} onSubmit={submit} className="flex flex-col gap-3.5">
-        <Field label={t("createTaskDialog.fields.title")}>
-          <Input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            required
-            maxLength={200}
-            placeholder={t("createTaskDialog.fields.titlePlaceholder")}
-          />
-        </Field>
-        <Field label={t("createTaskDialog.fields.description")}>
-          <Textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder={t("createTaskDialog.fields.descriptionPlaceholder")}
-          />
-        </Field>
-
-        <div role="group" aria-labelledby={assignToId} className="flex flex-col gap-3">
-          <span id={assignToId} className="text-sm font-medium text-fg">
-            {t("createTaskDialog.fields.assignTo")}
-          </span>
-          {/* includeSelf: task assignment allows sending a task to yourself, same as
-              fanning one to a channel you are a member of (see task-svc's create_task). */}
-          <MeetingAudienceFields
-            tone="theme"
-            includeSelf
-            invitees={selectedPeople}
-            onToggleInvitee={togglePerson}
-            channels={selectedChannels}
-            onToggleChannel={toggleChannel}
-            copy={audienceCopy}
-          />
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          <span className="text-[13px] font-medium text-fg/80">{t("createTaskDialog.allocation.title")}</span>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-            <AllocationCard
-              name="allocation"
-              checked={allocation === "NOW"}
-              onChange={() => setAllocation("NOW")}
-              icon={Zap}
-              title={t("createTaskDialog.allocation.now")}
-              description={t("createTaskDialog.allocation.nowDescription")}
+      <form id={formId} onSubmit={submit} className="grid gap-x-6 gap-y-3.5 md:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
+        {/* LEFT: what the task is and who gets it. */}
+        <div className="flex min-w-0 flex-col gap-3.5">
+          <Field label={t("createTaskDialog.fields.title")}>
+            <Input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              required
+              maxLength={200}
+              placeholder={t("createTaskDialog.fields.titlePlaceholder")}
             />
-            <AllocationCard
-              name="allocation"
-              checked={allocation === "SCHEDULED"}
-              onChange={() => setAllocation("SCHEDULED")}
-              icon={CalendarClock}
-              title={t("createTaskDialog.allocation.scheduled")}
-              description={t("createTaskDialog.allocation.scheduledDescription")}
+          </Field>
+          <Field label={t("createTaskDialog.fields.description")}>
+            <Textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={2}
+              className="min-h-[4.5rem]"
+              placeholder={t("createTaskDialog.fields.descriptionPlaceholder")}
             />
-            <AllocationCard
-              name="allocation"
-              checked={allocation === "RECURRING"}
-              onChange={() => setAllocation("RECURRING")}
-              icon={Repeat}
-              title={t("createTaskDialog.allocation.recurring")}
-              description={t("createTaskDialog.allocation.recurringDescription")}
+          </Field>
+
+          <div role="group" aria-labelledby={assignToId} className="flex flex-col gap-2.5">
+            <span id={assignToId} className="text-sm font-medium text-fg">
+              {t("createTaskDialog.fields.assignTo")}
+            </span>
+            {/* includeSelf: task assignment allows sending a task to yourself, same as
+                fanning one to a channel you are a member of (see task-svc's create_task). */}
+            <MeetingAudienceFields
+              tone="theme"
+              includeSelf
+              invitees={selectedPeople}
+              onToggleInvitee={togglePerson}
+              channels={selectedChannels}
+              onToggleChannel={toggleChannel}
+              copy={audienceCopy}
             />
           </div>
-          {allocation !== "NOW" && (
-            <div className="mt-3 flex flex-col gap-3 rounded-xl border border-border/60 p-3">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Field label={t("createTaskDialog.allocation.startDate")}>
-                  <Input type="date" value={scheduledDate} min={new Date().toISOString().slice(0, 10)} onChange={(e) => setScheduledDate(e.target.value)} required />
-                </Field>
-                <Field label={t("createTaskDialog.allocation.startTime")}>
-                  <TimePicker
-                    tone="theme"
-                    label={t("createTaskDialog.allocation.startTime")}
-                    value={scheduledTime}
-                    onChange={setScheduledTime}
-                  />
-                </Field>
-              </div>
-              {allocation === "SCHEDULED" && summaryWhen && (
-                <p className="rounded-lg bg-surface-2 px-3 py-2 text-xs text-muted">
-                  {t("createTaskDialog.allocation.summary", { who: summaryWho, when: summaryWhen })}
-                </p>
-              )}
-              {allocation === "RECURRING" && (
-                <>
-                  <div className="flex flex-wrap gap-2">
-                    {(["DAILY", "WEEKLY", "MONTHLY"] as const).map((kind) => (
-                      <ModeTab key={kind} active={frequency === kind} onClick={() => setFrequency(kind)}>
-                        {t(`createTaskDialog.allocation.${kind.toLowerCase()}`)}
-                      </ModeTab>
-                    ))}
-                  </div>
-                  <label className="flex items-center gap-2 text-sm text-fg">
-                    {t(`createTaskDialog.allocation.every${frequency === "DAILY" ? "Day" : frequency === "WEEKLY" ? "Week" : "Month"}`)}
-                    <Input className="w-20" type="number" min={1} value={recurrenceInterval} onChange={(e) => setRecurrenceInterval(e.target.value)} />
-                  </label>
-                  {frequency === "WEEKLY" && (
-                    <div className="flex flex-wrap gap-1.5">
-                      {weekdayLabels.map((label, day) => (
-                        <button key={label} type="button" onClick={() => setWeekdays((current) => toggled(current, day))} className={`rounded-full px-2.5 py-1 text-xs ${weekdays.has(day) ? "bg-accent text-accent-fg" : "bg-surface-2 text-muted"}`}>
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  {frequency === "MONTHLY" && (
-                    <div className="flex flex-wrap items-center gap-2 text-sm">
-                      <select className="rounded-lg border border-border bg-surface px-2 py-1.5" value={monthlyRule} onChange={(e) => setMonthlyRule(e.target.value as typeof monthlyRule)}>
-                        <option value="DAY_OF_MONTH">Day of month</option>
-                        <option value="WEEKDAY_PATTERN">Weekday pattern</option>
-                      </select>
-                      {monthlyRule === "DAY_OF_MONTH" ? (
-                        <Input className="w-20" type="number" min={1} max={31} value={monthlyDay} onChange={(e) => setMonthlyDay(e.target.value)} />
-                      ) : (
-                        <>
-                          <select className="rounded-lg border border-border bg-surface px-2 py-1.5" value={monthlyOrdinal} onChange={(e) => setMonthlyOrdinal(e.target.value)}>
-                            {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{["First", "Second", "Third", "Fourth", "Fifth"][n - 1]}</option>)}
-                          </select>
-                          <select className="rounded-lg border border-border bg-surface px-2 py-1.5" value={monthlyWeekday} onChange={(e) => setMonthlyWeekday(e.target.value)}>
-                            {weekdayLabels.map((label, day) => <option key={label} value={day}>{label}</option>)}
-                          </select>
-                        </>
-                      )}
-                    </div>
-                  )}
-                  <div className="flex flex-wrap gap-3 text-sm">
-                    {(["NO_END", "AFTER_OCCURRENCES", "ON_DATE"] as const).map((kind) => (
-                      <label key={kind} className="inline-flex items-center gap-1.5 text-fg">
-                        <input type="radio" name="endCondition" checked={endCondition === kind} onChange={() => setEndCondition(kind)} />
-                        {t(`createTaskDialog.allocation.${kind === "NO_END" ? "noEnd" : kind === "AFTER_OCCURRENCES" ? "afterOccurrences" : "onDate"}`)}
-                      </label>
-                    ))}
-                  </div>
-                  {endCondition === "AFTER_OCCURRENCES" && <Input type="number" min={1} value={occurrenceCount} onChange={(e) => setOccurrenceCount(e.target.value)} />}
-                  {endCondition === "ON_DATE" && <Input type="date" min={scheduledDate} value={endDate} onChange={(e) => setEndDate(e.target.value)} />}
-                </>
-              )}
-            </div>
-          )}
         </div>
 
-        <TaskDeadlineField
-          allocation={allocation}
-          value={deadline}
-          onChange={setDeadline}
-          startDate={scheduledDate}
-          startTime={scheduledTime}
-        />
+        {/* RIGHT: when it is allocated — the selected mode decides which of
+            start / repeat / deadline appear. */}
+        <div className="flex min-w-0 flex-col gap-3 md:border-l md:border-border/60 md:pl-6">
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[13px] font-medium text-fg/80">{t("createTaskDialog.allocation.title")}</span>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <AllocationCard
+                name="allocation"
+                checked={allocation === "NOW"}
+                onChange={() => setAllocation("NOW")}
+                icon={Zap}
+                title={t("createTaskDialog.allocation.now")}
+                description={t("createTaskDialog.allocation.nowDescription")}
+              />
+              <AllocationCard
+                name="allocation"
+                checked={allocation === "SCHEDULED"}
+                onChange={() => setAllocation("SCHEDULED")}
+                icon={CalendarClock}
+                title={t("createTaskDialog.allocation.scheduled")}
+                description={t("createTaskDialog.allocation.scheduledDescription")}
+              />
+              <AllocationCard
+                name="allocation"
+                checked={allocation === "RECURRING"}
+                onChange={() => setAllocation("RECURRING")}
+                icon={Repeat}
+                title={t("createTaskDialog.allocation.recurring")}
+                description={t("createTaskDialog.allocation.recurringDescription")}
+              />
+            </div>
+            {allocation !== "NOW" && (
+              <div className="mt-2 flex flex-col gap-2.5 rounded-xl border border-border/60 p-2.5">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label={t("createTaskDialog.allocation.startDate")}>
+                    <Input type="date" value={scheduledDate} min={new Date().toISOString().slice(0, 10)} onChange={(e) => setScheduledDate(e.target.value)} required className="h-9" />
+                  </Field>
+                  <Field label={t("createTaskDialog.allocation.startTime")}>
+                    <TimePicker
+                      tone="theme"
+                      label={t("createTaskDialog.allocation.startTime")}
+                      value={scheduledTime}
+                      onChange={setScheduledTime}
+                    />
+                  </Field>
+                </div>
+                {allocation === "SCHEDULED" && summaryWhen && (
+                  <p className="rounded-lg bg-surface-2 px-3 py-2 text-xs text-muted">
+                    {t("createTaskDialog.allocation.summary", { who: summaryWho, when: summaryWhen })}
+                  </p>
+                )}
+                {allocation === "RECURRING" && (
+                  <>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="mr-1 text-[13px] font-medium text-fg/80">{t("createTaskDialog.allocation.repeat")}</span>
+                      {(["DAILY", "WEEKLY", "MONTHLY"] as const).map((kind) => (
+                        <ModeTab key={kind} active={frequency === kind} onClick={() => setFrequency(kind)}>
+                          {t(`createTaskDialog.allocation.${kind.toLowerCase()}`)}
+                        </ModeTab>
+                      ))}
+                    </div>
+                    <label className="flex items-center gap-2 text-sm text-fg">
+                      {t(`createTaskDialog.allocation.every${frequency === "DAILY" ? "Day" : frequency === "WEEKLY" ? "Week" : "Month"}`)}
+                      <Input className="h-9 w-20" type="number" min={1} value={recurrenceInterval} onChange={(e) => setRecurrenceInterval(e.target.value)} />
+                    </label>
+                    {frequency === "WEEKLY" && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {weekdayLabels.map((label, day) => (
+                          <button key={label} type="button" onClick={() => setWeekdays((current) => toggled(current, day))} className={`rounded-full px-2.5 py-1 text-xs ${weekdays.has(day) ? "bg-accent text-accent-fg" : "bg-surface-2 text-muted"}`}>
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {frequency === "MONTHLY" && (
+                      <div className="flex flex-wrap items-center gap-2 text-sm">
+                        <select className="rounded-lg border border-border bg-surface px-2 py-1.5" value={monthlyRule} onChange={(e) => setMonthlyRule(e.target.value as typeof monthlyRule)}>
+                          <option value="DAY_OF_MONTH">Day of month</option>
+                          <option value="WEEKDAY_PATTERN">Weekday pattern</option>
+                        </select>
+                        {monthlyRule === "DAY_OF_MONTH" ? (
+                          <Input className="h-9 w-20" type="number" min={1} max={31} value={monthlyDay} onChange={(e) => setMonthlyDay(e.target.value)} />
+                        ) : (
+                          <>
+                            <select className="rounded-lg border border-border bg-surface px-2 py-1.5" value={monthlyOrdinal} onChange={(e) => setMonthlyOrdinal(e.target.value)}>
+                              {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{["First", "Second", "Third", "Fourth", "Fifth"][n - 1]}</option>)}
+                            </select>
+                            <select className="rounded-lg border border-border bg-surface px-2 py-1.5" value={monthlyWeekday} onChange={(e) => setMonthlyWeekday(e.target.value)}>
+                              {weekdayLabels.map((label, day) => <option key={label} value={day}>{label}</option>)}
+                            </select>
+                          </>
+                        )}
+                      </div>
+                    )}
+                    <div className="flex flex-wrap gap-x-3 gap-y-1.5 text-[13px]">
+                      {(["NO_END", "AFTER_OCCURRENCES", "ON_DATE"] as const).map((kind) => (
+                        <label key={kind} className="inline-flex items-center gap-1.5 text-fg">
+                          <input type="radio" name="endCondition" checked={endCondition === kind} onChange={() => setEndCondition(kind)} />
+                          {t(`createTaskDialog.allocation.${kind === "NO_END" ? "noEnd" : kind === "AFTER_OCCURRENCES" ? "afterOccurrences" : "onDate"}`)}
+                        </label>
+                      ))}
+                    </div>
+                    {endCondition === "AFTER_OCCURRENCES" && <Input className="h-9" type="number" min={1} value={occurrenceCount} onChange={(e) => setOccurrenceCount(e.target.value)} />}
+                    {endCondition === "ON_DATE" && <Input className="h-9" type="date" min={scheduledDate} value={endDate} onChange={(e) => setEndDate(e.target.value)} />}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+
+          <TaskDeadlineField
+            allocation={allocation}
+            value={deadline}
+            onChange={setDeadline}
+            startDate={scheduledDate}
+            startTime={scheduledTime}
+          />
+        </div>
       </form>
     </Modal>
   );
@@ -437,7 +449,8 @@ function AllocationCard({
     // radio counts as "in view" while the card body is still clipped, so the
     // radio covers the whole card and focus scrolls all of it into view.
     <label
-      className={`relative flex cursor-pointer flex-col gap-2 rounded-xl border p-3 transition-colors has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent ${
+      title={description}
+      className={`relative flex cursor-pointer flex-col justify-center rounded-xl border p-2 transition-colors has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent ${
         checked ? "border-accent bg-accent-soft" : "border-border bg-surface hover:bg-surface-2"
       }`}
     >
@@ -448,15 +461,16 @@ function AllocationCard({
         onChange={onChange}
         className="absolute inset-0 m-0 h-full w-full cursor-pointer opacity-0"
       />
-      <span
-        className={`flex h-8 w-8 items-center justify-center rounded-lg ${
-          checked ? "bg-accent text-accent-fg" : "bg-surface-2 text-muted"
-        }`}
-      >
-        <Icon size={16} aria-hidden />
+      <span className="flex min-w-0 items-center gap-2">
+        <span
+          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${
+            checked ? "bg-accent text-accent-fg" : "bg-surface-2 text-muted"
+          }`}
+        >
+          <Icon size={15} aria-hidden />
+        </span>
+        <span className="min-w-0 text-[13px] font-semibold leading-tight text-fg">{title}</span>
       </span>
-      <span className="text-sm font-semibold text-fg">{title}</span>
-      <span className="text-xs text-muted">{description}</span>
     </label>
   );
 }

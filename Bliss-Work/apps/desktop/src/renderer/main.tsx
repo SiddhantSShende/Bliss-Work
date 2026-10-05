@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { App, useSession, refreshSession, type PlatformConfig, type ServerEvent, type RtcTransport, type FileSink, type ChatStickyHost, type MeetingWindowStatus, installChunkReloadRecovery } from "@taskboard/app";
 import type { PinResult, WsEventMeta } from "@taskboard/shared";
 import { resolveEndpointsFromEnv } from "../shared/endpoints";
-import { hashForRoute } from "../shared/open-route";
+import { createClickQueue } from "../shared/notification-click-queue";
 import "@taskboard/ui/styles.css";
 import "./index.css";
 
@@ -25,10 +25,12 @@ declare global {
       onTokenRequest: (cb: () => void) => () => void;
       onInviteDeepLink: (cb: (token: string) => void) => () => void;
       onMeetingDeepLink: (cb: (token: string) => void) => () => void;
-      onOpenRoute: (cb: (path: string) => void) => () => void;
+      onNotificationClick: (cb: (click: { notificationId: string; path: string | null }) => void) => () => void;
       showMeetingInvitePopup: (callId: string, title: string, organizer: string) => void;
       dismissMeetingInvitePopup: (callId: string) => void;
       onMeetingInviteAction: (cb: (callId: string, media: "video" | "voice") => void) => () => void;
+      windowControlsSide: "left" | "right";
+      setTitleBarTheme: (theme: { color: string; symbolColor: string }) => void;
       openExternal: (url: string) => void;
       openAttachment: (url: string, fileName: string) => Promise<{ ok: boolean; error?: string }>;
       hasPreciseLocation: () => Promise<boolean>;
@@ -81,6 +83,11 @@ declare global {
 installChunkReloadRecovery();
 
 const bridge = window.taskboard;
+
+// The main window has no OS title bar (the app's own top bar replaces it); the
+// meeting window keeps its frame. Lets the shared stylesheet inset full-height
+// overlays below the bar — see --titlebar-inset in @taskboard/ui/styles.css.
+if (!bridge.isMeetingWindow) document.documentElement.dataset.titlebar = "";
 
 // The meeting window is loaded with ?w=meeting&callId=… (a real query string,
 // not a hash) rather than a pre-built hash: composing loadFile's `search` and
@@ -151,6 +158,10 @@ const config: PlatformConfig = {
   chatSticky: window.chatSticky,
   // Handoffs like the WhatsApp forward link have no business opening inside
   // the app's own renderer, so they go to the system browser instead.
+  // The meeting window keeps its OS frame (no overlay), so it gets neither.
+  windowControls: bridge.isMeetingWindow
+    ? undefined
+    : { side: bridge.windowControlsSide, setTheme: (theme) => bridge.setTitleBarTheme(theme) },
   openExternal: (url) => bridge.openExternal(url),
   // Non-previewable mail attachment: fetch it in main and hand the FILE to
   // the OS's native default app, instead of routing a target="_blank" click
@@ -172,6 +183,7 @@ const config: PlatformConfig = {
     bridge.showMeetingInvitePopup(callId, title, organizer),
   dismissMeetingInvitePopup: (callId) => bridge.dismissMeetingInvitePopup(callId),
   onMeetingInviteAction: (cb) => bridge.onMeetingInviteAction(cb),
+  onNotificationClick: (cb) => notificationClicks.subscribe(cb),
   onBeforeQuit: (cb) => bridge.onBeforeQuit(cb),
   notifyQuitReady: () => bridge.notifyQuitReady(),
   onBeforeWindowClose: (cb) => bridge.onBeforeWindowClose(cb),
@@ -237,14 +249,12 @@ bridge.onMeetingDeepLink((token) => {
   location.hash = `#/join?t=${encodeURIComponent(token)}`;
 });
 
-// OS-notification click → show that notification's own target. An explicit
-// navigation: it replaces whatever page the window was on, and does nothing when
-// the target is already open. hashForRoute refuses any path the app would not
-// itself have produced.
-bridge.onOpenRoute((path) => {
-  const next = hashForRoute(path, location.hash);
-  if (next) location.hash = next;
-});
+// OS-notification click → handed to the signed-in shell (config.onNotificationClick
+// below), which runs the same mark-read-and-open code as the bell and the in-app
+// toast. The listener is registered here, at load, because main sends the click as
+// the page finishes loading — before the shell has mounted — so it waits in the queue.
+const notificationClicks = createClickQueue<{ notificationId: string; path: string | null }>();
+bridge.onNotificationClick((click) => notificationClicks.push(click));
 
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

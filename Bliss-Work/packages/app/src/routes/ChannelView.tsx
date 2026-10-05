@@ -13,6 +13,7 @@ import type {
 } from "@taskboard/shared";
 import { useRuntime } from "../lib/runtime";
 import { useSession } from "../store/session";
+import { useMessageFocus } from "../lib/useMessageFocus";
 import { qk } from "../lib/queryBridge";
 import { ChatThread } from "../features/ChatThread";
 import { useOlderMessages } from "../lib/useOlderMessages";
@@ -42,6 +43,7 @@ import { isAttachmentActivityKind, showsAttachmentActivity } from "../lib/useAtt
 export function ChannelView() {
   const { t } = useTranslation("chatThread");
   const { channelId = "" } = useParams();
+  const focusMessage = useMessageFocus();
   const { api } = useRuntime();
   const qc = useQueryClient();
   const [rosterOpen, setRosterOpen] = useState(false);
@@ -693,6 +695,8 @@ export function ChannelView() {
         onLoadOlder={loadOlder}
         loadingOlder={loadingOlder}
         hasOlder={hasOlder}
+        focusMessageId={focusMessage.messageId}
+        onFocusHandled={focusMessage.clear}
         // flushStaged, not send.mutate: Send must emit the attachment tray as
         // well as the text, and must tolerate an empty text (attachments only).
         // Sending drops out of search: a filtered thread would swallow the

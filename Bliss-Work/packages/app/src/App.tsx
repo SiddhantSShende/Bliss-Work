@@ -1,6 +1,7 @@
 import { Suspense, lazy, useEffect, useState, type ComponentType } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, HashRouter, Navigate, Route, Routes, useLocation, useParams } from "react-router-dom";
+import { BrowserRouter, HashRouter, Navigate, Route, Routes, useLocation, useParams, useSearchParams } from "react-router-dom";
+import { NOTIFICATION_MESSAGE_PARAM, validUuid } from "./lib/notificationDestination";
 import { Toaster } from "sonner";
 import { ThemeProvider } from "@taskboard/ui";
 import type { PlatformConfig } from "./platform";
@@ -23,6 +24,7 @@ import { MessageSquare, Hash, Users } from "lucide-react";
 import { EmptyState } from "@taskboard/ui";
 import { ErrorBoundary, RouteErrorBoundary } from "./features/ErrorBoundary";
 import { BrowserStickies } from "./features/BrowserStickies";
+import { DesktopDragStrip } from "./features/DesktopDragStrip";
 import { MeetingHost } from "./features/MeetingHost";
 import { MeetingSessionProvider } from "./lib/MeetingSession";
 import { ScreenshotNotice } from "./features/ScreenshotNotice";
@@ -335,7 +337,10 @@ export function App({ config }: { config: PlatformConfig }) {
                     <Route path="tasks" element={<Navigate to="/app/tasks/allocated" replace />} />
                     <Route path="tasks/:view" element={<Tasks />} />
                     <Route path="search" element={<Search />} />
-                    <Route path="invite" element={<InvitePage />} />
+                    <Route
+                      path="invite"
+                      element={config.kind === "electron" ? <Navigate to="/app/mail" replace /> : <InvitePage />}
+                    />
                     <Route path="profile" element={<Profile />} />
                     <Route path="settings" element={<Settings />} />
                     <Route path="settings/activity" element={<MyActivity />} />
@@ -354,6 +359,8 @@ export function App({ config }: { config: PlatformConfig }) {
                   <Router> so it can read the current location. Electron uses real
                   desktop windows instead. */}
               <BrowserStickies />
+              {/* Desktop only: drag handle for screens that have no app-shell header. */}
+              <DesktopDragStrip />
               {/* The meeting, mounted ABOVE the routes so navigating cannot
                   unmount it — which is what used to hang up the call. Routes
                   ask for a meeting via useMeetingSession().enter(); none of
@@ -499,9 +506,12 @@ function ChatsPane() {
 function ChatDeepLink() {
   const { conversationId = "" } = useParams();
   const { openChat } = useSelectedChat();
+  // A notification link may carry the message to land on (?m=); like the id it is
+  // handed to the in-memory selection and leaves the URL with the replace below.
+  const messageId = validUuid(useSearchParams()[0].get(NOTIFICATION_MESSAGE_PARAM)) ?? undefined;
   useEffect(() => {
-    if (conversationId) openChat(conversationId, { replace: true });
-  }, [conversationId, openChat]);
+    if (conversationId) openChat(conversationId, { replace: true, messageId });
+  }, [conversationId, messageId, openChat]);
   // Until the effect runs, this is the same neutral state a reload lands on —
   // never a flash of somebody else's conversation.
   return <ChatsEmpty />;

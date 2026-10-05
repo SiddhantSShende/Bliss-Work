@@ -23,13 +23,18 @@ translate: the client sends a locale code, never text, so there is no way to
 route arbitrary content through this endpoint, and no path by which task
 titles, chat messages or any other user/encrypted content could reach it.
 
+── Auth, locales, placeholders ──────────────────────────────────────────────
+Credentials: i18n_auth.py (service account / ADC / API key). The offered locale
+list: settings.i18n_locales. `{{vars}}`, `<tags>`, `%s` and URLs are protected
+from Google and verified afterwards: i18n_placeholders.py.
+
 ── Caching ────────────────────────────────────────────────────────────────────
 Two independent caches, both Redis-backed with an in-process-dict fallback
 (same dual-mode shape as `_CaptchaStore`, but fail-OPEN here — a cache miss
 just costs one extra Google call, not a security exposure):
   * the Google supported-language list, ~24h TTL (`_LanguageListCache`)
   * per-string translations, keyed by `locale + sha256(source string)`
-    (`_TranslationCache`) — so the same English string, in the same catalog
+    (`_TranslationCache`; `v2:en:` = key schema + source language) — so the same English string, in the same catalog
     build, is never sent to Google twice, no matter how many users or pods ask
     for it. A changed English string simply hashes to a different key; nothing
     needs to be invalidated by hand.
@@ -44,6 +49,7 @@ from pathlib import Path
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 
+from .. import i18n_auth, i18n_placeholders
 from ..config import settings
 from ..logging_config import log
 from ..security.auth_dep import Principal, get_principal
@@ -53,6 +59,7 @@ router = APIRouter(prefix="/i18n", tags=["i18n"])
 _GOOGLE_LANGUAGES_URL = "https://translation.googleapis.com/language/translate/v2/languages"
 _GOOGLE_TRANSLATE_URL = "https://translation.googleapis.com/language/translate/v2"
 _GOOGLE_TIMEOUT = 8.0
+_SOURCE_LANGUAGE = "en"
 
 # One Google `q` array per request stays well under Google's documented
 # per-request limits (128 strings / ~30 KB) with room to spare for BlissWork's
@@ -139,7 +146,7 @@ def _make_redis():
 
         return aioredis.from_url(uri, socket_timeout=2.0, socket_connect_timeout=2.0)
     except Exception as exc:  # noqa: BLE001 - degrade to in-process
-        log.warning("i18n_redis_init_failed", error=str(exc))
+        log.warning("i18n_redis_init_failed", error=_safe_error(exc))
         return None
 
 
@@ -160,7 +167,7 @@ class _LanguageListCache:
                 raw = await self._redis.get(self._KEY)
                 return json.loads(raw) if raw else None
             except Exception as exc:  # noqa: BLE001
-                log.warning("i18n_redis_error", op="languages_get", error=str(exc))
+                log.warning("i18n_redis_error", op="languages_get", error=_safe_error(exc))
                 return None
         if self._local is None:
             return None
@@ -173,7 +180,7 @@ class _LanguageListCache:
                 await self._redis.set(self._KEY, json.dumps(languages), ex=_LANGUAGE_LIST_TTL_SECONDS)
                 return
             except Exception as exc:  # noqa: BLE001
-                log.warning("i18n_redis_error", op="languages_set", error=str(exc))
+                log.warning("i18n_redis_error", op="languages_set", error=_safe_error(exc))
         self._local = (languages, time.monotonic() + _LANGUAGE_LIST_TTL_SECONDS)
 
 
@@ -184,7 +191,9 @@ class _TranslationCache:
     @staticmethod
     def _key(locale: str, source: str) -> str:
         digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
-        return f"i18n:tr:{locale}:{digest}"
+        # v2: entries written before placeholder protection could hold a
+        # mangled `{{name}}`; a new prefix retires them without a manual flush.
+        return f"i18n:tr:v2:{_SOURCE_LANGUAGE}:{locale}:{digest}"
 
     def __init__(self) -> None:
         self._redis = _make_redis()
@@ -205,7 +214,7 @@ class _TranslationCache:
                     if v is not None
                 }
             except Exception as exc:  # noqa: BLE001 - degrade to "nothing cached"
-                log.warning("i18n_redis_error", op="translation_mget", error=str(exc))
+                log.warning("i18n_redis_error", op="translation_mget", error=_safe_error(exc))
                 return {}
         return {s: self._local[k] for s, k in zip(sources, keys) if k in self._local}
 
@@ -220,7 +229,7 @@ class _TranslationCache:
                 await pipe.execute()
                 return
             except Exception as exc:  # noqa: BLE001 - best-effort; next request re-translates
-                log.warning("i18n_redis_error", op="translation_set", error=str(exc))
+                log.warning("i18n_redis_error", op="translation_set", error=_safe_error(exc))
                 return
         for source, translated in translations.items():
             self._local[self._key(locale, source)] = translated
@@ -230,55 +239,94 @@ _language_cache = _LanguageListCache()
 _translation_cache = _TranslationCache()
 
 
-# ── Google Cloud Translation (Basic v2, REST, API-key auth) ──────────────────
+# ── Google Cloud Translation (Basic v2, REST) ────────────────────────────────
+
+
+def _safe_error(exc: Exception) -> str:
+    """What is safe to log about a failed Google call. `str(exc)` is NOT: an
+    httpx error message embeds the request URL, and Google's error bodies can
+    echo credentials back."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        return f"HTTP {exc.response.status_code}"
+    return type(exc).__name__
+
+
+def _offered(google_languages: list[dict]) -> list[dict]:
+    """The languages the switcher shows: Google's supported set narrowed to
+    settings.i18n_locales, in the configured order. English never appears (it is
+    bundled). Filtering happens here, on read, so changing the setting needs no
+    cache flush."""
+    wanted = [c.strip() for c in settings.i18n_locales.split(",") if c.strip() and c.strip() != "en"]
+    if not wanted:
+        return google_languages
+    by_code = {lang["code"]: lang for lang in google_languages}
+    return [by_code[c] for c in dict.fromkeys(wanted) if c in by_code]
 
 
 async def _fetch_google_languages() -> list[dict]:
     """[{code, name}], English display names (target=en) — never Google's raw
-    schema, so the client never has to know Google's field names."""
-    if not settings.google_translate_api_key:
+    schema, so the client never has to know Google's field names. Already narrowed
+    to the configured locales."""
+    if not i18n_auth.is_configured():
         return []
     cached = await _language_cache.get()
     if cached is not None:
-        return cached
+        return _offered(cached)
     try:
+        headers = await i18n_auth.auth_headers()
         async with httpx.AsyncClient(timeout=_GOOGLE_TIMEOUT) as client:
-            res = await client.get(
-                _GOOGLE_LANGUAGES_URL,
-                params={"key": settings.google_translate_api_key, "target": "en"},
-            )
+            res = await client.get(_GOOGLE_LANGUAGES_URL, params={"target": "en"}, headers=headers)
             res.raise_for_status()
             body = res.json()
+    except i18n_auth.TranslationAuthError:
+        return []  # already logged by i18n_auth
     except Exception as exc:  # noqa: BLE001 - quota/network/5xx all land here
-        log.warning("i18n_google_languages_failed", error=str(exc))
+        log.warning("i18n_google_languages_failed", error=_safe_error(exc))
         return []
     languages = [
         {"code": item["language"], "name": item.get("name", item["language"])}
         for item in body.get("data", {}).get("languages", [])
         # English is always separately available (it's bundled, never fetched)
         # — omitted here so the client never has to de-duplicate it.
-        if item.get("language") != "en"
+        if item.get("language") != _SOURCE_LANGUAGE
     ]
     await _language_cache.set(languages)
-    return languages
+    return _offered(languages)
 
 
-async def _translate_batch(strings: list[str], target: str) -> list[str] | None:
+async def _translate_batch(strings: list[str], target: str) -> list[str | None] | None:
     """None on total failure (caller treats every string in the batch as
-    untranslated); otherwise one translated string per input, in order."""
+    untranslated); otherwise one entry per input, in order — the translation, or
+    None for a string whose placeholders did not survive (keep its English)."""
     try:
+        headers = await i18n_auth.auth_headers()
         async with httpx.AsyncClient(timeout=_GOOGLE_TIMEOUT) as client:
             res = await client.post(
                 _GOOGLE_TRANSLATE_URL,
-                params={"key": settings.google_translate_api_key},
-                json={"q": strings, "target": target, "source": "en", "format": "text"},
+                headers=headers,
+                json={
+                    "q": [i18n_placeholders.protect(s) for s in strings],
+                    "target": target,
+                    "source": _SOURCE_LANGUAGE,
+                    "format": "html",
+                },
             )
             res.raise_for_status()
             body = res.json()
-        return [t["translatedText"] for t in body["data"]["translations"]]
+        translated = [t["translatedText"] for t in body["data"]["translations"]]
+    except i18n_auth.TranslationAuthError:
+        return None  # already logged by i18n_auth
     except Exception as exc:  # noqa: BLE001 - quota/network/5xx: degrade, don't 500
-        log.warning("i18n_google_translate_failed", target=target, count=len(strings), error=str(exc))
+        log.warning("i18n_google_translate_failed", target=target, count=len(strings), error=_safe_error(exc))
         return None
+    if len(translated) != len(strings):
+        log.warning("i18n_google_translate_count_mismatch", target=target, sent=len(strings), got=len(translated))
+        return None
+    results = [i18n_placeholders.restore(t, source) for t, source in zip(translated, strings)]
+    dropped = sum(r is None for r in results)
+    if dropped:
+        log.warning("i18n_placeholder_mismatch", target=target, count=dropped)
+    return results
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────
@@ -289,7 +337,7 @@ async def list_languages(principal: Principal = Depends(get_principal)) -> dict:
     """The live set of languages BlissWork can translate into today — never a
     hardcoded list. Empty (not an error) when no Google key is configured, so
     the client's dropdown just shows the bundled English-only option — see
-    the module docstring and .env.example's GOOGLE_TRANSLATE_API_KEY entry."""
+    the module docstring and .env.example's i18n section."""
     return {"languages": await _fetch_google_languages()}
 
 
@@ -337,7 +385,11 @@ async def get_catalog(locale: str, principal: Principal = Depends(get_principal)
             if results is None or len(results) != len(batch):
                 partial = True
                 continue
-            new_translations = dict(zip(batch, results))
+            # A None entry is a string whose placeholders did not survive: not
+            # cached (so a later, better answer can still land) and left as English.
+            new_translations = {src: out for src, out in zip(batch, results) if out is not None}
+            if len(new_translations) != len(batch):
+                partial = True
             translated.update(new_translations)
             await _translation_cache.set_many(locale, new_translations)
 

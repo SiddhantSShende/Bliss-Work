@@ -603,20 +603,9 @@ export const NotificationCreated = z.object({
   ...envelope,
   notificationId: z.string().uuid(),
   recipientId: z.string().uuid(),
-  kind: z.enum([
-    "TASK_ASSIGNED",
-    "TASK_ACKNOWLEDGED",
-    "TASK_COMPLETED",
-    "TASK_IGNORED",
-    "TASK_LEFT",
-    "TASK_WITHDRAWN",
-    "CHANNEL_ADDED",
-    "CHANNEL_CREATED",
-    "DM_MESSAGE",
-    "CHANNEL_MESSAGE",
-    "MEETING_SCHEDULED",
-    "MEETING_INVITATION",
-  ]),
+  /** Any non-empty kind: an unknown one still reaches the bell (see NotificationDTO.kind)
+   *  instead of the whole frame being dropped as unrecognised. */
+  kind: z.string().min(1),
   text: z.string(),
   taskId: z.string().uuid().optional(),
   channelId: z.string().uuid().optional(),

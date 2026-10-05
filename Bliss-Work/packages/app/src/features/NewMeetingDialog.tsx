@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
@@ -11,6 +11,7 @@ import { useToggleSet } from "../lib/useToggleSet";
 import { usePeopleCandidates } from "../lib/usePeopleCandidates";
 import {
   browserTimeZone,
+  describeRecurrenceForm,
   emptyRecurrence,
   toRecurrenceInput,
   validateRecurrence,
@@ -166,6 +167,7 @@ export function NewMeetingDialog({
   const { t } = useTranslation("meetings");
   const { api } = useRuntime();
   const qc = useQueryClient();
+  const detailsId = useId();
 
   const [title, setTitle] = useState("");
   const [startDate, setStartDate] = useState(() => localDate(new Date()));
@@ -326,44 +328,57 @@ export function NewMeetingDialog({
     );
   }
 
+  // The actions live INSIDE the preview card (below its divider), not in a footer: the
+  // button that creates the meeting sits with the summary of what it will create.
+  const actions = (
+    <>
+      <button
+        type="button"
+        onClick={onClose}
+        className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+      >
+        {t("newMeeting.cancel")}
+      </button>
+      <button
+        type="button"
+        onClick={submit}
+        disabled={create.isPending || startInPast}
+        className="flex items-center justify-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-fg shadow-sm transition hover:brightness-105 disabled:opacity-60"
+      >
+        <Video size={15} />
+        {scheduled
+          ? create.isPending
+            ? t("newMeeting.scheduling")
+            : t("newMeeting.scheduleMeeting")
+          : create.isPending
+            ? t("newMeeting.starting")
+            : t("newMeeting.startMeeting")}
+      </button>
+    </>
+  );
+
   return (
     <MeetingDialogShell
       title={t("newMeeting.title")}
       closeLabel={t("newMeeting.close")}
       onClose={onClose}
       wide
-      footer={
-        <>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
-          >
-            {t("newMeeting.cancel")}
-          </button>
-          <button
-            type="button"
-            onClick={submit}
-            disabled={create.isPending || startInPast}
-            className="flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-fg transition hover:brightness-105 disabled:opacity-60"
-          >
-            <Video size={15} />
-            {scheduled
-              ? create.isPending
-                ? t("newMeeting.scheduling")
-                : t("newMeeting.scheduleMeeting")
-              : create.isPending
-                ? t("newMeeting.starting")
-                : t("newMeeting.startMeeting")}
-          </button>
-        </>
-      }
     >
-      {/* grid-cols-1: without it the single mobile column is an implicit auto track
-          that grows to fit its widest content, so a long people list or many chips
-          pushed the whole form past the dialog's edge. */}
-      <div className="grid grid-cols-1 gap-5 md:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] md:gap-6">
-        <div className="flex flex-col gap-4">
+      {/* Two columns from md up: the details to fill in, and — beside them, so a basic
+          meeting never needs scrolling — the live preview with its actions, then who is
+          invited. One column below md, in the same order: details, preview + actions,
+          members, channels. grid-cols-1 matters: without it the single mobile column is
+          an implicit auto track that grows to fit its widest content, so a long people
+          list or many chips pushed the whole form past the dialog's edge. */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,11fr)_minmax(0,10fr)] md:items-start md:gap-5">
+        <section
+          aria-labelledby={detailsId}
+          className="flex flex-col gap-3 rounded-xl border border-gray-200 bg-white p-3"
+        >
+          <h3 id={detailsId} className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+            {t("newMeeting.detailsTitle")}
+          </h3>
+
           <label className="flex flex-col gap-1.5">
             <span className="text-sm font-medium text-gray-700">{t("newMeeting.titleLabel")}</span>
             <input
@@ -412,21 +427,25 @@ export function NewMeetingDialog({
             startDate={startDate}
             errors={attempted ? recurrenceErrors : undefined}
           />
+        </section>
 
-          <MeetingAudienceFields
-            invitees={invitees.selected}
-            onToggleInvitee={invitees.toggle}
-            channels={channels.selected}
-            onToggleChannel={channels.toggle}
-          />
-        </div>
-        <div className="md:self-center">
+        <div className="flex min-w-0 flex-col gap-3">
           <MeetingPreview
+            layout="card"
             title={title}
             startAt={startAt}
             endAt={endAt}
             inviteeNames={inviteeNames}
             channelNames={channelNames}
+            repeat={describeRecurrenceForm(t, recurrence, startDate)}
+            actions={actions}
+          />
+          <MeetingAudienceFields
+            layout="card"
+            invitees={invitees.selected}
+            onToggleInvitee={invitees.toggle}
+            channels={channels.selected}
+            onToggleChannel={channels.toggle}
           />
         </div>
       </div>
@@ -468,7 +487,7 @@ function DateTimeFields({
             value={date}
             min={minDate}
             onChange={(e) => onDateChange(e.target.value)}
-            className="w-full rounded-lg border border-gray-300 bg-white py-2 pl-9 pr-2 text-sm text-gray-900 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+            className="w-full rounded-lg border border-gray-300 bg-white py-2 pl-9 pr-2 text-sm text-gray-900 outline-none focus:border-accent focus:ring-1 focus:ring-accent max-[420px]:pl-8 max-[420px]:pr-1"
           />
         </div>
         <TimePicker label={label} value={time} onChange={onTimeChange} minTime={minTime} />

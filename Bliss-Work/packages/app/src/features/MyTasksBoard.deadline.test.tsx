@@ -11,6 +11,7 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ScheduledTaskDTO, SentTaskDTO } from "@taskboard/shared";
 import { useSession } from "../store/session";
+import { expandAllDetails } from "../test/expandDetails";
 
 const api = {
   tasksSent: vi.fn(async () => [] as SentTaskDTO[]),
@@ -40,7 +41,7 @@ const task = (id: string, title: string, over: Record<string, unknown>, status =
     ...over,
   }) as unknown as SentTaskDTO;
 
-const cardOf = (title: string) => screen.getByText(title).closest("div.flex-col.p-4") as HTMLElement;
+const cardOf = (title: string) => screen.getByText(title).closest("[data-testid=\"task-card\"]") as HTMLElement;
 
 const schedule = (over: Partial<ScheduledTaskDTO>) =>
   ({
@@ -103,6 +104,7 @@ describe("an assignee who missed the deadline", () => {
   it("shows the missed status and when it was missed in their timeline", async () => {
     renderBoard();
     await screen.findByText("Missed one");
+    await expandAllDetails();
     const card = cardOf("Missed one");
     // the assignee's status badge — and the participants list repeats it, hence "all"
     expect(within(card).getAllByText("missed").length).toBeGreaterThanOrEqual(1);

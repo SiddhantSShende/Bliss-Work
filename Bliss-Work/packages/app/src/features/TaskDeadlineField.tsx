@@ -76,7 +76,7 @@ export function TaskDeadlineField({
         {kind === "RELATIVE" && (
           <>
             <Input
-              className="w-20"
+              className="h-9 w-20"
               type="number"
               min={1}
               inputMode="numeric"

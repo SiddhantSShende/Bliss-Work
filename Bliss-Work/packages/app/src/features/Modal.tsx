@@ -65,7 +65,10 @@ export function useDialogBehavior(open: boolean, onClose: () => void) {
           'a[href],button:not([disabled]),textarea:not([disabled]),input:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])',
         ) ?? [],
       ).filter(isVisible);
-    (focusables()[0] ?? panelRef.current)?.focus();
+    // A header close button (data-dialog-close) is first in DOM order but is
+    // never where typing should start, so the first real control wins.
+    const initial = focusables();
+    (initial.find((el) => !el.hasAttribute("data-dialog-close")) ?? initial[0] ?? panelRef.current)?.focus();
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -107,6 +110,8 @@ export function Modal({
   children,
   title,
   footer,
+  wide = false,
+  showClose = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -115,7 +120,12 @@ export function Modal({
   /** Pinned under the scrolling body (see FOOTER above). Optional: every
    *  existing caller renders its own buttons inside `children`, unchanged. */
   footer?: React.ReactNode;
+  /** Desktop-form width (~896px) instead of the default narrow dialog. */
+  wide?: boolean;
+  /** An X beside the title (opt-in, like Sheet's). Needs `title`. */
+  showClose?: boolean;
 }) {
+  const { t } = useTranslation("common");
   const panelRef = useDialogBehavior(open, onClose);
 
   return (
@@ -136,7 +146,7 @@ export function Modal({
             tabIndex={-1}
             // max-h + flex column: the header stays put and the body scrolls,
             // so the footer's buttons are always reachable.
-            className="flex max-h-[calc(100dvh-2rem)] w-full max-w-md flex-col rounded-2xl border border-border bg-surface shadow-card"
+            className={`flex max-h-[calc(100dvh-2rem)] w-full ${wide ? "max-w-4xl" : "max-w-md"} flex-col rounded-2xl border border-border bg-surface shadow-card`}
             initial={{ scale: 0.96, y: 10 }}
             animate={{ scale: 1, y: 0 }}
             exit={{ scale: 0.96, y: 10 }}
@@ -144,11 +154,25 @@ export function Modal({
             onClick={(e) => e.stopPropagation()}
           >
             {title && (
-              <h2 className="shrink-0 px-6 pt-6 text-lg font-semibold tracking-tight text-fg">
-                {title}
-              </h2>
+              <div className={`flex shrink-0 items-start justify-between gap-3 px-6 ${wide ? "pt-5" : "pt-6"}`}>
+                <h2 className="min-w-0 text-lg font-semibold tracking-tight text-fg">{title}</h2>
+                {showClose && (
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    data-dialog-close
+                    title={t("modal.close")}
+                    aria-label={t("modal.close")}
+                    className="-mr-1 shrink-0 rounded-lg p-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg"
+                  >
+                    <X size={15} />
+                  </button>
+                )}
+              </div>
             )}
-            <div className={`min-h-0 flex-1 overflow-y-auto px-6 pb-6 ${title ? "pt-4" : "pt-6"}`}>
+            <div
+              className={`min-h-0 flex-1 overflow-y-auto px-6 ${wide ? "pb-4" : "pb-6"} ${title ? (wide ? "pt-3" : "pt-4") : "pt-6"}`}
+            >
               {children}
             </div>
             {footer && (
@@ -198,7 +222,7 @@ export function Sheet({
     <AnimatePresence>
       {open && (
         <motion.div
-          className={`fixed inset-0 z-50 flex ${fromLeft ? "justify-start" : "justify-end"} bg-black/30 backdrop-blur-sm`}
+          className={`fixed inset-x-0 bottom-0 top-[var(--titlebar-inset,0px)] z-50 flex ${fromLeft ? "justify-start" : "justify-end"} bg-black/30 backdrop-blur-sm`}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}

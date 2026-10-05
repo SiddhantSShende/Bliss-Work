@@ -349,7 +349,11 @@ func (c *Consumer) handle(ctx context.Context, tx pgx.Tx, value []byte) error {
 	if ev.Type == events.TypeChannelMessageCreated {
 		return c.channelMessageCreated(ctx, tx, value)
 	}
-	if ev.Type == events.TypeCallScheduled || ev.Type == events.TypeCallRing || ev.Type == events.TypeCallParticipantAdded {
+	// Only the two call events that ARE an invitation to a person. call.participant_added
+	// is addressed to the whole room as a "refresh who is here" signal and always
+	// accompanies a call.ring for the newcomer: persisting it too gave the newcomer two
+	// identical invitations and told everyone already in the call they were invited to it.
+	if ev.Type == events.TypeCallScheduled || ev.Type == events.TypeCallRing {
 		return c.callNotification(ctx, tx, value)
 	}
 

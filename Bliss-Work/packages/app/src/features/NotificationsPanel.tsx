@@ -1,14 +1,9 @@
-import { useQueryClient } from "@tanstack/react-query";
-import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { CheckCheck, Bell, CalendarDays, Hash, MessageSquare } from "lucide-react";
 import { EmptyState } from "@taskboard/ui";
 import type { NotificationDTO } from "@taskboard/shared";
-import { useRuntime } from "../lib/runtime";
-import { qk } from "../lib/queryBridge";
-import { decrementUnreadCount, refreshUnreadCount } from "../lib/unreadNotificationCount";
-import { markNotificationPagesRead } from "../lib/notificationPages";
-import { notificationDestination, openNotificationRoute } from "../lib/notificationDestination";
+import { useNotificationActions } from "../lib/openNotification";
+import { notificationCategory, notificationDestination, type NotificationCategory } from "../lib/notificationDestination";
 
 // Kept exported from here: it is where callers have always imported it from.
 export { notificationDestination };
@@ -54,32 +49,14 @@ export function NotificationsPanel({
   onRetry?: () => void;
 }) {
   const { t, i18n } = useTranslation("shell");
-  const { api } = useRuntime();
-  const navigate = useNavigate();
-  const { pathname } = useLocation();
-  const qc = useQueryClient();
   // Opening or closing the panel never changes read state. A notification only
   // becomes read when the user acts on it (clicks the row or "Mark read"); the
   // badge is the server's unread count and moves only through those actions.
-  const markRead = async (id: string) => {
-    // Flip the row and lower the badge BEFORE the request, so the UI answers the
-    // click immediately; the refresh below lets the server have the last word.
-    const flipped = markNotificationPagesRead(qc, (n) => n.id === id);
-    decrementUnreadCount(qc, flipped);
-
-    const failed = await api.markNotificationRead(id).then(
-      () => false,
-      () => true,
-    );
-    // The server has the last word. Failed: it still holds the row unread, so
-    // refetch the list as well and the row comes back; otherwise just the count.
-    void (failed ? qc.invalidateQueries({ queryKey: qk.notifications }) : refreshUnreadCount(qc));
-  };
-
-  const openNotification = (notification: NotificationDTO) => {
-    void markRead(notification.id);
+  // Both go through the same functions the toast and the desktop popup use.
+  const { markRead, open: openNotification } = useNotificationActions();
+  const onOpen = (notification: NotificationDTO) => {
     onClose();
-    openNotificationRoute(navigate, pathname, notificationDestination(notification));
+    openNotification(notification);
   };
 
   // The panel is the user's notification HISTORY: every notification, read or
@@ -143,16 +120,17 @@ export function NotificationsPanel({
                 n.read ? "border-border opacity-70" : "border-accent/30 bg-accent-soft/50"
               }`}
             >
-              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-accent">
-                {/* A channel invitation under a double-tick reads as "your task
-                    was completed", which is the opposite of what happened. */}
-                {n.kind === "CHANNEL_ADDED" || n.kind === "CHANNEL_CREATED" ? <Hash size={16} /> : n.kind === "DM_MESSAGE" || n.kind === "CHANNEL_MESSAGE" ? <MessageSquare size={16} /> : n.kind.startsWith("MEETING_") ? <CalendarDays size={16} /> : <CheckCheck size={16} />}
+              <div
+                data-category={notificationCategory(n.kind)}
+                className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-accent"
+              >
+                <CategoryIcon category={notificationCategory(n.kind)} />
               </div>
               <div className="min-w-0 flex-1 break-words">
                 <button
                   type="button"
                   className="block w-full text-left"
-                  onClick={() => void openNotification(n)}
+                  onClick={() => onOpen(n)}
                 >
                   <NotificationText notification={n} />
                   <span className="mt-0.5 block text-xs text-muted">
@@ -192,6 +170,24 @@ export function NotificationsPanel({
       )}
     </Sheet>
   );
+}
+
+/** A channel invitation under a double-tick reads as "your task was completed", the
+ *  opposite of what happened — so only task kinds get the tick, and a kind this build
+ *  does not know gets the neutral bell rather than borrowing another family's icon. */
+function CategoryIcon({ category }: { category: NotificationCategory }) {
+  switch (category) {
+    case "task":
+      return <CheckCheck size={16} />;
+    case "chat":
+      return <MessageSquare size={16} />;
+    case "channel":
+      return <Hash size={16} />;
+    case "meeting":
+      return <CalendarDays size={16} />;
+    default:
+      return <Bell size={16} />;
+  }
 }
 
 function NotificationText({ notification }: { notification: NotificationDTO }) {

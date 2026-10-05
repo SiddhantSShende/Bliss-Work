@@ -116,15 +116,25 @@ const api = {
     return () => ipcRenderer.removeListener("deeplink:meeting", handler);
   },
 
-  /** Emitted when the user clicks an OS notification: the in-app route that
-   *  notification leads to. Same channel name as main/notification-open.ts's
-   *  OPEN_ROUTE_CHANNEL (preload cannot import from main). The renderer
-   *  re-validates the path before navigating. */
-  onOpenRoute: (cb: (path: string) => void) => {
-    const handler = (_: unknown, path: string) => cb(path);
+  /** Emitted when the user clicks an OS notification: which notification, and the
+   *  in-app route it leads to (null when it leads nowhere). Same channel name as
+   *  main/notification-open.ts's OPEN_ROUTE_CHANNEL (preload cannot import from
+   *  main). The renderer re-validates both before acting. */
+  onNotificationClick: (cb: (click: { notificationId: string; path: string | null }) => void) => {
+    const handler = (_: unknown, click: { notificationId: string; path: string | null }) => cb(click);
     ipcRenderer.on("notification:open-route", handler);
     return () => ipcRenderer.removeListener("notification:open-route", handler);
   },
+
+  /** Which edge of the main window the native window controls sit on: the OS
+   *  draws them over the app's top bar (see MAIN_TITLE_BAR_HEIGHT in main/windows.ts),
+   *  at the right on Windows/Linux and the left (traffic lights) on macOS. */
+  windowControlsSide: process.platform === "darwin" ? "left" : "right",
+  /** Tell main the top bar's resolved colours so the native window-control
+   *  overlay matches the active theme. Main ignores it from any window but the
+   *  main one and on macOS. */
+  setTitleBarTheme: (theme: { color: string; symbolColor: string }) =>
+    ipcRenderer.send("window:title-bar-theme", theme),
 
   /** Open an https URL in the system browser. Used for OAuth: Google rejects
    *  embedded webviews, so the consent screen has to leave the app. Main

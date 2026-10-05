@@ -103,6 +103,18 @@ export interface PlatformConfig {
    */
   kind: "web" | "electron" | "mobile";
   /**
+   * Electron main window only: the OS title bar is hidden and TopNavbar is the
+   * window's single header, with the native window controls drawn over it
+   * (titleBarOverlay — see apps/desktop/src/main/windows.ts). Absent on web,
+   * mobile, and the meeting window, which keep an ordinary header.
+   */
+  windowControls?: {
+    /** Edge the native min/max/close controls are drawn on, over the top bar. */
+    side: "left" | "right";
+    /** Report the top bar's resolved colours so the native controls match the theme. */
+    setTheme: (theme: { color: string; symbolColor: string }) => void;
+  };
+  /**
    * The host measures idle and active time itself, from the OS, and reports it
    * through the telemetry queue — so TelemetryBridge must NOT accrue its own.
    * Its in-window view can only see input landing in its own window, which reads
@@ -187,6 +199,13 @@ export interface PlatformConfig {
    * in-page and calls requestMeetingJoin directly, no IPC round trip needed.
    */
   onMeetingInviteAction?: (cb: (callId: string, media: "video" | "voice") => void) => () => void;
+  /**
+   * Present only in Electron: the user clicked an OS notification popup. The shell
+   * handles it exactly like a click on the bell row or the in-app toast (see
+   * NotificationClickBridge): mark `notificationId` read and, if `path` is set,
+   * open it. `path` is untrusted — it came over IPC — and is re-checked first.
+   */
+  onNotificationClick?: (cb: (click: { notificationId: string; path: string | null }) => void) => () => void;
   /**
    * Present only in Electron: close the always-on-top popup window raised by
    * showMeetingInvitePopup for `callId`, without any user action — the call

@@ -16,7 +16,9 @@ import { AvailablePeople } from "../features/AvailablePeople";
 import { CreateTaskDialog } from "../features/CreateTaskDialog";
 import { ExportTasksDialog } from "../features/ExportTasksDialog";
 import { MyTasksBoard } from "../features/MyTasksBoard";
+import { useMySentTasks } from "../features/useMySentTasks";
 import { StickyWidget } from "../features/StickyWidget";
+import { TASK_CARD_GRID } from "../features/taskCardLayout";
 import { TaskPinToggle } from "../features/TaskPinToggle";
 
 const verb: Record<TaskAction, "acknowledge" | "complete" | "ignore" | "leave"> = {
@@ -64,7 +66,10 @@ export function Tasks() {
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center justify-between border-b border-border/60 px-4 py-3 sm:px-5">
-        <h1 className="text-base font-semibold tracking-tight text-fg">{titleByView[view] ?? t("tasksPage.titles.default")}</h1>
+        <div className="flex min-w-0 items-center gap-2">
+          <h1 className="text-base font-semibold tracking-tight text-fg">{titleByView[view] ?? t("tasksPage.titles.default")}</h1>
+          {view === "mine" && <MyTasksCount />}
+        </div>
         <div className="flex items-center gap-2">
           {/* Export emits task rows — nothing to export from a people roster. */}
           {view !== "available" && (
@@ -98,6 +103,18 @@ export function Tasks() {
       </div>
       <CreateTaskDialog open={createOpen} onClose={() => setCreateOpen(false)} preselect={preselect} />
     </div>
+  );
+}
+
+/** How many sent tasks are loaded; "N+" while older pages remain on the server. */
+function MyTasksCount() {
+  const { t } = useTranslation("tasks");
+  const { sent, tasks } = useMySentTasks();
+  if (!sent.data) return null;
+  return (
+    <span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs font-medium text-muted">
+      {sent.hasNextPage ? t("tasksPage.countMore", { count: tasks.length }) : t("tasksPage.count", { count: tasks.length })}
+    </span>
   );
 }
 
@@ -284,7 +301,7 @@ function AssignedBucket({ view }: { view: string }) {
 
   return (
     <>
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,13rem),1fr))] gap-4">
+      <div className={TASK_CARD_GRID}>
         <AnimatePresence initial={false}>
           {tasks.map((task) => {
           // The lock tracks exactly what floats: pinned AND still acknowledged.
@@ -310,6 +327,9 @@ function AssignedBucket({ view }: { view: string }) {
                 locked={floatable}
                 currentUserId={currentUserId}
                 participantLayout="list"
+                landscape
+                // Allocated to me is the viewer's own work: no participants block there.
+                hideParticipants={view === "allocated"}
                 onWithdrawSelf={(action) => withdrawSelf(task.taskId, action)}
                 // The top-right corner is the user's shared Pin / Unpin — only for
                 // a task that can still float. Ignore and Leave stay in the

@@ -5,6 +5,15 @@ import type { StickyTaskDTO, TaskAction } from "@taskboard/shared";
 import type { ParticipantTargets } from "./AddParticipantsPicker";
 import { TaskParticipantAdd, TaskParticipants } from "./TaskParticipants";
 import { TaskTimes } from "./TaskTimes";
+import {
+  TASK_CARD_BODY,
+  TASK_CARD_BODY_SLIM,
+  TASK_CARD_MAIN,
+  TASK_CARD_ROOT,
+  TASK_CARD_SIDE,
+  TASK_CARD_SIDE_FIRST,
+  TASK_CARD_SIDE_SLIM,
+} from "./taskCardLayout";
 
 /**
  * Presentational task card. Used inline in the Tasks/Inbox screens and as the
@@ -42,6 +51,8 @@ export function StickyWidget({
   participantLayout = "chips",
   onWithdrawSelf,
   headerPin,
+  landscape = false,
+  hideParticipants = false,
 }: {
   task: StickyTaskDTO;
   onAction: (action: TaskAction) => void;
@@ -80,6 +91,22 @@ export function StickyWidget({
    * do not pass it.
    */
   headerPin?: React.ReactNode;
+  /**
+   * In-app Tasks screen only: lay the card out for a wide, short slot (see
+   * taskCardLayout). Once the card itself is wide, the title, description and
+   * times sit in one column and the people and actions in a second beside it, and
+   * padding and gaps are tighter. Narrower than that it stacks in the usual order.
+   * Off (the floating note, the mail task page) the card is exactly as it was.
+   */
+  landscape?: boolean;
+  /**
+   * Allocated to me only: leave the whole participants block off — the names, their
+   * status pills, Withdraw and Add member. The task is already the viewer's, so who
+   * else is on it is noise there. With `landscape` the side column also narrows to
+   * just the actions (TASK_CARD_BODY_SLIM). Display only: the actions, and every
+   * other card that does not pass it, are unchanged.
+   */
+  hideParticipants?: boolean;
 }) {
   const { t } = useTranslation("stickies");
   // senderUsername is the email local-part, so "from j.okafor" is what a note
@@ -112,7 +139,7 @@ export function StickyWidget({
     <div className="min-w-0 flex-1">
       <div className="flex min-w-0 items-center gap-2">
         <div className="min-w-0 line-clamp-2 font-semibold leading-tight text-fg">{task.title}</div>
-        {participantLayout === "chips" && currentUserId && onAddParticipants && task.participants.some((p) => p.status === "SENT" || p.status === "ACKNOWLEDGED") && (
+        {!hideParticipants && participantLayout === "chips" && currentUserId && onAddParticipants && task.participants.some((p) => p.status === "SENT" || p.status === "ACKNOWLEDGED") && (
           <TaskParticipantAdd participants={task.participants} onAdd={onAddParticipants} />
         )}
       </div>
@@ -127,6 +154,210 @@ export function StickyWidget({
   const badgeTone = task.myStatus === "ACKNOWLEDGED" ? "accent" : task.myStatus === "MISSED" ? "danger" : "neutral";
   const statusBadge = <Badge tone={badgeTone}>{task.myStatus.toLowerCase()}</Badge>;
 
+  const header = headerPin ? (
+    // ── Header with the Pin / Unpin control ────────────────────────────────
+    // The pin takes a fixed 24px beside an avatar (28px) and the status badge
+    // (up to ~112px for "acknowledged"), which in a narrow card left the title
+    // with 0px. So the header is laid out by how wide THIS CARD is (an
+    // `@container` query, not the viewport — it follows column count and
+    // browser zoom for free), in three steps:
+    //   wide   (>= 19rem)  avatar | title | badge | pin      — one row
+    //   medium (>= 11rem)  avatar | title | pin, badge below the title (it may
+    //                      run under the pin column too — never ellipsized here)
+    //   narrow             avatar … pin, then title and badge each full width
+    // The pin stays in the top-right corner in every step, and each step
+    // leaves the title at least ~6.5rem (~104px) — or the whole row.
+    <div className="@container shrink-0">
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 gap-y-1.5 @min-[11rem]:grid-cols-[auto_minmax(0,1fr)_auto] @min-[19rem]:grid-cols-[auto_minmax(0,1fr)_auto_auto]">
+        <div className="col-start-1 row-start-1">{avatar}</div>
+        <div className="col-span-2 col-start-1 row-start-2 min-w-0 @min-[11rem]:col-span-1 @min-[11rem]:col-start-2 @min-[11rem]:row-start-1 @min-[11rem]:ml-0.5">
+          {titleBlock}
+        </div>
+        <div className="app-no-drag col-span-2 col-start-1 row-start-3 flex min-w-0 items-center @min-[11rem]:col-span-2 @min-[11rem]:col-start-2 @min-[11rem]:row-start-2 @min-[11rem]:ml-0.5 @min-[19rem]:col-span-1 @min-[19rem]:col-start-3 @min-[19rem]:row-start-1 @min-[19rem]:ml-0 @min-[19rem]:h-6">
+          {/* Allowed to shrink and ellipsize: in the narrowest step it has the
+              card's whole inner width, and "acknowledged" is wider than that
+              in a very narrow card (e.g. 2 columns at 150% zoom). Tighter
+              padding there keeps it from truncating until it truly must. */}
+          <Badge
+            tone={badgeTone}
+            className="min-w-0 max-w-full px-1.5 tracking-normal @min-[11rem]:px-2 @min-[11rem]:tracking-wide"
+          >
+            <span className="truncate">{task.myStatus.toLowerCase()}</span>
+          </Badge>
+        </div>
+        <div className="app-no-drag col-start-2 row-start-1 flex h-6 items-center justify-self-end @min-[11rem]:col-start-3 @min-[19rem]:col-start-4 @min-[19rem]:-ml-0.5">
+          {headerPin}
+        </div>
+      </div>
+    </div>
+  ) : (
+    <div className="flex shrink-0 items-start justify-between gap-2">
+      <div className="flex min-w-0 flex-1 items-start gap-2.5">
+        {avatar}
+        {titleBlock}
+      </div>
+      {/* `shrink-0`: on a narrow note the long status word ("acknowledged")
+          otherwise wraps this cluster onto a second line, nearly doubling the
+          header and shoving the action row off the bottom of the window. The
+          title beside it is already `min-w-0` + `line-clamp-2`, so it is the
+          one that should give way. */}
+      <div className="app-no-drag flex shrink-0 items-center gap-1.5">
+        {statusBadge}
+        {locked || compact ? (
+          // Floating note: Ignore lives in the button row, so the header gets
+          // a collapse-to-pill control — plus Unpin.
+          <>
+            {onCollapse && (
+              <button
+                className="app-no-drag rounded-lg p-1 text-muted hover:bg-surface-2 hover:text-fg"
+                title={t("card.collapseToPill")}
+                onClick={onCollapse}
+              >
+                <Minus size={16} />
+              </button>
+            )}
+            {/* Unpinning the NOTE is not the same as ignoring the TASK: collapse
+                replaced the header X, so without this a note could only be got
+                rid of by completing or ignoring the task it belonged to. This
+                removes the note and remembers, without touching the task. */}
+            {onUnpin && (
+              <button
+                className="app-no-drag rounded-lg p-1 text-muted hover:bg-surface-2 hover:text-fg"
+                title={t("card.unpinNoteTitle")}
+                aria-label={t("card.unpin")}
+                onClick={onUnpin}
+              >
+                <PinOff size={16} />
+              </button>
+            )}
+          </>
+        ) : task.actions.includes("IGNORE") ? (
+          // Header X = Ignore, shown ONLY when Ignore is actually a valid
+          // action (SENT). For acknowledged/terminal tasks there is no Ignore,
+          // so the X is hidden rather than firing a 409.
+          <button
+            className="app-no-drag rounded-lg p-1 text-muted hover:bg-surface-2 hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
+            title={t("card.dismissIgnore")}
+            disabled={busy}
+            onClick={() => onAction("IGNORE")}
+          >
+            <X size={16} />
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+
+  // Keep the card and its actions stable while allowing the full
+  // description to be read in place. `app-no-drag` is required here: the
+  // whole card is an OS drag region (see below), and without opting out,
+  // Electron treats a wheel/trackpad gesture over this element as window
+  // drag input rather than forwarding it to the scrollable paragraph —
+  // so it showed a scrollbar that never actually scrolled.
+  //
+  // Landscape only: `leading-normal` for `leading-relaxed`. Same font size, a
+  // little less air between lines; the extra width does the rest.
+  const description = task.description ? (
+    <p
+      className={`app-no-drag min-h-0 overflow-y-auto overscroll-contain whitespace-pre-wrap text-sm ${
+        landscape ? "leading-normal" : "leading-relaxed"
+      } text-fg/80 ${
+        compact ? "max-h-36" : "max-h-20"
+      } [scrollbar-color:var(--color-border)_transparent] [scrollbar-width:thin]`}
+    >
+      {task.description}
+    </p>
+  ) : null;
+
+  const times = <TaskTimes assignedAt={task.assignedAt} deadlineAt={task.deadlineAt} missedAt={task.missedAt} />;
+
+  const participants =
+    !hideParticipants && currentUserId && task.participants.length > 0 ? (
+      <TaskParticipants
+        participants={task.participants}
+        currentUserId={currentUserId}
+        allocatorId={task.senderId}
+        onAdd={participantLayout === "chips" ? onAddParticipants : undefined}
+        onWithdraw={onWithdrawParticipant}
+        onWithdrawSelf={withdrawSelf}
+        selfWithdrawDisabled={busy}
+        addPlacement="name"
+        layout={participantLayout}
+        className={landscape ? TASK_CARD_SIDE_FIRST : undefined}
+      />
+    ) : null;
+
+  const noParticipants = task.participants.length === 0;
+  // With the participants block hidden (Allocated to me) there is no list for Add member
+  // to hang under, so it is a full-width button directly below the action row instead —
+  // reachable without bringing back the names or statuses it would extend.
+  const cardAdd = showCardAdd ? (
+    <div
+      className={
+        hideParticipants
+          ? "flex min-w-0"
+          : landscape
+            ? `flex justify-end ${noParticipants ? TASK_CARD_SIDE_FIRST : ""}`
+            : `mt-3 flex justify-end ${noParticipants ? "border-t border-border/50 pt-3" : ""}`
+      }
+    >
+      <TaskParticipantAdd participants={task.participants} onAdd={onAddParticipants!} prominent fullWidth={hideParticipants} />
+    </div>
+  ) : null;
+
+  // Every action is LABELLED, including on the compact floating note. It
+  // used to render bare glyphs there (iconOnly={compact}), which left the
+  // desktop widget showing a ✓ and an ✗ with no way to tell which was
+  // which — the tooltip only appears if you hover and wait, and the note
+  // is not focusable so it cannot be reached by keyboard either.
+  // `shrink-0` keeps that fix effective: labelled buttons are taller and
+  // wider than glyphs, so on a short note this row is exactly what a
+  // content-sized card pushed past the window edge.
+  //
+  // `flex-wrap`: on a narrow card the buttons drop onto their own lines
+  // instead of squeezing each other until a label ("Acknowledge") spills out
+  // of its button. They stay side by side, equal width, whenever they fit.
+  // A button's width is never below its own min-content (the longest word
+  // plus its icon — the default `min-width: auto` of a flex item), so a word
+  // is never split; `max-w-full` caps that at the card's width. Do NOT add
+  // `overflow-wrap: anywhere` here: it shrinks min-content to one letter and
+  // lets "Acknowledge" break mid-word.
+  //
+  // Landscape: once beside the main column the row sits at the foot of its column.
+  const actions = (
+    <div
+      className={`app-no-drag @container/actions flex min-w-0 shrink-0 flex-wrap gap-2 ${
+        landscape && !hideParticipants ? "@min-[34rem]/card:mt-auto" : ""
+      }`}
+    >
+      {task.actions.includes("ACKNOWLEDGE") && !locked && (
+        <ActionBtn tight={compact} tone="accent" label={t("card.acknowledge")} disabled={busy} onClick={() => onAction("ACKNOWLEDGE")}>
+          <Check size={15} className={rowIcon} /> {t("card.acknowledge")}
+        </ActionBtn>
+      )}
+      {/* Explicit Ignore button next to Acknowledge for every SENT card. On
+          the floating note the header X is a collapse control, so Ignore must
+          live here; on the in-app card the header X is also Ignore, but users
+          expect (and asked for) a clearly-labelled Ignore button beside
+          Acknowledge rather than only a corner ✗ — so render it in both. */}
+      {task.actions.includes("IGNORE") && !locked && (
+        <ActionBtn tight={compact} tone="danger" label={t("card.ignore")} disabled={busy} onClick={() => onAction("IGNORE")}>
+          <X size={15} className={rowIcon} /> {t("card.ignore")}
+        </ActionBtn>
+      )}
+      {task.actions.includes("COMPLETE") && (
+        <ActionBtn tight={compact} tone="accent" label={t("card.complete")} disabled={busy} onClick={() => onAction("COMPLETE")}>
+          <Flag size={15} className={rowIcon} /> {t("card.complete")}
+        </ActionBtn>
+      )}
+      {task.actions.includes("LEAVE") && (
+        <ActionBtn tight={compact} tone="ghost" label={t("card.leave")} disabled={busy} onClick={() => onAction("LEAVE")}>
+          <LogOut size={15} className={rowIcon} /> {t("card.leave")}
+        </ActionBtn>
+      )}
+    </div>
+  );
+
   // Whole surface is the OS-window drag region so the user can grab the note
   // from anywhere — title, body, even the empty space below the description.
   // The header buttons (X / Minus / Badge) and the action button row opt out
@@ -135,7 +366,9 @@ export function StickyWidget({
   // expected to be a bug.
   return (
     <div
-      className={`app-drag flex min-w-0 flex-col gap-3 rounded-2xl border bg-surface p-4 ${
+      className={`app-drag flex min-w-0 flex-col rounded-2xl border bg-surface ${
+        landscape ? `${TASK_CARD_ROOT} p-3` : "gap-3 p-4"
+      } ${
         task.myStatus === "MISSED" ? "border-danger/40" : "border-border"
       } ${
         // The floating note lives in a fixed-size, user-resizable OS window
@@ -148,180 +381,29 @@ export function StickyWidget({
         compact ? "max-h-full min-h-0 shadow-widget" : "shadow-soft"
       }`}
     >
-      {headerPin ? (
-        // ── Header with the Pin / Unpin control ────────────────────────────────
-        // The pin takes a fixed 24px beside an avatar (28px) and the status badge
-        // (up to ~112px for "acknowledged"), which in a narrow card left the title
-        // with 0px. So the header is laid out by how wide THIS CARD is (an
-        // `@container` query, not the viewport — it follows column count and
-        // browser zoom for free), in three steps:
-        //   wide   (>= 19rem)  avatar | title | badge | pin      — one row
-        //   medium (>= 11rem)  avatar | title | pin, badge below the title (it may
-        //                      run under the pin column too — never ellipsized here)
-        //   narrow             avatar … pin, then title and badge each full width
-        // The pin stays in the top-right corner in every step, and each step
-        // leaves the title at least ~6.5rem (~104px) — or the whole row.
-        <div className="@container shrink-0">
-          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 gap-y-1.5 @min-[11rem]:grid-cols-[auto_minmax(0,1fr)_auto] @min-[19rem]:grid-cols-[auto_minmax(0,1fr)_auto_auto]">
-            <div className="col-start-1 row-start-1">{avatar}</div>
-            <div className="col-span-2 col-start-1 row-start-2 min-w-0 @min-[11rem]:col-span-1 @min-[11rem]:col-start-2 @min-[11rem]:row-start-1 @min-[11rem]:ml-0.5">
-              {titleBlock}
-            </div>
-            <div className="app-no-drag col-span-2 col-start-1 row-start-3 flex min-w-0 items-center @min-[11rem]:col-span-2 @min-[11rem]:col-start-2 @min-[11rem]:row-start-2 @min-[11rem]:ml-0.5 @min-[19rem]:col-span-1 @min-[19rem]:col-start-3 @min-[19rem]:row-start-1 @min-[19rem]:ml-0 @min-[19rem]:h-6">
-              {/* Allowed to shrink and ellipsize: in the narrowest step it has the
-                  card's whole inner width, and "acknowledged" is wider than that
-                  in a very narrow card (e.g. 2 columns at 150% zoom). Tighter
-                  padding there keeps it from truncating until it truly must. */}
-              <Badge
-                tone={badgeTone}
-                className="min-w-0 max-w-full px-1.5 tracking-normal @min-[11rem]:px-2 @min-[11rem]:tracking-wide"
-              >
-                <span className="truncate">{task.myStatus.toLowerCase()}</span>
-              </Badge>
-            </div>
-            <div className="app-no-drag col-start-2 row-start-1 flex h-6 items-center justify-self-end @min-[11rem]:col-start-3 @min-[19rem]:col-start-4 @min-[19rem]:-ml-0.5">
-              {headerPin}
-            </div>
+      {landscape ? (
+        <div className={hideParticipants ? TASK_CARD_BODY_SLIM : TASK_CARD_BODY}>
+          <div className={TASK_CARD_MAIN}>
+            {header}
+            {description}
+            {times}
+          </div>
+          <div className={hideParticipants ? TASK_CARD_SIDE_SLIM : TASK_CARD_SIDE}>
+            {participants}
+            {hideParticipants ? actions : cardAdd}
+            {hideParticipants ? cardAdd : actions}
           </div>
         </div>
       ) : (
-      <div className="flex shrink-0 items-start justify-between gap-2">
-        <div className="flex min-w-0 flex-1 items-start gap-2.5">
-          {avatar}
-          {titleBlock}
-        </div>
-        {/* `shrink-0`: on a narrow note the long status word ("acknowledged")
-            otherwise wraps this cluster onto a second line, nearly doubling the
-            header and shoving the action row off the bottom of the window. The
-            title beside it is already `min-w-0` + `line-clamp-2`, so it is the
-            one that should give way. */}
-        <div className="app-no-drag flex shrink-0 items-center gap-1.5">
-          {statusBadge}
-          {locked || compact ? (
-            // Floating note: Ignore lives in the button row, so the header gets
-            // a collapse-to-pill control — plus Unpin.
-            <>
-              {onCollapse && (
-                <button
-                  className="app-no-drag rounded-lg p-1 text-muted hover:bg-surface-2 hover:text-fg"
-                  title={t("card.collapseToPill")}
-                  onClick={onCollapse}
-                >
-                  <Minus size={16} />
-                </button>
-              )}
-              {/* Unpinning the NOTE is not the same as ignoring the TASK: collapse
-                  replaced the header X, so without this a note could only be got
-                  rid of by completing or ignoring the task it belonged to. This
-                  removes the note and remembers, without touching the task. */}
-              {onUnpin && (
-                <button
-                  className="app-no-drag rounded-lg p-1 text-muted hover:bg-surface-2 hover:text-fg"
-                  title={t("card.unpinNoteTitle")}
-                  aria-label={t("card.unpin")}
-                  onClick={onUnpin}
-                >
-                  <PinOff size={16} />
-                </button>
-              )}
-            </>
-          ) : task.actions.includes("IGNORE") ? (
-            // Header X = Ignore, shown ONLY when Ignore is actually a valid
-            // action (SENT). For acknowledged/terminal tasks there is no Ignore,
-            // so the X is hidden rather than firing a 409.
-            <button
-              className="app-no-drag rounded-lg p-1 text-muted hover:bg-surface-2 hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
-              title={t("card.dismissIgnore")}
-              disabled={busy}
-              onClick={() => onAction("IGNORE")}
-            >
-              <X size={16} />
-            </button>
-          ) : null}
-        </div>
-      </div>
+        <>
+          {header}
+          {description}
+          {times}
+          {participants}
+          {hideParticipants ? actions : cardAdd}
+          {hideParticipants ? cardAdd : actions}
+        </>
       )}
-
-      {/* Keep the card and its actions stable while allowing the full
-          description to be read in place. `app-no-drag` is required here: the
-          whole card is an OS drag region (see above), and without opting out,
-          Electron treats a wheel/trackpad gesture over this element as window
-          drag input rather than forwarding it to the scrollable paragraph —
-          so it showed a scrollbar that never actually scrolled. */}
-      {task.description && (
-        <p
-          className={`app-no-drag min-h-0 overflow-y-auto overscroll-contain whitespace-pre-wrap text-sm leading-relaxed text-fg/80 ${
-            compact ? "max-h-36" : "max-h-20"
-          } [scrollbar-color:var(--color-border)_transparent] [scrollbar-width:thin]`}
-        >
-          {task.description}
-        </p>
-      )}
-
-      <TaskTimes assignedAt={task.assignedAt} deadlineAt={task.deadlineAt} missedAt={task.missedAt} />
-
-      {currentUserId && task.participants.length > 0 && (
-        <TaskParticipants
-          participants={task.participants}
-          currentUserId={currentUserId}
-          allocatorId={task.senderId}
-          onAdd={participantLayout === "chips" ? onAddParticipants : undefined}
-          onWithdraw={onWithdrawParticipant}
-          onWithdrawSelf={withdrawSelf}
-          selfWithdrawDisabled={busy}
-          addPlacement="name"
-          layout={participantLayout}
-        />
-      )}
-      {showCardAdd && (
-        <div className={`mt-3 flex justify-end ${task.participants.length === 0 ? "border-t border-border/50 pt-3" : ""}`}>
-          <TaskParticipantAdd participants={task.participants} onAdd={onAddParticipants!} prominent />
-        </div>
-      )}
-
-      {/* Every action is LABELLED, including on the compact floating note. It
-          used to render bare glyphs there (iconOnly={compact}), which left the
-          desktop widget showing a ✓ and an ✗ with no way to tell which was
-          which — the tooltip only appears if you hover and wait, and the note
-          is not focusable so it cannot be reached by keyboard either.
-          `shrink-0` keeps that fix effective: labelled buttons are taller and
-          wider than glyphs, so on a short note this row is exactly what a
-          content-sized card pushed past the window edge. */}
-      {/* `flex-wrap`: on a narrow card the buttons drop onto their own lines
-          instead of squeezing each other until a label ("Acknowledge") spills out
-          of its button. They stay side by side, equal width, whenever they fit.
-          A button's width is never below its own min-content (the longest word
-          plus its icon — the default `min-width: auto` of a flex item), so a word
-          is never split; `max-w-full` caps that at the card's width. Do NOT add
-          `overflow-wrap: anywhere` here: it shrinks min-content to one letter and
-          lets "Acknowledge" break mid-word. */}
-      <div className="app-no-drag @container/actions flex min-w-0 shrink-0 flex-wrap gap-2">
-        {task.actions.includes("ACKNOWLEDGE") && !locked && (
-          <ActionBtn tight={compact} tone="accent" label={t("card.acknowledge")} disabled={busy} onClick={() => onAction("ACKNOWLEDGE")}>
-            <Check size={15} className={rowIcon} /> {t("card.acknowledge")}
-          </ActionBtn>
-        )}
-        {/* Explicit Ignore button next to Acknowledge for every SENT card. On
-            the floating note the header X is a collapse control, so Ignore must
-            live here; on the in-app card the header X is also Ignore, but users
-            expect (and asked for) a clearly-labelled Ignore button beside
-            Acknowledge rather than only a corner ✗ — so render it in both. */}
-        {task.actions.includes("IGNORE") && !locked && (
-          <ActionBtn tight={compact} tone="danger" label={t("card.ignore")} disabled={busy} onClick={() => onAction("IGNORE")}>
-            <X size={15} className={rowIcon} /> {t("card.ignore")}
-          </ActionBtn>
-        )}
-        {task.actions.includes("COMPLETE") && (
-          <ActionBtn tight={compact} tone="accent" label={t("card.complete")} disabled={busy} onClick={() => onAction("COMPLETE")}>
-            <Flag size={15} className={rowIcon} /> {t("card.complete")}
-          </ActionBtn>
-        )}
-        {task.actions.includes("LEAVE") && (
-          <ActionBtn tight={compact} tone="ghost" label={t("card.leave")} disabled={busy} onClick={() => onAction("LEAVE")}>
-            <LogOut size={15} className={rowIcon} /> {t("card.leave")}
-          </ActionBtn>
-        )}
-      </div>
     </div>
   );
 }

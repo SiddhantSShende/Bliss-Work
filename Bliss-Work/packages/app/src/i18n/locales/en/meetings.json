@@ -230,7 +230,26 @@
       "untitled": "Untitled meeting",
       "pickATime": "Pick a date and time",
       "noInvitees": "No one invited yet",
-      "onlineMeeting": "Online meeting"
+      "onlineMeeting": "Online meeting",
+      "repeatLabel": "Repeat",
+      "members_one": "{{count}} member",
+      "members_other": "{{count}} members",
+      "channels_one": "{{count}} channel",
+      "channels_other": "{{count}} channels",
+      "endsOn": "ends {{date}}",
+      "duration": {
+        "days_one": "{{count}} day",
+        "days_other": "{{count}} days",
+        "hours_one": "{{count}} hour",
+        "hours_other": "{{count}} hours",
+        "minutes_one": "{{count}} min",
+        "minutes_other": "{{count}} min"
+      },
+      "dateLabel": "Date",
+      "timeLabel": "Time",
+      "peopleLabel": "People",
+      "channelsLabel": "Channels",
+      "videoLabel": "Video"
     },
     "confirmation": {
       "title": "Meeting Scheduled!",
@@ -242,7 +261,11 @@
       "generatingLink": "Generating link…",
       "viewInCalendar": "View in Calendar",
       "startNow": "Start Meeting Now"
-    }
+    },
+    "detailsTitle": "Meeting Details",
+    "membersDescription": "Add people to this meeting",
+    "membersEmptyHint": "Invite people to your meeting",
+    "channelsDescription": "Add channels to this meeting"
   },
   "schedule": {
     "error": "Couldn't schedule that call",

@@ -8,7 +8,7 @@ describe("terminal (archive) views", () => {
   it("Missed is an archive like Completed, Left and Ignored — and Allocated is not", () => {
     for (const view of ["completed", "left", "ignored", "missed"]) expect(isTerminalView(view)).toBe(true);
     for (const view of ["allocated", "available", "mine"]) expect(isTerminalView(view)).toBe(false);
-    expect(TERMINAL_VIEW_LIMIT).toBe(10);
+    expect(TERMINAL_VIEW_LIMIT).toBe(6);
   });
 
   it("orders a missed task by when it was missed, falling back to when it was assigned", () => {

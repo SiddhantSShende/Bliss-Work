@@ -29,6 +29,10 @@ export interface AudienceCopy {
   channelsDone: string;
   channelsRemove: (name: string) => string;
   unknownChannel: string;
+  /** Card layout only: what each group is for, and the empty state's second line. */
+  peopleDescription?: string;
+  peopleEmptyHint?: string;
+  channelsDescription?: string;
 }
 
 /**
@@ -53,6 +57,7 @@ export function MeetingAudienceFields({
   tone = "light",
   includeSelf = false,
   copy,
+  layout = "stacked",
 }: {
   invitees: Set<string>;
   onToggleInvitee: (userId: string) => void;
@@ -63,6 +68,9 @@ export function MeetingAudienceFields({
   /** Offer (and label) the caller among the people — task assignment only. */
   includeSelf?: boolean;
   copy?: AudienceCopy;
+  /** "card" lays each group out as a compact bordered panel (the New Meeting form's
+   *  right column); the default is the plain stacked field the other forms use. */
+  layout?: "stacked" | "card";
 }) {
   const { t } = useTranslation("meetings");
   const { api } = useRuntime();
@@ -81,6 +89,9 @@ export function MeetingAudienceFields({
     channelsDone: t("newMeeting.channelsDone"),
     channelsRemove: (name) => t("newMeeting.channelsRemove", { name }),
     unknownChannel: t("newMeeting.unknownChannel"),
+    peopleDescription: t("newMeeting.membersDescription"),
+    peopleEmptyHint: t("newMeeting.membersEmptyHint"),
+    channelsDescription: t("newMeeting.channelsDescription"),
   };
   const { data: channelList, isLoading: channelsLoading } = useQuery({
     queryKey: qk.channels,
@@ -129,6 +140,9 @@ export function MeetingAudienceFields({
     <>
       <SelectionField
         tone={tone}
+        variant={layout}
+        description={w.peopleDescription}
+        emptyHint={w.peopleEmptyHint}
         label={w.peopleLabel}
         count={invitees.size}
         chips={memberChips}
@@ -143,6 +157,9 @@ export function MeetingAudienceFields({
 
       <SelectionField
         tone={tone}
+        variant={layout}
+        description={w.channelsDescription}
+        emptyHint={w.channelsHint}
         label={w.channelsLabel}
         count={channels.size}
         hint={w.channelsHint}

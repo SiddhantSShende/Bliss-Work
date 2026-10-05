@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { useSession } from "../store/session";
 import { trackUnhandledRejections } from "../test/unhandledRejections";
 import { CHANNELS, DESIGN, GENERAL } from "../test/meetingFixtures";
+import { expandAllDetails } from "../test/expandDetails";
 
 const api = {
   tasksSent: vi.fn(async () => [] as SentTaskDTO[]),
@@ -129,7 +130,7 @@ describe("MyTasksBoard filters", () => {
     await user.click(screen.getByRole("button", { name: "completed" }));
     expect(titles()).toEqual(["Ship the release", "Write the docs"]);
 
-    await user.click(screen.getByRole("button", { name: /^.*alice$/ }));
+    await user.click(screen.getByRole("checkbox", { name: /alice$/ }));
     expect(titles()).toEqual(["Ship the release"]);
 
     await user.click(screen.getByRole("button", { name: "Clear filters" }));
@@ -164,6 +165,7 @@ describe("MyTasksBoard reviews", () => {
   it("offers Write review on a completed task without one and Edit review on one with a review", async () => {
     renderBoard();
     await screen.findByText("Ship the release");
+    await expandAllDetails();
     expect(screen.getAllByRole("button", { name: /write review/i })).toHaveLength(1);
     expect(screen.getAllByRole("button", { name: /edit review/i })).toHaveLength(1);
   });
@@ -172,6 +174,7 @@ describe("MyTasksBoard reviews", () => {
     const user = userEvent.setup();
     renderBoard();
     await screen.findByText("Write the docs");
+    await expandAllDetails();
     await user.click(screen.getByRole("button", { name: /edit review/i }));
     expect(screen.getByTestId("review-dialog")).toHaveTextContent("u-carol|Solid work|4");
   });
@@ -184,6 +187,7 @@ describe("MyTasksBoard participants", () => {
   it("shows a labelled Withdraw only for the active assignee and one Add member on that card", async () => {
     renderBoard();
     await screen.findByText("Fix the flaky test");
+    await expandAllDetails();
 
     // t3's alice is SENT. Completed (alice, carol on t1/t2) and ignored (bob) people get no Withdraw,
     // and t1/t2 have no open assignment to add to.
@@ -197,6 +201,7 @@ describe("MyTasksBoard participants", () => {
     const user = userEvent.setup();
     renderBoard();
     await screen.findByText("Fix the flaky test");
+    await expandAllDetails();
     const before = api.tasksSent.mock.calls.length;
 
     await user.click(screen.getByRole("button", { name: "Withdraw alice" }));
@@ -209,6 +214,7 @@ describe("MyTasksBoard participants", () => {
     const user = userEvent.setup();
     renderBoard();
     await screen.findByText("Fix the flaky test");
+    await expandAllDetails();
     const before = api.tasksSent.mock.calls.length;
 
     await user.click(screen.getByRole("button", { name: "Add member" }));
@@ -227,6 +233,7 @@ describe("MyTasksBoard participants", () => {
       api.withdrawTaskParticipant.mockRejectedValueOnce(new Error("boom"));
       renderBoard();
       await screen.findByText("Fix the flaky test");
+      await expandAllDetails();
       const before = api.tasksSent.mock.calls.length;
 
       await user.click(screen.getByRole("button", { name: "Withdraw alice" }));
@@ -250,6 +257,7 @@ describe("MyTasksBoard participants", () => {
       api.addTaskParticipants.mockRejectedValueOnce(new Error("boom"));
       renderBoard();
       await screen.findByText("Fix the flaky test");
+      await expandAllDetails();
       const before = api.tasksSent.mock.calls.length;
 
       await user.click(screen.getByRole("button", { name: "Add member" }));

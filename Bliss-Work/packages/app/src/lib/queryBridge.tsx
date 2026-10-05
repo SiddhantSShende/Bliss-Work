@@ -44,7 +44,8 @@ import {
   patchThreadOnRead,
 } from "./inboxPatch";
 import { addRealtimeNotification, markNotificationPagesRead } from "./notificationPages";
-import { notificationDestination, openNotificationRoute } from "./notificationDestination";
+import { notificationRoute } from "./notificationDestination";
+import { openNotificationAt } from "./openNotification";
 import { decrementUnreadCount } from "./unreadNotificationCount";
 
 /** qk: canonical query keys. NOTE: `qk.inbox` stays task-only for back-compat
@@ -791,14 +792,15 @@ function handleTaskEvent(e: ServerEvent, ctx: EventHandlerContext) {
  * `id` makes sonner replace, not stack, a toast it already has for this
  * notification.
  */
-function announceChannelAdded(e: NotificationCreatedEvent, { navigate, currentPath }: EventHandlerContext) {
-  const target = notificationDestination({ kind: "CHANNEL_ADDED", channelId: e.channelId });
+function announceChannelAdded(e: NotificationCreatedEvent, { qc, api, navigate, currentPath }: EventHandlerContext) {
+  const route = notificationRoute({ kind: "CHANNEL_ADDED", channelId: e.channelId });
   toast(e.text, {
     id: e.notificationId,
     ...(e.channelId && {
       action: {
         label: i18n.t("common:buttons.view"),
-        onClick: () => openNotificationRoute(navigate, currentPath(), target),
+        // The same click the bell row and the desktop popup run: mark read, then go.
+        onClick: () => openNotificationAt({ qc, api, navigate, currentPath }, e.notificationId, route),
       },
     }),
   });

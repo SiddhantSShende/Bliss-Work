@@ -48,16 +48,23 @@ interface SelectedChat {
    * `replace` is for callers that are already standing on a URL that should not
    * survive in history — the deep-link route, whose path carries the id this
    * whole module exists to keep out of the address bar.
+   *
+   * `messageId` is the message the conversation should scroll to (a notification's
+   * target). Like the id itself it is kept in memory only — never in the URL.
    */
-  openChat: (conversationId: string, options?: { replace?: boolean }) => void;
+  openChat: (conversationId: string, options?: { replace?: boolean; messageId?: string }) => void;
   /** Close the open conversation, leaving the section on the list. */
   closeChat: () => void;
+  /** The message the open conversation should land on, until `clearFocus` is called. */
+  focusMessageId: string | null;
+  clearFocus: () => void;
 }
 
 const SelectedChatContext = createContext<SelectedChat | null>(null);
 
 export function SelectedChatProvider({ children }: { children: ReactNode }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [focusMessageId, setFocusMessageId] = useState<string | null>(null);
   const navigate = useNavigate();
   const loc = useLocation();
   const navType = useNavigationType();
@@ -90,12 +97,16 @@ export function SelectedChatProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (loc.key === lastKey.current) return;
     lastKey.current = loc.key;
-    if (navType === "POP") setSelectedId(null);
+    if (navType === "POP") {
+      setSelectedId(null);
+      setFocusMessageId(null);
+    }
   }, [loc.key, navType]);
 
   const openChat = useCallback(
-    (conversationId: string, options?: { replace?: boolean }) => {
+    (conversationId: string, options?: { replace?: boolean; messageId?: string }) => {
       setSelectedId(conversationId);
+      setFocusMessageId(options?.messageId ?? null);
       // Swapping which chat is open is not a new place to come back to — only
       // opening one from the list is. Without this every chat visited would
       // stack an entry and Back would replay the session one chat at a time.
@@ -110,10 +121,14 @@ export function SelectedChatProvider({ children }: { children: ReactNode }) {
   // entirely for anyone whose chat was opened by a deep link, which pushes
   // nothing. The cost is that one Back press after using the in-app back
   // control is absorbed closing an already-closed chat.
-  const closeChat = useCallback(() => setSelectedId(null), []);
+  const closeChat = useCallback(() => {
+    setSelectedId(null);
+    setFocusMessageId(null);
+  }, []);
+  const clearFocus = useCallback(() => setFocusMessageId(null), []);
 
   return (
-    <SelectedChatContext.Provider value={{ selectedId, openChat, closeChat }}>
+    <SelectedChatContext.Provider value={{ selectedId, openChat, closeChat, focusMessageId, clearFocus }}>
       {children}
     </SelectedChatContext.Provider>
   );

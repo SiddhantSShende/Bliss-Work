@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { MessageSquare, Ban, Check, Forward, PhoneMissed, Pin, Camera, Hash, Eye, Download } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -157,6 +157,11 @@ function SeenBy({ receipts }: { receipts: ChannelReadReceiptDTO[] }) {
 }
 
 /** Presentational chat thread (bubbles + composer). Reused by DMs and channels. */
+/** Older pages fetched while looking for a notification's message, at most. */
+const FOCUS_MAX_PAGES = 20;
+/** How long the landed-on message stays highlighted. */
+const FLASH_MS = 2200;
+
 export function ChatThread({
   threadId,
   messages,
@@ -194,6 +199,8 @@ export function ChatThread({
   onLoadOlder,
   loadingOlder = false,
   hasOlder = false,
+  focusMessageId = null,
+  onFocusHandled,
   selectionMode = false,
   selectedIds,
   onToggleSelect,
@@ -305,6 +312,14 @@ export function ChatThread({
   /** False once the server returns a short page, i.e. we hold the whole history. */
   hasOlder?: boolean;
   /**
+   * A message to scroll to and briefly highlight (a notification's target). If it
+   * is older than what is loaded, older pages are fetched — up to a limit — until
+   * it appears. `onFocusHandled` fires once it has been shown, or once it cannot
+   * be (it is not in the history we can see), so the caller can drop its pointer.
+   */
+  focusMessageId?: string | null;
+  onFocusHandled?: () => void;
+  /**
    * When true, every selectable bubble shows a selection indicator instead of
    * its normal actions, and `selectionToolbar` replaces the composer. Absent
    * or false: current behaviour, unchanged.
@@ -387,6 +402,48 @@ export function ChatThread({
     if (messages.length > 0) settledRef.current = true;
     prevRef.current = { threadId, firstId, lastId, height: el.scrollHeight };
   }, [threadId, messages]);
+
+  // Landing on a notification's message. Runs after the scroll effect above so its
+  // position wins over "pin to the bottom" on the thread's first paint. The target
+  // may be older than the page held, so while it is missing and history remains,
+  // fetch the next older page (the prepend effect keeps the view steady); give up
+  // after FOCUS_MAX_PAGES, or when history runs out, so a hidden or deleted message
+  // cannot make this walk a whole channel.
+  const [flashId, setFlashId] = useState<string | null>(null);
+  const focusedRef = useRef<string | null>(null);
+  const focusPagesRef = useRef(0);
+  useLayoutEffect(() => {
+    if (!focusMessageId) {
+      focusedRef.current = null;
+      focusPagesRef.current = 0;
+      return;
+    }
+    const el = listRef.current;
+    if (!el || focusedRef.current === focusMessageId || messages.length === 0) return;
+    const target = Array.from(el.querySelectorAll<HTMLElement>("[data-message-id]")).find(
+      (node) => node.dataset.messageId === focusMessageId,
+    );
+    if (target) {
+      focusedRef.current = focusMessageId;
+      const offset = target.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop;
+      el.scrollTo({ top: Math.max(0, offset - (el.clientHeight - target.clientHeight) / 2), behavior: "auto" });
+      setFlashId(focusMessageId);
+      onFocusHandled?.();
+    } else if (hasOlder && onLoadOlder && focusPagesRef.current < FOCUS_MAX_PAGES) {
+      if (!loadingOlder) {
+        focusPagesRef.current += 1;
+        onLoadOlder();
+      }
+    } else if (!loadingOlder) {
+      focusedRef.current = focusMessageId;
+      onFocusHandled?.();
+    }
+  }, [focusMessageId, messages, hasOlder, loadingOlder, onLoadOlder, onFocusHandled]);
+  useEffect(() => {
+    if (!flashId) return;
+    const timer = setTimeout(() => setFlashId(null), FLASH_MS);
+    return () => clearTimeout(timer);
+  }, [flashId]);
 
   const handleScroll = () => {
     const el = listRef.current;
@@ -530,10 +587,12 @@ export function ChatThread({
             const files = fileEnv?.kind === "media" ? fileEnv.items : undefined;
 
             return (
-              <div key={m.id}>
+              <div key={m.id} data-message-id={m.id}>
                 {dayChip}
                 <div
                   className={`flex items-center gap-2 ${
+                    flashId === m.id ? "-mx-1 rounded-xl bg-accent-soft/60 px-1 ring-2 ring-accent/50 transition-shadow" : ""
+                  } ${
                     selectable
                       ? `-mx-1 cursor-pointer rounded-xl px-1 ${picked ? "bg-accent-soft/40" : "hover:bg-surface-2/50"}`
                       : ""

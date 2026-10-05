@@ -16,7 +16,7 @@ import {
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { StickyTaskDTO } from "@taskboard/shared";
-import { createMainWindow } from "./windows";
+import { createMainWindow, MAIN_TITLE_BAR_HEIGHT } from "./windows";
 import { StickyManager } from "./sticky-manager";
 import { ChatStickyManager, type ChatStickyBootstrap } from "./chat-sticky-manager";
 import { MeetingInviteManager } from "./meeting-invite-manager";
@@ -613,7 +613,7 @@ function maybeNotify(event: unknown) {
   // computed now, from this event, so a later click on an older popup cannot
   // reuse a newer one's destination.
   const path = notificationPathFor(event, sessionUserId);
-  if (popup) raise(popup, () => openNotificationTarget(path, focusMain, () => mainWindow));
+  if (popup) raise(popup, () => openNotificationTarget({ notificationId: popup.notificationId, path }, focusMain, () => mainWindow));
 }
 
 function quitApp() {
@@ -976,6 +976,24 @@ ipcMain.on("sticky:bg", (_e, p: unknown) => {
     sticky.setBackgroundColor(color);
   } catch (err) {
     console.error("[sticky] sticky:bg failed", err);
+  }
+});
+// The main window's top bar reporting its resolved theme colours, so the native
+// min/max/close overlay drawn over its right edge matches (see
+// MAIN_TITLE_BAR_HEIGHT in windows.ts). Only the main window has an overlay —
+// the meeting window shares the preload but keeps its OS frame — and macOS has
+// none either (its traffic lights are not recolourable this way).
+ipcMain.on("window:title-bar-theme", (e, p: unknown) => {
+  if (process.platform === "darwin" || !p || typeof p !== "object") return;
+  const { color, symbolColor } = p as { color?: unknown; symbolColor?: unknown };
+  if (typeof color !== "string" || typeof symbolColor !== "string") return;
+  if (!color || !symbolColor || color.length > 64 || symbolColor.length > 64) return;
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (!win || win !== mainWindow || win.isDestroyed()) return;
+  try {
+    win.setTitleBarOverlay({ color, symbolColor, height: MAIN_TITLE_BAR_HEIGHT });
+  } catch (err) {
+    console.error("[window] window:title-bar-theme failed", err);
   }
 });
 // Phase 10: renderer → ws-process WebRTC signaling (rtc.offer/answer/ice/cancel).

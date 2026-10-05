@@ -23,7 +23,7 @@
  */
 import { Notification, type BrowserWindow } from "electron";
 import { readablePrefix } from "@taskboard/app/chatEnvelope";
-import { isNotificationRoute, notificationDestination } from "@taskboard/app/lib/notificationDestination";
+import { notificationRoute } from "@taskboard/app/lib/notificationDestination";
 import type { NotificationDTO } from "@taskboard/shared";
 
 /** A realtime event as it comes off the wire — untrusted, loosely shaped. */
@@ -149,25 +149,25 @@ export function popupFor(event: unknown, meId: string | null): Popup | null {
 /**
  * The in-app route a popup should open when clicked, or null when there is none.
  *
- * Built from the persisted record's own kind and ids by the same function the
- * bell uses — never from its text — and re-checked against the route allowlist,
- * so what main hands the renderer is something the app could have produced
- * itself. An unknown kind has no target: clicking just brings the app forward,
- * rather than moving the user off the page they were on.
+ * Built from the persisted record's own kind and ids (message id included) by the
+ * same function the bell uses — never from its text — and checked against the
+ * route allowlist, so what main hands the renderer is something the app could have
+ * produced itself. An unknown kind has no target: clicking brings the app forward
+ * and marks it read, rather than moving the user off the page they were on.
  */
 export function notificationPathFor(event: unknown, meId: string | null): string | null {
   if (!event || typeof event !== "object" || !meId) return null;
   const e = event as WireEvent;
   const str = (k: string): string | null => (typeof e[k] === "string" ? (e[k] as string) : null);
   if (e.type !== "notification.created" || str("recipientId") !== meId) return null;
-  const path = notificationDestination({
+  return notificationRoute({
     kind: str("kind") as NotificationDTO["kind"],
     taskId: str("taskId"),
     channelId: str("channelId"),
     conversationId: str("conversationId"),
+    messageId: str("messageId"),
     callId: str("callId"),
   });
-  return path !== "/app" && isNotificationRoute(path) ? path : null;
 }
 
 /**

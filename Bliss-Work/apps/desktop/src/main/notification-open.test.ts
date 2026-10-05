@@ -4,13 +4,15 @@
  * Electron itself is not available here, so the window and the renderer's
  * location are small fakes — but the code between them is the real thing:
  * main's `notificationPathFor` + `openNotificationTarget`, the IPC hand-off, and
- * the renderer's `hashForRoute`. A scenario is "the app is in state X showing
- * page P, the user clicks a popup" and the assertion is which page it ends on.
+ * the renderer's click queue. A scenario is "the app is in state X showing page P,
+ * the user clicks a popup" and the assertion is which page it ends on and which
+ * notification was marked read.
  */
 import { describe, expect, it, vi } from "vitest";
-import { hashForRoute } from "../shared/open-route";
+import { isNotificationRoute } from "@taskboard/app/lib/notificationDestination";
+import { createClickQueue } from "../shared/notification-click-queue";
 import { notificationPathFor, popupFor } from "./notifier";
-import { OPEN_ROUTE_CHANNEL, openNotificationTarget, type RouteWindow } from "./notification-open";
+import { OPEN_ROUTE_CHANNEL, openNotificationTarget, type NotificationClick, type RouteWindow } from "./notification-open";
 
 const ME = "me";
 const CHANNEL_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -72,24 +74,69 @@ describe("notificationPathFor", () => {
   });
 });
 
-describe("hashForRoute — the renderer's side of the hand-off", () => {
-  it("moves a window showing another channel to the target channel", () => {
-    expect(hashForRoute(`/app/channels/${CHANNEL_A}`, `#/app/channels/${CHANNEL_B}`)).toBe(`#/app/channels/${CHANNEL_A}`);
+describe("notificationPathFor — landing on the message", () => {
+  const MESSAGE = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+  const channelMessage = (over: Record<string, unknown> = {}) => ({
+    type: "notification.created", recipientId: ME, notificationId: "n", kind: "CHANNEL_MESSAGE",
+    text: "A in #alpha: hi", channelId: CHANNEL_A, messageId: MESSAGE, ...over,
   });
 
-  it("moves a window that is not showing a channel at all", () => {
-    expect(hashForRoute(`/app/channels/${CHANNEL_A}`, "#/app/mail")).toBe(`#/app/channels/${CHANNEL_A}`);
-    expect(hashForRoute(`/app/channels/${CHANNEL_A}`, "")).toBe(`#/app/channels/${CHANNEL_A}`);
+  it("carries the message id for a channel message and a direct message", () => {
+    expect(notificationPathFor(channelMessage(), ME)).toBe(`/app/channels/${CHANNEL_A}?m=${MESSAGE}`);
+    const dm = { ...channelMessage(), kind: "DM_MESSAGE", text: "P: hi", channelId: undefined, conversationId: CHANNEL_B };
+    expect(notificationPathFor(dm, ME)).toBe(`/app/chats/${CHANNEL_B}?m=${MESSAGE}`);
   });
 
-  it("does nothing when the target is already open, so no history entry is added", () => {
-    expect(hashForRoute(`/app/channels/${CHANNEL_A}`, `#/app/channels/${CHANNEL_A}`)).toBeNull();
+  it("still opens the thread when the message id is missing or forged", () => {
+    expect(notificationPathFor(channelMessage({ messageId: undefined }), ME)).toBe(`/app/channels/${CHANNEL_A}`);
+    expect(notificationPathFor(channelMessage({ messageId: "x&y=1" }), ME)).toBe(`/app/channels/${CHANNEL_A}`);
   });
 
-  it("refuses a route the app would not have produced", () => {
-    for (const bad of ["/login", "//evil.example", "https://evil.example", "/app/settings", "/app/channels/x", "", null, 7]) {
-      expect(hashForRoute(bad, "#/app/mail")).toBeNull();
-    }
+  it("is a route main may send, and one the renderer accepts", () => {
+    expect(isNotificationRoute(notificationPathFor(channelMessage(), ME))).toBe(true);
+    expect(isNotificationRoute(`/app/channels/${CHANNEL_A}?m=not-a-uuid`)).toBe(false);
+    expect(isNotificationRoute(`/app/channels/${CHANNEL_A}?x=${MESSAGE}`)).toBe(false);
+    expect(isNotificationRoute(`/app/mail/task/${CHANNEL_A}?m=${MESSAGE}`)).toBe(false);
+  });
+});
+
+describe("the click queue — the renderer's side of the hand-off", () => {
+  const click = (n: string): NotificationClick => ({ notificationId: n, path: null });
+
+  it("delivers straight away once the shell is listening", () => {
+    const q = createClickQueue<NotificationClick>();
+    const got: string[] = [];
+    q.subscribe((c) => got.push(c.notificationId));
+    q.push(click("a"));
+    expect(got).toEqual(["a"]);
+  });
+
+  it("holds a click made before the shell mounted, and hands it over when it does", () => {
+    const q = createClickQueue<NotificationClick>();
+    q.push(click("a"));
+    const got: string[] = [];
+    q.subscribe((c) => got.push(c.notificationId));
+    expect(got).toEqual(["a"]);
+  });
+
+  it("keeps only the latest waiting click, and delivers each only once", () => {
+    const q = createClickQueue<NotificationClick>();
+    q.push(click("a"));
+    q.push(click("b"));
+    const got: string[] = [];
+    const off = q.subscribe((c) => got.push(c.notificationId));
+    off();
+    q.subscribe((c) => got.push(c.notificationId));
+    expect(got).toEqual(["b"]);
+  });
+
+  it("holds clicks again after the shell unmounts (signed out)", () => {
+    const q = createClickQueue<NotificationClick>();
+    const got: string[] = [];
+    const off = q.subscribe((c) => got.push(c.notificationId));
+    off();
+    q.push(click("a"));
+    expect(got).toEqual([]);
   });
 });
 
@@ -98,14 +145,20 @@ describe("hashForRoute — the renderer's side of the hand-off", () => {
 type Visibility = "focused-on-page" | "background" | "minimized" | "hidden-to-tray" | "closed";
 
 function scenario(visibility: Visibility, page: string) {
-  const renderer = { hash: page, history: [] as string[] };
-  const listen = (channel: string, path: unknown) => {
-    if (channel !== OPEN_ROUTE_CHANNEL) return;
-    const next = hashForRoute(path, renderer.hash);
-    if (next) {
+  const renderer = { hash: page, history: [] as string[], read: [] as string[] };
+  // What the shell does with a click (NotificationClickBridge → openNotificationAt):
+  // mark it read, then navigate unless the target is already open.
+  const queue = createClickQueue<NotificationClick>();
+  queue.subscribe((c) => {
+    renderer.read.push(c.notificationId);
+    const next = isNotificationRoute(c.path) ? `#${c.path}` : null;
+    if (next && next !== renderer.hash) {
       renderer.hash = next;
       renderer.history.push(next);
     }
+  });
+  const listen = (channel: string, click: unknown) => {
+    if (channel === OPEN_ROUTE_CHANNEL) queue.push(click as NotificationClick);
   };
   const shown = { focused: visibility === "focused-on-page", visible: visibility !== "hidden-to-tray" && visibility !== "closed", minimized: visibility === "minimized" };
   const log: string[] = [];
@@ -119,7 +172,7 @@ function scenario(visibility: Visibility, page: string) {
     webContents: {
       isLoading: () => loading,
       once: (_event, cb) => { onLoaded = cb; },
-      send: (channel, ...args) => { log.push(`send:${String(args[0])}`); listen(channel, args[0]); },
+      send: (channel, ...args) => { log.push(`send:${(args[0] as NotificationClick).path}`); listen(channel, args[0]); },
     },
   });
 
@@ -142,7 +195,7 @@ function scenario(visibility: Visibility, page: string) {
 
   return {
     renderer, shown, log, focus,
-    click: (path: string | null) => openNotificationTarget(path, focus, () => win),
+    click: (path: string | null, notificationId = "n1") => openNotificationTarget({ notificationId, path }, focus, () => win),
     finishLoad: () => { loading = false; onLoaded?.(); },
     destroy: () => { if (win) win.destroyed = true; },
   };
@@ -201,19 +254,34 @@ describe("clicking an OS notification", () => {
     expect(app.renderer.hash).toBe(`#/app/channels/${CHANNEL_A}`);
   });
 
-  it("only brings the app forward when the notification has no target", () => {
+  it("marks the notification read when the click opens it", () => {
+    const app = scenario("background", "#/app/mail");
+    app.click(target, "n7");
+    expect(app.renderer.read).toEqual(["n7"]);
+  });
+
+  it("brings the app forward and marks it read, but does not navigate, when it has no target", () => {
     const app = scenario("minimized", "#/app/channels/" + CHANNEL_B);
-    app.click(null);
-    expect(app.log).toEqual(["focus"]);
+    app.click(null, "n9");
+    expect(app.log).toEqual(["focus", "send:null"]);
+    expect(app.renderer.read).toEqual(["n9"]);
     expect(app.renderer.hash).toBe(`#/app/channels/${CHANNEL_B}`);
   });
 
-  it("never sends a route the app would not have produced", () => {
+  it("opens the thread at the message when the notification names one", () => {
+    const MESSAGE = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
     const app = scenario("background", "#/app/mail");
-    app.click("https://evil.example");
-    app.click("/login");
-    expect(app.log).toEqual(["focus", "focus"]);
+    app.click(`/app/channels/${CHANNEL_A}?m=${MESSAGE}`);
+    expect(app.renderer.hash).toBe(`#/app/channels/${CHANNEL_A}?m=${MESSAGE}`);
+  });
+
+  it("never sends a route the app would not have produced, but still marks it read", () => {
+    const app = scenario("background", "#/app/mail");
+    app.click("https://evil.example", "n1");
+    app.click("/login", "n2");
+    expect(app.log).toEqual(["focus", "send:null", "focus", "send:null"]);
     expect(app.renderer.hash).toBe("#/app/mail");
+    expect(app.renderer.read).toEqual(["n1", "n2"]);
   });
 
   it("does not send to a window that was destroyed while loading", () => {
