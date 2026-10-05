@@ -1,213 +1,421 @@
-import { useMemo, useState } from 'react';
-import { Plus, Video } from 'lucide-react-native';
-import { FlatList, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { CalendarDays, CalendarX, Plus, Search, SearchX, X } from 'lucide-react-native';
+import {
+  Animated,
+  BackHandler,
+  Keyboard,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { CallDTO } from '@taskboard/shared';
-import { useRuntime } from '@taskboard/app/lib/runtime';
-import { useMeetings } from '../../hooks/useMeetings';
-import { Card } from '../../components/Card';
-import { Button } from '../../components/Button';
-import { EmptyState } from '../../components/EmptyState';
-import { radius, spacing, type ThemeColors } from '../../constants/theme';
+import { useJoinMeeting, useMeetings, useMeetingsInRange } from '../../hooks/useMeetings';
+import { GlassBackdrop, GlassCard, MeetingGlass } from '../../components/meetings/MeetingsGlass';
+import { MeetingCard } from '../../components/meetings/MeetingCard';
+import { MeetingsCalendar } from '../../components/meetings/MeetingsCalendar';
+import { spacing, type ThemeColors } from '../../constants/theme';
+import {
+  addDays,
+  addMonths,
+  dayKey,
+  isPast,
+  meetingEnd,
+  meetingStart,
+  monthGridStart,
+  searchHaystack,
+  sortByStart,
+  startOfDay,
+} from '../../lib/meetings';
 import type { MeetingsStackParamList } from '../../navigation/types';
 import { useThemeColors } from '../../theme/ThemeProvider';
 
 type Props = NativeStackScreenProps<MeetingsStackParamList, 'MeetingsList'>;
 
-function formatWhen(iso: string | null | undefined): string {
-  if (!iso) return 'No time set';
-  return new Date(iso).toLocaleString(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
-}
-
-function sameDay(a: Date, b: Date): boolean {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-}
-
-/** 14 real calendar days starting today — a plain Date-math strip, no
- *  date-picker library needed for a fixed-width selector like this. */
-function dateStrip(): Date[] {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return Array.from({ length: 14 }, (_, i) => {
-    const d = new Date(today);
-    d.setDate(today.getDate() + i);
-    return d;
-  });
+/** Does `c` touch the local calendar day starting at `day`? A meeting that
+ *  runs past midnight belongs to both days, matching the range endpoint. */
+function occursOn(c: CallDTO, day: Date): boolean {
+  const dayStart = day.getTime();
+  const dayEnd = addDays(day, 1).getTime();
+  const start = meetingStart(c).getTime();
+  const end = (meetingEnd(c) ?? meetingStart(c)).getTime();
+  return start < dayEnd && Math.max(end, start) >= dayStart;
 }
 
 /**
- * Meetings tab: a day strip (client-side filter over the real upcoming-call
- * list — there's no server-side date-range query on mobile, so this filters
- * what's already fetched, same data `myCalls()` always returned) plus
- * Upcoming/Past lists over real call data. "Join" opens the call's real web
- * room (`/call/:callId`, the same route CallWindow.tsx serves on web) in the
- * device browser — mobile has no WebRTC transport of its own (`rtcAvailable`
- * is false there; see runtime.tsx).
+ * Meetings tab. Calendar dots and the selected day's Upcoming/Past sections
+ * come from the real `myCallsInRange` window for the month on screen;
+ * "View all" (`MeetingsAll`) uses `myCalls()` / `myCallHistory()`; search
+ * matches over everything those three have returned. Cards open
+ * `MeetingDetail`; "+" opens the existing `ScheduleMeeting` flow.
  */
 export function MeetingsListScreen({ navigation }: Props) {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
-  const { config } = useRuntime();
+  const join = useJoinMeeting();
+
+  const [selected, setSelected] = useState(() => startOfDay(new Date()));
+  const [expanded, setExpanded] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [query, setQuery] = useState('');
+  const searchRef = useRef<TextInput>(null);
+
+  const gridStart = monthGridStart(selected);
+  const range = useMeetingsInRange(gridStart, addDays(gridStart, 42));
   const { upcoming, history } = useMeetings();
-  const [tab, setTab] = useState<'upcoming' | 'past'>('upcoming');
-  const strip = useMemo(dateStrip, []);
-  const [selectedDate, setSelectedDate] = useState<Date>(strip[0]!);
 
-  const upcomingForDay = useMemo(
-    () => (upcoming.data ?? []).filter((c) => c.scheduledAt && sameDay(new Date(c.scheduledAt), selectedDate)),
-    [upcoming.data, selectedDate],
-  );
+  const openDetail = useCallback((c: CallDTO) => navigation.navigate('MeetingDetail', { callId: c.id }), [navigation]);
 
-  const data = tab === 'upcoming' ? upcomingForDay : history.data?.items ?? [];
-  const refreshing = tab === 'upcoming' ? upcoming.isRefetching : history.isRefetching;
-  const onRefresh = () => void (tab === 'upcoming' ? upcoming.refetch() : history.refetch());
+  // Days that get a dot. Cancelled meetings aren't happening, so they don't count.
+  const meetingDays = useMemo(() => {
+    const days = new Set<string>();
+    for (const c of range.data ?? []) {
+      if (c.status === 'CANCELLED') continue;
+      const start = startOfDay(meetingStart(c));
+      const end = startOfDay(meetingEnd(c) ?? meetingStart(c));
+      for (let d = start; d.getTime() <= end.getTime() && days.size < 200; d = addDays(d, 1)) days.add(dayKey(d));
+    }
+    return days;
+  }, [range.data]);
 
-  const join = (call: CallDTO) => void Linking.openURL(`${config.webBaseUrl}/call/${call.id}`);
-  const isToday = sameDay(selectedDate, strip[0]!);
+  const { dayUpcoming, dayPast } = useMemo(() => {
+    const now = new Date();
+    const onDay = (range.data ?? []).filter((c) => occursOn(c, selected));
+    return {
+      dayUpcoming: sortByStart(onDay.filter((c) => !isPast(c, now)), 'asc'),
+      dayPast: sortByStart(onDay.filter((c) => isPast(c, now)), 'desc'),
+    };
+  }, [range.data, selected]);
+
+  // Search runs over every real meeting fetched so far, de-duplicated.
+  const results = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    const byId = new Map<string, CallDTO>();
+    for (const c of [...(range.data ?? []), ...(upcoming.data ?? []), ...(history.data?.items ?? [])]) byId.set(c.id, c);
+    return sortByStart([...byId.values()].filter((c) => searchHaystack(c).includes(q)), 'desc');
+  }, [query, range.data, upcoming.data, history.data]);
+
+  const closeSearch = useCallback(() => {
+    Keyboard.dismiss();
+    setSearching(false);
+    setQuery('');
+  }, []);
+
+  // Android back closes the search instead of leaving the tab.
+  useEffect(() => {
+    if (!searching) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      closeSearch();
+      return true;
+    });
+    return () => sub.remove();
+  }, [searching, closeSearch]);
+
+  const changeMonth = (delta: -1 | 1) => setSelected((d) => addMonths(d, delta));
+  const goToday = () => setSelected(startOfDay(new Date()));
+  const refresh = () => {
+    void range.refetch();
+    void upcoming.refetch();
+    void history.refetch();
+  };
+
+  const showError = range.isError && !range.data;
+  const showSkeleton = range.isLoading;
+  const noMeetings = !showError && !showSkeleton && dayUpcoming.length === 0 && dayPast.length === 0;
 
   return (
-    <View style={[styles.flex, { paddingTop: insets.top }]}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Meetings</Text>
-        <Pressable onPress={() => navigation.navigate('ScheduleMeeting')} style={styles.addButton} hitSlop={8}>
-          <Plus size={20} color={colors.accentFg} />
+    <GlassBackdrop>
+      <View style={[styles.flex, { paddingTop: insets.top }]}>
+        {searching ? (
+          <View style={styles.header}>
+            <MeetingGlass borderRadius={22} style={styles.searchBox}>
+              <View style={styles.searchInner}>
+                <Search size={18} color={colors.muted} />
+                <TextInput
+                  ref={searchRef}
+                  value={query}
+                  onChangeText={setQuery}
+                  placeholder="Search meetings"
+                  placeholderTextColor={colors.muted}
+                  style={styles.searchInput}
+                  autoFocus
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  returnKeyType="search"
+                />
+                {query ? (
+                  <Pressable onPress={() => setQuery('')} hitSlop={8} accessibilityLabel="Clear search">
+                    <X size={16} color={colors.muted} />
+                  </Pressable>
+                ) : null}
+              </View>
+            </MeetingGlass>
+            <Pressable onPress={closeSearch} hitSlop={8} accessibilityRole="button">
+              <Text style={styles.cancel}>Cancel</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <View style={styles.header}>
+            <Pressable onPress={goToday} hitSlop={10} style={styles.headerIcon} accessibilityLabel="Jump to today">
+              <CalendarDays size={22} color={colors.fg} />
+            </Pressable>
+            <Text style={styles.headerTitle} numberOfLines={1}>
+              Meetings
+            </Text>
+            <Pressable onPress={() => setSearching(true)} hitSlop={10} style={styles.headerIcon} accessibilityLabel="Search meetings">
+              <Search size={22} color={colors.fg} />
+            </Pressable>
+            <Pressable
+              onPress={() => navigation.navigate('ScheduleMeeting')}
+              hitSlop={6}
+              style={styles.addButton}
+              accessibilityRole="button"
+              accessibilityLabel="Schedule meeting"
+            >
+              <Plus size={20} color={colors.accentFg} />
+            </Pressable>
+          </View>
+        )}
+
+        {searching ? (
+          <ScrollView
+            contentContainerStyle={styles.content}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+          >
+            {!query.trim() ? (
+              <Text style={styles.hint}>Search by title, participant or type.</Text>
+            ) : results.length === 0 ? (
+              <EmptyCard
+                icon={SearchX}
+                title="No meetings found"
+                subtitle={`Nothing matches "${query.trim()}".`}
+                colors={colors}
+              />
+            ) : (
+              <View style={styles.cards}>
+                {results.map((c) => (
+                  <MeetingCard key={c.id} meeting={c} onPress={openDetail} onJoin={join} showDate />
+                ))}
+              </View>
+            )}
+          </ScrollView>
+        ) : (
+          <ScrollView
+            contentContainerStyle={styles.content}
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl
+                refreshing={range.isRefetching}
+                onRefresh={refresh}
+                tintColor={colors.accent}
+                colors={[colors.accent]}
+              />
+            }
+          >
+            <MeetingsCalendar
+              selected={selected}
+              onSelect={setSelected}
+              onMonthChange={changeMonth}
+              meetingDays={meetingDays}
+              expanded={expanded}
+              onToggleExpanded={() => setExpanded((v) => !v)}
+            />
+
+            {showSkeleton ? (
+              <Skeleton colors={colors} />
+            ) : showError ? (
+              <GlassCard>
+                <View style={styles.stateInner}>
+                  <Text style={styles.stateTitle}>Unable to load meetings</Text>
+                  <Pressable
+                    onPress={() => void range.refetch()}
+                    style={styles.retry}
+                    accessibilityRole="button"
+                    accessibilityLabel="Retry loading meetings"
+                  >
+                    <Text style={styles.retryText}>Retry</Text>
+                  </Pressable>
+                </View>
+              </GlassCard>
+            ) : noMeetings ? (
+              <EmptyCard icon={CalendarX} title="No meetings scheduled" subtitle="You're free for this day." colors={colors} />
+            ) : (
+              <>
+                {dayUpcoming.length > 0 ? (
+                  <Section title="Upcoming Meetings" onViewAll={() => navigation.navigate('MeetingsAll', { kind: 'upcoming' })} colors={colors}>
+                    {dayUpcoming.map((c) => (
+                      <MeetingCard key={c.id} meeting={c} onPress={openDetail} onJoin={join} />
+                    ))}
+                  </Section>
+                ) : null}
+                {dayPast.length > 0 ? (
+                  <Section title="Past Meetings" onViewAll={() => navigation.navigate('MeetingsAll', { kind: 'past' })} colors={colors}>
+                    {dayPast.map((c) => (
+                      <MeetingCard key={c.id} meeting={c} onPress={openDetail} onJoin={join} />
+                    ))}
+                  </Section>
+                ) : null}
+              </>
+            )}
+          </ScrollView>
+        )}
+      </View>
+    </GlassBackdrop>
+  );
+}
+
+function Section({
+  title,
+  onViewAll,
+  colors,
+  children,
+}: {
+  title: string;
+  onViewAll: () => void;
+  colors: ThemeColors;
+  children: React.ReactNode;
+}) {
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  return (
+    <View style={styles.section}>
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>{title}</Text>
+        <Pressable onPress={onViewAll} hitSlop={10} accessibilityRole="button" accessibilityLabel={`View all ${title}`}>
+          <Text style={styles.viewAll}>View all</Text>
         </Pressable>
       </View>
+      <View style={styles.cards}>{children}</View>
+    </View>
+  );
+}
 
-      <View style={styles.tabs}>
-        {(['upcoming', 'past'] as const).map((t) => (
-          <Pressable key={t} onPress={() => setTab(t)} style={styles.tab}>
-            <Text style={[styles.tabText, tab === t && styles.tabTextActive]}>
-              {t === 'upcoming' ? 'Upcoming' : 'Past'}
-            </Text>
-            {tab === t ? <View style={styles.tabUnderline} /> : null}
-          </Pressable>
+function EmptyCard({
+  icon: Icon,
+  title,
+  subtitle,
+  colors,
+}: {
+  icon: typeof CalendarX;
+  title: string;
+  subtitle: string;
+  colors: ThemeColors;
+}) {
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  return (
+    <GlassCard>
+      <View style={styles.stateInner}>
+        <View style={styles.emptyIcon}>
+          <Icon size={26} color={colors.accent} />
+        </View>
+        <Text style={styles.stateTitle}>{title}</Text>
+        <Text style={styles.stateSub}>{subtitle}</Text>
+      </View>
+    </GlassCard>
+  );
+}
+
+/** Three placeholder glass cards, pulsing while meetings load. */
+function Skeleton({ colors }: { colors: ThemeColors }) {
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  const pulse = useRef(new Animated.Value(0.45)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 700, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0.45, duration: 700, useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
+  return (
+    <View style={styles.section} accessibilityLabel="Loading meetings">
+      <Animated.View style={[styles.skelHeading, { opacity: pulse }]} />
+      <View style={styles.cards}>
+        {[0, 1, 2].map((i) => (
+          <GlassCard key={i}>
+            <Animated.View style={[styles.skelRow, { opacity: pulse }]}>
+              <View style={styles.skelIcon} />
+              <View style={styles.skelText}>
+                <View style={[styles.skelBar, { width: '55%' }]} />
+                <View style={[styles.skelBar, { width: '40%', height: 10 }]} />
+                <View style={[styles.skelBar, { width: '30%', height: 10 }]} />
+              </View>
+            </Animated.View>
+          </GlassCard>
         ))}
       </View>
-
-      {tab === 'upcoming' ? (
-        <FlatList
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          data={strip}
-          keyExtractor={(d) => d.toISOString()}
-          contentContainerStyle={styles.strip}
-          renderItem={({ item }) => {
-            const active = sameDay(item, selectedDate);
-            return (
-              <Pressable onPress={() => setSelectedDate(item)} style={[styles.dayCell, active && styles.dayCellActive]}>
-                <Text style={[styles.dayName, active && styles.dayTextActive]}>
-                  {item.toLocaleDateString(undefined, { weekday: 'short' })}
-                </Text>
-                <Text style={[styles.dayNumber, active && styles.dayTextActive]}>{item.getDate()}</Text>
-              </Pressable>
-            );
-          }}
-        />
-      ) : null}
-
-      <FlatList
-        data={data}
-        keyExtractor={(c) => c.id}
-        contentContainerStyle={styles.list}
-        refreshing={refreshing}
-        onRefresh={onRefresh}
-        ListEmptyComponent={
-          <EmptyState
-            icon={Video}
-            title={tab === 'upcoming' ? (isToday ? 'No meetings today' : 'No meetings this day') : 'No meetings'}
-            subtitle={tab === 'upcoming' ? 'Enjoy your day!' : 'Past meetings appear here.'}
-          />
-        }
-        renderItem={({ item }) => (
-          <Card style={styles.card}>
-            <View style={styles.cardIcon}>
-              <Video size={18} color={colors.accent} />
-            </View>
-            <View style={styles.cardText}>
-              <Text style={styles.title} numberOfLines={1}>
-                {item.title || 'Meeting'}
-              </Text>
-              <Text style={styles.when}>{formatWhen(item.scheduledAt ?? item.startedAt)}</Text>
-            </View>
-            {tab === 'upcoming' ? (
-              <Button title="Join" onPress={() => join(item)} style={styles.joinButton} />
-            ) : null}
-          </Card>
-        )}
-      />
     </View>
   );
 }
 
 function createStyles(colors: ThemeColors) {
+  const bone = colors.muted + '33';
   return StyleSheet.create({
-    flex: { flex: 1, backgroundColor: colors.bg },
+    flex: { flex: 1 },
     header: {
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'space-between',
+      gap: spacing.md,
       paddingHorizontal: spacing.lg,
       paddingTop: spacing.sm,
       paddingBottom: spacing.md,
     },
-    headerTitle: { fontSize: 22, fontWeight: '700', color: colors.fg },
+    headerIcon: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
+    headerTitle: { flex: 1, fontSize: 24, fontWeight: '800', color: colors.fg },
     addButton: {
-      width: 34,
-      height: 34,
-      borderRadius: 17,
+      width: 36,
+      height: 36,
+      borderRadius: 18,
       backgroundColor: colors.accent,
       alignItems: 'center',
       justifyContent: 'center',
     },
-    tabs: {
-      flexDirection: 'row',
-      paddingHorizontal: spacing.lg,
-      gap: spacing.lg,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.border,
-    },
-    tab: { paddingBottom: spacing.sm },
-    tabText: { fontSize: 14, fontWeight: '600', color: colors.muted },
-    tabTextActive: { color: colors.accent },
-    tabUnderline: { height: 2, backgroundColor: colors.accent, borderRadius: radius.pill, marginTop: spacing.xs },
-    strip: { paddingHorizontal: spacing.lg, paddingVertical: spacing.md, gap: spacing.sm },
-    dayCell: {
-      width: 48,
-      alignItems: 'center',
-      paddingVertical: spacing.sm,
-      borderRadius: radius.card,
-      backgroundColor: colors.surface2,
-    },
-    dayCellActive: { backgroundColor: colors.accent },
-    dayName: { fontSize: 11, fontWeight: '600', color: colors.muted },
-    dayNumber: { fontSize: 15, fontWeight: '700', color: colors.fg, marginTop: 2 },
-    dayTextActive: { color: colors.accentFg },
-    list: { padding: spacing.lg, paddingTop: spacing.sm, gap: spacing.sm },
-    card: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.md,
-    },
-    cardIcon: {
-      width: 40,
-      height: 40,
-      borderRadius: 12,
+    searchBox: { flex: 1 },
+    searchInner: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.md, height: 42 },
+    searchInput: { flex: 1, fontSize: 15, color: colors.fg, padding: 0 },
+    cancel: { fontSize: 15, fontWeight: '600', color: colors.accent },
+    // Tab bar is not absolutely positioned in this app, so normal bottom
+    // padding is enough to keep the last card clear of it.
+    content: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xl, gap: spacing.lg },
+    hint: { textAlign: 'center', color: colors.muted, fontSize: 13, marginTop: spacing.xl },
+    section: { gap: spacing.sm },
+    sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 2 },
+    sectionTitle: { flex: 1, fontSize: 16, fontWeight: '700', color: colors.fg },
+    viewAll: { fontSize: 13, fontWeight: '600', color: colors.accent },
+    cards: { gap: spacing.sm },
+    stateInner: { alignItems: 'center', gap: spacing.xs, padding: spacing.xl },
+    emptyIcon: {
+      width: 52,
+      height: 52,
+      borderRadius: 26,
       backgroundColor: colors.accentSoft,
       alignItems: 'center',
       justifyContent: 'center',
+      marginBottom: spacing.sm,
     },
-    cardText: { flex: 1, gap: 2 },
-    title: { fontSize: 15, fontWeight: '600', color: colors.fg },
-    when: { fontSize: 12, color: colors.muted },
-    joinButton: { paddingHorizontal: spacing.md, paddingVertical: 8 },
+    stateTitle: { fontSize: 15, fontWeight: '700', color: colors.fg, textAlign: 'center' },
+    stateSub: { fontSize: 13, color: colors.muted, textAlign: 'center' },
+    retry: {
+      marginTop: spacing.sm,
+      paddingHorizontal: spacing.xl,
+      paddingVertical: 10,
+      borderRadius: 999,
+      backgroundColor: colors.accent,
+    },
+    retryText: { color: colors.accentFg, fontWeight: '700', fontSize: 14 },
+    skelHeading: { width: 150, height: 16, borderRadius: 8, backgroundColor: bone },
+    skelRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.md },
+    skelIcon: { width: 44, height: 44, borderRadius: 14, backgroundColor: bone },
+    skelText: { flex: 1, gap: 6 },
+    skelBar: { height: 13, borderRadius: 6, backgroundColor: bone },
   });
 }

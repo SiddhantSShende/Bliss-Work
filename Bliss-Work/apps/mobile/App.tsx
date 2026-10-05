@@ -7,6 +7,10 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AppProviders } from './src/context/AppProviders';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
 import { RootNavigator } from './src/navigation/RootNavigator';
+import { GlassProvider } from './src/components/glass/GlassProvider';
+import { CallOverlay } from './src/calls/CallOverlay';
+import { AttachmentViewerHost } from './src/attachments/AttachmentViewerHost';
+import { ScreenSecurityHost } from './src/security/ScreenSecurityHost';
 import { useAppTheme } from './src/theme/ThemeProvider';
 
 /**
@@ -22,7 +26,18 @@ function AppContent() {
   return (
     <>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
-      <RootNavigator />
+      {/* Real background blur: popups render as siblings of the app inside this provider. */}
+      <GlassProvider>
+        <RootNavigator />
+        {/* Renders nothing itself: publishes the call UI as a GlassProvider layer
+            (sibling of the blurred app) so it can blur the app behind it. */}
+        <CallOverlay />
+        {/* The one image/document/file viewer every attachment tap opens through
+            — see attachmentViewer.ts for why there is only ever one. */}
+        <AttachmentViewerHost />
+        {/* Screenshot-attempt banner + system message for the open chat/channel. */}
+        <ScreenSecurityHost />
+      </GlassProvider>
     </>
   );
 }

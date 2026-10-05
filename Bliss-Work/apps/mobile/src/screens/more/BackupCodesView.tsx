@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Alert, StyleSheet, Text, View } from 'react-native';
 import { Checkbox } from '../../components/Checkbox';
 import { Button } from '../../components/Button';
+import * as Clipboard from 'expo-clipboard';
 import { spacing, type ThemeColors } from '../../constants/theme';
 import { useThemeColors } from '../../theme/ThemeProvider';
 
@@ -34,7 +35,17 @@ export function BackupCodesView({ codes, onDone }: { codes: string[]; onDone: ()
         <Checkbox checked={ack} onPress={() => setAck((v) => !v)} />
         <Text style={styles.ackText}>I've saved these codes somewhere safe.</Text>
       </View>
-      <Button title="Done" onPress={onDone} disabled={!ack} />
+      <View style={{ flexDirection: 'row', gap: spacing.md }}>
+        <View style={{ flex: 1 }}>
+          <Button title="Copy" onPress={async () => {
+            await Clipboard.setStringAsync(codes.join('\n'));
+            Alert.alert('Success', 'Backup codes copied to clipboard');
+          }} variant="ghost" />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Button title="Done" onPress={onDone} disabled={!ack} />
+        </View>
+      </View>
     </View>
   );
 }

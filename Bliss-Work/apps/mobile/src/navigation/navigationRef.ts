@@ -43,7 +43,38 @@ export function navigateToQuickAction(target: QuickActionTarget) {
       navigationRef.navigate('Chats', { screen: 'NewChat' });
       return;
     case 'channels':
-      navigationRef.navigate('More', { screen: 'Channels' });
+      navigationRef.navigate('Chats', { screen: 'ChatsList', params: { tab: 'channels' } });
+      return;
+  }
+}
+
+/**
+ * Maps a `blisswork://<path>` link (launcher shortcuts, deep links) to the same
+ * screens the `linking` config resolves — used to replay a link that arrived
+ * while signed out. Unknown paths are ignored.
+ */
+export function navigateToUrl(url: string): void {
+  if (!navigationRef.isReady()) return;
+  const path = url.replace(/^blisswork:\/\//i, '').replace(/[?#].*$/, '').replace(/\/+$/, '');
+  switch (path) {
+    case 'chats':
+      navigationRef.navigate('Chats', { screen: 'ChatsList', params: { tab: 'chats' } });
+      return;
+    case 'chats/channels':
+    case 'channels':
+      navigationRef.navigate('Chats', { screen: 'ChatsList', params: { tab: 'channels' } });
+      return;
+    case 'chats/mail':
+      navigationRef.navigate('Chats', { screen: 'ChatsList', params: { tab: 'mail' } });
+      return;
+    case 'tasks':
+      navigationRef.navigate('Tasks', { screen: 'TasksList' });
+      return;
+    case 'assign-task':
+      navigationRef.navigate('Tasks', { screen: 'AssignTask' });
+      return;
+    case 'new-chat':
+      navigationRef.navigate('Chats', { screen: 'NewChat' });
       return;
   }
 }

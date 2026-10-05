@@ -90,11 +90,11 @@ export function MyActivityScreen({ navigation }: Props) {
         keyExtractor={(r) => r.key}
         contentContainerStyle={styles.list}
         ListEmptyComponent={
-          !isLoading ? <EmptyState icon={Activity} title="No activity recorded yet" subtitle="Activity appears here as you use BlissWork." /> : null
+          !isLoading ? <EmptyState icon={Activity} title="No activity recorded yet" subtitle="Activity appears here as you use BlissWork." /> : undefined
         }
         onEndReached={() => hasNextPage && fetchNextPage()}
         onEndReachedThreshold={0.4}
-        ListFooterComponent={isFetchingNextPage ? <ActivityIndicator color={colors.accent} style={{ marginVertical: spacing.md }} /> : null}
+        ListFooterComponent={isFetchingNextPage ? <ActivityIndicator color={colors.accent} style={{ marginVertical: spacing.md }} /> : undefined}
         renderItem={({ item }) =>
           item.type === 'heading' ? (
             <Text style={styles.dayHeading}>{item.heading}</Text>

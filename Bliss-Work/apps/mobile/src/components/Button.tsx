@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import type { LucideIcon } from 'lucide-react-native';
 import { ActivityIndicator, Pressable, StyleSheet, Text, type StyleProp, type ViewStyle } from 'react-native';
 import { radius, type ThemeColors } from '../constants/theme';
 import { useThemeColors } from '../theme/ThemeProvider';
@@ -9,13 +10,15 @@ interface ButtonProps {
   loading?: boolean;
   disabled?: boolean;
   variant?: 'primary' | 'ghost';
+  /** Optional leading icon, drawn in the button's own text colour. */
+  icon?: LucideIcon;
   style?: StyleProp<ViewStyle>;
 }
 
 /** The one button style this app needs so far: solid accent, or a plain
  *  text-only ghost variant for secondary actions (matches the web app's
  *  own primary/link split in AuthLayout forms). */
-export function Button({ title, onPress, loading, disabled, variant = 'primary', style }: ButtonProps) {
+export function Button({ title, onPress, loading, disabled, variant = 'primary', icon: Icon, style }: ButtonProps) {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const isDisabled = disabled || loading;
@@ -33,7 +36,10 @@ export function Button({ title, onPress, loading, disabled, variant = 'primary',
       {loading ? (
         <ActivityIndicator color={variant === 'primary' ? colors.accentFg : colors.accent} size="small" />
       ) : (
-        <Text style={variant === 'primary' ? styles.primaryText : styles.ghostText}>{title}</Text>
+        <>
+          {Icon ? <Icon size={variant === 'primary' ? 18 : 16} color={variant === 'primary' ? colors.accentFg : colors.accent} /> : null}
+          <Text style={variant === 'primary' ? styles.primaryText : styles.ghostText}>{title}</Text>
+        </>
       )}
     </Pressable>
   );
@@ -47,6 +53,8 @@ function createStyles(colors: ThemeColors) {
       paddingVertical: 14,
       alignItems: 'center',
       justifyContent: 'center',
+      flexDirection: 'row',
+      gap: 8,
     },
     primaryText: {
       color: colors.accentFg,

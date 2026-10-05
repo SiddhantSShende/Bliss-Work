@@ -9,6 +9,7 @@ import { Card } from '../../components/Card';
 import { spacing, type ThemeColors } from '../../constants/theme';
 import type { TasksStackParamList } from '../../navigation/types';
 import { useThemeColors } from '../../theme/ThemeProvider';
+import { ErrorState, LoadingState } from '../../components/QueryState';
 
 type Props = NativeStackScreenProps<TasksStackParamList, 'TaskDetail'>;
 
@@ -24,7 +25,7 @@ export function TaskDetailScreen({ route, navigation }: Props) {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
-  const { data: task, isLoading } = useTaskDetail(route.params.taskId);
+  const { data: task, isLoading, isError, error, refetch } = useTaskDetail(route.params.taskId);
   const action = useTaskAction();
 
   const run = async (a: 'acknowledge' | 'complete' | 'ignore' | 'leave') => {
@@ -42,8 +43,10 @@ export function TaskDetailScreen({ route, navigation }: Props) {
         <View style={{ width: 22 }} />
       </View>
 
-      {isLoading || !task ? (
-        <ActivityIndicator color={colors.accent} style={styles.spinner} />
+      {isLoading ? (
+        <LoadingState label="Loading task..." />
+      ) : isError || !task ? (
+        <ErrorState title="Unable to load this task" error={error} onRetry={() => void refetch()} />
       ) : (
         <ScrollView contentContainerStyle={styles.content}>
           <Card style={styles.card}>

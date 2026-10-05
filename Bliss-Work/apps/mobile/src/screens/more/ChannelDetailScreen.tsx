@@ -19,7 +19,7 @@ type Props = NativeStackScreenProps<MoreStackParamList, 'ChannelDetail'>;
  * Channel info — banner (icon, name, member count, public/private, Join)
  * plus a Chat/Files/Members tab row, mirroring the reference's Channel
  * Details screen. The tabs are navigation triggers rather than inline
- * panels: Chat returns to the thread you came from (ChannelConversation
+ * panels: Chat opens the thread (ChannelConversation
  * already owns that UI — no point re-rendering it here), Files and Members
  * push their own dedicated screens (ChannelFilesScreen/ChannelMembersScreen)
  * so each stays a focused, single-purpose screen.
@@ -96,7 +96,7 @@ export function ChannelDetailScreen({ route, navigation }: Props) {
         ]}
         active="chat"
         onChange={(key) => {
-          if (key === 'chat') navigation.goBack();
+          if (key === 'chat') navigation.navigate('ChannelConversation', { channelId, channelName });
           else if (key === 'files') navigation.navigate('ChannelFiles', { channelId, channelName });
           else navigation.navigate('ChannelMembers', { channelId, channelName });
         }}

@@ -9,7 +9,9 @@ import type { PlatformConfig } from '@taskboard/app/platform';
 import { resolveEndpoints } from '../constants/endpoints';
 import { FORCE_PROD_BACKEND } from '../constants/localBackendOverride';
 import { ThemeProvider, useThemeColors } from '../theme/ThemeProvider';
+import { CallProvider } from '../calls/CallProvider';
 import { getRefreshToken, initAuthCookie, persistRefreshToken, syncRefreshTokenFromJar } from '../services/authCookie';
+import { usePushRegistration } from '../hooks/usePushRegistration';
 
 // Same retry/staleness tuning apps/web and apps/desktop both use (see
 // packages/app/src/lib/retryPolicy.ts's own doc comment for why transport
@@ -91,7 +93,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
     <ThemeProvider>
       <QueryClientProvider client={queryClient}>
         <RuntimeProvider config={config}>
-          <SessionBootstrap>{children}</SessionBootstrap>
+          <SessionBootstrap>
+            <CallLayer>{children}</CallLayer>
+          </SessionBootstrap>
         </RuntimeProvider>
       </QueryClientProvider>
     </ThemeProvider>
@@ -130,4 +134,21 @@ function SessionBootstrap({ children }: { children: ReactNode }) {
     );
   }
   return <>{children}</>;
+}
+
+/**
+ * The in-app calling STATE, mounted above the whole app (and its glass popup
+ * layers) so anything rendered inside a popup can still reach `useCalls()`.
+ * Inert until signed in: no signalling listener, no notification prompt.
+ * The call UI itself (`CallOverlay`) is mounted in App.tsx INSIDE GlassProvider,
+ * because a real Android background blur needs the app it blurs to be a sibling.
+ */
+function CallLayer({ children }: { children: ReactNode }) {
+  const authed = useSession((s) => s.status === 'authed');
+  usePushRegistration();
+  return (
+    <CallProvider enabled={authed}>
+      <View style={{ flex: 1 }}>{children}</View>
+    </CallProvider>
+  );
 }

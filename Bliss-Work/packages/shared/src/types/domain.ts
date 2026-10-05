@@ -88,7 +88,7 @@ export type AuditPage = z.infer<typeof AuditPage>;
  * and the export mark the difference, because anyone using this screen to make a
  * decision about a person deserves to know which they are looking at.
  */
-export const ActivitySource = z.enum(["server", "web", "desktop", "extension"]);
+export const ActivitySource = z.enum(["server", "web", "desktop", "extension", "mobile"]);
 export type ActivitySource = z.infer<typeof ActivitySource>;
 
 /** Online / idle / offline — three states, where raw presence has only two. */

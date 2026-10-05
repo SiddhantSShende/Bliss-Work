@@ -44,9 +44,29 @@ export const PROD_ENDPOINTS: Endpoints = {
  * of these. `devHost()` below picks the right default per platform; a real
  * device still needs an explicit override (see `resolveEndpoints`).
  */
+import { NativeModules } from 'react-native';
+
 const DEV_HOSTS = { ios: 'localhost', android: '10.0.2.2' } as const;
 
 export function devHost(platformOS: 'ios' | 'android'): string {
+  // If EXPO_PUBLIC_API_HOST is defined, use it directly
+  if (process.env.EXPO_PUBLIC_API_HOST) {
+    return process.env.EXPO_PUBLIC_API_HOST;
+  }
+  
+  // Try to dynamically determine the Metro bundler IP so physical devices work on the LAN.
+  // NativeModules.SourceCode.scriptURL looks like "http://192.168.1.5:8081/index.bundle?..."
+  try {
+    const scriptURL = NativeModules.SourceCode?.scriptURL;
+    if (scriptURL) {
+      const match = scriptURL.match(/^https?:\/\/([^:]+)/);
+      if (match && match[1] && match[1] !== 'localhost' && match[1] !== '10.0.2.2') {
+        return match[1];
+      }
+    }
+  } catch (e) {
+    // Fallback to defaults
+  }
   return DEV_HOSTS[platformOS];
 }
 

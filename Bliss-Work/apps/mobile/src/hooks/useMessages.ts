@@ -2,6 +2,7 @@ import { Alert } from 'react-native';
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { MessageDTO } from '@taskboard/shared';
 import { useRuntime } from '@taskboard/app/lib/runtime';
+import { errorText } from '@taskboard/app/lib/errorText';
 import { qk } from './queryKeys';
 
 /**
@@ -52,10 +53,26 @@ export function useHideMessage(conversationId: string) {
 export function useForwardMessage() {
   const { api } = useRuntime();
   return useMutation({
-    mutationFn: ({ messageId, targetUserId }: { messageId: string; targetUserId: string }) =>
-      api.forwardMessages({ messageIds: [messageId], targets: [{ kind: 'user', id: targetUserId }] }),
-    onError: () => {
-      Alert.alert("Couldn't forward message", 'Please try again.');
+    mutationFn: async ({ messageId, targetUserIds }: { messageId: string; targetUserIds: string[] }) => {
+      const res = await api.forwardMessages({
+        messageIds: [messageId],
+        targets: targetUserIds.map((id) => ({ kind: 'user' as const, id })),
+      });
+      const failed = res.results.filter((r) => !r.ok).map((r) => r.targetId);
+      return { total: targetUserIds.length, failedIds: failed };
+    },
+    onSuccess: ({ total, failedIds }) => {
+      // A destination can fail on its own (e.g. blocked) without failing the batch.
+      if (failedIds.length === 0) {
+        Alert.alert(total === 1 ? 'Message forwarded' : `Message forwarded to ${total} people`);
+      } else if (failedIds.length === total) {
+        Alert.alert("Couldn't forward message", "It wasn't delivered to anyone. Please try again.");
+      } else {
+        Alert.alert('Forwarded with errors', `Delivered to ${total - failedIds.length} of ${total} people; ${failedIds.length} couldn't be reached.`);
+      }
+    },
+    onError: (e) => {
+      Alert.alert("Couldn't forward message", errorText(e));
     },
   });
 }

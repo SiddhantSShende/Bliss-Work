@@ -1,13 +1,11 @@
-import { useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import { ArrowLeft, MoreVertical, Phone, Trash2, X } from 'lucide-react-native';
 import {
   ActivityIndicator,
   Alert,
   Dimensions,
   FlatList,
-  KeyboardAvoidingView,
-  Linking,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -17,22 +15,27 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { MessageDTO, UserDTO } from '@taskboard/shared';
-import { useRuntime } from '@taskboard/app/lib/runtime';
 import { useSession } from '@taskboard/app/store/session';
+import { copyableText, copyMessageText } from '../../lib/copyMessage';
 import { attachmentIdsOf, parseChatEnvelope, readablePrefix, type MediaItem } from '@taskboard/app/chatEnvelope';
 import { useAttachmentLinks } from '@taskboard/app/lib/useAttachmentLinks';
 import { useConversations } from '../../hooks/useConversations';
 import { useDeleteMessages, useForwardMessage, useHideMessage, useMessages } from '../../hooks/useMessages';
+import { ErrorState, LoadingState } from '../../components/QueryState';
 import { useReactions, useSetReaction } from '../../hooks/useReactions';
 import { useSendMessage } from '../../hooks/useSendMessage';
 import { useChatAttachments } from '../../hooks/useChatAttachments';
-import { useShareLocation } from '../../hooks/useShareLocation';
+import { UploadStrip } from '../../components/UploadStrip';
 import { usePresence } from '../../hooks/usePresence';
 import { useMutedConversations } from '../../hooks/useMutedConversations';
-import { useScheduleMeeting, useSendCallLink } from '../../hooks/useMeetings';
+import { useSendCallLink } from '../../hooks/useMeetings';
+import { useCalls } from '../../calls/CallProvider';
+import { clearThreadFocused, setThreadFocused } from '../../calls/messageNotifications';
+import { protectThread } from '../../security/screenSecurity';
 import { Avatar } from '../../components/Avatar';
 import { EmojiPickerModal } from '../../components/EmojiPickerModal';
 import { MessageRow } from '../../components/MessageRow';
+import { ChatKeyboardAvoider } from '../../components/ChatKeyboardAvoider';
 import { Composer } from '../../components/Composer';
 import { SearchInput } from '../../components/SearchInput';
 import { spacing, type ThemeColors } from '../../constants/theme';
@@ -42,6 +45,7 @@ import { ChatRowMenu } from './ChatRowMenu';
 import { CallOptionsMenu } from './CallOptionsMenu';
 import { ChatHeaderMenu, type ChatHeaderMenuAnchor } from './ChatHeaderMenu';
 import { ForwardMessageSheet } from './ForwardMessageSheet';
+import { LocationShareSheet } from './LocationShareSheet';
 import { MessageActionSheet } from './MessageActionSheet';
 import { PeerProfileModal } from './PeerProfileModal';
 import { ChatMediaLinksModal } from './ChatMediaLinksModal';
@@ -59,9 +63,23 @@ export function ChatConversationScreen({ route, navigation }: Props) {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { conversationId, peerId, peerName } = route.params;
   const insets = useSafeAreaInsets();
-  const { config } = useRuntime();
+  const { startDirectCall } = useCalls();
   const me = useSession((s) => s.user);
   const online = usePresence([peerId]);
+  // While this exact conversation is on screen, a new message in it should
+  // not also raise an OS notification for what the user is already reading.
+  useFocusEffect(
+    useCallback(() => {
+      const ref = { kind: 'chat' as const, id: conversationId };
+      setThreadFocused(ref);
+      // Screenshots of this conversation are blocked (and reported) while it is on screen.
+      const release = protectThread({ kind: 'chat', conversationId, peerId });
+      return () => {
+        clearThreadFocused(ref);
+        release();
+      };
+    }, [conversationId, peerId]),
+  );
   // Looked up from the already-cached Chats list rather than carried as a
   // route param — this screen is also reachable from a brand-new
   // conversation (NewChatScreen) that isn't in that list yet, in which case
@@ -69,14 +87,13 @@ export function ChatConversationScreen({ route, navigation }: Props) {
   // moment ago cannot already be blocked).
   const { data: conversations } = useConversations();
   const blockedByMe = conversations?.find((c) => c.id === conversationId)?.blockedByMe ?? false;
-  const { messages, isLoading, hasNextPage, fetchNextPage, isFetchingNextPage, data } = useMessages(conversationId);
+  const { messages, isLoading, isError, error, refetch, hasNextPage, fetchNextPage, isFetchingNextPage, data } = useMessages(conversationId);
   const reactionsFor = useReactions(conversationId, (data?.pageParams as (number | undefined)[] | undefined) ?? [undefined]);
   const setReaction = useSetReaction(conversationId);
   const send = useSendMessage(conversationId);
   const deleteMessages = useDeleteMessages(conversationId);
   const hideMessage = useHideMessage(conversationId);
   const forwardMessage = useForwardMessage();
-  const scheduleMeeting = useScheduleMeeting();
   const sendCallLink = useSendCallLink();
   const { isMuted, toggle: toggleMute } = useMutedConversations();
   const [draft, setDraft] = useState('');
@@ -84,7 +101,7 @@ export function ChatConversationScreen({ route, navigation }: Props) {
   // "..." → ChatHeaderMenu (the floating dropdown), which either opens one of
   // the sheets/modes below or, for "More", hands off to the existing
   // ChatRowMenu (Ignore/Clear chat/Block — unchanged, still `menuOpen`).
-  const moreButtonRef = useRef<View>(null);
+  const moreButtonRef = useRef<any>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [headerMenuAnchor, setHeaderMenuAnchor] = useState<ChatHeaderMenuAnchor | null>(null);
@@ -142,8 +159,8 @@ export function ChatConversationScreen({ route, navigation }: Props) {
   }, [messages, searchOpen, searchQuery]);
 
   const sendBody = (body: string) => send.mutateAsync(body);
-  const { pickAndSend, sending: attaching } = useChatAttachments(conversationId, sendBody);
-  const { shareLocation, sharing: locating } = useShareLocation(sendBody);
+  const { pickFiles, pickMedia, uploads, retry: retryUpload, dismiss: dismissUpload } = useChatAttachments(conversationId, sendBody, 'conversation');
+  const [locationOpen, setLocationOpen] = useState(false);
 
   const onSend = () => {
     const body = draft.trim();
@@ -154,10 +171,9 @@ export function ChatConversationScreen({ route, navigation }: Props) {
     send.mutate(replyToId ? { body, replyToId } : body);
   };
 
-  const startCall = async (media: 'audio' | 'video') => {
-    const call = await scheduleMeeting.mutateAsync({ media, inviteeIds: [peerId] });
-    void Linking.openURL(`${config.webBaseUrl}/call/${call.id}`);
-  };
+  // In-app 1:1 call over the same ring protocol web/desktop use — the app's
+  // own call screen, never a browser.
+  const startCall = (media: 'audio' | 'video') => startDirectCall(peerId, peerName, media);
 
   // Mints a fresh meeting + join link and posts it as a message, rather than
   // starting a call the sender immediately leaves — same shape as web's
@@ -182,7 +198,7 @@ export function ChatConversationScreen({ route, navigation }: Props) {
       setHeaderMenuOpen(false);
       return;
     }
-    moreButtonRef.current?.measureInWindow((x, y, width, height) => {
+    moreButtonRef.current?.measureInWindow((x: number, y: number, width: number, height: number) => {
       setHeaderMenuAnchor({ top: y + height + spacing.xs, right: Dimensions.get('window').width - (x + width) });
       setHeaderMenuOpen(true);
     });
@@ -237,18 +253,15 @@ export function ChatConversationScreen({ route, navigation }: Props) {
     ]);
   };
 
-  const onPickForwardTarget = async (user: UserDTO) => {
+  const onForwardTo = async (users: UserDTO[]) => {
     if (!forwardFor) return;
+    const messageId = forwardFor.id;
     setForwardFor(null);
-    await forwardMessage.mutateAsync({ messageId: forwardFor.id, targetUserId: user.id });
+    await forwardMessage.mutateAsync({ messageId, targetUserIds: users.map((u) => u.id) }).catch(() => undefined);
   };
 
   return (
-    <KeyboardAvoidingView
-      style={[styles.flex, { paddingTop: insets.top }]}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
-    >
+    <ChatKeyboardAvoider style={[styles.flex, { paddingTop: insets.top }]} iosKeyboardVerticalOffset={insets.top}>
       {selectionMode ? (
         <View style={styles.header}>
           <Pressable onPress={cancelSelection} hitSlop={8}>
@@ -292,7 +305,9 @@ export function ChatConversationScreen({ route, navigation }: Props) {
       ) : null}
 
       {isLoading ? (
-        <ActivityIndicator color={colors.accent} style={styles.spinner} />
+        <LoadingState label="Loading messages..." />
+      ) : isError && messages.length === 0 ? (
+        <ErrorState title="Unable to load messages" error={error} onRetry={() => void refetch()} />
       ) : (
         <FlatList<MessageDTO>
           data={[...displayedMessages].reverse()}
@@ -301,7 +316,7 @@ export function ChatConversationScreen({ route, navigation }: Props) {
           contentContainerStyle={styles.messages}
           onEndReached={() => hasNextPage && !isFetchingNextPage && void fetchNextPage()}
           onEndReachedThreshold={0.4}
-          ListFooterComponent={isFetchingNextPage ? <ActivityIndicator color={colors.accent} /> : null}
+          ListFooterComponent={isFetchingNextPage ? <ActivityIndicator color={colors.accent} /> : undefined}
           renderItem={({ item }) => (
             <MessageRow
               message={item}
@@ -337,6 +352,8 @@ export function ChatConversationScreen({ route, navigation }: Props) {
         </View>
       ) : null}
 
+      {!selectionMode ? <UploadStrip uploads={uploads} onRetry={retryUpload} onDismiss={dismissUpload} /> : null}
+
       {!selectionMode ? (
         <Composer
           value={draft}
@@ -344,9 +361,9 @@ export function ChatConversationScreen({ route, navigation }: Props) {
           onSend={onSend}
           sending={send.isPending}
           attachAvailable
-          onAttach={() => void pickAndSend()}
-          attachBusy={attaching || locating}
-          onShareLocation={() => void shareLocation()}
+          onAttach={() => void pickFiles()}
+          onAttachMedia={() => void pickMedia()}
+          onShareLocation={() => setLocationOpen(true)}
         />
       ) : null}
 
@@ -361,8 +378,8 @@ export function ChatConversationScreen({ route, navigation }: Props) {
       <CallOptionsMenu
         visible={callMenuOpen}
         onClose={() => setCallMenuOpen(false)}
-        onVoiceCall={() => void startCall('audio')}
-        onVideoCall={() => void startCall('video')}
+        onVoiceCall={() => startCall('audio')}
+        onVideoCall={() => startCall('video')}
         onSendCallLink={() => void sendCallLinkMessage()}
         onScheduleCall={openScheduleCall}
       />
@@ -408,6 +425,11 @@ export function ChatConversationScreen({ route, navigation }: Props) {
         onOpenFullPicker={() => setEmojiPickerFor(actionSheetFor)}
         onReply={() => setReplyTarget(actionSheetFor)}
         onForward={() => setForwardFor(actionSheetFor)}
+        onCopy={
+          actionSheetFor && copyableText(actionSheetFor.body, actionSheetFor.deletedForAll)
+            ? () => void copyMessageText(copyableText(actionSheetFor.body, actionSheetFor.deletedForAll)!)
+            : undefined
+        }
         onSelect={() => {
           if (!actionSheetFor) return;
           setSelectionMode(true);
@@ -427,12 +449,14 @@ export function ChatConversationScreen({ route, navigation }: Props) {
         }}
       />
 
+      <LocationShareSheet visible={locationOpen} onClose={() => setLocationOpen(false)} sendBody={sendBody} />
+
       <ForwardMessageSheet
         visible={Boolean(forwardFor)}
         onClose={() => setForwardFor(null)}
-        onPick={(user) => void onPickForwardTarget(user)}
+        onForward={onForwardTo}
       />
-    </KeyboardAvoidingView>
+    </ChatKeyboardAvoider>
   );
 }
 

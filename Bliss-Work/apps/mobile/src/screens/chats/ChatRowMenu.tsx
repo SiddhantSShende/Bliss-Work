@@ -1,12 +1,12 @@
-import { useMemo } from 'react';
-import { Ban, EyeOff, Trash2 } from 'lucide-react-native';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Alert } from 'react-native';
+import { Ban, EyeOff, Pin, PinOff, Trash2 } from 'lucide-react-native';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRuntime } from '@taskboard/app/lib/runtime';
+import { errorText } from '@taskboard/app/lib/errorText';
 import { qk } from '../../hooks/queryKeys';
-import { radius, spacing, type ThemeColors } from '../../constants/theme';
-import { useThemeColors } from '../../theme/ThemeProvider';
+import { toggleChatPin, usePinnedThreads } from '../../lib/pinnedThreads';
+import { Modal } from '../../components/Modal';
+import { MenuItem } from '../../components/MenuItem';
 
 interface ChatRowMenuProps {
   visible: boolean;
@@ -16,24 +16,28 @@ interface ChatRowMenuProps {
   blockedByMe: boolean;
 }
 
-/** The three-dot menu on a chat row: ignore/clear/block, all real
- *  `ApiClient` calls. `ignoreConversation` is used (over the newer
- *  `ignoreThread`) because `ConversationDTO` carries a `conversationId`, not
- *  a `threadId` — and its own doc comment says it's "kept working for
- *  /chats" specifically for this reason. */
+/** The three-dot menu on a chat row: pin/ignore/clear/block. Ignore/clear/block
+ *  are real `ApiClient` calls; pin is device-local (see pinnedThreads.ts's own
+ *  doc — messaging-svc has no per-reader pin flag), applied instantly since
+ *  there is no request to wait on or roll back. `ignoreConversation` is used
+ *  (over the newer `ignoreThread`) because `ConversationDTO` carries a
+ *  `conversationId`, not a `threadId` — and its own doc comment says it's
+ *  "kept working for /chats" specifically for this reason. Failures are
+ *  surfaced, not swallowed. */
 export function ChatRowMenu({ visible, onClose, conversationId, peerId, blockedByMe }: ChatRowMenuProps) {
-  const colors = useThemeColors();
-  const styles = useMemo(() => createStyles(colors), [colors]);
-  const insets = useSafeAreaInsets();
   const { api } = useRuntime();
   const qc = useQueryClient();
+  const { isChatPinned } = usePinnedThreads();
+  const pinned = isChatPinned(conversationId);
 
   const invalidate = () => void qc.invalidateQueries({ queryKey: qk.conversations });
-  const ignore = useMutation({ mutationFn: () => api.ignoreConversation(conversationId), onSuccess: invalidate });
-  const clear = useMutation({ mutationFn: () => api.clearConversation(conversationId), onSuccess: invalidate });
+  const onError = (title: string) => (e: unknown) => Alert.alert(title, errorText(e));
+  const ignore = useMutation({ mutationFn: () => api.ignoreConversation(conversationId), onSuccess: invalidate, onError: onError('Could not ignore this chat') });
+  const clear = useMutation({ mutationFn: () => api.clearConversation(conversationId), onSuccess: invalidate, onError: onError('Could not clear this chat') });
   const toggleBlock = useMutation({
     mutationFn: () => (blockedByMe ? api.unblockUser(peerId) : api.blockUser(peerId)),
     onSuccess: invalidate,
+    onError: onError(blockedByMe ? 'Could not unblock this person' : 'Could not block this person'),
   });
 
   const run = (mutate: () => void) => {
@@ -42,50 +46,11 @@ export function ChatRowMenu({ visible, onClose, conversationId, peerId, blockedB
   };
 
   return (
-    <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose}>
-        <View style={[styles.sheet, { marginBottom: insets.bottom + spacing.lg }]}>
-          <Pressable style={styles.item} onPress={() => run(() => ignore.mutate())}>
-            <EyeOff size={18} color={colors.fg} />
-            <Text style={styles.itemText}>Ignore</Text>
-          </Pressable>
-          <Pressable style={styles.item} onPress={() => run(() => clear.mutate())}>
-            <Trash2 size={18} color={colors.fg} />
-            <Text style={styles.itemText}>Clear chat</Text>
-          </Pressable>
-          <Pressable style={styles.item} onPress={() => run(() => toggleBlock.mutate())}>
-            <Ban size={18} color={colors.danger} />
-            <Text style={[styles.itemText, styles.danger]}>{blockedByMe ? 'Unblock' : 'Block'}</Text>
-          </Pressable>
-        </View>
-      </Pressable>
+    <Modal visible={visible} onClose={onClose} title="Chat options">
+      <MenuItem icon={pinned ? PinOff : Pin} label={pinned ? 'Unpin' : 'Pin'} onPress={() => run(() => toggleChatPin(conversationId))} />
+      <MenuItem icon={EyeOff} label="Ignore" onPress={() => run(() => ignore.mutate())} />
+      <MenuItem icon={Trash2} label="Clear chat" onPress={() => run(() => clear.mutate())} />
+      <MenuItem icon={Ban} danger label={blockedByMe ? 'Unblock' : 'Block'} onPress={() => run(() => toggleBlock.mutate())} divider={false} />
     </Modal>
   );
-}
-
-function createStyles(colors: ThemeColors) {
-  return StyleSheet.create({
-    backdrop: {
-      flex: 1,
-      backgroundColor: 'rgba(0,0,0,0.35)',
-      justifyContent: 'flex-end',
-    },
-    sheet: {
-      marginHorizontal: spacing.lg,
-      backgroundColor: colors.surface,
-      borderRadius: radius.card,
-      overflow: 'hidden',
-    },
-    item: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.md,
-      paddingHorizontal: spacing.lg,
-      paddingVertical: spacing.md,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.border,
-    },
-    itemText: { fontSize: 15, fontWeight: '500', color: colors.fg },
-    danger: { color: colors.danger },
-  });
 }

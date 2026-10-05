@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Alert, Text, View } from 'react-native';
+import { Alert, Keyboard, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ApiError, isMfaPending } from '@taskboard/shared';
 import { useRuntime } from '@taskboard/app/lib/runtime';
@@ -25,6 +25,7 @@ export function LoginScreen({ navigation }: Props) {
   const captcha = useCaptcha();
 
   const submit = async () => {
+    Keyboard.dismiss();
     if (!captcha.captchaId || busy) return;
     setBusy(true);
     try {

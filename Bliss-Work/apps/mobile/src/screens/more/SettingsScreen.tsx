@@ -1,12 +1,20 @@
-import { useMemo, type ReactNode } from 'react';
-import { ArrowLeft, Eye, ShieldCheck } from 'lucide-react-native';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useMemo, useState, type ReactNode } from 'react';
+import { ArrowLeft, Bell, Eye, HelpCircle, Info, Palette, ShieldCheck } from 'lucide-react-native';
+import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Card } from '../../components/Card';
 import { radius, spacing, type ThemeColors } from '../../constants/theme';
 import { useThemeColors } from '../../theme/ThemeProvider';
 import type { MoreStackParamList } from '../../navigation/types';
+import { useNotifications } from '../../hooks/useNotifications';
+import { useAppTheme } from '../../theme/ThemeProvider';
+import { familyName } from '../../theme/themes';
+import { Badge } from '../../components/Badge';
+import { ThemePickerModal } from './ThemePickerModal';
+import { NotificationsSheet } from '../chats/NotificationsSheet';
+
+const SUPPORT_EMAIL = 'siddhant.shende@consultrnr.com';
 
 type Props = NativeStackScreenProps<MoreStackParamList, 'Settings'>;
 
@@ -22,6 +30,11 @@ export function SettingsScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const { family, mode } = useAppTheme();
+  const [themeOpen, setThemeOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const { data: notifications } = useNotifications();
+  const unread = notifications?.filter((n) => !n.read).length ?? 0;
 
   return (
     <View style={[styles.flex, { paddingTop: insets.top }]}>
@@ -29,11 +42,36 @@ export function SettingsScreen({ navigation }: Props) {
         <Pressable onPress={() => navigation.goBack()} hitSlop={8}>
           <ArrowLeft size={22} color={colors.fg} />
         </Pressable>
-        <Text style={styles.headerTitle}>Privacy & Security</Text>
+        <Text style={styles.headerTitle}>Settings</Text>
         <View style={{ width: 22 }} />
       </View>
 
-      <View style={styles.content}>
+      <ScrollView contentContainerStyle={styles.content}>
+        <Text style={styles.sectionLabel}>Preferences</Text>
+        <SettingRow
+          colors={colors}
+          icon={<Palette size={18} color={colors.muted} />}
+          title="Theme"
+          description={`${familyName(family)} · ${mode === 'dark' ? 'Dark' : 'Light'}`}
+          action={
+            <Pressable onPress={() => setThemeOpen(true)} style={styles.linkBtn} accessibilityRole="button">
+              <Text style={styles.linkBtnText}>Change</Text>
+            </Pressable>
+          }
+        />
+        <SettingRow
+          colors={colors}
+          icon={<Bell size={18} color={colors.muted} />}
+          title="Notifications"
+          description="Task, channel and mail alerts."
+          action={
+            <Pressable onPress={() => setNotificationsOpen(true)} style={styles.linkBtn} accessibilityRole="button">
+              {unread ? <Badge count={unread} /> : <Text style={styles.linkBtnText}>View</Text>}
+            </Pressable>
+          }
+        />
+
+        <Text style={styles.sectionLabel}>Privacy & Security</Text>
         <SettingRow
           colors={colors}
           icon={<ShieldCheck size={18} color={colors.muted} />}
@@ -69,7 +107,34 @@ export function SettingsScreen({ navigation }: Props) {
             </Pressable>
           }
         />
-      </View>
+
+        <Text style={styles.sectionLabel}>Support</Text>
+        <SettingRow
+          colors={colors}
+          icon={<HelpCircle size={18} color={colors.muted} />}
+          title="Help & Support"
+          description="Email the BlissWork support team."
+          action={
+            <Pressable onPress={() => void Linking.openURL(`mailto:${SUPPORT_EMAIL}`)} style={styles.linkBtn} accessibilityRole="button">
+              <Text style={styles.linkBtnText}>Contact</Text>
+            </Pressable>
+          }
+        />
+        <SettingRow
+          colors={colors}
+          icon={<Info size={18} color={colors.muted} />}
+          title="About BlissWork"
+          description="Version and legal information."
+          action={
+            <Pressable onPress={() => navigation.navigate('About')} style={styles.linkBtn} accessibilityRole="button">
+              <Text style={styles.linkBtnText}>View</Text>
+            </Pressable>
+          }
+        />
+      </ScrollView>
+
+      <ThemePickerModal visible={themeOpen} onClose={() => setThemeOpen(false)} />
+      <NotificationsSheet visible={notificationsOpen} onClose={() => setNotificationsOpen(false)} />
     </View>
   );
 }
@@ -112,6 +177,7 @@ function createStyles(colors: ThemeColors) {
     },
     headerTitle: { fontSize: 16, fontWeight: '700', color: colors.fg },
     content: { padding: spacing.lg, gap: spacing.md },
+    sectionLabel: { fontSize: 12, fontWeight: '700', color: colors.muted, textTransform: 'uppercase', letterSpacing: 0.6, marginTop: spacing.sm },
     row: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
     rowIcon: {
       width: 40,

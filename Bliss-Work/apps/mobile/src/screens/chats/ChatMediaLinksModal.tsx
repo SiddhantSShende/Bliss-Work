@@ -1,7 +1,9 @@
 import { useMemo } from 'react';
 import { FileText, Link2 } from 'lucide-react-native';
-import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useCalls } from '../../calls/CallProvider';
 import type { MediaItem } from '@taskboard/app/chatEnvelope';
+import { openAttachment } from '../../attachments/openAttachment';
 import { EmptyState } from '../../components/EmptyState';
 import { Modal } from '../../components/Modal';
 import { spacing, type ThemeColors } from '../../constants/theme';
@@ -27,15 +29,16 @@ interface ChatMediaLinksModalProps {
 export function ChatMediaLinksModal({ visible, onClose, files, links, urlFor }: ChatMediaLinksModalProps) {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const { openCallLink } = useCalls();
 
-  const openFile = (item: MediaItem) => {
-    const url = urlFor(item.id);
-    if (url) void Linking.openURL(url);
-  };
+  // Image → the in-app lightbox; PDF/text → the in-app doc preview; anything
+  // else → the file-details sheet with an explicit external-open action.
+  // Never a bare Linking.openURL straight to the browser — see openAttachment.
+  const openFile = (item: MediaItem) => openAttachment(item, urlFor(item.id));
 
   return (
     <Modal visible={visible} onClose={onClose} title="Media, Links & Docs" maxHeight="75%">
-      <ScrollView style={styles.scroll}>
+      <View>
         <Text style={styles.sectionLabel}>Files ({files.length})</Text>
         {files.length === 0 ? (
           <EmptyState icon={FileText} title="No files yet" subtitle="Shared files and photos will show up here." />
@@ -57,7 +60,10 @@ export function ChatMediaLinksModal({ visible, onClose, files, links, urlFor }: 
           <EmptyState icon={Link2} title="No links yet" subtitle="Links shared in this chat will show up here." />
         ) : (
           links.map((link) => (
-            <Pressable key={link} onPress={() => void Linking.openURL(link)} style={styles.row}>
+            <Pressable key={link} onPress={() => {
+              // A BlissWork call link joins in-app; every other link opens as before.
+              if (!openCallLink(link)) void Linking.openURL(link);
+            }} style={styles.row}>
               <View style={styles.iconWrap}>
                 <Link2 size={16} color={colors.accent} />
               </View>
@@ -67,7 +73,7 @@ export function ChatMediaLinksModal({ visible, onClose, files, links, urlFor }: 
             </Pressable>
           ))
         )}
-      </ScrollView>
+      </View>
     </Modal>
   );
 }

@@ -139,7 +139,7 @@ export function CreateChannelScreen({ route, navigation }: Props) {
         }
         renderItem={({ item }) => renderPerson(item)}
         contentContainerStyle={styles.list}
-        ListEmptyComponent={isLoading ? null : <Text style={styles.emptyText}>No matches.</Text>}
+        ListEmptyComponent={isLoading ? undefined : <Text style={styles.emptyText}>No matches.</Text>}
       />
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + spacing.md }]}>

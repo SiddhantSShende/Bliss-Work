@@ -1,4 +1,5 @@
-import { EmojiPicker } from './EmojiPicker';
+import { useWindowDimensions } from 'react-native';
+import { EmojiPickerPanel } from './EmojiPickerPanel';
 import { Modal } from './Modal';
 
 interface EmojiPickerModalProps {
@@ -7,14 +8,13 @@ interface EmojiPickerModalProps {
   onSelect: (emoji: string) => void;
 }
 
-/** The "+" in a message's quick-react row — the existing `EmojiPicker` strip
- *  (otherwise only used inline under the Composer) on the shared `Modal`
- *  sheet, for a react-any-emoji picker without a second emoji set to
- *  maintain. */
+/** Glass sheet with the full emoji picker — the "+" in a message's quick-react row. */
 export function EmojiPickerModal({ visible, onClose, onSelect }: EmojiPickerModalProps) {
+  const { height } = useWindowDimensions();
   return (
-    <Modal visible={visible} onClose={onClose} title="React with">
-      <EmojiPicker
+    <Modal visible={visible} onClose={onClose} title="React with" scroll={false} maxHeight="85%">
+      <EmojiPickerPanel
+        height={Math.min(440, Math.round(height * 0.55))}
         onSelect={(emoji) => {
           onSelect(emoji);
           onClose();

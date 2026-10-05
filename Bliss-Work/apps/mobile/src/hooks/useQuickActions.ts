@@ -1,50 +1,44 @@
 import { useEffect, useRef } from 'react';
-import { Platform } from 'react-native';
 import * as QuickActions from 'expo-quick-actions';
+import { quickActions } from '../quick/quickActionStore';
+import { quickModeFromActionId } from '../quick/quickLinks';
 import { navigateToQuickAction, type QuickActionTarget } from '../navigation/navigationRef';
 
 /**
- * Wires up the 💬 Chats / ✅ Tasks / ➕ Assign Task / 📝 New Chat / 📢
- * Channels app-icon long-press shortcuts (mounted once for the whole authed
- * session — see AppTabs.tsx, same spot useWsBridge/useConnectEventBridge
- * live).
+ * Receives the iOS home-screen quick actions (Info.plist
+ * `UIApplicationShortcutItems`) and routes them into the same Quick Chat /
+ * Quick Channel / Quick Task flows the Android launcher shortcuts open.
  *
- * iOS shortcuts are declared statically in Info.plist
- * (UIApplicationShortcutItems) — they need no JS call and are visible even
- * before the JS bundle loads (Channels is not in that static list yet — a
- * native-project edit, tracked separately from this JS-only change).
- * Android has no supported static-shortcut path (expo-quick-actions' own
- * README: "Static Android actions are not currently supported because they
- * don't support complex intent"), so Android's shortcuts are registered
- * here as dynamic ShortcutManager entries instead; visually
- * indistinguishable from static ones on the long-press menu.
+ * Mounted at the app ROOT (RootNavigator), not inside the tabs: on a cold start
+ * the tabs are never rendered when a quick flow is showing, so a hook living
+ * there would never see the launching action.
+ *
+ * Android does not use this at all: its shortcuts are static (res/xml/
+ * shortcuts.xml) `blisswork://quick/<flow>` VIEW intents, picked up by the
+ * Linking listener in RootNavigator. (Registering Android ones dynamically here
+ * as well would list every shortcut twice.)
  */
-const ANDROID_ACTIONS: { id: QuickActionTarget; title: string }[] = [
-  { id: 'chats', title: 'Chats' },
-  { id: 'channels', title: 'Channels' },
-  { id: 'tasks', title: 'Tasks' },
-  { id: 'assign-task', title: 'Assign Task' },
-  { id: 'new-chat', title: 'New Chat' },
-];
+function handle(id: string, cold: boolean) {
+  const mode = quickModeFromActionId(id);
+  if (mode) {
+    const cur = quickActions.get();
+    quickActions.open(mode, cur.mode ? cur.cold : cold);
+    return;
+  }
+  navigateToQuickAction(id as QuickActionTarget); // 'tasks' / 'new-chat' style ids keep their tab navigation
+}
 
 export function useQuickActions() {
   const consumedInitial = useRef(false);
 
   useEffect(() => {
-    if (Platform.OS === 'android') {
-      void QuickActions.setItems(ANDROID_ACTIONS.map((a) => ({ ...a, icon: 'ic_launcher_foreground' })));
-    }
-
     // Cold start: the tap that launched the app, consumed once.
     if (!consumedInitial.current && QuickActions.initial) {
       consumedInitial.current = true;
-      navigateToQuickAction(QuickActions.initial.id as QuickActionTarget);
+      handle(QuickActions.initial.id, true);
     }
-
     // Warm start: app already running (foreground or backgrounded).
-    const sub = QuickActions.addListener((action) => {
-      navigateToQuickAction(action.id as QuickActionTarget);
-    });
+    const sub = QuickActions.addListener((action) => handle(action.id, false));
     return () => sub.remove();
   }, []);
 }

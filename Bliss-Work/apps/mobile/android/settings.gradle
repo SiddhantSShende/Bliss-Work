@@ -36,4 +36,4 @@ rootProject.name = 'BlissWorkMobile'
 expoAutolinking.useExpoVersionCatalog()
 
 include ':app'
-// includeBuild(expoAutolinking.reactNativeGradlePlugin)
+includeBuild(expoAutolinking.reactNativeGradlePlugin)

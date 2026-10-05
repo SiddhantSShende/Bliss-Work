@@ -91,6 +91,8 @@ export function sourceLabel(source: ActivitySource): { text: string; verified: b
   switch (source) {
     case "server":
       return { text: "Verified", verified: true };
+    case "mobile":
+      return { text: "Mobile app", verified: false };
     case "desktop":
       return { text: "Desktop app", verified: false };
     case "extension":
