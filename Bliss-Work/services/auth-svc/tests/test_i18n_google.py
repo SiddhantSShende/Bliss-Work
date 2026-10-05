@@ -1,10 +1,12 @@
-"""Google Translation integration: auth modes, locale list, placeholder safety.
+"""Translation via translate-gw: gateway contract, locale list, placeholder safety.
 
-Google itself is never reached. `FakeGoogle` replaces `httpx.AsyncClient`, so the
-REAL request building, header auth, placeholder protect/restore, caching and
-route code all run; only the network is faked. Companion to test_i18n_service.py
-(flatten/dedupe/partial-failure logic) — this file covers what that one cannot:
-what is actually SENT to Google and what comes back.
+Neither Google nor translate-gw is reached. `FakeGateway` replaces
+`httpx.AsyncClient`, so the REAL request building, internal-token header,
+placeholder protect/restore, caching and route code all run; only the network is
+faked. (Google authentication — ADC — lives in, and is tested by, the Go
+translate-gw module.) Companion to test_i18n_service.py (flatten/dedupe/
+partial-failure logic) — this file covers what that one cannot: what is actually
+SENT to the gateway and what comes back.
 """
 from __future__ import annotations
 
@@ -12,14 +14,14 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
-from app import i18n_auth, i18n_placeholders
+from app import i18n_placeholders
 from app.errors import register_exception_handlers
 from app.routes import i18n_service
 from app.security.auth_dep import Principal, get_principal
 
-_REAL_ASYNC_CLIENT = httpx.AsyncClient  # FakeGoogle replaces httpx.AsyncClient for the whole module
-SECRET_KEY = "AIza-secret-key-do-not-leak"
-SECRET_TOKEN = "ya29.secret-token-do-not-leak"
+_REAL_ASYNC_CLIENT = httpx.AsyncClient  # FakeGateway replaces httpx.AsyncClient for the whole module
+GW_URL = "http://translate-gw:8012"
+INTERNAL_TOKEN = "internal-token-do-not-leak"
 
 # Protected-HTML form of the synthetic English source → what "Google" answers.
 # Keys go through the real `protect`, so a change to the wrapping breaks these
@@ -28,12 +30,12 @@ TRANSLATIONS = {
     "es": {"Loading…": "Cargando…", "Cancel": "Cancelar", "{{count}} tasks due": "{{count}} tareas pendientes"},
     "hi": {"Loading…": "लोड हो रहा है…", "Cancel": "रद्द करें", "{{count}} tasks due": "{{count}} कार्य बाकी"},
 }
-GOOGLE_LANGUAGES = [
-    {"language": "en", "name": "English"},
-    {"language": "es", "name": "Spanish"},
-    {"language": "hi", "name": "Hindi"},
-    {"language": "fr", "name": "French"},
-    {"language": "tlh", "name": "Klingon"},  # supported by Google, NOT configured
+GATEWAY_LANGUAGES = [
+    {"code": "en", "name": "English"},
+    {"code": "es", "name": "Spanish"},
+    {"code": "hi", "name": "Hindi"},
+    {"code": "fr", "name": "French"},
+    {"code": "tlh", "name": "Klingon"},  # supported by Google, NOT configured
 ]
 
 
@@ -44,9 +46,10 @@ def _html(source: str, translated: str) -> tuple[str, str]:
     return sent, i18n_placeholders.protect(translated)
 
 
-class FakeGoogle:
-    """Stand-in for httpx.AsyncClient. `mangle` makes Google rewrite the
-    placeholder, `post_status` sets the translate call's HTTP status."""
+class FakeGateway:
+    """Stand-in for httpx.AsyncClient speaking translate-gw's protocol. `mangle`
+    makes "Google" rewrite the placeholder, `post_status` sets the translate
+    call's HTTP status, `languages_status` the language list's."""
 
     calls: list[dict] = []
 
@@ -61,24 +64,25 @@ class FakeGoogle:
 
     mangle = False
     post_status = 200  # failing only the translate call keeps the language list reachable
+    languages_status = 200
 
     def _response(self, url: str, payload: dict, status: int = 200) -> httpx.Response:
         return httpx.Response(status, json=payload, request=httpx.Request("POST", url))
 
     async def get(self, url, params=None, headers=None, **k):
-        FakeGoogle.calls.append({"url": url, "params": params or {}, "headers": headers or {}, "json": None})
-        return self._response(url, {"data": {"languages": GOOGLE_LANGUAGES}})
+        FakeGateway.calls.append({"url": url, "params": params or {}, "headers": headers or {}, "json": None})
+        return self._response(url, {"languages": GATEWAY_LANGUAGES}, self.languages_status)
 
     async def post(self, url, params=None, headers=None, json=None, **k):
-        FakeGoogle.calls.append({"url": url, "params": params or {}, "headers": headers or {}, "json": json})
+        FakeGateway.calls.append({"url": url, "params": params or {}, "headers": headers or {}, "json": json})
         table = {_html(src, out)[0]: _html(src, out)[1] for src, out in TRANSLATIONS[json["target"]].items()}
         out = []
         for q in json["q"]:
             answer = table.get(q, q)
             if self.mangle:
                 answer = answer.replace("{{count}}", "{{cuenta}}")
-            out.append({"translatedText": answer})
-        return self._response(url, {"data": {"translations": out}}, self.post_status)
+            out.append(answer)
+        return self._response(url, {"translations": out}, self.post_status)
 
 
 def _app() -> FastAPI:
@@ -103,16 +107,15 @@ def isolated(monkeypatch):
     monkeypatch.setattr(i18n_service, "_english", english)
     monkeypatch.setattr(i18n_service, "_language_cache", i18n_service._LanguageListCache())
     monkeypatch.setattr(i18n_service, "_translation_cache", i18n_service._TranslationCache())
-    monkeypatch.setattr(i18n_auth, "_credentials", None)
     s = i18n_service.settings
-    monkeypatch.setattr(s, "google_translate_api_key", SECRET_KEY)
-    monkeypatch.setattr(s, "google_application_credentials", "")
-    monkeypatch.setattr(s, "google_translate_use_adc", False)
+    monkeypatch.setattr(s, "translate_gw_url", GW_URL)
+    monkeypatch.setattr(s, "translate_internal_token", INTERNAL_TOKEN)
     monkeypatch.setattr(s, "i18n_locales", "es,fr,de,hi,pt,ja,zh,ko")
-    FakeGoogle.calls = []
-    FakeGoogle.mangle = False
-    FakeGoogle.post_status = 200
-    monkeypatch.setattr(i18n_service.httpx, "AsyncClient", FakeGoogle)
+    FakeGateway.calls = []
+    FakeGateway.mangle = False
+    FakeGateway.post_status = 200
+    FakeGateway.languages_status = 200
+    monkeypatch.setattr(i18n_service.httpx, "AsyncClient", FakeGateway)
 
 
 # ── placeholders ─────────────────────────────────────────────────────────────
@@ -146,98 +149,38 @@ def test_restore_rejects_a_translation_that_lost_or_renamed_a_placeholder():
     assert i18n_placeholders.restore('vencen <span translate="no">{{count}}</span> tareas', src) == "vencen {{count}} tareas"
 
 
-# ── auth ─────────────────────────────────────────────────────────────────────
+# ── gateway contract & configuration ─────────────────────────────────────────
 
 
-async def test_api_key_goes_in_a_header_never_the_url():
-    assert await i18n_auth.auth_headers() == {"x-goog-api-key": SECRET_KEY}
-
-
-async def test_unconfigured_when_no_key_and_no_adc(monkeypatch):
-    monkeypatch.setattr(i18n_service.settings, "google_translate_api_key", "")
-    assert i18n_auth.is_configured() is False
-
-
-class _Creds:
-    def __init__(self, valid=False):
-        self.valid, self.token, self.refreshed = valid, None, 0
-
-    def refresh(self, _request):
-        self.refreshed += 1
-        self.valid, self.token = True, SECRET_TOKEN
-
-
-async def test_adc_wins_over_the_key_and_refreshes_only_when_the_token_is_stale(monkeypatch):
-    monkeypatch.setattr(i18n_service.settings, "google_translate_use_adc", True)
-    creds = _Creds()
-    monkeypatch.setattr(i18n_auth, "_load_credentials", lambda: creds)
-    monkeypatch.setattr(i18n_auth, "_refresh", lambda c: c.refresh(None))
-    h1 = await i18n_auth.auth_headers()
-    h2 = await i18n_auth.auth_headers()
-    assert h1 == h2 == {"authorization": f"Bearer {SECRET_TOKEN}"}
-    assert creds.refreshed == 1  # second call reused the still-valid token
-
-
-async def test_precedence_service_account_file_then_adc_then_api_key(monkeypatch):
-    """1. GOOGLE_APPLICATION_CREDENTIALS file  2. GOOGLE_TRANSLATE_USE_ADC  3. API key."""
-    import google.auth
-    from google.oauth2 import service_account
-
-    used: list[str] = []
-    sa, adc = _Creds(), _Creds()
-    monkeypatch.setattr(service_account.Credentials, "from_service_account_file", lambda path, scopes: (used.append(f"sa:{path}"), sa)[1])
-    monkeypatch.setattr(google.auth, "default", lambda scopes: (used.append("adc"), (adc, "proj"))[1])
-    monkeypatch.setattr(i18n_auth, "_refresh", lambda c: c.refresh(None))
-    s = i18n_service.settings  # the key is already set by the autouse fixture
-
-    # key + ADC + file → the file wins
-    monkeypatch.setattr(s, "google_translate_use_adc", True)
-    monkeypatch.setattr(s, "google_application_credentials", "/keys/sa.json")
-    assert (await i18n_auth.auth_headers())["authorization"].startswith("Bearer ")
-    assert used == ["sa:/keys/sa.json"]
-
-    # key + ADC → ADC wins
-    monkeypatch.setattr(i18n_auth, "_credentials", None)
-    monkeypatch.setattr(s, "google_application_credentials", "")
-    used.clear()
-    assert (await i18n_auth.auth_headers())["authorization"].startswith("Bearer ")
-    assert used == ["adc"]
-
-    # key only → the key, and google-auth is never consulted
-    monkeypatch.setattr(i18n_auth, "_credentials", None)
-    monkeypatch.setattr(s, "google_translate_use_adc", False)
-    used.clear()
-    assert await i18n_auth.auth_headers() == {"x-goog-api-key": SECRET_KEY}
-    assert used == []
-
-
-async def test_service_account_path_alone_enables_adc_mode(monkeypatch):
-    monkeypatch.setattr(i18n_service.settings, "google_translate_api_key", "")
-    monkeypatch.setattr(i18n_service.settings, "google_application_credentials", "/keys/sa.json")
-    assert i18n_auth.is_configured() is True
-
-
-async def test_credential_failure_is_a_clean_error_that_leaks_nothing(monkeypatch):
-    monkeypatch.setattr(i18n_service.settings, "google_application_credentials", "/keys/secret-path.json")
-
-    def boom():
-        raise FileNotFoundError("/keys/secret-path.json")
-
-    monkeypatch.setattr(i18n_auth, "_load_credentials", boom)
-    with pytest.raises(i18n_auth.TranslationAuthError) as err:
-        await i18n_auth.auth_headers()
-    assert "secret-path" not in str(err.value)
-
-
-async def test_bad_credentials_degrade_languages_and_catalog_not_500(client, monkeypatch):
-    monkeypatch.setattr(i18n_service.settings, "google_translate_use_adc", True)
-    monkeypatch.setattr(i18n_auth, "_load_credentials", lambda: (_ for _ in ()).throw(RuntimeError("no adc")))
+@pytest.mark.parametrize("empty_field", ["translate_gw_url", "translate_internal_token"])
+async def test_unconfigured_gateway_means_no_languages_and_no_traffic(client, monkeypatch, empty_field):
+    monkeypatch.setattr(i18n_service.settings, empty_field, "")
     async with client as c:
         langs = await c.get("/i18n/languages")
         cat = await c.get("/i18n/catalog", params={"locale": "es"})
-    assert langs.status_code == 200 and langs.json() == {"languages": []}
+    assert langs.json() == {"languages": []}
     assert cat.status_code == 503
-    assert FakeGoogle.calls == []  # never reached Google without a token
+    assert FakeGateway.calls == []
+
+
+async def test_gateway_is_called_with_the_internal_token_and_protocol(client):
+    async with client as c:
+        await c.get("/i18n/catalog", params={"locale": "es"})
+    get = next(c for c in FakeGateway.calls if not c["json"])
+    post = next(c for c in FakeGateway.calls if c["json"])
+    assert get["url"] == f"{GW_URL}/v1/languages" and get["params"] == {"target": "en"}
+    assert post["url"] == f"{GW_URL}/v1/translate"
+    assert post["headers"] == get["headers"] == {"X-Internal-Token": INTERNAL_TOKEN}
+
+
+async def test_gateway_unconfigured_adc_503_degrades_to_english_not_500(client):
+    """translate-gw answers 503 when it has no ADC (operator hasn't run the login)."""
+    FakeGateway.languages_status = 503
+    async with client as c:
+        langs = await c.get("/i18n/languages")
+        cat = await c.get("/i18n/catalog", params={"locale": "hi"})
+    assert langs.status_code == 200 and langs.json() == {"languages": []}
+    assert cat.status_code == 503  # "translation service is unavailable" — the switcher stays English-only
 
 
 # ── locale list ──────────────────────────────────────────────────────────────
@@ -267,7 +210,7 @@ async def test_unsupported_locale_is_a_400_even_if_google_could_translate_it(cli
     async with client as c:
         r = await c.get("/i18n/catalog", params={"locale": "tlh"})  # Google yes, configured no
     assert r.status_code == 400
-    assert not [c for c in FakeGoogle.calls if c["json"]]  # nothing was translated
+    assert not [c for c in FakeGateway.calls if c["json"]]  # nothing was translated
 
 
 # ── translation flows (en → es, en → hi) ─────────────────────────────────────
@@ -287,24 +230,23 @@ async def test_catalog_translates_and_preserves_placeholders(client, locale):
     assert "{{count}}" in common["due"]
 
 
-async def test_request_to_google_is_html_protected_and_authenticated_by_header(client):
+async def test_request_is_html_protected(client):
     async with client as c:
         await c.get("/i18n/catalog", params={"locale": "es"})
-    post = next(c for c in FakeGoogle.calls if c["json"])
+    post = next(c for c in FakeGateway.calls if c["json"])
     assert post["json"]["format"] == "html" and post["json"]["source"] == "en" and post["json"]["target"] == "es"
     assert '<span translate="no">{{count}}</span> tasks due' in post["json"]["q"]
-    assert post["headers"] == {"x-goog-api-key": SECRET_KEY}
-    assert "key" not in post["params"]  # credentials never in the URL
+    assert "key" not in post["params"]  # nothing credential-like in the URL
 
 
 async def test_translations_are_cached_per_source_and_target_language(client):
     async with client as c:
         await c.get("/i18n/catalog", params={"locale": "es"})
-        posts_after_es = len([x for x in FakeGoogle.calls if x["json"]])
+        posts_after_es = len([x for x in FakeGateway.calls if x["json"]])
         await c.get("/i18n/catalog", params={"locale": "es"})
-        assert len([x for x in FakeGoogle.calls if x["json"]]) == posts_after_es  # all cache hits
+        assert len([x for x in FakeGateway.calls if x["json"]]) == posts_after_es  # all cache hits
         await c.get("/i18n/catalog", params={"locale": "hi"})
-        assert len([x for x in FakeGoogle.calls if x["json"]]) == posts_after_es + 1  # other target ≠ hit
+        assert len([x for x in FakeGateway.calls if x["json"]]) == posts_after_es + 1  # other target ≠ hit
 
 
 def test_cache_key_includes_source_language_target_language_and_source_text():
@@ -316,10 +258,10 @@ def test_cache_key_includes_source_language_target_language_and_source_text():
 
 
 async def test_mangled_placeholder_falls_back_to_english_and_is_not_cached(client):
-    FakeGoogle.mangle = True
+    FakeGateway.mangle = True
     async with client as c:
         r1 = await c.get("/i18n/catalog", params={"locale": "es"})
-        FakeGoogle.mangle = False
+        FakeGateway.mangle = False
         r2 = await c.get("/i18n/catalog", params={"locale": "es"})
     b1 = r1.json()
     assert b1["partial"] is True
@@ -330,19 +272,19 @@ async def test_mangled_placeholder_falls_back_to_english_and_is_not_cached(clien
     assert r2.json()["namespaces"]["common"]["due"] == "{{count}} tareas pendientes"
 
 
-async def test_google_http_failure_falls_back_to_english_and_never_logs_the_key(client, capsys):
-    FakeGoogle.post_status = 503
+async def test_google_failure_falls_back_to_english_and_never_logs_secrets(client, capsys):
+    FakeGateway.post_status = 503
     async with client as c:
         r = await c.get("/i18n/catalog", params={"locale": "es"})
     body = r.json()
     assert r.status_code == 200 and body["partial"] is True
     assert body["namespaces"]["common"] == {"loading": "Loading…", "cancel": "Cancel", "due": "{{count}} tasks due"}
     out = capsys.readouterr()
-    assert SECRET_KEY not in out.out + out.err
+    assert INTERNAL_TOKEN not in out.out + out.err
 
 
 def test_safe_error_hides_the_request_url():
-    req = httpx.Request("POST", f"https://translation.googleapis.com/x?key={SECRET_KEY}")
+    req = httpx.Request("POST", "http://translate-gw:8012/v1/translate?key=SECRET")
     exc = httpx.HTTPStatusError("boom", request=req, response=httpx.Response(403, request=req))
     assert i18n_service._safe_error(exc) == "HTTP 403"
-    assert SECRET_KEY not in i18n_service._safe_error(exc)
+    assert "SECRET" not in i18n_service._safe_error(exc)

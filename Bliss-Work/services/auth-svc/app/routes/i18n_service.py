@@ -24,7 +24,9 @@ route arbitrary content through this endpoint, and no path by which task
 titles, chat messages or any other user/encrypted content could reach it.
 
 ── Auth, locales, placeholders ──────────────────────────────────────────────
-Credentials: i18n_auth.py (service account / ADC / API key). The offered locale
+Google itself is reached only through translate-gw (services/translate-gw, the
+official Go Cloud Translation client authenticated by Application Default
+Credentials): this service holds no Google credential of any kind. The offered locale
 list: settings.i18n_locales. `{{vars}}`, `<tags>`, `%s` and URLs are protected
 from Google and verified afterwards: i18n_placeholders.py.
 
@@ -49,15 +51,13 @@ from pathlib import Path
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from .. import i18n_auth, i18n_placeholders
+from .. import i18n_placeholders
 from ..config import settings
 from ..logging_config import log
 from ..security.auth_dep import Principal, get_principal
 
 router = APIRouter(prefix="/i18n", tags=["i18n"])
 
-_GOOGLE_LANGUAGES_URL = "https://translation.googleapis.com/language/translate/v2/languages"
-_GOOGLE_TRANSLATE_URL = "https://translation.googleapis.com/language/translate/v2"
 _GOOGLE_TIMEOUT = 8.0
 _SOURCE_LANGUAGE = "en"
 
@@ -239,13 +239,24 @@ _language_cache = _LanguageListCache()
 _translation_cache = _TranslationCache()
 
 
-# ── Google Cloud Translation (Basic v2, REST) ────────────────────────────────
+# ── Google Cloud Translation, via translate-gw (Go client, ADC) ──────────────
+
+
+def _configured() -> bool:
+    return bool(settings.translate_gw_url and settings.translate_internal_token)
+
+
+def _gw(path: str) -> str:
+    return settings.translate_gw_url.rstrip("/") + path
+
+
+def _gw_headers() -> dict[str, str]:
+    return {"X-Internal-Token": settings.translate_internal_token}
 
 
 def _safe_error(exc: Exception) -> str:
-    """What is safe to log about a failed Google call. `str(exc)` is NOT: an
-    httpx error message embeds the request URL, and Google's error bodies can
-    echo credentials back."""
+    """What is safe to log about a failed call. `str(exc)` is NOT: an httpx error
+    message embeds the request URL."""
     if isinstance(exc, httpx.HTTPStatusError):
         return f"HTTP {exc.response.status_code}"
     return type(exc).__name__
@@ -267,28 +278,25 @@ async def _fetch_google_languages() -> list[dict]:
     """[{code, name}], English display names (target=en) — never Google's raw
     schema, so the client never has to know Google's field names. Already narrowed
     to the configured locales."""
-    if not i18n_auth.is_configured():
+    if not _configured():
         return []
     cached = await _language_cache.get()
     if cached is not None:
         return _offered(cached)
     try:
-        headers = await i18n_auth.auth_headers()
         async with httpx.AsyncClient(timeout=_GOOGLE_TIMEOUT) as client:
-            res = await client.get(_GOOGLE_LANGUAGES_URL, params={"target": "en"}, headers=headers)
+            res = await client.get(_gw("/v1/languages"), params={"target": "en"}, headers=_gw_headers())
             res.raise_for_status()
             body = res.json()
-    except i18n_auth.TranslationAuthError:
-        return []  # already logged by i18n_auth
     except Exception as exc:  # noqa: BLE001 - quota/network/5xx all land here
         log.warning("i18n_google_languages_failed", error=_safe_error(exc))
         return []
     languages = [
-        {"code": item["language"], "name": item.get("name", item["language"])}
-        for item in body.get("data", {}).get("languages", [])
+        {"code": item["code"], "name": item.get("name", item["code"])}
+        for item in body.get("languages", [])
         # English is always separately available (it's bundled, never fetched)
         # — omitted here so the client never has to de-duplicate it.
-        if item.get("language") != _SOURCE_LANGUAGE
+        if item.get("code") != _SOURCE_LANGUAGE
     ]
     await _language_cache.set(languages)
     return _offered(languages)
@@ -298,12 +306,13 @@ async def _translate_batch(strings: list[str], target: str) -> list[str | None] 
     """None on total failure (caller treats every string in the batch as
     untranslated); otherwise one entry per input, in order — the translation, or
     None for a string whose placeholders did not survive (keep its English)."""
+    if not _configured():
+        return None
     try:
-        headers = await i18n_auth.auth_headers()
         async with httpx.AsyncClient(timeout=_GOOGLE_TIMEOUT) as client:
             res = await client.post(
-                _GOOGLE_TRANSLATE_URL,
-                headers=headers,
+                _gw("/v1/translate"),
+                headers=_gw_headers(),
                 json={
                     "q": [i18n_placeholders.protect(s) for s in strings],
                     "target": target,
@@ -313,9 +322,7 @@ async def _translate_batch(strings: list[str], target: str) -> list[str | None] 
             )
             res.raise_for_status()
             body = res.json()
-        translated = [t["translatedText"] for t in body["data"]["translations"]]
-    except i18n_auth.TranslationAuthError:
-        return None  # already logged by i18n_auth
+        translated = body["translations"]
     except Exception as exc:  # noqa: BLE001 - quota/network/5xx: degrade, don't 500
         log.warning("i18n_google_translate_failed", target=target, count=len(strings), error=_safe_error(exc))
         return None

@@ -185,6 +185,41 @@ services:
       timeout: 5s
       retries: 20
 
+  # ── Google Cloud Translation gateway (opt-in: `--profile i18n`) ─────────────
+  # The ONE component that talks to Google. The official Go Cloud Translation
+  # client (Basic v2), authenticated by Application Default Credentials — no
+  # service-account key, no API key, no token in any env file or image.
+  #
+  # DEV ADC: run `gcloud auth application-default login` on the host once, then in
+  # .env set GOOGLE_ADC_FILE to the file it wrote (an explicit path, NOT derived
+  # from $HOME: under `sudo docker` that is root's) and TRANSLATE_RUN_AS=<uid>:<gid>
+  # so the container can read the 0600 file. It is mounted read-only.
+  # `create_host_path: false` makes a missing/unset file a loud error instead of
+  # Docker silently creating an empty root-owned directory at that path.
+  # auth-svc reaches it at TRANSLATE_GW_URL with TRANSLATE_INTERNAL_TOKEN; with
+  # the profile off (or no ADC) the language switcher simply stays English-only.
+  translate-gw:
+    <<: *svc-defaults
+    profiles: ["i18n"]
+    build:
+      context: .
+      dockerfile: services/translate-gw/Dockerfile
+    user: "${TRANSLATE_RUN_AS:-10001}"
+    environment:
+      GOOGLE_APPLICATION_CREDENTIALS: /adc/application_default_credentials.json
+    volumes:
+      - type: bind
+        source: ${GOOGLE_ADC_FILE:-/set-GOOGLE_ADC_FILE-in-.env}
+        target: /adc/application_default_credentials.json
+        read_only: true
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8012/readyz || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
   messaging-svc:
     <<: *svc-defaults
     build:

@@ -934,6 +934,45 @@ services:
       resources:
         limits: { cpus: "1.00", memory: 384M }
 
+  # ── Google Cloud Translation gateway (opt-in: `--profile i18n`) ─────────────
+  # The ONE component that talks to Google: the official Go Cloud Translation
+  # client (Basic v2) authenticated by Application Default Credentials. NOT part
+  # of any deploy list, and gated behind a profile, because PRODUCTION ADC IS
+  # UNRESOLVED on this VPS — see the note at the end of this block.
+  #
+  # Nothing here supplies a credential: no key file, no token, nothing in the
+  # image. Without ADC the gateway still starts and answers 503 "unconfigured",
+  # and auth-svc degrades to the bundled English-only switcher.
+  #
+  # How ADC can reach a container off Google Cloud (pick ONE, deliberately):
+  #   • run on GCE/GKE/Cloud Run → the metadata server IS ADC; nothing to mount.
+  #   • Workload Identity Federation → mount an `external_account` config and set
+  #     GOOGLE_APPLICATION_CREDENTIALS to it; needs an OIDC identity for the VPS.
+  #   • an ADC file from `gcloud auth application-default login` → works, but it
+  #     is a long-lived refresh token for a HUMAN account. Not recommended.
+  # Add the chosen mount + GOOGLE_APPLICATION_CREDENTIALS here — and never to
+  # the image or Git.
+  translate-gw:
+    <<: *svc-defaults
+    profiles: ["i18n"]
+    build:
+      context: .
+      dockerfile: services/translate-gw/Dockerfile
+    image: ${REGISTRY_PREFIX:-task-board}/translate-gw:${IMAGE_TAG:-latest}
+    environment:
+      IMAGE_TAG: ${IMAGE_TAG:-dev}
+    # env_file inherited from x-svc-defaults (.env.prod carries
+    # TRANSLATE_INTERNAL_TOKEN, which validates auth-svc — its only caller).
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8012/readyz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    deploy:
+      replicas: 1
+      resources:
+        limits: { cpus: "0.25", memory: 128M }
+
   messaging-svc:
     <<: *svc-defaults
     build:
