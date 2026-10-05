@@ -1,9 +1,12 @@
 /**
  * Notification-center contract tests.
  *
- * The panel opens on the unread notifications and keeps read ones behind "View
- * read". Opening or closing it never changes read state: a notification becomes
- * read only when the user acts on it, and the badge is the server's unread count.
+ * The panel is the user's notification HISTORY: every notification, read or not,
+ * unread first. Reading one changes how it looks and the badge, never whether it
+ * is listed. Opening or closing the panel never changes read state: a notification
+ * becomes read only when the user acts on it, and the badge is the server's unread
+ * count. "No notifications yet" means there are none — a failed load, or a badge
+ * that disagrees with an empty list, is never reported that way.
  */
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -86,6 +89,7 @@ function Harness({ open = false }: { open?: boolean }) {
   const notifications = mergeNotificationFeeds(unreadPages.data, readPages.data);
   const feed = (pages: typeof unreadPages) => ({
     loading: pages.isPending,
+    failed: pages.isError,
     hasNextPage: pages.hasNextPage,
     isFetchingNextPage: pages.isFetchingNextPage,
     loadMore: () => void pages.fetchNextPage(),
@@ -107,6 +111,11 @@ function Harness({ open = false }: { open?: boolean }) {
         notifications={notifications}
         unreadFeed={feed(unreadPages)}
         readFeed={feed(readPages)}
+        unreadCount={unreadCount?.unreadCount ?? 0}
+        onRetry={() => {
+          void unreadPages.refetch();
+          void readPages.refetch();
+        }}
       />
       <output data-testid="unread-count">{unreadCount?.unreadCount ?? ""}</output>
       <output data-testid="location">{location.pathname}</output>
@@ -137,7 +146,7 @@ describe("NotificationsPanel", () => {
   const openBell = (user: ReturnType<typeof userEvent.setup>) =>
     user.click(screen.getByRole("button", { name: /Open notifications/i }));
 
-  it("shows unread notifications by default and does not mark them read on open", async () => {
+  it("shows the notifications when opened and does not mark them read", async () => {
     const user = userEvent.setup();
     const { badge } = setup([notification("n1"), notification("n2")], 2);
     await openBell(user);
@@ -198,40 +207,39 @@ describe("NotificationsPanel", () => {
     await waitFor(() => expect(isRead.has("will-read")).toBe(true));
     first.view.unmount();
 
-    // "Refresh": a brand-new client with an empty cache.
+    // "Refresh": a brand-new client with an empty cache. The history is loaded
+    // again from the server — the read row is still in it, and still read.
     setup(null, null);
     await waitFor(() => expect(screen.getByTestId("unread-count")).toHaveTextContent("1"));
     await openBell(user);
     expect(await screen.findByText("Task keep-unread completed")).toBeInTheDocument();
-    expect(screen.queryByText("Task will-read completed")).not.toBeInTheDocument();
-    await user.click(await screen.findByRole("button", { name: "View read (1)" }));
-    expect(screen.getByText("Task will-read completed")).toBeInTheDocument();
+    const reread = (await screen.findByText("Task will-read completed")).closest("li")!;
+    expect(within(reread).queryByRole("button", { name: "Mark read" })).not.toBeInTheDocument();
+    expect(within(screen.getByText("Task keep-unread completed").closest("li")!).getByRole("button", { name: "Mark read" })).toBeInTheDocument();
   });
 
-  it("hides read notifications behind View read, and offers nothing when there are none", async () => {
+  it("lists read notifications as history beside the unread ones — unread first, read dimmed, one row per id", async () => {
     const user = userEvent.setup();
-    setup([notification("new1"), notification("old1", "TASK_COMPLETED", null, null, null, true)], 1);
+    setup([notification("old1", "TASK_COMPLETED", null, null, null, true), notification("new1")], 1);
     await openBell(user);
 
-    expect(screen.getByText("Task new1 completed")).toBeInTheDocument();
-    expect(screen.queryByText("Task old1 completed")).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "View read (1)" }));
-    expect(screen.getByText("Task old1 completed")).toBeInTheDocument();
-    expect(screen.getByText("Task new1 completed")).toBeInTheDocument();
-    // Never twice: one row per id across unread + read.
-    expect(screen.getAllByText(/Task (new1|old1) completed/)).toHaveLength(2);
-
-    await user.click(screen.getByRole("button", { name: "Hide read" }));
-    expect(screen.queryByText("Task old1 completed")).not.toBeInTheDocument();
-    expect(screen.getAllByText("Task new1 completed")).toHaveLength(1);
+    const rows = screen.getAllByRole("listitem");
+    expect(rows).toHaveLength(2);
+    // Unread first, even though the read one came first in the data.
+    expect(rows[0]).toHaveTextContent("Task new1 completed");
+    expect(rows[1]).toHaveTextContent("Task old1 completed");
+    // Existing visual treatment: unread is tinted and has Mark read; read is dimmed.
+    expect(rows[0]!.className).toContain("bg-accent-soft/50");
+    expect(within(rows[0]!).getByRole("button", { name: "Mark read" })).toBeInTheDocument();
+    expect(rows[1]!.className).toContain("opacity-70");
+    expect(within(rows[1]!).queryByRole("button", { name: "Mark read" })).not.toBeInTheDocument();
   });
 
-  it("has no View read control when nothing is read", async () => {
+  it("never offers a View read toggle: the history is simply there", async () => {
     const user = userEvent.setup();
-    setup([notification("n1")], 1);
+    setup([notification("n1"), notification("old", "TASK_COMPLETED", null, null, null, true)], 1);
     await openBell(user);
-    expect(screen.queryByRole("button", { name: /View read/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /View read|Hide read/ })).not.toBeInTheDocument();
   });
 
   it("shows every kind together, read and unread alike, and still shows task notifications", async () => {
@@ -251,7 +259,6 @@ describe("NotificationsPanel", () => {
     for (const text of ["hi", "Invited to Standup", "Added to #general", "Task task completed"]) {
       expect(screen.getByText(text)).toBeInTheDocument();
     }
-    await user.click(screen.getByRole("button", { name: /View read/ }));
     expect(screen.getByText("Task oldtask completed")).toBeInTheDocument();
   });
 
@@ -265,13 +272,73 @@ describe("NotificationsPanel", () => {
     expect(screen.queryByText(/Task updates/)).not.toBeInTheDocument();
   });
 
-  it("says you're caught up, pointing at View read, when only read notifications exist", async () => {
+  it("shows the read notifications, not an empty state, when everything is read", async () => {
     const user = userEvent.setup();
     setup([notification("old1", "TASK_COMPLETED", null, null, null, true)], 0);
     await openBell(user);
 
-    expect(screen.getByText("You're all caught up")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "View read (1)" })).toBeInTheDocument();
+    expect(screen.getByText("Task old1 completed")).toBeInTheDocument();
+    expect(screen.queryByText("No notifications yet")).not.toBeInTheDocument();
+    expect(screen.queryByText(/caught up/i)).not.toBeInTheDocument();
+  });
+
+  describe("an empty list is only ever the truth", () => {
+    it("reports a failed load as a failure with a retry — never as 'No notifications yet'", async () => {
+      const user = userEvent.setup();
+      api.notificationPage.mockRejectedValue(new Error("network down"));
+      setup(null, 3);
+
+      await openBell(user);
+
+      expect(await screen.findByText("Couldn't load notifications")).toBeInTheDocument();
+      expect(screen.queryByText("No notifications yet")).not.toBeInTheDocument();
+
+      // Retry asks the server again and shows what it has.
+      api.notificationPage.mockImplementation(async (_c, _l, wantRead) => ({
+        items: wantRead ? [] : [notification("back")],
+        nextCursor: null,
+      }));
+      await user.click(screen.getByRole("button", { name: "Try again" }));
+      expect(await screen.findByText("Task back completed")).toBeInTheDocument();
+    });
+
+    it("does not call a list empty while the badge says something is unread", async () => {
+      const user = userEvent.setup();
+      serve([[]], [[]]); // both feeds answer, with nothing
+      setup(null, 2);
+      await waitFor(() => expect(screen.getByTestId("unread-count")).toHaveTextContent("2"));
+
+      await openBell(user);
+
+      expect(await screen.findByText("Couldn't load notifications")).toBeInTheDocument();
+      expect(screen.queryByText("No notifications yet")).not.toBeInTheDocument();
+    });
+
+    it("says 'No notifications yet' for an account that genuinely has none — feeds answered, badge zero", async () => {
+      const user = userEvent.setup();
+      serve([[]], [[]]);
+      setup(null, 0);
+      await waitFor(() => expect(screen.getByTestId("unread-count")).toHaveTextContent("0"));
+
+      await openBell(user);
+
+      expect(await screen.findByText("No notifications yet")).toBeInTheDocument();
+      expect(screen.queryByText("Couldn't load notifications")).not.toBeInTheDocument();
+    });
+
+    it("keeps the rows that did load when only one feed failed, and offers a retry", async () => {
+      const user = userEvent.setup();
+      api.notificationPage.mockImplementation(async (_c, _l, wantRead) => {
+        if (wantRead) throw new Error("read feed down");
+        return { items: [notification("kept")], nextCursor: null };
+      });
+      setup(null, 1);
+
+      await openBell(user);
+
+      expect(await screen.findByText("Task kept completed")).toBeInTheDocument();
+      expect(await screen.findByRole("button", { name: /Some notifications couldn't be loaded/ })).toBeInTheDocument();
+    });
   });
 
   it.each([
@@ -386,16 +453,16 @@ describe("NotificationsPanel", () => {
   });
 
   describe("unread notifications behind read ones", () => {
-    // The old client-side split saw only read rows on the first loaded page and
-    // said "all caught up" while unread ones waited on a later page. The
-    // server-side filter makes the unread feed's first page unread rows only.
+    // The unread feed is filtered on the server, so its first page is unread rows
+    // only even when the newest rows overall are read — the panel shows both feeds
+    // together, unread first, so neither can hide the other.
     const readNewest = many("r", 10, "DM_MESSAGE", true);
     const unreadOldest = [
       { ...notification("u-task", "TASK_ASSIGNED"), text: "Assigned a task" },
       { ...notification("u-meet", "MEETING_INVITATION", null), text: "Invited to Standup" },
     ];
 
-    it("shows the unread ones immediately, without loading unrelated read pages", async () => {
+    it("shows the unread ones and the read history together, unread first", async () => {
       const user = userEvent.setup();
       serve([unreadOldest], [readNewest, many("older", 10, "DM_MESSAGE", true)]);
       setup(null, 2);
@@ -404,14 +471,16 @@ describe("NotificationsPanel", () => {
 
       expect(await screen.findByText("Assigned a task")).toBeInTheDocument();
       expect(screen.getByText("Invited to Standup")).toBeInTheDocument();
-      expect(screen.queryByText("You're all caught up")).not.toBeInTheDocument();
-      expect(screen.queryByText("Task r0 completed")).not.toBeInTheDocument();
-      // Only the first page of each feed was ever requested; read rows stay behind View read.
+      expect(await screen.findByText("Task r0 completed")).toBeInTheDocument();
+      const rows = screen.getAllByRole("listitem");
+      expect(rows).toHaveLength(12); // 2 unread + the first read page
+      expect(rows[0]).toHaveTextContent(/Assigned a task|Invited to Standup/);
+      expect(rows[2]).toHaveTextContent("Task r");
+      // Only each feed's FIRST page was requested.
       expect(api.notificationPage).not.toHaveBeenCalledWith("r:1", expect.anything(), true);
-      expect(api.notificationPage).not.toHaveBeenCalledWith("u:1", expect.anything(), false);
     });
 
-    it("does not claim 'all caught up' while the unread feed has not answered", async () => {
+    it("does not claim 'No notifications yet' while the unread feed has not answered", async () => {
       const user = userEvent.setup();
       api.notificationPage.mockImplementation((_c, _l, wantRead) =>
         wantRead ? Promise.resolve({ items: readNewest, nextCursor: null }) : new Promise(() => {}),
@@ -419,42 +488,39 @@ describe("NotificationsPanel", () => {
       setup(null, 2);
 
       await openBell(user);
-      await screen.findByRole("button", { name: /View read/ });
+      await screen.findByText("Task r0 completed");
 
-      expect(screen.queryByText("You're all caught up")).not.toBeInTheDocument();
       expect(screen.queryByText("No notifications yet")).not.toBeInTheDocument();
     });
 
-    it("keeps paging the unread feed when locally-read rows hide the whole loaded page", async () => {
+    it("shows locally-read rows still sitting in the unread cache as read history, and reaches the unread ones behind them", async () => {
       const user = userEvent.setup();
       const stale = many("stale", 10, "DM_MESSAGE", true); // flipped read, still in the unread cache
       serve([stale, unreadOldest]);
       setup(null, 2);
 
       await openBell(user);
+      expect(await screen.findByText("Task stale0 completed")).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Load more" }));
 
       expect(await screen.findByText("Assigned a task")).toBeInTheDocument();
-      expect(screen.queryByText("You're all caught up")).not.toBeInTheDocument();
+      // Unread are listed above the read rows, wherever they were loaded from.
+      expect(screen.getAllByRole("listitem")[0]).toHaveTextContent(/Assigned a task|Invited to Standup/);
     });
 
-    it("reveals the read feed on View read with no duplicates, and hides it again", async () => {
+    it("draws a row that is in both feeds once, as read", async () => {
       const user = userEvent.setup();
-      // The same row is in both feeds (marked read here, not refetched yet).
+      // Marked read here, not refetched yet: the unread feed's cache still holds it.
       const flipped = { ...notification("u-task", "TASK_ASSIGNED"), text: "Assigned a task", read: true };
       serve([[flipped, unreadOldest[1]!]], [[flipped, ...readNewest.slice(0, 2)]]);
       setup(null, 1);
 
       await openBell(user);
-      await screen.findByText("Invited to Standup");
-      await user.click(screen.getByRole("button", { name: "View read (3)" }));
+      await screen.findByText("Task r0 completed");
 
       expect(screen.getAllByText("Assigned a task")).toHaveLength(1);
       expect(screen.getAllByText("Invited to Standup")).toHaveLength(1);
-      expect(screen.getByText("Task r0 completed")).toBeInTheDocument();
-
-      await user.click(screen.getByRole("button", { name: "Hide read" }));
-      expect(screen.queryByText("Task r0 completed")).not.toBeInTheDocument();
-      expect(screen.getAllByText("Invited to Standup")).toHaveLength(1);
+      expect(screen.getAllByRole("listitem")).toHaveLength(4);
     });
 
     it("caches the unread feed under qk.notifications and the read feed under qk.notificationsRead", async () => {
@@ -464,7 +530,7 @@ describe("NotificationsPanel", () => {
 
       await openBell(user);
       await screen.findByText("Assigned a task");
-      await screen.findByRole("button", { name: "View read (3)" });
+      await screen.findByText("Task r2 completed");
 
       const ids = (key: readonly string[]) =>
         flattenNotificationPages(qc.getQueryData<NotificationPages>(key)).map((n) => n.id).sort();
@@ -472,7 +538,7 @@ describe("NotificationsPanel", () => {
       expect(ids(qk.notificationsRead)).toEqual(["r0", "r1", "r2"]);
     });
 
-    it("renders a row marked read locally exactly once, as read, in both views", async () => {
+    it("keeps a row marked read in the list — once, read, below the unread ones", async () => {
       const user = userEvent.setup();
       serve([unreadOldest], [readNewest.slice(0, 2)]);
       setup(null, 2);
@@ -481,26 +547,33 @@ describe("NotificationsPanel", () => {
       await screen.findByText("Assigned a task");
       await user.click(screen.getAllByRole("button", { name: "Mark read" })[0]!);
 
-      // Gone from the unread view…
-      await waitFor(() => expect(screen.queryByText("Assigned a task")).not.toBeInTheDocument());
-      // …and present exactly once under View read, alongside the already-read rows.
-      await user.click(screen.getByRole("button", { name: /View read/ }));
+      await waitFor(() => expect(screen.getAllByRole("button", { name: "Mark read" })).toHaveLength(1));
       expect(screen.getAllByText("Assigned a task")).toHaveLength(1);
-      expect(screen.getAllByText("Invited to Standup")).toHaveLength(1);
-      await user.click(screen.getByRole("button", { name: "Hide read" }));
-      await user.click(screen.getByRole("button", { name: /View read/ }));
-      expect(screen.getAllByText("Assigned a task")).toHaveLength(1);
+      const row = screen.getByText("Assigned a task").closest("li")!;
+      expect(row.className).toContain("opacity-70");
+      expect(within(row).queryByRole("button", { name: "Mark read" })).not.toBeInTheDocument();
+      // 4 rows: nothing was removed. Still-unread Standup is above every read row.
+      const rows = screen.getAllByRole("listitem");
+      expect(rows).toHaveLength(4);
+      expect(rows[0]).toHaveTextContent("Invited to Standup");
     });
 
-    it("marks the read count as a lower bound while more read pages exist", async () => {
+    it("pages the unread feed first, then the read history, with Load more", async () => {
       const user = userEvent.setup();
-      serve([[]], [readNewest, many("older", 10, "DM_MESSAGE", true)]);
-      setup(null, 0);
+      serve([[unreadOldest[0]!], [unreadOldest[1]!]], [readNewest, many("older", 2, "DM_MESSAGE", true)]);
+      setup(null, 2);
 
       await openBell(user);
+      await screen.findByText("Task r0 completed");
+      await user.click(screen.getByRole("button", { name: "Load more" }));
+      expect(await screen.findByText("Invited to Standup")).toBeInTheDocument();
+      expect(api.notificationPage).toHaveBeenCalledWith("u:1", 10, false);
+      expect(api.notificationPage).not.toHaveBeenCalledWith("r:1", 10, true);
 
-      expect(await screen.findByRole("button", { name: "View read (10+)" })).toBeInTheDocument();
-      expect(screen.getByText("You're all caught up")).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Load more" }));
+      expect(await screen.findByText("Task older1 completed")).toBeInTheDocument();
+      expect(api.notificationPage).toHaveBeenCalledWith("r:1", 10, true);
+      expect(screen.queryByRole("button", { name: "Load more" })).not.toBeInTheDocument();
     });
   });
 

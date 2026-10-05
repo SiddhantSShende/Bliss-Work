@@ -38,15 +38,17 @@
     "title": "Notifications",
     "empty": {
       "noneYet": "No notifications yet",
-      "allCaughtUp": "You're all caught up",
-      "hint": "Updates and activity will show up here.",
-      "hintNothingUnread": "Nothing unread. Earlier notifications are under “View read”."
+      "hint": "Updates and activity will show up here."
+    },
+    "error": {
+      "title": "Couldn't load notifications",
+      "hint": "Your notifications are safe. Check your connection and try again.",
+      "retry": "Try again",
+      "partial": "Some notifications couldn't be loaded — try again"
     },
     "row": {
       "markRead": "Mark read"
     },
-    "toggleHideRead": "Hide read",
-    "toggleShowRead": "View read ({{total}})",
     "loadMore": "Load more",
     "loadingMore": "Loading…"
   },

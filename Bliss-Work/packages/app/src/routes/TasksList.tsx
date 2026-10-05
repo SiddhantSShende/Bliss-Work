@@ -33,11 +33,10 @@ export function TasksList() {
   // sub-views, which only ever hold ONE of these two lists at a time (whichever
   // bucket happens to be active), and default to "Allocated to me", not "My
   // tasks". TASK_ACKNOWLEDGED/COMPLETED/IGNORED/LEFT notifications go to the
-  // allocator (see notification-svc's consumer), so `sent` is what actually
-  // clears the bell here; `assigned` is a no-op today but future-proofs an
-  // assignee-directed kind.
-  useMarkTaskNotificationsRead(api, sent);
-  useMarkTaskNotificationsRead(api, assigned);
+  // allocator (see notification-svc's consumer), so `sent` clears those, and
+  // TASK_ASSIGNED goes to the assignee, so `assigned` clears that one. One call
+  // for both lists: a self-assigned task is in each.
+  useMarkTaskNotificationsRead(api, [...sent, ...assigned]);
   // A deadline passing moves a card to Missed even if the realtime push is lost.
   useDeadlineRefetch(assigned);
 

@@ -45,6 +45,11 @@ import { openNotificationTarget } from "./notification-open";
 import { resolveEndpointsFromEnv } from "../shared/endpoints";
 import { findDeepLink, parseDeepLink } from "../shared/deeplink";
 import { openExternalSafely } from "./harden";
+import { createActivityTracker } from "./activity-tracker";
+import { DEFAULT_MAX_APP_SPAN_MS } from "./activity-spans";
+import { createActivityOutbox } from "./activity-outbox";
+import { getForegroundApp } from "./foreground-win32";
+import { hasOsActivityTracking } from "../shared/os-activity";
 import { createOpenUrlHandler } from "./deep-link-cold-start";
 import { forwardDeepLinkWhenReady } from "./deep-link-forwarder";
 
@@ -91,6 +96,26 @@ let wsRestartTimer: NodeJS.Timeout | null = null;
 // ONLY to decide whether an incoming event is the user's own doing — see
 // notifier.userIdFromToken, which is explicit that this is not authentication.
 let sessionUserId: string | null = null;
+// Foreground-app and OS-idle tracking (see shared/os-activity.ts). Runs while someone is signed
+// in (see "auth:token") and flushes on every quit path. Completed spans wait in
+// the outbox until the renderer collects them ("activity:drain") and feeds its
+// TelemetryQueue; main itself never sends them anywhere.
+const activityOutbox = createActivityOutbox();
+// Whom the tracker's spans belong to. Set when tracking starts and read when a
+// span closes — which on sign-out is AFTER the user has changed, so it cannot
+// be read from sessionUserId at that point.
+let activityOwner: string | null = null;
+const activityTracker =
+  hasOsActivityTracking()
+    ? createActivityTracker({
+        now: Date.now,
+        readForeground: (at) => getForegroundApp(at),
+        readIdleSeconds: () => powerMonitor.getSystemIdleTime(),
+        power: powerMonitor,
+        onEvents: (spans) => activityOutbox.push(activityOwner, spans),
+        maxAppSpanMs: DEFAULT_MAX_APP_SPAN_MS,
+      })
+    : null;
 const sticky = new StickyManager();
 const chatSticky = new ChatStickyManager((threadId) => {
   wsProc?.postMessage({ type: "sticky-chat-unsubscribe", threadId });
@@ -784,8 +809,26 @@ ipcMain.on("auth:token", (e, token: string | null) => {
   if (!fromMainWindow(e)) return;
   // Every token change comes through here (login, refresh, sign-out), which
   // makes it the one place that always knows who is signed in.
+  const previousUserId = sessionUserId;
   sessionUserId = userIdFromToken(token);
+  // Spans belong to whoever was signed in when they happened: close them on
+  // sign-out and on a switch of account, then (re)start only for a signed-in
+  // user. A refresh of the same user's token leaves a running tracker alone.
+  if (!sessionUserId || sessionUserId !== previousUserId) activityTracker?.stop(); // closes the old user's span, tagged with them
+  if (sessionUserId) {
+    activityOwner = sessionUserId;
+    activityTracker?.start();
+  }
   wsProc?.postMessage({ type: "token", token });
+});
+
+// The renderer collects finished activity spans from here, from its own
+// telemetry timer. Only the signed-in user's are returned; anyone else's are
+// dropped (see activity-outbox.ts). Always an array, and empty where there is no
+// tracker, so the renderer needs no platform check of its own.
+ipcMain.handle("activity:drain", (e) => {
+  if (!fromMainWindow(e)) return [];
+  return activityOutbox.drain(sessionUserId);
 });
 
 // See src/main/session-token.ts: the packaged renderer is on file://, so it
@@ -1105,6 +1148,7 @@ app.on("window-all-closed", () => {
 function onSystemShutdown(): void {
   quitting = true;
   flushStickyState();
+  activityTracker?.stop();
   // Best-effort only — see before-quit below for the real notify-and-wait
   // sequence. OS shutdown runs on a budget this app does not control (Windows
   // can force-terminate a slow WM_ENDSESSION responder), so this never
@@ -1142,6 +1186,9 @@ app.on("before-quit", (e) => {
   // tray-quit. The atomic temp-then-rename means a SIGKILL during this call
   // still leaves a valid prior file in place.
   flushStickyState();
+  // Closes the open foreground span; idempotent, so a quit that already went
+  // through onSystemShutdown does not report it twice.
+  activityTracker?.stop();
 
   if (quitTeardownStarted) return;
   quitTeardownStarted = true;

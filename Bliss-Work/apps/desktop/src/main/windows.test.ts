@@ -136,3 +136,17 @@ describe.each<NodeJS.Platform>(["win32", "darwin", "linux"])("pinned popup on %s
     expect(rec.calls.some(([name]) => name === "hide")).toBe(false);
   });
 });
+
+describe("pinned popup size", () => {
+  it("is tall enough to show the description beside the Assigned row and the action buttons", async () => {
+    const rec = await createFor("linux");
+    const { width, height, minHeight, maxHeight } = rec.options as Record<"width" | "height" | "minHeight" | "maxHeight", number>;
+
+    // 200px (min 140) squeezed the description to one line, or to nothing.
+    expect(height).toBeGreaterThanOrEqual(340);
+    expect(minHeight).toBeGreaterThanOrEqual(300);
+    expect(minHeight).toBeLessThanOrEqual(height);
+    expect(maxHeight).toBeGreaterThan(height);
+    expect(width).toBe(380);
+  });
+});

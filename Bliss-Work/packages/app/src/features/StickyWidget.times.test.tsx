@@ -95,3 +95,29 @@ describe("task card times", () => {
     expect(stamps()).toEqual([ASSIGNED, DEADLINE]);
   });
 });
+
+describe("floating note description", () => {
+  const LONG = "Prepare the quarterly compliance report for every regional office. ".repeat(4).trim();
+
+  it("wraps at full size and keeps the Assigned row and both buttons in the card", () => {
+    render(<StickyWidget task={task("SENT", { description: LONG })} compact onAction={vi.fn()} />);
+
+    const description = screen.getByText(LONG);
+    // jsdom has no layout, so pin the structure the pixels come from (measured in a
+    // real browser): text-sm kept, wrapping preserved, and ONE height cap — the old
+    // max-h-20 + max-h-16 pair left the cap to stylesheet order.
+    expect(description.className).toContain("text-sm");
+    expect(description.className).toContain("whitespace-pre-wrap");
+    expect(description.className).toContain("max-h-36");
+    expect(description.className).not.toMatch(/max-h-(16|20)/);
+    expect(times()).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /acknowledge/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /ignore/i })).toBeInTheDocument();
+  });
+
+  it("renders a short description unchanged", () => {
+    render(<StickyWidget task={task("SENT", { description: "Send it." })} compact onAction={vi.fn()} />);
+
+    expect(screen.getByText("Send it.")).toBeInTheDocument();
+  });
+});

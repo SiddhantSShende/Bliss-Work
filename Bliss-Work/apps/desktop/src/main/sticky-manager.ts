@@ -47,11 +47,11 @@ const PILL_H = 52;
 /** The note's normal minimum size (mirrors createStickyWindow). Restored when
  *  the user expands a collapsed pill back to a full note. */
 const FULL_MIN_W = 320;
-const FULL_MIN_H = 140;
+const FULL_MIN_H = 300;
 /** Fallback full size if we somehow lack a stored expanded size (mirrors
  *  createStickyWindow's default). */
 const FULL_W = 380;
-const FULL_H = 200;
+const FULL_H = 340;
 
 /**
  * Owns the floating task widget windows — the product differentiator.
@@ -382,7 +382,7 @@ export class StickyManager {
     } else {
       const stored = getGeometry(CONTAINER_ID);
       const fw = stored?.expandedWidth ?? FULL_W;
-      const fh = stored?.expandedHeight ?? FULL_H;
+      const fh = Math.max(stored?.expandedHeight ?? FULL_H, FULL_MIN_H);
       // Save collapsed:false BEFORE setBounds so a same-tick 'resize' persist
       // can't record full bounds while the flag still reads true.
       saveGeometry(CONTAINER_ID, {
@@ -482,7 +482,9 @@ export class StickyManager {
         w.setResizable(false);
         w.setBounds({ x: g.x, y: g.y, width: PILL_W, height: PILL_H });
       } else {
-        w.setBounds({ x: g.x, y: g.y, width: g.width, height: g.height });
+        // A height saved before the minimum was raised would be too short to show the
+        // description; never restore below the current minimum.
+        w.setBounds({ x: g.x, y: g.y, width: g.width, height: Math.max(g.height, FULL_MIN_H) });
       }
       // Deliberately NOT restoring a stored `minimized` flag. This window is
       // built minimizable:false + skipTaskbar:true, so a note that somehow got

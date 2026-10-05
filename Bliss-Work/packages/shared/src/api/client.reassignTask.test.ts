@@ -47,4 +47,37 @@ describe("reassignTask", () => {
     expect(err).toBeInstanceOf(ApiError);
     expect(err).toMatchObject({ status: 403, message: "only the allocator can reassign a task" });
   });
+
+  it("goes to /api/tasks/api/v1/tasks/{id}/reassign behind the edge, which Caddy strips to /api/v1/tasks/{id}/reassign", async () => {
+    // The browser's taskBase is the edge's /api/tasks mount, so the Network tab shows
+    // /api/tasks/api/v1/... — that doubled "api" is correct, not a prefix bug. Caddy's
+    // handle_path removes /api/tasks and task-svc serves /api/v1/tasks/{id}/reassign.
+    const fetchStub = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ taskId: TASK, reassignedUserIds: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchStub);
+    const edge = new ApiClient({ taskBase: "/api/tasks", getToken: async () => "tok" } as never);
+
+    await edge.reassignTask(TASK);
+
+    const [url] = fetchStub.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe(`/api/tasks/api/v1/tasks/${TASK}/reassign`);
+    expect(url.replace(/^\/api\/tasks/, "")).toBe(`/api/v1/tasks/${TASK}/reassign`);
+  });
+
+  it("reports a task-svc build that has no such route (FastAPI's bare 404) as a 404, not a success", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ detail: "Not Found" }), { status: 404, headers: { "content-type": "application/json" } })),
+    );
+
+    const err = await client().reassignTask(TASK).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err).toMatchObject({ status: 404 });
+  });
 });

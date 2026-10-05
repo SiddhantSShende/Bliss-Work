@@ -18,6 +18,22 @@
  *
  * Every timer and listener is torn down on unmount, and the whole thing is inert
  * until the session is authenticated.
+ *
+ * ── Who measures idle and active time ───────────────────────────────────────
+ * Here, from the window's own input and visibility — EXCEPT where the host
+ * reports `config.osActivityTracking`. The desktop's main process then reads the
+ * OS's own idle counter, which sees the whole machine where this can only see
+ * its own window (and so calls someone working in another application idle).
+ * In that mode this component takes no part in idle/active accounting at all —
+ * no input listeners, no idle timer, no idle.start/idle.end, no addTime — and
+ * what it keeps is everything that is not a measurement of time: which section
+ * you are in (route.enter / route.dwell), window focus/blur, and presence.
+ * Doing both would credit the same minutes twice.
+ *
+ * The host's measurements arrive here instead: on each tick this collects the
+ * spans the main process has finished (`config.drainActivitySpans`) and feeds
+ * them to the same queue — see lib/activitySpans.ts for how a span becomes an
+ * event and time. That is the ONLY place desktop active/idle time comes from.
  */
 import { useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
@@ -26,6 +42,7 @@ import { ensureFreshSession } from "./refresh";
 import { useSession } from "../store/session";
 import { surfaceOf } from "./section";
 import { TelemetryQueue, type QueuedEvent } from "./telemetryQueue";
+import { ingestActivitySpans } from "./activitySpans";
 
 /** Every field but the id `TelemetryQueue.push()` assigns itself. */
 type UnstampedEvent = Omit<QueuedEvent, "clientEventId">;
@@ -61,6 +78,8 @@ const ACTIVITY_EVENTS = ["pointerdown", "keydown", "wheel", "touchstart", "scrol
  * reading as "Online" to their colleagues long after they signed out.
  */
 let activeQueue: TelemetryQueue | null = null;
+/** The mounted bridge's span collector, so sign-out can take what main has finished before it closes the session. */
+let activeDrain: (() => Promise<void>) | null = null;
 
 /**
  * Close the activity session NOW. Call BEFORE clearing the session.
@@ -73,7 +92,11 @@ export async function endTelemetrySession(): Promise<void> {
   const queue = activeQueue;
   if (!queue) return;
   activeQueue = null;
+  const drain = activeDrain;
+  activeDrain = null;
   try {
+    await drain?.(); // never throws; spans main has already closed ride the goodbye
+
     if (!(await queue.flush({ ended: true }))) {
       // Either a periodic flush was in flight and swallowed ours (flush is
       // single-flight) or the request failed and the batch was re-queued. The
@@ -98,6 +121,7 @@ export function TelemetryBridge() {
   const location = useLocation();
   const status = useSession((s) => s.status);
   const authed = status === "authed";
+  const osAccounting = config.osActivityTracking === true;
 
   const queueRef = useRef<TelemetryQueue | null>(null);
   // Refs, not state: every one of these changes on a timer or a DOM event, and
@@ -135,6 +159,22 @@ export function TelemetryBridge() {
     });
 
     const now = () => Date.now();
+    // With nothing accrued here a quiet heartbeat has no payload, so presence has
+    // to be asserted explicitly or the server would sweep the session as gone.
+    const heartbeatFlush = osAccounting ? { keepalive: true } : {};
+    // Cleared on unmount: a collection still in flight when the user signs out
+    // must not drop the old user's spans into whatever happens next.
+    let live = true;
+    const drainSpans = async () => {
+      if (!osAccounting || !config.drainActivitySpans) return;
+      try {
+        const spans = await config.drainActivitySpans();
+        if (live) ingestActivitySpans(queue, spans);
+      } catch {
+        // The window is reloading or the host is busy: the spans stay with main
+        // and the next tick collects them. Telemetry never throws.
+      }
+    };
     const push = (event: UnstampedEvent) => {
       queue.push(event);
       if (queue.shouldFlush) void queue.flush();
@@ -151,6 +191,9 @@ export function TelemetryBridge() {
       const elapsed = Math.max(0, t - accrualStartRef.current);
       accrualStartRef.current = t;
       if (!elapsed) return;
+      // The host measures active/idle itself (see the header). Time still
+      // advances above so a later accrual never spans a gap, but none is banked.
+      if (osAccounting) return;
       // Hidden or idle time is IDLE time. Counting a backgrounded tab as active
       // is the single easiest way to make this record dishonest, and it would
       // flatter everyone equally rather than measuring anything.
@@ -224,9 +267,13 @@ export function TelemetryBridge() {
       }
     };
 
-    ACTIVITY_EVENTS.forEach((e) =>
-      window.addEventListener(e, markActive, { passive: true }),
-    );
+    // Input listeners exist only to detect in-window idleness; in OS-accounting
+    // mode there is nothing for them to feed.
+    if (!osAccounting) {
+      ACTIVITY_EVENTS.forEach((e) =>
+        window.addEventListener(e, markActive, { passive: true }),
+      );
+    }
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("pagehide", onPageHide);
     // Back online: don't sit out the remainder of a backoff that only existed
@@ -237,11 +284,17 @@ export function TelemetryBridge() {
     };
     window.addEventListener("online", onOnline);
 
-    const flushTimer = window.setInterval(() => {
-      accrue();
-      void queue.flush();
-    }, FLUSH_MS);
-    const idleTimer = window.setInterval(checkIdle, 30_000);
+    /** One periodic pass: collect the host's spans (desktop only), bank time, send. */
+    const sync = () => {
+      const send = () => {
+        accrue();
+        void queue.flush(heartbeatFlush);
+      };
+      if (osAccounting) void drainSpans().then(send);
+      else send();
+    };
+    const flushTimer = window.setInterval(sync, FLUSH_MS);
+    const idleTimer = osAccounting ? undefined : window.setInterval(checkIdle, 30_000);
     /**
      * "Still here." Deliberately NOT an event: the beacon itself is the signal
      * — the server advances the session's last_seen_at and banks the accrued
@@ -249,10 +302,7 @@ export function TelemetryBridge() {
      * same fact twice and put a minute-by-minute wall of identical entries on
      * the timeline, on top of the events that actually say what someone did.
      */
-    const beat = () => {
-      accrue();
-      void queue.flush();
-    };
+    const beat = sync;
     let heartbeatTimer = window.setInterval(beat, HEARTBEAT_MS);
     const retuneHeartbeat = () => {
       window.clearInterval(heartbeatTimer);
@@ -262,15 +312,18 @@ export function TelemetryBridge() {
       );
     };
     document.addEventListener("visibilitychange", retuneHeartbeat);
+    activeDrain = drainSpans;
+    void drainSpans(); // whatever main finished before this window was ready
 
     return () => {
+      live = false;
       ACTIVITY_EVENTS.forEach((e) => window.removeEventListener(e, markActive));
       document.removeEventListener("visibilitychange", onVisibility);
       document.removeEventListener("visibilitychange", retuneHeartbeat);
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("online", onOnline);
       window.clearInterval(flushTimer);
-      window.clearInterval(idleTimer);
+      if (idleTimer !== undefined) window.clearInterval(idleTimer);
       window.clearInterval(heartbeatTimer);
       unsubscribe();
       teardownSession();
@@ -282,6 +335,7 @@ export function TelemetryBridge() {
       // or re-opens the session we just closed.
       if (activeQueue === queue) {
         activeQueue = null;
+        activeDrain = null;
         void queue.flush();
       }
       queueRef.current = null;

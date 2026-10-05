@@ -61,9 +61,9 @@ export function AppShell() {
 
   // The bell's own list — unlike the badge count above, this genuinely only
   // needs to exist once the panel is actually opened.
-  // Two server-filtered feeds: unread (the default view) and read ("View read").
-  // Both load on open so the unread view is complete without browsing read pages,
-  // and the read count is known.
+  // Two server-filtered feeds that the panel shows together as the notification
+  // history: unread (first, what the badge counts) and read. Both load on open so
+  // neither can hide the other behind its own pages.
   const unreadPages = useNotificationPages(api, notifOpen, false);
   const readPages = useNotificationPages(api, notifOpen, true);
   const notifications = mergeNotificationFeeds(unreadPages.data, readPages.data);
@@ -153,14 +153,21 @@ export function AppShell() {
         open={notifOpen}
         onClose={() => setNotifOpen(false)}
         notifications={notifications}
+        unreadCount={unread}
+        onRetry={() => {
+          void unreadPages.refetch();
+          void readPages.refetch();
+        }}
         unreadFeed={{
           loading: unreadPages.isPending,
+          failed: unreadPages.isError,
           hasNextPage: unreadPages.hasNextPage,
           isFetchingNextPage: unreadPages.isFetchingNextPage,
           loadMore: () => void unreadPages.fetchNextPage(),
         }}
         readFeed={{
           loading: readPages.isPending,
+          failed: readPages.isError,
           hasNextPage: readPages.hasNextPage,
           isFetchingNextPage: readPages.isFetchingNextPage,
           loadMore: () => void readPages.fetchNextPage(),

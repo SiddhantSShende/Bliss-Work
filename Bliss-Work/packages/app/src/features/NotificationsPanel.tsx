@@ -1,4 +1,3 @@
-import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -16,9 +15,11 @@ export { notificationDestination };
 import { Sheet } from "./Modal";
 
 /** One server-filtered feed (unread or read): whether its first page is still in
- *  flight, and how to page further. */
+ *  flight, whether it failed, and how to page further. */
 export interface NotificationFeedState {
   loading: boolean;
+  /** The request errored. Not the same as "empty": nothing is known. */
+  failed?: boolean;
   hasNextPage: boolean;
   isFetchingNextPage: boolean;
   loadMore: () => void;
@@ -36,6 +37,8 @@ export function NotificationsPanel({
   notifications,
   unreadFeed = IDLE_FEED,
   readFeed = IDLE_FEED,
+  unreadCount = 0,
+  onRetry,
 }: {
   open: boolean;
   onClose: () => void;
@@ -43,20 +46,18 @@ export function NotificationsPanel({
   notifications: NotificationDTO[];
   unreadFeed?: NotificationFeedState;
   readFeed?: NotificationFeedState;
+  /** The bell's own (server) unread count. Never decides what the list holds —
+   *  but a badge that says something is unread beside a list with nothing in it
+   *  means the list did not load, and is shown as that, not as "no notifications". */
+  unreadCount?: number;
+  /** Reload both feeds. */
+  onRetry?: () => void;
 }) {
   const { t, i18n } = useTranslation("shell");
   const { api } = useRuntime();
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const qc = useQueryClient();
-  const [showRead, setShowRead] = useState(false);
-
-  // Collapse the history again whenever the panel closes, so reopening always
-  // answers "what's new?" rather than resuming a browse session.
-  useEffect(() => {
-    if (!open) setShowRead(false);
-  }, [open]);
-
   // Opening or closing the panel never changes read state. A notification only
   // becomes read when the user acts on it (clicks the row or "Mark read"); the
   // badge is the server's unread count and moves only through those actions.
@@ -81,45 +82,57 @@ export function NotificationsPanel({
     openNotificationRoute(navigate, pathname, notificationDestination(notification));
   };
 
-  // Read notifications are HISTORY, not news: unread by default, the rest one
-  // click away. Partitioned by read state alone — never by kind — and each id is
-  // in exactly one of the two lists, so toggling never shows a row twice.
+  // The panel is the user's notification HISTORY: every notification, read or
+  // not. Unread ones come first — they are what the badge counts — then the read
+  // ones, each newest first. Partitioned by read state alone, never by kind, and
+  // each id is in exactly one of the two groups, so a row is never drawn twice and
+  // marking one read changes how it looks and where it sits, never whether it is
+  // there.
   const unread = notifications.filter((n) => !n.read);
   const read = notifications.filter((n) => n.read);
-  const shown = showRead ? [...unread, ...read] : unread;
-  const readCount = read.length;
+  const shown = [...unread, ...read];
 
-  // The unread feed is filtered on the server, but rows marked read locally stay
-  // in its cache until it refetches. If those hide the whole loaded page while
-  // more pages exist, keep paging rather than claim there is nothing unread.
-  const needMoreUnread = !showRead && unread.length === 0 && unreadFeed.hasNextPage;
-  const loadMoreUnread = useRef(unreadFeed.loadMore);
-  loadMoreUnread.current = unreadFeed.loadMore;
-  useEffect(() => {
-    if (open && needMoreUnread && !unreadFeed.isFetchingNextPage) loadMoreUnread.current();
-  }, [open, needMoreUnread, unreadFeed.isFetchingNextPage]);
+  // "Nothing here" is only established once both feeds have answered: neither
+  // first page is still in flight.
+  const loading = shown.length === 0 && (unreadFeed.loading || readFeed.loading);
+  const failed = !!(unreadFeed.failed || readFeed.failed);
+  // The list holds nothing although the feeds did not fail — yet the badge says
+  // something is unread. Whatever is wrong, "No notifications yet" is not true.
+  const inconsistent = shown.length === 0 && !loading && unreadCount > 0;
+  const loadFailed = shown.length === 0 && !loading && (failed || inconsistent);
 
-  // "Nothing here" is only established once the feeds say so: the unread feed has
-  // answered and has no further pages, and — when it is empty — the read feed has
-  // answered too, so we know which empty state is true.
-  const loading =
-    shown.length === 0 && (unreadFeed.loading || needMoreUnread || unreadFeed.isFetchingNextPage || readFeed.loading);
-  // Load more pages the feed the current view is still short of.
-  const hasMore = showRead ? unreadFeed.hasNextPage || readFeed.hasNextPage : unreadFeed.hasNextPage;
-  const fetchingMore = showRead
-    ? unreadFeed.isFetchingNextPage || readFeed.isFetchingNextPage
-    : unreadFeed.isFetchingNextPage;
-  const loadMore = () => (showRead && !unreadFeed.hasNextPage ? readFeed : unreadFeed).loadMore();
+  // Unread first, then read: Load more pages the unread feed until it is
+  // exhausted, then the read history.
+  const hasMore = unreadFeed.hasNextPage || readFeed.hasNextPage;
+  const fetchingMore = unreadFeed.isFetchingNextPage || readFeed.isFetchingNextPage;
+  const loadMore = () => (unreadFeed.hasNextPage ? unreadFeed : readFeed).loadMore();
 
   return (
     <Sheet open={open} onClose={onClose} title={t("notifications.title")}>
       {loading ? (
         <p className="py-6 text-center text-sm text-muted">{t("notifications.loadingMore")}</p>
+      ) : loadFailed ? (
+        <div className="flex flex-col items-center">
+          <EmptyState
+            icon={<Bell size={22} />}
+            title={t("notifications.error.title")}
+            hint={t("notifications.error.hint")}
+          />
+          {onRetry && (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="rounded-xl border border-border px-3 py-2 text-sm font-medium text-fg transition-colors hover:bg-surface-2"
+            >
+              {t("notifications.error.retry")}
+            </button>
+          )}
+        </div>
       ) : shown.length === 0 ? (
         <EmptyState
           icon={<Bell size={22} />}
-          title={readCount > 0 ? t("notifications.empty.allCaughtUp") : t("notifications.empty.noneYet")}
-          hint={readCount > 0 ? t("notifications.empty.hintNothingUnread") : t("notifications.empty.hint")}
+          title={t("notifications.empty.noneYet")}
+          hint={t("notifications.empty.hint")}
         />
       ) : (
         <ul className="flex min-w-0 flex-col gap-2">
@@ -157,12 +170,13 @@ export function NotificationsPanel({
         </ul>
       )}
 
-      {readCount > 0 && (
+      {failed && shown.length > 0 && onRetry && (
         <button
-          onClick={() => setShowRead((v) => !v)}
+          type="button"
+          onClick={onRetry}
           className="mt-3 w-full rounded-xl border border-border px-3 py-2 text-xs font-medium text-muted transition-colors hover:bg-surface-2 hover:text-fg"
         >
-          {showRead ? t("notifications.toggleHideRead") : t("notifications.toggleShowRead", { total: `${readCount}${readFeed.hasNextPage ? "+" : ""}` })}
+          {t("notifications.error.partial")}
         </button>
       )}
 

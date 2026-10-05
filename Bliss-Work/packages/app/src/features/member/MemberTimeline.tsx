@@ -104,11 +104,13 @@ function Row({ entry }: { entry: TimelineEntry }) {
   const duration = formatDuration(entry.durationMs);
   const preview = entry.detail?.preview;
   // The one-line subtitle under the action: the screenshot's context, or the
-  // name of the mail attachment that was downloaded.
+  // name of the mail attachment or chat file that was downloaded/opened.
   const context =
     entry.action === "screenshot.attempted"
       ? entry.detail?.context
-      : entry.action === "mail.attachment.downloaded"
+      : entry.action === "mail.attachment.downloaded" ||
+          entry.action === "attachment.opened" ||
+          entry.action === "attachment.downloaded"
         ? entry.detail?.filename
         : undefined;
 

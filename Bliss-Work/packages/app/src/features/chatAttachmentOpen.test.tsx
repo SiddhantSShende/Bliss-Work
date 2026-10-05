@@ -18,7 +18,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { AttachmentScope, MessageDTO } from "@taskboard/shared";
+import type { AttachmentScope, ChannelMessageDTO } from "@taskboard/shared";
 import { encodeMedia, type MediaItem } from "../lib/chatEnvelope";
 import { qk } from "../lib/queryKeys";
 
@@ -30,6 +30,7 @@ const h = vi.hoisted(() => ({
     // Rest params so `mock.calls` is typed as the arguments the hook really passes.
     reply: vi.fn(async (..._args: unknown[]) => ({ messageId: "activity-msg", seq: 1, threadId: "thread-1" })),
     sendChannelMessage: vi.fn(async (..._args: unknown[]) => ({ messageId: "activity-msg", seq: 1 })),
+    sendBeacon: vi.fn(async (..._args: unknown[]) => ({ sessionId: "s1", accepted: 1 })),
   },
   config: {} as Host,
   toastError: vi.fn(),
@@ -72,8 +73,8 @@ let windowOpen: ReturnType<typeof vi.spyOn>;
 let fetchStub: ReturnType<typeof vi.fn>;
 
 /** One rendered message, through the same hook a DM or a channel uses. */
-function Message({ scope, items }: { scope: AttachmentScope; items: MediaItem[] }) {
-  const media = useChatMedia({ scope, scopeId: "scope-1", meId: "me", send: vi.fn() });
+function Message({ scope, items, locked }: { scope: AttachmentScope; items: MediaItem[]; locked?: boolean }) {
+  const media = useChatMedia({ scope, scopeId: "scope-1", meId: "me", channelLocked: locked, send: vi.fn() });
   return (
     <>
       {media.renderBody({ id: "m1", senderId: "peer", body: encodeMedia(items) })}
@@ -101,6 +102,8 @@ beforeEach(() => {
   h.api.reply.mockImplementation(async () => ({ messageId: "activity-msg", seq: 1, threadId: "thread-1" }));
   h.api.sendChannelMessage.mockReset();
   h.api.sendChannelMessage.mockImplementation(async () => ({ messageId: "activity-msg", seq: 1 }));
+  h.api.sendBeacon.mockReset();
+  h.api.sendBeacon.mockImplementation(async () => ({ sessionId: "s1", accepted: 1 }));
   windowOpen = vi.spyOn(window, "open").mockReturnValue(null);
   // The PDF/text Lightbox fetches its own bytes; this also proves the open path
   // itself never does.
@@ -294,39 +297,134 @@ describe("the conversation's Docs panel", () => {
   });
 });
 
-describe("file activity messages", () => {
+/** What telemetry was told, as [kind, attachmentId, filename] — recorded in EVERY context. */
+const recorded = () =>
+  h.api.sendBeacon.mock.calls.flatMap((c) =>
+    (c[0] as { events: { action: string; targetId: string; detail: { filename: string } }[] }).events.map((e) => [
+      e.action.replace(".", "_"),
+      e.targetId,
+      e.detail.filename,
+    ]),
+  );
+
+/** The channel's own system message, if one was posted. A DM reply is never one. */
+const channelPosts = () => h.api.sendChannelMessage.mock.calls.map((c) => [c[0], c[1], c[3], c[4], c[5]]);
+
+describe("file activity — telemetry always, chat message only in a locked channel", () => {
   beforeEach(asWeb);
 
-  it("posts attachment_opened through the DM reply endpoint — the SAME thread an ordinary reply uses — when a file opens in the Lightbox", async () => {
-    render(withQuery(<Message scope="conversation" items={[PDF]} />));
+  it("LOCKED channel: posts the system message AND records telemetry when a file opens in the Lightbox", async () => {
+    render(withQuery(<Message scope="channel" locked items={[PDF]} />));
 
     await userEvent.click(await screen.findByRole("button", { name: "Open Report.pdf" }));
 
-    expect(h.api.reply).toHaveBeenCalledExactlyOnceWith(
+    expect(h.api.sendChannelMessage).toHaveBeenCalledExactlyOnceWith(
       "scope-1",
       "Me opened Report.pdf",
       expect.any(String),
-      undefined,
       "attachment_opened",
+      undefined,
       "att-pdf",
     );
-    expect(h.api.sendChannelMessage).not.toHaveBeenCalled();
+    expect(recorded()).toEqual([["attachment_opened", "att-pdf", "Report.pdf"]]);
+    expect(h.api.reply).not.toHaveBeenCalled();
   });
 
-  it("posts attachment_opened — never downloaded — when a file with no in-app view opens in a browser tab", async () => {
-    render(withQuery(<Message scope="conversation" items={[PPTX]} />));
+  it("LOCKED channel: posts attachment_opened — never downloaded — when a file opens in a browser tab", async () => {
+    render(withQuery(<Message scope="channel" locked items={[PPTX]} />));
 
     await userEvent.click(await screen.findByRole("button", { name: "Open Quarterly.pptx" }));
 
     expect(windowOpen).toHaveBeenCalledExactlyOnceWith(...OPEN_ARGS("att-pptx"));
-    expect(h.api.reply).toHaveBeenCalledExactlyOnceWith(
-      "scope-1",
-      "Me opened Quarterly.pptx",
-      expect.any(String),
-      undefined,
-      "attachment_opened",
-      "att-pptx",
+    expect(channelPosts()).toEqual([["scope-1", "Me opened Quarterly.pptx", "attachment_opened", undefined, "att-pptx"]]);
+    expect(recorded()).toEqual([["attachment_opened", "att-pptx", "Quarterly.pptx"]]);
+  });
+
+  it("LOCKED channel: the Docs panel posts and records its own open too", async () => {
+    render(
+      withQuery(
+        <ChatAssetsSheet
+          open
+          onClose={() => {}}
+          title="Sam"
+          messages={[{ id: "m1", body: encodeMedia([PDF]), senderName: "Sam", at: "2026-09-21T09:00:00Z" }]}
+          scope="channel"
+          scopeId="channel-9"
+          meId="me"
+          channelLocked
+        />,
+      ),
     );
+    await userEvent.click(await screen.findByRole("tab", { name: /Docs/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "Open Report.pdf" }));
+
+    expect(channelPosts()).toEqual([["channel-9", "Me opened Report.pdf", "attachment_opened", undefined, "att-pdf"]]);
+    expect(recorded()).toEqual([["attachment_opened", "att-pdf", "Report.pdf"]]);
+  });
+
+  it.each([
+    ["OPEN channel", { scope: "channel", locked: false }],
+    ["channel whose lock state is not known yet", { scope: "channel", locked: undefined }],
+  ] as const)("%s: records telemetry and posts NOTHING to the chat", async (_label, ctx) => {
+    render(withQuery(<Message scope={ctx.scope} locked={ctx.locked} items={[PDF]} />));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Open Report.pdf" }));
+
+    expect(recorded()).toEqual([["attachment_opened", "att-pdf", "Report.pdf"]]);
+    expect(h.api.sendChannelMessage).not.toHaveBeenCalled();
+    expect(h.api.reply).not.toHaveBeenCalled();
+  });
+
+  it("DM / group chat: records telemetry and posts NOTHING to the chat — no reply, no thread", async () => {
+    render(withQuery(<Message scope="conversation" items={[PDF]} />));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Open Report.pdf" }));
+
+    expect(recorded()).toEqual([["attachment_opened", "att-pdf", "Report.pdf"]]);
+    expect(h.api.reply).not.toHaveBeenCalled();
+    expect(h.api.sendChannelMessage).not.toHaveBeenCalled();
+  });
+
+  it("DM / group chat: a lock flag is meaningless there and never makes a message appear", async () => {
+    render(withQuery(<Message scope="conversation" locked items={[PDF]} />));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Open Report.pdf" }));
+
+    expect(h.api.reply).not.toHaveBeenCalled();
+    expect(h.api.sendChannelMessage).not.toHaveBeenCalled();
+    expect(recorded()).toHaveLength(1);
+  });
+
+  it("tells telemetry the host, the surface and the scope — and nothing it should not", async () => {
+    render(withQuery(<Message scope="channel" items={[PDF]} />));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Open Report.pdf" }));
+
+    expect(h.api.sendBeacon).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        source: "web",
+        ended: false,
+        events: [
+          expect.objectContaining({
+            action: "attachment.opened",
+            category: "engagement",
+            surface: "channels",
+            targetKind: "attachment",
+            targetId: "att-pdf",
+            detail: { filename: "Report.pdf", channel: "scope-1" },
+          }),
+        ],
+      }),
+    );
+  });
+
+  it("reports source desktop from the desktop host", async () => {
+    asDesktop();
+    render(withQuery(<Message scope="conversation" items={[PPTX]} />));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Open Quarterly.pptx" }));
+
+    expect(h.api.sendBeacon.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ source: "desktop" }));
   });
 
   it.each([PPTX, DOCX, XLSX, ZIP])(
@@ -336,54 +434,21 @@ describe("file activity messages", () => {
 
       await userEvent.click(await screen.findByRole("button", { name: `Open ${item.name}` }));
 
-      const kinds = h.api.reply.mock.calls.map((c) => c[4]);
-      expect(kinds).toEqual(["attachment_opened"]);
+      expect(recorded().map((r) => r[0])).toEqual(["attachment_opened"]);
     },
   );
 
-  it("posts attachment_opened when desktop hands a file to the OS's own application", async () => {
+  it("records attachment_opened when desktop hands a file to the OS's own application", async () => {
     const openAttachment = asDesktop();
     render(withQuery(<Message scope="conversation" items={[PPTX]} />));
 
     await userEvent.click(await screen.findByRole("button", { name: "Open Quarterly.pptx" }));
 
     expect(openAttachment).toHaveBeenCalledExactlyOnceWith(urlOf("att-pptx"), "Quarterly.pptx");
-    expect(h.api.reply.mock.calls.map((c) => c[4])).toEqual(["attachment_opened"]);
+    expect(recorded().map((r) => r[0])).toEqual(["attachment_opened"]);
   });
 
-  it("posts attachment_opened through the channel endpoint, never the DM reply endpoint, for a channel scope", async () => {
-    render(withQuery(<Message scope="channel" items={[PDF]} />));
-
-    await userEvent.click(await screen.findByRole("button", { name: "Open Report.pdf" }));
-
-    expect(h.api.sendChannelMessage).toHaveBeenCalledExactlyOnceWith(
-      "scope-1",
-      "Me opened Report.pdf",
-      expect.any(String),
-      "attachment_opened",
-      undefined,
-      "att-pdf",
-    );
-    expect(h.api.reply).not.toHaveBeenCalled();
-  });
-
-  it("posts attachment_opened through the channel endpoint when a file opens in a browser tab", async () => {
-    render(withQuery(<Message scope="channel" items={[PPTX]} />));
-
-    await userEvent.click(await screen.findByRole("button", { name: "Open Quarterly.pptx" }));
-
-    expect(h.api.sendChannelMessage).toHaveBeenCalledExactlyOnceWith(
-      "scope-1",
-      "Me opened Quarterly.pptx",
-      expect.any(String),
-      "attachment_opened",
-      undefined,
-      "att-pptx",
-    );
-    expect(h.api.reply).not.toHaveBeenCalled();
-  });
-
-  it("the Docs panel records attachment_opened for a file that leaves the app too", async () => {
+  it("the Docs panel in a DM records its open for a file that leaves the app, with no chat message", async () => {
     render(
       withQuery(
         <ChatAssetsSheet
@@ -401,7 +466,8 @@ describe("file activity messages", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Open Quarterly.pptx" }));
 
     expect(windowOpen).toHaveBeenCalledExactlyOnceWith(...OPEN_ARGS("att-pptx"));
-    expect(h.api.reply.mock.calls.map((c) => c[4])).toEqual(["attachment_opened"]);
+    expect(recorded().map((r) => r[0])).toEqual(["attachment_opened"]);
+    expect(h.api.reply).not.toHaveBeenCalled();
   });
 
   // A normal click is never a download: no `download` attribute anywhere, no
@@ -422,54 +488,46 @@ describe("file activity messages", () => {
     for (const [url] of windowOpen.mock.calls) expect(String(url)).not.toContain("dl=1");
   });
 
-  it("never claims an activity event for a file that never rendered — no click, no post", async () => {
-    render(withQuery(<Message scope="conversation" items={[PDF]} />));
+  it("never claims an activity event for a file that never rendered — no click, nothing recorded or posted", async () => {
+    render(withQuery(<Message scope="channel" locked items={[PDF]} />));
 
     await screen.findByRole("button", { name: "Open Report.pdf" });
 
+    expect(h.api.sendBeacon).not.toHaveBeenCalled();
     expect(h.api.reply).not.toHaveBeenCalled();
     expect(h.api.sendChannelMessage).not.toHaveBeenCalled();
   });
 
-  it("does not double-post when the same file is clicked twice before the first request settles", async () => {
-    h.api.reply.mockImplementation(() => new Promise(() => {})); // never settles within the test
-    render(withQuery(<Message scope="conversation" items={[PDF]} />));
+  it.each([
+    ["locked channel", "channel", true],
+    ["open channel", "channel", false],
+    ["DM", "conversation", undefined],
+  ] as const)("%s: a double click before the first request settles records and posts once", async (_l, scope, locked) => {
+    h.api.sendBeacon.mockImplementation(() => new Promise(() => {})); // never settles within the test
+    h.api.sendChannelMessage.mockImplementation(() => new Promise(() => {}));
+    render(withQuery(<Message scope={scope} locked={locked} items={[PDF]} />));
     const button = await screen.findByRole("button", { name: "Open Report.pdf" });
 
     await userEvent.click(button);
     await userEvent.click(button);
 
-    expect(h.api.reply).toHaveBeenCalledTimes(1);
+    expect(h.api.sendBeacon).toHaveBeenCalledTimes(1);
+    expect(h.api.sendChannelMessage).toHaveBeenCalledTimes(locked ? 1 : 0);
   });
 
-  it("the conversation's Docs panel posts its own open the same way", async () => {
-    render(
-      withQuery(
-        <ChatAssetsSheet
-          open
-          onClose={() => {}}
-          title="Sam"
-          messages={[{ id: "m1", body: encodeMedia([PDF]), senderName: "Sam", at: "2026-09-21T09:00:00Z" }]}
-          scope="channel"
-          scopeId="channel-9"
-          meId="me"
-        />,
-      ),
-    );
-    await userEvent.click(await screen.findByRole("tab", { name: /Docs/ }));
+  it("a failing telemetry call never breaks the open", async () => {
+    h.api.sendBeacon.mockImplementation(async () => {
+      throw new Error("telemetry down");
+    });
+    render(withQuery(<Message scope="channel" locked items={[PDF]} />));
+
     await userEvent.click(await screen.findByRole("button", { name: "Open Report.pdf" }));
 
-    expect(h.api.sendChannelMessage).toHaveBeenCalledExactlyOnceWith(
-      "channel-9",
-      "Me opened Report.pdf",
-      expect.any(String),
-      "attachment_opened",
-      undefined,
-      "att-pdf",
-    );
+    expect(screen.getByRole("dialog", { name: "Report.pdf" })).toBeInTheDocument();
+    expect(h.api.sendChannelMessage).toHaveBeenCalledTimes(1);
   });
 
-  it("the Media tab's own thumbnail also posts attachment_opened — never downloaded, since images/video always render inline", async () => {
+  it("the Media tab's own thumbnail also records attachment_opened — never downloaded, since images/video always render inline", async () => {
     render(
       withQuery(
         <ChatAssetsSheet
@@ -486,18 +544,12 @@ describe("file activity messages", () => {
     // Media is the default tab — no tab click needed first.
     await userEvent.click(await screen.findByRole("link", { name: "Open photo.png" }));
 
-    expect(h.api.reply).toHaveBeenCalledExactlyOnceWith(
-      "scope-7",
-      "Me opened photo.png",
-      expect.any(String),
-      undefined,
-      "attachment_opened",
-      "att-img",
-    );
+    expect(recorded()).toEqual([["attachment_opened", "att-img", "photo.png"]]);
+    expect(h.api.reply).not.toHaveBeenCalled();
     expect(h.api.sendChannelMessage).not.toHaveBeenCalled();
   });
 
-  it("an unresolved Media tile (no access) posts nothing — there is no URL to actually open", async () => {
+  it("an unresolved Media tile (no access) records nothing — there is no URL to actually open", async () => {
     h.api.attachmentLinks.mockResolvedValue([]);
     render(
       withQuery(
@@ -517,23 +569,25 @@ describe("file activity messages", () => {
     const tile = await screen.findByTitle(/photo\.png/);
     await userEvent.click(tile);
 
+    expect(h.api.sendBeacon).not.toHaveBeenCalled();
     expect(h.api.reply).not.toHaveBeenCalled();
   });
 
   // The realtime bridge (queryBridge.tsx) never echoes the sender's own
-  // MessageCreated event back into this same query — that skip is what makes
-  // this cache patch the ONLY place the sender's own pill gets rendered.
+  // ChannelMessageCreated event back into this same query — that skip is what
+  // makes this cache patch the ONLY place the sender's own pill gets rendered.
   // This test guards the other half: if that invariant were ever violated (a
   // WS echo racing the HTTP response into the SAME cache entry), the
   // messageId dedup below must still prevent a visible duplicate.
-  it("never double-renders the sender's own pill even if the message id is already in cache", async () => {
+  it("LOCKED channel: never double-renders the sender's own pill even if the message id is already in cache", async () => {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    qc.setQueryData<MessageDTO[]>(qk.messages("scope-1"), [
+    qc.setQueryData<ChannelMessageDTO[]>(qk.channelMessages("scope-1"), [
       {
         id: "activity-msg",
-        conversationId: "scope-1",
+        channelId: "scope-1",
         seq: 1,
         senderId: "me",
+        senderUsername: "me",
         body: "Me opened Report.pdf",
         kind: "attachment_opened",
         createdAt: "2026-01-01T00:00:00Z",
@@ -541,14 +595,14 @@ describe("file activity messages", () => {
     ]);
     render(
       <QueryClientProvider client={qc}>
-        <Message scope="conversation" items={[PDF]} />
+        <Message scope="channel" locked items={[PDF]} />
       </QueryClientProvider>,
     );
 
     await userEvent.click(await screen.findByRole("button", { name: "Open Report.pdf" }));
-    await waitFor(() => expect(h.api.reply).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(h.api.sendChannelMessage).toHaveBeenCalledTimes(1));
 
-    const list = qc.getQueryData<MessageDTO[]>(qk.messages("scope-1")) ?? [];
+    const list = qc.getQueryData<ChannelMessageDTO[]>(qk.channelMessages("scope-1")) ?? [];
     expect(list.filter((m) => m.id === "activity-msg")).toHaveLength(1);
   });
 });

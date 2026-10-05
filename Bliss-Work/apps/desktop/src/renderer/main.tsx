@@ -32,6 +32,9 @@ declare global {
       openExternal: (url: string) => void;
       openAttachment: (url: string, fileName: string) => Promise<{ ok: boolean; error?: string }>;
       hasPreciseLocation: () => Promise<boolean>;
+      /** The main process owns idle/active accounting on this platform. */
+      osActivityTracking: boolean;
+      drainActivitySpans: () => Promise<unknown>;
       /** Absent on platforms with no OS location-privacy page (Linux). */
       openLocationSettings?: () => Promise<boolean>;
       /** Absent on platforms with no OS camera/microphone-privacy page (Linux). */
@@ -154,6 +157,8 @@ const config: PlatformConfig = {
   // through the system browser. See main/attachment-open.ts.
   openAttachment: (url, fileName) => bridge.openAttachment(url, fileName),
   hasPreciseLocation: () => bridge.hasPreciseLocation(),
+  osActivityTracking: bridge.osActivityTracking,
+  drainActivitySpans: bridge.osActivityTracking ? () => bridge.drainActivitySpans() : undefined,
   // Forwarded only when the host actually has one, so `config.openLocationSettings`
   // stays a truthful capability check in the shared app code.
   openLocationSettings: bridge.openLocationSettings

@@ -1826,11 +1826,15 @@ export class ApiClient {
       deadline?: DeadlineRule;
     };
   }, idempotencyKey?: string) {
+    // `scheduleId` is nullish, not merely optional: task-svc's CreateTaskResponse
+    // declares `scheduleId: str | None` and sends an explicit null for an immediate
+    // task. Rejecting that null made creating ANY task look like a failure (a 502
+    // "invalid response") although the task had been created.
     return this.req(this.cfg.taskBase, "/api/v1/tasks", {
       method: "POST",
       headers: { "idempotency-key": idempotencyKey ?? uuid() },
       body: JSON.stringify(body),
-    }, z.object({ taskId: z.string(), scheduleId: z.string().optional() }));
+    }, z.object({ taskId: z.string(), scheduleId: z.string().nullish() }));
   }
   /**
    * Every row of one of the caller's task lists, walking the server's pages.
@@ -2345,6 +2349,19 @@ export class ApiClient {
     return this.req<void>(this.cfg.notificationBase, `/api/v1/notifications/${id}/read`, {
       method: "POST",
     });
+  }
+  /** Mark the caller's unread notifications that belong to any of `taskIds` read,
+   *  and nothing else. This is "viewing a task reads its notifications" recorded
+   *  on the server, where the notification lives — not in whatever the client
+   *  happens to have cached. Resolves to how many it changed; idempotent. At most
+   *  200 ids per call (the server rejects more). */
+  markTaskNotificationsRead(taskIds: string[]) {
+    return this.req(
+      this.cfg.notificationBase,
+      "/api/v1/notifications/read-by-tasks",
+      { method: "POST", body: JSON.stringify({ taskIds }) },
+      z.object({ updated: z.number() }),
+    );
   }
   /** Mark every unread notification read in one call. Only for an explicit
    *  "mark all read" action — opening or closing the bell must never call it.

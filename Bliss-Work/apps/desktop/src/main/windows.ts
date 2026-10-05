@@ -160,16 +160,20 @@ export function createStickyWindow(collapsed = false): BrowserWindow {
     // for the carousel's ‹ › gutters (renderer/sticky.tsx) without re-cramping
     // that row — the whole point of the width this replaced.
     width: 380,
-    height: 200,
+    // Tall enough for the title, the Assigned/Due row and the Acknowledge/Ignore
+    // row AND a few readable lines of description: the card is height-capped, so
+    // the description is what absorbs any shortfall (see StickyWidget). At the old
+    // 200px (min 140) it was squeezed to a single line, or to nothing.
+    height: 340,
     minWidth: 320,
-    minHeight: 140,
+    minHeight: 300,
     // Capped close to content size: this window is opaque (see the transparent
     // note below), so an unbounded resize left a big flat-coloured rectangle
     // around the card — exactly the "background/container behind the task"
     // look. The cap keeps the note a compact widget no matter how far the user
     // drags its corner.
     maxWidth: 440,
-    maxHeight: 260,
+    maxHeight: 440,
     frame: false,
     // false, not true: a transparent frameless window needs GPU compositing
     // to actually render as see-through, and on a Linux session without a

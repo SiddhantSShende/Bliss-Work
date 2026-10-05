@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import { hasLocationSettingsPage } from "../shared/location-settings";
+import { hasOsActivityTracking } from "../shared/os-activity";
 import { hasMediaSettingsPage } from "../shared/media-settings";
 import type { ServerEvent, ClientFrame, ControlFrame, PinResult, WsEventMeta } from "@taskboard/shared";
 
@@ -153,6 +154,16 @@ const api = {
   openLocationSettings: hasLocationSettingsPage()
     ? (): Promise<boolean> => ipcRenderer.invoke("geo:open-settings")
     : undefined,
+
+  /** True where the main process tracks OS-level idle (see
+   *  shared/os-activity.ts). The renderer then leaves idle/active accounting to
+   *  it instead of accruing its own — see TelemetryBridge. */
+  osActivityTracking: hasOsActivityTracking(),
+  /** Collect the activity spans main has finished since the last call (an app
+   *  span or an idle span, each with its start and duration — an executable
+   *  name, never a path). Resolves to an empty array where main has no tracker.
+   *  Untyped on purpose: the renderer validates what crosses this boundary. */
+  drainActivitySpans: (): Promise<unknown> => ipcRenderer.invoke("activity:drain"),
 
   /** Open the OS page where camera/microphone access for desktop apps is
    *  granted, one per media kind. Same "absent, not a no-op" contract as

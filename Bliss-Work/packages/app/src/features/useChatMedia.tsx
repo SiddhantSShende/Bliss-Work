@@ -64,6 +64,9 @@ interface ChatMediaOptions {
   scope: AttachmentScope;
   scopeId: string;
   meId: string;
+  /** Channel surface only: the channel's `isLocked`. Whether file activity is also
+   *  shown in the chat — see showsAttachmentActivity. */
+  channelLocked?: boolean;
   /** The surface's own send path — reply, replyToThread, sendChannelMessage. */
   send: (body: string) => void;
   /**
@@ -94,7 +97,7 @@ type UploadOutcome =
 // legitimate files.
 
 export function useChatMedia(opts: ChatMediaOptions) {
-  const { scope, scopeId, meId, send, p2pFallback } = opts;
+  const { scope, scopeId, meId, channelLocked, send, p2pFallback } = opts;
   const { t } = useTranslation("chatMedia");
   const { api, config } = useRuntime();
   const ft = useFileTransfers();
@@ -531,7 +534,7 @@ export function useChatMedia(opts: ChatMediaOptions) {
     [idsVersion],
   );
   const links = useAttachmentLinks(allIds);
-  const reportAttachmentActivity = useAttachmentActivity(scope, scopeId, meId);
+  const reportAttachmentActivity = useAttachmentActivity(scope, scopeId, meId, channelLocked);
 
   // A click on an attachment. A file with no in-app view leaves the app the way
   // an email attachment's Open does — the desktop's own application on desktop,

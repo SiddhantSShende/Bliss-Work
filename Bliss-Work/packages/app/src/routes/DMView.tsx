@@ -35,6 +35,7 @@ import { useOlderMessages } from "../lib/useOlderMessages";
 import { useUserStatus } from "../lib/usePresence";
 import { useSelectedChat } from "../lib/selectedChat";
 import { useActiveThread, type ActiveThread } from "../lib/activeThread";
+import { isAttachmentActivityKind } from "../lib/useAttachmentActivity";
 
 export function DMView() {
   // From memory, not from the path: the conversation id is deliberately absent
@@ -417,7 +418,12 @@ export function DMView() {
    */
   const thread = useMemo(
     () =>
-      messages.map((m) => ({
+      messages
+        // File open/download notices are never drawn in a 1:1 or group chat —
+        // including ones stored before that was the rule. The activity is still
+        // in the member's activity timeline.
+        .filter((m) => !isAttachmentActivityKind(m.kind))
+        .map((m) => ({
         id: m.id, senderId: m.senderId, body: m.body, at: m.createdAt, kind: m.kind,
         status: m.status, pending: m.id.startsWith("temp:"),
         replyToId: m.replyToId, deletedForAll: m.deletedForAll,

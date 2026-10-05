@@ -8,8 +8,7 @@ import { EmptyState } from "@taskboard/ui";
 import { ListTodo } from "lucide-react";
 import { useRuntime } from "../lib/runtime";
 import { qk } from "../lib/queryBridge";
-import { decrementUnreadCount, refreshUnreadCount } from "../lib/unreadNotificationCount";
-import { flattenNotificationPages, markNotificationPagesRead } from "../lib/notificationPages";
+import { markTaskNotificationsRead } from "../lib/useMarkTaskNotificationsRead";
 import { StickyWidget } from "../features/StickyWidget";
 
 /**
@@ -101,15 +100,13 @@ export function MailTask() {
     // opened and reviewed here. Opening IS reading it, for the bell — but only
     // for the bell. The floating note is a commitment, not a notification, and
     // is deliberately left alone (see above).
-    const unreadForTask = flattenNotificationPages(qc.getQueryData(qk.notifications)).filter(
-      (n) => n.taskId === taskId && !n.read,
-    );
-    if (unreadForTask.length > 0) {
-      const flipped = markNotificationPagesRead(qc, (n) => n.taskId === taskId);
-      decrementUnreadCount(qc, flipped);
-      void Promise.all(unreadForTask.map((n) => api.markNotificationRead(n.id).catch(() => {}))).then(() =>
-        refreshUnreadCount(qc),
-      );
+    //
+    // Asked of the server by task id, not worked out from the panel's cache:
+    // that cache is empty until the bell has been opened, so a task opened
+    // first left its notification lit. Skipped only when the badge is already
+    // known to be zero.
+    if (qc.getQueryData<{ unreadCount: number }>(qk.notificationsUnreadCount)?.unreadCount !== 0) {
+      void markTaskNotificationsRead(api, qc, [taskId]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taskId]);

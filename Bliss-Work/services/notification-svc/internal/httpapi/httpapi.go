@@ -73,6 +73,7 @@ func (s *Server) Router() http.Handler {
 		// docs/API-LAZY-LOADING-AUDIT.md D1/S3.
 		r.Get("/notifications/unread-count", s.handleUnreadCount)
 		r.Post("/notifications/read-all", s.handleReadAll)
+		r.Post("/notifications/read-by-tasks", s.handleReadByTasks)
 		r.Post("/notifications/{id}/read", s.handleRead)
 	})
 
@@ -492,6 +493,109 @@ func (s *Server) markAllRead(ctx context.Context, tx pgx.Tx, userID, orgID strin
 		return nil
 	}
 	return s.publishNotificationRead(ctx, tx, orgID, userID, nil)
+}
+
+// maxReadByTasks bounds one read-by-tasks request: a Tasks list is a few dozen
+// rows, and the cap keeps one call from fanning out into an unbounded number of
+// NotificationRead events.
+const maxReadByTasks = 200
+
+// handleReadByTasks serves POST /api/v1/notifications/read-by-tasks
+// {"taskIds": [...]}. Marks the caller's unread notifications that belong to one
+// of those tasks as read — and ONLY those: a notification with no task, or tied
+// to a task not named here, is untouched, so opening the Tasks section can never
+// clear an unrelated unread. It is how "viewing a task reads its notifications"
+// is recorded where the notification actually lives, so the bell, the panel and
+// every other session read the same state. Answers {"updated": n}; idempotent.
+func (s *Server) handleReadByTasks(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.FromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	var body struct {
+		TaskIDs []string `json:"taskIds"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if len(body.TaskIDs) > maxReadByTasks {
+		writeError(w, http.StatusBadRequest, "too many task ids")
+		return
+	}
+	taskIDs := make([]string, 0, len(body.TaskIDs))
+	for _, raw := range body.TaskIDs {
+		id, err := uuid.Parse(raw)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid task id")
+			return
+		}
+		taskIDs = append(taskIDs, id.String())
+	}
+
+	updated := 0
+	if len(taskIDs) > 0 {
+		tx, err := s.pool.Begin(r.Context())
+		if err != nil {
+			s.log.Error("begin tx failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+		defer func() { _ = tx.Rollback(r.Context()) }()
+
+		updated, err = s.markReadByTasks(r.Context(), tx, claims.UserID, claims.OrgID, taskIDs)
+		if err != nil {
+			s.log.Error("mark read by tasks failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+		if err := tx.Commit(r.Context()); err != nil {
+			s.log.Error("commit failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]int{"updated": updated})
+}
+
+// markReadByTasks flips the caller's unread notifications for these tasks and
+// enqueues one NotificationRead event per row that actually changed. One event
+// per row, not a single "all" event: other sessions answer a NotificationRead
+// with no id by marking EVERY cached notification read, which would be wrong for
+// a task-scoped change. Recipient-owned, like markRead, so it holds after an org
+// switch.
+func (s *Server) markReadByTasks(ctx context.Context, tx pgx.Tx, userID, orgID string, taskIDs []string) (int, error) {
+	rows, err := tx.Query(ctx,
+		`UPDATE notifications
+		    SET read_at = now()
+		  WHERE recipient_id = $1 AND read_at IS NULL AND task_id = ANY($2::uuid[])
+		  RETURNING id`,
+		userID, taskIDs)
+	if err != nil {
+		return 0, err
+	}
+	var flipped []string
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		flipped = append(flipped, id.String())
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	for i := range flipped {
+		if err := s.publishNotificationRead(ctx, tx, orgID, userID, &flipped[i]); err != nil {
+			return 0, err
+		}
+	}
+	return len(flipped), nil
 }
 
 // publishNotificationRead enqueues a NotificationRead outbox row on the

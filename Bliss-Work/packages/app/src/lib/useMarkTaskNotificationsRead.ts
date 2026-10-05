@@ -1,70 +1,86 @@
 import { useEffect, useRef } from "react";
-import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
-import type { ApiClient, NotificationDTO } from "@taskboard/shared";
-import { qk } from "./queryBridge";
+import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import type { ApiClient } from "@taskboard/shared";
+import { qk } from "./queryKeys";
 import { decrementUnreadCount, refreshUnreadCount } from "./unreadNotificationCount";
-import { flattenNotificationPages, markNotificationPagesRead } from "./notificationPages";
+import { markNotificationPagesRead } from "./notificationPages";
+
+/** The server takes at most this many task ids per call. */
+const TASK_IDS_PER_CALL = 200;
 
 /**
- * Mark-as-read on view: when a set of tasks becomes visible on the Tasks page,
- * clear any bell notification tied to one of them. Mirrors MailTask.tsx's
- * per-task version of this same fix (opening a task IS reading its
- * notification), generalized to a list. Same shape as useMarkPeerRead:
- * ref-based dedupe so a remount doesn't refire, optimistic cache patch so the
- * bell badge/drawer clear instantly, best-effort real calls with
- * delete-on-failure so a failed call gets retried on the next mount.
+ * Record that these tasks are being viewed: their unread notifications become
+ * read ON THE SERVER, and the caches follow what the server says.
+ *
+ * Read state has one home — the notification row. This used to find "the
+ * notifications for these tasks" in the panel's list cache and mark each by id,
+ * so it did nothing at all until the bell had been opened once this session
+ * (the cache was empty and nothing else fills it), and it never saw a
+ * notification beyond the first loaded page. Asking the server by task id has
+ * neither problem, and the server's own `notification.read` events carry the
+ * change to every other open session.
+ *
+ * Only notifications tied to a named task are touched: ones with no task, or for
+ * a task not listed, keep their unread state and keep counting in the badge. A
+ * read notification is never removed — it stays in the panel's history.
+ *
+ * Never throws: a failure leaves the notification unread, which is the truth.
+ */
+export async function markTaskNotificationsRead(
+  api: ApiClient,
+  qc: QueryClient,
+  taskIds: string[],
+): Promise<void> {
+  const ids = [...new Set(taskIds)];
+  for (let i = 0; i < ids.length; i += TASK_IDS_PER_CALL) {
+    const chunk = ids.slice(i, i + TASK_IDS_PER_CALL);
+    let updated: number;
+    try {
+      ({ updated } = await api.markTaskNotificationsRead(chunk));
+    } catch {
+      continue; // nothing was marked for this chunk; the badge is still right
+    }
+    if (updated === 0) continue;
+
+    const tasks = new Set(chunk);
+    markNotificationPagesRead(qc, (n) => !!n.taskId && tasks.has(n.taskId));
+    // The badge is its own server-side count (see unreadNotificationCount.ts), so
+    // patching the list never moves it: lower it by what the server says it
+    // changed, then let a refetch have the last word.
+    decrementUnreadCount(qc, updated);
+    // The read feed does not hold these rows yet — it will, next time it loads.
+    void qc.invalidateQueries({ queryKey: qk.notificationsRead });
+    void refreshUnreadCount(qc);
+  }
+}
+
+/**
+ * Mark-as-read on view: while a set of tasks is on screen, their notifications
+ * are read. Runs when the set of visible tasks changes and when the unread count
+ * RISES (a new notification may be for a task already in view), and only while
+ * something is unread at all. A fall in the count — including our own — does not
+ * re-run it.
+ *
+ * The count is the same query AppShell runs for the bell (TanStack dedupes it),
+ * so this reads the badge's own number rather than a copy.
  */
 export function useMarkTaskNotificationsRead(api: ApiClient, tasks: { taskId: string }[]) {
   const qc = useQueryClient();
-  const markedRef = useRef<Set<string>>(new Set());
-
-  // Same query AppShell already runs for the bell — TanStack dedupes the
-  // underlying request (see useAvailability's identical reasoning in
-  // TasksList.tsx), so this is a subscription to the existing cache entry,
-  // not an extra fetch. A plain qc.getQueryData() snapshot (the previous
-  // approach) never re-ran this effect when a NEW notification arrived for a
-  // task already in `tasks`: nothing here re-rendered on a cache update it
-  // wasn't subscribed to, so the bell stayed lit until the view was closed
-  // and reopened.
-  const { data } = useInfiniteQuery({
-    queryKey: qk.notifications,
-    queryFn: ({ pageParam }) => api.notificationPage(pageParam as string | undefined, 10, false),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
-    enabled: false,
+  const { data } = useQuery({
+    queryKey: qk.notificationsUnreadCount,
+    queryFn: () => api.notificationsUnreadCount(),
   });
-  const notifications = flattenNotificationPages(data);
-  const taskIds = new Set(tasks.map((t) => t.taskId));
-  const unreadForTasks = notifications.filter((n) => n.taskId && taskIds.has(n.taskId) && !n.read);
-  // Changes whenever the SET of relevant unread ids does — not just when
-  // `tasks` does — so a new notification landing on an already-visible task
-  // re-triggers this, not only a change to which tasks are visible.
-  const unreadSignature = unreadForTasks
-    .map((n) => n.id)
-    .sort()
-    .join(",");
+  const unreadCount = data?.unreadCount ?? 0;
+  const taskIds = [...new Set(tasks.map((t) => t.taskId))].sort();
+  const signature = taskIds.join(",");
+  const last = useRef({ signature: "", unreadCount: 0 });
 
   useEffect(() => {
-    const unread = unreadForTasks.filter((n) => !markedRef.current.has(n.id));
-    if (unread.length === 0) return;
-
-    unread.forEach((n) => markedRef.current.add(n.id));
-    const unreadIds = new Set(unread.map((n) => n.id));
-    const flipped = markNotificationPagesRead(qc, (n) => unreadIds.has(n.id));
-    // The badge is a separate server-side count (see unreadNotificationCount.ts):
-    // patching the list above does not move it. Counted off what actually flipped
-    // in the cache, not `unread`: TasksList runs this hook twice and a
-    // self-assigned task is in both lists, so the second run finds it already read.
-    decrementUnreadCount(qc, flipped);
-    // Each call swallows its own failure, so this settles once ALL have finished —
-    // and only then does the server's count overrule the optimistic one.
-    void Promise.all(
-      unread.map((n) =>
-        api.markNotificationRead(n.id).catch(() => {
-          markedRef.current.delete(n.id); // allow a retry on the next mount
-        }),
-      ),
-    ).then(() => refreshUnreadCount(qc));
+    const before = last.current;
+    last.current = { signature, unreadCount };
+    if (!signature || unreadCount === 0) return;
+    if (signature === before.signature && unreadCount <= before.unreadCount) return;
+    void markTaskNotificationsRead(api, qc, taskIds);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [unreadSignature]);
+  }, [signature, unreadCount]);
 }

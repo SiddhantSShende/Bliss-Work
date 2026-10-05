@@ -250,8 +250,8 @@ export function StickyWidget({
           so it showed a scrollbar that never actually scrolled. */}
       {task.description && (
         <p
-          className={`app-no-drag min-h-0 max-h-20 overflow-y-auto overscroll-contain whitespace-pre-wrap text-sm leading-relaxed text-fg/80 ${
-            compact ? "max-h-16" : "max-h-20"
+          className={`app-no-drag min-h-0 overflow-y-auto overscroll-contain whitespace-pre-wrap text-sm leading-relaxed text-fg/80 ${
+            compact ? "max-h-36" : "max-h-20"
           } [scrollbar-color:var(--color-border)_transparent] [scrollbar-width:thin]`}
         >
           {task.description}

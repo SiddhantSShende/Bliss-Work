@@ -1,0 +1,229 @@
+{
+  "_about": "Real responses captured from notification-svc against a Postgres holding prod-shaped rows (2 unread task notifications, 3 read incl. a 70-day-old one). `current` = this repo; `deployed_4b12e80` = the image running in production on 2026-10-05, which predates paging and the read filter.",
+  "current": {
+    "unread": {
+      "items": [
+        {
+          "id": "b6abd82b-b05f-4ddb-a6f2-b74e0f9237e7",
+          "kind": "TASK_ASSIGNED",
+          "text": "Priya assigned you \"Q3 report\"",
+          "taskId": "018f0000-0000-7000-8000-0000000000a1",
+          "channelId": null,
+          "conversationId": null,
+          "messageId": null,
+          "callId": null,
+          "read": false,
+          "createdAt": "2026-10-05T05:48:26.526Z"
+        },
+        {
+          "id": "f5743119-7526-45bf-98ca-feca2fc2efb3",
+          "kind": "TASK_COMPLETED",
+          "text": "Sam completed \"Deploy\"",
+          "taskId": "018f0000-0000-7000-8000-0000000000a1",
+          "channelId": null,
+          "conversationId": null,
+          "messageId": null,
+          "callId": null,
+          "read": false,
+          "createdAt": "2026-10-05T03:48:26.526Z"
+        }
+      ],
+      "nextCursor": null
+    },
+    "read": {
+      "items": [
+        {
+          "id": "adf22f5e-5551-4a6c-ab9a-d5579600ebca",
+          "kind": "TASK_ACKNOWLEDGED",
+          "text": "Lee acknowledged \"Audit\"",
+          "taskId": "018f0000-0000-7000-8000-0000000000a1",
+          "channelId": null,
+          "conversationId": null,
+          "messageId": null,
+          "callId": null,
+          "read": true,
+          "createdAt": "2026-10-03T06:48:26.526Z"
+        },
+        {
+          "id": "d62d325c-84ed-4a4e-9478-db779f53a977",
+          "kind": "TASK_IGNORED",
+          "text": "Ann ignored \"Old\"",
+          "taskId": "018f0000-0000-7000-8000-0000000000a1",
+          "channelId": null,
+          "conversationId": null,
+          "messageId": null,
+          "callId": null,
+          "read": true,
+          "createdAt": "2026-08-06T06:48:26.526Z"
+        },
+        {
+          "id": "cffc5750-32f0-499f-9c67-0ec248c4ac9f",
+          "kind": "CHANNEL_ADDED",
+          "text": "Jordan added you to the channel ops",
+          "taskId": null,
+          "channelId": null,
+          "conversationId": null,
+          "messageId": null,
+          "callId": null,
+          "read": true,
+          "createdAt": "2026-07-27T06:48:26.526Z"
+        }
+      ],
+      "nextCursor": null
+    },
+    "all": {
+      "items": [
+        {
+          "id": "b6abd82b-b05f-4ddb-a6f2-b74e0f9237e7",
+          "kind": "TASK_ASSIGNED",
+          "text": "Priya assigned you \"Q3 report\"",
+          "taskId": "018f0000-0000-7000-8000-0000000000a1",
+          "channelId": null,
+          "conversationId": null,
+          "messageId": null,
+          "callId": null,
+          "read": false,
+          "createdAt": "2026-10-05T05:48:26.526Z"
+        },
+        {
+          "id": "f5743119-7526-45bf-98ca-feca2fc2efb3",
+          "kind": "TASK_COMPLETED",
+          "text": "Sam completed \"Deploy\"",
+          "taskId": "018f0000-0000-7000-8000-0000000000a1",
+          "channelId": null,
+          "conversationId": null,
+          "messageId": null,
+          "callId": null,
+          "read": false,
+          "createdAt": "2026-10-05T03:48:26.526Z"
+        },
+        {
+          "id": "adf22f5e-5551-4a6c-ab9a-d5579600ebca",
+          "kind": "TASK_ACKNOWLEDGED",
+          "text": "Lee acknowledged \"Audit\"",
+          "taskId": "018f0000-0000-7000-8000-0000000000a1",
+          "channelId": null,
+          "conversationId": null,
+          "messageId": null,
+          "callId": null,
+          "read": true,
+          "createdAt": "2026-10-03T06:48:26.526Z"
+        },
+        {
+          "id": "d62d325c-84ed-4a4e-9478-db779f53a977",
+          "kind": "TASK_IGNORED",
+          "text": "Ann ignored \"Old\"",
+          "taskId": "018f0000-0000-7000-8000-0000000000a1",
+          "channelId": null,
+          "conversationId": null,
+          "messageId": null,
+          "callId": null,
+          "read": true,
+          "createdAt": "2026-08-06T06:48:26.526Z"
+        },
+        {
+          "id": "cffc5750-32f0-499f-9c67-0ec248c4ac9f",
+          "kind": "CHANNEL_ADDED",
+          "text": "Jordan added you to the channel ops",
+          "taskId": null,
+          "channelId": null,
+          "conversationId": null,
+          "messageId": null,
+          "callId": null,
+          "read": true,
+          "createdAt": "2026-07-27T06:48:26.526Z"
+        }
+      ],
+      "nextCursor": null
+    },
+    "unreadCount": {
+      "unreadCount": 2
+    }
+  },
+  "deployed_4b12e80": {
+    "unread": [
+      {
+        "id": "b6abd82b-b05f-4ddb-a6f2-b74e0f9237e7",
+        "kind": "TASK_ASSIGNED",
+        "text": "Priya assigned you \"Q3 report\"",
+        "taskId": "018f0000-0000-7000-8000-0000000000a1",
+        "read": false,
+        "createdAt": "2026-10-05T05:48:26.526Z"
+      },
+      {
+        "id": "f5743119-7526-45bf-98ca-feca2fc2efb3",
+        "kind": "TASK_COMPLETED",
+        "text": "Sam completed \"Deploy\"",
+        "taskId": "018f0000-0000-7000-8000-0000000000a1",
+        "read": false,
+        "createdAt": "2026-10-05T03:48:26.526Z"
+      },
+      {
+        "id": "adf22f5e-5551-4a6c-ab9a-d5579600ebca",
+        "kind": "TASK_ACKNOWLEDGED",
+        "text": "Lee acknowledged \"Audit\"",
+        "taskId": "018f0000-0000-7000-8000-0000000000a1",
+        "read": true,
+        "createdAt": "2026-10-03T06:48:26.526Z"
+      },
+      {
+        "id": "d62d325c-84ed-4a4e-9478-db779f53a977",
+        "kind": "TASK_IGNORED",
+        "text": "Ann ignored \"Old\"",
+        "taskId": "018f0000-0000-7000-8000-0000000000a1",
+        "read": true,
+        "createdAt": "2026-08-06T06:48:26.526Z"
+      },
+      {
+        "id": "cffc5750-32f0-499f-9c67-0ec248c4ac9f",
+        "kind": "CHANNEL_ADDED",
+        "text": "Jordan added you to the channel ops",
+        "taskId": null,
+        "read": true,
+        "createdAt": "2026-07-27T06:48:26.526Z"
+      }
+    ],
+    "read": [
+      {
+        "id": "b6abd82b-b05f-4ddb-a6f2-b74e0f9237e7",
+        "kind": "TASK_ASSIGNED",
+        "text": "Priya assigned you \"Q3 report\"",
+        "taskId": "018f0000-0000-7000-8000-0000000000a1",
+        "read": false,
+        "createdAt": "2026-10-05T05:48:26.526Z"
+      },
+      {
+        "id": "f5743119-7526-45bf-98ca-feca2fc2efb3",
+        "kind": "TASK_COMPLETED",
+        "text": "Sam completed \"Deploy\"",
+        "taskId": "018f0000-0000-7000-8000-0000000000a1",
+        "read": false,
+        "createdAt": "2026-10-05T03:48:26.526Z"
+      },
+      {
+        "id": "adf22f5e-5551-4a6c-ab9a-d5579600ebca",
+        "kind": "TASK_ACKNOWLEDGED",
+        "text": "Lee acknowledged \"Audit\"",
+        "taskId": "018f0000-0000-7000-8000-0000000000a1",
+        "read": true,
+        "createdAt": "2026-10-03T06:48:26.526Z"
+      },
+      {
+        "id": "d62d325c-84ed-4a4e-9478-db779f53a977",
+        "kind": "TASK_IGNORED",
+        "text": "Ann ignored \"Old\"",
+        "taskId": "018f0000-0000-7000-8000-0000000000a1",
+        "read": true,
+        "createdAt": "2026-08-06T06:48:26.526Z"
+      },
+      {
+        "id": "cffc5750-32f0-499f-9c67-0ec248c4ac9f",
+        "kind": "CHANNEL_ADDED",
+        "text": "Jordan added you to the channel ops",
+        "taskId": null,
+        "read": true,
+        "createdAt": "2026-07-27T06:48:26.526Z"
+      }
+    ]
+  }
+}

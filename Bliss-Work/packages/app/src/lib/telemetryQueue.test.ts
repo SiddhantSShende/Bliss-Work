@@ -166,3 +166,56 @@ describe("TelemetryQueue backoff", () => {
     expect(send).toHaveBeenCalledTimes(3);
   });
 });
+
+describe("TelemetryQueue keepalive (hosts that account for time elsewhere)", () => {
+  const bareQueue = (opts: { isReady?: () => Promise<boolean> } = {}) => {
+    const send = vi.fn(async (_p: FlushPayload) => ack);
+    return { queue: new TelemetryQueue(send, "desktop", opts.isReady), send };
+  };
+
+  it("an empty queue sends nothing without keepalive", async () => {
+    const { queue, send } = bareQueue();
+    expect(await queue.flush()).toBe(false);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("an empty queue sends one empty beacon with keepalive, so the session stays alive", async () => {
+    const { queue, send } = bareQueue();
+    expect(await queue.flush({ keepalive: true })).toBe(true);
+    expect(send).toHaveBeenCalledTimes(1);
+    const sent = send.mock.calls[0]![0];
+    expect(sent).toMatchObject({ activeMs: 0, idleMs: 0, events: [], ended: false });
+    expect(sent.clientEventId).toBeTruthy();
+  });
+
+  it("still honours the readiness gate", async () => {
+    const { queue, send } = bareQueue({ isReady: async () => false });
+    expect(await queue.flush({ keepalive: true })).toBe(false);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("still honours backoff after a failure", async () => {
+    const send = vi.fn(async (_p: FlushPayload): Promise<{ sessionId: string }> => {
+      throw new Error("down");
+    });
+    const queue = new TelemetryQueue(send, "desktop");
+    expect(await queue.flush({ keepalive: true })).toBe(false); // fails, backs off
+    expect(await queue.flush({ keepalive: true })).toBe(false); // inside the backoff window
+    expect(send).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(BACKOFF_BASE_MS);
+    await queue.flush({ keepalive: true });
+    expect(send).toHaveBeenCalledTimes(2);
+    // The retry resends the SAME frozen attempt rather than minting a new batch.
+    expect(send.mock.calls[1]![0].clientEventId).toBe(send.mock.calls[0]![0].clientEventId);
+  });
+
+  it("carries real events and time unchanged when there are some", async () => {
+    const { queue, send } = bareQueue();
+    queue.push({ action: "route.enter", category: "navigation", occurredAt: new Date().toISOString() });
+    queue.addTime(1000, 500);
+    await queue.flush({ keepalive: true });
+    expect(send.mock.calls[0]![0]).toMatchObject({ activeMs: 1000, idleMs: 500 });
+    expect(send.mock.calls[0]![0].events).toHaveLength(1);
+  });
+});

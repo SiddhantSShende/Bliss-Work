@@ -41,3 +41,21 @@ describe("notificationPage", () => {
     expect(params().has("read")).toBe(false);
   });
 });
+
+describe("markTaskNotificationsRead", () => {
+  it("POSTs the task ids to read-by-tasks and resolves to how many changed", async () => {
+    const fetchMock = vi.fn(
+      async (_url: string, _init?: RequestInit) =>
+        new Response(JSON.stringify({ updated: 2 }), { status: 200, headers: { "content-type": "application/json" } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await client().markTaskNotificationsRead(["t1", "t2"]);
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toBe("http://notif.test/api/v1/notifications/read-by-tasks");
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(String(init?.body))).toEqual({ taskIds: ["t1", "t2"] });
+    expect(res).toEqual({ updated: 2 });
+  });
+});

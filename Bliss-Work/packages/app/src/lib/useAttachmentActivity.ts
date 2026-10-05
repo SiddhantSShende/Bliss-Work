@@ -1,8 +1,9 @@
 import { useCallback, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import type { AttachmentScope, ChannelMessageDTO, MessageDTO } from "@taskboard/shared";
+import type { AttachmentScope, ChannelMessageDTO } from "@taskboard/shared";
 import { useRuntime } from "./runtime";
 import { useSession } from "../store/session";
+import { getSessionId } from "./telemetrySession";
 import { qk } from "./queryKeys";
 
 /** The two file-activity kinds this hook can post. A subset of MessageKind —
@@ -10,38 +11,51 @@ import { qk } from "./queryKeys";
  *  system kind through here. */
 export type AttachmentActivityKind = "attachment_opened" | "attachment_downloaded";
 
+/** True for the two stored message kinds this hook produces. */
+export function isAttachmentActivityKind(kind: string | undefined): boolean {
+  return kind === "attachment_opened" || kind === "attachment_downloaded";
+}
+
 /**
- * Posts "{name} opened/downloaded {file}" into the same DM or channel a file
- * attachment was just opened or downloaded from — see ChatThread/ThreadView's
- * rendering of these two kinds for the resulting pill, and messaging-svc's
- * store.attachmentActionBody for the server-authored text this mirrors for
- * the SENDER's own optimistic copy (the realtime bridge skips echoing the
- * sender's own messages — see queryBridge's handleMessageEvent — on the
- * assumption a mutation already rendered it; there is no mutation here, so
- * this patches the cache itself, exactly as ScreenshotNotice does for its own
- * self-reported system message).
- *
- * Fire-and-forget: failing to post the activity notice never blocks or undoes
- * the open/download that triggered it — that action already succeeded.
- *
- * Only chat (scope "conversation") and channel (scope "channel") attachments
- * get an in-conversation activity notice, so scopes outside these two are a
- * no-op. Mail attachments (scope "mail") are deliberately NOT handled here: a
- * mail has no conversation to post a notice into, and a mail download is
- * recorded in the admin activity timeline instead — see
- * useMailAttachmentDownload.
- *
- * DMs post through `api.reply`, the SAME endpoint an ordinary chat reply
- * uses, rather than `api.sendMessage` — whose top-level-send path mints a
- * brand-new thread on every single call. A file can be opened or downloaded
- * far more often than a rare event like a screenshot attempt, and minting a
- * thread per occurrence would hijack the conversation's next ordinary reply,
- * nesting it under a throwaway activity notice instead. See messaging-svc's
- * store.ReplyAttachmentActivity doc comment for the full reasoning. Channels
- * have no such thread concept, so `api.sendChannelMessage` is used directly.
+ * Whether file activity is VISIBLE in this chat's timeline — the one rule for
+ * both posting it (below) and drawing it (ChannelView/DMView). Only a LOCKED
+ * (private) channel shows it. Open channels and 1:1/group chats never do; the
+ * activity there lives only in the member activity timeline. Fails closed: an
+ * unknown lock state (`undefined`) shows nothing.
  */
-export function useAttachmentActivity(scope: AttachmentScope, scopeId: string, meId: string) {
-  const { api } = useRuntime();
+export function showsAttachmentActivity(scope: AttachmentScope, channelLocked?: boolean): boolean {
+  return scope === "channel" && channelLocked === true;
+}
+
+/**
+ * Records "{name} opened/downloaded {file}" for a file attachment that was just
+ * opened or downloaded in a chat or channel. TWO independent effects, mirroring
+ * ScreenshotNotice's beacon + in-chat notice:
+ *
+ *   1. ALWAYS — a telemetry beacon (`attachment.opened` / `attachment.downloaded`)
+ *      so the member's activity timeline has the event whatever the chat type.
+ *   2. ONLY when `showsAttachmentActivity` — a system message posted into the
+ *      channel, rendered by ChatThread as the same compact pill a screenshot
+ *      notice uses (see messaging-svc's store.attachmentActionBody for the
+ *      server-authored text this mirrors for the SENDER's own optimistic copy;
+ *      the realtime bridge skips echoing the sender's own messages — see
+ *      queryBridge's handleMessageEvent — on the assumption a mutation already
+ *      rendered it, so this patches the cache itself, as ScreenshotNotice does).
+ *
+ * `channelLocked` is the channel's own `isLocked`, from the channel the caller is
+ * already showing. DMs and group chats (scope "conversation") never post a
+ * message, so they need nothing.
+ *
+ * Fire-and-forget: failing to record or post never blocks or undoes the
+ * open/download that triggered it — that action already succeeded.
+ *
+ * Only chat (scope "conversation") and channel (scope "channel") attachments are
+ * handled, so other scopes are a no-op. Mail attachments (scope "mail") are
+ * deliberately NOT handled here: a mail download is recorded server-side
+ * instead — see useMailAttachmentDownload.
+ */
+export function useAttachmentActivity(scope: AttachmentScope, scopeId: string, meId: string, channelLocked?: boolean) {
+  const { api, config } = useRuntime();
   const qc = useQueryClient();
   const user = useSession((s) => s.user);
 
@@ -63,6 +77,42 @@ export function useAttachmentActivity(scope: AttachmentScope, scopeId: string, m
       inFlight.current.add(key);
       const clear = () => inFlight.current.delete(key);
 
+      // Recorded for every chat type, whether or not it is also shown in the chat.
+      // Flushed on its own, as ScreenshotNotice's beacon is: a deliberate act, not
+      // ambient traffic worth batching. Telemetry failure is swallowed — it must
+      // never break, or interrupt, the thing it observes.
+      let tracked: Promise<unknown>;
+      try {
+        tracked = Promise.resolve(
+          api.sendBeacon({
+            sessionId: getSessionId(),
+            source: config.kind === "electron" ? "desktop" : "web",
+            activeMs: 0,
+            idleMs: 0,
+            ended: false,
+            events: [
+              {
+                action: kind === "attachment_opened" ? "attachment.opened" : "attachment.downloaded",
+                category: "engagement",
+                occurredAt: new Date().toISOString(),
+                clientEventId: crypto.randomUUID(),
+                surface: scope === "channel" ? "channels" : "chats",
+                targetKind: "attachment",
+                targetId: item.id,
+                detail: { filename: item.name.slice(0, 255), [scope]: scopeId },
+              },
+            ],
+          }),
+        ).catch(() => {});
+      } catch {
+        tracked = Promise.resolve();
+      }
+
+      if (!showsAttachmentActivity(scope, channelLocked)) {
+        void tracked.finally(clear);
+        return;
+      }
+
       // Computed the same way store.attachmentActionBody authors it
       // server-side, for the sender's own instant, optimistic pill — the
       // server is still the one writing the row, this is only ever what gets
@@ -72,32 +122,6 @@ export function useAttachmentActivity(scope: AttachmentScope, scopeId: string, m
       const body = `${name} ${verb} ${item.name}`;
       const createdAt = new Date().toISOString();
       const clientMsgId = crypto.randomUUID();
-
-      if (scope === "conversation") {
-        api
-          .reply(scopeId, body, clientMsgId, undefined, kind, item.id)
-          .then((res) => {
-            qc.setQueryData<MessageDTO[]>(qk.messages(scopeId), (prev) => {
-              const next = prev ? [...prev] : [];
-              if (next.some((m) => m.id === res.messageId)) return next;
-              next.push({
-                id: res.messageId,
-                conversationId: scopeId,
-                threadId: res.threadId,
-                seq: res.seq,
-                senderId: meId,
-                body,
-                kind,
-                createdAt,
-              });
-              return next.sort((a, b) => a.seq - b.seq);
-            });
-            qc.invalidateQueries({ queryKey: qk.conversations });
-          })
-          .catch((err) => console.error("[attachment-activity] failed to post", err))
-          .finally(clear);
-        return;
-      }
 
       api
         .sendChannelMessage(scopeId, body, clientMsgId, kind, undefined, item.id)
@@ -123,6 +147,6 @@ export function useAttachmentActivity(scope: AttachmentScope, scopeId: string, m
         .catch((err) => console.error("[attachment-activity] failed to post", err))
         .finally(clear);
     },
-    [api, meId, qc, scope, scopeId, user],
+    [api, channelLocked, config.kind, meId, qc, scope, scopeId, user],
   );
 }

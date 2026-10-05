@@ -103,6 +103,23 @@ export interface PlatformConfig {
    */
   kind: "web" | "electron" | "mobile";
   /**
+   * The host measures idle and active time itself, from the OS, and reports it
+   * through the telemetry queue — so TelemetryBridge must NOT accrue its own.
+   * Its in-window view can only see input landing in its own window, which reads
+   * someone working in another application as idle; counting both would credit
+   * the same minutes twice. Absent everywhere the host has no such tracker
+   * (web, mobile, desktop platforms without one), where the bridge's own
+   * accounting is all there is and keeps running.
+   */
+  osActivityTracking?: boolean;
+  /**
+   * Collect the finished activity spans the host's tracker has produced since
+   * the last call (see lib/activitySpans.ts for the shape and what is done with
+   * them). Present exactly when `osActivityTracking` is. Resolves to `unknown`
+   * because it crosses an IPC boundary and the caller validates it.
+   */
+  drainActivitySpans?: () => Promise<unknown>;
+  /**
    * The public web app origin — what a meeting-join link (or anything else
    * meant to leave the app and be opened by anybody, with or without
    * BlissWork installed) must be built from.

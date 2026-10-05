@@ -142,8 +142,15 @@ export class TelemetryQueue {
    * ordering is preserved and the failed attempt's identity (clientEventId)
    * is never disturbed by newer activity. Once there is nothing left to
    * retry, a fresh batch is built and given its own clientEventId.
+   *
+   * `keepalive` sends even an EMPTY batch. Ordinarily the accrued active/idle
+   * time is what makes a quiet heartbeat worth sending; a client whose host
+   * accounts for time elsewhere (see PlatformConfig.osActivityTracking) accrues
+   * none here, and without this it would fall silent and the server's sweeper
+   * would close its session as gone. Every other gate (readiness, backoff,
+   * single-flight) still applies.
    */
-  async flush(opts: { ended?: boolean } = {}): Promise<boolean> {
+  async flush(opts: { ended?: boolean; keepalive?: boolean } = {}): Promise<boolean> {
     if (this.inFlight) return false;
 
     // The goodbye (pagehide / sign-out) skips both gates: there is no later
@@ -151,7 +158,7 @@ export class TelemetryQueue {
     if (!opts.ended) {
       // Nothing to say, or still backing off: don't even ask the gate, which
       // may itself go to the network to refresh a token.
-      if (!this.hasSomethingToSend || Date.now() < this.retryNotBefore) return false;
+      if ((!this.hasSomethingToSend && !opts.keepalive) || Date.now() < this.retryNotBefore) return false;
       // Hold the single-flight slot across the await so a second timer firing
       // meanwhile cannot slip past the check above and double-send.
       this.inFlight = true;
@@ -189,7 +196,7 @@ export class TelemetryQueue {
       // heartbeat an empty payload the server would have to write a session row
       // for anyway. (A heartbeat with zero events IS worth sending; the caller
       // signals that by having accrued time.)
-      if (!batch.length && !activeMs && !idleMs && !opts.ended) return false;
+      if (!batch.length && !activeMs && !idleMs && !opts.ended && !opts.keepalive) return false;
       payload = {
         sessionId: this.sessionId,
         source: this.source,

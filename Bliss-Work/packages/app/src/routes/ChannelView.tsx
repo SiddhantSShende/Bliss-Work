@@ -37,6 +37,7 @@ import { exportChatTranscript } from "../lib/chatExport";
 import { toggleConversationPref, useConversationPrefs } from "../lib/conversationPrefs";
 import { useMeetingSession } from "../lib/MeetingSession";
 import { useActiveThread, type ActiveThread } from "../lib/activeThread";
+import { isAttachmentActivityKind, showsAttachmentActivity } from "../lib/useAttachmentActivity";
 
 export function ChannelView() {
   const { t } = useTranslation("chatThread");
@@ -93,6 +94,7 @@ export function ChannelView() {
 
   const { data: channels = [] } = useQuery({ queryKey: qk.channels, queryFn: () => api.channels() });
   const channel = channels.find((c: ChannelDTO) => c.id === channelId);
+  const showAttachmentActivity = showsAttachmentActivity("channel", channel?.isLocked);
 
   // Tell ScreenshotNotice this channel is the one on screen — same purpose as
   // DMView's registration; see lib/activeThread for why it can't read the URL
@@ -437,7 +439,11 @@ export function ChannelView() {
    */
   const thread = useMemo(
     () =>
-      messages.map((m) => ({
+      messages
+        // File open/download notices belong to LOCKED channels only; older ones
+        // already stored in an open channel are not drawn either.
+        .filter((m) => showAttachmentActivity || !isAttachmentActivityKind(m.kind))
+        .map((m) => ({
         // senderUsername is the email local-part; the display name is what a
         // reader should see above a channel bubble.
         id: m.id, senderId: m.senderId, senderName: m.senderDisplayName || m.senderUsername,
@@ -450,7 +456,7 @@ export function ChannelView() {
         reactions: reactionsByMessage.get(m.id),
         channelReceipts: receiptsByMessage.get(m.id),
       })),
-    [messages, reactionsByMessage, receiptsByMessage],
+    [messages, showAttachmentActivity, reactionsByMessage, receiptsByMessage],
   );
 
   // The same messages with the reader's own name normalised, for the surfaces
@@ -478,6 +484,7 @@ export function ChannelView() {
     scope: "channel",
     scopeId: channelId,
     meId: me.id,
+    channelLocked: channel?.isLocked,
     send: (body) => send.mutate({ body, replyToId: takeReply() }),
   });
 
@@ -676,6 +683,7 @@ export function ChannelView() {
           scope="channel"
           scopeId={channelId}
           meId={me.id}
+          channelLocked={channel.isLocked}
         />
       )}
       <ChatThread

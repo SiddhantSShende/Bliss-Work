@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/lestrrat-go/jwx/v2/jwa"
 	"github.com/lestrrat-go/jwx/v2/jwk"
 	"github.com/lestrrat-go/jwx/v2/jwt"
@@ -25,10 +26,16 @@ import (
 
 const testIssuer = "test-issuer"
 
-// listHarness serves the REAL router — real JWT verification against a JWKS
-// endpoint, real handler, real Postgres — so the read filter is covered end to
-// end, not just as SQL.
-func listHarness(t *testing.T) (call func(token, query string) (int, notificationPageDTO), tokenFor func(userID string) string, seed func(userID string, text string, read bool, at time.Time)) {
+// testEnv is the REAL router — real JWT verification against a JWKS endpoint,
+// real handlers, real Postgres — so behaviour is covered end to end, not just as SQL.
+type testEnv struct {
+	pool  *pgxpool.Pool
+	url   string
+	orgID string
+	sign  func(userID string) string
+}
+
+func newTestEnv(t *testing.T) *testEnv {
 	t.Helper()
 	dsn := os.Getenv("NOTIFICATION_TEST_DATABASE_URL")
 	if dsn == "" {
@@ -64,14 +71,14 @@ func listHarness(t *testing.T) (call func(token, query string) (int, notificatio
 	signKey, _ := jwk.FromRaw(priv)
 	_ = signKey.Set(jwk.KeyIDKey, "k1")
 
-	orgID := uuid.NewString()
+	env := &testEnv{pool: pool, orgID: uuid.NewString()}
 	server := New(pool, verifier, "", slog.New(slog.NewTextHandler(io.Discard, nil)))
 	api := httptest.NewServer(server.Router())
 	t.Cleanup(api.Close)
-
-	tokenFor = func(userID string) string {
+	env.url = api.URL
+	env.sign = func(userID string) string {
 		tok, err := jwt.NewBuilder().Issuer(testIssuer).Subject(userID).
-			Expiration(time.Now().Add(time.Hour)).Claim("org_id", orgID).Build()
+			Expiration(time.Now().Add(time.Hour)).Claim("org_id", env.orgID).Build()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -81,8 +88,14 @@ func listHarness(t *testing.T) (call func(token, query string) (int, notificatio
 		}
 		return string(signed)
 	}
+	return env
+}
+
+func listHarness(t *testing.T) (call func(token, query string) (int, notificationPageDTO), tokenFor func(userID string) string, seed func(userID string, text string, read bool, at time.Time)) {
+	t.Helper()
+	env := newTestEnv(t)
 	call = func(token, query string) (int, notificationPageDTO) {
-		req, _ := http.NewRequest(http.MethodGet, api.URL+"/api/v1/notifications"+query, nil)
+		req, _ := http.NewRequest(http.MethodGet, env.url+"/api/v1/notifications"+query, nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -102,14 +115,14 @@ func listHarness(t *testing.T) (call func(token, query string) (int, notificatio
 		if read {
 			readAt = at
 		}
-		if _, err := pool.Exec(ctx,
+		if _, err := env.pool.Exec(context.Background(),
 			`INSERT INTO notifications (id, org_id, recipient_id, kind, text, read_at, created_at)
 			 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-			uuid.New(), orgID, userID, events.KindChannelAdded, text, readAt, at); err != nil {
+			uuid.New(), env.orgID, userID, events.KindChannelAdded, text, readAt, at); err != nil {
 			t.Fatalf("seed notification: %v", err)
 		}
 	}
-	return call, tokenFor, seed
+	return call, env.sign, seed
 }
 
 // walk follows nextCursor to the end with the given page size, returning every

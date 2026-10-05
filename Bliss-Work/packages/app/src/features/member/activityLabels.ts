@@ -26,6 +26,8 @@ const ACTIONS: Record<string, string> = {
   "org.switched": "Switched workspace",
   "message.sent": "Sent a message",
   "mail.attachment.downloaded": "Downloaded a mail attachment",
+  "attachment.opened": "Opened a file",
+  "attachment.downloaded": "Downloaded a file",
   "channel.message.sent": "Posted in a channel",
   "conversation.ignored": "Ignored a conversation",
   "user.blocked": "Blocked someone",
@@ -41,6 +43,11 @@ const ACTIONS: Record<string, string> = {
   focus: CAME_BACK,
   blur: "Switched away from BlissWork",
   "idle.start": "Went idle",
+  // The desktop's own readings (main-process tracker), as opposed to the web
+  // client's in-window idle above: an application in front, and a stretch with
+  // no keyboard or mouse input at the OS level. Both carry a duration.
+  "app.focus": "Used",
+  "os.idle": "Away from keyboard",
   "idle.end": "Became active",
   "screenshot.attempted": "Screenshot attempt blocked",
 };
@@ -68,6 +75,7 @@ export function actionLabel(entry: TimelineEntry, t?: TFunction): string {
     : fallback;
   // Navigation and usage rows read as "Opened Tasks" — the verb alone would be
   // meaningless for them.
+  if (entry.action === "app.focus") return entry.targetId ? `${verb} ${entry.targetId}` : verb;
   if (entry.action === "route.enter" || entry.action === "route.dwell") {
     const surface = surfaceLabel(entry.surface, t) ?? (t ? t("members:activityLabels.theApp") : "the app");
     return `${verb} ${surface}`;
